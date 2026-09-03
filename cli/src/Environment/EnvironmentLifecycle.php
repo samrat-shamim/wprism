@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 namespace WPrism\Orchestrator;
 
-// Two requires, and each earns its place. materializeLocked() renders the
-// refresh code-resolve phases through CodeResolveCommand, and this file is
+// Three requires, and each earns its place. materializeLocked() renders the
+// refresh code-resolve phases through CodeResolveCommand and gates both
+// participants through RecoveryFence before provider mutation. This file is
 // loaded directly — without cli/wprism's load order — by
 // sandbox/tests/offline/environment/regress_rehearse_provider.php. Relying on
 // the shell to have loaded the class first made that suite fatal with
@@ -14,6 +15,7 @@ namespace WPrism\Orchestrator;
 // dependency cli/wprism plain-`require`s — EnvironmentDriver.php — is already
 // loaded at cli/wprism:17, before this file at :18.
 require_once __DIR__ . '/../Command/CodeResolveCommand.php';
+require_once __DIR__ . '/../Transport/RecoveryFence.php';
 // EnvironmentProviderProtocol is the extracted, published form of the action
 // vocabulary and the closed result key sets enforced below in assertAction()
 // and validateActionResult(). It is pure data with no back-reference into
@@ -1089,6 +1091,8 @@ final class EnvironmentMaterializer {
         $latest = $journal->latestForTarget($targetDriver->name());
         $operationId = self::operationId();
         $events = [];
+        $run = null;
+        $completed = null;
         if ($latest !== null && !self::hasEvent($latest['events'], 'reaped')) {
             if (!hash_equals((string) ($latest['run']['intent_sha256'] ?? ''), $intentSha)) {
                 throw new \RuntimeException(
@@ -1098,9 +1102,6 @@ final class EnvironmentMaterializer {
             $operationId = $latest['operation_id'];
             $events = $latest['events'];
             $completed = self::lastEvent($events, 'complete');
-            if ($completed !== null) {
-                return $completed['data'] + ['operation_id' => $operationId, 'resumed' => true];
-            }
         } else {
             $run = [
                 'branch_commit' => $requestedCommit,
@@ -1117,6 +1118,29 @@ final class EnvironmentMaterializer {
             if ($options['containment_required']) {
                 $run['containment_required'] = true;
             }
+        }
+
+        // Driver reports are target-free, and both participant fences precede
+        // a new journal or provider call. Thus source recovery debt and debt
+        // on an attached/already-acquired target leave no materialization
+        // event that could later be mistaken for resumable work.
+        self::requireDriver($sourceDriver, 'refresh');
+        self::requireDriver($targetDriver, 'promote');
+        if ($targetBootstrap !== null) {
+            // Bootstrap is an explicit transport capability, separate from
+            // attaching/provisioning the provider-owned resource. Refuse
+            // before the source freeze when this target cannot receive the
+            // exact controller distribution.
+            self::requireDriver($targetDriver, 'adopt');
+        }
+        self::requireRecoveryClear($sourceDriver, 'source');
+        if ($mode === 'attach' || self::hasEvent($events, 'target-acquired')) {
+            self::requireRecoveryClear($targetDriver, 'target');
+        }
+        if ($completed !== null) {
+            return $completed['data'] + ['operation_id' => $operationId, 'resumed' => true];
+        }
+        if ($run !== null) {
             $journal->start($operationId, $run);
             $events = $journal->events($operationId);
         }
@@ -1156,15 +1180,6 @@ final class EnvironmentMaterializer {
                 $targetRequired[] = EnvironmentProviderCapability::ENVIRONMENT_CONTAINMENT_VERIFY;
             }
             $targetCapabilities->require($targetRequired, "materialize a $mode branch environment");
-            self::requireDriver($sourceDriver, 'refresh');
-            self::requireDriver($targetDriver, 'promote');
-            if ($targetBootstrap !== null) {
-                // Bootstrap is an explicit transport capability, separate
-                // from attaching/provisioning the provider-owned resource.
-                // Refuse before the source freeze when this target cannot
-                // receive the exact controller distribution.
-                self::requireDriver($targetDriver, 'adopt');
-            }
             $preflight = [
                 'source_driver' => self::driverPin($sourceDriver),
                 'source_provider' => $sourceCapabilities->pin(),
@@ -1317,6 +1332,14 @@ final class EnvironmentMaterializer {
                 self::recordPhase($journal, $operationId, 'target-acquired', self::publicEvidence($targetIdentity) + ['mode' => $mode]);
             }
             self::assertProviderPin($targetIdentity, $targetCapabilities->pin(), 'target');
+            // Create mode has no target filesystem to inspect before the
+            // provider establishes the resource. Persist its exact acquired
+            // identity first so a refusal remains reapable, then cross the
+            // recovery fence before mutation-acquire, restore, or repository
+            // materialization. Attach and resumed-create paths were also
+            // checked before any journal/provider work above; this second
+            // read closes the interval occupied by source snapshot creation.
+            self::requireRecoveryClear($targetDriver, 'target');
             $owner = self::mutationOwner($operationId, 'materialize');
             $fenceInput = self::identityInput($targetIdentity) + ['mutation_owner' => $owner];
             self::recordIntent($journal, $operationId, 'target-fence-acquire', $fenceInput);
@@ -2055,6 +2078,22 @@ final class EnvironmentMaterializer {
                 "driver '{$driver->driverId()}' cannot $operation; missing " . implode(', ', $missing)
             );
         }
+    }
+
+    private static function requireRecoveryClear(EnvironmentDriver $driver, string $role): void {
+        $fence = RecoveryFence::external($driver, $driver->repoPath());
+        $state = (string) ($fence['state'] ?? 'unsafe');
+        if ($state === 'clear') {
+            return;
+        }
+        $message = match ($state) {
+            'checkpoint_recovery' => 'has incomplete checkpoint recovery debt',
+            'provider_settlement' => 'has incomplete provider settlement debt',
+            default => 'recovery fence could not be read safely',
+        };
+        throw new \RuntimeException(
+            "$role environment $message; recover or repair that environment before materializing"
+        );
     }
 
     /** @param array<string,mixed> $expected @param array<string,mixed> $actual */

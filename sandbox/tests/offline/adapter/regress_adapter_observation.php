@@ -916,9 +916,21 @@ namespace {
 
     $driverCapability = DriverCapabilityReport::forDriver('fixture', 'fixture', 'adapter-observe', [
         DriverCapability::ATTACH => true,
+        DriverCapability::BOUNDED_CONTROL => true,
+        DriverCapability::RAW_CONTROL => true,
         DriverCapability::WP_CONTROL => true,
     ]);
-    check($driverCapability->ready(), 'adapter-observe is wired to normal attach + WP-CLI driver capability requirements');
+    $driverRequirements = array_column($driverCapability->toArray()['requirements'], 'capability');
+    check(
+        $driverCapability->ready()
+            && $driverRequirements === [
+                DriverCapability::BOUNDED_CONTROL,
+                DriverCapability::RAW_CONTROL,
+                DriverCapability::WP_CONTROL,
+                DriverCapability::ATTACH,
+            ],
+        'adapter-observe requires attach + WP-CLI plus framed raw recovery control'
+    );
 
     echo "\n== create-only local evidence ==\n";
     $outDir = sys_get_temp_dir() . '/wprism-observation-out-' . bin2hex(random_bytes(6));

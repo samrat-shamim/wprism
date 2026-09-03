@@ -37,6 +37,35 @@ interface BoundedControlDriver extends EnvironmentDriver {
         int $maxStderrBytes
     ): array;
 
+    /**
+     * Run one trusted PHP tuple program behind a nonce-bound target frame.
+     * Outer transport diagnostics stay separate from the returned inner
+     * stdout/stderr. Any target stdout/stderr outside the returned tuple
+     * invalidates the frame, so Docker/SSH chatter cannot be confused with
+     * bytes written by the target program.
+     *
+     * The program is the body of `static function (array $arguments): array`
+     * and must return exactly `exit`, `stdout`, and `stderr`.
+     *
+     * @param list<string> $arguments
+     * @return array{
+     *   verified:bool,
+     *   exit:int,
+     *   stdout:string,
+     *   stderr:string,
+     *   transport_exit:int,
+     *   transport_stderr:string,
+     *   failure:?string
+     * }
+     */
+    public function captureRawFramed(
+        string $phpTupleProgram,
+        array $arguments,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array;
+
     /** @return array{exit:int, stdout:string, stderr:string} */
     public function captureWpBounded(
         array $wpArgs,
@@ -193,6 +222,11 @@ final class DriverCapabilityReport {
         return (string) $this->body['operation'];
     }
 
+    /** Whether this operation must cross a database-external recovery fence. */
+    public function requiresRecoveryControl(): bool {
+        return self::operationRequiresRecoveryControl($this->operation());
+    }
+
     /** @return array<string,mixed> */
     public function toArray(): array {
         return $this->body;
@@ -210,17 +244,10 @@ final class DriverCapabilityReport {
     private static function requirements(string $operation): array {
         $requirements = match ($operation) {
             'attach' => [DriverCapability::ATTACH],
-            // issue #3500. `code-resolve` resolves on the HOST — always, on every
-            // transport — so attach is the whole of its demand. Requiring
-            // WP-CLI or raw control would refuse a resolution on a target that
-            // is merely asleep, and on local and docker the bytes never leave
-            // the host at all. issue #3514 added the ssh arm, which does contact
-            // the target to push and to verify; that stays out of this
-            // requirement set on purpose. The requirements are the driver's
-            // DECLARED capabilities, and an ssh driver declares raw and WP
-            // control unconditionally, so listing them here would refuse
-            // nothing new while moving every driver's capability report
-            // digest.
+            // The resolver itself remains host-owned. The recovery-fence
+            // augmentation below accounts separately for the target control
+            // every non-diagnostic top-level command must cross before its
+            // own workflow begins.
             'code-resolve' => [DriverCapability::ATTACH],
             'doctor' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
@@ -230,18 +257,19 @@ final class DriverCapabilityReport {
             // contract subcommand that contacts the target does so by
             // running an assessment. They demand exactly what the other
             // read-only WP-CLI passthroughs demand and nothing more —
-            // asking for raw control would refuse on drivers that can
-            // legitimately answer the question (issue #3344).
+            // their workflow-specific surface needs no raw control. The
+            // recovery-fence augmentation below remains an independent
+            // prerequisite for every non-diagnostic top-level command.
             // `verify` joins the read-only WP-CLI set (MUP §2.4): it
             // re-reads the plan and probes declared journeys over HTTP from
-            // the HOST. It writes nothing to the target, so demanding raw
-            // control or a snapshot capability for it would refuse a
-            // verification on a driver that can honestly answer it.
+            // the HOST. Its workflow therefore adds no raw, snapshot, or
+            // materialization capability; bounded raw control below belongs
+            // solely to the recovery fence every top-level verify must cross.
             'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'env-set',
             // `code-classify` (issue #3499) joins the same read-only WP-CLI set:
             // it runs `wp wprism code-inventory` and writes only into the LOCAL
-            // checkout. Demanding raw control would refuse a migration on a
-            // driver that can honestly answer the one question it asks.
+            // checkout. Its workflow-specific demand is therefore WP-CLI;
+            // the global recovery fence separately adds bounded raw control.
             'pending', 'classify', 'coverage', 'scope', 'assess', 'contract', 'verify', 'code-classify' => [
                 DriverCapability::ATTACH, DriverCapability::WP_CONTROL,
             ],
@@ -254,7 +282,8 @@ final class DriverCapabilityReport {
             'stage-source', 'authority-policy' => [DriverCapability::ATTACH, DriverCapability::RAW_CONTROL],
             // Release status reads only the caller-selected prepare document
             // and target-private operation records through captureRaw(). It
-            // must remain available when WordPress itself is unreachable.
+            // must remain available when WordPress itself is unreachable;
+            // the global recovery fence adds bounded control below.
             'release-status' => [DriverCapability::ATTACH, DriverCapability::RAW_CONTROL],
             'release-prepare' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
@@ -336,8 +365,32 @@ final class DriverCapabilityReport {
                 . 'ttl, media-snapshot, maintenance, or url)'
             ),
         };
+        // Database-external recovery debt is deliberately unreadable through
+        // WordPress and survives code rollback. Every top-level command that
+        // cli/wprism sends through that fence therefore requires bounded raw
+        // control in addition to its own workflow capabilities. `recover`
+        // skips the global fence only to read the narrower checkpoint fence
+        // while resuming, so it has the same control requirement. Doctor and
+        // status are the two explicit diagnostic exceptions.
+        if (self::operationRequiresRecoveryControl($operation)) {
+            $requirements[] = DriverCapability::RAW_CONTROL;
+            $requirements[] = DriverCapability::BOUNDED_CONTROL;
+            $requirements = array_values(array_unique($requirements));
+        }
         sort($requirements, SORT_STRING);
         return $requirements;
+    }
+
+    private static function operationRequiresRecoveryControl(string $operation): bool {
+        // These operations either diagnose the fence itself or belong to the
+        // environment-provider plane, which never addresses an adopted site
+        // repository. Every newly registered site operation is fenced unless
+        // its exception is made explicit here and exercised by the preflight
+        // regression.
+        return !in_array($operation, [
+            'attach', 'doctor', 'status',
+            'create', 'destroy', 'ttl', 'media-snapshot', 'maintenance', 'url',
+        ], true);
     }
 
     /** @param mixed $value */

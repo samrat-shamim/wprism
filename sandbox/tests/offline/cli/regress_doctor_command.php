@@ -165,6 +165,7 @@ class AdoptableDoctorDriver extends HealthyDoctorDriver implements AdoptionTrans
     public function capabilityReport(string $operation): DriverCapabilityReport {
         $supported = [
             DriverCapability::ATTACH => true,
+            DriverCapability::BOUNDED_CONTROL => true,
             DriverCapability::RAW_CONTROL => true,
             DriverCapability::WP_CONTROL => true,
         ];

@@ -51,6 +51,7 @@ require_once __DIR__ . '/../../../../cli/src/Plan/PlanContract.php';
 require_once __DIR__ . '/../../../../cli/src/Environment/EnvironmentLifecycle.php';
 
 use WPrism\Orchestrator\CommandEnvironmentProvider;
+use WPrism\Orchestrator\BoundedControlDriver;
 use WPrism\Orchestrator\DriverCapability;
 use WPrism\Orchestrator\DriverCapabilityReport;
 use WPrism\Orchestrator\EnvironmentDriver;
@@ -109,8 +110,26 @@ function em_plan(array $overrides = []): array {
     ];
 }
 
-final class MaterializerDriver implements EnvironmentDriver {
+/** @param array<string,mixed> $frozenContext @return array<string,mixed> */
+function em_promotion_receipt(array $frozenContext): array {
+    $summary = $frozenContext['compiled_summary'];
+    $body = [
+        'artifact_hash' => (string) $summary['artifact_hash'],
+        'checkpoint_identity' => hash('sha256', 'checkpoint-' . $frozenContext['operation_id']),
+        'code_revision' => isset($summary['code']['code_revision']) ? (string) $summary['code']['code_revision'] : null,
+        'format' => 'wprism-branch-environment-promotion-receipt/v1',
+        'operation_id' => $frozenContext['operation_id'],
+        'owner' => $frozenContext['promotion_owner'],
+        'state_revision' => (string) $summary['revision_hash'],
+        'status' => 'completed',
+    ];
+    $body['receipt_sha256'] = hash('sha256', EnvironmentLifecycleCanon::encode($body));
+    return $body;
+}
+
+final class MaterializerDriver implements BoundedControlDriver {
     public array $calls = [];
+    public string $recoveryState = 'clear';
     /** Raw `wp wprism plan --format=json` stdout; a complete clean envelope by default. */
     public string $planJson = '';
     public function __construct(private string $name, private string $repo, private string $productionCommit = '') {
@@ -126,6 +145,39 @@ final class MaterializerDriver implements EnvironmentDriver {
             ? ['exit' => 0, 'stdout' => $this->productionCommit . "\n", 'stderr' => '']
             : ['exit' => 0, 'stdout' => '', 'stderr' => ''];
     }
+    public function captureRawBounded(
+        string $script,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return $this->captureRaw($script);
+    }
+    public function captureRawFramed(
+        string $phpTupleProgram,
+        array $arguments,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        $this->calls[] = ['framed', $this->recoveryState];
+        $tuple = match ($this->recoveryState) {
+            'clear' => ['exit' => 0, 'stdout' => 'clear', 'stderr' => ''],
+            'checkpoint_recovery' => [
+                'exit' => 75, 'stdout' => '', 'stderr' => 'incomplete checkpoint recovery is active',
+            ],
+            'provider_settlement' => [
+                'exit' => 75, 'stdout' => '', 'stderr' => 'incomplete provider settlement is active',
+            ],
+            default => ['exit' => 255, 'stdout' => '', 'stderr' => ''],
+        };
+        return $tuple + [
+            'verified' => $this->recoveryState !== 'unsafe',
+            'transport_exit' => 0,
+            'transport_stderr' => '',
+            'failure' => $this->recoveryState === 'unsafe' ? 'invalid_frame' : null,
+        ];
+    }
     public function captureWp(array $args): array {
         $this->calls[] = ['wp', $args];
         // The materializer reads the source URL binding (home + uploads) to
@@ -136,12 +188,21 @@ final class MaterializerDriver implements EnvironmentDriver {
         }
         return ['exit' => 0, 'stdout' => $this->planJson . "\n", 'stderr' => ''];
     }
+    public function captureWpBounded(
+        array $wpArgs,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return $this->captureWp($wpArgs);
+    }
     public function streamWp(array $args): int { $this->calls[] = ['stream', $args]; return 0; }
     public function wpInstruction(array $args): string { return 'fixture'; }
     public function capabilityReport(string $operation): DriverCapabilityReport {
         return DriverCapabilityReport::forDriver($this->name, $this->driverId(), $operation, [
             DriverCapability::ATTACH => true,
             DriverCapability::BOOTSTRAP => true,
+            DriverCapability::BOUNDED_CONTROL => true,
             DriverCapability::CODE_MATERIALIZE => true,
             DriverCapability::CODE_TRANSFER => true,
             DriverCapability::DB_SNAPSHOT_CREATE => true,
@@ -268,23 +329,177 @@ PHP);
     ];
     $promote = static function (EnvironmentDriver $driver, array $frozenContext) use (&$promotions, &$promotionCalls): array {
         $promotions++;
-        $summary = $frozenContext['compiled_summary'];
-        $body = [
-            'artifact_hash' => (string) $summary['artifact_hash'],
-            'checkpoint_identity' => hash('sha256', 'checkpoint-' . $frozenContext['operation_id']),
-            'code_revision' => isset($summary['code']['code_revision']) ? (string) $summary['code']['code_revision'] : null,
-            'format' => 'wprism-branch-environment-promotion-receipt/v1',
-            'operation_id' => $frozenContext['operation_id'],
-            'owner' => $frozenContext['promotion_owner'],
-            'state_revision' => (string) $summary['revision_hash'],
-            'status' => 'completed',
-        ];
-        $body['receipt_sha256'] = hash('sha256', \WPrism\Orchestrator\EnvironmentLifecycleCanon::encode($body));
+        $body = em_promotion_receipt($frozenContext);
         $promotionCalls[] = ['context' => $frozenContext, 'receipt' => $body];
         return $body;
     };
 
     $old = getcwd(); chdir($repo);
+
+    // The top-level `env` namespace bypasses the ordinary single-environment
+    // dispatch. Both participants therefore prove the same version-independent
+    // filesystem fence here, before provider or durable journal work.
+    $fenceJournalRoot = $repo . '/.git/wprism-environment-fence-proof';
+    $fenceJournal = new EnvironmentLifecycleJournal($fenceJournalRoot);
+    $fenceSourceLog = $tmp . '/fence-source.log';
+    $fenceTargetLog = $tmp . '/fence-target.log';
+    $fenceSource = new MaterializerDriver('production-fence', '/production/fence', $commit);
+    $fenceTarget = new MaterializerDriver('branch-fence', '/branch/fence');
+    $fenceSourceProvider = CommandEnvironmentProvider::fromEnvironment(
+        $fenceSource->name(),
+        $cfg('ok', $fenceSourceLog)
+    );
+    $fenceTargetProvider = CommandEnvironmentProvider::fromEnvironment(
+        $fenceTarget->name(),
+        $cfg('ok', $fenceTargetLog)
+    );
+    $fencePromotions = 0;
+    $fencePromote = static function (EnvironmentDriver $driver, array $context) use (&$fencePromotions): array {
+        $fencePromotions++;
+        return em_promotion_receipt($context);
+    };
+    $fenceOptions = ['branch' => 'feature', 'create' => false, 'ttl_seconds' => 0];
+
+    $fenceSource->recoveryState = 'provider_settlement';
+    try {
+        EnvironmentMaterializer::materialize(
+            $fenceSource,
+            $fenceTarget,
+            $fenceSourceProvider,
+            $fenceTargetProvider,
+            $fenceJournal,
+            $fenceOptions,
+            $fencePromote
+        );
+        em_fail('source recovery debt entered materialization');
+    } catch (Throwable $failure) {
+        em_ok(
+            str_contains($failure->getMessage(), 'source environment has incomplete provider settlement debt'),
+            'source provider-settlement debt refuses through the exact external fence'
+        );
+    }
+    em_ok(
+        !is_file($fenceSourceLog) && !is_file($fenceTargetLog)
+            && (glob($fenceJournalRoot . '/runs/*') ?: []) === [],
+        'source recovery debt creates no provider call or materialization journal'
+    );
+
+    $fenceSource->recoveryState = 'clear';
+    $fenceTarget->recoveryState = 'checkpoint_recovery';
+    try {
+        EnvironmentMaterializer::materialize(
+            $fenceSource,
+            $fenceTarget,
+            $fenceSourceProvider,
+            $fenceTargetProvider,
+            $fenceJournal,
+            $fenceOptions,
+            $fencePromote
+        );
+        em_fail('attached-target recovery debt entered materialization');
+    } catch (Throwable $failure) {
+        em_ok(
+            str_contains($failure->getMessage(), 'target environment has incomplete checkpoint recovery debt'),
+            'attached target checkpoint debt refuses through the exact external fence'
+        );
+    }
+    em_ok(
+        !is_file($fenceSourceLog) && !is_file($fenceTargetLog)
+            && (glob($fenceJournalRoot . '/runs/*') ?: []) === [],
+        'attached-target recovery debt creates no provider call or materialization journal'
+    );
+
+    $fenceTarget->recoveryState = 'clear';
+    $fenceReceipt = EnvironmentMaterializer::materialize(
+        $fenceSource,
+        $fenceTarget,
+        $fenceSourceProvider,
+        $fenceTargetProvider,
+        $fenceJournal,
+        $fenceOptions,
+        $fencePromote
+    );
+    em_ok(
+        ($fenceReceipt['format'] ?? null) === 'wprism-branch-environment-receipt/v1'
+            && $fencePromotions === 1
+            && is_file($fenceSourceLog)
+            && is_file($fenceTargetLog),
+        'the identical participant materialization proceeds after both recovery fences clear'
+    );
+
+    $createFenceJournal = new EnvironmentLifecycleJournal($repo . '/.git/wprism-create-fence-proof');
+    $createSource = new MaterializerDriver('production-create-fence', '/production/create-fence', $commit);
+    $createTarget = new MaterializerDriver('branch-create-fence', '/branch/create-fence');
+    $createTarget->recoveryState = 'unsafe';
+    $createSourceLog = $tmp . '/create-fence-source.log';
+    $createTargetLog = $tmp . '/create-fence-target.log';
+    $createSourceProvider = CommandEnvironmentProvider::fromEnvironment(
+        $createSource->name(),
+        $cfg('ok', $createSourceLog)
+    );
+    $createTargetProvider = CommandEnvironmentProvider::fromEnvironment(
+        $createTarget->name(),
+        $cfg('ok', $createTargetLog)
+    );
+    try {
+        EnvironmentMaterializer::materialize(
+            $createSource,
+            $createTarget,
+            $createSourceProvider,
+            $createTargetProvider,
+            $createFenceJournal,
+            ['branch' => 'feature', 'create' => true, 'ttl_seconds' => 0],
+            $fencePromote
+        );
+        em_fail('a newly acquired target with an unsafe recovery fence entered mutation');
+    } catch (Throwable $failure) {
+        em_ok(
+            str_contains($failure->getMessage(), 'target environment recovery fence could not be read safely'),
+            'create mode fences the target immediately after its resource becomes addressable'
+        );
+    }
+    $createTargetActions = em_actions($createTargetLog);
+    $createEvents = array_column(
+        $createFenceJournal->latestForTarget($createTarget->name())['events'] ?? [],
+        'event'
+    );
+    em_ok(
+        $createTargetActions === ['capabilities', 'create']
+            && in_array('target-acquired', $createEvents, true)
+            && !in_array('target-fence-acquired', $createEvents, true),
+        'create-mode debt retains a reapable identity but performs no target mutation after acquisition'
+    );
+    $createReap = EnvironmentMaterializer::reap(
+        $createTarget,
+        $createTargetProvider,
+        $createFenceJournal,
+        $createSourceProvider
+    );
+    em_ok(
+        ($createReap['disposition'] ?? null) === 'destroyed',
+        'a created target stopped at recovery preflight remains explicitly reapable'
+    );
+    $createTarget->recoveryState = 'clear';
+    $createRetry = EnvironmentMaterializer::materialize(
+        $createSource,
+        $createTarget,
+        CommandEnvironmentProvider::fromEnvironment(
+            $createSource->name(),
+            $cfg('ok', $tmp . '/create-fence-retry-source.log')
+        ),
+        CommandEnvironmentProvider::fromEnvironment(
+            $createTarget->name(),
+            $cfg('ok', $tmp . '/create-fence-retry-target.log')
+        ),
+        $createFenceJournal,
+        ['branch' => 'feature', 'create' => true, 'ttl_seconds' => 0],
+        $fencePromote
+    );
+    em_ok(
+        ($createRetry['mode'] ?? null) === 'create',
+        'create mode proceeds under a new owned operation after reap and a clear recovery fence'
+    );
+
     em_run(['git', 'checkout', '--detach', 'HEAD'], $repo);
     $detachedLog = $tmp . '/detached-target.log';
     $detachedProvider = CommandEnvironmentProvider::fromEnvironment('branch-detached', $cfg('ok', $detachedLog));

@@ -1876,7 +1876,7 @@ function main(array $argv): int {
     // the target filesystem directly, so code-first rollback to an older agent
     // cannot make an empty/partial import look like a fresh environment. Only
     // diagnostics and the exact legacy restore path may cross this fence.
-    $recoveryDiagnostic = in_array($verb, ['doctor', 'status'], true);
+    $recoveryControlRequired = $driverReport->requiresRecoveryControl();
     $recoveryResume = $verb === 'recover'
         && (($extra === [] || in_array('--list', $extra, true))
             || count(array_filter(
@@ -1889,14 +1889,14 @@ function main(array $argv): int {
             static fn(string $arg): bool => str_starts_with($arg, '--prune-retained=')
         )) === 0
         && !in_array($extra[0] ?? '', ['prepare', 'execute'], true);
-    $deferRecoveryFence = !$recoveryDiagnostic
+    $deferRecoveryFence = $recoveryControlRequired
         && !$recoveryResume
         && in_array($verb, ['capture', 'plan', 'apply', 'promote', 'refresh', 'rebase'], true)
         && count(array_filter(
             $extra,
             static fn(string $arg): bool => PassthroughCommand::isScopeContractFlag($arg)
         )) > 0;
-    if (!$recoveryDiagnostic && !$recoveryResume && !$deferRecoveryFence) {
+    if ($recoveryControlRequired && !$recoveryResume && !$deferRecoveryFence) {
         $fenceRefusal = external_recovery_fence_refusal($transport, $verb, $extra);
         if (is_int($fenceRefusal)) {
             return $fenceRefusal;

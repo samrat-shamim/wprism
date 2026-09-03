@@ -80,6 +80,7 @@ namespace {
     require_once $rrLifecycle;
 
     use WPrism\Orchestrator\CommandEnvironmentProvider;
+    use WPrism\Orchestrator\BoundedControlDriver;
     use WPrism\Orchestrator\DriverCapability;
     use WPrism\Orchestrator\DriverCapabilityReport;
     use WPrism\Orchestrator\EnvironmentDriver;
@@ -219,7 +220,7 @@ namespace {
         return null;
     }
 
-    final class RecoveryMaterializationDriver implements EnvironmentDriver {
+    final class RecoveryMaterializationDriver implements BoundedControlDriver {
         /** @var list<array{kind:string,args:mixed}> */
         public array $calls = [];
         public function __construct(
@@ -239,6 +240,32 @@ namespace {
             }
             return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
         }
+        public function captureRawBounded(
+            string $script,
+            int $timeoutMilliseconds,
+            int $maxStdoutBytes,
+            int $maxStderrBytes
+        ): array {
+            return $this->captureRaw($script);
+        }
+        public function captureRawFramed(
+            string $phpTupleProgram,
+            array $arguments,
+            int $timeoutMilliseconds,
+            int $maxStdoutBytes,
+            int $maxStderrBytes
+        ): array {
+            $this->calls[] = ['kind' => 'framed', 'args' => $arguments];
+            return [
+                'verified' => true,
+                'exit' => 0,
+                'stdout' => 'clear',
+                'stderr' => '',
+                'transport_exit' => 0,
+                'transport_stderr' => '',
+                'failure' => null,
+            ];
+        }
         public function captureWp(array $args): array {
             $this->calls[] = ['kind' => 'wp', 'args' => $args];
             if (($args[0] ?? null) === 'wprism' && ($args[1] ?? null) === 'plan') {
@@ -251,12 +278,21 @@ namespace {
             }
             return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
         }
+        public function captureWpBounded(
+            array $wpArgs,
+            int $timeoutMilliseconds,
+            int $maxStdoutBytes,
+            int $maxStderrBytes
+        ): array {
+            return $this->captureWp($wpArgs);
+        }
         public function streamWp(array $args): int { $this->calls[] = ['kind' => 'stream', 'args' => $args]; return 0; }
         public function wpInstruction(array $args): string { return 'recovery fixture'; }
         public function capabilityReport(string $operation): DriverCapabilityReport {
             return DriverCapabilityReport::forDriver($this->name, $this->driverId(), $operation, [
                 DriverCapability::ATTACH => true,
                 DriverCapability::BOOTSTRAP => true,
+                DriverCapability::BOUNDED_CONTROL => true,
                 DriverCapability::CODE_MATERIALIZE => true,
                 DriverCapability::CODE_TRANSFER => true,
                 DriverCapability::DB_SNAPSHOT_CREATE => true,

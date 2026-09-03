@@ -107,6 +107,7 @@ return [
     'WPrism\\Orchestrator\\RecoverCommand' => 'src/Command/RecoverCommand.php',
     'WPrism\\Orchestrator\\RecoveryClaim' => 'src/Recovery/RecoveryClaim.php',
     'WPrism\\Orchestrator\\RecoveryConfig' => 'src/Transport/RecoveryConfig.php',
+    'WPrism\\Orchestrator\\RecoveryFence' => 'src/Transport/RecoveryFence.php',
     'WPrism\\Orchestrator\\RecoveryOutcome' => 'src/Recovery/RecoveryOutcome.php',
     'WPrism\\Orchestrator\\RecoveryPlan' => 'src/Recovery/RecoveryPlan.php',
     'WPrism\\Orchestrator\\RecoveryProfileSelection' => 'src/Recovery/RecoveryProfileSelection.php',

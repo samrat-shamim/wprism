@@ -43,6 +43,23 @@ final class CaptureCommandDriver implements BoundedControlDriver {
     ): array {
         return $this->captureRaw($script);
     }
+    public function captureRawFramed(
+        string $phpTupleProgram,
+        array $arguments,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return [
+            'verified' => false,
+            'exit' => 255,
+            'stdout' => '',
+            'stderr' => '',
+            'transport_exit' => 255,
+            'transport_stderr' => '',
+            'failure' => 'capture-fixture-unused',
+        ];
+    }
     public function captureWp(array $wpArgs): array {
         $this->captureCalls++;
         $this->capturedArgs[] = $wpArgs;

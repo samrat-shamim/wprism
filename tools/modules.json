@@ -1299,7 +1299,7 @@
     "modules": {
       "Transport": {
         "layer": "kernel",
-        "purpose": "Carries bytes and commands to a target environment: the transport implementations, the environment driver handle and code deployment.",
+        "purpose": "Carries bytes and commands to a target environment: the transport implementations, the environment driver handle, version-independent recovery fence and code deployment.",
         "status": "populated",
         "entry_points": [
           "EnvironmentDriver",
@@ -1308,6 +1308,7 @@
           "CodeDeploy",
           "SshTransport",
           "LocalTransport",
+          "RecoveryFence",
           "RecoveryTransport",
           "CodePushTransport"
         ],
@@ -1315,7 +1316,7 @@
           "Transport"
         ],
         "exceptions": [],
-        "file_count": 10,
+        "file_count": 11,
         "files": [
           "CodeDeploy.php",
           "CodePushTransport.php",
@@ -1324,6 +1325,7 @@
           "LocalTransport.php",
           "ProcessGroup.php",
           "RecoveryConfig.php",
+          "RecoveryFence.php",
           "RecoveryTransport.php",
           "SshTransport.php",
           "Transport.php"

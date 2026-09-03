@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism\Orchestrator;
 
+require_once __DIR__ . '/RecoveryFence.php';
+
 /**
  * Host-side half of code deployment.
  *
@@ -1106,36 +1108,7 @@ PHP;
      * @return array{exit:int,stdout:string,stderr:string}
      */
     public static function checkpointRecoveryFence(EnvironmentDriver $transport, string $repo): array {
-        $program = <<<'PHP'
-$repo = realpath($argv[1]);
-if ($repo === false || !is_dir($repo)) {
-    fwrite(STDERR, 'checkpoint recovery repository is unreadable');
-    exit(76);
-}
-$state = $repo . '/.wprism';
-$control = $state . '/control';
-foreach ([$state, $control] as $directory) {
-    $stat = @lstat($directory);
-    if ($stat === false) {
-        echo 'clear';
-        exit(0);
-    }
-    if (($stat['mode'] & 0170000) !== 0040000 || is_link($directory) || realpath($directory) !== $directory) {
-        fwrite(STDERR, 'checkpoint recovery control boundary is unsafe');
-        exit(76);
-    }
-}
-$intent = $control . '/checkpoint-recovery-intent.json';
-if (@lstat($intent) === false) {
-    echo 'clear';
-    exit(0);
-}
-fwrite(STDERR, 'incomplete checkpoint recovery is active');
-exit(75);
-PHP;
-        return $transport->captureRaw(
-            'php -r ' . escapeshellarg(trim($program)) . ' ' . escapeshellarg($repo)
-        );
+        return RecoveryFence::checkpoint($transport, $repo);
     }
 
     /**
@@ -1148,59 +1121,7 @@ PHP;
      * @return array{exit:int,stdout:string,stderr:string,state:string}
      */
     public static function externalRecoveryFence(EnvironmentDriver $transport, string $repo): array {
-        $program = <<<'PHP'
-$repo = realpath($argv[1]);
-if ($repo === false || !is_dir($repo)) {
-    fwrite(STDERR, 'external recovery repository is unreadable');
-    exit(76);
-}
-$state = $repo . '/.wprism';
-$control = $state . '/control';
-foreach ([$state, $control] as $directory) {
-    $stat = @lstat($directory);
-    if ($stat === false) {
-        echo 'clear';
-        exit(0);
-    }
-    if (($stat['mode'] & 0170000) !== 0040000 || is_link($directory) || realpath($directory) !== $directory) {
-        fwrite(STDERR, 'external recovery control boundary is unsafe');
-        exit(76);
-    }
-}
-foreach ([
-    'checkpoint-recovery-intent.json' => 'incomplete checkpoint recovery is active',
-    'provider-settlement-intent.json' => 'incomplete provider settlement is active',
-] as $file => $message) {
-    $path = $control . '/' . $file;
-    $stat = @lstat($path);
-    if ($stat === false) {
-        continue;
-    }
-    if (($stat['mode'] & 0170000) !== 0100000 || is_link($path)) {
-        fwrite(STDERR, 'external recovery intent boundary is unsafe');
-        exit(76);
-    }
-    fwrite(STDERR, $message);
-    exit(75);
-}
-echo 'clear';
-exit(0);
-PHP;
-        $result = $transport->captureRaw(
-            'php -r ' . escapeshellarg(trim($program)) . ' ' . escapeshellarg($repo)
-        );
-        $exit = (int) ($result['exit'] ?? 1);
-        $stdout = (string) ($result['stdout'] ?? '');
-        $stderr = (string) ($result['stderr'] ?? '');
-        $state = match (true) {
-            $exit === 0 && $stdout === 'clear' && $stderr === '' => 'clear',
-            $exit === 75 && $stdout === ''
-                && $stderr === 'incomplete checkpoint recovery is active' => 'checkpoint_recovery',
-            $exit === 75 && $stdout === ''
-                && $stderr === 'incomplete provider settlement is active' => 'provider_settlement',
-            default => 'unsafe',
-        };
-        return array_merge($result, ['state' => $state]);
+        return RecoveryFence::external($transport, $repo);
     }
 
     /**

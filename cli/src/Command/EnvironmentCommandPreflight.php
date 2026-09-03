@@ -31,11 +31,13 @@ final class EnvironmentCommandPreflight {
         // that target compiles.
         'code-classify',
         // issue #3500. `code-resolve` is environment-bound because <env> is what
-        // decides WHERE the bytes go: the transport says whether the host can
-        // reach the repository at all, and `repo_path` is the local one for a
-        // local environment. It runs no target command on the path it
-        // supports, which is why its capability requirement is attach alone
-        // (cli/src/Transport/EnvironmentDriver.php).
+        // decides WHERE the bytes go: local and writable-bind Docker resolve
+        // into a host path, while SSH resolves in a host stage and pushes and
+        // verifies through CodePushTransport (issue #3514). CODE_TRANSFER
+        // cannot be a common requirement because the first two paths transfer
+        // nothing; the SSH arm therefore retains its exact runtime interface
+        // refusal. The database-external recovery fence independently adds
+        // framed raw control on every path (EnvironmentDriver.php).
         'code-resolve',
     ];
 
