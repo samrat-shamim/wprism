@@ -1000,13 +1000,18 @@ PHP;
         ];
     }
 
-    /** @return array<string,mixed> */
-    function rank_math_test_execute_child(): array {
+    function rank_math_test_child_payload(bool $repair = true): string {
         $method = new ReflectionMethod(RankMathState::class, 'child_payload');
-        $payload = $method->invoke(null);
+        $payload = $method->invoke(null, $repair);
         if (!is_string($payload)) {
             throw new RuntimeException('could not read Rank Math child payload');
         }
+        return $payload;
+    }
+
+    /** @return array<string,mixed> */
+    function rank_math_test_execute_child(bool $repair = true): array {
+        $payload = rank_math_test_child_payload($repair);
         ob_start();
         try {
             eval($payload);
@@ -1023,7 +1028,7 @@ PHP;
 
     $provider = rank_math_test_reset('none');
     wprism_check_same(
-        ['id' => 'rank-math-state', 'plugin' => 'seo-by-rank-math/rank-math.php', 'version' => '1.0.0'],
+        ['id' => 'rank-math-state', 'plugin' => 'seo-by-rank-math/rank-math.php', 'version' => '1.0.1'],
         $provider->identity(),
         'provider identity makes schema and link-repair behavior digest-visible'
     );
@@ -1369,10 +1374,18 @@ PHP;
     );
     wprism_check_same('preserve', $GLOBALS['wpdb']->rows('postmeta')[0]['meta_value'] ?? null,
         'site repair preserves unrelated post metadata');
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']), 'site repair launches exactly one fresh process');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'site repair launches one mutating child and one independent fresh readback');
     [$command, $options] = $GLOBALS['rank_math_test_command_calls'][0];
-    wprism_check(str_contains($command, 'Rank Math derived link-state reset failed'),
+    [$readbackCommand, $readbackOptions] = $GLOBALS['rank_math_test_command_calls'][1];
+    $repairPayload = rank_math_test_child_payload(true);
+    $readbackPayload = rank_math_test_child_payload(false);
+    wprism_check(str_contains($repairPayload, '$mode = \'repair\';')
+        && str_contains($command, 'Rank Math derived link-state reset failed'),
         'fresh child carries the complete derived-state reset');
+    wprism_check(str_contains($readbackPayload, '$mode = \'readback\';')
+        && $command !== $readbackCommand,
+        'independent child is pinned to projection-only readback mode');
     wprism_check(str_contains($command, 'rank_math_internal_links_processed'),
         'fresh child binds the exact Rank Math processed-marker key');
     wprism_check(substr_count($command, '$processPass();') === 2
@@ -1477,8 +1490,8 @@ PHP;
         'parent rewrite-cache hydration never regenerates or persists durable rules');
     wprism_check_same($lazyStoredRows, $GLOBALS['wpdb']->rows('options'),
         'parent rewrite-cache hydration leaves the durable options table byte-for-byte unchanged');
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
-        'the hydrated parent still launches exactly one bounded fresh repair process');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'the hydrated parent still launches bounded fresh repair and readback processes');
 
     $provider = rank_math_test_reset('link');
     rank_math_test_set_option('permalink_structure', '/%postname%/');
@@ -1524,8 +1537,8 @@ PHP;
             && ($firstDeployCallback[1] ?? null) === 'excluded_post_types',
         'the missing-hook bootstrap produces exactly the audited native callback'
     );
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
-        'the virgin pre-apply path still launches exactly one bounded fresh repair process');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'the virgin pre-apply path still launches bounded fresh repair and readback processes');
 
     $provider = rank_math_test_reset('link');
     $receipt = $provider->invoke('rebuild_all_link_state', []);
@@ -1553,6 +1566,11 @@ PHP;
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
         $options,
         'native repair runs through the bounded checked child-process transport'
+    );
+    wprism_check_same(
+        ['launch' => true, 'return' => 'all', 'exit_error' => false],
+        $readbackOptions,
+        'fresh readback runs through the same bounded checked child-process transport'
     );
     $published = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     wprism_check(
@@ -1702,6 +1720,24 @@ PHP;
     }
 
     $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_command_result'] = static function () use ($hostile): object {
+        if (count($GLOBALS['rank_math_test_command_calls']) === 1) {
+            return rank_math_test_result();
+        }
+        return (object) ['return_code' => 9, 'stdout' => '', 'stderr' => $hostile];
+    };
+    $readbackFailure = rank_math_test_throw_message(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', [])
+    );
+    wprism_check(
+        str_contains($readbackFailure, 'native link readback did not complete cleanly')
+            && !str_contains($readbackFailure, 'sk_rank_math_child'),
+        'independent readback failure is purpose-specific, recovery-required and value-redacted'
+    );
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'readback failure follows one completed bounded repair child');
+
+    $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_command_throw'] = new RuntimeException($hostile);
     $launchFailure = rank_math_test_throw_message(
         static fn(): array => $provider->invoke('rebuild_all_link_state', [])
@@ -1712,20 +1748,59 @@ PHP;
     );
 
     $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
+        rank_math_test_rebuild();
+        $projection = rank_math_test_projection();
+        $alternate = str_repeat('b', 64);
+        if (($projection['dependency_hash'] ?? null) === $alternate) {
+            $alternate = str_repeat('c', 64);
+        }
+        $projection['dependency_hash'] = $alternate;
+        $GLOBALS['rank_math_test_proved_projection'] = $projection;
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    $freshTopologyReceipt = $provider->invoke('rebuild_all_link_state', []);
+    $staleParentProjection = rank_math_test_projection();
+    $freshTopologyProjection = $freshTopologyReceipt['after'];
+    $staleParentWithoutDependency = $staleParentProjection;
+    $freshWithoutDependency = $freshTopologyProjection;
+    unset($staleParentWithoutDependency['dependency_hash'], $freshWithoutDependency['dependency_hash']);
+    wprism_check_same(true, $freshTopologyReceipt['verified'] ?? null,
+        'matching post-apply fresh processes publish verified repair despite stale parent topology');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'post-apply topology proof uses independent repair and readback processes');
+    wprism_check_same($staleParentWithoutDependency, $freshWithoutDependency,
+        'the prior live defect fixture differs from the applying parent only at request-local route dependencies');
+    wprism_check(
+        ($staleParentProjection['dependency_hash'] ?? null) !== ($freshTopologyProjection['dependency_hash'] ?? null),
+        'the prior live defect would fail a stale applying-parent projection comparison'
+    );
+
+    $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_command_result'] = static function (): object {
         $projection = rank_math_test_projection();
-        $projection['link_hash'] = str_repeat('d', 64);
+        if (count($GLOBALS['rank_math_test_command_calls']) === 1) {
+            $projection['link_hash'] = str_repeat('d', 64);
+        }
         return rank_math_test_result($projection);
     };
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'success-shaped child receipt with a divergent exact projection refuses',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $rows = $GLOBALS['wpdb']->rows('rank_math_internal_meta');
@@ -1738,17 +1813,22 @@ PHP;
         $GLOBALS['wpdb']->seedTable('rank_math_internal_meta', $rows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'a competing count write after child proof refuses verified success',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $rows = $GLOBALS['wpdb']->rows('postmeta');
@@ -1762,17 +1842,22 @@ PHP;
         $GLOBALS['wpdb']->seedTable('postmeta', $rows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'same-count competing marker write after child proof refuses recovery debt',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $rows = $GLOBALS['wpdb']->rows('posts');
@@ -1780,13 +1865,15 @@ PHP;
         $GLOBALS['wpdb']->seedTable('posts', $rows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'same-count authored post change after child proof refuses recovery debt',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1795,6 +1882,9 @@ PHP;
     rank_math_test_set_option('rewrite_rules', $rules);
     $GLOBALS['wp_rewrite']->rules = $rules;
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $rows = $GLOBALS['wpdb']->rows('users');
@@ -1802,13 +1892,15 @@ PHP;
         $GLOBALS['wpdb']->seedTable('users', $rows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'author nicename change after a %author% proof invalidates native resolution',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1817,6 +1909,9 @@ PHP;
     rank_math_test_set_option('rewrite_rules', $rules);
     $GLOBALS['wp_rewrite']->rules = $rules;
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $GLOBALS['rank_math_test_options']['default_category'] = 2;
@@ -1830,13 +1925,15 @@ PHP;
         $GLOBALS['wpdb']->seedTable('options', $rows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'default-category change after a no-term %category% proof invalidates native resolution',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1848,6 +1945,9 @@ PHP;
     $rows[0]['post_content'] .= '<a href="/wp-core-page/">Pretty page</a>';
     $GLOBALS['wpdb']->seedTable('posts', $rows);
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $GLOBALS['rank_math_test_options']['posts_per_page'] = 11;
@@ -1861,13 +1961,15 @@ PHP;
         $GLOBALS['wpdb']->seedTable('options', $optionRows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'pretty-page query-option change after child proof invalidates native resolution',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1879,18 +1981,23 @@ PHP;
     $rows[0]['post_content'] .= '<a href="/wp-core-page/">Old-comment closure</a>';
     $GLOBALS['wpdb']->seedTable('posts', $rows);
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         rank_math_test_set_option('close_comments_days_old', 21);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'old-comment closure option change after child proof invalidates singular native resolution',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1902,6 +2009,9 @@ PHP;
     $rows[0]['post_content'] .= '<a href="/comments/feed/">Comment feed</a>';
     $GLOBALS['wpdb']->seedTable('posts', $rows);
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $commentRows = $GLOBALS['wpdb']->rows('comments');
@@ -1909,17 +2019,22 @@ PHP;
         $GLOBALS['wpdb']->seedTable('comments', $commentRows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'comment-feed row change after child proof invalidates native resolution',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) !== 1) {
+            return;
+        }
         rank_math_test_rebuild();
         $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $GLOBALS['wpdb']->seedTable('terms', [[
@@ -1934,13 +2049,15 @@ PHP;
         ]]);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        $GLOBALS['rank_math_test_proved_projection']
+        count($GLOBALS['rank_math_test_command_calls']) === 1
+            ? $GLOBALS['rank_math_test_proved_projection']
+            : null
     );
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'term route change after child proof refuses recovery debt',
-        'disagrees with checked parent readback'
+        'disagrees with independent fresh readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -2091,14 +2208,40 @@ PHP;
     $cleanCallsAfterChild = $GLOBALS['rank_math_test_clean_post_cache_calls'];
     $parentProjection = rank_math_test_projection();
     wprism_check_same($parentProjection, $actualChild['projection'] ?? null,
-        'the streaming child receipt is byte-equivalent to independent parent readback');
+        'an unchanged runtime gives the shared parent projector the same complete projection');
+    $rowsBeforeReadback = [
+        'links' => $GLOBALS['wpdb']->rows('rank_math_internal_links'),
+        'meta' => $GLOBALS['wpdb']->rows('rank_math_internal_meta'),
+        'markers' => $GLOBALS['wpdb']->rows('postmeta'),
+    ];
+    $processCallsBeforeReadback = $GLOBALS['rank_math_test_process_calls'];
+    $GLOBALS['wpdb']->resetLog();
+    $actualReadback = rank_math_test_execute_child(false);
+    wprism_check_same($actualChild['projection'] ?? null, $actualReadback['projection'] ?? null,
+        'the emitted projection-only fresh child independently reproduces the repair proof');
+    wprism_check_same($processCallsBeforeReadback, $GLOBALS['rank_math_test_process_calls'],
+        'projection-only fresh readback never enters Rank Math native mutation callbacks');
+    wprism_check_same($rowsBeforeReadback, [
+        'links' => $GLOBALS['wpdb']->rows('rank_math_internal_links'),
+        'meta' => $GLOBALS['wpdb']->rows('rank_math_internal_meta'),
+        'markers' => $GLOBALS['wpdb']->rows('postmeta'),
+    ], 'projection-only fresh readback leaves all three provider write surfaces byte-for-byte unchanged');
+    $readbackWrites = array_values(array_filter(
+        $GLOBALS['wpdb']->queries(),
+        static fn(string $sql): bool => preg_match('/^(?:DELETE|INSERT|REPLACE|UPDATE)\s/i', $sql) === 1
+    ));
+    wprism_check_same([], $readbackWrites,
+        'projection-only fresh readback issues no data-mutation query');
     wprism_check_same(1, count(array_filter(
         $GLOBALS['wpdb']->rows('rank_math_internal_links'),
         static fn(array $row): bool => ($row['type'] ?? null) === 'internal'
             && (int) ($row['target_post_id'] ?? -1) === 0
     )), 'exact edge verification admits a native unresolved same-site link with target zero');
-    wprism_check_same($cleanCallsAfterChild, $GLOBALS['rank_math_test_clean_post_cache_calls'],
-        'parent readback never evicts post caches or fires clean-post-cache hooks');
+    wprism_check_same(
+        $cleanCallsAfterChild + (int) ($actualReadback['projection']['post_count'] ?? 0),
+        $GLOBALS['rank_math_test_clean_post_cache_calls'],
+        'fresh readback evicts each source post cache exactly once inside the declared irreversible frontier'
+    );
     wprism_check_same($registeredOrder, array_keys($GLOBALS['wp_post_types']),
         'route observation preserves the registered post-type global order');
     $valueQueries = array_values(array_filter(

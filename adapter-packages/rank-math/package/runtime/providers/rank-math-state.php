@@ -124,6 +124,11 @@ final class RankMathState extends ManifestProviderRuntime {
     private const MAX_NATIVE_RESOLUTION_LINKS = 200000;
     private const MAX_REGISTERED_POST_TYPES = 256;
     private const MAX_PUBLIC_QUERY_VARS = 2048;
+    // The manifest grants 600 seconds to the whole capability. Keep 30 seconds
+    // for parent preflight/receipt work while preserving a 420/150 split for
+    // native repair and an independent fresh-process readback.
+    private const REPAIR_CHILD_TIMEOUT_SECONDS = 420;
+    private const READBACK_CHILD_TIMEOUT_SECONDS = 150;
 
     private const POST_WITNESS_COLUMNS = [
         'ID',
@@ -251,11 +256,11 @@ final class RankMathState extends ManifestProviderRuntime {
         }
         $this->assert_link_schema();
         $before = $this->link_projection();
-        $child = $this->run_child(570);
-        $after = $this->link_projection();
-        $this->assert_child_matches($child, $after);
+        $repair = $this->run_child(self::REPAIR_CHILD_TIMEOUT_SECONDS, true);
+        $readback = $this->run_child(self::READBACK_CHILD_TIMEOUT_SECONDS, false);
+        $this->assert_child_matches($repair, $readback);
 
-        return ['before' => $before, 'after' => $after, 'verified' => true];
+        return ['before' => $before, 'after' => $readback['projection'], 'verified' => true];
     }
 
     /** @return array<string,mixed> */
@@ -836,7 +841,8 @@ final class RankMathState extends ManifestProviderRuntime {
      * Bind the effective core resolution that Rank Math consumes, rather than
      * assuming its permalink inputs stop at the posts table. Core can consult
      * author, category, rewrite and registered-query-var state, while plugins
-     * can filter the resulting routes; parent readback repeats these outputs.
+     * can filter the resulting routes; an independent fresh readback repeats
+     * these outputs after repair so request-local registration is comparable.
      *
      * @param array<string,string> $types
      * @return array{
@@ -1340,46 +1346,49 @@ final class RankMathState extends ManifestProviderRuntime {
     }
 
     /** @return array<string,mixed> */
-    private function run_child(int $timeout): array {
+    private function run_child(int $timeout, bool $repair): array {
+        $purpose = $repair ? 'native link repair' : 'native link readback';
         try {
             $result = WpCliChildProcess::capture(
-                'eval ' . escapeshellarg(self::child_payload()),
+                'eval ' . escapeshellarg(self::child_payload($repair)),
                 $timeout,
                 524288,
                 262144
             );
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('wprism: Rank Math native link repair could not run in a bounded fresh process', 0, $failure);
+            throw new \RuntimeException("wprism: Rank Math $purpose could not run in a bounded fresh process", 0, $failure);
         }
         if ($result['return_code'] !== 0 || trim($result['stderr']) !== '') {
-            throw new \RuntimeException('wprism: Rank Math native link repair did not complete cleanly; recovery_required');
+            throw new \RuntimeException("wprism: Rank Math $purpose did not complete cleanly; recovery_required");
         }
         try {
             $receipt = json_decode(trim($result['stdout']), true, 16, JSON_THROW_ON_ERROR);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('wprism: Rank Math native link repair returned malformed evidence; recovery_required');
+            throw new \RuntimeException("wprism: Rank Math $purpose returned malformed evidence; recovery_required");
         }
         if (!is_array($receipt)
             || array_keys($receipt) !== ['format', 'projection', 'verified']
             || ($receipt['format'] ?? null) !== self::CHILD_FORMAT
             || !is_array($receipt['projection'] ?? null)
             || ($receipt['verified'] ?? null) !== true) {
-            throw new \RuntimeException('wprism: Rank Math native link repair returned invalid evidence; recovery_required');
+            throw new \RuntimeException("wprism: Rank Math $purpose returned invalid evidence; recovery_required");
         }
         return $receipt;
     }
 
-    /** @param array<string,mixed> $child @param array<string,mixed> $after */
-    private function assert_child_matches(array $child, array $after): void {
-        if ($child['projection'] !== $after) {
-            throw new \RuntimeException('wprism: Rank Math child repair evidence disagrees with checked parent readback; recovery_required');
+    /** @param array<string,mixed> $child @param array<string,mixed> $readback */
+    private function assert_child_matches(array $child, array $readback): void {
+        if ($child['projection'] !== $readback['projection']) {
+            throw new \RuntimeException('wprism: Rank Math child repair evidence disagrees with independent fresh readback; recovery_required');
         }
     }
 
-    private static function child_payload(): string {
+    private static function child_payload(bool $repair = true): string {
         $filters = var_export(self::FILTERS, true);
         $format = self::CHILD_FORMAT;
+        $mode = var_export($repair ? 'repair' : 'readback', true);
         $template = <<<'PHP'
+$mode = __MODE__;
 if (is_multisite()) {
     throw new RuntimeException('Rank Math link repair refuses multisite');
 }
@@ -2009,7 +2018,7 @@ $readDependencyState = static function () use (
         throw $failure;
     }
 };
-$initialDependencyState = $readDependencyState();
+$initialDependencyState = $mode === 'repair' ? $readDependencyState() : [];
 $mutationTables = [$links, $meta, $wpdb->postmeta];
 if ($enabled) {
     array_push($mutationTables, ...$routeTables);
@@ -2369,20 +2378,27 @@ $processPass = static function () use (
     }
     $assertDependencyState();
 };
-$clear();
-$processPass();
-$verify();
-$first = $projection();
-if ($enabled) {
-    $processPass();
-} else {
+$second = null;
+if ($mode === 'repair') {
     $clear();
-    $assertDependencyState();
-}
-$verify();
-$second = $projection();
-if ($first !== $second) {
-    throw new RuntimeException('Rank Math native link repair is not idempotent');
+    $processPass();
+    $verify();
+    $first = $projection();
+    if ($enabled) {
+        $processPass();
+    } else {
+        $clear();
+        $assertDependencyState();
+    }
+    $verify();
+    $second = $projection();
+    if ($first !== $second) {
+        throw new RuntimeException('Rank Math native link repair is not idempotent');
+    }
+} elseif ($mode === 'readback') {
+    $second = $projection();
+} else {
+    throw new RuntimeException('Rank Math native link child has an invalid fixed mode');
 }
 echo wp_json_encode([
     'format' => '__FORMAT__',
@@ -2394,6 +2410,7 @@ PHP;
             [
                 '__FILTERS__',
                 '__FORMAT__',
+                '__MODE__',
                 '__MAX_ROWS__',
                 '__MAX_RAW_BYTES__',
                 '__MAX_ROW_RAW_BYTES__',
@@ -2416,6 +2433,7 @@ PHP;
             [
                 $filters,
                 $format,
+                $mode,
                 (string) self::MAX_PROJECTION_ROWS,
                 (string) self::MAX_PROJECTION_RAW_BYTES,
                 (string) self::MAX_PROJECTION_ROW_RAW_BYTES,
