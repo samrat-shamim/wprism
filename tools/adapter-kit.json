@@ -75,17 +75,17 @@
             "path": "lib/host_orchestrator.sh",
             "origin": "copied",
             "source": "sandbox/lib/host_orchestrator.sh",
-            "role": "host CLI registry and invocation boundary for checkpointed pair deployment",
-            "bytes": 1073,
-            "sha256": "7119ee54c711b4969c415de8f83dc6082d72239201310132143ada28eb35beb3"
+            "role": "host CLI registry, adoption-equivalent recovery setup and invocation boundary for checkpointed pair deployment",
+            "bytes": 7068,
+            "sha256": "f024bd77797452e824958cb4e29be94dc421f62baaf821100dc6aad6fbe09d99"
         },
         {
             "path": "conformance/run.sh",
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 37310,
-            "sha256": "79411516db8254c715026d3274239190ccc5e99695df5ba0eb98e4a366752453"
+            "bytes": 37698,
+            "sha256": "faa697820cb344e08cd7bd05fbc476ba09ab5457edd7a2f805b03d6dc487d9b6"
         },
         {
             "path": "conformance/asserts.sh",
@@ -116,8 +116,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 4659,
-            "sha256": "93518153e4a04210b580ce4ae5618fea855355182342e1d29bb488dc7ddf6b47"
+            "bytes": 4695,
+            "sha256": "7d4a209e6375eceb387f55904e986ca51bf01efcc399cb190bfdc3481edbe974"
         }
     ]
 }

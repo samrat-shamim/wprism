@@ -629,6 +629,10 @@ git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test comm
 git -C "$R1" push -q origin main
 git clone -q "$ORIGIN" "$R2"
 chmod 0777 "$R2"
+wprism_host_install_recovery_runtime "$ROOT" "$R1" \
+  || fail 'Rank Math combination could not install the source recovery runtime'
+wprism_host_install_recovery_runtime "$ROOT" "$R2" \
+  || fail 'Rank Math combination could not install the target recovery runtime'
 
 say 'deploy/apply combined product path against reverse-order hostile target'
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL' >/dev/null

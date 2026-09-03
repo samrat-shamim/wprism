@@ -348,6 +348,8 @@ wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm 'capture: valid Rank Math state for negative control'
 "${GIT1[@]}" push -q origin main
+wprism_host_install_recovery_runtime "$(cd .. && pwd -P)" "siterepo/${PAIR}1" \
+  || fail 'Rank Math negative control could not install the source recovery runtime'
 
 wp1 plugin deactivate seo-by-rank-math >/dev/null
 wp1 plugin delete seo-by-rank-math >/dev/null

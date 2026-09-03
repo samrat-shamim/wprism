@@ -494,6 +494,11 @@ fi
 say "clone the repo for conf2"
 git clone -q "$ORIGIN" "$R2"
 REV=$(git -C "$R2" rev-parse HEAD)
+wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R1" \
+  || fail 'could not install the adoption-equivalent recovery runtime on conf1'
+wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R2" \
+  || fail 'could not install the adoption-equivalent recovery runtime on conf2'
+pass 'both dev-bound environments carry the exact durable recovery runtime an adopted target has'
 
 # --- deploy conf2 from canonical --------------------------------------------
 # The real promotion path this harness used to skip entirely (spec/

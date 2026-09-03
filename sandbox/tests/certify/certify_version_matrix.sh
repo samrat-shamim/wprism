@@ -140,6 +140,10 @@ reset_case_repositories() {
 clone_case_target() {
   git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
   chmod 0777 "siterepo/${PAIR}2"
+  wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "siterepo/${PAIR}1" \
+    || fail 'version matrix could not install the source recovery runtime'
+  wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "siterepo/${PAIR}2" \
+    || fail 'version matrix could not install the target recovery runtime'
 }
 
 say "boot pair $PAIR (${PAIR}1 :$PORT1 / ${PAIR}2 :$PORT2), idempotent"

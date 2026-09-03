@@ -172,6 +172,10 @@ wp1 option update wprism_rank_math_yoast_sentinel rank-first >/dev/null
 wp2 option update wprism_rank_math_yoast_sentinel yoast-first >/dev/null
 write_repo "$R1" '["core","rank-math","yoast"]' rank-first
 write_repo "$R2" '["core","yoast","rank-math"]' yoast-first
+wprism_host_install_recovery_runtime "$ROOT" "$R1" \
+  || fail 'Rank-first refusal fixture could not install its recovery runtime'
+wprism_host_install_recovery_runtime "$ROOT" "$R2" \
+  || fail 'Yoast-first refusal fixture could not install its recovery runtime'
 
 ORDER1=$(wp1 option get active_plugins --format=json | jq -c .)
 ORDER2=$(wp2 option get active_plugins --format=json | jq -c .)

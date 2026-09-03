@@ -126,6 +126,81 @@ mkdir -p "$MATRIX_PROBE/sandbox/tests/certify" "$MATRIX_PROBE/sandbox/conformanc
 cp tests/certify/certify_version_matrix.sh "$MATRIX_PROBE/sandbox/tests/certify/"
 : > "$MATRIX_PROBE/sandbox/conformance/asserts.sh"
 
+# A dev-bound pair loads agent/ directly, whereas every real adopted target
+# also owns an initialized, database-independent recovery runtime. The host
+# deploy's checkpoint preflight now proves that runtime before database access;
+# reproduce the missing-premise live failure without Docker, then pin both the
+# exact bytes and the pre-deploy wiring used by every Rank Math evidence lane.
+. lib/host_orchestrator.sh
+RUNTIME_SITE="$MATRIX_PROBE/runtime-site"
+mkdir "$RUNTIME_SITE"
+git -C "$RUNTIME_SITE" init -q
+RUNTIME_SOURCE="$(cd .. && pwd -P)"
+RUNTIME_HEAD="$(git -C "$RUNTIME_SOURCE" rev-parse HEAD)"
+WPRISM_EXPECTED_SOURCE_SHA="$RUNTIME_HEAD" \
+  wprism_host_install_recovery_runtime "$RUNTIME_SOURCE" "$RUNTIME_SITE" \
+  || fail 'shared host helper could not install an adoption-equivalent recovery runtime'
+RUNTIME="$RUNTIME_SITE/.wprism/control/recovery-runtime"
+for source in ../recovery/*.php; do
+  cmp -s "$source" "$RUNTIME/${source##*/}" \
+    || fail "shared host helper changed recovery runtime bytes for ${source##*/}"
+done
+for file in DatabaseTargetIdentity.php RetainedCheckpointCipher.php; do
+  cmp -s "../agent/src/Recovery/$file" "$RUNTIME/$file" \
+    || fail "shared host helper omitted the adopted $file copy"
+done
+jq -e '.format == "wprism-rollback-target/v1" and (.target_id | test("^[a-f0-9]{32}$"))' \
+  "$RUNTIME_SITE/.wprism/control/target.json" >/dev/null \
+  || fail 'shared host helper did not initialize the durable recovery authority'
+RUNTIME_BEFORE=$(find "$RUNTIME" -type f -exec shasum -a 256 {} \; | LC_ALL=C sort)
+WPRISM_EXPECTED_SOURCE_SHA="$RUNTIME_HEAD" \
+  wprism_host_install_recovery_runtime "$RUNTIME_SOURCE" "$RUNTIME_SITE" \
+  || fail 'shared host helper is not idempotent over an exact installed runtime'
+[ "$(find "$RUNTIME" -type f -exec shasum -a 256 {} \; | LC_ALL=C sort)" = "$RUNTIME_BEFORE" ] \
+  || fail 'shared host helper moved exact runtime bytes on retry'
+printf '%s\n' 'tampered-runtime' >> "$RUNTIME/CanonicalJson.php"
+RUNTIME_REFUSAL_RC=0
+RUNTIME_REFUSAL=$(WPRISM_EXPECTED_SOURCE_SHA="$RUNTIME_HEAD" \
+  wprism_host_install_recovery_runtime "$RUNTIME_SOURCE" "$RUNTIME_SITE" 2>&1) \
+  || RUNTIME_REFUSAL_RC=$?
+[ "$RUNTIME_REFUSAL_RC" -ne 0 ] \
+  && grep -Fq 'installed runtime differs from candidate bytes' <<<"$RUNTIME_REFUSAL" \
+  && grep -Fq 'tampered-runtime' "$RUNTIME/CanonicalJson.php" \
+  || fail "shared host helper replaced or admitted divergent durable runtime bytes: $RUNTIME_REFUSAL"
+cp "$RUNTIME_SOURCE/recovery/CanonicalJson.php" "$RUNTIME/CanonicalJson.php"
+mv "$RUNTIME/ProtocolLock.php" "$RUNTIME/ProtocolLock.real.php"
+ln -s ProtocolLock.real.php "$RUNTIME/ProtocolLock.php"
+RUNTIME_REFUSAL_RC=0
+RUNTIME_REFUSAL=$(WPRISM_EXPECTED_SOURCE_SHA="$RUNTIME_HEAD" \
+  wprism_host_install_recovery_runtime "$RUNTIME_SOURCE" "$RUNTIME_SITE" 2>&1) \
+  || RUNTIME_REFUSAL_RC=$?
+[ "$RUNTIME_REFUSAL_RC" -ne 0 ] \
+  && grep -Fq 'installed runtime contains an unsafe node' <<<"$RUNTIME_REFUSAL" \
+  && [ -L "$RUNTIME/ProtocolLock.php" ] \
+  || fail "shared host helper followed or replaced an installed runtime symlink: $RUNTIME_REFUSAL"
+
+CONF_CLONE_LINE=$(grep -n '^git clone -q "\$ORIGIN" "\$R2"' conformance/run.sh | cut -d: -f1)
+CONF_RUNTIME_LINE=$(grep -n '^wprism_host_install_recovery_runtime .* "\$R2"' conformance/run.sh | cut -d: -f1)
+CONF_DEPLOY_LINE=$(grep -n '^DEPLOY_OUT=.*host_wprism conf2 deploy' conformance/run.sh | cut -d: -f1)
+[ "$CONF_CLONE_LINE" -lt "$CONF_RUNTIME_LINE" ] && [ "$CONF_RUNTIME_LINE" -lt "$CONF_DEPLOY_LINE" ] \
+  || fail 'conformance must install target recovery authority after clone and before host deploy'
+grep -Fq 'wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R1"' conformance/run.sh \
+  && grep -Fq 'wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R2"' conformance/run.sh \
+  || fail 'conformance recovery bytes must come from the exact worktree selected for pair mounts'
+grep -A8 '^clone_case_target() {' tests/certify/certify_version_matrix.sh \
+  | grep -Fq 'wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT"' \
+  || fail 'the version matrix does not reinstall recovery authority from its selected pair source after each repository reset'
+grep -Fq 'Rank Math negative control could not install the source recovery runtime' \
+  ../adapter-packages/rank-math/tests/certify/version-matrix.sh \
+  || fail 'Rank Math negative control can reach host deploy without recovery authority'
+for scenario in \
+  ../integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh \
+  ../integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh; do
+  grep -Fq 'wprism_host_install_recovery_runtime' "$scenario" \
+    || fail "$scenario can reach host deploy without the adopted recovery premise"
+done
+pass 'pair-backed host deploys install exact initialized recovery bytes, refuse divergence, and stage before mutation'
+
 write_probe_disposition() {
   local subject="$1"
   mkdir -p "$MATRIX_PROBE/adapter-packages/$subject/package" "$MATRIX_PROBE/adapter-packages/$subject/tests/certify"
