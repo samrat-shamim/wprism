@@ -141,8 +141,8 @@ WPRISM_EXPECTED_SOURCE_SHA="$RUNTIME_HEAD" \
   wprism_host_install_recovery_runtime "$RUNTIME_SOURCE" "$RUNTIME_SITE" \
   || fail 'shared host helper could not install an adoption-equivalent recovery runtime'
 [ "$(php -r 'printf("%o", fileperms($argv[1]) & 07777);' "$RUNTIME_SITE/.wprism")" = 1777 ] \
-  && [ "$(php -r 'printf("%o", fileperms($argv[1]) & 07777);' "$RUNTIME_SITE/.wprism/control")" = 700 ] \
-  || fail 'shared host helper did not bound its cross-uid authority exception with a sticky state parent and private control child'
+  && [ "$(php -r 'printf("%o", fileperms($argv[1]) & 07777);' "$RUNTIME_SITE/.wprism/control")" = 1777 ] \
+  || fail 'shared host helper did not preserve sticky state and control parents across recovery initialization'
 RUNTIME="$RUNTIME_SITE/.wprism/control/recovery-runtime"
 for source in ../recovery/*.php; do
   cmp -s "$source" "$RUNTIME/${source##*/}" \

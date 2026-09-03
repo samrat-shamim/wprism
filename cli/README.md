@@ -945,7 +945,7 @@ semantics remain the rehearsal implementation's.
   typed refusal or an established typed compiler diagnostic. The
   human-facing `wprism: ` prefix is never machine-publication authority: every
   unclassified Throwable contributes none of its message, cause, path,
-  login, or trace and instead sets `details_redacted: true` (issue #3404). The
+  login, or trace and instead sets `details_redacted: true` (issue #3404).
   On an eligible target the redacted sentence is not lost: the agent writes a
   private, gitignored `wprism-private-refusal-evidence/v2` record under the site
   repository's `.wprism/refusals/`, and the host prints one stderr line naming

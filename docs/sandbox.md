@@ -378,6 +378,14 @@ captured descendants removable by the host-side harness. These exceptions
 are confined to disposable sandbox paths and processes; they are not guidance
 for production repository permissions.
 
+The shared recovery helper applies the same test-only boundary to `.wprism`
+and `.wprism/control` with mode `1777`. Recovery initialization deliberately
+normalizes its control root to the production `0700` mode, so the helper
+restores `1777` afterward; otherwise a native Linux bind mount owned by the
+host cannot be traversed by the container's uid 33. Sticky parents bound
+cross-user replacement while private evidence and production adoption retain
+their `0700` directory and `0600` file modes.
+
 ### `reset` — what it covers, and what it deliberately doesn't
 
 ```

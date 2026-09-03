@@ -92,6 +92,11 @@ wprism_host_install_recovery_runtime() { # <source-root> <site-repository>
   fi
   php "$runtime/rollback-control.php" init --root="$control" >/dev/null \
     || { printf 'wprism test runtime: control initialization failed\n' >&2; return 1; }
+  # Initialization restores the production 0700 control-root invariant. The
+  # pair harness must then restore its sticky cross-uid boundary: native Linux
+  # preserves the host owner's inode, while cli services run as uid 33.
+  chmod 1777 "$control" \
+    || { printf 'wprism test runtime: could not share the initialized control root\n' >&2; return 1; }
   chmod 0777 "$state/rollback" "$control/public-keys" \
     || { printf 'wprism test runtime: could not share recovery directories\n' >&2; return 1; }
   chmod 0666 "$control/target.lock" "$control/target.json" \
