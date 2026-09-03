@@ -12,6 +12,9 @@ if (!class_exists(CompiledRepository::class, false)) {
 if (!class_exists(SchemaSettlementIntent::class, false)) {
     require_once __DIR__ . '/../Repository/SchemaSettlementIntent.php';
 }
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/../Repository/Ledger.php';
+}
 if (!class_exists(RetainedCheckpointCipher::class, false)) {
     require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
 }
@@ -75,13 +78,16 @@ final class SchemaSettlement {
         bool $presenceOnly = false
     ): array {
         self::assert_artifact($artifactHash);
-        SchemaSettlementIntent::assert_clear($policy, $artifactHash);
+        $ledgerReady = self::status_ledger_ready();
+        if ($ledgerReady) {
+            SchemaSettlementIntent::assert_clear($policy, $artifactHash);
+        }
         $actions = $policy->schema_settle_actions();
         $tables = array_keys($policy->schema_settle_tables());
         sort($tables, SORT_STRING);
         $presence = self::checked_presence($tables);
         $required = in_array(false, array_column($presence, 'present'), true);
-        if ($actions !== [] && $required) {
+        if ($actions !== [] && $required && $ledgerReady) {
             SchemaSettlementIntent::assert_preparable_absence($policy, $presence);
         }
         $mode = $presenceOnly ? 'presence' : 'exact';
@@ -99,6 +105,51 @@ final class SchemaSettlement {
                 : ($required ? 'required' : ($presenceOnly ? 'present' : 'ready')),
             'tables' => $presence,
         ];
+    }
+
+    /**
+     * `schema-status` runs before promotion-begin creates the platform ledger
+     * on a fresh target. Exact absence of all four tables proves there can be
+     * no database-resident schema intent or canonical identity history; any
+     * partial set is loss/corruption and must refuse rather than be repaired
+     * before the host checkpoint exists.
+     */
+    private static function status_ledger_ready(): bool {
+        global $wpdb;
+        $present = [];
+        foreach (Ledger::OWN_TABLES as $table) {
+            $physical = (string) $wpdb->prefix . $table;
+            $wpdb->last_error = '';
+            $found = $wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($physical)
+            ));
+            if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException(
+                    'wprism: schema-status could not inspect the target ledger boundary'
+                );
+            }
+            if ($found === null) {
+                $present[$table] = false;
+                continue;
+            }
+            if (!is_string($found) || !hash_equals($physical, $found)) {
+                throw new \RuntimeException(
+                    'wprism: schema-status target ledger inventory returned an ambiguous identity'
+                );
+            }
+            $present[$table] = true;
+        }
+        if (!in_array(true, $present, true)) {
+            return false;
+        }
+        if (in_array(false, $present, true)) {
+            throw new \RuntimeException(
+                'wprism: schema-status target ledger boundary is incomplete; '
+                . 'restore the database-matched platform ledger before deployment'
+            );
+        }
+        return true;
     }
 
     /** @return array{format:string,actions:int,receipts:list<array<string,mixed>>,tables:list<string>} */

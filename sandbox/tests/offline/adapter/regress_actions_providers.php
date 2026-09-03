@@ -68,6 +68,7 @@ require_once $root . '/agent/src/Repository/SidebarState.php';
 require $root . '/agent/src/Repository/RepositoryAuthorization.php';
 require $root . '/agent/src/Promotion/Deploy.php';
 require $root . '/agent/src/Adapter/SchemaSettlement.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 // ManifestDispositions.php is deliberately NOT required here, for the same
 // reason as NativeActions.php above: Policy.php require_once's
 // AdapterRegistry.php, which now names Canon, ManifestDispositions,
@@ -81,6 +82,7 @@ use WPrism\NativeActions;
 use WPrism\Policy;
 use WPrism\Providers;
 use WPrism\RepositoryCompiler;
+use WPrismTest\FakeWpdb;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -421,6 +423,50 @@ check(
     count($schemaEffects) === 1
         && ($schemaEffects[0]['effect']['selector']['value'] ?? null) === 'probe_projection',
     'the compiled effect inventory always signs schema DDL even before the table exists'
+);
+
+$freshSchemaWpdb = FakeWpdb::install();
+$freshStatus = \WPrism\SchemaSettlement::status_locked(
+    $schemaPolicy,
+    str_repeat('a', 64),
+    true
+);
+check(
+    $freshStatus['state'] === 'required'
+        && $freshStatus['tables'] === [['table' => 'probe_projection', 'present' => false]]
+        && $freshSchemaWpdb->ddlLog() === [],
+    'schema-status admits an exactly absent platform ledger as a read-only fresh-target preflight'
+);
+
+$partialSchemaWpdb = FakeWpdb::install();
+$partialSchemaWpdb->seedTable('wp_wprism_kv', []);
+expect_throw(
+    static fn() => \WPrism\SchemaSettlement::status_locked(
+        $schemaPolicy,
+        str_repeat('a', 64),
+        true
+    ),
+    'target ledger boundary is incomplete',
+    'schema-status refuses a partial platform ledger instead of treating corruption as a fresh target'
+);
+check(
+    $partialSchemaWpdb->ddlLog() === [],
+    'partial-ledger refusal performs no repair before the host checkpoint exists'
+);
+
+$establishedSchemaWpdb = FakeWpdb::install();
+foreach (\WPrism\Ledger::OWN_TABLES as $table) {
+    $establishedSchemaWpdb->seedTable('wp_' . $table, []);
+}
+$establishedStatus = \WPrism\SchemaSettlement::status_locked(
+    $schemaPolicy,
+    str_repeat('a', 64),
+    true
+);
+check(
+    $establishedStatus['state'] === 'required'
+        && $establishedSchemaWpdb->ddlLog() === [],
+    'schema-status preserves strict recovery/history reads when the complete platform ledger exists'
 );
 $directDeployBoundary = new ReflectionMethod(Deploy::class, 'assert_direct_provider_boundary');
 expect_throw(
