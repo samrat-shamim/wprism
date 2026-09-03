@@ -281,6 +281,7 @@ final class ProbeCache {
     public static array $identityOverrides = [];
     public static ?string $identityThrows = null;
     public static ?string $invokeThrows = null;
+    public static ?\Throwable $lastInvokeThrowable = null;
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
     // WPRISM-3.3: real wp_options writes the capability performs INSIDE invoke(),
@@ -323,7 +324,8 @@ final class ProbeCache {
     public function invoke(string $capability, array $args): array {
         $this->calls[] = [$capability, $args];
         if (self::$invokeThrows !== null) {
-            throw new \RuntimeException(self::$invokeThrows);
+            self::$lastInvokeThrowable = new \RuntimeException(self::$invokeThrows);
+            throw self::$lastInvokeThrowable;
         }
         if (self::$sleepSeconds > 0.0) {
             usleep((int) (self::$sleepSeconds * 1000000));
@@ -530,6 +532,7 @@ $reset = static function (): void {
     \WPrism\Providers\ProbeCache::$identityOverrides = [];
     \WPrism\Providers\ProbeCache::$identityThrows = null;
     \WPrism\Providers\ProbeCache::$invokeThrows = null;
+    \WPrism\Providers\ProbeCache::$lastInvokeThrowable = null;
     \WPrism\Providers\ProbeCache::$receiptOverride = null;
     \WPrism\Providers\ProbeCache::$sleepSeconds = 0.0;
     \WPrism\Providers\ProbeCache::$optionWrites = [];
@@ -1824,8 +1827,10 @@ try {
         && !str_contains($message, "\n")
         && !str_contains($rendered, 'WPRISM_INVOKE_SECRET')
         && !str_contains($rendered, 'INJECTED_INVOKE_LINE')
-        && $t->getPrevious() === null,
-        'a provider invocation failure preserves provider/capability but redacts its throwable chain'
+        && $t instanceof \WPrism\PrivateEvidenceException
+        && $t->getPrevious() === null
+        && $t->private_evidence_cause() === \WPrism\Providers\ProbeCache::$lastInvokeThrowable,
+        'a provider invocation failure keeps its exact cause private without exposing it through printable Throwable state'
     );
 }
 // timeout_seconds is a positive integer, so the smallest honest overrun test

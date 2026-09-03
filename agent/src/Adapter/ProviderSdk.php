@@ -24,8 +24,9 @@ namespace WPrism;
  *
  * The failure is a plain \RuntimeException — the same class the retired
  * per-adapter helpers threw — so \WPrism\Providers::invoke()'s catch(\Throwable)
- * redacts it into a provider/capability-only refusal exactly as before, and a
- * migrating adapter's calls are a pure substitution.
+ * puts it behind a provider/capability-only printable wrapper. The exact cause
+ * remains available only to the CLI's 0600 private refusal record; a migrating
+ * adapter's calls are otherwise a pure substitution.
  *
  * $wpdb defaults to the global (matching Db.php) and is injectable so an
  * offline test can drive a fake. checked_get_results() additionally accepts

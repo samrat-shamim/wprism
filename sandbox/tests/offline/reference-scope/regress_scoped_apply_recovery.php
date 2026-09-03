@@ -364,9 +364,14 @@ final class ScopedRecoveryProvider {
     public int $invocations = 0;
     public int $reconciliations = 0;
     public int $state = 0;
+    public ?\Throwable $invokeFailure = null;
+    public ?\Throwable $reconcileFailure = null;
 
     public function invoke_scoped(string $capability, array $args, array $operation): array {
         $this->invocations++;
+        if ($this->invokeFailure !== null) {
+            throw $this->invokeFailure;
+        }
         $before = ['state' => $this->state];
         $this->state++;
         return [
@@ -379,6 +384,9 @@ final class ScopedRecoveryProvider {
 
     public function reconcile_scoped(string $capability, array $args, array $operation): array {
         $this->reconciliations++;
+        if ($this->reconcileFailure !== null) {
+            throw $this->reconcileFailure;
+        }
         return [
             'operation' => $operation,
             'after' => ['state' => $this->state],
@@ -2282,7 +2290,56 @@ $providerOperation = [
     'input_hash' => Providers::scoped_input_hash($providerAction, $providerDecl),
     'effect_hash' => $hash('provider-effect'),
 ];
+$scopedInvokeCause = new RuntimeException(
+    "scoped invoke failed with X-Amz-Signature=PRIVATE_SCOPED_INVOKE\nPRIVATE_SCOPED_INVOKE_LINE"
+);
+$privateProvider = new ScopedRecoveryProvider();
+$privateProvider->invokeFailure = $scopedInvokeCause;
+$failedProviderOperation = array_replace($providerOperation, [
+    'operation_id' => 'provider-operation-private-failure',
+]);
+$scopedInvokeFailure = null;
+try {
+    Providers::invoke_scoped($privateProvider, $providerAction, $providerDecl, $failedProviderOperation);
+} catch (Throwable $failure) {
+    $scopedInvokeFailure = $failure;
+}
+$check(
+    $scopedInvokeFailure instanceof \WPrism\PrivateEvidenceException
+        && $scopedInvokeFailure->getMessage()
+            === "wprism: provider 'scoped-recovery' capability 'repair' scoped invocation failed"
+        && $scopedInvokeFailure->getPrevious() === null
+        && $scopedInvokeFailure->private_evidence_cause() === $scopedInvokeCause
+        && !str_contains((string) $scopedInvokeFailure, 'PRIVATE_SCOPED_INVOKE'),
+    'scoped provider invocation keeps the exact opaque cause private while its printable wrapper stays stable'
+);
 $providerReceipt = Providers::invoke_scoped($provider, $providerAction, $providerDecl, $providerOperation);
+$scopedReconcileCause = new RuntimeException(
+    "scoped reconcile failed with sk_live_PRIVATE_SCOPED_RECONCILE\nPRIVATE_SCOPED_RECONCILE_LINE"
+);
+$privateReconcileProvider = new ScopedRecoveryProvider();
+$privateReconcileProvider->state = $provider->state;
+$privateReconcileProvider->reconcileFailure = $scopedReconcileCause;
+$scopedReconcileFailure = null;
+try {
+    Providers::reconcile_scoped(
+        $privateReconcileProvider,
+        $providerAction,
+        $providerDecl,
+        $providerOperation
+    );
+} catch (Throwable $failure) {
+    $scopedReconcileFailure = $failure;
+}
+$check(
+    $scopedReconcileFailure instanceof \WPrism\PrivateEvidenceException
+        && $scopedReconcileFailure->getMessage()
+            === "wprism: provider 'scoped-recovery' capability 'repair' scoped reconciliation failed"
+        && $scopedReconcileFailure->getPrevious() === null
+        && $scopedReconcileFailure->private_evidence_cause() === $scopedReconcileCause
+        && !str_contains((string) $scopedReconcileFailure, 'PRIVATE_SCOPED_RECONCILE'),
+    'scoped provider reconciliation keeps the exact opaque cause private while its printable wrapper stays stable'
+);
 $providerRecovered = Providers::reconcile_scoped($provider, $providerAction, $providerDecl, $providerOperation);
 $check(
     $providerReceipt['status'] === 'verified'

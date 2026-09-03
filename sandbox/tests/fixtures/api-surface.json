@@ -1,5 +1,5 @@
 {
-    "class_count": 440,
+    "class_count": 441,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -51333,6 +51333,54 @@
                 }
             },
             "readonly": true
+        },
+        "WPrism\\PrivateEvidenceException": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "message",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "privateEvidenceCause",
+                            "type": "Throwable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "private_evidence_cause": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "Throwable",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": "RuntimeException",
+            "properties": [],
+            "readonly": false
         },
         "WPrism\\ProcessFence": {
             "abstract": false,

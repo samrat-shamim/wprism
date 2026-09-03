@@ -864,6 +864,57 @@ namespace {
     check(($evidenceRecord['throwable'][1]['message'] ?? null) === 'provider capability failed: X-Amz-Signature=EVIDENCECAUSE', 'the record carries the cause chain');
     check(($evidenceRecord['throwable'][0]['class'] ?? null) === 'RuntimeException' && is_int($evidenceRecord['throwable'][0]['line'] ?? null), 'the record names class and origin line');
     check((fileperms($evidenceFiles[0]) & 0777) === 0600, 'the record is private (0600) like every other .wprism/ artifact');
+
+    // An opaque provider cause cannot use RuntimeException::$previous: PHP's
+    // default string rendering recursively prints that chain, so a log of the
+    // otherwise-safe wrapper would expose plugin credentials or target data.
+    // PrivateEvidenceException keeps the ordinary Throwable surface closed;
+    // this one recorder is the deliberate, 0600-only crossing point.
+    $providerEvidenceRepo = sys_get_temp_dir() . '/wprism-cli-provider-refusal-evidence-' . bin2hex(random_bytes(6));
+    mkdir($providerEvidenceRepo, 0700, true);
+    file_put_contents($providerEvidenceRepo . '/site.wprism.json', "{}\n");
+    $opaqueProviderCause = new RuntimeException(
+        "provider failed with X-Amz-Signature=PRIVATE_PROVIDER_CAUSE\nPRIVATE_PROVIDER_CAUSE_LINE"
+    );
+    $privateProviderWrapper = new \WPrism\PrivateEvidenceException(
+        "wprism: provider 'probe' capability 'repair' failed",
+        $opaqueProviderCause
+    );
+    $providerDispatchFailure = new RuntimeException(
+        "wprism: required manifest action 'provider:probe/repair' failed — "
+            . $privateProviderWrapper->getMessage(),
+        0,
+        $privateProviderWrapper
+    );
+    check(
+        !str_contains((string) $providerDispatchFailure, 'PRIVATE_PROVIDER_CAUSE'),
+        'ordinary Throwable rendering cannot cross the provider private-evidence boundary'
+    );
+    \WPrism\Capture::$failure = $providerDispatchFailure;
+    $providerEvidenceEnvelope = invoke_json(
+        static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json'])
+    );
+    check(
+        ($providerEvidenceEnvelope['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($providerEvidenceEnvelope), 'PRIVATE_PROVIDER_CAUSE'),
+        'provider private evidence leaves the public refusal envelope unchanged and secret-free'
+    );
+    $providerEvidenceFiles = glob($providerEvidenceRepo . '/.wprism/refusals/*-capture-*.json') ?: [];
+    $providerEvidenceRecord = json_decode((string) file_get_contents($providerEvidenceFiles[0] ?? ''), true);
+    check(
+        count($providerEvidenceFiles) === 1
+            && ($providerEvidenceRecord['throwable'][0]['message'] ?? null)
+                === $providerDispatchFailure->getMessage()
+            && ($providerEvidenceRecord['throwable'][1]['message'] ?? null)
+                === $privateProviderWrapper->getMessage()
+            && ($providerEvidenceRecord['throwable'][2]['message'] ?? null)
+                === $opaqueProviderCause->getMessage(),
+        'the private refusal record crosses the wrapper and retains the exact provider cause'
+    );
+    check(
+        (fileperms($providerEvidenceFiles[0]) & 0777) === 0600,
+        'provider cause evidence retains the refusal store private mode'
+    );
     // The typed-diagnostic redaction and the final defense pass are the same
     // contract: any details_redacted envelope leaves a record.
     \WPrism\Apply::$planFailure = new \WPrism\RepositoryCompilationException([[
@@ -999,6 +1050,9 @@ namespace {
     foreach (glob($evidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
     @rmdir($evidenceRepo . '/.wprism/refusals'); @rmdir($evidenceRepo . '/.wprism');
     @unlink($evidenceRepo . '/site.wprism.json'); @rmdir($evidenceRepo);
+    foreach (glob($providerEvidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($providerEvidenceRepo . '/.wprism/refusals'); @rmdir($providerEvidenceRepo . '/.wprism');
+    @unlink($providerEvidenceRepo . '/site.wprism.json'); @rmdir($providerEvidenceRepo);
     foreach (glob($checkpointRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
     @rmdir($checkpointRepo . '/.wprism/refusals'); @rmdir($checkpointRepo . '/.wprism/checkpoints');
     @rmdir($checkpointRepo . '/.wprism'); @rmdir($checkpointRepo);

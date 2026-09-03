@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
 // The topology gate the Policy-free verbs below call directly. Required here
 // rather than left to agent/wprism.php's bootstrap order, exactly like
 // CommandRefusal.php above: the offline refusal suites load this file against
@@ -310,13 +311,21 @@ final class Cli {
             return;
         }
         $chain = [];
-        for ($cause = $t, $depth = 0; $cause !== null && $depth < 8; $cause = $cause->getPrevious(), $depth++) {
+        for ($cause = $t, $depth = 0; $cause !== null && $depth < 8; $depth++) {
             $chain[] = [
                 'class' => get_class($cause),
                 'message' => $cause->getMessage(),
                 'file' => $cause->getFile(),
                 'line' => $cause->getLine(),
             ];
+            $previous = $cause->getPrevious();
+            // Provider throwables stay out of PHP's printable cause chain: a
+            // default `(string) $t` recursively renders getPrevious(), and an
+            // opaque plugin message may carry secrets or target values. Only
+            // this 0600 private-evidence writer crosses the redacted wrapper.
+            $cause = $previous ?? ($cause instanceof PrivateEvidenceException
+                ? $cause->private_evidence_cause()
+                : null);
         }
         $record = json_encode([
             'format' => 'wprism-private-refusal-evidence/v1',

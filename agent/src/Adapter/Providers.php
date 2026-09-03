@@ -9,6 +9,7 @@ require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 // in the way CommandRefusal.php pulls in Secrets.php — this file's callers all
 // load it directly, so it cannot rely on someone else having loaded the screen.
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
 // The engine's own reading of the surfaces a capability declared, which is
 // what turns invoke()'s `verified === true` gate from a claim into a check.
 // Required here for the same reason as the two above: every caller of this
@@ -1121,7 +1122,10 @@ final class Providers {
         try {
             $receipt = $provider->invoke($capability, $args);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("wprism: provider '$id' capability '$capability' failed");
+            throw new PrivateEvidenceException(
+                "wprism: provider '$id' capability '$capability' failed",
+                $t
+            );
         }
         $elapsed = microtime(true) - $started;
 
@@ -1541,7 +1545,10 @@ final class Providers {
         try {
             $raw = $provider->invoke_scoped($capability, $args, $operation);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("wprism: provider '$id' capability '$capability' scoped invocation failed");
+            throw new PrivateEvidenceException(
+                "wprism: provider '$id' capability '$capability' scoped invocation failed",
+                $t
+            );
         }
         $elapsed = microtime(true) - $started;
         self::assert_scoped_budget($id, $capability, $capabilityDecl, $elapsed);
@@ -1598,7 +1605,10 @@ final class Providers {
         try {
             $raw = $provider->reconcile_scoped($capability, $args, $operation);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("wprism: provider '$id' capability '$capability' scoped reconciliation failed");
+            throw new PrivateEvidenceException(
+                "wprism: provider '$id' capability '$capability' scoped reconciliation failed",
+                $t
+            );
         }
         $after = self::review_scoped_reconcile_response($id, $capability, $operation, $raw);
         $afterHash = self::scoped_evidence_hash($after);

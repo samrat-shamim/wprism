@@ -189,6 +189,7 @@ return [
     'WPrism\\PostTypeGrammar' => 'src/Grammar/PostTypeGrammar.php',
     'WPrism\\PostTypeRelationResolver' => 'src/Grammar/PostTypeRelationResolver.php',
     'WPrism\\PreparedApply' => 'src/Apply/PreparedApply.php',
+    'WPrism\\PrivateEvidenceException' => 'src/Kernel/PrivateEvidenceException.php',
     'WPrism\\ProcessFence' => 'src/Kernel/ProcessFence.php',
     'WPrism\\PromotionLease' => 'src/Promotion/PromotionLease.php',
     'WPrism\\PromotionLeaseRecord' => 'src/Promotion/PromotionLease.php',

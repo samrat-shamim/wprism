@@ -23,6 +23,7 @@ require_once __DIR__ . '/src/Adapter/ProviderSdk.php';
 require_once __DIR__ . '/src/Adapter/ManifestProviderRuntime.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
+require_once __DIR__ . '/src/Kernel/PrivateEvidenceException.php';
 // Beside CommandRefusal because that is its one dependency, and ahead of every
 // verb: the topology gate has to be loaded for the Policy-free doors
 // (journal-reset, the promotion-lease verbs, classify) that never reach
