@@ -160,7 +160,7 @@ final class PrivateRefusalEvidence {
             $node = self::evidence_node($entry, $index);
             $encodedNode = json_encode(
                 $node,
-                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             );
             $nodeBytes = is_string($encodedNode) ? strlen($encodedNode) : self::GRAPH_BYTE_LIMIT + 1;
             if ($graphBytes + $nodeBytes > self::GRAPH_BYTE_LIMIT) {
@@ -227,10 +227,13 @@ final class PrivateRefusalEvidence {
     /** @return array<string,int|string|bool> */
     private static function bounded_field(string $name, string $value): array {
         $originalBytes = strlen($value);
+        $retained = $originalBytes > self::FIELD_BYTE_LIMIT
+            ? substr($value, 0, self::FIELD_BYTE_LIMIT)
+            : $value;
+        $utf8 = preg_match('//u', $retained) === 1;
         return [
-            $name => $originalBytes > self::FIELD_BYTE_LIMIT
-                ? substr($value, 0, self::FIELD_BYTE_LIMIT)
-                : $value,
+            $name => $utf8 ? $retained : base64_encode($retained),
+            $name . '_encoding' => $utf8 ? 'utf-8' : 'base64',
             $name . '_original_bytes' => $originalBytes,
             $name . '_sha256' => hash('sha256', $value),
             $name . '_truncated' => $originalBytes > self::FIELD_BYTE_LIMIT,
@@ -261,7 +264,7 @@ final class PrivateRefusalEvidence {
         $nodes = [$rootNode, $failureNode];
         $graphBytes = strlen((string) json_encode(
             $nodes,
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         ));
         return [
             'throwable' => $nodes,
@@ -331,7 +334,7 @@ final class PrivateRefusalEvidence {
             'reason_code' => $reasonCode,
             'throwable' => $evidence['throwable'],
             'traversal' => $evidence['traversal'],
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($record === false || strlen($record) + 1 > self::RECORD_BYTE_LIMIT) {
             return;
         }

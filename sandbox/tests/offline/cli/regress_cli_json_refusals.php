@@ -865,15 +865,17 @@ namespace {
     check(
         substr_count($privateEvidenceDocs, 'wprism-private-refusal-evidence/v2') === 2
             && !str_contains($privateEvidenceDocs, 'wprism-private-refusal-evidence/v1')
-            && str_contains($privateEvidenceDocs, 'maximum 256 scanned nodes')
-            && str_contains($privateEvidenceDocs, 'caps graph node JSON at 131,072'),
+            && preg_match('/maximum 256\s+scanned nodes/', $privateEvidenceDocs) === 1
+            && preg_match('/caps\s+graph node JSON at 131,072/', $privateEvidenceDocs) === 1
+            && str_contains($privateEvidenceDocs, 'stored reversibly as base64'),
         'the operator and wire contracts both name v2 graph, edge, field, and aggregate bounds'
     );
     check(($evidenceRecord['command'] ?? null) === 'capture' && ($evidenceRecord['reason_code'] ?? null) === 'capture_failed', 'the record binds command and reason code');
     check(($evidenceRecord['throwable'][0]['message'] ?? null) === 'wprism: required manifest action failed with sk_live_EVIDENCESENTENCE', 'the record carries the primary sentence verbatim');
     check(($evidenceRecord['throwable'][1]['message'] ?? null) === 'provider capability failed: X-Amz-Signature=EVIDENCECAUSE', 'the record carries the cause chain');
     check(
-        ($evidenceRecord['throwable'][1]['message_truncated'] ?? null) === false
+        ($evidenceRecord['throwable'][1]['message_encoding'] ?? null) === 'utf-8'
+            && ($evidenceRecord['throwable'][1]['message_truncated'] ?? null) === false
             && ($evidenceRecord['throwable'][1]['message_original_bytes'] ?? null)
                 === strlen($evidenceCause->getMessage())
             && ($evidenceRecord['throwable'][1]['message_sha256'] ?? null)
@@ -939,6 +941,32 @@ namespace {
     check(
         (fileperms($providerEvidenceFiles[0]) & 0777) === 0600,
         'provider cause evidence retains the refusal store private mode'
+    );
+
+    // PHP permits exception messages with arbitrary bytes. A JSON replacement
+    // character would destroy the diagnostic while claiming it was not
+    // truncated, so a non-UTF-8 retained prefix has an explicit reversible
+    // base64 encoding and still hashes the complete original value.
+    $binaryMessage = "provider binary prefix-\xff-suffix";
+    $binaryFailure = new \WPrism\PrivateEvidenceException(
+        'safe binary provider boundary',
+        new RuntimeException($binaryMessage)
+    );
+    $binaryBefore = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    \WPrism\Capture::$failure = $binaryFailure;
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    $binaryAfter = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    $binaryFiles = array_values(array_diff($binaryAfter, $binaryBefore));
+    $binaryRecord = json_decode((string) file_get_contents($binaryFiles[0] ?? ''), true);
+    $binaryNode = $binaryRecord['throwable'][1] ?? [];
+    check(
+        count($binaryFiles) === 1
+            && ($binaryNode['message_encoding'] ?? null) === 'base64'
+            && ($binaryNode['message_truncated'] ?? null) === false
+            && ($binaryNode['message_original_bytes'] ?? null) === strlen($binaryMessage)
+            && ($binaryNode['message_sha256'] ?? null) === hash('sha256', $binaryMessage)
+            && base64_decode((string) ($binaryNode['message'] ?? ''), true) === $binaryMessage,
+        'a short non-UTF-8 provider message is retained reversibly and never mislabeled as exact UTF-8'
     );
 
     $findPrivateRecord = static function (string $repo, string $needle): ?array {

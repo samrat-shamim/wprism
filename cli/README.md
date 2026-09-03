@@ -951,15 +951,18 @@ semantics remain the rehearsal implementation's.
   repository's `.wprism/refusals/`, and the host prints one stderr line naming
   that place whenever a captured transport returns such an envelope. The same
   store also retains provider/recovery causes hidden behind a safe typed or
-  human-facing wrapper. V2 contains a bounded Throwable graph (maximum 256 scanned nodes,
-  512 edges, 64 recorded nodes, 4,096 bytes per class/message/file field,
-  131,072 graph bytes, and 262,144 bytes for the complete record). Each bounded
-  field includes its original byte length, SHA-256 and truncation flag; the
-  traversal object says explicitly whether nodes, edges, bytes, invalid edges,
-  or cycles made the record incomplete. It contains no trace. The record is
-  written only into a directory that is **already a WPrism repository** — a
-  regular `site.wprism.json`, or a `.wprism/` that already exists — reached without
-  following a symlinked repository root. The exact root and qualifying marker
+  human-facing wrapper. V2 contains a bounded Throwable graph (maximum 256
+  scanned nodes, 512 edges, 64 recorded nodes, 4,096 retained source bytes per
+  class/message/file field, 131,072 graph bytes, and 262,144 bytes for the
+  complete record). Each bounded field includes its original byte length,
+  SHA-256, truncation flag, and encoding. Valid UTF-8 stays verbatim; any other
+  retained byte prefix is stored reversibly as base64 rather than silently
+  substituted. The traversal object says explicitly whether nodes, edges,
+  bytes, invalid edges, or cycles made the record incomplete. It contains no
+  trace. The record is written only into a directory that is **already a
+  WPrism repository** — a regular `site.wprism.json`, or a `.wprism/` that
+  already exists — reached without following a symlinked repository root. The
+  exact root and qualifying marker
   or control-directory inode are rebound around exclusive 0600 creation;
   `.wprism/refusals` is 0700 and its existing parent must be non-writable by
   group/other or sticky-bit bounded. For `init`, recording is allowed only when

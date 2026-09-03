@@ -3513,13 +3513,15 @@ retains operator-only detail, or when traversal itself is incomplete. The agent
 writes a `wprism-private-refusal-evidence/v2` JSON record under the site
 repository's gitignored `.wprism/refusals/`; the envelope itself never names or
 carries it. V2 is a bounded Throwable graph, not a promise of a complete linear
-chain: it scans at most 256 nodes and 512 edges, records at most 64 nodes, caps
-each class/message/file value at 4,096 bytes, caps graph node JSON at 131,072
-bytes and the complete record at 262,144 bytes. Every bounded field carries its
-original byte length, SHA-256 and `*_truncated` witness, while `traversal`
-reports node/edge/byte omissions, cycles, invalid hidden edges, and whether scan
-and record are complete. Records contain class, message, origin file:line and
-relationships but no trace; exact small fields remain verbatim.
+chain: it scans at most 256 nodes and 512 edges, records at most 64 nodes,
+retains at most 4,096 source bytes for each class/message/file value, and caps
+graph node JSON at 131,072 bytes and the complete record at 262,144 bytes.
+Every bounded field carries its original byte length, SHA-256, `*_truncated`,
+and `*_encoding` witnesses. Retained valid UTF-8 is stored verbatim; any other
+byte prefix is stored reversibly as base64 rather than silently substituted.
+`traversal` reports node/edge/byte omissions, cycles, invalid hidden edges, and
+whether scan and record are complete. Records contain class, message, origin
+file:line and relationships but no trace.
 
 The store is best-effort and writes only after binding the exact ordinary
 repository root and the same qualifying regular `site.wprism.json` or
