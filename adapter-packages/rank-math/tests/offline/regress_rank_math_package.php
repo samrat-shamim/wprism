@@ -27,8 +27,11 @@ $outcomePath = $fixtureDir . '/historical-site-outcome.json';
 $seedPath = $root . '/adapter-packages/rank-math/tests/conformance/seed.sh';
 $postdeployPath = $root . '/adapter-packages/rank-math/tests/conformance/postdeploy.sh';
 $checkPath = $root . '/adapter-packages/rank-math/tests/conformance/check.sh';
+$privateRefusalHelperPath = $fixtureDir . '/private-schema-loss-evidence.php';
 $adapterBytes = (string) file_get_contents($adapterPath);
 $adapter = Canon::decode($adapterBytes);
+
+require_once $privateRefusalHelperPath;
 
 wprism_check_same($adapterBytes, Canon::encode($adapter),
     'A1: the shipped Rank Math manifest is canonical before its digest binds the exact bytes');
@@ -233,6 +236,27 @@ wprism_check(
         && str_contains($checkHarness, "capture_wprism_json_refusal DELETE_OUT 'Rank Math unsupported redirection deletion capture'")
         && !str_contains($checkHarness, 'DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json 2>&1)'),
     'B4: expected JSON refusals publish one clean envelope before their downstream refusal assertions'
+);
+wprism_check(
+    str_contains($checkHarness, '"details_redacted":true')
+        && str_contains($checkHarness, "the target's schema-status refusal was redacted")
+        && str_contains($checkHarness, "grep -Fq '.wprism/refusals/'")
+        && str_contains(
+            $checkHarness,
+            'AUTHORED_LOSS_PRIVATE_BASELINE=$($COMPOSE run --rm -T --entrypoint php cli2'
+        )
+        && str_contains(
+            $checkHarness,
+            'AUTHORED_LOSS_PRIVATE_RECEIPT=$($COMPOSE run --rm -T --entrypoint php cli2'
+        )
+        && str_contains($checkHarness, 'wprism-rank-math-private-refusal-check/v1'),
+    'B4: authored schema loss keeps its cause private while uid-matched evidence proves the exact new refusal graph'
+);
+wprism_check(
+    str_contains($checkHarness, "'" . rank_math_private_refusal_receipt() . "'")
+        && hash('sha256', WPRISM_RANK_MATH_PRIVATE_REFUSAL_MESSAGE)
+            === '818de0fac4852aff4fb77b52978db22331055a6a041ebb963a97e4759e223389',
+    'B4: live conformance pins the helper-produced value-free receipt for the exact reviewed private cause'
 );
 
 wprism_check_same(

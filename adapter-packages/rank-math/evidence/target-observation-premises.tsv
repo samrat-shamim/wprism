@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=27 fixtures=8
+# expected observations=29 fixtures=8
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty "$side Rank Math observation"
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math zero-change plan' json
@@ -17,6 +17,8 @@ observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math compet
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math unforced competing metadata apply' human
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math forced metadata conflict' json
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math authored schema loss refusal' human
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math authored schema private refusal baseline'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math authored schema private refusal receipt'
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math injected host schema provider refusal' human
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math canonical verification after lifecycle recovery' json
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math final zero plan' json

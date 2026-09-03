@@ -1106,6 +1106,20 @@ plugin faithfully.
    any shell identifier except the reserved `__wprism_capture_` prefix.
    `require_wprism_answered` validates a mixed stream but does not remove
    Compose's preceding `Container ... Creating` diagnostics from that variable.
+   If the public envelope sets `details_redacted: true`, assert the public
+   redaction and its `.wprism/refusals/` pointer separately from the cause.
+   Inspect private records from a standalone, non-WordPress process running as
+   the target CLI identity: the store is intentionally `0700`/`0600`, so host
+   traversal that happens to work through Docker Desktop is not portable to a
+   native-Linux bind mount. Snapshot the command-scoped record names immediately
+   before the invocation, set-difference them against the names afterward,
+   require exactly one appended record, and validate its
+   `wprism-private-refusal-evidence/v2` completeness witnesses plus the exact
+   root cause. Do not clear prior evidence or select by timestamp/mtime: both
+   can make a failed invocation appear proved by a stale record. The private
+   sentence is deliberately absent from host output; grepping that stream for
+   it tests against the disclosure boundary rather than the refusal that
+   occurred.
 9. When a hostile target needs local mapped identities before first apply,
    never mint them by capturing against the source repository: its canonical
    UUIDs have no target ledger yet. Use a disposable policy root narrowed to

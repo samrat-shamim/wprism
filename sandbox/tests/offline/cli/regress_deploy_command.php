@@ -163,8 +163,18 @@ final class DeployCommandDriver implements EnvironmentDriver {
             if ($this->schemaStatusExit !== 0) {
                 return [
                     'exit' => $this->schemaStatusExit,
-                    'stdout' => '',
-                    'stderr' => 'schema table is absent but durable canonical history remains',
+                    'stdout' => json_encode([
+                        'format' => 'wprism-command-refusal/v1',
+                        'ok' => false,
+                        'command' => 'schema-status',
+                        'error' => 'schema_status_failed',
+                        'reason_code' => 'schema_status_failed',
+                        'message' => 'schema-status refused at an unclassified safety gate',
+                        'remediation' => 'correct the named schema-status blocker, then retry the command',
+                        'details_redacted' => true,
+                    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
+                    'stderr' => " Container wprism-fixture-cli2-run-private Creating\n"
+                        . " Container wprism-fixture-cli2-run-private Created\n",
                 ];
             }
             $presenceOnly = in_array('--presence-only', $wpArgs, true);
@@ -311,6 +321,23 @@ function option_deploy_command(array $args, string $prefix): ?string {
         if (str_starts_with($arg, $prefix)) return substr($arg, strlen($prefix));
     }
     return null;
+}
+
+function schema_loss_deploy_driver(): DeployCommandDriver {
+    $driver = new DeployCommandDriver();
+    $driver->codeEnabled = false;
+    $driver->codeChangeRequired = false;
+    $driver->lifecycleChangeRequired = true;
+    $driver->schemaDeclared = true;
+    $driver->schemaRequired = true;
+    $driver->lifecycleSettlementDeclared = true;
+    $driver->schemaStatusExit = 29;
+    return $driver;
+}
+
+if (($argv[1] ?? '') === '--schema-loss-output-child') {
+    $childResult = run_deploy_command(schema_loss_deploy_driver(), []);
+    exit($childResult['exit']);
 }
 
 $authorizedBeginRefused = false;
@@ -588,14 +615,7 @@ assert_deploy_command(
 // installation opportunity. The agent reports it during read-only status so
 // the host never takes a lease, checkpoints the damaged database, or prints
 // recovery guidance for an unusable checkpoint.
-$schemaLoss = new DeployCommandDriver();
-$schemaLoss->codeEnabled = false;
-$schemaLoss->codeChangeRequired = false;
-$schemaLoss->lifecycleChangeRequired = true;
-$schemaLoss->schemaDeclared = true;
-$schemaLoss->schemaRequired = true;
-$schemaLoss->lifecycleSettlementDeclared = true;
-$schemaLoss->schemaStatusExit = 29;
+$schemaLoss = schema_loss_deploy_driver();
 $schemaLossResult = run_deploy_command($schemaLoss, []);
 assert_deploy_command($schemaLossResult['exit'] === 29, 'authored schema-loss refusal propagates unchanged');
 assert_deploy_command(
@@ -607,6 +627,36 @@ assert_deploy_command(
 assert_deploy_command(
     $schemaLossResult['callbacks'] === ['scope', 'fence:deploy-fixture', 'run-id'],
     'preflight schema loss invents neither lease cleanup nor checkpoint recovery guidance'
+);
+$schemaLossProcess = proc_open(
+    [PHP_BINARY, __FILE__, '--schema-loss-output-child'],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $schemaLossPipes
+);
+assert_deploy_command(is_resource($schemaLossProcess), 'schema-loss output child starts');
+$schemaLossStdout = (string) stream_get_contents($schemaLossPipes[1]);
+$schemaLossStderr = (string) stream_get_contents($schemaLossPipes[2]);
+fclose($schemaLossPipes[1]);
+fclose($schemaLossPipes[2]);
+$schemaLossStatus = proc_close($schemaLossProcess);
+assert_deploy_command($schemaLossStatus === 29, 'schema-loss output child preserves the target refusal exit');
+assert_deploy_command(
+    $schemaLossStdout === "deploy phase: compile\ndeploy phase: lifecycle-status\ndeploy phase: schema-status\n",
+    'schema-loss output stops at the same read-only phase boundary'
+);
+assert_deploy_command(
+    str_contains($schemaLossStderr, 'wprism: deploy: schema readiness preflight failed; no target mutation occurred')
+        && str_contains($schemaLossStderr, 'Container wprism-fixture-cli2-run-private Creating')
+        && str_contains($schemaLossStderr, '"format":"wprism-command-refusal/v1"')
+        && str_contains($schemaLossStderr, '"command":"schema-status"')
+        && str_contains($schemaLossStderr, '"details_redacted":true'),
+    'deploy renders the stable preflight line, transport chatter, and actual redacted schema-status envelope'
+);
+assert_deploy_command(
+    substr_count($schemaLossStderr, ".wprism/refusals/") === 1
+        && str_contains($schemaLossStderr, "the target's schema-status refusal was redacted")
+        && !str_contains($schemaLossStderr, 'durable canonical history remains'),
+    'deploy points once to private evidence without disclosing the authored-loss sentence'
 );
 
 // A post-begin stage failure uses the injected shared exact-abort primitive and

@@ -647,12 +647,31 @@ wp_conf2 db query \
 wp_conf2 db query \
   'INSERT INTO wp_rank_math_redirections_wprism_loss_backup SELECT * FROM wp_rank_math_redirections' >/dev/null
 wp_conf2 db query 'DROP TABLE wp_rank_math_redirections' >/dev/null
+AUTHORED_LOSS_PRIVATE_BASELINE=$($COMPOSE run --rm -T --entrypoint php cli2 \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-schema-loss-evidence.php \
+  snapshot /siterepo/.wprism/refusals) \
+  || fail 'Rank Math authored loss could not snapshot private refusal evidence as the target CLI identity'
+require_observed_nonempty 'Rank Math authored schema private refusal baseline' "$AUTHORED_LOSS_PRIVATE_BASELINE"
 AUTHORED_LOSS_RC=0
 AUTHORED_LOSS_OUT=$(host_wprism conf2 deploy 2>&1) || AUTHORED_LOSS_RC=$?
 require_wprism_answered 'Rank Math authored schema loss refusal' human "$AUTHORED_LOSS_OUT"
 [ "$AUTHORED_LOSS_RC" -ne 0 ] \
-  && grep -Eq 'durable (identity|canonical) history remains' <<<"$AUTHORED_LOSS_OUT" \
+  && grep -Fq '"format":"wprism-command-refusal/v1"' <<<"$AUTHORED_LOSS_OUT" \
+  && grep -Fq '"command":"schema-status"' <<<"$AUTHORED_LOSS_OUT" \
+  && grep -Fq '"reason_code":"schema_status_failed"' <<<"$AUTHORED_LOSS_OUT" \
+  && grep -Fq '"details_redacted":true' <<<"$AUTHORED_LOSS_OUT" \
+  && grep -Fq "the target's schema-status refusal was redacted" <<<"$AUTHORED_LOSS_OUT" \
+  && grep -Fq '.wprism/refusals/' <<<"$AUTHORED_LOSS_OUT" \
+  && ! grep -Eq 'durable (identity|canonical) history remains' <<<"$AUTHORED_LOSS_OUT" \
   || fail "Rank Math authored table loss was treated as empty schema: $AUTHORED_LOSS_OUT"
+AUTHORED_LOSS_PRIVATE_RECEIPT=$($COMPOSE run --rm -T --entrypoint php cli2 \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-schema-loss-evidence.php \
+  verify /siterepo/.wprism/refusals "$AUTHORED_LOSS_PRIVATE_BASELINE") \
+  || fail 'Rank Math authored loss could not verify private refusal evidence as the target CLI identity'
+require_observed_nonempty 'Rank Math authored schema private refusal receipt' "$AUTHORED_LOSS_PRIVATE_RECEIPT"
+[ "$AUTHORED_LOSS_PRIVATE_RECEIPT" = \
+  '{"command":"schema-status","format":"wprism-rank-math-private-refusal-check/v1","new_records":1,"root_message_sha256":"818de0fac4852aff4fb77b52978db22331055a6a041ebb963a97e4759e223389","verified":true}' ] \
+  || fail "Rank Math authored loss returned a malformed private-evidence receipt: $AUTHORED_LOSS_PRIVATE_RECEIPT"
 AUTHORED_LOSS_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$AUTHORED_LOSS_OUT" | paste -sd ' ' -)
 [ "$AUTHORED_LOSS_PHASES" = 'compile lifecycle-status schema-status' ] \
   || fail "Rank Math authored loss crossed the read-only host preflight: $AUTHORED_LOSS_OUT"
