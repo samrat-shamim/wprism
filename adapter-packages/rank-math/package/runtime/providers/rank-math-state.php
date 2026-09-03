@@ -124,11 +124,9 @@ final class RankMathState extends ManifestProviderRuntime {
     private const MAX_NATIVE_RESOLUTION_LINKS = 200000;
     private const MAX_REGISTERED_POST_TYPES = 256;
     private const MAX_PUBLIC_QUERY_VARS = 2048;
-    // The manifest grants 600 seconds to the whole capability. Keep 30 seconds
-    // for parent preflight/receipt work while preserving a 420/150 split for
-    // native repair and an independent fresh-process readback.
-    private const REPAIR_CHILD_TIMEOUT_SECONDS = 420;
-    private const READBACK_CHILD_TIMEOUT_SECONDS = 150;
+    // The manifest grants 600 seconds to the whole capability; preserve 30
+    // seconds for the checked parent projections around the one native child.
+    private const REPAIR_CHILD_TIMEOUT_SECONDS = 570;
 
     private const POST_WITNESS_COLUMNS = [
         'ID',
@@ -256,11 +254,11 @@ final class RankMathState extends ManifestProviderRuntime {
         }
         $this->assert_link_schema();
         $before = $this->link_projection();
-        $repair = $this->run_child(self::REPAIR_CHILD_TIMEOUT_SECONDS, true);
-        $readback = $this->run_child(self::READBACK_CHILD_TIMEOUT_SECONDS, false);
-        $this->assert_child_matches($repair, $readback);
+        $repair = $this->run_child(self::REPAIR_CHILD_TIMEOUT_SECONDS);
+        $after = $this->link_projection();
+        $this->assert_child_matches($repair, $after);
 
-        return ['before' => $before, 'after' => $readback['projection'], 'verified' => true];
+        return ['before' => $before, 'after' => $repair['projection'], 'verified' => true];
     }
 
     /** @return array<string,mixed> */
@@ -841,8 +839,10 @@ final class RankMathState extends ManifestProviderRuntime {
      * Bind the effective core resolution that Rank Math consumes, rather than
      * assuming its permalink inputs stop at the posts table. Core can consult
      * author, category, rewrite and registered-query-var state, while plugins
-     * can filter the resulting routes; an independent fresh readback repeats
-     * these outputs after repair so request-local registration is comparable.
+     * can filter the resulting routes. The full hash binds that request-local
+     * runtime vector; dependency_state_hash excludes only that vector while
+     * retaining its durable option inputs and resolved native-link witness, so
+     * the checked parent can compare every stable route dependency after repair.
      *
      * @param array<string,string> $types
      * @return array{
@@ -1093,7 +1093,7 @@ final class RankMathState extends ManifestProviderRuntime {
      *   projection:array{row_count:int,rows_sha256:string},
      *   resolution:array{link_count:int,resolution_sha256:string}
      * } $source
-     * @return array{dependency_sha256:string}
+     * @return array{dependency_sha256:string,state_sha256:string}
      */
     private function route_dependency_projection(array $types, array $source, array $runtime): array {
         global $wpdb;
@@ -1177,7 +1177,12 @@ final class RankMathState extends ManifestProviderRuntime {
             'types' => array_keys($types),
             'runtime' => $runtime,
         ];
-        return ['dependency_sha256' => hash('sha256', serialize($parts))];
+        $state = $parts;
+        unset($state['runtime']);
+        return [
+            'dependency_sha256' => hash('sha256', serialize($parts)),
+            'state_sha256' => hash('sha256', serialize($state)),
+        ];
     }
 
     /**
@@ -1292,7 +1297,10 @@ final class RankMathState extends ManifestProviderRuntime {
             }
             $dependencyProjection = $enabled
                 ? $this->route_dependency_projection($types, $source, $runtime)
-                : ['dependency_sha256' => hash('sha256', serialize(['enabled' => false]))];
+                : [
+                    'dependency_sha256' => hash('sha256', serialize(['enabled' => false])),
+                    'state_sha256' => hash('sha256', serialize(['enabled' => false])),
+                ];
             $linkProjection = $this->stream_projection(
                 $links,
                 ['url', 'post_id', 'target_post_id', 'type'],
@@ -1336,6 +1344,7 @@ final class RankMathState extends ManifestProviderRuntime {
                 'projection' => $source['projection'],
             ])),
             'dependency_hash' => $dependencyProjection['dependency_sha256'],
+            'dependency_state_hash' => $dependencyProjection['state_sha256'],
             'link_count' => $linkProjection['row_count'],
             'link_hash' => $linkProjection['rows_sha256'],
             'meta_count' => $metaProjection['row_count'],
@@ -1346,49 +1355,55 @@ final class RankMathState extends ManifestProviderRuntime {
     }
 
     /** @return array<string,mixed> */
-    private function run_child(int $timeout, bool $repair): array {
-        $purpose = $repair ? 'native link repair' : 'native link readback';
+    private function run_child(int $timeout): array {
         try {
             $result = WpCliChildProcess::capture(
-                'eval ' . escapeshellarg(self::child_payload($repair)),
+                'eval ' . escapeshellarg(self::child_payload()),
                 $timeout,
                 524288,
                 262144
             );
         } catch (\Throwable $failure) {
-            throw new \RuntimeException("wprism: Rank Math $purpose could not run in a bounded fresh process", 0, $failure);
+            throw new \RuntimeException('wprism: Rank Math native link repair could not run in a bounded fresh process', 0, $failure);
         }
         if ($result['return_code'] !== 0 || trim($result['stderr']) !== '') {
-            throw new \RuntimeException("wprism: Rank Math $purpose did not complete cleanly; recovery_required");
+            throw new \RuntimeException('wprism: Rank Math native link repair did not complete cleanly; recovery_required');
         }
         try {
             $receipt = json_decode(trim($result['stdout']), true, 16, JSON_THROW_ON_ERROR);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException("wprism: Rank Math $purpose returned malformed evidence; recovery_required");
+            throw new \RuntimeException('wprism: Rank Math native link repair returned malformed evidence; recovery_required');
         }
         if (!is_array($receipt)
             || array_keys($receipt) !== ['format', 'projection', 'verified']
             || ($receipt['format'] ?? null) !== self::CHILD_FORMAT
             || !is_array($receipt['projection'] ?? null)
             || ($receipt['verified'] ?? null) !== true) {
-            throw new \RuntimeException("wprism: Rank Math $purpose returned invalid evidence; recovery_required");
+            throw new \RuntimeException('wprism: Rank Math native link repair returned invalid evidence; recovery_required');
         }
         return $receipt;
     }
 
-    /** @param array<string,mixed> $child @param array<string,mixed> $readback */
-    private function assert_child_matches(array $child, array $readback): void {
-        if ($child['projection'] !== $readback['projection']) {
-            throw new \RuntimeException('wprism: Rank Math child repair evidence disagrees with independent fresh readback; recovery_required');
+    /** @param array<string,mixed> $child @param array<string,mixed> $after */
+    private function assert_child_matches(array $child, array $after): void {
+        $childProjection = $child['projection'];
+        if (array_keys($childProjection) !== array_keys($after)
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($childProjection['dependency_hash'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($after['dependency_hash'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($childProjection['dependency_state_hash'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($after['dependency_state_hash'] ?? '')) !== 1) {
+            throw new \RuntimeException('wprism: Rank Math child repair returned a malformed projection; recovery_required');
+        }
+        unset($childProjection['dependency_hash'], $after['dependency_hash']);
+        if ($childProjection !== $after) {
+            throw new \RuntimeException('wprism: Rank Math child repair stable evidence disagrees with checked parent readback; recovery_required');
         }
     }
 
-    private static function child_payload(bool $repair = true): string {
+    private static function child_payload(): string {
         $filters = var_export(self::FILTERS, true);
         $format = self::CHILD_FORMAT;
-        $mode = var_export($repair ? 'repair' : 'readback', true);
         $template = <<<'PHP'
-$mode = __MODE__;
 if (is_multisite()) {
     throw new RuntimeException('Rank Math link repair refuses multisite');
 }
@@ -1869,7 +1884,8 @@ $routeDependencyProjection = static function (
     $userColumns
 ): array {
     if (!$enabled) {
-        return ['dependency_sha256' => hash('sha256', serialize(['enabled' => false]))];
+        $disabled = hash('sha256', serialize(['enabled' => false]));
+        return ['dependency_sha256' => $disabled, 'state_sha256' => $disabled];
     }
     $quotedOptions = array_map(
         static fn(string $name): string => "'" . esc_sql($name) . "'",
@@ -1952,7 +1968,12 @@ $routeDependencyProjection = static function (
         'types' => array_keys($types),
         'runtime' => $runtime,
     ];
-    return ['dependency_sha256' => hash('sha256', serialize($parts))];
+    $state = $parts;
+    unset($state['runtime']);
+    return [
+        'dependency_sha256' => hash('sha256', serialize($parts)),
+        'state_sha256' => hash('sha256', serialize($state)),
+    ];
 };
 $routeTables = [
     $wpdb->posts,
@@ -1986,6 +2007,7 @@ $dependencyStateWithinSnapshot = static function (
         'types' => array_keys($types),
         'source_projection' => $source['projection'],
         'dependency_sha256' => $dependency['dependency_sha256'],
+        'dependency_state_sha256' => $dependency['state_sha256'],
     ];
 };
 $readDependencyState = static function () use (
@@ -2018,7 +2040,7 @@ $readDependencyState = static function () use (
         throw $failure;
     }
 };
-$initialDependencyState = $mode === 'repair' ? $readDependencyState() : [];
+$initialDependencyState = $readDependencyState();
 $mutationTables = [$links, $meta, $wpdb->postmeta];
 if ($enabled) {
     array_push($mutationTables, ...$routeTables);
@@ -2100,6 +2122,7 @@ $projection = static function () use (
             'projection' => $state['source_projection'],
         ])),
         'dependency_hash' => $state['dependency_sha256'],
+        'dependency_state_hash' => $state['dependency_state_sha256'],
         'link_count' => $linkProjection['row_count'],
         'link_hash' => $linkProjection['rows_sha256'],
         'meta_count' => $metaProjection['row_count'],
@@ -2378,27 +2401,20 @@ $processPass = static function () use (
     }
     $assertDependencyState();
 };
-$second = null;
-if ($mode === 'repair') {
-    $clear();
+$clear();
+$processPass();
+$verify();
+$first = $projection();
+if ($enabled) {
     $processPass();
-    $verify();
-    $first = $projection();
-    if ($enabled) {
-        $processPass();
-    } else {
-        $clear();
-        $assertDependencyState();
-    }
-    $verify();
-    $second = $projection();
-    if ($first !== $second) {
-        throw new RuntimeException('Rank Math native link repair is not idempotent');
-    }
-} elseif ($mode === 'readback') {
-    $second = $projection();
 } else {
-    throw new RuntimeException('Rank Math native link child has an invalid fixed mode');
+    $clear();
+    $assertDependencyState();
+}
+$verify();
+$second = $projection();
+if ($first !== $second) {
+    throw new RuntimeException('Rank Math native link repair is not idempotent');
 }
 echo wp_json_encode([
     'format' => '__FORMAT__',
@@ -2410,7 +2426,6 @@ PHP;
             [
                 '__FILTERS__',
                 '__FORMAT__',
-                '__MODE__',
                 '__MAX_ROWS__',
                 '__MAX_RAW_BYTES__',
                 '__MAX_ROW_RAW_BYTES__',
@@ -2433,7 +2448,6 @@ PHP;
             [
                 $filters,
                 $format,
-                $mode,
                 (string) self::MAX_PROJECTION_ROWS,
                 (string) self::MAX_PROJECTION_RAW_BYTES,
                 (string) self::MAX_PROJECTION_ROW_RAW_BYTES,
