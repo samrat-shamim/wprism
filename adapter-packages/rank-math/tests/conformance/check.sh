@@ -409,14 +409,50 @@ RANK_SCOPE_PATH="${CONF_REPO2:-siterepo/conf2}/.tmp-rank-math.scope.json"
 RANK_SCOPE_JSON=$(host_wprism conf2 scope --roots="post:$RANK_SCOPED_UUID" \
   --contract --format=json | jq -ce .)
 printf '%s\n' "$RANK_SCOPE_JSON" >"$RANK_SCOPE_PATH"
+jq -e '
+  .format == "wprism-scope-contract/v1" and
+  ([.potential_actions[]? | select(
+    .manifest == "rank-math" and .source == "provider:rank-math-state/rebuild_all_link_state" and
+    .declaration.kind == "provider" and .declaration.provider == "rank-math-state" and
+    .declaration.capability == "rebuild_all_link_state"
+  )] | length) == 1 and
+  any(.potential_providers[]?;
+    .id == "rank-math-state" and
+    (.potential_action_sources | index("provider:rank-math-state/rebuild_all_link_state")) != null)
+' <<<"$RANK_SCOPE_JSON" >/dev/null \
+  || fail "Rank Math scope contract did not bind its site-complete provider declaration: $RANK_SCOPE_JSON"
+RANK_SCOPED_ACTION_INDEX=$(jq -er '
+  .potential_actions[] | select(
+    .manifest == "rank-math" and .source == "provider:rank-math-state/rebuild_all_link_state"
+  ) | .index
+' <<<"$RANK_SCOPE_JSON")
+RANK_SCOPED_ACTION_HASH=$(php -r '
+  require $argv[1];
+  $contract = json_decode(file_get_contents($argv[2]), true, 512, JSON_THROW_ON_ERROR);
+  $matches = [];
+  foreach (($contract["potential_actions"] ?? []) as $row) {
+      $declaration = $row["declaration"] ?? null;
+      if (is_array($declaration)
+          && ($declaration["manifest"] ?? null) === "rank-math"
+          && ($declaration["provider"] ?? null) === "rank-math-state"
+          && ($declaration["capability"] ?? null) === "rebuild_all_link_state") {
+          $matches[] = $declaration;
+      }
+  }
+  if (count($matches) !== 1) {
+      exit(2);
+  }
+  echo hash("sha256", \WPrism\Canon::encode($matches[0]));
+' "$PAIR_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$RANK_SCOPE_PATH") \
+  || fail 'Rank Math scope contract provider declaration could not be canonically hashed'
+[[ "$RANK_SCOPED_ACTION_INDEX" =~ ^[0-9]+$ && "$RANK_SCOPED_ACTION_HASH" =~ ^[a-f0-9]{64}$ ]] \
+  || fail 'Rank Math scope contract published a malformed provider action identity'
 RANK_SCOPED_PLAN=$(wp_conf2 wprism plan --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-rank-math.scope.json --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'Rank Math scoped provider plan' json "$RANK_SCOPED_PLAN"
-jq -e '
+jq -e --arg hash "$RANK_SCOPED_ACTION_HASH" --argjson index "$RANK_SCOPED_ACTION_INDEX" '
   .format == "wprism-scoped-plan/v1" and
-  any(.selected_actions[]?;
-    .kind == "provider" and .provider == "rank-math-state" and
-    .capability == "rebuild_all_link_state")
+  .selected_actions == [{declaration_hash:$hash,index:$index,manifest:"rank-math"}]
 ' <<<"$RANK_SCOPED_PLAN" >/dev/null \
   || fail "Rank Math scoped plan did not bind its site-complete provider: $RANK_SCOPED_PLAN"
 RANK_SCOPED_APPLY=$(wp_conf2 wprism apply --repo=/siterepo \

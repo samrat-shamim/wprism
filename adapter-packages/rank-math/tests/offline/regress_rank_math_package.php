@@ -215,6 +215,14 @@ wprism_check(
         && str_contains($postdeployHarness, '.redirection >= 9400001'),
     'B4: a fresh hostile target forces the plugin-table identity range to diverge without prior database history'
 );
+wprism_check(
+    str_contains($checkHarness, '.potential_actions[]?')
+        && str_contains($checkHarness, '\\WPrism\\Canon::encode($matches[0])')
+        && str_contains($checkHarness, '$PAIR_SOURCE_ROOT/agent/src/Kernel/Canon.php')
+        && !str_contains($checkHarness, '$WPRISM_SOURCE_ROOT/agent/src/Kernel/Canon.php')
+        && str_contains($checkHarness, '.selected_actions == [{declaration_hash:$hash,index:$index,manifest:"rank-math"}]'),
+    'B4: scoped evidence binds the full provider in its contract and the plan through its exact hash-only identity from the runner-exported source root'
+);
 
 wprism_check_same(
     ['cast' => 'string', 'class' => 'authored', 'ref' => 'post'],

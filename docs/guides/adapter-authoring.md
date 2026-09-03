@@ -452,6 +452,17 @@ already hashed by the scope contract, and the exact capability successfully
 negotiates an operation-bound invoke/reconcile contract. Untriggered native
 actions and legacy providers still refuse before mutation.
 
+Assert that boundary at its two public projections. The scope contract's
+`potential_actions[].declaration` carries the provider, capability and effects;
+the scoped plan intentionally carries only
+`selected_actions[].{manifest,index,declaration_hash}`. Derive that hash with
+`Canon::encode()` over the contract declaration and compare the complete
+three-field plan row. Requiring private provider fields in the plan both tests
+a shape the product does not publish and misses the actual declaration hash.
+When a live harness loads `Canon`, resolve it from the runner-exported
+`PAIR_SOURCE_ROOT`; `WPRISM_SOURCE_ROOT` is only an optional caller override and
+is not part of the conformance-hook environment contract.
+
 ### Providers
 
 A provider declares `{"id", "version", "source", "plugin", "capabilities"}`.
