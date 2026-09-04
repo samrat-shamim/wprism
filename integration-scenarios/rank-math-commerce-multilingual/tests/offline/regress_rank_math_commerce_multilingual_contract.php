@@ -168,8 +168,10 @@ foreach ([
     'exact reciprocal hreflang, canonical and Open Graph state renders on both products',
     'native 302 routing consumes the target-bound URL',
     'provider failure retained combined retry authority',
-    'post deletion selects the site-complete Rank Math repair',
-    'deleted source posts leave no Rank Math rows/counts/markers',
+    'direct deletion remains refusal-only across the combined adapter boundary',
+    'deletion_writer_exclusion_required',
+    'combined direct deletion refusal changed native or target-runtime state',
+    'signed promotion is exercised by the SSH scenario extension',
     'combined target recapture differs',
 ] as $witness) {
     wprism_check(str_contains($live, $witness), "the candidate-bound live scenario pins: $witness");
@@ -307,12 +309,177 @@ wprism_check(
         && str_contains($live, 'provider:rank-math-state/rebuild_all_link_state'),
     'failure, retry and no-op phases retain exact target-only witnesses and bind the selected Rank Math action source'
 );
+$directDeletion = strpos($live, "say 'direct deletion remains refusal-only across the combined adapter boundary'");
+$withheldRefusal = strpos($live, 'DELETE_WITHHELD_RC=0');
+$exclusionRefusal = strpos($live, '.reason_code == "deletion_writer_exclusion_required"');
+$refusalObservation = strpos($live, 'DELETE_REFUSAL_NATIVE=$(native_state wp2)');
+$refusalEquality = strpos(
+    $live,
+    '--argjson before "$TARGET_FINAL" --argjson after "$DELETE_REFUSAL_NATIVE" \'$after == $before\''
+);
 wprism_check(
-    str_contains($live, '(.plan.delete + .plan.deleted) > 0')
-        && str_contains($live, '. == {links:0,markers:0,meta:0,post:0}')
-        && str_contains($live, '$after.neighbor == $before.neighbor')
-        && str_contains($live, '$after.scheduler == $before.scheduler'),
-    'the live deletion oracle proves exact physical/derived cleanup while unrelated target state survives'
+    $directDeletion !== false
+        && $withheldRefusal !== false
+        && $exclusionRefusal !== false
+        && $refusalObservation !== false
+        && $refusalEquality !== false
+        && $directDeletion < $withheldRefusal
+        && $withheldRefusal < $exclusionRefusal
+        && $exclusionRefusal < $refusalObservation
+        && $refusalObservation < $refusalEquality
+        && !str_contains($live, 'promote target --with-deletes')
+        && !str_contains($live, 'promote complete: verified committed receipt; traffic exclusion released'),
+    'the Docker scenario proves both direct deletion refusals and exact native-state preservation, never a fabricated success'
+);
+
+$sshDeletionPath = $root . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/'
+    . 'regress_rank_math_commerce_multilingual_ssh_deletion.sh';
+$sshDeletion = is_file($sshDeletionPath) ? (string) file_get_contents($sshDeletionPath) : '';
+wprism_check($sshDeletion !== '',
+    'the participant-owned scenario includes a tracked SSH-adoption deletion extension');
+$directProbe = proc_open(
+    ['bash', $sshDeletionPath],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $directPipes,
+    $root,
+    ['PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin')]
+);
+$directStdout = '';
+$directStderr = '';
+$directStatus = 127;
+if (is_resource($directProbe)) {
+    $directStdout = (string) stream_get_contents($directPipes[1]);
+    fclose($directPipes[1]);
+    $directStderr = (string) stream_get_contents($directPipes[2]);
+    fclose($directPipes[2]);
+    $directStatus = proc_close($directProbe);
+}
+wprism_check(
+    $directStatus !== 0
+        && $directStdout === ''
+        && str_contains($directStderr, 'ADOPT_FIXTURE'),
+    'the discovered direct live-gate argv refuses missing allocation instead of returning a silent false green'
+);
+wprism_check(
+    !str_contains($sshDeletion, 'declare(strict_types=1);')
+        && str_contains($sshDeletion, 'if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then')
+        && str_contains($sshDeletion, 'export WPRISM_SSH_ADOPT_EXTENSION=')
+        && str_contains($sshDeletion, 'exec bash "$ROOT/sandbox/tests/live/regress_ssh_adopt.sh"'),
+    'the extension remains WP-CLI eval-safe when sourced and delegates direct execution to the shared SSH product gate'
+);
+$sshExtensionHelper = (string) file_get_contents($root . '/sandbox/tests/lib/ssh_adopt_extension.sh');
+wprism_check(
+    str_contains($sshDeletion, 'wprism_ssh_enroll_full_recovery rm-combo')
+        && str_contains($sshDeletion, 'wprism_ssh_install_certified_plugin "$adapter" "$expected_version"')
+        && str_contains($sshDeletion, 'wprism_ssh_stage_code_inventory')
+        && str_contains($sshDeletion, 'advanced-custom-fields polylang seo-by-rank-math woocommerce')
+        && str_contains($sshDeletion, 'wprism_ssh_stage_generation_releases 1')
+        && str_contains($sshDeletion, 'wprism_ssh_publish_post_tombstone post rmcombo-ssh-delete')
+        && !str_contains($sshDeletion, 'wp plugin install')
+        && str_contains($sshExtensionHelper, 'artifact_library_jq -ce')
+        && str_contains($sshExtensionHelper, '.role == "certified-boundary"')
+        && str_contains($sshExtensionHelper, 'hash_file("sha256", $argv[1])')
+        && str_contains($sshExtensionHelper, 'Deletion::capture_tombstones($compiled, [], $policy, [$uuid])')
+        && str_contains($sshExtensionHelper,
+            '$ROOT/sandbox/tests/fixtures/plan-bound-code-release-provider.php')
+        && !str_contains($sshExtensionHelper, 'adapter-packages/woocommerce/fixtures/'),
+    'the scenario composes certified artifacts, code/release/tombstone staging, and recovery through shared machinery'
+);
+$sshArtifactPins = [
+    'acf' => ['advanced-custom-fields', '6.8.7', 'f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2'],
+    'polylang' => ['polylang', '3.8.6', 'dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa'],
+    'rank-math' => ['seo-by-rank-math', '1.0.277.2', '1c6cae3fda401798dfdc5d1d5814de17c040ffcb457c40e2f0256db84a680b1b'],
+    'woocommerce' => ['woocommerce', '11.0.1', 'da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21'],
+];
+foreach ($sshArtifactPins as $participant => [$slug, $version, $sha256]) {
+    $lock = Canon::decode(Canon::read_file(
+        "$root/adapter-packages/$participant/evidence/artifacts.lock.json"
+    ));
+    wprism_check_same(
+        ['url' => "https://downloads.wordpress.org/plugin/$slug.$version.zip", 'sha256' => $sha256, 'role' => 'certified-boundary'],
+        $lock['plugins'][$slug][$version] ?? null,
+        "the SSH combination's $slug $version bytes are fixed by the participant-owned certified artifact lock"
+    );
+}
+foreach ([
+    'advanced-custom-fields|6.8.7',
+    'polylang|3.8.6',
+    'seo-by-rank-math|1.0.277.2',
+    'woocommerce|11.0.1',
+    'wprism_ssh_enroll_full_recovery rm-combo',
+    'WC_Product_Simple',
+    "pll_set_post_language(\$postId, 'en')",
+    "update_field('field_rmcombo_ssh_note', 'delete this ACF value', \$postId)",
+    'RankMath\\Links\\Links::process_post_links($postId, get_post($postId))',
+    '.source == "provider:rank-math-state/rebuild_all_link_state"',
+    '.source == "provider:woocommerce-product-lookups/cleanup_product_deletions"',
+    'promote target --with-deletes',
+    'promote complete: verified committed receipt; traffic exclusion released',
+    '.receipt.allow_deletes == true',
+    'signed promotion deletes ACF/Polylang/Rank Math state, preserves the live Woo product/lookup, and converges',
+] as $witness) {
+    wprism_check(str_contains($sshDeletion, $witness),
+        "the SSH deletion extension pins: $witness");
+}
+$extensionDefinition = strpos($sshDeletion, 'wprism_ssh_adopt_extension() {');
+$recoveryEnrollment = strpos($sshDeletion, 'wprism_ssh_enroll_full_recovery rm-combo');
+$codeBinding = strpos($sshDeletion, 'bind the exact combined plugin/theme code and adapter pins');
+$baselineCapture = strpos($sshDeletion, 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH"');
+$tombstonePublication = strpos($sshDeletion,
+    'wprism_ssh_publish_post_tombstone post rmcombo-ssh-delete');
+$fullPlan = strpos($sshDeletion, 'plan target --format=json');
+$signedPromotion = strpos($sshDeletion, 'promote target --with-deletes');
+$postimageObservation = strpos($sshDeletion, 'after_json="$(ssh_fixture');
+$fixedPointPlan = strrpos($sshDeletion, 'plan target --format=json');
+wprism_check(
+    $extensionDefinition !== false
+        && $recoveryEnrollment !== false
+        && $codeBinding !== false
+        && $baselineCapture !== false
+        && $tombstonePublication !== false
+        && $fullPlan !== false
+        && $signedPromotion !== false
+        && $postimageObservation !== false
+        && $fixedPointPlan !== false
+        && $extensionDefinition < $recoveryEnrollment
+        && $recoveryEnrollment < $codeBinding
+        && $codeBinding < $baselineCapture
+        && $baselineCapture < $tombstonePublication
+        && $tombstonePublication < $fullPlan
+        && $fullPlan < $signedPromotion
+        && $signedPromotion < $postimageObservation
+        && $postimageObservation < $fixedPointPlan,
+    'the SSH extension binds recovery/code before capture and proves cleanup plus convergence only after signed promotion'
+);
+wprism_check(
+    str_contains($sshDeletion, 'declared core post:post boundary')
+        && str_contains($sshDeletion, 'wprism_ssh_publish_post_tombstone post rmcombo-ssh-delete')
+        && str_contains($sshDeletion, '.deletion_type == "post"')
+        && str_contains($sshDeletion,
+            '([.effects_inventory[]? | select(.source == "provider:woocommerce-product-lookups/cleanup_product_deletions")] | length) == 0')
+        && !str_contains($sshDeletion, 'deletion_owner_agreements')
+        && !str_contains($sshDeletion, 'type:"product",uuid:$uuid'),
+    'the SSH extension stays on core post deletion and does not manufacture unaudited Woo product authority'
+);
+wprism_check(
+    str_contains($sshDeletion, '.deleted.acf_meta == 2')
+        && str_contains($sshDeletion, '.deleted.language == "en"')
+        && str_contains($sshDeletion, '.deleted.rank_target_links == 1')
+        && str_contains($sshDeletion, 'rank_links:0')
+        && str_contains($sshDeletion, 'rank_meta:0')
+        && str_contains($sshDeletion, 'relationships:0'),
+    'the successful SSH path starts from non-vacuous ACF/Polylang/Rank Math state and proves every owned row is gone'
+);
+wprism_check(
+    str_contains($sshDeletion, '.stock_notifications == true')
+        && str_contains($sshDeletion, 'lookup:1')
+        && str_contains($sshDeletion, 'rank_incoming:1')
+        && str_contains($sshDeletion, '($after.product | del(.rank_incoming)) == ($before.product | del(.rank_incoming))')
+        && str_contains($sshDeletion, '$after.product.rank_incoming == 0')
+        && str_contains($sshDeletion, '$after.product.post == 1')
+        && str_contains($sshDeletion, '$after.product.lookup == 1')
+        && str_contains($sshDeletion, '.selected_actions == []'),
+    'WooCommerce is live and populated, remains outside the core deletion, and the signed path reaches a no-action fixed point'
 );
 
 wprism_check_summary('regress_rank_math_commerce_multilingual_contract');

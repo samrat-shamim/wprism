@@ -1,5 +1,5 @@
 {
-    "class_count": 472,
+    "class_count": 473,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -77451,6 +77451,35 @@
                     "parameters": [],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\WordPressOptionValueCodec": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "encode_scalar_string": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
                     "visibility": "public"
                 }
             },

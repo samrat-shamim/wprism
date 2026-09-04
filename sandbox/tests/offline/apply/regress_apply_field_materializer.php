@@ -192,14 +192,14 @@ final class ApplyFieldMaterializerFakeWpdb {
         if (trim($sql) === 'SELECT @@transaction_isolation') {
             return $this->isolation;
         }
-        if (trim($sql) === 'SELECT 1 FROM `wp_termmeta` LIMIT 1') {
-            return '1';
+        if (trim($sql) === 'SELECT 1 FROM `wp_termmeta` LIMIT 0') {
+            return null;
         }
-        if (trim($sql) === 'SELECT 1 FROM `wp_term_taxonomy` LIMIT 1') {
-            return '1';
+        if (trim($sql) === 'SELECT 1 FROM `wp_term_taxonomy` LIMIT 0') {
+            return null;
         }
-        if (trim($sql) === 'SELECT 1 FROM `wp_options` LIMIT 1') {
-            return '1';
+        if (trim($sql) === 'SELECT 1 FROM `wp_options` LIMIT 0') {
+            return null;
         }
         if (str_contains($sql, 'meta_key =') && $this->metaLookupError) {
             $this->last_error = 'simulated meta identity lookup failure';

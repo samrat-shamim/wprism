@@ -373,6 +373,47 @@ the ordinary InnoDB, covering-index, row-lock, and reference-clearance proof.
 Required absence, mixed modes for one table, malformed declarations, census
 errors, and near matches all refuse.
 
+#### Active executable owners and successful deletion evidence
+
+A complete database guard list still says nothing about code that can create a
+new reverse reference through a delete hook. For a plugin-owned selector whose
+safety depends on the exact active executable set, declare
+`"executable_owner_boundary": "all_active_owners"` and bind the declaring
+plugin or theme to its reviewed `wprism-executable-tree/v1` identities in
+`executable_owner_identities`. The WooCommerce `post:product` declaration is
+the reference implementation.
+
+This boundary is intentionally conjunctive. Every active plugin must have a
+pinned adapter declaration for that same selector, and every active plugin,
+theme, MU plugin, and drop-in must have an exact
+`wprism-deletion-owner-agreements/v2` site agreement for its live tree. A site
+agreement cannot manufacture adapter authority for a plugin. Do not copy a
+selector into another adapter merely to make a combination test pass: that
+declaration requires its own source audit of reverse references, hook effects,
+and exact executable identities, and it changes the adapter's fleet-visible
+digest.
+
+Direct `wp wprism apply --with-deletes` cannot mint the signed external-writer
+exclusion required for destructive work. It is a refusal-only test surface:
+assert `deletion_writer_exclusion_required` and byte-for-byte target
+preservation there. A successful deletion proof must use `wprism promote
+<env> --with-deletes` on an adopted target with the complete checkpoint,
+code-release, upload, effect, and exclusion recovery profile. The shared SSH
+adoption harness admits one tracked adapter or participant-declared integration
+scenario extension through `WPRISM_SSH_ADOPT_EXTENSION`; source
+`sandbox/tests/lib/ssh_adopt_extension.sh` and reuse its closed helpers:
+`wprism_ssh_install_certified_plugin`, `wprism_ssh_stage_code_inventory`,
+`wprism_ssh_stage_generation_releases`,
+`wprism_ssh_publish_post_tombstone`, and
+`wprism_ssh_enroll_full_recovery`. They resolve package- or
+scenario-participant artifact locks, reject partial active-code inventories,
+derive generations from signed authority, and ask `Deletion` to author the
+canonical tombstone; they never mint policy, owner agreements, or promotion
+authority. Keep exact plugin initialization, pins/policy, semantic preimages,
+and postconditions in the extension. Docker scenarios, whose transport has no
+recovery handoff, should prove opposed load order, round trip, and no-mutation
+refusal rather than pretending a direct destructive apply can succeed.
+
 That transaction proof includes the *incoming* foreign-key graph, not only
 keys visible inside the WordPress schema. A child table in another schema can
 receive `CASCADE` or `SET NULL` writes when WPrism changes its visible parent,

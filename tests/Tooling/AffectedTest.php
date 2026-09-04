@@ -972,6 +972,7 @@ final class AffectedTest extends TestCase
         self::assertSame([
             'integration-scenario:polylang-tec-rewrite-coinstall:live:regress_polylang_tec_rewrite_coinstall.sh',
             'integration-scenario:rank-math-commerce-multilingual:live:regress_rank_math_commerce_multilingual.sh',
+            'integration-scenario:rank-math-commerce-multilingual:live:regress_rank_math_commerce_multilingual_ssh_deletion.sh',
             'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
         ], array_column($decoded['advisories'], 'target'));
     }

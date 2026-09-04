@@ -334,6 +334,7 @@ return [
     'WPrism\\VersionEvidenceGrammar' => 'src/Policy/VersionEvidenceGrammar.php',
     'WPrism\\WidgetTypeResolver' => 'src/Grammar/WidgetTypeResolver.php',
     'WPrism\\WithdrawnAuthoritySiteAdapterCertificate' => 'src/Adapter/AdapterCertification.php',
+    'WPrism\\WordPressOptionValueCodec' => 'src/Kernel/WordPressOptionValueCodec.php',
     'WPrism\\WpCliChildProcess' => 'src/Kernel/WpCliChildProcess.php',
     'WPrism\\WpdbFieldCodec' => 'src/Kernel/WpdbFieldCodec.php',
 ];

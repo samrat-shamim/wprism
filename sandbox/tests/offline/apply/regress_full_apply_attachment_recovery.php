@@ -618,6 +618,7 @@ $compositionReflection->getProperty('promotionOwner')->setValue($compositionAppl
 $compositionReflection->getProperty('promotionArtifact')->setValue($compositionApply, $promotionArtifact);
 $promotionAcquired = false;
 $profileFailure = null;
+$profileAdmissionFailure = null;
 $resetFailure = null;
 $compositionFailure = null;
 $compositionResult = null;
@@ -660,6 +661,28 @@ try {
             $index('post_id', 1, 1, 'post_id'),
         ])
         ->setTableEngine('wp_profile_required_refs', 'InnoDB');
+
+    // The selection callback now holds a topology snapshot, but Db can still
+    // refuse while admitting that profile after START. AuthoredTransactionExecutor
+    // has not set its own transactionStarted flag in that interval, so the
+    // unconditional end callback is the only reset path for a reused graph.
+    $wpdb->setTableEngine('wp_profile_required_refs', 'MyISAM');
+    $wpdb->resetLog();
+    try {
+        $compositionExecutor->execute($compositionRequest, $compositionWarnings);
+    } catch (Throwable $failure) {
+        $profileAdmissionFailure = $failure;
+    }
+    $profileAdmissionQueries = $wpdb->queries();
+    wprism_check(
+        $profileAdmissionFailure !== null
+            && str_contains($profileAdmissionFailure->getMessage(), 'InnoDB required')
+            && in_array('START TRANSACTION', $profileAdmissionQueries, true)
+            && in_array('ROLLBACK AND NO CHAIN NO RELEASE', $profileAdmissionQueries, true)
+            && !DatabaseQueryIsolation::is_active(),
+        'profile-admission failure after START is settled by Db before authored transaction ownership begins'
+    );
+    $wpdb->setTableEngine('wp_profile_required_refs', 'InnoDB');
 
     // A stale planning witness fails only after the profile has been selected
     // and START has succeeded. The following correct request on this exact
@@ -739,7 +762,7 @@ $startAt = $queryIndex(
 );
 $requiredAdmissionAt = $queryIndex(
     $compositionQueries,
-    static fn(string $query): bool => $query === 'SELECT 1 FROM `wp_profile_required_refs` LIMIT 1',
+    static fn(string $query): bool => $query === 'SELECT 1 FROM `wp_profile_required_refs` LIMIT 0',
     $startAt ?? -1
 );
 $requiredRecensusAt = $queryIndex(

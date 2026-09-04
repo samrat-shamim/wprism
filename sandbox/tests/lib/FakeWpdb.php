@@ -48,9 +48,10 @@
  * reset to array() at the top of the failing query -- so BOTH return an empty
  * array on a driver error, and get_var()/get_row() return null. last_error is
  * the only positive signal, and it is always set here. The explicit
- * returnNextGetResultsAs() seam is the one exception: it models defensive
- * callers running behind a non-core wpdb-compatible driver that violates
- * this return contract, without teaching the SQL store another behavior.
+ * returnNextGetResultsAs()/returnNextGetRowAs() are the exceptions: they
+ * model defensive callers running behind a non-core wpdb-compatible driver
+ * that violates this return contract, without teaching the SQL store another
+ * behavior.
  *
  * The consequence for a suite author: `if (!is_array($rows))` after a
  * get_col() is dead code against live wpdb (RegenerationContextStore and
@@ -310,6 +311,8 @@ class FakeWpdb {
     private array $injectedFailures = [];
     /** @var list<array{match:?string,value:array|false|null}> explicit non-core driver return probes */
     private array $getResultsReturnOverrides = [];
+    /** @var list<array{match:?string,value:array|object|null}> explicit row-shape probes */
+    private array $getRowReturnOverrides = [];
     /** Full-apply offline fixtures may opt into the reviewed information_schema projection. */
     private bool $informationSchemaEnabled = false;
     /** Full-apply offline fixtures may opt into the reviewed apply-only SQL extensions. */
@@ -818,6 +821,12 @@ class FakeWpdb {
         return $this;
     }
 
+    /** Override one matching get_row() result after its SQL executes. */
+    public function returnNextGetRowAs(array|object|null $value, ?string $matching = null): self {
+        $this->getRowReturnOverrides[] = ['match' => $matching, 'value' => $value];
+        return $this;
+    }
+
     /**
      * Inject one exact transaction-control outcome after ordinary query-hook
      * failures have been considered. The before/after distinction is the
@@ -1218,6 +1227,13 @@ class FakeWpdb {
             }
         }
         $result = $this->run('get_row', $query);
+        foreach ($this->getRowReturnOverrides as $index => $override) {
+            if ($override['match'] !== null && !str_contains($query, $override['match'])) {
+                continue;
+            }
+            array_splice($this->getRowReturnOverrides, $index, 1);
+            return $override['value'];
+        }
         if ($result === null || $result['kind'] !== 'rows') {
             return null;
         }

@@ -156,7 +156,7 @@ final class DatabaseTablePresence {
         $error = trim((string) ($wpdb->last_error ?? ''));
         if (!is_array($row)
             || !array_is_list($row)
-            || count($row) !== 2
+            || count($row) < 2
             || !is_string($row[0])
             || !hash_equals($table, $row[0])
             || !is_string($row[1])
@@ -173,6 +173,18 @@ final class DatabaseTablePresence {
         if (preg_match("/^CREATE TABLE `$quoted`\\s*\\(/D", $row[1]) !== 1) {
             throw new DatabaseTablePresenceException(
                 DatabaseTablePresenceException::NOT_PLAIN_BASE_TABLE
+            );
+        }
+        // MariaDB and MySQL append view-only charset/collation columns to
+        // SHOW CREATE TABLE on a view. Inspect the definition before enforcing
+        // the plain-table two-column shape so a real view is typed accurately;
+        // extra columns can never turn a CREATE TABLE response into authority.
+        if (count($row) !== 2) {
+            throw new DatabaseTablePresenceException(
+                DatabaseTablePresenceException::RESOLUTION_UNREADABLE,
+                [],
+                null,
+                'malformed SHOW CREATE TABLE result'
             );
         }
     }

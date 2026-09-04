@@ -2,54 +2,54 @@
 <?php
 declare(strict_types=1);
 
-// Live-test provider for the WooCommerce SSH deletion proof. Descriptors are
-// derived from immutable release trees, so Recovery\CodeRelease remains the
-// authority that compares every owned root and file hash with the compiled
-// plan. The target receives no Git history or registry credential.
+// Shared SSH live-test provider. Descriptors come from immutable release
+// trees, so Recovery\CodeRelease remains the authority that compares every
+// owned root and file hash with the compiled plan. The target receives no Git
+// history or registry credential.
 
-function woo_release_canonical(array $value): string {
+function wprism_release_canonical(array $value): string {
     ksort($value, SORT_STRING);
     foreach ($value as $key => $item) {
         if (is_array($item)) {
             $value[$key] = array_is_list($item)
-                ? array_map(static fn($v) => is_array($v) ? json_decode(woo_release_canonical($v), true) : $v, $item)
-                : json_decode(woo_release_canonical($item), true);
+                ? array_map(static fn($v) => is_array($v) ? json_decode(wprism_release_canonical($v), true) : $v, $item)
+                : json_decode(wprism_release_canonical($item), true);
         }
     }
     return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 }
 
-function woo_release_output(array $value): never {
-    echo woo_release_canonical($value) . "\n";
+function wprism_release_output(array $value): never {
+    echo wprism_release_canonical($value) . "\n";
     exit(0);
 }
 
-function woo_release_fail(string $message): never {
+function wprism_release_fail(string $message): never {
     fwrite(STDERR, $message . "\n");
     exit(42);
 }
 
-function woo_release_pointer_hash(string $release): string {
+function wprism_release_pointer_hash(string $release): string {
     return hash('sha256', $release);
 }
 
-function woo_release_assert_id(string $release): void {
+function wprism_release_assert_id(string $release): void {
     if (preg_match('/^release-[A-Za-z0-9._-]{1,128}$/D', $release) !== 1) {
-        woo_release_fail('release id is malformed');
+        wprism_release_fail('release id is malformed');
     }
 }
 
-function woo_release_atomic_write(string $path, string $bytes): void {
+function wprism_release_atomic_write(string $path, string $bytes): void {
     $temporary = $path . '.tmp-' . bin2hex(random_bytes(4));
     if (file_put_contents($temporary, $bytes) !== strlen($bytes)
         || !chmod($temporary, 0600)
         || !rename($temporary, $path)) {
-        woo_release_fail('atomic descriptor write failed');
+        wprism_release_fail('atomic descriptor write failed');
     }
 }
 
 /** @return list<string> */
-function woo_release_owned_roots(string $base): array {
+function wprism_release_owned_roots(string $base): array {
     $owned = [];
     foreach (['mu-plugins', 'plugins', 'themes'] as $root) {
         $directory = $base . '/wp-content/' . $root;
@@ -58,14 +58,14 @@ function woo_release_owned_roots(string $base): array {
         }
         $entries = scandir($directory);
         if ($entries === false) {
-            woo_release_fail('release component root cannot be read');
+            wprism_release_fail('release component root cannot be read');
         }
         foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
             if (preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $entry) !== 1) {
-                woo_release_fail('release component name is malformed');
+                wprism_release_fail('release component name is malformed');
             }
             $owned[] = 'wp-content/' . $root . '/' . $entry;
         }
@@ -75,17 +75,17 @@ function woo_release_owned_roots(string $base): array {
 }
 
 /** @param array<string,array{path:string,sha256:string,type:string}> $rows */
-function woo_release_rows(string $base, string $owned, array &$rows): void {
+function wprism_release_rows(string $base, string $owned, array &$rows): void {
     $path = $base . '/' . $owned;
     if (is_link($path)) {
-        woo_release_fail('symlink refused');
+        wprism_release_fail('symlink refused');
     }
     if (is_file($path)) {
         $rows[$owned] = ['path' => $owned, 'sha256' => (string) hash_file('sha256', $path), 'type' => 'file'];
         return;
     }
     if (!is_dir($path)) {
-        woo_release_fail('owned root is missing from the release');
+        wprism_release_fail('owned root is missing from the release');
     }
     $rows[$owned] = ['path' => $owned, 'sha256' => hash('sha256', ''), 'type' => 'directory'];
     $iterator = new RecursiveIteratorIterator(
@@ -95,14 +95,14 @@ function woo_release_rows(string $base, string $owned, array &$rows): void {
     foreach ($iterator as $entry) {
         $relative = substr($entry->getPathname(), strlen($base) + 1);
         if ($entry->isLink()) {
-            woo_release_fail('symlink refused');
+            wprism_release_fail('symlink refused');
         }
         if ($entry->isDir()) {
             $rows[$relative] = ['path' => $relative, 'sha256' => hash('sha256', ''), 'type' => 'directory'];
             continue;
         }
         if (!$entry->isFile()) {
-            woo_release_fail('release entries must be regular files or directories');
+            wprism_release_fail('release entries must be regular files or directories');
         }
         $rows[$relative] = [
             'path' => $relative,
@@ -113,7 +113,7 @@ function woo_release_rows(string $base, string $owned, array &$rows): void {
 }
 
 /** @return array<string,mixed> */
-function woo_release_descriptor(
+function wprism_release_descriptor(
     string $role,
     string $releaseRoot,
     string $release,
@@ -121,18 +121,18 @@ function woo_release_descriptor(
     string $revision,
     int $generation
 ): array {
-    woo_release_assert_id($release);
+    wprism_release_assert_id($release);
     $base = $releaseRoot . '/' . $release;
     if (is_link($base) || !is_dir($base)) {
-        woo_release_fail('release is missing or unsafe');
+        wprism_release_fail('release is missing or unsafe');
     }
-    $owned = woo_release_owned_roots($base);
+    $owned = wprism_release_owned_roots($base);
     if ($owned === []) {
-        woo_release_fail('release carries no component root');
+        wprism_release_fail('release carries no component root');
     }
     $rows = [];
     foreach ($owned as $root) {
-        woo_release_rows($base, $root, $rows);
+        wprism_release_rows($base, $root, $rows);
     }
     ksort($rows, SORT_STRING);
     return [
@@ -148,31 +148,31 @@ function woo_release_descriptor(
 }
 
 /** @param array<string,mixed> $descriptor */
-function woo_release_verify(string $releaseRoot, array $descriptor): void {
-    woo_release_assert_id((string) ($descriptor['release_id'] ?? ''));
+function wprism_release_verify(string $releaseRoot, array $descriptor): void {
+    wprism_release_assert_id((string) ($descriptor['release_id'] ?? ''));
     $base = $releaseRoot . '/' . $descriptor['release_id'];
     if (is_link($base) || !is_dir($base)) {
-        woo_release_fail('release is missing or unsafe');
+        wprism_release_fail('release is missing or unsafe');
     }
     $recorded = [];
     foreach ($descriptor['files'] as $entry) {
         $path = $base . '/' . $entry['path'];
         $recorded[$entry['path']] = true;
         if (is_link($path)) {
-            woo_release_fail('symlink refused');
+            wprism_release_fail('symlink refused');
         }
         if ($entry['type'] === 'directory') {
             if (!is_dir($path)) {
-                woo_release_fail('descriptor directory missing');
+                wprism_release_fail('descriptor directory missing');
             }
         } elseif (!is_file($path)
             || !hash_equals((string) $entry['sha256'], (string) hash_file('sha256', $path))) {
-            woo_release_fail('descriptor file hash mismatch');
+            wprism_release_fail('descriptor file hash mismatch');
         }
     }
     foreach ($descriptor['owned_roots'] as $owned) {
         if (!isset($recorded[$owned])) {
-            woo_release_fail('owned root is not recorded');
+            wprism_release_fail('owned root is not recorded');
         }
         $root = $base . '/' . $owned;
         if (!is_dir($root)) {
@@ -185,15 +185,15 @@ function woo_release_verify(string $releaseRoot, array $descriptor): void {
         foreach ($iterator as $entry) {
             $relative = substr($entry->getPathname(), strlen($base) + 1);
             if ($entry->isLink() || !isset($recorded[$relative])) {
-                woo_release_fail('unrecorded or linked owned path refused');
+                wprism_release_fail('unrecorded or linked owned path refused');
             }
         }
     }
 }
 
 /** Remove only one provider-selected immutable release beneath releaseRoot. */
-function woo_release_remove(string $releaseRoot, string $release): void {
-    woo_release_assert_id($release);
+function wprism_release_remove(string $releaseRoot, string $release): void {
+    wprism_release_assert_id($release);
     $directory = $releaseRoot . '/' . $release;
     if (!is_dir($directory) || is_link($directory)) {
         return;
@@ -205,27 +205,27 @@ function woo_release_remove(string $releaseRoot, string $release): void {
     foreach ($iterator as $entry) {
         if ($entry->isLink() || $entry->isFile()) {
             if (!unlink($entry->getPathname())) {
-                woo_release_fail('release file deletion failed');
+                wprism_release_fail('release file deletion failed');
             }
             continue;
         }
         if (!$entry->isDir() || !rmdir($entry->getPathname())) {
-            woo_release_fail('release directory deletion failed');
+            wprism_release_fail('release directory deletion failed');
         }
     }
     if (!rmdir($directory)) {
-        woo_release_fail('release root deletion failed');
+        wprism_release_fail('release root deletion failed');
     }
 }
 
 $request = json_decode((string) stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
 if (!is_array($request) || array_is_list($request)) {
-    woo_release_fail('request must be an object');
+    wprism_release_fail('request must be an object');
 }
 $releaseRoot = $argv[2] ?? '';
 $pointer = $argv[3] ?? '';
 if ($releaseRoot === '' || $pointer === '') {
-    woo_release_fail('usage: provider STATE RELEASE_ROOT POINTER');
+    wprism_release_fail('usage: provider STATE RELEASE_ROOT POINTER');
 }
 $priorRelease = is_file($pointer) ? trim((string) file_get_contents($pointer)) : 'release-prior';
 $desiredRelease = 'release-desired-' . (string) ($request['generation'] ?? 0);
@@ -233,14 +233,14 @@ $action = (string) ($request['action'] ?? '');
 $base = ['format' => 'wprism-code-release-provider-response/v1'];
 
 if ($action === 'probe') {
-    woo_release_output($base + [
+    wprism_release_output($base + [
         'atomic_pointer' => true,
         'available' => true,
         'build_resolution_off_target' => true,
         'immutable_releases' => true,
         'mutable_resolution' => false,
         'plan_bound_code_inventory' => true,
-        'provider_id' => 'woocommerce-live-release',
+        'provider_id' => 'wprism-live-release',
         'provider_version' => '1.0.0',
         'state' => 'ready',
         'target_generation_fenced' => true,
@@ -253,15 +253,15 @@ if ($action === 'probe') {
 if ($action === 'prepare') {
     if (($request['format'] ?? '') !== 'wprism-code-release-provider-request/v2'
         || !is_array($request['desired_code_inventory'] ?? null)) {
-        woo_release_fail('unsupported prepare request format');
+        wprism_release_fail('unsupported prepare request format');
     }
     $selected = is_file($pointer) ? trim((string) file_get_contents($pointer)) : '';
     if ($selected !== $priorRelease
         || !is_dir($releaseRoot . '/' . $priorRelease . '/wp-content')
         || !is_dir($releaseRoot . '/' . $desiredRelease . '/wp-content')) {
-        woo_release_fail('immutable prior or desired release is unavailable');
+        wprism_release_fail('immutable prior or desired release is unavailable');
     }
-    $prior = woo_release_descriptor(
+    $prior = wprism_release_descriptor(
         'prior',
         $releaseRoot,
         $priorRelease,
@@ -269,7 +269,7 @@ if ($action === 'prepare') {
         hash('sha256', 'prior-code'),
         max(0, (int) $request['generation'] - 1)
     );
-    $desired = woo_release_descriptor(
+    $desired = wprism_release_descriptor(
         'desired',
         $releaseRoot,
         $desiredRelease,
@@ -277,28 +277,28 @@ if ($action === 'prepare') {
         (string) $request['desired_code_revision'],
         (int) $request['generation']
     );
-    $priorBytes = woo_release_canonical($prior) . "\n";
-    $desiredBytes = woo_release_canonical($desired) . "\n";
-    woo_release_atomic_write((string) $request['prior_descriptor_path'], $priorBytes);
-    woo_release_atomic_write((string) $request['desired_descriptor_path'], $desiredBytes);
-    woo_release_verify($releaseRoot, $prior);
-    woo_release_verify($releaseRoot, $desired);
-    woo_release_output($base + [
+    $priorBytes = wprism_release_canonical($prior) . "\n";
+    $desiredBytes = wprism_release_canonical($desired) . "\n";
+    wprism_release_atomic_write((string) $request['prior_descriptor_path'], $priorBytes);
+    wprism_release_atomic_write((string) $request['desired_descriptor_path'], $desiredBytes);
+    wprism_release_verify($releaseRoot, $prior);
+    wprism_release_verify($releaseRoot, $desired);
+    wprism_release_output($base + [
         'atomic_pointer' => true,
         'available' => true,
         'build_resolution_off_target' => true,
         'desired_descriptor_path' => $request['desired_descriptor_path'],
         'desired_descriptor_sha256' => hash('sha256', $desiredBytes),
-        'desired_pointer_sha256' => woo_release_pointer_hash($desiredRelease),
+        'desired_pointer_sha256' => wprism_release_pointer_hash($desiredRelease),
         'desired_release_id' => $desiredRelease,
         'immutable_releases' => true,
         'mutable_resolution' => false,
         'plan_bound_code_inventory' => true,
         'prior_descriptor_path' => $request['prior_descriptor_path'],
         'prior_descriptor_sha256' => hash('sha256', $priorBytes),
-        'prior_pointer_sha256' => woo_release_pointer_hash($priorRelease),
+        'prior_pointer_sha256' => wprism_release_pointer_hash($priorRelease),
         'prior_release_id' => $priorRelease,
-        'provider_id' => 'woocommerce-live-release',
+        'provider_id' => 'wprism-live-release',
         'provider_version' => '1.0.0',
         'state' => 'prepared',
         'target_generation' => (int) $request['generation'],
@@ -316,42 +316,42 @@ if (in_array($action, ['select_desired', 'restore_prior', 'verify_desired', 'ver
     $descriptor = json_decode($descriptorBytes, true, 512, JSON_THROW_ON_ERROR);
     if (!is_array($descriptor)
         || !hash_equals((string) $request[$role . '_descriptor_sha256'], hash('sha256', $descriptorBytes))) {
-        woo_release_fail('descriptor changed');
+        wprism_release_fail('descriptor changed');
     }
     $target = (string) $descriptor['release_id'];
     $current = is_file($pointer) ? trim((string) file_get_contents($pointer)) : '';
     $isVerify = str_starts_with($action, 'verify_');
-    woo_release_verify($releaseRoot, $descriptor);
+    wprism_release_verify($releaseRoot, $descriptor);
     if (!$isVerify) {
         $otherRole = $role === 'desired' ? 'prior' : 'desired';
         $other = json_decode((string) file_get_contents((string) $request[$otherRole . '_descriptor_path']), true, 512, JSON_THROW_ON_ERROR);
         $from = is_array($other) ? (string) ($other['release_id'] ?? '') : '';
         if ($current !== $from && $current !== $target) {
-            woo_release_fail('concurrent pointer writer refused');
+            wprism_release_fail('concurrent pointer writer refused');
         }
         if ($current !== $target) {
-            woo_release_atomic_write($pointer, $target . "\n");
+            wprism_release_atomic_write($pointer, $target . "\n");
         }
     } elseif ($current !== $target) {
-        woo_release_fail('selected pointer changed before verification');
+        wprism_release_fail('selected pointer changed before verification');
     }
-    woo_release_verify($releaseRoot, $descriptor);
-    $result = hash('sha256', woo_release_canonical([
+    wprism_release_verify($releaseRoot, $descriptor);
+    $result = hash('sha256', wprism_release_canonical([
         'descriptor_sha256' => hash('sha256', $descriptorBytes),
         'generation' => $request['generation'],
-        'pointer_sha256' => woo_release_pointer_hash($target),
+        'pointer_sha256' => wprism_release_pointer_hash($target),
         'release_id' => $target,
         'target_id' => $request['target_id'],
     ]));
-    woo_release_output($base + [
+    wprism_release_output($base + [
         'action' => $action,
         'atomic_pointer' => true,
         'available' => true,
         'descriptor_sha256' => hash('sha256', $descriptorBytes),
         'generation' => (int) $request['generation'],
         'no_unrecorded_owned_paths' => true,
-        'pointer_sha256' => woo_release_pointer_hash($target),
-        'provider_id' => 'woocommerce-live-release',
+        'pointer_sha256' => wprism_release_pointer_hash($target),
+        'provider_id' => 'wprism-live-release',
         'provider_version' => '1.0.0',
         'release_id' => $target,
         'result_sha256' => $result,
@@ -365,17 +365,17 @@ if (in_array($action, ['select_desired', 'restore_prior', 'verify_desired', 'ver
 if ($action === 'delete_prior') {
     $release = (string) ($request['release_id'] ?? '');
     if (is_file($pointer) && trim((string) file_get_contents($pointer)) === $release) {
-        woo_release_fail('cannot delete selected prior release');
+        wprism_release_fail('cannot delete selected prior release');
     }
-    woo_release_remove($releaseRoot, $release);
-    woo_release_output($base + [
+    wprism_release_remove($releaseRoot, $release);
+    wprism_release_output($base + [
         'action' => 'delete_prior',
         'available' => true,
         'prior_release_absent' => !is_dir($releaseRoot . '/' . $release),
-        'provider_id' => 'woocommerce-live-release',
+        'provider_id' => 'wprism-live-release',
         'provider_version' => '1.0.0',
         'state' => 'deleted',
     ]);
 }
 
-woo_release_fail('unsupported fixture action');
+wprism_release_fail('unsupported fixture action');

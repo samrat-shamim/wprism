@@ -15,7 +15,9 @@
 #   3. `wp wprism env-set --stdin` writes the value, verified by re-reading it;
 #      the response correctly distinguishes "was previously unset" from
 #      "replaced an existing value" (Apply::set_env_option()'s own
-#      previously_set flag).
+#      previously_set flag), and a serialized-looking scalar remains the exact
+#      string WordPress's option API would preserve through update_option()
+#      while plan/status compare its encoded wire representation correctly.
 #   4. `wp wprism env-set --stdin`: reads a value from STDIN with terminal
 #      echo disabled, piped non-interactively (matching `wprism classify`'s
 #      own established pipe-testable convention). Deliberately NOT
@@ -190,6 +192,22 @@ rm -f /tmp/wprism_env_set_stdin_result.json
 [ "$(wp1 option get admin_email 2>/dev/null)" = "from-stdin@example.test" ] || fail "admin_email did not match the piped --stdin value"
 pass "env-set --stdin correctly read and wrote the piped value"
 
+say "(6b) a serialized-looking scalar keeps its exact string type and bytes"
+SERIALIZED_LOOKING='a:1:{s:1:"x";s:1:"y";}'
+printf '%s\n' "$SERIALIZED_LOOKING" \
+  | wp1 wprism env-set --repo=/siterepo --name=admin_email --stdin --format=json >/dev/null
+SERIALIZED_READBACK=$(wp1 eval '$v = get_option("admin_email"); echo gettype($v) . ":" . base64_encode(is_string($v) ? $v : serialize($v));' 2>/dev/null)
+SERIALIZED_EXPECTED="string:$(printf '%s' "$SERIALIZED_LOOKING" | base64 | tr -d '\n')"
+[ "$SERIALIZED_READBACK" = "$SERIALIZED_EXPECTED" ] \
+  || fail "serialized-looking env value changed type or bytes: $SERIALIZED_READBACK"
+[ "$(wp1 wprism plan --repo=/siterepo --format=json 2>/dev/null | jq -c '.env_missing')" = "[]" ] \
+  || fail "serialized-looking env value remained red after its exact env-set write"
+"$WPRISM_CLI" status "$ENV_NAME" >/dev/null 2>&1 \
+  || fail "wprism status remained red for a serialized-looking env value"
+printf 'from-stdin@example.test\n' \
+  | wp1 wprism env-set --repo=/siterepo --name=admin_email --stdin --format=json >/dev/null
+pass "env-set and plan/status preserve WordPress's double-serialization compatibility for logical strings"
+
 BEFORE_TRUNCATED=$(wp1 option get admin_email 2>/dev/null)
 if printf %s 'truncated@example.test' \
   | wp1 wprism env-set --repo=/siterepo --name=admin_email --stdin --format=json \
@@ -219,7 +237,7 @@ rm -f /tmp/wprism_refuse_2.txt
 pass "refuses an empty value, writes nothing"
 
 wp1 wprism env-set --repo=/siterepo --name=admin_email >/tmp/wprism_refuse_3.txt 2>&1 && fail "should have refused without --stdin"
-grep -q 'env-set requires --stdin' /tmp/wprism_refuse_3.txt || fail "wrong refusal message without --stdin: $(cat /tmp/wprism_refuse_3.txt)"
+grep -q -- '--stdin is required' /tmp/wprism_refuse_3.txt || fail "wrong refusal message without --stdin: $(cat /tmp/wprism_refuse_3.txt)"
 rm -f /tmp/wprism_refuse_3.txt
 pass "refuses when --stdin is not given"
 

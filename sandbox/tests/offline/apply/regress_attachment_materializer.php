@@ -7,8 +7,13 @@ namespace WPrism {
         public static int $starts = 0;
         public static int $rollbacks = 0;
         public static int $nextMetaId = 11;
+        /** @var list<mixed> */
+        public static array $profiles = [];
 
-        public static function start_repeatable_read(string $purpose, mixed $profile): void { ++self::$starts; }
+        public static function start_repeatable_read(string $purpose, mixed $profile): void {
+            ++self::$starts;
+            self::$profiles[] = $profile;
+        }
         public static function commit(string $purpose): void {}
         public static function checkpoint(string $purpose): void {}
         public static function transaction_active(string $purpose): bool { return true; }
@@ -313,7 +318,7 @@ namespace {
         public function get_var(string $sql): mixed {
             $this->queries[] = $sql;
             if (trim($sql) === 'SELECT @@in_transaction') return '1';
-            if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 1$/D', trim($sql)) === 1) return '1';
+            if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 0$/D', trim($sql)) === 1) return null;
             if (preg_match("/^SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D", trim($sql), $match) === 1) {
                 foreach ($this->kvRows as $row) {
                     if ($row['k'] === 'ledger:' . $match[2] . ':' . $match[1]) return $row['v'];
@@ -920,6 +925,17 @@ namespace {
                 && Db::$rollbacks === 1
                 && !$GLOBALS['wpdb']->savepointExists,
             'native generator establishes target-lock continuity and settles its rollback-only metadata transaction'
+        );
+        $metadataProfile = Db::$profiles[0] ?? null;
+        $check(
+            $metadataProfile instanceof \WPrism\NativeDatabaseProfile
+                && $metadataProfile->readable_tables() === [
+                    'wp_options',
+                    'wp_postmeta',
+                    'wp_posts',
+                    'wp_wprism_map',
+                ],
+            'native generator admits the exact Core image-option reads and no unrelated physical table'
         );
         $check(
             $GLOBALS['wprism_attachment_generate_calls'] === 1,

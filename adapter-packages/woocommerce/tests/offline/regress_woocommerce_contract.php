@@ -1024,20 +1024,33 @@ $woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/cert
 $matrixHarness .= "\n" . $woocommerceMatrixHarness;
 $woocommerceScopedDeletionHarnessPath = dirname(__DIR__) . '/live/regress_woocommerce_scoped_deletion.sh';
 $woocommerceScopedDeletionHarness = (string) file_get_contents($woocommerceScopedDeletionHarnessPath);
-$woocommerceCodeReleaseProviderPath = dirname(__DIR__, 2) . '/fixtures/plan-bound-code-release-provider.php';
+$sshExtensionLibraryPath = $root . '/sandbox/tests/lib/ssh_adopt_extension.sh';
+$sshExtensionLibrary = (string) file_get_contents($sshExtensionLibraryPath);
+$woocommerceScopedDeletionEvidence = $woocommerceScopedDeletionHarness . "\n" . $sshExtensionLibrary;
+$woocommerceCodeReleaseProviderPath = $root . '/sandbox/tests/fixtures/plan-bound-code-release-provider.php';
 $woocommerceCodeReleaseProvider = (string) file_get_contents($woocommerceCodeReleaseProviderPath);
 $sshAdoptHarness = (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
 woo_ok(is_file($woocommerceScopedDeletionHarnessPath)
+    && is_file($sshExtensionLibraryPath)
     && str_contains($sshAdoptHarness, 'WPRISM_SSH_ADOPT_EXTENSION')
     && str_contains($sshAdoptHarness, 'wprism_ssh_adopt_extension')
     && str_contains($sshAdoptHarness, 'tests/live/*.sh'),
     'WooCommerce deletion live proof is selected only through the candidate-bound standalone SSH extension hook');
 woo_ok(is_file($woocommerceCodeReleaseProviderPath),
-    'WooCommerce deletion live proof owns its exact plan-bound code-release provider fixture');
+    'WooCommerce deletion live proof reuses the shared exact plan-bound code-release provider fixture');
+woo_ok(
+    str_contains($woocommerceScopedDeletionHarness,
+        'wprism_ssh_install_certified_plugin woocommerce "$woo_version"')
+        && !str_contains($woocommerceScopedDeletionHarness, 'wp plugin install woocommerce')
+        && str_contains($sshExtensionLibrary, 'artifact_library_jq -ce')
+        && str_contains($sshExtensionLibrary, '.role == "certified-boundary"')
+        && str_contains($sshExtensionLibrary, 'hash_file("sha256", $argv[1])'),
+    'WooCommerce SSH deletion installs only its participant-owned digest-verified certified artifact'
+);
 foreach ([
     'wprism-code-release-provider-request/v2',
     'desired_code_inventory',
-    'woo_release_owned_roots',
+    'wprism_release_owned_roots',
     'unrecorded or linked owned path refused',
     "'target_git_history' => false",
     "'target_registry_credentials' => false",
@@ -2497,12 +2510,13 @@ foreach ([
     'sandbox/tests/fixtures/upload-provider.php',
     'sandbox/tests/fixtures/effect-provider.php',
     'fixtures/plan-bound-code-release-provider.php',
+    'wprism_ssh_enroll_full_recovery woocommerce',
     '.envs.target.rollback_recovery.upload_provider',
     '"/home/wprism/site/media"',
     '.envs.target.rollback_recovery.effect_provider',
     '.envs.target.rollback_recovery.code_release_provider',
     'adopt target >/dev/null',
-    'wp plugin install woocommerce --version=$woo_version --activate',
+    'wprism_ssh_install_certified_plugin woocommerce "$woo_version"',
     'WOOCOMMERCE_BIS_ALPHA_ENABLED',
     'WC_Install::maybe_enable_hpos();',
     'WC_Install::create_tables();',
@@ -2511,9 +2525,10 @@ foreach ([
     '$site["code"] = ["format" => 1, "layout" => "wp-content", "source" => "code/wp-content"]',
     'git -C /home/wprism/site add -- site.wprism.json state code',
     'git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release"',
-    'release-prior',
-    'release-desired-$next_generation',
-    'release-desired-$retry_generation',
+    'wprism_ssh_stage_code_inventory woocommerce',
+    'wprism_ssh_stage_generation_releases 2',
+    'wprism_ssh_publish_post_tombstone product wprism-ssh-deletion-proof',
+    'Deletion::capture_tombstones($compiled, [], $policy, [$uuid])',
     'wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce',
     'git -C /home/wprism/site add -- media site.wprism.json state',
     'deploy target >"$TMP/woocommerce-code-baseline.stdout"',
@@ -2536,7 +2551,7 @@ foreach ([
     'success_lookup" = "0"',
     '.delete == [] and .delete_conflict == []',
 ] as $scopedDeletionWitness) {
-    woo_ok(str_contains($woocommerceScopedDeletionHarness, $scopedDeletionWitness),
+    woo_ok(str_contains($woocommerceScopedDeletionEvidence, $scopedDeletionWitness),
         "candidate-bound WooCommerce scoped-deletion live proof pins $scopedDeletionWitness");
 }
 woo_ok(

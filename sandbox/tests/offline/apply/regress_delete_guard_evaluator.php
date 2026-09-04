@@ -44,6 +44,9 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public array $tableEngines;
     /** @var array<string,string> */
     public array $temporaryTableEngines = [];
+    /** @var array<string,true> */
+    public array $viewTables = [];
+    public ?string $replaceWithViewDuringMetadataLock = null;
     /** @var array<string,int> */
     public array $tableTriggerCounts = [];
     public bool $triggerMetadataVisible = true;
@@ -344,7 +347,7 @@ final class DeleteGuardEvaluatorFakeWpdb {
         }
         if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT ([01])$/D', $sql, $match) === 1) {
             $table = $match[1];
-            if ($match[2] === '1' && $this->metadataProbeFails) {
+            if ($match[2] === '0' && $this->metadataProbeFails) {
                 $this->last_error = 'simulated metadata probe failure';
                 return false;
             }
@@ -359,6 +362,11 @@ final class DeleteGuardEvaluatorFakeWpdb {
             }
             $this->warningCode = null;
             $this->last_error = '';
+            if ($match[2] === '0'
+                && $this->replaceWithViewDuringMetadataLock === $table) {
+                $this->viewTables[$table] = true;
+                $this->replaceWithViewDuringMetadataLock = null;
+            }
             return $match[2] === '0' ? null : 1;
         }
         if (str_starts_with($sql, 'SELECT post_password FROM wp_posts WHERE ')) {
@@ -388,6 +396,9 @@ final class DeleteGuardEvaluatorFakeWpdb {
         if (preg_match('/^SHOW CREATE TABLE `([A-Za-z0-9_]+)`$/D', $sql, $match) === 1
             && $format === ARRAY_N) {
             $table = $match[1];
+            if (isset($this->viewTables[$table])) {
+                return [$table, "CREATE VIEW `$table` AS SELECT 1 AS id"];
+            }
             $temporary = array_key_exists($table, $this->temporaryTableEngines);
             $engine = $temporary
                 ? $this->temporaryTableEngines[$table]
@@ -981,23 +992,25 @@ DatabaseLockBoundary::assert_atomic_mutation_tables(
     }
 );
 $check(
-    count($engineWpdb->queries) === 14
-        && $engineWpdb->queries[0] === 'SELECT 1 FROM `wp_options` LIMIT 1'
-        && $engineWpdb->queries[1] === 'SHOW CREATE TABLE `wp_options`'
-        && $engineWpdb->queries[2] === 'SELECT 1 FROM `wp_postmeta` LIMIT 1'
+    count($engineWpdb->queries) === 16
+        && $engineWpdb->queries[0] === 'SHOW CREATE TABLE `wp_options`'
+        && $engineWpdb->queries[1] === 'SELECT 1 FROM `wp_options` LIMIT 0'
+        && $engineWpdb->queries[2] === 'SHOW CREATE TABLE `wp_options`'
         && $engineWpdb->queries[3] === 'SHOW CREATE TABLE `wp_postmeta`'
-        && str_contains($engineWpdb->queries[4], 'information_schema.TABLES')
-        && $engineWpdb->queries[5] === 'SELECT CURRENT_USER()'
-        && str_contains($engineWpdb->queries[6], 'direct_trigger_grants')
-        && str_contains($engineWpdb->queries[7], 'information_schema.TRIGGERS')
-        && $engineWpdb->queries[8] === 'SELECT CURRENT_USER()'
-        && str_contains($engineWpdb->queries[9], "PRIVILEGE_TYPE = 'PROCESS'")
-        && $engineWpdb->queries[10] === 'SELECT VERSION()'
-        && str_contains($engineWpdb->queries[11], "'INNODB_SYS_FOREIGN'")
-        && str_contains($engineWpdb->queries[11], "'INNODB_FOREIGN'")
-        && $engineWpdb->queries[12] === 'SELECT DATABASE()'
-        && str_contains($engineWpdb->queries[13], 'information_schema.INNODB_FOREIGN')
-        && $engineContinuityChecks === 28,
+        && $engineWpdb->queries[4] === 'SELECT 1 FROM `wp_postmeta` LIMIT 0'
+        && $engineWpdb->queries[5] === 'SHOW CREATE TABLE `wp_postmeta`'
+        && str_contains($engineWpdb->queries[6], 'information_schema.TABLES')
+        && $engineWpdb->queries[7] === 'SELECT CURRENT_USER()'
+        && str_contains($engineWpdb->queries[8], 'direct_trigger_grants')
+        && str_contains($engineWpdb->queries[9], 'information_schema.TRIGGERS')
+        && $engineWpdb->queries[10] === 'SELECT CURRENT_USER()'
+        && str_contains($engineWpdb->queries[11], "PRIVILEGE_TYPE = 'PROCESS'")
+        && $engineWpdb->queries[12] === 'SELECT VERSION()'
+        && str_contains($engineWpdb->queries[13], "'INNODB_SYS_FOREIGN'")
+        && str_contains($engineWpdb->queries[13], "'INNODB_FOREIGN'")
+        && $engineWpdb->queries[14] === 'SELECT DATABASE()'
+        && str_contains($engineWpdb->queries[15], 'information_schema.INNODB_FOREIGN')
+        && $engineContinuityChecks === 32,
     'generic mutation-table proof sorts/de-duplicates tables and checks continuity around every database observation'
 );
 
@@ -1007,7 +1020,7 @@ $engineWpdb->tableTriggerCounts['wp_postmeta'] = 1;
 $GLOBALS['wpdb'] = $engineWpdb;
 DatabaseLockBoundary::assert_innodb_tables(['wp_postmeta'], 'read-only row locking');
 $check(
-    count($engineWpdb->queries) === 3
+    count($engineWpdb->queries) === 4
         && !str_contains(implode("\n", $engineWpdb->queries), 'TRIGGER'),
     'read-only lock proof does not require mutation-only trigger authority'
 );
@@ -1027,6 +1040,46 @@ try {
 $check(
     $temporaryShadowRefused,
     'MySQL-style temporary-table shadowing cannot borrow the base table InnoDB proof'
+);
+
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], ['wp_postmeta' => 'InnoDB']);
+$engineWpdb->viewTables['wp_postmeta'] = true;
+$GLOBALS['wpdb'] = $engineWpdb;
+try {
+    DatabaseLockBoundary::assert_innodb_tables(['wp_postmeta'], 'read-only row locking');
+    $viewRefusedBeforeTouch = false;
+} catch (RuntimeException $failure) {
+    $viewRefusedBeforeTouch = str_contains(
+        $failure->getMessage(),
+        'is not the plain base table resolved by this session'
+    );
+}
+$check(
+    $viewRefusedBeforeTouch
+        && $engineWpdb->queries === ['SHOW CREATE TABLE `wp_postmeta`'],
+    'a view is rejected before any statement can expand or read its undeclared dependency graph'
+);
+
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], ['wp_postmeta' => 'InnoDB']);
+$engineWpdb->replaceWithViewDuringMetadataLock = 'wp_postmeta';
+$GLOBALS['wpdb'] = $engineWpdb;
+try {
+    DatabaseLockBoundary::assert_innodb_tables(['wp_postmeta'], 'read-only row locking');
+    $renameRaceRefused = false;
+} catch (RuntimeException $failure) {
+    $renameRaceRefused = str_contains(
+        $failure->getMessage(),
+        'is not the plain base table resolved by this session'
+    );
+}
+$check(
+    $renameRaceRefused
+        && $engineWpdb->queries === [
+            'SHOW CREATE TABLE `wp_postmeta`',
+            'SELECT 1 FROM `wp_postmeta` LIMIT 0',
+            'SHOW CREATE TABLE `wp_postmeta`',
+        ],
+    'plain-table identity is repeated after zero-row metadata-lock acquisition to close a rename-to-view race'
 );
 
 $engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], ['wp_postmeta' => 'InnoDB']);
@@ -1094,7 +1147,9 @@ try {
     $metadataRefused = $e->getMessage()
         === 'wprism: deletion guard locking refused — unable to acquire metadata lock for guard table '
             . 'wp_postmeta: simulated metadata probe failure'
-        && count($engineWpdb->queries) === 1;
+        && count($engineWpdb->queries) === 2
+        && $engineWpdb->queries[0] === 'SHOW CREATE TABLE `wp_postmeta`'
+        && $engineWpdb->queries[1] === 'SELECT 1 FROM `wp_postmeta` LIMIT 0';
 }
 $check($metadataRefused, 'metadata-lock failure refuses before information-schema introspection');
 

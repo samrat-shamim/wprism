@@ -8,7 +8,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-attestation regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
-.PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
+.PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database regress-database-boundary-live
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-closed-top-level-keys regress-structured-evidence
 .PHONY: regress-spec-v3-digest-neutrality regress-spec-migration-verbs
 
@@ -330,6 +330,13 @@ regress-core-scope-platform:
 # what wedged OrbStack).
 regress-core-scope-database:
 	bash sandbox/tests/live/regress_core_scope_database.sh
+
+# Exact-source generic database boundary proof on MariaDB and MySQL: the
+# product read snapshot retains/releases its LIMIT-0 metadata lock, rejects an
+# executable SQL SECURITY DEFINER view without invoking its function, and on
+# MariaDB refuses NEXT/PREVIOUS VALUE FOR without moving the sequence.
+regress-database-boundary-live:
+	bash sandbox/tests/live/regress_database_boundary_live.sh
 
 regress-attachment-portability:
 	bash sandbox/tests/live/regress_attachment_portability.sh
@@ -2772,6 +2779,7 @@ regress-live-list:
 	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact offline core per run: CORE_DATA_BOUNDARY_WORDPRESS/_IMAGE, default 7.1; re-run per exercised series)"
 	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 x PHP 8.3/8.4 matrix, a below-range 6.8.3 refusal and a past-the-maximum PHP 8.5 refusal)"
 	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
+	@echo "  regress-database-boundary-live            own disposable pair (parameterized: DATABASE_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; MariaDB/MySQL LIMIT-0 metadata lock + no-definer-invocation view proof + MariaDB sequence refusal)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"

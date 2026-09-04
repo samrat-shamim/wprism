@@ -1,0 +1,355 @@
+#!/usr/bin/env bash
+
+# Shared extension machinery for regress_ssh_adopt.sh. The parent suite owns
+# its target, registry, diagnostics, and signed checkpoint provider; callers
+# select certified plugin artifacts plus narrowly validated fixture state.
+
+# shellcheck source=../../bin/artifact-library.sh
+. "$ROOT/sandbox/bin/artifact-library.sh"
+
+wprism_ssh_install_certified_plugin() { # <artifact-slug> <version>
+  [ "$#" -eq 2 ] || fail 'certified plugin install requires an artifact slug and version'
+  local slug="$1" version="$2" entry url sha256 archive partial actual remote
+
+  [[ "$slug" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
+    || fail "certified plugin artifact slug '$slug' is malformed"
+  [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
+    || fail "certified plugin artifact version '$version' is malformed"
+  command -v curl >/dev/null 2>&1 || fail 'curl is required for certified SSH plugin artifacts'
+  entry="$(artifact_library_jq -ce --arg slug "$slug" --arg version "$version" '
+    .plugins[$slug][$version]
+    | if type == "object" and .role == "certified-boundary" then .
+      else error("requested plugin artifact is not a certified boundary") end
+  ')" || fail "no certified artifact-library boundary exists for $slug $version"
+  url="$(jq -er '.url' <<<"$entry")" || fail "certified artifact $slug $version has no URL"
+  sha256="$(jq -er '.sha256' <<<"$entry")" || fail "certified artifact $slug $version has no digest"
+  [[ "$url" == https://* && "$url" != *"'"* && "$url" != *[[:space:]]* ]] \
+    || fail "certified artifact $slug $version has a malformed HTTPS URL"
+  [[ "$sha256" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "certified artifact $slug $version has a malformed SHA-256"
+
+  archive="$TMP/plugin-${slug}-${version}-${sha256}.zip"
+  partial="$archive.partial"
+  [ ! -e "$archive" ] && [ ! -L "$archive" ] && [ ! -e "$partial" ] && [ ! -L "$partial" ] \
+    || fail "certified artifact scratch path already exists for $slug $version"
+  ( umask 077; curl --fail --location --silent --show-error \
+      --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 180 \
+      --max-filesize 268435456 --output "$partial" "$url" ) \
+    || fail "certified artifact download failed for $slug $version"
+  [ -f "$partial" ] && [ ! -L "$partial" ] \
+    || fail "certified artifact download was not an ordinary file for $slug $version"
+  [ "$(wc -c <"$partial" | tr -d '[:space:]')" -le 268435456 ] \
+    || fail "certified artifact exceeded the 256 MiB fixture bound for $slug $version"
+  actual="$(php -r 'echo hash_file("sha256", $argv[1]);' "$partial")" \
+    || fail "certified artifact digest could not be read for $slug $version"
+  [ "$actual" = "$sha256" ] \
+    || fail "certified artifact digest mismatch for $slug $version"
+  mv "$partial" "$archive"
+
+  remote="/home/wprism/recovery-fixture/plugin-${slug}-${version}-${sha256}.zip"
+  ssh_fixture "test ! -e '$remote' && test ! -L '$remote'" \
+    || fail "certified artifact target path already exists for $slug $version"
+  scp -F "$TMP/ssh_config" "$archive" "wprism-adopt-fixture:$remote" >/dev/null \
+    || fail "certified artifact upload failed for $slug $version"
+  ssh_fixture "
+    set -eu
+    trap 'rm -f -- $remote' EXIT
+    actual=\$(php -r 'echo hash_file(\"sha256\", \$argv[1]);' '$remote')
+    test \"\$actual\" = '$sha256'
+    cd /var/www/html
+    ! wp plugin is-installed '$slug' >/dev/null 2>&1
+    wp plugin install '$remote' --activate --quiet
+    test \"\$(wp plugin get '$slug' --field=version)\" = '$version'
+  " || fail "certified artifact installation failed for $slug $version"
+}
+
+wprism_ssh_stage_code_inventory() { # <active-plugin-directory>...
+  [ "$#" -ge 1 ] && [ "$#" -le 16 ] \
+    || fail 'SSH code inventory requires 1..16 active plugin directories'
+  local plugin requested_json active_json joined=''
+  local seen=' '
+  for plugin in "$@"; do
+    [[ "$plugin" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]] \
+      || fail "SSH code inventory plugin directory '$plugin' is malformed"
+    case "$seen" in
+      *" $plugin "*) fail "SSH code inventory repeats plugin directory '$plugin'" ;;
+    esac
+    seen+="$plugin "
+    joined="${joined:+$joined }$plugin"
+  done
+  requested_json="$(printf '%s\n' "$@" | jq -Rsc 'split("\n")[:-1] | sort')" \
+    || fail 'SSH code inventory could not encode its requested plugin set'
+  active_json="$(ssh_fixture 'cd /var/www/html && wp option get active_plugins --format=json')" \
+    || fail 'SSH code inventory could not observe the active plugin set'
+  jq -e --argjson expected "$requested_json" '
+    type == "array"
+    and all(.[];
+      type == "string"
+      and test("^[a-z0-9][a-z0-9._-]{0,127}/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\\.php$")
+      and (split("/") | all(. != "." and . != ".."))
+    )
+    and ([.[] | split("/")[0]] | sort | unique) == $expected
+  ' <<<"$active_json" >/dev/null \
+    || fail 'SSH code inventory arguments do not equal the exact active plugin-directory set'
+
+  ssh_fixture "
+    set -eu
+    test ! -e /home/wprism/site/code
+    test ! -L /home/wprism/site/code
+    mkdir -p /home/wprism/site/code/wp-content/plugins /home/wprism/site/code/wp-content/themes
+    for plugin in $joined; do
+      test -d \"/var/www/html/wp-content/plugins/\$plugin\"
+      test ! -L \"/var/www/html/wp-content/plugins/\$plugin\"
+      cp -a \"/var/www/html/wp-content/plugins/\$plugin\" /home/wprism/site/code/wp-content/plugins/
+    done
+    stylesheet=\$(cd /var/www/html && wp option get stylesheet)
+    template=\$(cd /var/www/html && wp option get template)
+    for theme in \"\$stylesheet\" \"\$template\"; do
+      case \"\$theme\" in
+        ''|*[!A-Za-z0-9._-]*) exit 41 ;;
+      esac
+      test -d \"/var/www/html/wp-content/themes/\$theme\"
+      test ! -L \"/var/www/html/wp-content/themes/\$theme\"
+      if [ ! -e \"/home/wprism/site/code/wp-content/themes/\$theme\" ]; then
+        cp -a \"/var/www/html/wp-content/themes/\$theme\" /home/wprism/site/code/wp-content/themes/
+      fi
+    done
+    test \"\$(find /home/wprism/site/code/wp-content/plugins -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')\" -eq $#
+  " || fail 'SSH code inventory could not stage the exact active plugin/theme roots'
+}
+
+wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
+  [ "$#" -eq 1 ] || fail 'SSH release staging requires one desired-generation count'
+  local desired_count="$1" authority generation next_generation retry_generation=''
+  case "$desired_count" in
+    1|2) ;;
+    *) fail "SSH release staging desired count '$desired_count' must be 1 or 2" ;;
+  esac
+  authority="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control')" \
+    || fail 'SSH release staging could not read signed generation authority'
+  generation="$(jq -er '.generation | select(type == "number" and floor == . and . >= 0) | tostring' <<<"$authority")" \
+    || fail 'SSH release staging found malformed generation authority'
+  [[ "$generation" =~ ^(0|[1-9][0-9]{0,17})$ ]] \
+    || fail "SSH release staging generation '$generation' is not a bounded canonical integer"
+  generation=$((10#$generation))
+  [ "$generation" -le 9223372036854775805 ] \
+    || fail 'SSH release staging generation cannot be incremented safely'
+  next_generation=$((generation + 1))
+  [ "$desired_count" -eq 1 ] || retry_generation=$((generation + 2))
+
+  ssh_fixture "
+    set -eu
+    test -d /home/wprism/site/code/wp-content
+    test ! -L /home/wprism/site/code
+    test ! -e /home/wprism/code-releases
+    test ! -L /home/wprism/code-releases
+    test ! -e /home/wprism/code-current
+    test ! -L /home/wprism/code-current
+    mkdir -p /home/wprism/code-releases/release-prior
+    mkdir -p /home/wprism/code-releases/release-desired-$next_generation
+    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-prior/wp-content
+    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$next_generation/wp-content
+    printf '%s\\n' release-prior > /home/wprism/code-current
+    chmod 600 /home/wprism/code-current
+    test \"\$(cat /home/wprism/code-current)\" = release-prior
+    test \"\$(stat -c '%a' /home/wprism/code-current)\" = 600
+  " || fail 'SSH release staging could not publish prior/desired immutable generations'
+  if [ "$desired_count" -eq 2 ]; then
+    ssh_fixture "
+      set -eu
+      test ! -e /home/wprism/code-releases/release-desired-$retry_generation
+      mkdir -p /home/wprism/code-releases/release-desired-$retry_generation
+      cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$retry_generation/wp-content
+      test -d /home/wprism/code-releases/release-desired-$retry_generation/wp-content
+    " || fail 'SSH release staging could not publish the retry immutable generation'
+  fi
+}
+
+wprism_ssh_publish_post_tombstone() { # <post-type> <ascii-post-slug>
+  [ "$#" -eq 2 ] || fail 'SSH tombstone publication requires a post type and captured slug'
+  local post_type="$1" post_slug="$2" fixture uuid
+  [[ "$post_type" =~ ^[a-z0-9][a-z0-9_-]{0,19}$ ]] \
+    || fail "SSH tombstone post type '$post_type' is malformed"
+  [[ "$post_slug" =~ ^[a-z0-9][a-z0-9-]{0,199}$ ]] \
+    || fail "SSH tombstone post slug '$post_slug' is malformed"
+
+  fixture="$TMP/wprism-ssh-publish-post-tombstone.php"
+  [ ! -e "$fixture" ] && [ ! -L "$fixture" ] \
+    || fail 'SSH tombstone fixture path already exists'
+  ( umask 077; cat >"$fixture" <<'PHP'
+<?php
+
+$root = '/home/wprism/site';
+$postType = (string) getenv('WPRISM_TOMBSTONE_POST_TYPE');
+$postSlug = (string) getenv('WPRISM_TOMBSTONE_POST_SLUG');
+if (preg_match('/^[a-z0-9][a-z0-9_-]{0,19}$/D', $postType) !== 1
+    || preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/D', $postSlug) !== 1) {
+    throw new RuntimeException('SSH tombstone fixture arguments are malformed');
+}
+$postDirectory = "$root/state/posts/$postType";
+if (!is_dir($postDirectory) || is_link($postDirectory)) {
+    throw new RuntimeException('SSH tombstone post directory is not an ordinary directory');
+}
+$matches = [];
+foreach (scandir($postDirectory) ?: [] as $entry) {
+    if (preg_match(
+        '/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})--'
+            . preg_quote($postSlug, '/') . '\\.md$/D',
+        $entry,
+        $match
+    ) !== 1) {
+        continue;
+    }
+    $candidate = "$postDirectory/$entry";
+    if (!is_file($candidate) || is_link($candidate)) {
+        throw new RuntimeException('SSH tombstone source is not an ordinary file');
+    }
+    $matches[] = ['uuid' => $match[1], 'base' => $entry, 'path' => $candidate];
+}
+if (count($matches) !== 1) {
+    throw new RuntimeException('SSH tombstone fixture did not resolve exactly one captured post');
+}
+$match = $matches[0];
+$uuid = $match['uuid'];
+$sourcePath = "posts/$postType/{$match['base']}";
+$policy = \WPrism\Policy::load($root);
+$compiled = \WPrism\RepositoryCompiler::compile($root, $policy);
+$rows = \WPrism\Deletion::capture_tombstones($compiled, [], $policy, [$uuid]);
+if (count($rows) !== 1) {
+    throw new RuntimeException('engine tombstone capture did not return exactly one authorized row');
+}
+$row = $rows[0];
+$data = \WPrism\Canon::decode((string) ($row['content'] ?? ''));
+$entity = $compiled->tree()[$uuid] ?? null;
+if (!is_array($data)
+    || array_keys($data) !== [
+        'expected_hash', 'expected_revision', 'format', 'kind', 'source_path', 'type', 'uuid',
+    ]
+    || ($row['uuid'] ?? null) !== $uuid
+    || ($row['type'] ?? null) !== 'deletion'
+    || ($row['path'] ?? null) !== "deletions/$uuid.json"
+    || ($data['format'] ?? null) !== 'wprism-deletion/v1'
+    || ($data['kind'] ?? null) !== 'post'
+    || ($data['type'] ?? null) !== $postType
+    || ($data['uuid'] ?? null) !== $uuid
+    || ($data['source_path'] ?? null) !== $sourcePath
+    || !is_array($entity)
+    || ($data['expected_hash'] ?? null) !== ($entity['hash'] ?? null)
+    || ($data['expected_revision'] ?? null) !== $compiled->revision_hash()
+    || preg_match('/^[a-f0-9]{64}$/D', (string) ($data['expected_hash'] ?? '')) !== 1
+    || preg_match('/^[a-f0-9]{64}$/D', (string) ($data['expected_revision'] ?? '')) !== 1) {
+    throw new RuntimeException('engine tombstone capture returned a widened or malformed record');
+}
+
+$deletionDirectory = "$root/state/deletions";
+if (!is_dir($deletionDirectory)
+    && !mkdir($deletionDirectory, 0755, true)
+    && !is_dir($deletionDirectory)) {
+    throw new RuntimeException('SSH tombstone deletion directory could not be created');
+}
+if (is_link($deletionDirectory)) {
+    throw new RuntimeException('SSH tombstone deletion directory is linked');
+}
+$final = "$deletionDirectory/$uuid.json";
+$pending = "$deletionDirectory/.$uuid.pending-" . bin2hex(random_bytes(8));
+$present = "/home/wprism/recovery-fixture/{$match['base']}.present";
+if (file_exists($final) || is_link($final) || file_exists($present) || is_link($present)) {
+    throw new RuntimeException('SSH tombstone destination already exists');
+}
+$handle = fopen($pending, 'x+b');
+if ($handle === false) {
+    throw new RuntimeException('SSH tombstone pending file could not be created');
+}
+try {
+    $content = (string) $row['content'];
+    $written = fwrite($handle, $content);
+    if ($written !== strlen($content) || !fflush($handle)) {
+        throw new RuntimeException('SSH tombstone pending file could not be written completely');
+    }
+    if (function_exists('fsync') && !fsync($handle)) {
+        throw new RuntimeException('SSH tombstone pending file could not be synchronized');
+    }
+} finally {
+    fclose($handle);
+}
+if (!chmod($pending, 0644)) {
+    @unlink($pending);
+    throw new RuntimeException('SSH tombstone pending file mode could not be fixed');
+}
+if (!rename($pending, $final)) {
+    @unlink($pending);
+    throw new RuntimeException('SSH tombstone could not be published atomically');
+}
+// Publish first: interruption before this move leaves a loud live/deletion
+// conflict rather than a silent authoring-side disappearance.
+if (!rename($match['path'], $present)) {
+    throw new RuntimeException('SSH tombstone source could not be retired after publication');
+}
+echo $uuid;
+PHP
+  )
+  scp -F "$TMP/ssh_config" "$fixture" \
+    wprism-adopt-fixture:/home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php >/dev/null \
+    || fail 'SSH tombstone fixture upload failed'
+  uuid="$(ssh_fixture "cd /var/www/html && WPRISM_TOMBSTONE_POST_TYPE='$post_type' WPRISM_TOMBSTONE_POST_SLUG='$post_slug' wp eval-file /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php")" \
+    || fail "engine tombstone publication failed for post:$post_type/$post_slug"
+  ssh_fixture 'rm -f /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php' \
+    || fail 'SSH tombstone fixture cleanup failed'
+  [[ "$uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || fail "engine tombstone publication returned malformed UUID '$uuid'"
+  printf '%s\n' "$uuid"
+}
+
+wprism_ssh_enroll_full_recovery() { # <state-namespace>
+  local state_namespace="$1"
+  local upload_key="$TMP/${state_namespace}-upload.key"
+  local updated_registry="$TMP/envs.full-recovery.json"
+
+  [[ "$state_namespace" =~ ^[a-z][a-z0-9-]{0,31}$ ]] \
+    || fail "full-recovery state namespace '$state_namespace' is malformed"
+
+  ( umask 077; openssl rand 32 >"$upload_key" )
+  chmod 0600 "$upload_key"
+  scp -F "$TMP/ssh_config" \
+    "$ROOT/sandbox/tests/fixtures/upload-provider.php" \
+    "$ROOT/sandbox/tests/fixtures/effect-provider.php" \
+    "$ROOT/sandbox/tests/fixtures/plan-bound-code-release-provider.php" \
+    "$upload_key" \
+    wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
+  ssh_fixture "
+    set -eu
+    chmod 700 /home/wprism/recovery-fixture/upload-provider.php
+    chmod 700 /home/wprism/recovery-fixture/effect-provider.php
+    chmod 700 /home/wprism/recovery-fixture/plan-bound-code-release-provider.php
+    chmod 600 /home/wprism/recovery-fixture/${state_namespace}-upload.key
+    mkdir -p /home/wprism/recovery-fixture/${state_namespace}-offload
+    chmod 700 /home/wprism/recovery-fixture/${state_namespace}-offload
+  "
+  jq --arg namespace "$state_namespace" '
+    .envs.target.rollback_recovery.upload_provider = [
+      "/usr/local/bin/php",
+      "/home/wprism/recovery-fixture/upload-provider.php",
+      "/home/wprism/recovery-fixture/" + $namespace + "-upload-provider-state",
+      "/var/www/html/wp-content/uploads",
+      "/home/wprism/recovery-fixture/" + $namespace + "-offload",
+      "/home/wprism/site/media",
+      "/home/wprism/recovery-fixture/" + $namespace + "-upload.key"
+    ]
+    | .envs.target.rollback_recovery.effect_provider = [
+      "/usr/local/bin/php",
+      "/home/wprism/recovery-fixture/effect-provider.php",
+      "/home/wprism/recovery-fixture/" + $namespace + "-effect-provider-state",
+      "/var/www/html"
+    ]
+    | .envs.target.rollback_recovery.code_release_provider = [
+      "/usr/local/bin/php",
+      "/home/wprism/recovery-fixture/plan-bound-code-release-provider.php",
+      "/home/wprism/recovery-fixture/" + $namespace + "-code-release-state",
+      "/home/wprism/code-releases",
+      "/home/wprism/code-current"
+    ]
+  ' "$TMP/envs.json" >"$updated_registry"
+  mv "$updated_registry" "$TMP/envs.json"
+  "$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null \
+    || fail "full-recovery provider enrollment failed for '$state_namespace'"
+}

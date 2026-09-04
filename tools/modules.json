@@ -75,6 +75,7 @@
     "DatabaseTransactionOutcomeException",
     "ExactOptionReader",
     "ExactOptionWriter",
+    "WordPressOptionValueCodec",
     "ManifestExecutableLoader",
     "NativeDatabaseProfile",
     "NativeTableDefinition",
@@ -139,7 +140,7 @@
             ]
           }
         ],
-  "file_count": 56,
+  "file_count": 57,
         "files": [
           "ActionTriggerMatcher.php",
           "Canary.php",
@@ -196,6 +197,7 @@
           "UserMetaState.php",
           "Uuid.php",
           "WpCliChildProcess.php",
+          "WordPressOptionValueCodec.php",
           "WpdbFieldCodec.php"
         ]
       },

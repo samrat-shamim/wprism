@@ -387,6 +387,25 @@ final class WooDeletionFakeWpdb extends \WPrismTest\FakeWpdb {
             return $this->legacyIsolation;
         }
         if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT 0$/D', $sql, $match) === 1) {
+            // Presence and metadata-lock boundaries intentionally issue the
+            // same zero-row SQL. Classify by the engine caller so this fake
+            // can inject failures into one boundary without weakening either.
+            $metadataLockProbe = false;
+            foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8) as $frame) {
+                if (($frame['class'] ?? '') === \WPrism\DatabaseLockBoundary::class
+                    && ($frame['function'] ?? '') === 'acquire_table_metadata_lock') {
+                    $metadataLockProbe = true;
+                    break;
+                }
+            }
+            if ($metadataLockProbe) {
+                $this->metadataQueries[] = $sql;
+                $this->events[] = 'metadata';
+                if ($this->metadataProbeErrorTable === $match[1]) {
+                    $this->last_error = 'simulated metadata probe failure';
+                }
+                return null;
+            }
             $this->presenceQueries[] = $sql;
             $this->boundaryTrace[] = 'presence:' . $match[1]
                 . ':' . ($this->activeTransactionIsolation() === null ? 'idle' : 'transaction')
@@ -2654,9 +2673,9 @@ check($metaLockSafe && count($fakeWpdb->lockingQueries) > 0,
 $profileCompositionAccepted = count($fakeWpdb->engineQueries) === 1
     && $fakeWpdb->topologyQueries === []
     && $fakeWpdb->metadataQueries === [
-        'SELECT 1 FROM `wp_options` LIMIT 1',
-        'SELECT 1 FROM `wp_postmeta` LIMIT 1',
-        'SELECT 1 FROM `wp_wprism_map` LIMIT 1',
+        'SELECT 1 FROM `wp_options` LIMIT 0',
+        'SELECT 1 FROM `wp_postmeta` LIMIT 0',
+        'SELECT 1 FROM `wp_wprism_map` LIMIT 0',
     ]
     && str_contains(
         $fakeWpdb->engineQueries[0],

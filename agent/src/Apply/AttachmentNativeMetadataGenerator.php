@@ -510,6 +510,7 @@ final class AttachmentNativeMetadataGenerator {
             Db::start_repeatable_read(
                 'native attachment metadata rollback-only transaction start',
                 NativeDatabaseProfile::read_only([
+                    $wpdb->options,
                     $wpdb->posts,
                     $wpdb->postmeta,
                     $wpdb->prefix . 'wprism_map',

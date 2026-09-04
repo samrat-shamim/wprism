@@ -200,7 +200,7 @@ foreach ($members as $member) {
 // orchestrator that proves schema/lifecycle phases without teaching an adapter
 // how to impersonate the deploy CLI. Omitting that ninth file makes the kit's
 // documented end-to-end path impossible outside this checkout.
-wprism_check_same(9, $copiedCount, 'the kit packages all nine live authoring and host-orchestration harness files');
+wprism_check_same(10, $copiedCount, 'the kit packages all ten live authoring and host-orchestration harness files');
 
 // The seven lib files and the two conformance files, by name: a silent drop
 // (say frozen_policy.php) would still leave clauses A and B green.

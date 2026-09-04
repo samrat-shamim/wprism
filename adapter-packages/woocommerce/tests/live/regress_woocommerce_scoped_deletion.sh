@@ -19,11 +19,10 @@ wprism_ssh_adopt_extension() {
   esac
   local woo_suffix="${woo_version//./}"
   local woo_sku="WPRISM-SSH-DELETE-${woo_suffix}"
-  local woo_pin executable_owners product_id product_file product_base product_uuid
-  local expected_hash expected_revision source_path scope_hash plan_json full_plan_json scoped_code
+  local woo_pin executable_owners product_id product_uuid
+  local scope_hash plan_json full_plan_json scoped_code
   local lookup_before failed_code failed_product failed_lookup retry_code
   local status_json stock_topology success_product success_lookup converged_plan
-  local next_generation retry_generation
   local failure_stdout="$DIAG_DIR/woocommerce-delete-failure.stdout"
   local failure_stderr="$DIAG_DIR/woocommerce-delete-failure.stderr"
   local success_stdout="$DIAG_DIR/woocommerce-delete-success.stdout"
@@ -36,51 +35,11 @@ wprism_ssh_adopt_extension() {
   done
 
   say "enroll the full upload/effect recovery providers required for deletion"
-  ( umask 077; openssl rand 32 >"$TMP/woocommerce-upload.key" )
-  chmod 0600 "$TMP/woocommerce-upload.key"
-  scp -F "$TMP/ssh_config" \
-    "$ROOT/sandbox/tests/fixtures/upload-provider.php" \
-    "$ROOT/sandbox/tests/fixtures/effect-provider.php" \
-    "$PACKAGE_ROOT/fixtures/plan-bound-code-release-provider.php" \
-    "$TMP/woocommerce-upload.key" \
-    wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
-  ssh_fixture '
-    chmod 700 /home/wprism/recovery-fixture/upload-provider.php /home/wprism/recovery-fixture/effect-provider.php /home/wprism/recovery-fixture/plan-bound-code-release-provider.php
-    chmod 600 /home/wprism/recovery-fixture/woocommerce-upload.key
-    mkdir -p /home/wprism/recovery-fixture/offload
-    chmod 700 /home/wprism/recovery-fixture/offload
-  '
-  jq '
-    .envs.target.rollback_recovery.upload_provider = [
-      "/usr/local/bin/php",
-      "/home/wprism/recovery-fixture/upload-provider.php",
-      "/home/wprism/recovery-fixture/upload-provider-state",
-      "/var/www/html/wp-content/uploads",
-      "/home/wprism/recovery-fixture/offload",
-      "/home/wprism/site/media",
-      "/home/wprism/recovery-fixture/woocommerce-upload.key"
-    ]
-    | .envs.target.rollback_recovery.effect_provider = [
-      "/usr/local/bin/php",
-      "/home/wprism/recovery-fixture/effect-provider.php",
-      "/home/wprism/recovery-fixture/effect-provider-state",
-      "/var/www/html"
-    ]
-    | .envs.target.rollback_recovery.code_release_provider = [
-      "/usr/local/bin/php",
-      "/home/wprism/recovery-fixture/plan-bound-code-release-provider.php",
-      "/home/wprism/recovery-fixture/woocommerce-code-release-state",
-      "/home/wprism/code-releases",
-      "/home/wprism/code-current"
-    ]
-  ' "$TMP/envs.json" >"$TMP/envs.full-recovery.json"
-  mv "$TMP/envs.full-recovery.json" "$TMP/envs.json"
-  "$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null \
-    || fail "WooCommerce scoped-deletion extension could not enroll full recovery providers"
+  wprism_ssh_enroll_full_recovery woocommerce
   pass "candidate-bound upload/effect/code-release providers are enrolled for full automatic recovery"
 
   say "install the exact WooCommerce deletion boundary on the adopted SSH target"
-  ssh_fixture "cd /var/www/html && wp plugin install woocommerce --version=$woo_version --activate --quiet"
+  wprism_ssh_install_certified_plugin woocommerce "$woo_version"
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
   if [ "$woo_version" = "11.0.1" ]; then
@@ -128,21 +87,9 @@ wprism_ssh_adopt_extension() {
     }
     exit($site && $state ? 0 : 42);
   '\''' || fail "WooCommerce code release setup found repository changes outside the shared captured site/state evidence"
+  wprism_ssh_stage_code_inventory woocommerce
   ssh_fixture '
     set -eu
-    mkdir -p /home/wprism/site/code/wp-content/plugins /home/wprism/site/code/wp-content/themes
-    cp -a /var/www/html/wp-content/plugins/woocommerce /home/wprism/site/code/wp-content/plugins/woocommerce
-    stylesheet="$(cd /var/www/html && wp option get stylesheet)"
-    template="$(cd /var/www/html && wp option get template)"
-    for theme in "$stylesheet" "$template"; do
-      case "$theme" in
-        ""|*[!A-Za-z0-9._-]*) exit 41 ;;
-      esac
-      test -d "/var/www/html/wp-content/themes/$theme"
-      if [ ! -e "/home/wprism/site/code/wp-content/themes/$theme" ]; then
-        cp -a "/var/www/html/wp-content/themes/$theme" "/home/wprism/site/code/wp-content/themes/$theme"
-      fi
-    done
     php -r '\''
       $path = "/home/wprism/site/site.wprism.json";
       $site = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
@@ -153,24 +100,8 @@ wprism_ssh_adopt_extension() {
     git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   ' || fail "WooCommerce deletion proof could not commit its exact code half"
-  next_generation="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' | jq -r '.generation + 1')"
-  [[ "$next_generation" =~ ^[1-9][0-9]*$ ]] \
-    || fail "WooCommerce deletion proof could not derive its next signed generation"
-  retry_generation=$((next_generation + 1))
-  ssh_fixture "
-    set -eu
-    test ! -e /home/wprism/code-releases
-    test ! -e /home/wprism/code-current
-    mkdir -p /home/wprism/code-releases/release-prior
-    mkdir -p /home/wprism/code-releases/release-desired-$next_generation
-    mkdir -p /home/wprism/code-releases/release-desired-$retry_generation
-    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-prior/wp-content
-    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$next_generation/wp-content
-    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$retry_generation/wp-content
-    printf '%s\\n' release-prior > /home/wprism/code-current
-    chmod 600 /home/wprism/code-current
-  " || fail "WooCommerce deletion proof could not stage immutable prior/failure/retry releases"
-  pass "WooCommerce code inventory and immutable generations $next_generation/$retry_generation are exact and target-credential-free"
+  wprism_ssh_stage_generation_releases 2
+  pass "WooCommerce code inventory and consecutive failure/retry generations are exact and target-credential-free"
 
   cat >"$TMP/woocommerce-owner-agreements.php" <<'PHP'
 <?php
@@ -353,26 +284,8 @@ PHP
 
   "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/woocommerce-delete-capture.json" \
     || fail "WooCommerce scoped-deletion extension could not capture the exact product"
-  product_file="$(ssh_fixture 'find /home/wprism/site/state/posts/product -type f -name "*--wprism-ssh-deletion-proof.md" -print')"
-  [ "$(wc -l <<<"$product_file" | tr -d ' ')" -eq 1 ] && [ -n "$product_file" ] \
-    || fail "WooCommerce scoped-deletion extension did not capture one named product file"
-  product_base="$(basename "$product_file")"
-  product_uuid="${product_base:0:36}"
-  [[ "$product_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
-    || fail "WooCommerce scoped-deletion extension captured a malformed product UUID"
-  expected_hash="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT content_hash FROM wp_wprism_state WHERE uuid='$product_uuid'\" --skip-column-names" | tr -d '[:space:]')"
-  expected_revision="$(ssh_fixture 'cd /var/www/html && wp eval '\''echo \WPrism\RepositoryCompiler::compile("/home/wprism/site", \WPrism\Policy::load("/home/wprism/site"))->revision_hash();'\''')"
-  [[ "$expected_hash" =~ ^[a-f0-9]{64}$ ]] && [[ "$expected_revision" =~ ^[a-f0-9]{64}$ ]] \
-    || fail "WooCommerce scoped-deletion extension could not bind exact product preimage hashes"
-  source_path="posts/product/$product_base"
-  jq -n --arg expected_hash "$expected_hash" --arg expected_revision "$expected_revision" \
-    --arg source_path "$source_path" --arg uuid "$product_uuid" \
-    '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"wprism-deletion/v1",kind:"post",source_path:$source_path,type:"product",uuid:$uuid}' \
-    >"$TMP/woocommerce-delete.json"
-  ssh_fixture 'mkdir -p /home/wprism/site/state/deletions'
-  ssh_fixture "mv '$product_file' '/home/wprism/recovery-fixture/$product_base.present'"
-  scp -F "$TMP/ssh_config" "$TMP/woocommerce-delete.json" \
-    "wprism-adopt-fixture:/home/wprism/site/state/deletions/$product_uuid.json" >/dev/null
+  product_uuid="$(wprism_ssh_publish_post_tombstone product wprism-ssh-deletion-proof)" \
+    || fail "WooCommerce scoped-deletion extension could not publish its engine-derived product tombstone"
 
   "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots="tombstone:$product_uuid" --contract --format=json >"$contract" \
     || fail "WooCommerce scoped-deletion extension could not mint its exact tombstone contract"

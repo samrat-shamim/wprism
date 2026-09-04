@@ -5,6 +5,7 @@ require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
+require_once __DIR__ . '/../Kernel/WordPressOptionValueCodec.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
 require_once __DIR__ . '/../Rebuild/RebuildSelection.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -43,7 +44,9 @@ final class ApplyPlanEnvironment {
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
                 $name
             )),
-            fn(string $name): ?string => isset($expected[$name]) ? (string) $expected[$name] : null
+            fn(string $name): ?string => isset($expected[$name])
+                ? WordPressOptionValueCodec::encode_scalar_string((string) $expected[$name])
+                : null
         );
         foreach ($tree as $uuid => $entity) {
             if (!is_array($entity) || ($entity['type'] ?? null) !== 'post') {

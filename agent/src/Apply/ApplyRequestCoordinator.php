@@ -5,6 +5,7 @@ require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/../Kernel/ExactOptionWriter.php';
+require_once __DIR__ . '/../Kernel/WordPressOptionValueCodec.php';
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
@@ -750,7 +751,7 @@ final class ApplyRequestCoordinator {
 
         $result = ExactOptionWriter::upsert_plain(
             $name,
-            $value,
+            WordPressOptionValueCodec::encode_scalar_string($value),
             $autoload,
             'env-set plain option persistence'
         );

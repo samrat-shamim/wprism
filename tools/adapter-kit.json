@@ -36,16 +36,24 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/wp_stubs.php",
             "role": "WPrismTest\\WpStore plus function_exists()-guarded WordPress function stubs",
-            "bytes": 39659,
-            "sha256": "6d82f813451a008952644fe31f8dab110585c625d072b21f441a72daa79bd2c6"
+            "bytes": 36538,
+            "sha256": "b31a0b9797880937080c59e75e157efc44ba188ec99c62e6249cd325d7918638"
+        },
+        {
+            "path": "lib/wp_serialization_stubs.php",
+            "origin": "copied",
+            "source": "sandbox/tests/lib/wp_serialization_stubs.php",
+            "role": "exact WordPress option serialization primitives without the stateful stub surface",
+            "bytes": 3168,
+            "sha256": "ccc1558cf1dabf9a64dc663761c7445b6c7e68a8088d30ccb83bc87007da5488"
         },
         {
             "path": "lib/FakeWpdb.php",
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "WPrismTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 219676,
-            "sha256": "52da985718a11ab979c8342e878cbbc5d359c14c9085e5670a5cafff293baf36"
+            "bytes": 220440,
+            "sha256": "db252611d275900e57f45df3b94e2fbbe914c048639b8105e4e3ca5114f72884"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -116,8 +124,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 4695,
-            "sha256": "7d4a209e6375eceb387f55904e986ca51bf01efcc399cb190bfdc3481edbe974"
+            "bytes": 4865,
+            "sha256": "4b2d687bb2604bda627b08e3dd1c0aebc362e232170b30aaf6a9133453acb35f"
         }
     ]
 }

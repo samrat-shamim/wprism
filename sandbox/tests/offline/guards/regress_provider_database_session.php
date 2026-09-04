@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/ProviderDatabaseSession.p
 require_once __DIR__ . '/../../../../agent/src/Adapter/ProviderSdk.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/ExactOptionWriter.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/WordPressOptionValueCodec.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 
 use WPrism\DatabaseMutationException;
@@ -34,6 +35,7 @@ use WPrism\ProviderDatabaseTransactionNotAppliedException;
 use WPrism\ProviderSdk;
 use WPrism\Providers;
 use WPrism\TransientDbException;
+use WPrism\WordPressOptionValueCodec;
 use WPrismTest\FakeWpdb;
 use WPrismTest\WpStore;
 
@@ -410,6 +412,12 @@ $unsafeCheckedReads = [
     'SELECT COUNT (provider_key) FROM wp_wprism_provider_state',
     'SELECT DECIMAL(19,4)',
     'EXPLAIN ANALYZE SELECT provider_key FROM wp_wprism_provider_state',
+    'EXPLAIN UPDATE wp_wprism_provider_state SET provider_value = \'unsafe\'',
+    'EXPLAIN INSERT INTO wp_wprism_provider_state (provider_key) VALUES (\'unsafe\')',
+    'EXPLAIN REPLACE INTO wp_wprism_provider_state (provider_key) VALUES (\'unsafe\')',
+    'EXPLAIN wp_wprism_provider_state',
+    'SELECT NEXT VALUE FOR wp_wprism_private_sequence',
+    'SELECT PREVIOUS VALUE FOR wp_wprism_private_sequence',
 ];
 foreach ($unsafeCheckedReads as $offset => $sql) {
     $wpdb = FakeWpdb::install()->seedTable('wp_wprism_provider_state', [[
@@ -437,6 +445,8 @@ $acceptedCheckedReadGrammar = [
     'SELECT provider_key FROM wp_wprism_provider_state',
     "SELECT '-- ; # /* value */' AS literal_value",
     "SHOW TABLES LIKE 'wp_wprism_provider_state'",
+    'SHOW CREATE TABLE `wp_wprism_provider_state`',
+    "SHOW TABLE STATUS LIKE 'wp_wprism_provider_state'",
     'SHOW FULL COLUMNS FROM `wp_wprism_provider_state`',
     'SHOW INDEX FROM `wp_wprism_provider_state`',
     'DESCRIBE `wp_wprism_provider_state`',
@@ -1124,7 +1134,7 @@ wprism_check(
         ],
         'rows' => [],
     ]
-        && count($schemaPresenceQueries) === 6
+        && count($schemaPresenceQueries) === 7
         && count(array_filter(
             $wpdb->queries(),
             static fn(string $sql): bool => $sql === 'SHOW WARNINGS'
@@ -1271,7 +1281,7 @@ wprism_check(
         && count(array_filter(
             $nestedSchemaQueries,
             static fn(string $sql): bool => $sql === 'SELECT 1 FROM `wp_wprism_provider_state` LIMIT 0'
-        )) === 2
+        )) === 3
         && !in_array('SHOW WARNINGS', $nestedSchemaQueries, true)
         && $wpdb->activeTransactionIsolation() === null,
     'schema evidence reuses one complete read-only fresh-observer profile without nesting a transaction'
@@ -2007,6 +2017,35 @@ $profileGrammarRefusals = [
         'write' => false,
         'sql' => 'SELECT provider_value FROM (`SELECT`)',
     ],
+    'nested TABLE query-expression source' => [
+        'write' => false,
+        'sql' => 'SELECT provider_key FROM wp_wprism_provider_state '
+            . 'WHERE EXISTS (TABLE wp_wprism_undeclared)',
+    ],
+    'parenthesized EXCEPT TABLE source' => [
+        'write' => false,
+        'sql' => '(SELECT provider_key FROM wp_wprism_provider_state) '
+            . 'EXCEPT TABLE wp_wprism_undeclared',
+    ],
+    'nested INTERSECT TABLE source' => [
+        'write' => false,
+        'sql' => 'SELECT provider_key FROM wp_wprism_provider_state WHERE EXISTS '
+            . '((SELECT provider_key FROM wp_wprism_provider_state) '
+            . 'INTERSECT TABLE wp_wprism_undeclared)',
+    ],
+    'sequence increment expression' => [
+        'write' => false,
+        'sql' => 'SELECT NEXT VALUE FOR wp_wprism_undeclared_sequence',
+    ],
+    'sequence previous-value expression' => [
+        'write' => false,
+        'sql' => 'SELECT PREVIOUS VALUE FOR wp_wprism_undeclared_sequence',
+    ],
+    'sequence expression inside a profiled update' => [
+        'write' => true,
+        'sql' => 'UPDATE wp_wprism_provider_state '
+            . 'SET provider_value = NEXT VALUE FOR wp_wprism_undeclared_sequence',
+    ],
     'STRAIGHT_JOIN read source' => [
         'write' => false,
         'sql' => 'SELECT * FROM wp_wprism_provider_state STRAIGHT_JOIN wp_wprism_undeclared',
@@ -2022,6 +2061,22 @@ $profileGrammarRefusals = [
     'spaced built-in-name stored function' => [
         'write' => false,
         'sql' => 'SELECT COUNT ()',
+    ],
+    'schema-qualified WHERE stored function' => [
+        'write' => false,
+        'sql' => 'SELECT wprism_private.WHERE()',
+    ],
+    'schema-qualified VALUE stored function' => [
+        'write' => false,
+        'sql' => 'SELECT wprism_private.VALUE()',
+    ],
+    'schema-qualified EXISTS stored function' => [
+        'write' => false,
+        'sql' => 'SELECT wprism_private.EXISTS()',
+    ],
+    'schema-qualified UNION stored function' => [
+        'write' => false,
+        'sql' => 'SELECT wprism_private.UNION()',
     ],
     'EXPLAIN ANALYZE execution' => [
         'write' => false,
@@ -2488,6 +2543,15 @@ function exact_option_query_position(array $queries, callable $matches): ?int {
     return null;
 }
 
+$serializedLookingScalar = 'a:1:{s:1:"x";s:1:"y";}';
+$serializedLookingWire = WordPressOptionValueCodec::encode_scalar_string($serializedLookingScalar);
+wprism_check(
+    $serializedLookingWire === serialize($serializedLookingScalar)
+        && maybe_unserialize($serializedLookingWire) === $serializedLookingScalar
+        && WordPressOptionValueCodec::encode_scalar_string('ordinary-value') === 'ordinary-value',
+    'the hook-free option codec preserves serialized-looking logical strings through WordPress read semantics'
+);
+
 $wpdb = exact_option_writer_fixture();
 $cache = WpStore::instance();
 $cache->cache['options'] = [
@@ -2892,6 +2956,16 @@ wprism_check(
 $providerSource = file_get_contents(__DIR__ . '/../../../../agent/src/Adapter/Providers.php');
 $applyCoordinatorSource = file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php');
 $exactWriterSource = file_get_contents(__DIR__ . '/../../../../agent/src/Kernel/ExactOptionWriter.php');
+$optionCodecSource = file_get_contents(__DIR__ . '/../../../../agent/src/Kernel/WordPressOptionValueCodec.php');
+$databaseBoundaryLiveSource = file_get_contents(
+    __DIR__ . '/../../live/regress_database_boundary_live.sh'
+);
+$databaseBoundaryCleanupTrap = is_string($databaseBoundaryLiveSource)
+    ? strpos($databaseBoundaryLiveSource, 'trap cleanup EXIT')
+    : false;
+$databaseBoundaryScratchAllocation = is_string($databaseBoundaryLiveSource)
+    ? strpos($databaseBoundaryLiveSource, 'TMP_ROOT="$(mktemp -d ')
+    : false;
 wprism_check(
     is_string($providerSource)
         && !preg_match('/\b(?:add_option|update_option)\s*\(/', $providerSource)
@@ -2899,12 +2973,40 @@ wprism_check(
         && str_contains($providerSource, 'ExactOptionWriter::replace_plain_if_value(')
         && is_string($applyCoordinatorSource)
         && !preg_match('/\b(?:add_option|update_option)\s*\(/', $applyCoordinatorSource)
+        && str_contains(
+            $applyCoordinatorSource,
+            'WordPressOptionValueCodec::encode_scalar_string($value)'
+        )
         && str_contains($applyCoordinatorSource, 'ExactOptionWriter::upsert_plain(')
+        && is_string($optionCodecSource)
+        && str_contains($optionCodecSource, "\\function_exists('maybe_serialize')")
+        && str_contains($optionCodecSource, '\\maybe_serialize($value)')
         && is_string($exactWriterSource)
         && str_contains($exactWriterSource, 'LockedOptionRows::read_optional(')
         && !str_contains($exactWriterSource, 'OCTET_LENGTH(option_value)')
         && !str_contains($exactWriterSource, 'SHA2(option_value, 256)'),
-    'provider receipts and plain env-set cannot regress to hookful writers or fork LockedOptionRows witness machinery'
+    'provider receipts and plain env-set cannot regress to hookful or namespace-shadowed writers or fork LockedOptionRows witness machinery'
+);
+wprism_check(
+    is_string($databaseBoundaryLiveSource)
+        && substr_count(
+            $databaseBoundaryLiveSource,
+            'cat > "$R1/.wprism-database-boundary-'
+        ) === 4
+        && preg_match(
+            '/declare\s*\(\s*strict_types\s*=\s*1\s*\)\s*;/',
+            $databaseBoundaryLiveSource
+        ) === 0
+        && substr_count($databaseBoundaryLiveSource, 'READS SQL DATA') === 2
+        && !str_contains($databaseBoundaryLiveSource, 'CONTAINS SQL')
+        && $databaseBoundaryCleanupTrap !== false
+        && $databaseBoundaryScratchAllocation !== false
+        && $databaseBoundaryCleanupTrap < $databaseBoundaryScratchAllocation
+        && str_contains(
+            $databaseBoundaryLiveSource,
+            'if [ -e "$TMP_ROOT" ] || [ -L "$TMP_ROOT" ]; then'
+        ),
+    'all four database-boundary fixtures stay WP-CLI-safe, cross-dialect function premises are admissible, and scratch is allocated only behind verified cleanup'
 );
 
 $wpdb = exact_option_writer_fixture([[

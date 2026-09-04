@@ -7,11 +7,11 @@
 # boot travels through cli/wprism's SSH path.
 #
 # Run only from a clean standalone candidate clone, with explicitly allocated
-# resources. Adapter capsules may reuse this exact host/provider setup by
-# setting WPRISM_SSH_ADOPT_EXTENSION to one tracked
-# adapter-packages/<slug>/tests/live/*.sh file that defines
-# wprism_ssh_adopt_extension(). The extension runs after the shared scoped
-# rollback proof and before label-verified cleanup; it is not a product hook.
+# resources. Adapter capsules and participant-declared integration scenarios
+# may reuse this exact host/provider setup by setting WPRISM_SSH_ADOPT_EXTENSION
+# to one tracked tests/live/*.sh file that defines wprism_ssh_adopt_extension().
+# The extension runs after the shared scoped rollback proof and before
+# label-verified cleanup; it is not a product hook.
 #
 #   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
 #     WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
@@ -64,6 +64,9 @@ AUTHORITY_STATUS_EXIT=""
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+
+# shellcheck source=../lib/ssh_adopt_extension.sh
+. "$ROOT/sandbox/tests/lib/ssh_adopt_extension.sh"
 
 resource_has_our_labels() {
   local kind="$1" name="$2" labels=""
@@ -782,10 +785,10 @@ pass "public scoped promotion restores a real encrypted DB checkpoint on failure
 
 if [ -n "$EXTENSION" ]; then
   EXTENSION_REAL="$(php -r '$p=realpath($argv[1]); if(!is_string($p)||$p==="")exit(1); echo $p;' "$EXTENSION")" \
-    || fail "WPRISM_SSH_ADOPT_EXTENSION does not resolve to a tracked capsule live script"
+    || fail "WPRISM_SSH_ADOPT_EXTENSION does not resolve to a tracked live script"
   case "$EXTENSION_REAL" in
-    "$ROOT"/adapter-packages/*/tests/live/*.sh) ;;
-    *) fail "WPRISM_SSH_ADOPT_EXTENSION must stay under adapter-packages/<slug>/tests/live" ;;
+    "$ROOT"/adapter-packages/*/tests/live/*.sh|"$ROOT"/integration-scenarios/*/tests/live/*.sh) ;;
+    *) fail "WPRISM_SSH_ADOPT_EXTENSION must stay under an adapter or integration-scenario tests/live directory" ;;
   esac
   [ -f "$EXTENSION_REAL" ] && [ ! -L "$EXTENSION_REAL" ] && [ -r "$EXTENSION_REAL" ] \
     || fail "WPRISM_SSH_ADOPT_EXTENSION must be a readable, non-symlink regular file"
@@ -797,7 +800,7 @@ if [ -n "$EXTENSION" ]; then
   declare -F wprism_ssh_adopt_extension >/dev/null \
     || fail "WPRISM_SSH_ADOPT_EXTENSION must define wprism_ssh_adopt_extension()"
   wprism_ssh_adopt_extension
-  pass "candidate-bound capsule SSH extension completed under the shared recovery fixture"
+  pass "candidate-bound SSH extension completed under the shared recovery fixture"
 fi
 
 BODY_COMPLETE=1

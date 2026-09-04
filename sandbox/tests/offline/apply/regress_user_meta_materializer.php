@@ -113,12 +113,12 @@ final class UserMetaMaterializerWpdb {
         $trimmed = trim($sql);
         if ($trimmed === 'SELECT @@in_transaction') return $this->transactionState;
         if ($trimmed === 'SELECT @@transaction_isolation') return $this->isolation;
-        if (preg_match('/^SELECT 1 FROM `(wp_users|wp_usermeta)` LIMIT 1$/D', $trimmed, $m) === 1) {
+        if (preg_match('/^SELECT 1 FROM `(wp_users|wp_usermeta)` LIMIT 0$/D', $trimmed, $m) === 1) {
             if ($this->metadataFailureTable === $m[1]) {
                 $this->last_error = 'simulated metadata-lock failure';
                 return false;
             }
-            return '1';
+            return null;
         }
         if (str_contains($sql, 'SELECT `umeta_id` FROM `wp_usermeta`')) {
             if ($this->metaLookupError) {

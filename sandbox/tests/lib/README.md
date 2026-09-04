@@ -1,17 +1,20 @@
-# `sandbox/tests/lib/` — the shared offline test harness
+# `sandbox/tests/lib/` — shared test harnesses
 
-Five PHP files, no dependencies, no composer, no WordPress. Every offline
-`regress_*.php` suite runs as `php sandbox/tests/offline/<domain>/X.php`, so
-these must too. (`grind_lib.sh` also lives here; it is the grind harnesses'
-shell library and has nothing to do with the PHP harness below.)
+The central PHP helpers have no dependencies, composer, or WordPress. Every
+offline `regress_*.php` suite runs as `php
+sandbox/tests/offline/<domain>/X.php`, so these must too. Shell helpers inherit
+the explicitly documented state of their parent live/grind harness; they are
+not standalone suites.
 
 | file | provides |
 | --- | --- |
 | `check.php` | `wprism_check*()` assertions, the end-of-suite summary/exit code, and `wprism_code_without_comments()` for the suites that measure a reader set by grepping shipped source (rationale-dense prose names the same tokens, so comments are stripped first) |
 | `wp_stubs.php` | `\WPrismTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
+| `wp_serialization_stubs.php` | the exact `is_serialized()`, `maybe_serialize()`, and `maybe_unserialize()` semantics for a lightweight suite that must exercise WordPress wire bytes without loading the full stateful stub surface |
 | `FakeWpdb.php` | `\WPrismTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
 | `frozen_policy.php` | `\WPrismTest\FrozenPolicy` — the `wprism-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
 | `ConformanceVector.php` | `\WPrismTest\ConformanceVector` — the `wprism-conformance-vector/v1` grammar and its offline replay driver |
+| `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
 
 `FrozenPolicy` exists because the frozen wire stopped taking a snapshot's word
 for provenance. A suite that only wants a `Policy` object used to hand

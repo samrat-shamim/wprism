@@ -68,11 +68,13 @@ final class DatabaseLockBoundary {
         $tableSet = array_fill_keys($tables, true);
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
 
-        // A harmless read retains a metadata lock through the caller's
-        // transaction, so the following engine/index evidence cannot be
-        // invalidated by a concurrent ALTER/RENAME/DROP before use.
+        // SHOW CREATE is side-effect free for a view; prove the name is a
+        // plain table before asking the server to open it. The zero-row read
+        // then retains metadata lock through the transaction, and the second
+        // proof closes a rename-to-view race between the first two statements.
         foreach ($tables as $table) {
-            self::touch_table($table, $purpose, $continuity);
+            self::assert_plain_physical_table($table, $purpose, $continuity);
+            self::acquire_table_metadata_lock($table, $purpose, $continuity);
             self::assert_plain_physical_table($table, $purpose, $continuity);
         }
 
@@ -233,7 +235,7 @@ final class DatabaseLockBoundary {
         DatabaseTableIdentifier::assert_many($tables, $purpose);
     }
 
-    private static function touch_table(
+    private static function acquire_table_metadata_lock(
         string $table,
         string $purpose,
         ?callable $continuity
@@ -241,7 +243,7 @@ final class DatabaseLockBoundary {
         global $wpdb;
         self::prove_continuity($continuity);
         $wpdb->last_error = '';
-        $probe = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 1");
+        $probe = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 0");
         $error = trim((string) ($wpdb->last_error ?? ''));
         self::prove_continuity($continuity);
         if ($probe === false || $error !== '') {

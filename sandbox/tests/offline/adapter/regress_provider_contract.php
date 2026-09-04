@@ -29,6 +29,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__, 4);
 define('WPRISM_SPEC_VERSION', 3);
 require __DIR__ . '/../../lib/agent_version.php';
+require __DIR__ . '/../../lib/wp_serialization_stubs.php';
 wprism_test_define_agent_versions();
 // wpdb::get_results()'s output mode, which Ledger's own checked reads pass.
 define('ARRAY_A', 'ARRAY_A');
@@ -3917,6 +3918,26 @@ $check($envFacade === [
 $check(
     $wpdb->optionReadNames === ['a_required', 'm_present', 'z_optional'],
     'the Apply facade reads every resolved env option in Policy order through the wpdb boundary'
+);
+
+$serializedEnvManifest = $manifest;
+$serializedEnvManifest['options'] = [
+    'serialized_required' => ['class' => 'env', 'required' => true],
+];
+$serializedLookingEnv = 'a:1:{s:1:"x";s:1:"y";}';
+$wpdb->optionRows = ['serialized_required' => serialize($serializedLookingEnv)];
+$wpdb->optionReadNames = [];
+\WPrism\EnvironmentValues::set($scratchRoot, 'serialized_required', $serializedLookingEnv);
+$serializedEnvPolicy = $policyFor($serializedEnvManifest);
+$serializedEnvProjection = (new \WPrism\ApplyPlanEnvironment(
+    $serializedEnvPolicy,
+    new \WPrism\RebuildSelection($serializedEnvPolicy),
+    $scratchRoot
+))->env_missing_projection();
+$check(
+    $serializedEnvProjection === ['env_missing' => [], 'warnings' => []]
+        && $wpdb->optionReadNames === ['serialized_required'],
+    'the Apply facade compares WordPress wire bytes to the encoded intended scalar after env-set double-serialization'
 );
 $wpdb->optionRows = [];
 $wpdb->optionReadNames = [];

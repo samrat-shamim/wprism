@@ -181,6 +181,37 @@ foreach ($presenceFailures as $label => $configure) {
     );
 }
 
+$showCreateFailures = [
+    DatabaseTablePresenceException::NOT_PLAIN_BASE_TABLE => [
+        'wp_optional',
+        'CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER '
+            . 'VIEW `wp_optional` AS SELECT 1 AS id',
+        'utf8mb4',
+        'utf8mb4_unicode_ci',
+    ],
+    DatabaseTablePresenceException::RESOLUTION_UNREADABLE => ['wp_optional'],
+];
+foreach ($showCreateFailures as $reason => $row) {
+    $wpdb = db_authority_fixture()->seedTable('wp_optional', []);
+    Db::start_repeatable_read(
+        "strict SHOW CREATE $reason start",
+        NativeDatabaseProfile::schema_read_only([], ['wp_optional'])
+    );
+    $wpdb->returnNextGetRowAs($row, 'SHOW CREATE TABLE `wp_optional`');
+    $presenceFailure = db_authority_failure(
+        static fn() => DatabaseTablePresence::base_table_exists('wp_optional')
+    );
+    $continuous = Db::transaction_active("strict SHOW CREATE $reason continuity");
+    Db::rollback("strict SHOW CREATE $reason rollback");
+    wprism_check(
+        $presenceFailure instanceof DatabaseTablePresenceException
+            && $presenceFailure->reason() === $reason
+            && $continuous
+            && !$wpdb->wprism_test_strict_transport(),
+        "strict authored presence types the $reason SHOW CREATE branch without losing rollback authority"
+    );
+}
+
 // Engine DDL is a closed definition boundary rather than a raw SQL escape.
 // Definitions render completely before target contact, and one bounded set of
 // idempotent CREATEs shares an idle physical-session witness without START.

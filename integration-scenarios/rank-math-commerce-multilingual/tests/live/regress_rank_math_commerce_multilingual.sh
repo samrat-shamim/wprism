@@ -978,7 +978,7 @@ product_response rmcombo-product-en >/dev/null
 product_response rmcombo-product-de >/dev/null
 pass "full source=$source_order target=$target_order path recaptures byte-identically and repeats with zero actions"
 
-say 'post deletion selects the site-complete Rank Math repair and removes every derived witness'
+say 'direct deletion remains refusal-only across the combined adapter boundary'
 SOURCE_BOOK=$(jq -r '.book' <<<"$SOURCE_SEED")
 TARGET_BOOK=$(jq -r '.book.id' <<<"$TARGET_FINAL")
 require_fixture_ids SOURCE_BOOK TARGET_BOOK
@@ -996,58 +996,19 @@ DELETE_WITHHELD=$(wp2 wprism apply --repo=/siterepo --default-author=admin 2>&1)
 wp2 post get "$TARGET_BOOK" --field=ID >/dev/null \
   || fail 'withheld Rank Math deletion removed the target post'
 DELETE_REVISION=$(git -C "$R2" rev-parse HEAD)
-DELETED=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin \
-  --revision="$DELETE_REVISION" --format=json | awk 'NF { line=$0 } END { print line }') \
-  || fail 'combined custom-CPT deletion apply failed'
-require_wprism_answered 'Rank Math combination custom-CPT deletion' json "$DELETED"
-jq -e '
-  .canary == "clean" and .verification.result == "pass" and
-  (.plan.delete + .plan.deleted) > 0 and
-  any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
-  ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
-    ["provider:rank-math-state/rebuild_all_link_state"]
-' <<<"$DELETED" >/dev/null || fail "post deletion omitted the site-complete Rank Math repair: $DELETED"
-DELETED_DERIVED=$(wp2 eval '
-global $wpdb;
-$id=(int)getenv("WPRISM_RMCOMBO_TARGET_BOOK");
-echo wp_json_encode([
-  "links"=>(int)$wpdb->get_var($wpdb->prepare(
-    "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_internal_links WHERE post_id=%d OR target_post_id=%d",$id,$id
-  )),
-  "markers"=>(int)$wpdb->get_var($wpdb->prepare(
-    "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key=%s",$id,"rank_math_internal_links_processed"
-  )),
-  "meta"=>(int)$wpdb->get_var($wpdb->prepare(
-    "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",$id
-  )),
-  "post"=>(int)$wpdb->get_var($wpdb->prepare(
-    "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID=%d",$id
-  )),
-]);
-' --exec="putenv('WPRISM_RMCOMBO_TARGET_BOOK=$TARGET_BOOK');" | awk 'NF { line=$0 } END { print line }')
-jq -e '. == {links:0,markers:0,meta:0,post:0}' <<<"$DELETED_DERIVED" >/dev/null \
-  || fail "deleted custom CPT retained a physical or Rank Math-derived witness: $DELETED_DERIVED"
-DELETED_NATIVE=$(native_state wp2)
-jq -en --argjson before "$TARGET_FINAL" --argjson after "$DELETED_NATIVE" '
-  $after.book == null and
-  $after.products == $before.products and $after.categories == $before.categories and
-  $after.category_languages == $before.category_languages and
-  $after.term_translations == $before.term_translations and $after.translations == $before.translations and
-  $after.neighbor == $before.neighbor and $after.scheduler == $before.scheduler and
-  $after.redirection == $before.redirection and $after.redirection_cache == $before.redirection_cache
-' >/dev/null || fail "post deletion crossed a portable or target-runtime boundary: $DELETED_NATIVE"
-wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-deleted >/dev/null
-DELETED_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-deleted" || true)
-rm -rf "$R2/.tmp-rmcombo-deleted"
-[ -z "$DELETED_DIFF" ] || fail "post-deletion target recapture differs: $DELETED_DIFF"
-DELETE_NOOP=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin \
-  --revision="$DELETE_REVISION" --format=json | awk 'NF { line=$0 } END { print line }')
-jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$DELETE_NOOP" >/dev/null \
-  || fail "post-deletion no-op reran provider effects: $DELETE_NOOP"
-DELETE_FINAL=$(native_state wp2)
-jq -en --argjson deleted "$DELETED_NATIVE" --argjson final "$DELETE_FINAL" '$final == $deleted' >/dev/null \
-  || fail "post-deletion no-op changed native or target-runtime state: $DELETE_FINAL"
-pass 'deleted source posts leave no Rank Math rows/counts/markers, preserve unrelated plugin/runtime state, and recapture exactly'
+DELETE_DIRECT_RC=0
+DELETE_DIRECT=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin \
+  --revision="$DELETE_REVISION" --format=json 2>&1) || DELETE_DIRECT_RC=$?
+require_wprism_answered 'Rank Math combination direct custom-CPT deletion refusal' json "$DELETE_DIRECT"
+[ "$DELETE_DIRECT_RC" -ne 0 ] \
+  && tail -1 <<<"$DELETE_DIRECT" | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
+  || fail "combined direct custom-CPT deletion crossed without signed external exclusion: $DELETE_DIRECT"
+DELETE_REFUSAL_NATIVE=$(native_state wp2)
+jq -en --argjson before "$TARGET_FINAL" --argjson after "$DELETE_REFUSAL_NATIVE" '$after == $before' >/dev/null \
+  || fail "combined direct deletion refusal changed native or target-runtime state: $DELETE_REFUSAL_NATIVE"
+wp2 post get "$TARGET_BOOK" --field=ID >/dev/null \
+  || fail 'external-exclusion refusal removed the target custom post'
+pass 'both direct deletion forms refuse before combined portable, derived, or target-runtime mutation; signed promotion is exercised by the SSH scenario extension'
 }
 
 run_leg forward reverse

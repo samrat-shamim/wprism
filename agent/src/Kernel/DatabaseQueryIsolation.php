@@ -896,8 +896,21 @@ final class DatabaseQueryIsolation {
         if ($depth !== 0) {
             self::violation('wprism: database SQL has unbalanced parentheses');
         }
+        foreach ($upper as $offset => $token) {
+            if (in_array($token, ['NEXT', 'PREVIOUS'], true)
+                && ($upper[$offset + 1] ?? null) === 'VALUE'
+                && ($upper[$offset + 2] ?? null) === 'FOR') {
+                self::violation(
+                    'wprism: a sequence expression is outside the closed native database profile grammar'
+                );
+            }
+        }
         if (in_array('STRAIGHT_JOIN', $upper, true)
             || in_array('NATURAL', $upper, true)
+            || in_array('EXCEPT', $upper, true)
+            || in_array('INTERSECT', $upper, true)
+            || (!in_array($verb, ['INSERT', 'REPLACE', 'SHOW'], true)
+                && in_array('TABLE', $upper, true))
             || ($verb === 'EXPLAIN' && in_array('ANALYZE', $upper, true))) {
             self::violation('wprism: a query form is outside the closed native database profile grammar');
         }
@@ -971,6 +984,16 @@ final class DatabaseQueryIsolation {
         }
         if ($verb === 'SELECT') {
             self::assert_select_query_expression($tokens);
+        } elseif ($verb === 'EXPLAIN') {
+            // EXPLAIN also accepts mutating statements. Only its closed
+            // SELECT form is a checked read; otherwise an empty table profile
+            // could transport EXPLAIN UPDATE/INSERT as apparent diagnostics.
+            if (strtoupper($tokens[$cursor + 1] ?? '') !== 'SELECT') {
+                self::violation(
+                    'wprism: an EXPLAIN target is outside the closed SELECT query-expression grammar'
+                );
+            }
+            self::assert_select_query_expression(array_slice($tokens, $cursor + 1));
         }
         return $verb;
     }
@@ -1011,6 +1034,11 @@ final class DatabaseQueryIsolation {
             $token = $tokens[$offset] ?? null;
             if (!is_string($token)) {
                 self::violation('wprism: database SQL callable evidence is malformed');
+            }
+            if (($tokens[$offset - 1] ?? null) === '.') {
+                // MySQL and MariaDB parse even reserved grammar words as
+                // stored-function identifiers after a schema qualifier.
+                self::violation('wprism: an unreviewed SQL function crossed the native database profile');
             }
             $previous = strtoupper($tokens[$offset - 1] ?? '');
             if (in_array($previous, ['INSERT', 'INTO', 'REPLACE', 'UPDATE'], true)) {
@@ -1058,7 +1086,6 @@ final class DatabaseQueryIsolation {
                 self::violation('wprism: a spaced SQL routine call is outside the native database profile grammar');
             }
             if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $token) !== 1
-                || ($tokens[$offset - 1] ?? null) === '.'
                 || !in_array($function, [
                     'ABS', 'CAST', 'CEIL', 'CEILING', 'CHAR_LENGTH', 'COALESCE', 'CONCAT',
                     'CONCAT_WS', 'CONNECTION_ID', 'COUNT', 'DATABASE', 'DATE', 'DATE_FORMAT', 'FIELD', 'FIND_IN_SET',
