@@ -127,3 +127,28 @@ wprism_host_call() { # <cli> <registry> <project> <env> <verb> [args...]
   COMPOSE_PROJECT_NAME="$project" php "$cli" --envs-file="$registry" \
     "$verb" "$environment" "$@"
 }
+
+# Shared role-based ABI for package evidence sourced by both the conformance
+# and exact-version drivers. The package owns the assertion; the harness owns
+# the concrete pair name, registry and host CLI transport.
+host_wprism() { # <conf1|conf2> <verb> [args...]
+  local role="${1:-}" side
+  [ "$#" -ge 2 ] \
+    || { printf 'wprism test host: expected <conf1|conf2> <verb>\n' >&2; return 64; }
+  case "$role" in
+    conf1) side=1 ;;
+    conf2) side=2 ;;
+    *)
+      printf "wprism test host: unknown role '%s' (expected conf1|conf2)\n" "$role" >&2
+      return 64
+      ;;
+  esac
+  [[ "${WPRISM_PAIR:-}" =~ ^[a-z][a-z0-9]*$ ]] \
+    || { printf 'wprism test host: WPRISM_PAIR is not a canonical pair name\n' >&2; return 64; }
+  [ -n "${WPRISM_HOST_CLI:-}" ] && [ -n "${WPRISM_HOST_REGISTRY:-}" ] \
+    || { printf 'wprism test host: host CLI and registry are not initialized\n' >&2; return 64; }
+  shift
+  wprism_host_call \
+    "$WPRISM_HOST_CLI" "$WPRISM_HOST_REGISTRY" "wprism-$WPRISM_PAIR" \
+    "${WPRISM_PAIR}${side}" "$@"
+}

@@ -1714,6 +1714,15 @@ library.
    bash sandbox/tests/certify/certify_version_matrix.sh
    ```
 
+   A matrix may reuse its capsule's conformance hooks, so its wrapper must
+   supply the same role-based hook ABI: `wp_conf1`/`wp_conf2` for WordPress
+   commands; both drivers centrally supply `host_wprism conf1|conf2 <verb> ...`
+   for orchestrator commands. Keep reusable hooks on those role names;
+   concrete pair names, environment ids, registry paths, and Docker transport
+   belong to the driver. A driver-private host wrapper can make standalone
+   conformance green and then die with `command not found` when the
+   exact-version driver sources the identical hook.
+
    The source-SHA binding is part of the evidence. A green run against another
    checkout is not evidence for the candidate. The package validator requires
    this matrix for every certified plugin adapter, requires every active pin to

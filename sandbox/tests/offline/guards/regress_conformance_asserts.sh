@@ -36,6 +36,69 @@ for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
 done
 pass "both hook-sourcing harnesses source the fragment"
 
+# Reusable hooks can cross from the standalone runner into a package's exact-
+# version workflow. Their host command must therefore resolve through one
+# role-based ABI, not a runner-private function that disappears in the second
+# harness (Rank Math's first 1.0.277 boundary reached exactly that exit-127
+# failure after every product assertion before it had passed).
+HOST_LIBRARY=lib/host_orchestrator.sh
+grep -q '^host_wprism() {' "$HOST_LIBRARY" \
+  || fail 'the shared host library does not define the role-based host_wprism hook ABI'
+for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
+  grep -q '^\. lib/host_orchestrator\.sh$' "$harness" \
+    || fail "$harness does not source the shared host_wprism implementation"
+done
+HOST_DEFINITION_DUPES=$(grep -rlE '^host_wprism\(\) \{' \
+  conformance/ tests/ ../adapter-packages/*/tests/ \
+  | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
+[ -z "$HOST_DEFINITION_DUPES" ] \
+  || fail "host_wprism has a runner/package-private definition instead of one shared owner: $HOST_DEFINITION_DUPES"
+grep -Eq '^export -f .*[[:space:]]host_wprism([[:space:]]|$)' conformance/run.sh \
+  && grep -q '^export WPRISM_HOST_CLI WPRISM_HOST_REGISTRY$' conformance/run.sh \
+  || fail 'standalone conformance does not export host_wprism and its context to child check hooks'
+grep -q '^WPRISM_HOST_REGISTRY=' tests/certify/certify_version_matrix.sh \
+  && grep -q '^WPRISM_HOST_CLI=' tests/certify/certify_version_matrix.sh \
+  && grep -q '^export WPRISM_HOST_CLI WPRISM_HOST_REGISTRY$' tests/certify/certify_version_matrix.sh \
+  || fail 'the exact-version driver does not initialize the shared host_wprism context'
+PRIVATE_MATRIX_HOST=$(grep -rE 'host_wprism_vmatrix' \
+  tests/certify/ ../adapter-packages/*/tests/certify/ || true)
+[ -z "$PRIVATE_MATRIX_HOST" ] \
+  || fail "an exact-version workflow still depends on a driver-private host wrapper: $PRIVATE_MATRIX_HOST"
+HOST_ROUTES=$(
+  . "$HOST_LIBRARY"
+  wprism_host_call() { printf '<%s>' "$@"; printf '\n'; }
+  WPRISM_HOST_CLI=/candidate/cli/wprism
+  WPRISM_HOST_REGISTRY=/candidate/registry.json
+  WPRISM_PAIR=abiprobe
+  host_wprism conf1 scope --roots=post:fixture
+  host_wprism conf2 deploy --force-code-drift
+)
+[ "$HOST_ROUTES" = $'</candidate/cli/wprism></candidate/registry.json><wprism-abiprobe><abiprobe1><scope><--roots=post:fixture>\n</candidate/cli/wprism></candidate/registry.json><wprism-abiprobe><abiprobe2><deploy><--force-code-drift>' ] \
+  || fail "host_wprism did not map both roles to their exact pair environments: $HOST_ROUTES"
+HOST_CHILD_ROUTE=$(
+  . "$HOST_LIBRARY"
+  wprism_host_call() { printf '<%s>' "$@"; }
+  export -f host_wprism wprism_host_call
+  export WPRISM_HOST_CLI=/candidate/cli/wprism
+  export WPRISM_HOST_REGISTRY=/candidate/registry.json
+  export WPRISM_PAIR=childprobe
+  bash -c 'host_wprism conf1 capture --format=json'
+)
+[ "$HOST_CHILD_ROUTE" = '</candidate/cli/wprism></candidate/registry.json><wprism-childprobe><childprobe1><capture><--format=json>' ] \
+  || fail "an exported child hook could not use the complete host_wprism ABI: $HOST_CHILD_ROUTE"
+HOST_ROLE_RC=0
+HOST_ROLE_OUT=$(
+  . "$HOST_LIBRARY"
+  WPRISM_HOST_CLI=/candidate/cli/wprism
+  WPRISM_HOST_REGISTRY=/candidate/registry.json
+  WPRISM_PAIR=abiprobe
+  host_wprism wp2 deploy 2>&1
+) || HOST_ROLE_RC=$?
+[ "$HOST_ROLE_RC" -eq 64 ] \
+  && [ "$HOST_ROLE_OUT" = "wprism test host: unknown role 'wp2' (expected conf1|conf2)" ] \
+  || fail "host_wprism admitted a concrete driver side instead of the shared role vocabulary: rc=$HOST_ROLE_RC output=$HOST_ROLE_OUT"
+pass 'standalone and exact-version hooks share one closed role-based host orchestration ABI'
+
 grep -q 'POSTAPPLY=$(conformance_hook postapply.sh "conformance/postapply/\$MANIFEST.sh")' conformance/run.sh \
   || fail 'conformance/run.sh does not resolve the package-first post-apply hook'
 APPLY_LINE=$(grep -n 'pass "apply succeeded, side-effect canary clean"' conformance/run.sh | cut -d: -f1)

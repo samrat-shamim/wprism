@@ -243,13 +243,6 @@ WPRISM_HOST_CLI="$(cd .. && pwd)/cli/wprism"
 WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-conformance-host.${CONF_PAIR}.XXXXXX")
 trap 'rm -f -- "$WPRISM_HOST_REGISTRY"' EXIT
 wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$CONF_PAIR"
-host_wprism() { # host_wprism <conf1|conf2> <verb> [args...]
-  local side="$1"
-  shift
-  wprism_host_call \
-    "$WPRISM_HOST_CLI" "$WPRISM_HOST_REGISTRY" "wprism-$CONF_PAIR" \
-    "${CONF_PAIR}${side#conf}" "$@"
-}
 # pair.sh set these for ITS OWN compose invocations while bringing the pair
 # up, but that was a separate process — its exports die with it. Every one
 # of run.sh's own $COMPOSE calls below creates a fresh --rm container

@@ -200,7 +200,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     || fail 'Rank Math virgin-target strict-plan refusal mutated plugin state'
 
   DEPLOY_RC=0
-  DEPLOY_OUT=$(host_wprism_vmatrix wp2 deploy 2>&1) || DEPLOY_RC=$?
+  DEPLOY_OUT=$(host_wprism conf2 deploy 2>&1) || DEPLOY_RC=$?
   [ "$DEPLOY_RC" -eq 0 ] && grep -q '^deploy complete:' <<<"$DEPLOY_OUT" \
     || fail "Rank Math host deploy failed to establish lifecycle/schema: $DEPLOY_OUT"
   grep -q '^deploy phase: schema-settle$' <<<"$DEPLOY_OUT" \
@@ -233,7 +233,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
     [ "$(wp1 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
       || fail 'Rank Math source upgrade did not install exact 1.0.277.2'
-    UPGRADE_SOURCE_DEPLOY=$(host_wprism_vmatrix wp1 deploy --force-code-drift 2>&1) \
+    UPGRADE_SOURCE_DEPLOY=$(host_wprism conf1 deploy --force-code-drift 2>&1) \
       || fail "Rank Math upgraded source host deploy failed: $UPGRADE_SOURCE_DEPLOY"
     grep -q '^deploy complete:' <<<"$UPGRADE_SOURCE_DEPLOY" \
       || fail "Rank Math upgraded source host deploy returned no terminal result: $UPGRADE_SOURCE_DEPLOY"
@@ -263,7 +263,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
     [ "$(wp2 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
       || fail 'Rank Math target upgrade did not install exact 1.0.277.2'
-    UPGRADE_TARGET_DEPLOY=$(host_wprism_vmatrix wp2 deploy --force-code-drift 2>&1) \
+    UPGRADE_TARGET_DEPLOY=$(host_wprism conf2 deploy --force-code-drift 2>&1) \
       || fail "Rank Math upgraded target host deploy failed: $UPGRADE_TARGET_DEPLOY"
     grep -q '^deploy complete:' <<<"$UPGRADE_TARGET_DEPLOY" \
       || fail "Rank Math upgraded target host deploy returned no terminal result: $UPGRADE_TARGET_DEPLOY"
@@ -325,7 +325,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
       || fail 'Rank Math in-range downgrade plan mutated plugin state'
 
     DOWNGRADE_DEPLOY_RC=0
-    DOWNGRADE_DEPLOY_OUT=$(host_wprism_vmatrix wp2 deploy 2>&1) || DOWNGRADE_DEPLOY_RC=$?
+    DOWNGRADE_DEPLOY_OUT=$(host_wprism conf2 deploy 2>&1) || DOWNGRADE_DEPLOY_RC=$?
     require_wprism_answered 'Rank Math 1.0.277.2 to 1.0.277.1 downgrade deploy' human "$DOWNGRADE_DEPLOY_OUT"
     [ "$DOWNGRADE_DEPLOY_RC" -ne 0 ] \
       && grep -q 'code_drift' <<<"$DOWNGRADE_DEPLOY_OUT" \
@@ -345,9 +345,9 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     [ "$(rank_math_native_state_hash wp2)" = "$DOWNGRADE_BEFORE" ] \
       || fail 'Rank Math in-range downgrade refusal mutated plugin state'
 
-    DOWNGRADE_SOURCE_DEPLOY=$(host_wprism_vmatrix wp1 deploy --force-code-drift 2>&1) \
+    DOWNGRADE_SOURCE_DEPLOY=$(host_wprism conf1 deploy --force-code-drift 2>&1) \
       || fail "Rank Math downgraded source re-baseline failed: $DOWNGRADE_SOURCE_DEPLOY"
-    DOWNGRADE_TARGET_DEPLOY=$(host_wprism_vmatrix wp2 deploy --force-code-drift 2>&1) \
+    DOWNGRADE_TARGET_DEPLOY=$(host_wprism conf2 deploy --force-code-drift 2>&1) \
       || fail "Rank Math downgraded target re-baseline failed: $DOWNGRADE_TARGET_DEPLOY"
     grep -q 'FORCED past code_drift' <<<"$DOWNGRADE_SOURCE_DEPLOY" \
       && grep -q 'FORCED past code_drift' <<<"$DOWNGRADE_TARGET_DEPLOY" \
@@ -420,7 +420,7 @@ INSTALLED_OOR=$(wp1 plugin get seo-by-rank-math --field=version)
 NEGATIVE_BEFORE=$(rank_math_native_state_hash wp1)
 require_observed_nonempty 'Rank Math outside-range state baseline' "$NEGATIVE_BEFORE"
 NEGATIVE_RC=0
-NEGATIVE_OUT=$(host_wprism_vmatrix wp1 deploy 2>&1) || NEGATIVE_RC=$?
+NEGATIVE_OUT=$(host_wprism conf1 deploy 2>&1) || NEGATIVE_RC=$?
 require_wprism_answered 'Rank Math outside-range host deploy' human "$NEGATIVE_OUT"
 [ "$NEGATIVE_RC" -ne 0 ] \
   && grep -Eq 'outside_version_range|outside the .* declared version_range' <<<"$NEGATIVE_OUT" \

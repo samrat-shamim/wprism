@@ -76,16 +76,16 @@
             "origin": "copied",
             "source": "sandbox/lib/host_orchestrator.sh",
             "role": "host CLI registry, adoption-equivalent recovery setup and invocation boundary for checkpointed pair deployment",
-            "bytes": 7502,
-            "sha256": "40240b21da43cc47264d22874403498efe491a9cf7267e368cb1ed149b7c3df1"
+            "bytes": 8536,
+            "sha256": "8fd7747f9d8747fd02ee472de33f7ec30e4ea48bd1436fdbe5f2a76d5f997db3"
         },
         {
             "path": "conformance/run.sh",
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 37726,
-            "sha256": "4b264c047499ecbd3e8e2cd87ce6d5711d56c3671206173050412f66b871f47e"
+            "bytes": 37511,
+            "sha256": "2a5ba845df9b1f06be06086e6661a54fb6d0675bebb0d021cda17d2454ad1700"
         },
         {
             "path": "conformance/asserts.sh",
