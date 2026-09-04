@@ -114,7 +114,7 @@ final class IdealOnboardingTransport extends Transport {
 
 final class BoundedOnboardingTransport extends Transport {
     public function __construct() {
-        parent::__construct('bounded', ['repo_path' => '/tmp/bounded']);
+        parent::__construct('bounded', ['repo_path' => '/fixture/bounded']);
     }
 
     public function describe(): string { return 'bounded transport regression'; }
@@ -128,7 +128,7 @@ final class UnboundedOnboardingDriver implements EnvironmentDriver {
 
     public function name(): string { return 'unbounded'; }
     public function driverId(): string { return 'unbounded-fixture'; }
-    public function repoPath(): string { return '/tmp/unbounded'; }
+    public function repoPath(): string { return '/fixture/unbounded'; }
     public function describe(): string { return 'unbounded regression fixture'; }
     public function captureRaw(string $script): array { ++$this->rawCalls;
     return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
@@ -456,8 +456,8 @@ ob_end_clean();
 wprism_check_same(1, $unicodeExit, 'connect conservatively refuses normalization-only prospective host boundaries');
 wprism_check(!file_exists($unicodeWorkspace), 'normalization-only overlap refusal publishes no workspace');
 $foldBoundary = new ReflectionMethod(ConnectCommand::class, 'foldComparableBoundary');
-$unicodeUpper = $foldBoundary->invoke(null, "/tmp/Site-\u{00C9}", true, false);
-$unicodeLower = $foldBoundary->invoke(null, "/tmp/site-\u{00E9}", true, false);
+$unicodeUpper = $foldBoundary->invoke(null, "/fixture/Site-\u{00C9}", true, false);
+$unicodeLower = $foldBoundary->invoke(null, "/fixture/site-\u{00E9}", true, false);
 wprism_check_same(
     $unicodeUpper,
     $unicodeLower,
@@ -1472,8 +1472,8 @@ $configFailures = [
     'ambiguous-mount' => [
         'exit' => 0,
         'stdout' => '{"services":{"cli2":{"volumes":['
-            . '{"type":"bind","source":"/tmp/a","target":"/siterepo","read_only":false},'
-            . '{"type":"bind","source":"/tmp/b","target":"/siterepo","read_only":false}'
+            . '{"type":"bind","source":"/fixture/a","target":"/siterepo","read_only":false},'
+            . '{"type":"bind","source":"/fixture/b","target":"/siterepo","read_only":false}'
             . ']}}}',
         'stderr' => '',
     ],
@@ -1517,16 +1517,16 @@ $namedDocker = new DockerTransport('named', [
 $readOnlyDocker = new DockerTransport('read-only', [
     'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2', 'repo_path' => '/siterepo',
 ], null, static fn(): array => ['exit' => 0, 'stdout' => $mountConfig([
-    ['type' => 'bind', 'source' => '/tmp/read-only-repo', 'target' => '/siterepo', 'read_only' => true],
+    ['type' => 'bind', 'source' => '/fixture/read-only-repo', 'target' => '/siterepo', 'read_only' => true],
 ]), 'stderr' => '']);
 $writableDocker = new DockerTransport('writable', [
     'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2', 'repo_path' => '/siterepo',
 ], null, static fn(): array => ['exit' => 0, 'stdout' => $mountConfig([
-    ['type' => 'bind', 'source' => '/tmp/writable-repo', 'target' => '/siterepo', 'read_only' => false],
+    ['type' => 'bind', 'source' => '/fixture/writable-repo', 'target' => '/siterepo', 'read_only' => false],
 ]), 'stderr' => '']);
 wprism_check_same(null, $namedDocker->hostRepoBoundaryPath(), 'a proven named volume has no writable host repository boundary');
 wprism_check_same(null, $readOnlyDocker->hostRepoBoundaryPath(), 'a proven read-only bind has no writable host repository boundary');
-wprism_check_same('/tmp/writable-repo', $writableDocker->hostRepoBoundaryPath(), 'a proven writable bind returns its exact host boundary');
+wprism_check_same('/fixture/writable-repo', $writableDocker->hostRepoBoundaryPath(), 'a proven writable bind returns its exact host boundary');
 
 $execControlCalls = [];
 $execDocker = new DockerTransport('exec-bounded', [
@@ -1561,14 +1561,14 @@ is_string($priorPath) ? putenv('PATH=' . $priorPath) : putenv('PATH');
 
 $docker = new DockerTransport('demo-source', [
     'transport' => 'docker',
-    'compose_file' => '/tmp/pair.yml',
+    'compose_file' => '/fixture/pair.yml',
     'compose_env_file' => $envFile,
     'service' => 'cli1',
     'repo_path' => '/siterepo',
 ]);
 $wpCommand = new ReflectionMethod(DockerTransport::class, 'wpCommand');
 $wire = (string) $wpCommand->invoke($docker, ['wprism', 'capture']);
-wprism_check(str_contains($wire, "'compose' '--env-file' '" . $envFile . "' '-f' '/tmp/pair.yml'"), 'demo registry pins Compose interpolation through an explicit machine-local env file');
+wprism_check(str_contains($wire, "'compose' '--env-file' '" . $envFile . "' '-f' '/fixture/pair.yml'"), 'demo registry pins Compose interpolation through an explicit machine-local env file');
 wprism_check(!$docker->capabilityReport('onboard')->ready(), 'Docker still refuses the adoption composition it cannot deliver');
 wprism_check($docker->capabilityReport('onboard-handoff')->ready(), 'Docker permits a post-init Git-only handoff over raw control');
 $dockerHandoffCli = HostProcess::run([
@@ -2164,7 +2164,7 @@ foreach ([$wooFixtureRoot, $wooFixtureSandbox, $wooFixtureSandbox . '/bin', $woo
 file_put_contents($wooFixtureSandbox . '/pair.yml', "services: {}\n");
 file_put_contents($wooFixtureSandbox . '/bin/fetch-artifact.sh', <<<'SH'
 fetch_artifact() {
-  printf '/tmp/woocommerce-fixture.zip\n'
+  printf '/fixture/woocommerce-fixture.zip\n'
 }
 SH
 );

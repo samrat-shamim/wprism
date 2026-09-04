@@ -491,12 +491,23 @@ final class OfflineRunnerTest extends TestCase
             'assignment' => "LOG=/tmp/wprism-fixed.log\n",
             'line start' => "/tmp/wprism-fixed-helper.sh --run\n",
             'quoted' => "cat '/tmp/wprism-fixed.log'\n",
+            // The boundary withoutConcatenatedTmp() must NOT cross: a literal
+            // that STARTS an expression is a genuine absolute path even though
+            // a `.` appears later on the line.
+            'concat tail, absolute head' => "<?php \$p = '/tmp/wprism-fixed' . \$suffix;\n",
         ];
         $clean = [
             'mktemp dir' => "d=\$(mktemp -d)\n",
             'var tmp' => "cat /var/tmp/other.log\n",
             'relative tmp' => "cat ./tmp/other.log\n",
             'tmpdir-derived' => "cat \"\$TMPDIR/tmp/other.log\"\n",
+            // `<expr> . '/tmp/x'` is sandbox/tmp -- per-checkout scratch, not
+            // the shared inode. Reading it as absolute serialised
+            // regress-ideal-onboarding (82.7 s) and regress-policy-load-scale
+            // (10.8 s) for nothing; see withoutConcatenatedTmp().
+            'concatenated single-quote' => "<?php \$p = dirname(__DIR__, 3) . '/tmp/policy-load-scale';\n",
+            'concatenated double-quote' => "<?php \$p = \$sandbox . \"/tmp/demo.env\";\n",
+            'concatenated no space' => "<?php \$p = \$sandbox.'/tmp/demo.env';\n",
         ];
 
         try {
