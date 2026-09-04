@@ -48,6 +48,7 @@ wprism_check_same(
 );
 wprism_check_same(
     [
+        'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
         'plugin-incompatibility/v1',
         'schema-settlement/v1',
@@ -107,7 +108,7 @@ wprism_check_same(
     [
         'RankMath\\Defaults', 'RankMath\\Helper', 'RankMath\\Installer',
         'RankMath\\Links\\ContentProcessor', 'RankMath\\Links\\Links',
-        'WP_CLI', 'WP_Hook', 'WP_Post', 'WP_Rewrite',
+        'WP_Hook', 'WP_Post', 'WP_Rewrite',
     ],
     $adapter['providers'][0]['requires']['classes'] ?? null,
     'A4: the provider declares every runtime class it invokes or type-checks'
@@ -312,6 +313,23 @@ wprism_check(
         && !str_contains($versionMatrixHarness, 'RankMath\\Helper::update_modules($modules);')
         && !str_contains($versionMatrixHarness, 'update_option("rank_math_modules"'),
     'B4: the upgrade boundary enables a real native module and proves its exact active set on source and target'
+);
+wprism_check(
+    str_contains($versionMatrixHarness, 'assert_rank_math_baseline_only_deploy() {')
+        && str_contains($versionMatrixHarness, "grep -q '^deploy phase: code-baseline-accept$'")
+        && str_contains($versionMatrixHarness, "grep -q '^deploy complete: code-baseline-accept; no code descriptor$'")
+        && str_contains($versionMatrixHarness, "[ \"\$(grep -c 'FORCED past code_drift' <<<\"\$output\")\" -eq 1 ]")
+        && str_contains($versionMatrixHarness, "fail \"\$label invented lifecycle, provider, or checkpoint work: \$output\"")
+        && str_contains($versionMatrixHarness, 'UPGRADE_SOURCE_REFUSE=$(host_wprism conf1 deploy 2>&1)')
+        && str_contains($versionMatrixHarness, 'UPGRADE_TARGET_REFUSE=$(host_wprism conf2 deploy 2>&1)')
+        && str_contains($versionMatrixHarness, 'UPGRADE_SOURCE_BASELINE_BEFORE')
+        && str_contains($versionMatrixHarness, 'UPGRADE_TARGET_BASELINE_BEFORE')
+        && str_contains($versionMatrixHarness, "assert_rank_math_zero_code_drift wp1 'Rank Math upgraded source forced host deploy'")
+        && str_contains($versionMatrixHarness, "assert_rank_math_zero_code_drift wp2 'Rank Math upgraded target forced host deploy'")
+        && str_contains($versionMatrixHarness, "assert_rank_math_zero_code_drift wp1 'Rank Math downgraded source forced host deploy'")
+        && str_contains($versionMatrixHarness, "assert_rank_math_zero_code_drift wp2 'Rank Math downgraded target forced host deploy'")
+        && str_contains($versionMatrixHarness, "! grep -q 'did NOT accept it as the new baseline' <<<\"\$UPGRADE_SOURCE_CAPTURE\""),
+    'B4: upgrade and downgrade exercise host refusal, one isolated acceptance phase, zero residual drift and capture non-consumption'
 );
 $matrixPrivateFunction = strpos($versionMatrixHarness, <<<'SH'
 rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseline]

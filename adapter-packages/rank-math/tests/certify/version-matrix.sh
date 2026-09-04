@@ -96,6 +96,28 @@ rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseli
     "$@"
 }
 
+assert_rank_math_baseline_only_deploy() { # <label> <captured-output>
+  local label="$1" output="$2"
+  require_wprism_answered "$label" human "$output"
+  grep -q '^deploy phase: lifecycle-status$' <<<"$output" \
+    && grep -q '^deploy phase: schema-status$' <<<"$output" \
+    && grep -q '^deploy phase: code-baseline-accept$' <<<"$output" \
+    && grep -q '^deploy complete: code-baseline-accept; no code descriptor$' <<<"$output" \
+    || fail "$label did not select the exact baseline-only path: $output"
+  [ "$(grep -c 'FORCED past code_drift' <<<"$output")" -eq 1 ] \
+    || fail "$label did not report exactly one forced code-drift finding: $output"
+  if grep -Eq '^deploy phase: (promotion-begin|checkpoint|lifecycle-retire|lifecycle-activate|schema-settle|lifecycle-settle)$' <<<"$output"; then
+    fail "$label invented lifecycle, provider, or checkpoint work: $output"
+  fi
+}
+
+assert_rank_math_zero_code_drift() { # <wp1|wp2> <label>
+  local side="$1" label="$2" plan
+  plan=$("$side" wprism plan --repo=/siterepo --format=json | tail -1)
+  jq -e '.code_drift == []' <<<"$plan" >/dev/null \
+    || fail "$label left code drift after an accepted baseline: $plan"
+}
+
 VMATRIX_PLUGIN_SLUG=seo-by-rank-math
 
 version_matrix_preflight() {
@@ -233,10 +255,26 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
     [ "$(wp1 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
       || fail 'Rank Math source upgrade did not install exact 1.0.277.2'
+    UPGRADE_SOURCE_BASELINE_BEFORE=$(wp1 eval "echo \\WPrism\\Ledger::kv_get('code_versions');" | tail -1)
+    UPGRADE_SOURCE_STATE_BEFORE=$(rank_math_native_state_hash wp1)
+    UPGRADE_SOURCE_REFUSE_RC=0
+    UPGRADE_SOURCE_REFUSE=$(host_wprism conf1 deploy 2>&1) || UPGRADE_SOURCE_REFUSE_RC=$?
+    require_wprism_answered 'Rank Math upgraded source unforced host deploy' human "$UPGRADE_SOURCE_REFUSE"
+    [ "$UPGRADE_SOURCE_REFUSE_RC" -ne 0 ] \
+      && grep -q 'code_drift' <<<"$UPGRADE_SOURCE_REFUSE" \
+      && grep -q '1.0.277' <<<"$UPGRADE_SOURCE_REFUSE" \
+      && grep -q '1.0.277.2' <<<"$UPGRADE_SOURCE_REFUSE" \
+      || fail "Rank Math upgraded source did not refuse at its exact version witness: $UPGRADE_SOURCE_REFUSE"
+    [ "$UPGRADE_SOURCE_BASELINE_BEFORE" = "$(wp1 eval "echo \\WPrism\\Ledger::kv_get('code_versions');" | tail -1)" ] \
+      && [ "$UPGRADE_SOURCE_STATE_BEFORE" = "$(rank_math_native_state_hash wp1)" ] \
+      || fail 'Rank Math upgraded source refusal mutated its ledger or native plugin state'
+    if grep -Eq '^deploy phase: (promotion-begin|checkpoint|code-baseline-accept|lifecycle-retire|lifecycle-activate|schema-settle|lifecycle-settle)$' <<<"$UPGRADE_SOURCE_REFUSE"; then
+      fail "Rank Math upgraded source refusal crossed the read-only preflight: $UPGRADE_SOURCE_REFUSE"
+    fi
     UPGRADE_SOURCE_DEPLOY=$(host_wprism conf1 deploy --force-code-drift 2>&1) \
       || fail "Rank Math upgraded source host deploy failed: $UPGRADE_SOURCE_DEPLOY"
-    grep -q '^deploy complete:' <<<"$UPGRADE_SOURCE_DEPLOY" \
-      || fail "Rank Math upgraded source host deploy returned no terminal result: $UPGRADE_SOURCE_DEPLOY"
+    assert_rank_math_baseline_only_deploy 'Rank Math upgraded source forced host deploy' "$UPGRADE_SOURCE_DEPLOY"
+    assert_rank_math_zero_code_drift wp1 'Rank Math upgraded source forced host deploy'
     UPGRADE_POST=$(jq -r '.post' "siterepo/${PAIR}1/.tmp-rank-math-source.json")
     require_fixture_ids UPGRADE_POST
     wp1 post update "$UPGRADE_POST" --post_title='Rank Math 1.0.277 to 1.0.277.2 東京 🚀' >/dev/null
@@ -253,7 +291,10 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
       }
     ' <<<"$UPGRADE_SOURCE_MODULES" >/dev/null \
       || fail "Rank Math upgrade source modules are not registered and active: $UPGRADE_SOURCE_MODULES"
-    wp1 wprism capture --repo=/siterepo
+    UPGRADE_SOURCE_CAPTURE=$(wp1 wprism capture --repo=/siterepo 2>&1) \
+      || fail "Rank Math upgraded source capture failed: $UPGRADE_SOURCE_CAPTURE"
+    ! grep -q 'did NOT accept it as the new baseline' <<<"$UPGRADE_SOURCE_CAPTURE" \
+      || fail "Rank Math upgraded source capture found drift after host acceptance: $UPGRADE_SOURCE_CAPTURE"
     wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
     "${GIT1[@]}" commit -qm 'capture: Rank Math 1.0.277 to 1.0.277.2 in-place upgrade'
@@ -263,10 +304,26 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
     [ "$(wp2 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
       || fail 'Rank Math target upgrade did not install exact 1.0.277.2'
+    UPGRADE_TARGET_BASELINE_BEFORE=$(wp2 eval "echo \\WPrism\\Ledger::kv_get('code_versions');" | tail -1)
+    UPGRADE_TARGET_STATE_BEFORE=$(rank_math_native_state_hash wp2)
+    UPGRADE_TARGET_REFUSE_RC=0
+    UPGRADE_TARGET_REFUSE=$(host_wprism conf2 deploy 2>&1) || UPGRADE_TARGET_REFUSE_RC=$?
+    require_wprism_answered 'Rank Math upgraded target unforced host deploy' human "$UPGRADE_TARGET_REFUSE"
+    [ "$UPGRADE_TARGET_REFUSE_RC" -ne 0 ] \
+      && grep -q 'code_drift' <<<"$UPGRADE_TARGET_REFUSE" \
+      && grep -q '1.0.277' <<<"$UPGRADE_TARGET_REFUSE" \
+      && grep -q '1.0.277.2' <<<"$UPGRADE_TARGET_REFUSE" \
+      || fail "Rank Math upgraded target did not refuse at its exact version witness: $UPGRADE_TARGET_REFUSE"
+    [ "$UPGRADE_TARGET_BASELINE_BEFORE" = "$(wp2 eval "echo \\WPrism\\Ledger::kv_get('code_versions');" | tail -1)" ] \
+      && [ "$UPGRADE_TARGET_STATE_BEFORE" = "$(rank_math_native_state_hash wp2)" ] \
+      || fail 'Rank Math upgraded target refusal mutated its ledger or native plugin state'
+    if grep -Eq '^deploy phase: (promotion-begin|checkpoint|code-baseline-accept|lifecycle-retire|lifecycle-activate|schema-settle|lifecycle-settle)$' <<<"$UPGRADE_TARGET_REFUSE"; then
+      fail "Rank Math upgraded target refusal crossed the read-only preflight: $UPGRADE_TARGET_REFUSE"
+    fi
     UPGRADE_TARGET_DEPLOY=$(host_wprism conf2 deploy --force-code-drift 2>&1) \
       || fail "Rank Math upgraded target host deploy failed: $UPGRADE_TARGET_DEPLOY"
-    grep -q '^deploy complete:' <<<"$UPGRADE_TARGET_DEPLOY" \
-      || fail "Rank Math upgraded target host deploy returned no terminal result: $UPGRADE_TARGET_DEPLOY"
+    assert_rank_math_baseline_only_deploy 'Rank Math upgraded target forced host deploy' "$UPGRADE_TARGET_DEPLOY"
+    assert_rank_math_zero_code_drift wp2 'Rank Math upgraded target forced host deploy'
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply' \
       wp2 wprism apply --repo=/siterepo --default-author=admin \
@@ -349,9 +406,10 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
       || fail "Rank Math downgraded source re-baseline failed: $DOWNGRADE_SOURCE_DEPLOY"
     DOWNGRADE_TARGET_DEPLOY=$(host_wprism conf2 deploy --force-code-drift 2>&1) \
       || fail "Rank Math downgraded target re-baseline failed: $DOWNGRADE_TARGET_DEPLOY"
-    grep -q 'FORCED past code_drift' <<<"$DOWNGRADE_SOURCE_DEPLOY" \
-      && grep -q 'FORCED past code_drift' <<<"$DOWNGRADE_TARGET_DEPLOY" \
-      || fail "Rank Math explicit downgrade re-baseline did not report both forced decisions: source=$DOWNGRADE_SOURCE_DEPLOY target=$DOWNGRADE_TARGET_DEPLOY"
+    assert_rank_math_baseline_only_deploy 'Rank Math downgraded source forced host deploy' "$DOWNGRADE_SOURCE_DEPLOY"
+    assert_rank_math_baseline_only_deploy 'Rank Math downgraded target forced host deploy' "$DOWNGRADE_TARGET_DEPLOY"
+    assert_rank_math_zero_code_drift wp1 'Rank Math downgraded source forced host deploy'
+    assert_rank_math_zero_code_drift wp2 'Rank Math downgraded target forced host deploy'
 
     DOWNGRADE_POST=$(wp1 post list --post_type=post --name=rank-math-article --field=ID)
     require_fixture_ids DOWNGRADE_POST

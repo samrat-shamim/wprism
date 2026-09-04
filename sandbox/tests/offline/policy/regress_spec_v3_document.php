@@ -242,8 +242,9 @@ wprism_check_same(
 // WPRISM_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
 // WP-6.5 made it six; manifest-provider-runtime/v1 made it seven, Redirection's
 // measured mixed container made it eight, the bounded post-kind selector made
-// it nine, schema-settlement/v1 made it ten, and plugin-incompatibility/v1 made
-// it eleven while claiming `incompatible_plugins`. The sixth section-claiming
+// it nine, schema-settlement/v1 made it ten, plugin-incompatibility/v1 made it
+// eleven while claiming `incompatible_plugins`, and the fixed manifest-provider
+// child protocol made it twelve. The sixth section-claiming
 // name remains `body_refs`
 // (§ v3.20) — another section that did not exist when v3 was cut, shipped with
 // WPRISM_SPEC_VERSION unmoved.
@@ -251,6 +252,7 @@ wprism_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
+        'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'plugin-incompatibility/v1',
@@ -262,7 +264,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries eleven IMPLEMENTED features, and five claim sections v3 did not have — '
+    'v3.2: the vocabulary carries twelve IMPLEMENTED features, and five claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked five times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by

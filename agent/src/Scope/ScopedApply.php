@@ -45,25 +45,27 @@ final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage
             if ($replacement === null) {
                 return $this->read($key) === null;
             }
-            return (int) Db::query($wpdb->prepare(
-                "INSERT IGNORE INTO `$table` (k, v) VALUES (%s, %s)",
-                $key,
-                $replacement
-            ), 'scoped apply session begin CAS') === 1;
+            return Db::mutation(
+                $wpdb->prepare("INSERT IGNORE INTO `$table` (k, v) SELECT %s, %s", $key, $replacement),
+                '',
+                '',
+                'scoped apply session begin CAS'
+            ) === 1;
         }
         if ($replacement === null) {
-            return (int) Db::query($wpdb->prepare(
-                "DELETE FROM `$table` WHERE k = %s AND BINARY v = BINARY %s",
-                $key,
-                $expected
-            ), 'scoped apply session archive CAS') === 1;
+            return Db::mutation(
+                "DELETE FROM `$table`",
+                $wpdb->prepare('k = %s AND BINARY v = BINARY %s', $key, $expected),
+                '',
+                'scoped apply session archive CAS'
+            ) === 1;
         }
-        return (int) Db::query($wpdb->prepare(
-            "UPDATE `$table` SET v = %s WHERE k = %s AND BINARY v = BINARY %s",
-            $replacement,
-            $key,
-            $expected
-        ), 'scoped apply session update CAS') === 1;
+        return Db::mutation(
+            $wpdb->prepare("UPDATE `$table` SET v = %s", $replacement),
+            $wpdb->prepare('k = %s AND BINARY v = BINARY %s', $key, $expected),
+            '',
+            'scoped apply session update CAS'
+        ) === 1;
     }
 }
 

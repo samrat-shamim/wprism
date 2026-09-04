@@ -12,11 +12,11 @@ require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/../Code/Code.php';
 require_once __DIR__ . '/../Delete/Deletion.php';
 require_once __DIR__ . '/../Promotion/Deploy.php';
+require_once __DIR__ . '/../Promotion/CodeBaselineCapture.php';
 require_once __DIR__ . '/../Kernel/Db.php';
 require_once __DIR__ . '/../Repository/Identity.php';
 require_once __DIR__ . '/InitialCaptureBoundary.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
-require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 require_once __DIR__ . '/../Review/Lint.php';
 require_once __DIR__ . '/../Review/LintTrustGate.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -773,18 +773,23 @@ final class CapturePublicationWorkflow {
                             array_column($candidate['entities'], 'uuid'),
                             array_column($candidate['deletions'], 'uuid')
                         ));
-                        // issue #3507: capture observes code, it never accepts
-                        // it. The unconditional re-baseline stays deploy's
-                        // alone -- Deploy.php:464-472 reaches
-                        // LifecyclePlanner::record_code_versions() only after
-                        // that verb's own refuse-or-force gate
-                        // (Deploy.php:203-210, :221-224). Capture has no such
-                        // gate, so an unaccepted drift leaves the recorded
-                        // blob byte-identical and every row is reported
-                        // (Architecture Rulings §1, report-not-hide) rather
-                        // than erased by a silent re-baseline that produced
-                        // no output at all.
-                        foreach (LifecyclePlanner::observe_code_versions($c->policy()) as $observed) {
+                        // Capture may initialize or reaffirm an exact baseline,
+                        // but it never consumes drift. CodeBaselineCapture binds
+                        // that decision to the same transaction as the captured
+                        // state and returns every refused row for report-not-hide
+                        // output (Architecture Rulings §1).
+                        if (!$compiledCandidate instanceof CompiledRepository) {
+                            throw new \RuntimeException(
+                                'wprism: capture lost its compiled options carrier before code-baseline publication'
+                            );
+                        }
+                        $capturedTree = $compiledCandidate->tree();
+                        $capturedDesired = isset($capturedTree['options/core'])
+                            ? Deploy::extract_desired(
+                                (array) ($capturedTree['options/core']['data'] ?? [])
+                            )
+                            : [];
+                        foreach (CodeBaselineCapture::observe_or_publish($capturedDesired) as $observed) {
                             $candidate['warnings'][] = (string) $observed['message'] . self::CODE_DRIFT_OBSERVED;
                         }
                     }

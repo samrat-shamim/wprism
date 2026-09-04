@@ -486,6 +486,7 @@ $place = static function (string $relative) use ($wprismRoot, $gateRoot): void {
 $copyTree($wprismRoot . '/adapter-packages', $gateRoot . '/adapter-packages');
 $copyTree($wprismRoot . '/platform', $gateRoot . '/platform');
 $place('agent/src/Kernel/Canon.php');
+$place('agent/src/Kernel/ManifestExecutableLoader.php');
 $place('agent/src/Policy/AdapterLibrary.php');
 $place('agent/src/Policy/AdapterPackage.php');
 $place('agent/src/Policy/ManifestDispositions.php');

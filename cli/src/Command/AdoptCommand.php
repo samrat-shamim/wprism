@@ -28,8 +28,16 @@ final class AdoptCommand {
      * target preflight; the transaction itself remains owned by Adopt.
      */
     public static function run(EnvironmentDriver $transport, array $extra, string $sourceRoot): int {
-        if ($extra !== []) {
-            fwrite(STDERR, "wprism: adopt accepts no extra arguments\n");
+        $legacyLoaderQuiesced = false;
+        foreach ($extra as $arg) {
+            if ($arg === AgentGenerationFence::LEGACY_QUIESCENCE_FLAG && !$legacyLoaderQuiesced) {
+                $legacyLoaderQuiesced = true;
+                continue;
+            }
+            fwrite(
+                STDERR,
+                'wprism: adopt accepts only optional ' . AgentGenerationFence::LEGACY_QUIESCENCE_FLAG . "\n"
+            );
             return 1;
         }
         if (!$transport instanceof AdoptionTransport) {
@@ -96,7 +104,9 @@ final class AdoptCommand {
                     ? Doctor::runIsolated($transport)
                     : Doctor::run($transport);
                 return $doctor['ok'] === true;
-            }
+            },
+            null,
+            $legacyLoaderQuiesced
         );
         if ($result['exit'] !== 0) {
             fwrite(STDERR, "wprism: adopt failed during {$result['phase']}\n");
@@ -111,6 +121,9 @@ final class AdoptCommand {
             ? 'created seed site.wprism.json'
             : 'retained existing site.wprism.json';
         echo "adopt: installed agent {$result['version']} + embedded adapter library + rollback authority; $repoAction\n";
+        if (($result['legacy_loader_transition'] ?? false) === true) {
+            echo "adopt: legacy unfenced loader transition used the explicit quiescence attestation\n";
+        }
         echo "adopt phase: doctor (verified before commit)\n";
         if (!is_array($doctor)) {
             fwrite(STDERR, "wprism: adopt: committed transaction has no doctor verification result\n");

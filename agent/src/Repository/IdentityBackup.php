@@ -4,6 +4,9 @@ namespace WPrism;
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
+if (!class_exists(NativeDatabaseProfile::class, false)) {
+    require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
+}
 
 /** Versioned disaster-recovery sidecar for environment-bound identity. */
 final class IdentityBackup {
@@ -16,7 +19,10 @@ final class IdentityBackup {
         $tables = self::tables_by_kind($policy);
         $transactionStarted = false;
         try {
-            Db::start_consistent_snapshot('starting identity export snapshot');
+            Db::start_consistent_snapshot(
+                'starting identity export snapshot',
+                self::database_profile($policy, false)
+            );
             $transactionStarted = true;
             Identity::assert_embedded_unique();
             Ledger::prune_dead_map();
@@ -85,7 +91,10 @@ final class IdentityBackup {
         global $wpdb;
         $transactionStarted = false;
         try {
-            Db::start_consistent_snapshot('starting identity import transaction');
+            Db::start_consistent_snapshot(
+                'starting identity import transaction',
+                self::database_profile($policy, true)
+            );
             $transactionStarted = true;
             Identity::assert_embedded_unique();
             $maps = self::validate_maps($artifact['maps'] ?? null, self::tables_by_kind($policy));
@@ -122,12 +131,16 @@ final class IdentityBackup {
                 }
             }
 
-            Db::query(
+            Db::mutation(
                 "DELETE FROM {$wpdb->prefix}wprism_map",
+                '',
+                '',
                 'clearing identity mappings for restore'
             );
-            Db::query(
+            Db::mutation(
                 "DELETE FROM {$wpdb->prefix}wprism_state",
+                '',
+                '',
                 'clearing sync state for restore'
             );
             foreach ($incomingPlain as $row) {
@@ -441,6 +454,36 @@ final class IdentityBackup {
     private static function hash(array $artifact): string {
         unset($artifact['integrity_sha256']);
         return hash('sha256', Canon::encode($artifact));
+    }
+
+    /** Every physical table the sidecar transaction can query or mutate. */
+    private static function database_profile(Policy $policy, bool $restore): NativeDatabaseProfile {
+        global $wpdb;
+        $map = $wpdb->prefix . 'wprism_map';
+        $state = $wpdb->prefix . 'wprism_state';
+        $kv = $wpdb->prefix . 'wprism_kv';
+        $reads = [
+            $wpdb->posts,
+            $wpdb->postmeta,
+            $wpdb->terms,
+            $wpdb->term_taxonomy,
+            $wpdb->termmeta,
+            $wpdb->options,
+            $map,
+            $state,
+            $kv,
+        ];
+        foreach (Snapshot::row_tables($policy) as $table => $_declaration) {
+            $physical = $wpdb->prefix . $table;
+            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $physical));
+            if (is_string($found) && hash_equals($physical, $found)) {
+                $reads[] = $physical;
+            }
+        }
+        return new NativeDatabaseProfile(
+            $reads,
+            $restore ? [$map, $state, $kv] : [$map]
+        );
     }
 
     private static function rollback_after_failure(\Throwable $primary, string $context): void {

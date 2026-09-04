@@ -30,7 +30,7 @@ require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 use WP_CLI;
 
 /**
- * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
+ * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|code-baseline-accept|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'wprism-command-refusal/v1';
@@ -459,6 +459,17 @@ final class Cli {
         return $assoc['adapter_library'];
     }
 
+    /** A safety override is authority only in WP-CLI's exact valueless form. */
+    private static function bare_boolean_flag(array $assoc, string $flag): bool {
+        if (!array_key_exists($flag, $assoc)) {
+            return false;
+        }
+        if ($assoc[$flag] !== true) {
+            throw new \InvalidArgumentException("--$flag is a valueless flag and does not accept '=value'");
+        }
+        return true;
+    }
+
     /**
      * May this Throwable's message be published verbatim in the JSON
      * refusal envelope?
@@ -528,6 +539,7 @@ final class Cli {
             'apply' => 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase',
             'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
             'code-preflight' => 'correct the staged plugin/theme runtime header or target PHP/WordPress evidence before beginning promotion',
+            'code-baseline-accept' => "run the host 'wprism deploy <env>' workflow with the exact frozen artifact and explicit --force-code-drift consent",
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
             'refresh-export' => 'inspect private operator evidence, then complete or recover the interrupted apply, promotion lease, identity, or code receipt before observing production again',
@@ -722,7 +734,8 @@ final class Cli {
     }
 
     /**
-     * Read-only lifecycle preflight for the host deployment orchestrator.
+     * Read-only lifecycle and code-baseline preflight for the host deployment
+     * orchestrator. The two work axes remain separate in the v2 result.
      *
      * ## OPTIONS
      * --repo=<path> : Site repo root.
@@ -736,6 +749,7 @@ final class Cli {
     public function lifecycle_status($args, $assoc) {
         $summary = null;
         try {
+            SiteTopology::assert_single_site();
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--repo');
             $compiledPath = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--compiled');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--artifact-hash');
@@ -749,7 +763,7 @@ final class Cli {
             $summary = LifecyclePlanner::deployment_status(
                 $policy,
                 $compiled,
-                isset($assoc['force-code-mismatch'])
+                self::bare_boolean_flag($assoc, 'force-code-mismatch')
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'lifecycle-status');
@@ -758,6 +772,69 @@ final class Cli {
         if (is_array($summary)) {
             WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
         }
+    }
+
+    /**
+     * Accept already-installed plugin/theme versions as the new drift
+     * baseline. This internal host phase runs through the isolated control
+     * plane, takes its own transient target fence, and fires no lifecycle or
+     * provider hooks.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed artifact hash.
+     * --operation-id=<token> : Host run identity used for durable replay.
+     * --expected-observation-sha256=<sha256> : Exact lifecycle-status observation.
+     * --expected-baseline-state=<state> : Accepts absent or drift.
+     * [--force-code-mismatch] : Proceed despite compatible-policy blockers already reviewed by the host.
+     * --force-code-drift : Explicitly accept every re-observed drift finding.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand code-baseline-accept
+     */
+    public function code_baseline_accept($args, $assoc) {
+        $summary = null;
+        try {
+            // Keep the isolated acceptance stack out of ordinary command
+            // bootstrap. It closes over Deploy/Ledger and is needed only by
+            // this host-only verb; eager loading widens every Policy-free
+            // command's runtime and manifest-validator boundary.
+            if (!class_exists(CodeBaselineAcceptance::class, false)) {
+                require_once __DIR__ . '/../Promotion/CodeBaselineAcceptance.php';
+            }
+            $repo = $assoc['repo']
+                ?? throw CommandRefusalException::invalidArgument('code-baseline-accept', '--repo');
+            $compiledPath = $assoc['compiled']
+                ?? throw CommandRefusalException::invalidArgument('code-baseline-accept', '--compiled');
+            $artifactHash = $assoc['artifact-hash']
+                ?? throw CommandRefusalException::invalidArgument('code-baseline-accept', '--artifact-hash');
+            $summary = CodeBaselineAcceptance::run(
+                (string) $repo,
+                (string) $compiledPath,
+                (string) $artifactHash,
+                [
+                    'force_code_mismatch' => self::bare_boolean_flag($assoc, 'force-code-mismatch'),
+                    'force_code_drift' => self::bare_boolean_flag($assoc, 'force-code-drift'),
+                    'operation_id' => $assoc['operation-id'] ?? '',
+                    'expected_observation_sha256' => $assoc['expected-observation-sha256'] ?? '',
+                    'expected_baseline_state' => $assoc['expected-baseline-state'] ?? '',
+                ]
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'code-baseline-accept');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(($summary['outcome'] ?? null) === 'initialized'
+            ? 'initialized installed code-version baseline'
+            : 'accepted installed code-version baseline');
     }
 
     /**
@@ -2419,8 +2496,8 @@ final class Cli {
                 'with_deletes' => isset($assoc['with-deletes']),
                 'force_delete_referenced' => isset($assoc['force-delete-referenced']),
                 'force_theirs' => isset($assoc['force-theirs']),
-                'force_code_mismatch' => isset($assoc['force-code-mismatch']),
-                'force_code_drift' => isset($assoc['force-code-drift']),
+                'force_code_mismatch' => self::bare_boolean_flag($assoc, 'force-code-mismatch'),
+                'force_code_drift' => self::bare_boolean_flag($assoc, 'force-code-drift'),
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',
@@ -2642,6 +2719,9 @@ final class Cli {
      * [--state-handoff] : Internal promote-only flag; bind lifecycle pre/post state hashes for apply.
      * [--lifecycle-phase=<phase>] : Internal host phase. Accepts retire or activate.
      * [--checkpoint=<path>] : Exact authenticated checkpoint for a provider-backed lifecycle phase.
+     * [--expected-code-boundary=<sha256>] : Internal stable installed-version/baseline digest.
+     * [--expected-code-findings=<sha256>] : Internal digest of the host-rendered finding set.
+     * [--host-reported-code-findings] : Internal witness that the bound findings were rendered before mutation.
      * [--force-unresolved-refs] : Promotion passthrough for lifecycle handoff snapshots.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
@@ -2652,8 +2732,8 @@ final class Cli {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo');
             $adapterLibrary = self::internal_adapter_library($assoc);
             $summary = Deploy::run((string) $repo, [
-                'force_code_mismatch' => isset($assoc['force-code-mismatch']),
-                'force_code_drift' => isset($assoc['force-code-drift']),
+                'force_code_mismatch' => self::bare_boolean_flag($assoc, 'force-code-mismatch'),
+                'force_code_drift' => self::bare_boolean_flag($assoc, 'force-code-drift'),
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
@@ -2662,6 +2742,12 @@ final class Cli {
                 'state_handoff' => isset($assoc['state-handoff']),
                 'lifecycle_phase' => $assoc['lifecycle-phase'] ?? 'all',
                 'checkpoint' => $assoc['checkpoint'] ?? '',
+                'expected_code_boundary' => $assoc['expected-code-boundary'] ?? '',
+                'expected_code_findings' => $assoc['expected-code-findings'] ?? '',
+                'host_reported_code_findings' => self::bare_boolean_flag(
+                    $assoc,
+                    'host-reported-code-findings'
+                ),
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'adapter_library' => $adapterLibrary,
             ]);
@@ -2862,7 +2948,7 @@ final class Cli {
                 (int) $observations
             ));
         }
-        Db::query("TRUNCATE TABLE {$wpdb->prefix}wprism_journal", 'journal truncate');
+        Db::delete_all($wpdb->prefix . 'wprism_journal', 'journal truncate');
         WP_CLI::success('journal truncated');
     }
 

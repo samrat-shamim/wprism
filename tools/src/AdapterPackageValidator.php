@@ -7,6 +7,7 @@ namespace WPrism\Tooling;
 use WPrism\AdapterLibrary;
 use WPrism\ArtifactPolicyIdentity;
 use WPrism\Canon;
+use WPrism\LegacyRuntimeExecutionDebt;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 use RuntimeException;
@@ -14,6 +15,7 @@ use RuntimeException;
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/AdapterLibrary.php';
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/ArtifactPolicyIdentity.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Policy/LegacyRuntimeExecutionDebt.php';
 require_once __DIR__ . '/ActiveShellSource.php';
 require_once __DIR__ . '/AdapterProductionReadiness.php';
 require_once __DIR__ . '/ArtifactLibrary.php';
@@ -22,7 +24,7 @@ require_once __DIR__ . '/ArtifactLibrary.php';
 final class AdapterPackageValidator
 {
     public const FORMAT = 'wprism-adapter-package-validation/v1';
-    public const RUNTIME_SDK_FORMAT = 'wprism-adapter-runtime-sdk/v1';
+    public const RUNTIME_SDK_FORMAT = 'wprism-adapter-runtime-sdk/v2';
     private const EXTERNAL_EVIDENCE_FORMAT = 'wprism-adapter-external-evidence/v1';
     private const INTEGRATION_SCENARIO_FORMAT = 'wprism-adapter-integration-scenario/v1';
     private const PREMISE_EVIDENCE = 'target-observation-premises.tsv';
@@ -81,8 +83,36 @@ final class AdapterPackageValidator
         'WPrism\\Secrets',
         'WPrism\\SidebarState',
         'WPrism\\Tokens',
-        'WPrism\\WpCliChildProcess',
     ];
+
+    /**
+     * Exact, immutable static-regression inventory of runtime infrastructure
+     * which predates the engine-owned provider process/database boundaries.
+     * This lexical check is not a hostile-PHP sandbox; reviewed package
+     * provenance and digest binding are the executable trust boundary. A
+     * listed source may keep only the findings already present in these
+     * reviewed bytes: changing one byte requires migrating the file and
+     * deleting its row, never merely refreshing the hash. This keeps
+     * historical debt from acting as a public SDK or as precedent for a newly
+     * authored adapter.
+     *
+     * @var array<string,array{sha256:string,findings:list<string>,migration:string}>
+     */
+    private const LEGACY_RUNTIME_EXECUTION_DEBT = LegacyRuntimeExecutionDebt::ROWS;
+
+    /** @var list<string> */
+    private const RUNTIME_PROCESS_FUNCTIONS = [
+        'exec',
+        'passthru',
+        'pcntl_exec',
+        'popen',
+        'proc_open',
+        'shell_exec',
+        'system',
+    ];
+
+    /** @var list<string> */
+    private const RAW_WPDB_MUTATION_METHODS = ['delete', 'insert', 'query', 'replace', 'update'];
 
     /** @return array{format:string,symbols:list<string>} */
     public static function runtimeSdk(): array
@@ -276,6 +306,7 @@ final class AdapterPackageValidator
         }
         self::assertCapsuleNodesAreOrdinary($capsule, $slug);
         $runtimeSymbols = self::declaredRuntimeSymbols($capsule . '/package/runtime');
+        $legacyRuntimeDebt = [];
 
         $scanned = 0;
         foreach ([
@@ -334,13 +365,19 @@ final class AdapterPackageValidator
                 );
                 self::assertRelativeAgentDependencies($root, $agentSource, $capsule, $path, $source, $tests, $slug);
                 if (!$tests && $extension === 'php') {
+                    $legacy = self::assertRuntimeExecutionBoundary($capsule, $path, $source, $slug);
+                    if ($legacy !== null) {
+                        $legacyRuntimeDebt[$legacy] = true;
+                    }
                     self::assertRuntimeSdk($capsule, $path, $source, $slug, $runtimeSymbols);
                 }
                 $scanned++;
             }
         }
+        self::assertCompleteLegacyRuntimeDebt($slug, $legacyRuntimeDebt);
         $checks[] = "dependency-boundary:$scanned";
         $checks[] = 'runtime-sdk:' . self::RUNTIME_SDK_FORMAT;
+        $checks[] = 'runtime-execution-boundary:' . count($legacyRuntimeDebt);
     }
 
     private static function assertShellSourceDependenciesUseRecognizedFiles(
@@ -710,6 +747,275 @@ final class AdapterPackageValidator
             $normalized[] = $segment;
         }
         return '/' . implode('/', $normalized);
+    }
+
+    /**
+     * Refuse adapter-owned execution/database transport while preserving only
+     * the byte-exact historical files recorded above. The return value lets the
+     * capsule-level caller prove that every registry row was actually visited;
+     * a stale path is debt that silently escaped enforcement and must fail too.
+     */
+    private static function assertRuntimeExecutionBoundary(
+        string $capsule,
+        string $path,
+        string $source,
+        string $slug
+    ): ?string {
+        $key = self::runtimeDebtKey($capsule, $path, $slug);
+        $findings = self::runtimeExecutionFindings($source);
+        $legacy = self::legacyRuntimeDebtRows($slug)[$key] ?? null;
+        if ($legacy === null) {
+            if ($findings === []) {
+                return null;
+            }
+            $finding = array_key_first($findings);
+            $line = $finding === null ? 1 : $findings[$finding];
+            $relative = substr($path, strlen($capsule) + 1);
+            throw new RuntimeException(
+                "Adapter package '$slug' introduces engine-owned runtime machinery '$finding' at "
+                . "$relative:$line; use the manifest runtime and ProviderSdk instead"
+            );
+        }
+
+        $digest = hash('sha256', $source);
+        if (!hash_equals($legacy['sha256'], $digest)) {
+            throw new RuntimeException(
+                "Adapter package '$slug' changed frozen legacy runtime debt at $key; migrate it through "
+                . $legacy['migration'] . ' and remove the reviewed debt row instead of refreshing its hash'
+            );
+        }
+        if (array_keys($findings) !== $legacy['findings']) {
+            throw new RuntimeException(
+                "Adapter package '$slug' frozen legacy runtime findings disagree with the reviewed debt row at $key"
+            );
+        }
+        return $key;
+    }
+
+    /** @param array<string,true> $visited */
+    private static function assertCompleteLegacyRuntimeDebt(string $slug, array $visited): void
+    {
+        $expected = array_keys(self::legacyRuntimeDebtRows($slug));
+        $actual = array_keys($visited);
+        sort($actual, SORT_STRING);
+        if ($actual !== $expected) {
+            $missing = array_values(array_diff($expected, $actual));
+            throw new RuntimeException(
+                "Adapter package '$slug' did not consume its frozen legacy runtime debt row"
+                . ($missing === [] ? '' : ' at ' . implode(', ', $missing))
+            );
+        }
+    }
+
+    /**
+     * Validate the in-code review record before selecting only this capsule's
+     * rows. This is pure constant validation and does not inspect a sibling
+     * capsule, preserving validate()'s one-capsule boundary.
+     *
+     * @return array<string,array{sha256:string,findings:list<string>,migration:string}>
+     */
+    private static function legacyRuntimeDebtRows(string $slug): array
+    {
+        $allowed = [
+            'direct-process',
+            'direct-self-include',
+            'raw-database-mutation',
+            'transaction-control',
+            'wp-cli-child-process',
+        ];
+        $paths = array_keys(self::LEGACY_RUNTIME_EXECUTION_DEBT);
+        $sortedPaths = $paths;
+        sort($sortedPaths, SORT_STRING);
+        if ($paths !== $sortedPaths) {
+            throw new RuntimeException('Legacy adapter runtime debt registry paths are not sorted');
+        }
+
+        $selected = [];
+        foreach (self::LEGACY_RUNTIME_EXECUTION_DEBT as $path => $row) {
+            if (preg_match(
+                '~^adapter-packages/(?<slug>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/'
+                    . 'package/runtime/(?:interpreters|providers|regenerators)/'
+                    . '[a-z0-9][a-z0-9._-]*\.php$~D',
+                $path,
+                $match
+            ) !== 1
+                || array_keys($row) !== ['sha256', 'findings', 'migration']
+                || preg_match('/^[a-f0-9]{64}$/D', $row['sha256']) !== 1
+                || !is_array($row['findings'])
+                || !array_is_list($row['findings'])
+                || $row['findings'] === []
+                || array_filter($row['findings'], 'is_string') !== $row['findings']
+                || array_values(array_unique($row['findings'])) !== $row['findings']
+                || array_diff($row['findings'], $allowed) !== []
+                || !is_string($row['migration'])
+                || $row['migration'] === ''
+                || strlen($row['migration']) > 160
+                || preg_match('/[\x00-\x1f\x7f]/', $row['migration']) === 1) {
+                throw new RuntimeException("Legacy adapter runtime debt registry row is malformed: $path");
+            }
+            $sortedFindings = $row['findings'];
+            sort($sortedFindings, SORT_STRING);
+            if ($row['findings'] !== $sortedFindings) {
+                throw new RuntimeException("Legacy adapter runtime debt findings are not sorted: $path");
+            }
+            if ($match['slug'] === $slug) {
+                $selected[$path] = $row;
+            }
+        }
+        return $selected;
+    }
+
+    private static function runtimeDebtKey(string $capsule, string $path, string $slug): string
+    {
+        $prefix = rtrim($capsule, '/') . '/';
+        if (!str_starts_with($path, $prefix)) {
+            throw new RuntimeException("Adapter package '$slug' runtime source escaped its capsule");
+        }
+        return 'adapter-packages/' . $slug . '/' . substr($path, strlen($prefix));
+    }
+
+    /** @return array<string,int> finding => first source line */
+    private static function runtimeExecutionFindings(string $source): array
+    {
+        $tokens = token_get_all($source);
+        $findings = [];
+        foreach ($tokens as $offset => $token) {
+            if (!is_array($token)) {
+                continue;
+            }
+            [$kind, $bytes, $line] = $token;
+
+            if (in_array($kind, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+                $name = strtolower(ltrim($bytes, '\\'));
+                $leaf = strrchr($name, '\\');
+                $leaf = $leaf === false ? $name : substr($leaf, 1);
+                if (in_array($leaf, self::RUNTIME_PROCESS_FUNCTIONS, true)
+                    && self::isDirectFunctionCall($tokens, $offset)) {
+                    $findings['direct-process'] ??= $line;
+                }
+                if (strcasecmp($leaf, 'WpCliChildProcess') === 0) {
+                    $findings['wp-cli-child-process'] ??= $line;
+                }
+            }
+
+            if ($kind === T_VARIABLE && $bytes === '$wpdb') {
+                $operator = self::nextSignificantToken($tokens, $offset + 1);
+                $method = $operator === null
+                    ? null
+                    : self::nextSignificantToken($tokens, $operator['offset'] + 1);
+                if ($operator !== null
+                    && is_array($operator['token'])
+                    && $operator['token'][0] === T_OBJECT_OPERATOR
+                    && $method !== null
+                    && is_array($method['token'])
+                    && $method['token'][0] === T_STRING
+                    && in_array(strtolower($method['token'][1]), self::RAW_WPDB_MUTATION_METHODS, true)) {
+                    $findings['raw-database-mutation'] ??= $line;
+                }
+            }
+
+            if (in_array($kind, [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)
+                && self::includeTargetsCurrentFile($tokens, $offset)) {
+                $findings['direct-self-include'] ??= $line;
+            }
+
+            if (!in_array($kind, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
+                continue;
+            }
+            $fragment = $kind === T_CONSTANT_ENCAPSED_STRING
+                ? self::decodePhpStringLiteral($bytes)
+                : $bytes;
+            foreach (self::dynamicWPrismSymbols($bytes, $kind === T_CONSTANT_ENCAPSED_STRING) as $symbol) {
+                if (strcasecmp($symbol, 'WPrism\\WpCliChildProcess') === 0) {
+                    $findings['wp-cli-child-process'] ??= $line;
+                }
+            }
+            if (preg_match(
+                '/\\$wpdb\s*->\s*(?:delete|insert|query|replace|update)\s*\(/i',
+                $fragment
+            ) === 1
+                || preg_match(
+                    '/(?:\A|[\'\"])\s*(?:DELETE\s+FROM|INSERT(?:\s+IGNORE)?\s+INTO|REPLACE\s+INTO|'
+                        . 'TRUNCATE(?:\s+TABLE)?|UPDATE\s+[`A-Za-z_$])/i',
+                    $fragment
+                ) === 1) {
+                $findings['raw-database-mutation'] ??= $line;
+            }
+            if (self::fragmentHasTransactionControl($fragment)) {
+                $findings['transaction-control'] ??= $line;
+            }
+            if (preg_match('/\b(?:require|require_once|include|include_once)\s*\(?\s*__FILE__\b/i', $fragment) === 1
+                || ($kind === T_CONSTANT_ENCAPSED_STRING
+                    && self::encodedSelfIncludeAt($tokens, $offset, $fragment))) {
+                $findings['direct-self-include'] ??= $line;
+            }
+        }
+        ksort($findings, SORT_STRING);
+        return $findings;
+    }
+
+    private static function fragmentHasTransactionControl(string $fragment): bool
+    {
+        $control = '(?:'
+            . 'SET\s+(?:SESSION\s+)?TRANSACTION\b[^\'"\r\n;]*'
+            . '|START\s+TRANSACTION\b[^\'"\r\n;]*'
+            . '|COMMIT(?:\s+WORK)?(?:\s+AND\s+(?:NO\s+)?CHAIN)?(?:\s+(?:NO\s+)?RELEASE)?'
+            . '|ROLLBACK(?:\s+WORK)?(?:\s+AND\s+(?:NO\s+)?CHAIN)?(?:\s+(?:NO\s+)?RELEASE)?'
+            . '|SELECT\s+(?:GET_LOCK|RELEASE_LOCK)\s*\([^\'"\r\n;]*\)'
+            . ')';
+        return preg_match('/\A\s*' . $control . '\s*\z/i', $fragment) === 1
+            || preg_match('/[\'\"]\s*' . $control . '\s*[\'\"]/i', $fragment) === 1;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isDirectFunctionCall(array $tokens, int $offset): bool
+    {
+        $next = self::nextSignificantToken($tokens, $offset + 1);
+        if ($next === null || $next['token'] !== '(') {
+            return false;
+        }
+        $previous = self::previousSignificantOffset($tokens, $offset - 1);
+        if ($previous === null) {
+            return true;
+        }
+        $token = $tokens[$previous];
+        return !is_array($token)
+            || !in_array($token[0], [T_DOUBLE_COLON, T_FUNCTION, T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function includeTargetsCurrentFile(array $tokens, int $offset): bool
+    {
+        $target = self::nextSignificantToken($tokens, $offset + 1);
+        if ($target !== null && $target['token'] === '(') {
+            $target = self::nextSignificantToken($tokens, $target['offset'] + 1);
+        }
+        return $target !== null
+            && is_array($target['token'])
+            && $target['token'][0] === T_FILE;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function encodedSelfIncludeAt(array $tokens, int $offset, string $fragment): bool
+    {
+        if (!in_array(strtolower(trim($fragment)), ['include', 'include_once', 'require', 'require_once'], true)) {
+            return false;
+        }
+        $dot = self::nextSignificantToken($tokens, $offset + 1);
+        $export = $dot === null ? null : self::nextSignificantToken($tokens, $dot['offset'] + 1);
+        $open = $export === null ? null : self::nextSignificantToken($tokens, $export['offset'] + 1);
+        $file = $open === null ? null : self::nextSignificantToken($tokens, $open['offset'] + 1);
+        return $dot !== null
+            && $dot['token'] === '.'
+            && $export !== null
+            && is_array($export['token'])
+            && $export['token'][0] === T_STRING
+            && strcasecmp($export['token'][1], 'var_export') === 0
+            && $open !== null
+            && $open['token'] === '('
+            && $file !== null
+            && is_array($file['token'])
+            && $file['token'][0] === T_FILE;
     }
 
     /** @param array<string,true> $runtimeSymbols */
@@ -1976,6 +2282,13 @@ final class AdapterPackageValidator
         array $runtimeSymbols
     ): void {
         if (in_array($symbol, self::RUNTIME_SDK_SYMBOLS, true)
+            || (strcasecmp($symbol, 'WPrism\\WpCliChildProcess') === 0
+                && self::isGrandfatheredRuntimeFinding(
+                    $capsule,
+                    $path,
+                    $slug,
+                    'wp-cli-child-process'
+                ))
             || (isset($runtimeSymbols[$symbol]) && substr_count($symbol, '\\') >= 2)) {
             return;
         }
@@ -1984,6 +2297,21 @@ final class AdapterPackageValidator
             "Adapter package '$slug' depends on non-SDK WPrism symbol '$symbol' at $relative:$line; "
             . 'allowed surface is ' . self::RUNTIME_SDK_FORMAT
         );
+    }
+
+    private static function isGrandfatheredRuntimeFinding(
+        string $capsule,
+        string $path,
+        string $slug,
+        string $finding
+    ): bool {
+        $key = self::runtimeDebtKey($capsule, $path, $slug);
+        $row = self::legacyRuntimeDebtRows($slug)[$key] ?? null;
+        if ($row === null || !in_array($finding, $row['findings'], true)) {
+            return false;
+        }
+        $digest = hash_file('sha256', $path);
+        return is_string($digest) && hash_equals($row['sha256'], $digest);
     }
 
     private static function assertNoGlobalLibrarySelection(

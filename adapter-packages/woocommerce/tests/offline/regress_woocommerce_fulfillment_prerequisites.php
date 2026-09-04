@@ -213,10 +213,6 @@ namespace {
         return $wpdb;
     }
 
-    function woo_fulfillment_provider(Policy $policy): \WPrism\Providers\WoocommerceFulfillmentPrerequisites {
-        return new \WPrism\Providers\WoocommerceFulfillmentPrerequisites($policy);
-    }
-
     $policy = Policy::load(
         null,
         ['woocommerce'],
@@ -225,8 +221,18 @@ namespace {
         \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
     );
     $wpdb = woo_fulfillment_ready_target();
-    require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php';
-    $provider = woo_fulfillment_provider($policy);
+    $selected = $policy->actions_for(['term:wc_fulfillment_shipping_provider']);
+    // Resolve the first provider instance through the same digest-bound
+    // production negotiation path; a raw test require is an invalid preload.
+    $negotiation = Providers::negotiate($policy, $selected);
+    $provider = $negotiation['providers']['woocommerce-fulfillment-prerequisites'] ?? null;
+    wprism_check(
+        $provider instanceof \WPrism\Providers\WoocommerceFulfillmentPrerequisites,
+        'source-on/target-on exact lifecycle state negotiates before mutation'
+    );
+    if (!$provider instanceof \WPrism\Providers\WoocommerceFulfillmentPrerequisites) {
+        wprism_check_summary('WooCommerce fulfillment prerequisites');
+    }
 
     wprism_check_same([
         'id' => 'woocommerce-fulfillment-prerequisites',
@@ -248,7 +254,6 @@ namespace {
     wprism_check_same([], $capabilities['verify_fulfillment_prerequisites']['args'] ?? null,
         'fulfillment prerequisite capability accepts no provider-controlled payload');
 
-    $selected = $policy->actions_for(['term:wc_fulfillment_shipping_provider']);
     wprism_check(count($selected) === 1
         && ($selected[0]['provider'] ?? null) === 'woocommerce-fulfillment-prerequisites'
         && array_key_exists('effects', $selected[0])
@@ -261,11 +266,6 @@ namespace {
         static fn(array $row): bool => ($row['source'] ?? null)
             === 'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites'
     )) === 0, 'fulfillment preflight contributes no global or scoped effect inventory row');
-
-    $negotiation = Providers::negotiate($policy, $selected);
-    wprism_check($negotiation['problems'] === []
-        && isset($negotiation['providers']['woocommerce-fulfillment-prerequisites']),
-        'source-on/target-on exact lifecycle state negotiates before mutation');
 
     $beforeRows = [
         'options' => $wpdb->rows('options'),

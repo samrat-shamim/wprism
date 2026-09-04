@@ -172,8 +172,15 @@ names the two versions and points at the usual culprit: a wp-admin or host
 auto-update. `DISALLOW_FILE_MODS` (checked by `wprism doctor`) is the policy fix
 for the class of problem, not just its detection.
 
-**Remedy**: re-deploy to accept the installed version as the new baseline,
-restore the recorded version, or pass `--force-code-drift`. Note that a
+**Remedy**: restore the recorded version, or run host
+`wprism deploy <env> --force-code-drift` to accept the installed version as
+the new baseline. An unforced host deploy refuses before mutation and prints
+the exact installed/recorded witness. When baseline acceptance is the only
+work, deploy runs one isolated `code-baseline-accept` phase: no lifecycle
+hooks, provider actions, promotion checkpoint, or code materialization. A
+theme is keyed by slug, so a standalone theme in both WordPress theme slots
+produces one finding; an already-live plugin or theme missing from an existing
+baseline is a blocking `code_baseline_missing` finding. Note that a
 `wprism capture` is **not** an accept: capture observes reality, warns once per
 finding, and leaves the recorded baseline alone. Accepting a code change is
 `wprism deploy`'s decision, and it has `wprism deploy`'s consent gate in front of it.
@@ -254,13 +261,15 @@ The `code_versions` baseline is **overwritten, never merged** — never a
 partial write that keeps the drifted entries and moves the rest. Which verb
 writes it, and when, is the part that matters:
 
-- **`wprism deploy` writes it unconditionally after terminal lifecycle
-  reconciliation.** By then deploy has already refused on `code_drift` or been
-  explicitly forced past it with `--force-code-drift`, warning once per
-  overridden finding — the decision was taken, so the write is that decision's
-  consequence. A split `retire` process preserves the prior bytes; its
-  temporarily inactive plugin set is not accepted as the completed deployment.
-  The following `activate` process records the reconciled set.
+- **Host `wprism deploy <env>` accepts it only after an explicit drift
+  decision.** If lifecycle work is also due, the terminal `activate` process
+  records the reconciled set; a split `retire` process preserves the prior
+  bytes because its temporarily inactive plugin set is not a completed
+  deployment. If the installed version is the only work, the isolated,
+  checkpoint-free `code-baseline-accept` phase revalidates the frozen artifact
+  under the target fence, repeats the consent gate, replaces the baseline, and
+  proves a second drift read is empty. Both paths warn exactly once per forced
+  finding. Direct state apply never reaches either writer.
 - **`wprism capture` writes it only when there is nothing to accept**: no
   baseline recorded yet, or zero drift. Across an unaccepted drift it leaves
   the recorded bytes exactly as they were and emits one warning per finding
@@ -284,8 +293,12 @@ Four consequences follow, and the third is the one teams get wrong:
    capture leaves the old record unchanged and deploy is the explicit
    acceptance path. An installed but inactive desired plugin is instead the
    pending lifecycle work deploy is authorized to perform.
-2. A theme slot whose *slug* changed is not drift either; that is a
-   `code_mismatch`/plan concern, not a version comparison on one theme.
+2. A desired theme switch that has not happened yet is lifecycle
+   `code_mismatch`, not drift; terminal activation records it. Once the live
+   theme already matches the desired slug, absence of that identity from an
+   existing baseline is `code_baseline_missing`. Identity is the theme slug,
+   not the option slot, so a standalone theme occupying both `template` and
+   `stylesheet` produces one finding.
 3. **A downgrade is the same `code_drift` as an upgrade.** There is no separate
    downgrade detection, no special-cased warning, and — the part worth saying
    out loud — **no WPrism command performs the restore**. `code_drift`'s own
@@ -297,8 +310,8 @@ Four consequences follow, and the third is the one teams get wrong:
    there on the next `wprism status`, `wprism plan` and `wprism apply`, because capture
    left the baseline untouched. That is deliberate: the two ways forward stay
    the ones the finding's own message names — restore the recorded version, or
-   accept the installed one with `wprism deploy` (`--force-code-drift` if deploy
-   is still refusing). Capture will tell you, once per finding, that this is
+   explicitly accept the installed one with host
+   `wprism deploy <env> --force-code-drift`. Capture will tell you, once per finding, that this is
    what it did.
 
 Theme upgrade, incompatible-downgrade refusal, unsafe parent-removal refusal,

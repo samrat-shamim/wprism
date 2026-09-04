@@ -199,6 +199,24 @@ overlapping operators. If the host process is killed so abruptly that
 inspection rather than guessing whether the interrupted release should be
 committed or restored.
 
+The first release carrying the agent-generation fence cannot retroactively
+lock a PHP or WP-CLI process that already loaded the prior five-line MU loader.
+Adopt therefore recognizes that one legacy loader by its exact SHA-256 and
+refuses before upload or target mutation. Hold traffic, stop or drain every
+process that could have loaded the old loader, keep the target quiescent until
+the command returns, and make the one-time boundary explicit:
+
+```sh
+cli/wprism adopt production --attest-legacy-loader-quiesced
+```
+
+The flag is rejected on a fresh target, an already-fenced target, or any
+lookalike/custom loader. The host binds its decision to the exact probed loader
+hash, and the target repeats that probe under the exclusive generation lock
+before copying authority or moving a live control-plane path. An interrupted
+cutover retains the hash and attestation in its transaction evidence. Later
+fenced-to-fenced updates need no attestation.
+
 The control root holds `target.json`, `target.lock`, immutable public keys,
 and the installed runtime. Receipts and signed event chains live beside it at
 `repo_path/.wprism/rollback/<receipt-id>/`; SSH re-adoption stages the whole `.wprism`
@@ -507,6 +525,20 @@ anything out of service. It then proves WordPress still loads and that
 `WPRISM_AGENT_VERSION` is absent before committing removal. A stale plan or failed
 verification restores all three live surfaces; the complete archive remains as
 operator evidence.
+
+Offboarding the exact pre-fence loader has the same one-time process boundary.
+After holding traffic and draining every PHP/WP-CLI process that could have
+loaded it, keep the target quiescent through completion and run:
+
+```sh
+cli/wprism unadopt production --archive-to=/srv/client-handoff/wprism-control-2026-08-29 \
+  --attest-legacy-loader-quiesced
+```
+
+Without that flag, no archive or transaction path is created and no live byte
+moves. A successful legacy offboarding records the exact loader state and the
+quiescence attestation in `receipt.json`; the flag is rejected for a fenced or
+foreign loader.
 
 Offboarding never removes `site.wprism.json`, `code/`, `media/`, `state/`, Git
 history or attributes, or the MU directory's `wprism-control/` durable revocation

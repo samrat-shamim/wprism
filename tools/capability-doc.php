@@ -60,7 +60,8 @@ declare(strict_types=1);
  *   - platform.json's agent_version/spec_version must equal agent/wprism.php's
  *     defines, and its compatibility block must equal
  *     docs/compatibility-baseline.json (which cli/src/Onboarding/Doctor.php
- *     reads at runtime for its BLOCKING PHP/database/filesystem/process checks). Those are two
+ *     reads at runtime for its blocking global compatibility checks and its
+ *     scoped database-mutation warning). Those are two
  *     copies of the same pins on disk; this equality is what stops them
  *     drifting into two different truths.
  */
@@ -213,10 +214,10 @@ function capdoc_platform(string $repo, AdapterLibrary $library): array {
     // that widened both claims, and each of those edits threw here until it
     // was made on purpose (agent/src/Policy/PlatformCompatibility.php's
     // valid_exercised_axis()/valid_database_axis() are the load-time mirror).
-    foreach (['database' => ['engines', 'note'],
+    foreach (['database' => ['engines', 'foreign_key_census', 'note'],
               'filesystem' => ['directory_separator', 'note', 'os_families', 'profile', 'required_functions'],
               'php' => ['max', 'min', 'note', 'verified'],
-              'process' => ['note', 'os_families', 'profile', 'required_functions', 'shell'],
+              'process' => ['note', 'os_families', 'profile', 'required_functions', 'shell', 'wp_cli_opcache_enabled'],
               'wordpress' => ['last_verified', 'max', 'min', 'note', 'verified']] as $axis => $axisKeys) {
         $found = array_keys($platform['compatibility'][$axis] ?? []);
         sort($found, SORT_STRING);
@@ -408,7 +409,8 @@ function capdoc_process_label(array $process): string {
     return (string) $process['profile']
         . ' (OS ' . implode(', ', array_map('strval', $process['os_families']))
         . '; functions ' . implode(', ', array_map('strval', $process['required_functions']))
-        . '; executable shell ' . (string) $process['shell'] . ')';
+        . '; executable shell ' . (string) $process['shell']
+        . '; WP-CLI OPcache ' . ($process['wp_cli_opcache_enabled'] ? 'enabled' : 'disabled') . ')';
 }
 
 /**

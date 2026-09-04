@@ -46,7 +46,12 @@ namespace WP_CLI\Utils {
         ?array $options = null
     ) {
         $GLOBALS['wp_cli_child_commands'][] = $command;
-        return proc_open($command, $descriptors, $pipes, $cwd, $environment, $options);
+        $process = proc_open($command, $descriptors, $pipes, $cwd, $environment, $options);
+        $delay = $GLOBALS['wp_cli_child_proc_open_delay_microseconds'] ?? 0;
+        if (is_int($delay) && $delay > 0) {
+            usleep($delay);
+        }
+        return $process;
     }
 }
 
@@ -166,6 +171,29 @@ namespace {
     require_once $root . '/agent/src/Kernel/WpCliChildProcess.php';
 
     $probeMode = $GLOBALS['argv'][1] ?? null;
+    if ($probeMode === '--parent-death-probe') {
+        $fixture = $GLOBALS['argv'][2] ?? '';
+        $fixtureMode = $GLOBALS['argv'][3] ?? '';
+        $childPidFile = $GLOBALS['argv'][4] ?? '';
+        $readyFile = $GLOBALS['argv'][5] ?? '';
+        $markerFile = $GLOBALS['argv'][6] ?? '';
+        $groupPidFile = $GLOBALS['argv'][7] ?? '';
+        $GLOBALS['argv'] = [$fixture];
+        $GLOBALS['wp_cli_child_runtime_config'] = ['path' => '/srv/probe'];
+        $GLOBALS['wp_cli_child_alias'] = 'probe';
+        $GLOBALS['wp_cli_child_php_binary'] = PHP_BINARY;
+        WPrism\WpCliChildProcess::capture(
+            $fixtureMode . ' '
+                . escapeshellarg($childPidFile) . ' '
+                . escapeshellarg($readyFile) . ' '
+                . escapeshellarg($markerFile) . ' '
+                . escapeshellarg($groupPidFile),
+            30,
+            65536,
+            65536
+        );
+        exit(31);
+    }
     if (in_array($probeMode, ['--eintr-probe', '--non-eintr-probe'], true)) {
         $fixture = $GLOBALS['argv'][2] ?? '';
         $readyFile = $GLOBALS['argv'][3] ?? '';
@@ -288,8 +316,7 @@ namespace {
 
         $receipt = null;
         $failure = null;
-        $outerWarningCount = 0;
-        $outerWarning = null;
+        $outerWarnings = [];
         $handlerRestored = null;
         if ($supported) {
             $outer = static function (
@@ -297,9 +324,8 @@ namespace {
                 string $message,
                 string $_file,
                 int $_line
-            ) use (&$outerWarningCount, &$outerWarning): bool {
-                $outerWarningCount++;
-                $outerWarning ??= $message;
+            ) use (&$outerWarnings): bool {
+                $outerWarnings[$message] = true;
                 return true;
             };
             set_error_handler($outer);
@@ -324,8 +350,7 @@ namespace {
             'probe_warning' => $probeWarning,
             'receipt' => $receipt,
             'failure' => $failure,
-            'outer_warning_count' => $outerWarningCount,
-            'outer_warning' => $outerWarning,
+            'outer_warnings' => array_keys($outerWarnings),
             'handler_restored' => $handlerRestored,
         ]);
     }
@@ -361,6 +386,10 @@ if ($mode === 'argv') {
 }
 if ($mode === 'receipt') {
     echo "{\"format\":\"bounded-receipt/v1\",\"verified\":true}\n";
+    exit(0);
+}
+if ($mode === 'guarded-start') {
+    file_put_contents((string) ($args[0] ?? ''), 'plugin-ran');
     exit(0);
 }
 if ($mode === 'delayed-receipt') {
@@ -501,6 +530,68 @@ if ($mode === 'closed-pipes-hang') {
     );
     exit(is_resource($process) ? proc_close($process) : 15);
 }
+if ($mode === 'parent-death-fence') {
+    [$childPidFile, $readyFile, $markerFile] = array_pad($args, 3, '');
+    $process = proc_open(
+        [
+            '/bin/sh',
+            '-c',
+            'trap "" TERM HUP INT; printf "%s" "$$" > "$1"; printf "%s" ready > "$2"; sleep 1.5; printf "%s" escaped-mutation > "$3"; while :; do sleep 1; done',
+            'wprism-child',
+            $childPidFile,
+            $readyFile,
+            $markerFile,
+        ],
+        [0 => ['file', '/dev/null', 'r'], 1 => STDOUT, 2 => STDERR],
+        $pipes
+    );
+    exit(is_resource($process) ? proc_close($process) : 16);
+}
+if ($mode === 'parent-death-after-leader') {
+    [$childPidFile, $readyFile, $markerFile, $groupPidFile] = array_pad($args, 4, '');
+    $groupPid = function_exists('posix_getpgid') ? posix_getpgid(0) : false;
+    if (!is_int($groupPid) || file_put_contents($groupPidFile, (string) $groupPid) === false) {
+        exit(21);
+    }
+    $launcher = proc_open(
+        [
+            '/bin/sh',
+            '-c',
+            '(trap "" TERM HUP INT; sleep 1.5; printf "%s" escaped-mutation > "$3"; while :; do sleep 1; done) & printf "%s" "$!" > "$1"; printf "%s" ready > "$2"',
+            'wprism-child',
+            $childPidFile,
+            $readyFile,
+            $markerFile,
+        ],
+        [
+            0 => ['file', '/dev/null', 'r'],
+            1 => ['file', '/dev/null', 'a'],
+            2 => ['file', '/dev/null', 'a'],
+        ],
+        $pipes
+    );
+    if (!is_resource($launcher) || proc_close($launcher) !== 0) {
+        exit(22);
+    }
+    echo "{\"format\":\"leader-exited/v1\"}\n";
+    exit(0);
+}
+if ($mode === 'leader-exit-chatty-descendant') {
+    [$childPidFile, $markerFile] = array_pad($args, 2, '');
+    $launcher = proc_open(
+        [
+            '/bin/sh',
+            '-c',
+            '(trap "" TERM HUP INT; printf "%s" "$$" > "$1"; chunk=$(printf "%01024d" 0); while :; do printf "%s" "$chunk"; done & writer=$!; sleep 1.5; printf "%s" escaped-mutation > "$2"; wait "$writer") &',
+            'wprism-child',
+            $childPidFile,
+            $markerFile,
+        ],
+        [0 => ['file', '/dev/null', 'r'], 1 => STDOUT, 2 => STDERR],
+        $pipes
+    );
+    exit(is_resource($launcher) ? proc_close($launcher) : 23);
+}
 if ($mode === 'fork-descendant-timeout') {
     [$parentPidFile, $childPidFile, $markerFile] = array_pad($args, 3, '');
     file_put_contents($parentPidFile, (string) getmypid());
@@ -593,6 +684,48 @@ PHP;
             && str_contains($memoryLaunch, " -d 'memory_limit=512M' -r ")
             && str_starts_with($memoryInner, escapeshellarg(PHP_BINARY) . " -d 'memory_limit=512M' "),
         'both the session wrapper and owned WP-CLI command carry the same exact finite memory flag'
+    );
+    wprism_check_same(
+        0,
+        WPrism\WpCliChildProcess::capture_until(
+            'receipt',
+            hrtime(true) + 5000000000,
+            65536,
+            65536
+        )['return_code'],
+        'the absolute monotonic API carries a successful command through the same bounded transport'
+    );
+    $delayedStartMarker = $scratch . '/absolute-deadline-start.marker';
+    $GLOBALS['wp_cli_child_proc_open_delay_microseconds'] = 300000;
+    $delayedStartAt = hrtime(true);
+    try {
+        $delayedStartFailure = wp_cli_child_refuses(
+            static fn() => WPrism\WpCliChildProcess::capture_until(
+                'guarded-start ' . escapeshellarg($delayedStartMarker),
+                hrtime(true) + 100000000,
+                65536,
+                65536
+            ),
+            'wall-clock limit',
+            'proc_open time consumes the caller deadline while plugin code remains gated'
+        );
+    } finally {
+        unset($GLOBALS['wp_cli_child_proc_open_delay_microseconds']);
+    }
+    wprism_check_same(
+        'wprism: bounded WP-CLI child exceeded its wall-clock limit',
+        $delayedStartFailure->getMessage(),
+        'an expired startup deadline keeps the fixed data-free wall-clock refusal'
+    );
+    wprism_check(
+        hrtime(true) - $delayedStartAt >= 250000000
+            && hrtime(true) - $delayedStartAt < 3000000000,
+        'late proc_open return is terminated and reaped within the bounded cleanup allowance'
+    );
+    usleep(200000);
+    wprism_check(
+        !file_exists($delayedStartMarker),
+        'the child start token is never released after the absolute deadline expires'
     );
     wprism_check(
         str_starts_with((string) ($GLOBALS['wp_cli_child_commands'][0] ?? ''), 'exec ')
@@ -856,10 +989,13 @@ PHP;
             [$fdResult['receipt'] ?? null, $fdResult['failure'] ?? null],
             'a non-EINTR stream_select false retains the immediate fixed transport refusal'
         );
+        $fdDiagnosticDelegated = false;
+        foreach (($fdResult['outer_warnings'] ?? []) as $outerWarning) {
+            $fdDiagnosticDelegated = $fdDiagnosticDelegated
+                || (is_string($outerWarning) && str_contains($outerWarning, 'FD_SETSIZE'));
+        }
         wprism_check(
-            ($fdResult['outer_warning_count'] ?? 0) > 0
-                && is_string($fdResult['outer_warning'] ?? null)
-                && str_contains($fdResult['outer_warning'], 'FD_SETSIZE'),
+            $fdDiagnosticDelegated,
             'non-EINTR transport diagnostics are delegated to the pre-existing error handler'
         );
         wprism_check_same(
@@ -870,8 +1006,18 @@ PHP;
     }
 
     wprism_check_same(
+        900,
+        WPrism\WpCliChildProcess::MAX_TIMEOUT_SECONDS,
+        'callers share the transport-owned maximum instead of duplicating a looser timeout ceiling'
+    );
+    wprism_check_same(
         0,
-        WPrism\WpCliChildProcess::capture('receipt', 600, 131072, 131072)['return_code'],
+        WPrism\WpCliChildProcess::capture(
+            'receipt',
+            WPrism\WpCliChildProcess::MAX_TIMEOUT_SECONDS,
+            131072,
+            131072
+        )['return_code'],
         'the exact longest reviewed caller budget is admitted by the helper'
     );
 
@@ -1037,6 +1183,204 @@ PHP;
     usleep(1700000);
     wprism_check(!file_exists($forkMarkerFile), 'a descendant cannot mutate target state after timeout was reported');
 
+    $leaderChattyPidFile = $scratch . '/leader-exit-chatty-child.pid';
+    $leaderChattyMarkerFile = $scratch . '/leader-exit-chatty.marker';
+    $leaderChattyStarted = hrtime(true);
+    $leaderChattyFailure = wp_cli_child_refuses(
+        static fn() => WPrism\WpCliChildProcess::capture(
+            'leader-exit-chatty-descendant '
+                . escapeshellarg($leaderChattyPidFile) . ' '
+                . escapeshellarg($leaderChattyMarkerFile),
+            5,
+            65536,
+            65536
+        ),
+        'output exceeded',
+        'a leader-exited continuously-writing inherited pipe reaches its fixed output refusal'
+    );
+    wprism_check_same(
+        'wprism: bounded WP-CLI child output exceeded its fixed byte limit',
+        $leaderChattyFailure->getMessage(),
+        'post-leader drain retains the original fixed output classification'
+    );
+    $leaderChattyPid = is_file($leaderChattyPidFile)
+        ? (int) file_get_contents($leaderChattyPidFile)
+        : 0;
+    wprism_check(
+        hrtime(true) - $leaderChattyStarted < 3000000000
+            && $leaderChattyPid > 1
+            && wp_cli_child_process_is_inert($leaderChattyPid),
+        'bounded drain interleaves group escalation and reaps the continuously-writing descendant'
+    );
+    usleep(1700000);
+    wprism_check(
+        !file_exists($leaderChattyMarkerFile),
+        'the inherited-pipe descendant cannot perform its later mutation after refusal'
+    );
+
+    $deathChildPidFile = $scratch . '/parent-death-child.pid';
+    $deathReadyFile = $scratch . '/parent-death.ready';
+    $deathMarkerFile = $scratch . '/parent-death.marker';
+    $deathProbe = proc_open(
+        [
+            PHP_BINARY,
+            __FILE__,
+            '--parent-death-probe',
+            $child,
+            'parent-death-fence',
+            $deathChildPidFile,
+            $deathReadyFile,
+            $deathMarkerFile,
+        ],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $deathPipes
+    );
+    wprism_check(is_resource($deathProbe), 'the isolated parent-death worker starts');
+    $deathProbePid = 0;
+    $deathReady = false;
+    if (is_resource($deathProbe)) {
+        $deathStatus = proc_get_status($deathProbe);
+        $deathProbePid = is_array($deathStatus) && is_int($deathStatus['pid'] ?? null)
+            ? $deathStatus['pid']
+            : 0;
+        $deathReadyDeadline = hrtime(true) + 3000000000;
+        do {
+            $deathReady = is_file($deathReadyFile);
+            if ($deathReady) {
+                break;
+            }
+            usleep(1000);
+        } while (hrtime(true) < $deathReadyDeadline);
+    }
+    wprism_check(
+        $deathProbePid > 1 && $deathReady,
+        'the TERM-ignoring mutation descendant is running before its capture parent dies'
+    );
+    $deathSignal = $deathProbePid > 1 && @posix_kill($deathProbePid, 9);
+    wprism_check($deathSignal, 'SIGKILL closes the sole parent liveness writer without running PHP cleanup');
+    $deathChildPid = is_file($deathChildPidFile) ? (int) file_get_contents($deathChildPidFile) : 0;
+    $deathFenceDeadline = hrtime(true) + 3000000000;
+    $deathChildInert = false;
+    do {
+        $deathChildInert = $deathChildPid > 1 && wp_cli_child_process_is_inert($deathChildPid);
+        if ($deathChildInert) {
+            break;
+        }
+        usleep(5000);
+    } while (hrtime(true) < $deathFenceDeadline);
+    wprism_check(
+        $deathChildInert,
+        'kernel EOF makes the watchdog TERM/KILL the owned mutation group after parent SIGKILL'
+    );
+    usleep(1600000);
+    wprism_check(
+        !file_exists($deathMarkerFile),
+        'a child cannot mutate target state after abrupt parent death releases parent-owned locks'
+    );
+    if (!$deathChildInert && $deathChildPid > 1) {
+        @posix_kill($deathChildPid, SIGKILL);
+    }
+    if (is_resource($deathProbe)) {
+        foreach ([1, 2] as $index) {
+            if (isset($deathPipes[$index]) && is_resource($deathPipes[$index])) {
+                @stream_set_blocking($deathPipes[$index], false);
+                @stream_get_contents($deathPipes[$index]);
+                @fclose($deathPipes[$index]);
+            }
+        }
+        @proc_close($deathProbe);
+    }
+
+    $settlementChildPidFile = $scratch . '/parent-death-settlement-child.pid';
+    $settlementReadyFile = $scratch . '/parent-death-settlement.ready';
+    $settlementMarkerFile = $scratch . '/parent-death-settlement.marker';
+    $settlementGroupPidFile = $scratch . '/parent-death-settlement-group.pid';
+    $settlementProbe = proc_open(
+        [
+            PHP_BINARY,
+            __FILE__,
+            '--parent-death-probe',
+            $child,
+            'parent-death-after-leader',
+            $settlementChildPidFile,
+            $settlementReadyFile,
+            $settlementMarkerFile,
+            $settlementGroupPidFile,
+        ],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $settlementPipes
+    );
+    wprism_check(is_resource($settlementProbe), 'the post-leader parent-death worker starts');
+    $settlementProbePid = 0;
+    $settlementChildPid = 0;
+    $settlementLeaderPid = 0;
+    $settlementWindow = false;
+    if (is_resource($settlementProbe)) {
+        $settlementStatus = proc_get_status($settlementProbe);
+        $settlementProbePid = is_array($settlementStatus) && is_int($settlementStatus['pid'] ?? null)
+            ? $settlementStatus['pid']
+            : 0;
+        $settlementDeadline = hrtime(true) + 3000000000;
+        do {
+            $settlementChildPid = is_file($settlementChildPidFile)
+                ? (int) file_get_contents($settlementChildPidFile)
+                : 0;
+            $settlementLeaderPid = is_file($settlementGroupPidFile)
+                ? (int) file_get_contents($settlementGroupPidFile)
+                : 0;
+            $settlementWindow = is_file($settlementReadyFile)
+                && $settlementChildPid > 1
+                && !wp_cli_child_process_is_inert($settlementChildPid)
+                && $settlementLeaderPid > 1
+                && wp_cli_child_process_is_inert($settlementLeaderPid);
+            if ($settlementWindow) {
+                break;
+            }
+            usleep(1000);
+        } while (hrtime(true) < $settlementDeadline);
+    }
+    wprism_check(
+        $settlementWindow,
+        'the group leader is reaped while its TERM-ignoring descendant remains inside the settlement window'
+    );
+    $settlementSignal = $settlementProbePid > 1 && @posix_kill($settlementProbePid, 9);
+    wprism_check(
+        $settlementSignal,
+        'the capture parent can die after leader exit but before its descendant settlement proof'
+    );
+    $settlementFenceDeadline = hrtime(true) + 3000000000;
+    $settlementChildInert = false;
+    do {
+        $settlementChildInert = $settlementChildPid > 1
+            && wp_cli_child_process_is_inert($settlementChildPid);
+        if ($settlementChildInert) {
+            break;
+        }
+        usleep(5000);
+    } while (hrtime(true) < $settlementFenceDeadline);
+    wprism_check(
+        $settlementChildInert,
+        'the parent-owned watchdog remains armed after leader exit and kills the residual group on EOF'
+    );
+    usleep(1600000);
+    wprism_check(
+        !file_exists($settlementMarkerFile),
+        'the post-leader descendant cannot mutate after abrupt parent death'
+    );
+    if (!$settlementChildInert && $settlementChildPid > 1) {
+        @posix_kill($settlementChildPid, SIGKILL);
+    }
+    if (is_resource($settlementProbe)) {
+        foreach ([1, 2] as $index) {
+            if (isset($settlementPipes[$index]) && is_resource($settlementPipes[$index])) {
+                @stream_set_blocking($settlementPipes[$index], false);
+                @stream_get_contents($settlementPipes[$index]);
+                @fclose($settlementPipes[$index]);
+            }
+        }
+        @proc_close($settlementProbe);
+    }
+
     $successChildPidFile = $scratch . '/fork-success-child.pid';
     $successMarkerFile = $scratch . '/fork-success.marker';
     $successFailure = wp_cli_child_refuses(
@@ -1090,7 +1434,7 @@ PHP;
     $withoutPcntlExec = $scratch . '/php-without-pcntl-exec';
     $withoutPcntlExecSource = '#!/bin/sh' . "\n"
         . 'exec ' . escapeshellarg(PHP_BINARY)
-        . ' -d disable_functions=pcntl_exec "$@"' . "\n";
+        . ' -d disable_functions=pcntl_async_signals,pcntl_exec,pcntl_fork,pcntl_signal,pcntl_waitpid "$@"' . "\n";
     wprism_check_same(
         strlen($withoutPcntlExecSource),
         file_put_contents($withoutPcntlExec, $withoutPcntlExecSource),
@@ -1101,7 +1445,40 @@ PHP;
     wprism_check_same(
         0,
         WPrism\WpCliChildProcess::capture('receipt', 5, 65536, 65536)['return_code'],
-        'a selected PHP binary without pcntl_exec still runs through the declared passthru/session profile'
+        'a selected PHP binary without pcntl process primitives still runs through the pipe/watchdog profile'
+    );
+    $GLOBALS['wp_cli_child_php_binary'] = PHP_BINARY;
+
+    $withoutWatchdog = $scratch . '/php-without-watchdog-profile';
+    $withoutWatchdogSource = '#!/bin/sh' . "\n"
+        . 'exec ' . escapeshellarg(PHP_BINARY)
+        . ' -d disable_functions=posix_kill "$@"' . "\n";
+    wprism_check_same(
+        strlen($withoutWatchdogSource),
+        file_put_contents($withoutWatchdog, $withoutWatchdogSource),
+        'the missing-watchdog selected-binary fixture writes exact wrapper bytes'
+    );
+    chmod($withoutWatchdog, 0700);
+    $guardedStartMarker = $scratch . '/guarded-start.marker';
+    $GLOBALS['wp_cli_child_php_binary'] = $withoutWatchdog;
+    $watchdogProfileFailure = wp_cli_child_refuses(
+        static fn() => WPrism\WpCliChildProcess::capture(
+            'guarded-start ' . escapeshellarg($guardedStartMarker),
+            5,
+            65536,
+            65536
+        ),
+        'parent-death fence could not start',
+        'the selected PHP generation refuses when its watchdog cannot signal the owned group'
+    );
+    wprism_check_same(
+        'wprism: bounded WP-CLI child parent-death fence could not start',
+        $watchdogProfileFailure->getMessage(),
+        'a missing watchdog primitive has one fixed value-free launch refusal'
+    );
+    wprism_check(
+        !file_exists($guardedStartMarker),
+        'plugin code remains behind the startup gate when the parent-death watchdog cannot arm'
     );
     $GLOBALS['wp_cli_child_php_binary'] = PHP_BINARY;
 
@@ -1152,6 +1529,26 @@ PHP;
         static fn() => WPrism\WpCliChildProcess::capture('receipt', 901, 1, 1),
         'timeout is outside',
         'timeouts above every reviewed caller budget refuse before process creation'
+    );
+    wp_cli_child_refuses(
+        static fn() => WPrism\WpCliChildProcess::capture_until(
+            'receipt',
+            hrtime(true) - 1,
+            1,
+            1
+        ),
+        'deadline is outside',
+        'an elapsed absolute deadline refuses before process creation'
+    );
+    wp_cli_child_refuses(
+        static fn() => WPrism\WpCliChildProcess::capture_until(
+            'receipt',
+            hrtime(true) + 901000000000,
+            1,
+            1
+        ),
+        'deadline is outside',
+        'an absolute deadline above the reviewed ceiling refuses before process creation'
     );
     wp_cli_child_refuses(
         static fn() => WPrism\WpCliChildProcess::capture('receipt', 5, 1048576, 1),

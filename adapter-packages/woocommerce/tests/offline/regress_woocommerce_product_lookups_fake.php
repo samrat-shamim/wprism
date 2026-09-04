@@ -2204,7 +2204,7 @@ namespace {
     require dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
     // invoke() reads the engine's reserved batch-argument name from the
     // contract itself rather than restating the literal.
-    require dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';
     require dirname(__DIR__, 4) . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php';
 
     $manifest = json_decode(

@@ -388,9 +388,10 @@ jq -e '
   (.platform.compatibility.process == {
     note:.platform.compatibility.process.note,
     os_families:["Darwin","Linux"],
-    profile:"local-posix-process-group-exec/v1",
+    profile:"local-posix-process-group-exec-no-cli-opcache/v1",
     required_functions:["passthru","posix_kill","posix_setsid","proc_close","proc_get_status","proc_open","proc_terminate"],
-    shell:"/bin/sh"
+    shell:"/bin/sh",
+    wp_cli_opcache_enabled:false
   })
 ' "$PLATFORM_FILE" >/dev/null \
   || fail 'shipped platform declaration is not a well-formed core/PHP/database/local-POSIX/process matrix'

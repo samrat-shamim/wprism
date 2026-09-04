@@ -2,9 +2,11 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Policy/ScopeClosure.php';
+require_once __DIR__ . '/CaptureTransaction.php';
 
 /**
  * Strict production observation boundary for host-side refresh/rebase work.
@@ -55,7 +57,9 @@ final class RefreshExport {
             }
         }
 
-        return self::in_read_only_snapshot(static function () use (
+        return self::in_read_only_snapshot(
+            CaptureTransaction::database_profile($policy, readOnly: true),
+            static function () use (
             $repo,
             $policy,
             $compiled,
@@ -63,7 +67,7 @@ final class RefreshExport {
             $previousUserLogins,
             $forceUnresolvedRefs,
             $scopeContract
-        ): array {
+            ): array {
             // The schema/map checks happen inside the same MVCC view as the
             // rows they authorize. No ensure/repair fallback is available.
             Ledger::assert_read_only_schema();
@@ -177,7 +181,8 @@ final class RefreshExport {
             }
 
             return self::payload($candidate, $deletions, $compiled, $scopeContract);
-        });
+            }
+        );
     }
 
     /** The host must not race an in-flight apply or any live promotion lease. */
@@ -454,10 +459,16 @@ final class RefreshExport {
     }
 
     /** Execute callback in a server-enforced, rollback-only read snapshot. */
-    private static function in_read_only_snapshot(callable $fn): array {
+    private static function in_read_only_snapshot(
+        NativeDatabaseProfile $profile,
+        callable $fn
+    ): array {
         $open = false;
         try {
-            Db::start_read_only_consistent_snapshot('starting read-only production snapshot');
+            Db::start_read_only_consistent_snapshot(
+                'starting read-only production snapshot',
+                $profile
+            );
             $open = true;
             $result = $fn();
             Db::rollback('closing read-only production snapshot');

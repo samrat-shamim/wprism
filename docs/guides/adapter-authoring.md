@@ -373,6 +373,19 @@ the ordinary InnoDB, covering-index, row-lock, and reference-clearance proof.
 Required absence, mixed modes for one table, malformed declarations, census
 errors, and near matches all refuse.
 
+That transaction proof includes the *incoming* foreign-key graph, not only
+keys visible inside the WordPress schema. A child table in another schema can
+receive `CASCADE` or `SET NULL` writes when WPrism changes its visible parent,
+even when ordinary `REFERENTIAL_CONSTRAINTS` rows are hidden from the WordPress
+account. The platform therefore declares the scoped
+`complete-innodb-foreign-key-census/v1` profile: MySQL 8.4 uses
+`INNODB_FOREIGN`, MariaDB 11 uses `INNODB_SYS_FOREIGN`, and both require a
+direct global `PROCESS` grant. `wprism doctor` warns when that mutation
+authority is absent; read-only authoring/capture remains available, while an
+actual transactional database mutation refuses before its first write. Do not
+work around the warning with a same-schema `SELECT` grant or a partial
+constraint query; neither can prove that the hidden child does not exist.
+
 The proposal is deliberately *not* a manifest fragment. It carries no
 `cascades` — the report refuses one by name — proposes nothing, and declares
 `authority: false`, because a covering index is a necessary condition for a
@@ -478,6 +491,15 @@ identity. `"source": "plugin"` is advertised by the installed plugin itself
 through the `wprism_providers` filter and trusted as part of it; that file is
 deliberately *not* digest-bound, because the installed plugin — checked against
 `version_range` — is its identity anchor.
+
+Every manifest-shipped provider, interpreter, and regenerator crosses the same
+engine loader. It derives path, expected class, component hash, and adapter hash
+from the already validated artifact-identity row; refuses symlinks, byte/stat
+drift, preloaded or autoload-substituted symbols, and normalized PHP class-name
+collisions; and invalidates an enabled opcode cache before the one permitted
+load. Do not `require` another package executable or recreate these checks in
+adapter code. Put shared loading mechanics in that engine boundary and keep the
+runtime file to its declared plugin semantics.
 
 A provider may additionally declare `"requires"`, a closed object naming the
 environment its executable half needs before the engine will load it:
@@ -641,18 +663,135 @@ loss nobody can attribute.
 
 A capability's own database reads are the read twin of the engine's mutation
 path (`\WPrism\Db`), and share its discipline. WordPress's `wpdb` read methods
-return an empty-looking value on a failed query rather than throwing —
-`get_var()` returns `false`, and the `get_col`/`get_row`/`get_results` shape
-collapses to a non-array — so a capability that trusted the bare return could
-clear a `verified: true` receipt on a query that never ran. Route every
+return an empty-looking value on a failed query rather than throwing:
+`get_var()`/`get_row()` return `null`, while core `get_col()`/`get_results()`
+return an empty array after `query()` reset `last_result`; compatible drivers
+may additionally return a non-array failure shape. A capability that trusted
+only the bare value could therefore clear a `verified: true` receipt on a query
+that never ran. Route every
 decision-making read through
 `\WPrism\ProviderSdk::checked_get_var|checked_get_col|checked_get_row|checked_get_results($sql, $context)`,
-which clears `last_error`, runs the read, and fails on both the read's own
-failure shape *and* any driver error — never trust an empty result as
-convergence. Like `Db`, the `$context` is operation-level, never value-level:
+which first applies the engine's closed SQL lexer and refuses mutation verbs,
+multiple statements, comments, output/file functions, variable assignment, and
+unreviewed stored/UDF calls before `wpdb` transport. It then clears
+`last_error`, runs the read, and fails on both the read's own failure shape
+*and* any driver error — never trust an empty result as convergence. Like `Db`,
+the `$context` is operation-level, never value-level:
 `last_error` and the rendered SQL can echo option/meta payloads, so the SDK
 keeps the SQL and the driver text out of its failure and names only your
 context. Keep values out of your own messages the same way.
+
+Put related reads inside
+`ProviderSdk::database_read_contract_snapshot($context, $read)`. The engine
+derives its physical read profile from the capability's already-validated
+`reads` and `writes` surfaces, starts one server-enforced read-only consistent
+snapshot, and refuses a query outside that profile. If the projection needs
+only part of the declared profile, use
+`database_read_snapshot($context, $physicalTables, $read)`; the explicit list
+must be a subset of the active contract and is a narrowing, never adapter-minted
+authority. Use the checked read methods *inside* either callback. Bare checked
+reads retain failure and non-mutation hygiene for identity-pinned existing
+providers, but do not establish a snapshot or a table boundary and are not
+sufficient for new provider evidence. Construction is not authority: only the
+exact runtime object returned by the engine's digest/provenance loader can
+activate either database scope; a direct, cloned, or unserialized runtime cannot
+reuse its declaration to mint a profile.
+
+When declared plugin tables may legitimately be absent, use
+`ProviderSdk::database_schema_snapshot($context, $physicalTables, $read)`.
+The engine first discovers exact presence inside an empty read-only profile,
+then proves every present table is InnoDB and brackets the callback with the
+same complete presence map. The callback receives that map and gains read
+authority only for tables proved present. Inside a fresh observer the API
+reuses the already-established complete read-only contract profile; it never
+nests a transaction or reuses a writable/narrower profile. Keep column and
+index expectations in the adapter—the engine owns topology consistency, not a
+third party's schema semantics.
+
+Provider DML follows the same rule. Wrap one atomic native operation in
+`ProviderSdk::database_write_contract_transaction($context, $write,
+$classifyPhysicalPostimage)`. The engine derives the complete read/write
+profile, owns the session identity, isolation, transaction controls, rollback,
+and ambiguous-commit settlement, and invokes the classifier in a fresh
+read-only snapshot only when the commit outcome needs physical proof. The
+classifier returns exactly `DATABASE_POSTIMAGE_APPLIED`,
+`DATABASE_POSTIMAGE_NOT_APPLIED`, or `DATABASE_POSTIMAGE_UNKNOWN`; partial or
+unreadable state is recovery debt. Inside `$write`, use only the SDK's typed
+mutation methods (`database_delete()` or `database_delete_all()` today), each
+of which rechecks active transaction authority and writable-table membership.
+If the plugin operation needs another mutation shape, add that generic typed
+operation to the SDK and its engine tests first. Never send raw DML, call
+`Db::start*()`, or author `START`/`COMMIT`/`ROLLBACK` in a package executable.
+
+#### Fresh-process capabilities
+
+Use `manifest-provider-fresh-process/v1` only when a site-wide, idempotent
+plugin operation depends on a newly bootstrapped WordPress runtime and cannot
+be proved in the applying process. The provider remains the owner of the
+plugin-specific call and its complete value-level projection. The engine owns
+everything reusable: the WP-CLI command, process/session lifetime, canonical
+stdin and receipt transport, one absolute deadline, frozen policy authority,
+identity revalidation, cache fencing, database isolation, recovery posture,
+and retry boundary. Adapter code must not create a process, construct a command,
+parse transport, or issue transaction-control SQL.
+
+`adapter-package-validate` is a static regression guard for that boundary in
+package runtime PHP. It refuses known direct process, transaction, raw-DML and
+self-include spellings, but it is not a hostile-PHP sandbox; digest review and
+trusted package provenance are the executable trust boundary. A small
+path-and-SHA-pinned registry lets unchanged shipped legacy adapters keep
+running until their owner is recertified. The sole runtime exception is also
+loader-object-, capability-, digest-, API- and exact-statement-bound; it exists
+only for WooCommerce's frozen named mutex calls. Debt rows are not authoring
+examples or reusable API. If you touch one, migrate it to the named engine
+boundary and remove its row. Never refresh the recorded hash.
+
+The manifest must declare both `manifest-provider-runtime/v1` and
+`manifest-provider-fresh-process/v1`. On the manifest-sourced provider, add a
+sorted, unique `fresh_process_capabilities` list. Every named capability must
+exist in `capabilities` and `contracts`, have `scope: "site"`, declare
+`idempotent: true`, and fit the engine's fixed timeout ceiling. Its runtime
+implements the normal `invoke_<capability>()` mutation plus
+`observe_fresh_postimage_<capability>()` and
+`project_fresh_postimage_<capability>()`. Keep all three hooks narrowly about
+plugin semantics; if another adapter could reuse a line without knowing the
+plugin, that line belongs in the engine or SDK.
+
+The engine runs two independent WordPress boots under one deadline. The first
+invokes the provider mutation and projects the claimed complete postimage. The
+second invokes no provider mutation: it runs the observer callback under the
+canonical `$wpdb` read-only boundary and independently projects durable state.
+The parent accepts success only when those projections are exactly equal.
+Before both boots it flushes the parent's persistent object cache, and each
+child revalidates the compiled artifact, adapter digest, shipped disposition,
+provider source, plugin lifecycle/version, capability, and authored arguments.
+A timeout, parent death, warning on stderr, malformed or noncanonical envelope,
+identity drift, or projection mismatch is recovery debt rather than a retryable
+success.
+
+The observer boundary is database-specific, not a general PHP sandbox. It
+prevents writes only through the canonical `$wpdb` transport and grants only
+the tables implied by declared `option:*` and `table:*` surfaces. Filesystem,
+object-cache, network, alternate-database, and plugin-bootstrap effects remain
+the adapter's declared recovery obligations; never use them as proof. Do not
+use cache-backed helpers such as `get_option()` for durable evidence. Read an
+option with `ProviderSdk::checked_durable_option()`, which performs an exact,
+bounded size/hash preflight, rejects duplicate and collation-alias rows, and
+decodes serialized plain data without constructing classes. Put related table
+reads inside one SDK-managed consistent snapshot.
+
+A fresh-process package test must cover more than the happy child exit. Exercise
+distinct mutation and observer process identities, idempotent replay, exact
+postimage mismatch, a poisoned parent cache before each boot, and cache-flush
+`false`, non-boolean, and throw outcomes before both phases. Also cover DML and
+transaction-control refusal in the observer, malformed/noncanonical transport,
+deadline expiry, parent death with descendants, source/digest/disposition/plugin
+identity drift between negotiation and execution, and the recovery-required
+result when mutation completed but observation did not. The real-process suite
+must prove these through separate PHP boots; fakes alone cannot establish the
+fresh-runtime claim. Include at least one participant-declared composition
+scenario when another adapter can share the same trigger, table, lifecycle, or
+plugin-incompatibility boundary.
 
 ### Schema settlement is a host deploy phase
 

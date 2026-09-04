@@ -1254,15 +1254,17 @@ PHP;
             '--compiled=' . $artifact, '--artifact-hash=' . $artifactHash,
             '--format=json',
         ];
-        if (in_array('--force-code-mismatch', $extra, true)) {
-            $args[] = '--force-code-mismatch';
+        foreach ($extra as $arg) {
+            if ($arg === '--force-code-mismatch') {
+                $args[] = $arg;
+            }
         }
         return self::controlArgs($args);
     }
 
     /**
      * @param array{exit:int,stdout:string,stderr:string} $result
-     * @return array{format:string,required:bool,reasons:list<string>}
+     * @return array{format:string,required:bool,reasons:list<string>,baseline_state:string,code_drift:list<array<string,mixed>>,code_boundary_sha256:string,findings_sha256:string,observation_sha256:string,warnings:list<string>}
      */
     public static function lifecycleStatusResult(array $result): array {
         if ((int) ($result['exit'] ?? 1) !== 0) {
@@ -1295,11 +1297,29 @@ PHP;
                 $seen[$reason] = true;
             }
         }
-        if ($keys !== ['format', 'reasons', 'required']
-            || ($status['format'] ?? null) !== 'wprism-lifecycle-status/v1'
+        $codeDrift = is_array($status) ? ($status['code_drift'] ?? null) : null;
+        $warnings = is_array($status) ? ($status['warnings'] ?? null) : null;
+        $validWarnings = self::validStatusWarnings($warnings);
+        $baselineState = is_array($status) ? ($status['baseline_state'] ?? null) : null;
+        $coherentBaseline = ($baselineState === 'absent' && $codeDrift === [])
+            || ($baselineState === 'exact' && $codeDrift === [])
+            || ($baselineState === 'drift' && is_array($codeDrift) && $codeDrift !== []);
+        if ($keys !== [
+            'baseline_state', 'code_boundary_sha256', 'code_drift', 'findings_sha256',
+            'format', 'observation_sha256', 'reasons', 'required', 'warnings',
+        ]
+            || ($status['format'] ?? null) !== 'wprism-lifecycle-status/v2'
             || !is_bool($status['required'] ?? null)
+            || !in_array($baselineState, ['absent', 'exact', 'drift'], true)
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($status['code_boundary_sha256'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($status['findings_sha256'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($status['observation_sha256'] ?? '')) !== 1
             || !$validReasons
-            || ($status['required'] !== ($reasons !== []))) {
+            || !self::validCodeDriftRows($codeDrift)
+            || !$validWarnings
+            || !$coherentBaseline
+            || ($status['required'] !== ($reasons !== []))
+        ) {
             throw new \RuntimeException('target returned malformed lifecycle preflight evidence');
         }
         $sorted = $reasons;
@@ -1308,6 +1328,144 @@ PHP;
             throw new \RuntimeException('target returned malformed lifecycle preflight evidence');
         }
         return $status;
+    }
+
+    /** @return array<int,string> */
+    public static function codeBaselineAcceptArgs(
+        string $repo,
+        string $artifact,
+        string $artifactHash,
+        string $operationId,
+        string $expectedObservationSha256,
+        string $expectedBaselineState,
+        array $extra
+    ): array {
+        $args = [
+            'wprism', 'code-baseline-accept', '--repo=' . $repo,
+            '--compiled=' . $artifact, '--artifact-hash=' . $artifactHash,
+            '--operation-id=' . $operationId,
+            '--expected-observation-sha256=' . $expectedObservationSha256,
+            '--expected-baseline-state=' . $expectedBaselineState,
+            '--format=json',
+        ];
+        foreach ($extra as $arg) {
+            if ($arg === '--force-code-mismatch' || $arg === '--force-code-drift') {
+                $args[] = $arg;
+            }
+        }
+        return self::controlArgs($args);
+    }
+
+    /**
+     * @param array{exit:int,stdout:string,stderr:string} $result
+     * @return array{format:string,operation_id:string,artifact_hash:string,observation_sha256:string,outcome:string,replayed:bool,before_baseline_sha256:?string,baseline_sha256:string,code_drift:list<array<string,mixed>>}
+     */
+    public static function codeBaselineAcceptResult(array $result): array {
+        if ((int) ($result['exit'] ?? 1) !== 0) {
+            throw new \RuntimeException('target code-baseline acceptance failed');
+        }
+        try {
+            $summary = json_decode(trim((string) ($result['stdout'] ?? '')), true, 16, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('target returned malformed code-baseline acceptance evidence', 0, $failure);
+        }
+        $keys = is_array($summary) ? array_keys($summary) : [];
+        sort($keys, SORT_STRING);
+        $drift = is_array($summary) ? ($summary['code_drift'] ?? null) : null;
+        $outcome = is_array($summary) ? ($summary['outcome'] ?? null) : null;
+        $before = is_array($summary) ? ($summary['before_baseline_sha256'] ?? null) : null;
+        if ($keys !== [
+            'artifact_hash', 'baseline_sha256', 'before_baseline_sha256', 'code_drift', 'format',
+            'observation_sha256', 'operation_id', 'outcome', 'replayed',
+        ]
+            || ($summary['format'] ?? null) !== 'wprism-code-baseline-acceptance/v2'
+            || !in_array($outcome, ['accepted', 'initialized'], true)
+            || !is_bool($summary['replayed'] ?? null)
+            || !is_string($summary['operation_id'] ?? null)
+            || preg_match('/^[A-Za-z0-9._:-]{8,128}$/D', $summary['operation_id']) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($summary['artifact_hash'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($summary['observation_sha256'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($summary['baseline_sha256'] ?? '')) !== 1
+            || ($before !== null && preg_match('/^[a-f0-9]{64}$/D', (string) $before) !== 1)
+            || !self::validCodeDriftRows($drift)
+            || ($outcome === 'initialized' && ($before !== null || $drift !== []))
+            || ($outcome === 'accepted' && (!is_string($before) || $drift === []))) {
+            throw new \RuntimeException('target returned malformed code-baseline acceptance evidence');
+        }
+        return $summary;
+    }
+
+    /** Closed validation for the cross-process code-baseline evidence. */
+    private static function validCodeDriftRows(mixed $rows): bool {
+        if (!is_array($rows) || !array_is_list($rows) || count($rows) > 4096) {
+            return false;
+        }
+        $seen = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                return false;
+            }
+            $kind = $row['kind'] ?? null;
+            $issue = $row['issue'] ?? null;
+            $identityKey = $kind === 'plugin' ? 'plugin' : ($kind === 'theme' ? 'theme' : null);
+            if ($identityKey === null
+                || !in_array($issue, ['code_drift', 'code_baseline_missing'], true)) {
+                return false;
+            }
+            $keys = array_keys($row);
+            sort($keys, SORT_STRING);
+            $expectedKeys = [
+                'installed_version', 'issue', 'kind', 'message', 'recorded_version', $identityKey,
+            ];
+            sort($expectedKeys, SORT_STRING);
+            $identity = $row[$identityKey] ?? null;
+            if ($keys !== $expectedKeys
+                || !is_string($identity)
+                || $identity === ''
+                || strlen($identity) > 512
+                || preg_match('/[\x00-\x1F\x7F]/', $identity) === 1
+                || !is_string($row['installed_version'] ?? null)
+                || !is_string($row['recorded_version'] ?? null)
+                || strlen($row['installed_version']) > 512
+                || strlen($row['recorded_version']) > 512
+                || preg_match('/[\x00-\x1F\x7F]/', $row['installed_version']) === 1
+                || preg_match('/[\x00-\x1F\x7F]/', $row['recorded_version']) === 1
+                || !is_string($row['message'] ?? null)
+                || $row['message'] === ''
+                || strlen($row['message']) > 8192
+                || preg_match('/[\x00-\x1F\x7F]/', $row['message']) === 1
+                || ($issue === 'code_baseline_missing' && $row['recorded_version'] !== '')) {
+                return false;
+            }
+            $key = $kind . ':' . $identity;
+            if (isset($seen[$key])) {
+                return false;
+            }
+            $seen[$key] = true;
+        }
+        return true;
+    }
+
+    private static function validStatusWarnings(mixed $warnings): bool {
+        if (!is_array($warnings) || !array_is_list($warnings) || count($warnings) > 4096) {
+            return false;
+        }
+        $seen = [];
+        foreach ($warnings as $warning) {
+            if (!is_string($warning)
+                || $warning === ''
+                || strlen($warning) > 8192
+                || preg_match('/[\x00-\x1F\x7F]/', $warning) === 1
+                || (!str_starts_with($warning, 'FORCED past code_mismatch: ')
+                    && !str_starts_with($warning, 'GRADUATED outside_version_range: '))) {
+                return false;
+            }
+            if (isset($seen[$warning])) {
+                return false;
+            }
+            $seen[$warning] = true;
+        }
+        return true;
     }
 
     /** A compiled schema-phase effect is the immutable host selection witness. */
@@ -1442,7 +1600,10 @@ PHP;
         bool $stateHandoff,
         string $lifecyclePhase,
         array $extra = [],
-        string $checkpoint = ''
+        string $checkpoint = '',
+        ?string $expectedCodeBoundary = null,
+        ?string $expectedCodeFindings = null,
+        bool $hostReportedCodeFindings = false
     ): array {
         if (!in_array($lifecyclePhase, ['retire', 'activate'], true)) {
             throw new \InvalidArgumentException("unsupported lifecycle phase '$lifecyclePhase'");
@@ -1463,6 +1624,23 @@ PHP;
         }
         if ($checkpoint !== '') {
             $args[] = '--checkpoint=' . $checkpoint;
+        }
+        if (($expectedCodeBoundary === null) !== ($expectedCodeFindings === null)) {
+            throw new \InvalidArgumentException('expected code boundary and findings must be paired');
+        }
+        if ($expectedCodeBoundary !== null) {
+            if (preg_match('/^[a-f0-9]{64}$/D', $expectedCodeBoundary) !== 1
+                || preg_match('/^[a-f0-9]{64}$/D', (string) $expectedCodeFindings) !== 1) {
+                throw new \InvalidArgumentException('malformed expected code boundary/findings');
+            }
+            $args[] = '--expected-code-boundary=' . $expectedCodeBoundary;
+            $args[] = '--expected-code-findings=' . $expectedCodeFindings;
+        }
+        if ($hostReportedCodeFindings) {
+            if ($expectedCodeBoundary === null) {
+                throw new \InvalidArgumentException('host-reported code findings require bound evidence');
+            }
+            $args[] = '--host-reported-code-findings';
         }
         return array_merge($args, $extra);
     }

@@ -6,14 +6,15 @@ namespace WPrism\Orchestrator;
 require_once __DIR__ . '/../Transport/Transport.php';
 
 /**
- * `wprism doctor <env>` — eleven rendered rows over exactly four target round
+ * `wprism doctor <env>` — twelve rendered rows over exactly four target round
  * trips, because a row and a round trip are not the same thing.
  *
  * Two of the four are true gates: the raw reachability echo (nothing
  * downstream means anything through a broken transport) and `wp core
  * is-installed` (no WordPress-side fact is readable without it). The other
  * two are compositions. SITE_FACTS answers agent presence,
- * DISALLOW_FILE_MODS, the site topology and the PHP/database/filesystem/process/WordPress facts
+ * DISALLOW_FILE_MODS, the site topology and the PHP/database/filesystem/process/WordPress facts,
+ * plus the scoped transactional-database-mutation prerequisite,
  * in ONE `wp eval`:
  * those three were never gates on each other, only siblings under the same
  * `if ($installed)`. One raw script answers the repo-path row and the
@@ -24,7 +25,10 @@ require_once __DIR__ . '/../Transport/Transport.php';
  * estate (~0.73 s on pair.yml), paid seven times for four answers.
  *
  * Rows still fail independently, and their order here is the render order.
- * Every compatibility axis is blocking (it folds into the overall `ok`);
+ * Every global compatibility axis is blocking (it folds into the overall
+ * `ok`). The database FK-census prerequisite is advisory here because its
+ * declared scope is transactional mutation; the mutation boundary itself
+ * blocks it before a write without disabling capture/assessment/adoption.
  * `.wprism-env-values.json` is blocking when it can be checked and advisory
  * when the target ships no git binary; DISALLOW_FILE_MODS (issue #3231), the
  * coverage pointer (issue #3290) is always advisory — each check below states
@@ -54,7 +58,7 @@ final class Doctor {
      */
     private const SITE_FACTS = 'global $wpdb; '
         . '$wprism = ["agent" => null, "file_mods" => null, "php" => null, '
-        . '"db_version" => null, "db_engine" => null, "filesystem" => null, '
+        . '"db_version" => null, "db_engine" => null, "database_mutation" => null, "filesystem" => null, '
         . '"process" => null, "wp" => null, "site_mode" => null]; '
         . 'try { $wprism["agent"] = class_exists("\\WPrism\\Capture") ? "wprism-ok" : "wprism-missing"; } '
         . 'catch (\Throwable $e) {} '
@@ -64,6 +68,36 @@ final class Doctor {
         . 'try { $wprism["db_version"] = (string) $wpdb->db_version(); } catch (\Throwable $e) {} '
         . 'try { $wprism["db_engine"] = stripos((string) $wpdb->db_server_info(), "mariadb") !== false '
         . '? "mariadb" : "mysql"; } catch (\Throwable $e) {} '
+        // A same-schema SELECT grant cannot prove absence of an incoming FK
+        // from a hidden schema. Both claimed engines expose the complete
+        // InnoDB graph through a PROCESS-gated vendor table, but the table
+        // name differs. Prove the direct grant (roles stay ambiguous across
+        // engines), then execute a bounded read of the declared source. This
+        // is one sibling fact: failure must not sink version or read-only rows.
+        . 'try { $wprismDbServer = (string) $wpdb->db_server_info(); '
+        . '$wprismFkSource = stripos($wprismDbServer, "mariadb") !== false '
+        . '? "INNODB_SYS_FOREIGN" : "INNODB_FOREIGN"; '
+        . '$wpdb->last_error = ""; $wprismAccount = $wpdb->get_var("SELECT CURRENT_USER()"); '
+        . '$wprismAccountError = trim((string) $wpdb->last_error); '
+        . 'if (is_string($wprismAccount) && $wprismAccount !== "" && strlen($wprismAccount) <= 288 '
+        . '&& !str_contains($wprismAccount, "\\0") && ($wprismAt = strrpos($wprismAccount, "@")) !== false '
+        . '&& $wprismAt > 0 && $wprismAt < strlen($wprismAccount) - 1 && $wprismAccountError === "") { '
+        . '$wprismGrantee = "\'" . substr($wprismAccount, 0, $wprismAt) . "\'@\'" '
+        . '. substr($wprismAccount, $wprismAt + 1) . "\'"; $wpdb->last_error = ""; '
+        . '$wprismProcessCount = $wpdb->get_var($wpdb->prepare('
+        . '"SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE BINARY GRANTEE = BINARY %s '
+        . 'AND PRIVILEGE_TYPE = \'PROCESS\'", $wprismGrantee)); '
+        . '$wprismProcessError = trim((string) $wpdb->last_error); '
+        . '$wprismProcessCanonical = is_int($wprismProcessCount) ? (string) $wprismProcessCount '
+        . ': (is_string($wprismProcessCount) ? $wprismProcessCount : null); '
+        . 'if (in_array($wprismProcessCanonical, ["0", "1"], true) && $wprismProcessError === "") { '
+        . '$wprismDirectProcess = $wprismProcessCanonical === "1"; $wprismSourceReadable = false; '
+        . 'if ($wprismDirectProcess) { $wpdb->last_error = ""; '
+        . '$wpdb->get_var("SELECT ID FROM information_schema." . $wprismFkSource . " LIMIT 1"); '
+        . '$wprismSourceReadable = trim((string) $wpdb->last_error) === ""; } '
+        . '$wprism["database_mutation"] = ["direct_global_process" => $wprismDirectProcess, '
+        . '"metadata_source" => $wprismFkSource, "metadata_source_readable" => $wprismSourceReadable]; } } '
+        . '} catch (\Throwable $e) {} '
         . 'try { $wprism["filesystem"] = ["directory_separator" => DIRECTORY_SEPARATOR, '
         . '"os_family" => PHP_OS_FAMILY, "functions" => ['
         . '"chmod" => function_exists("chmod"), "flock" => function_exists("flock"), '
@@ -75,7 +109,9 @@ final class Doctor {
         . '"proc_get_status" => function_exists("proc_get_status"), "proc_open" => function_exists("proc_open"), '
         . '"proc_terminate" => function_exists("proc_terminate")], "shell" => ['
         . '"executable" => function_exists("is_executable") && @is_executable("/bin/sh"), '
-        . '"path" => "/bin/sh"]]; } catch (\Throwable $e) {} '
+        . '"path" => "/bin/sh"], "wp_cli_opcache_enabled" => (defined("WP_CLI") && WP_CLI '
+        . '&& in_array(strtolower(trim((string) ini_get("opcache.enable_cli"))), '
+        . '["1", "on", "true", "yes"], true))]; } catch (\Throwable $e) {} '
         . 'try { $wprism["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
         // Its own try/catch like every sibling above, and function_exists()
         // rather than a bare call: this snippet also runs under the isolated
@@ -416,6 +452,53 @@ final class Doctor {
                                 . ' <' . ($dbRange['max'] ?? '?')
                                 . ' — docs/compatibility-baseline.json).')
                     );
+                    $foreignKeyCensus = is_array($db) ? ($db['foreign_key_census'] ?? null) : null;
+                    $databaseMutationFacts = self::database_mutation_facts($facts);
+                    $metadataSources = is_array($foreignKeyCensus)
+                        && is_array($foreignKeyCensus['metadata_sources'] ?? null)
+                        ? $foreignKeyCensus['metadata_sources']
+                        : [];
+                    $expectedSource = $dbClaimedName !== ''
+                        && is_string($metadataSources[$dbClaimedName] ?? null)
+                        ? $metadataSources[$dbClaimedName]
+                        : '';
+                    if ($databaseMutationFacts === null) {
+                        $checks[] = self::check(
+                            'transactional database mutation (unknown)',
+                            false,
+                            'could not prove the direct global PROCESS grant and complete InnoDB foreign-key '
+                                . 'metadata source; read-only workflows remain available, but every transactional '
+                                . 'database mutation will refuse before its first write',
+                            true
+                        );
+                    } else {
+                        [$directGlobalProcess, $metadataSource, $metadataSourceReadable] = $databaseMutationFacts;
+                        $databaseMutationOk = $expectedSource !== ''
+                            && hash_equals($expectedSource, $metadataSource)
+                            && $directGlobalProcess
+                            && $metadataSourceReadable;
+                        $detail = '';
+                        if (!$databaseMutationOk) {
+                            $detail = 'requires direct `GRANT PROCESS ON *.*` authority and readable '
+                                . 'information_schema.' . ($expectedSource !== '' ? $expectedSource : '<engine source>')
+                                . ' for the complete incoming InnoDB foreign-key census; schema/table SELECT grants '
+                                . 'cannot reveal a cascading child in another schema. Read-only workflows remain '
+                                . 'available, but every transactional database mutation will refuse before its first write';
+                            if (!$directGlobalProcess) {
+                                $detail .= '; direct global PROCESS is missing';
+                            } elseif (!$metadataSourceReadable) {
+                                $detail .= '; the metadata source was not readable';
+                            } elseif ($expectedSource === '' || !hash_equals($expectedSource, $metadataSource)) {
+                                $detail .= '; observed source ' . $metadataSource;
+                            }
+                        }
+                        $checks[] = self::check(
+                            "transactional database mutation ($dbEngine)",
+                            $databaseMutationOk,
+                            $detail,
+                            true
+                        );
+                    }
                     $wordpress = $baseline['wordpress'] ?? null;
                     $verifiedSeries = is_array($wordpress) && is_array($wordpress['verified'] ?? null)
                         ? array_map('strval', array_keys($wordpress['verified']))
@@ -486,7 +569,7 @@ final class Doctor {
                         'could not read the OS/function/shell facts required by the bounded WP-CLI process-group profile'
                     );
                 } else {
-                    [$osFamily, $functions, $shellPath, $shellExecutable] = $processFacts;
+                    [$osFamily, $functions, $shellPath, $shellExecutable, $wpCliOpcacheEnabled] = $processFacts;
                     $missing = [];
                     foreach ($process['required_functions'] as $function) {
                         if (($functions[$function] ?? false) !== true) {
@@ -496,7 +579,8 @@ final class Doctor {
                     $processOk = in_array($osFamily, $process['os_families'], true)
                         && $missing === []
                         && hash_equals($process['shell'], $shellPath)
-                        && $shellExecutable;
+                        && $shellExecutable
+                        && !$wpCliOpcacheEnabled;
                     $checks[] = self::check(
                         "process group profile ($osFamily)",
                         $processOk,
@@ -507,6 +591,7 @@ final class Doctor {
                             . ($shellPath === $process['shell'] ? '' : '; observed shell '
                                 . json_encode($shellPath, JSON_UNESCAPED_SLASHES))
                             . ($shellExecutable ? '' : '; shell is not executable')
+                            . ($wpCliOpcacheEnabled ? '; opcache.enable_cli is enabled' : '')
                             . ' — docs/compatibility-baseline.json. The child transport still validates its own cleanup.'
                     );
                 }
@@ -655,7 +740,7 @@ final class Doctor {
         return [$filesystem['os_family'], $filesystem['directory_separator'], $functions];
     }
 
-    /** @return ?array{string,array<string,bool>,string,bool} */
+    /** @return ?array{string,array<string,bool>,string,bool,bool} */
     private static function process_facts(?array $facts): ?array {
         $process = is_array($facts) ? ($facts['process'] ?? null) : null;
         $functions = is_array($process) ? ($process['functions'] ?? null) : null;
@@ -667,7 +752,8 @@ final class Doctor {
             || !is_array($shell)
             || !is_string($shell['path'] ?? null)
             || $shell['path'] === ''
-            || !is_bool($shell['executable'] ?? null)) {
+            || !is_bool($shell['executable'] ?? null)
+            || !is_bool($process['wp_cli_opcache_enabled'] ?? null)) {
             return null;
         }
         $keys = array_keys($functions);
@@ -690,7 +776,37 @@ final class Doctor {
                 return null;
             }
         }
-        return [$process['os_family'], $functions, $shell['path'], $shell['executable']];
+        return [
+            $process['os_family'],
+            $functions,
+            $shell['path'],
+            $shell['executable'],
+            $process['wp_cli_opcache_enabled'],
+        ];
+    }
+
+    /** @return ?array{bool,string,bool} */
+    private static function database_mutation_facts(?array $facts): ?array {
+        $databaseMutation = is_array($facts) ? ($facts['database_mutation'] ?? null) : null;
+        $keys = is_array($databaseMutation) ? array_keys($databaseMutation) : [];
+        sort($keys, SORT_STRING);
+        if (!is_array($databaseMutation)
+            || $keys !== [
+                'direct_global_process',
+                'metadata_source',
+                'metadata_source_readable',
+            ]
+            || !is_bool($databaseMutation['direct_global_process'] ?? null)
+            || !is_string($databaseMutation['metadata_source'] ?? null)
+            || !in_array($databaseMutation['metadata_source'], ['INNODB_FOREIGN', 'INNODB_SYS_FOREIGN'], true)
+            || !is_bool($databaseMutation['metadata_source_readable'] ?? null)) {
+            return null;
+        }
+        return [
+            $databaseMutation['direct_global_process'],
+            $databaseMutation['metadata_source'],
+            $databaseMutation['metadata_source_readable'],
+        ];
     }
 
     /**
@@ -704,7 +820,7 @@ final class Doctor {
      * runtime instead of the file; a missing `database.engines` would refuse
      * every engine with the same misdirection.
      *
-     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, filesystem:array{directory_separator:string,os_families:list<string>,profile:string,required_functions:list<string>}, process:array{os_families:list<string>,profile:string,required_functions:list<string>,shell:string}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
+     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>,foreign_key_census:array{metadata_sources:array{MariaDB:string,MySQL:string},profile:string,required_global_privilege:string,scope:string}}, filesystem:array{directory_separator:string,os_families:list<string>,profile:string,required_functions:list<string>}, process:array{os_families:list<string>,profile:string,required_functions:list<string>,shell:string,wp_cli_opcache_enabled:false}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
      */
     private static function read_baseline(): ?array {
         $file = dirname(__DIR__, 3) . '/docs/compatibility-baseline.json';
@@ -712,23 +828,43 @@ final class Doctor {
             return null;
         }
         $data = json_decode((string) file_get_contents($file), true);
+        $foreignKeyCensus = is_array($data) && is_array($data['database']['foreign_key_census'] ?? null)
+            ? $data['database']['foreign_key_census']
+            : null;
+        $foreignKeyCensusKeys = is_array($foreignKeyCensus) ? array_keys($foreignKeyCensus) : [];
+        sort($foreignKeyCensusKeys, SORT_STRING);
+        $foreignKeySources = is_array($foreignKeyCensus)
+            && is_array($foreignKeyCensus['metadata_sources'] ?? null)
+            ? $foreignKeyCensus['metadata_sources']
+            : null;
+        $foreignKeySourceKeys = is_array($foreignKeySources) ? array_keys($foreignKeySources) : [];
+        sort($foreignKeySourceKeys, SORT_STRING);
         if (!is_array($data)
             || !isset($data['php']['min'], $data['php']['max'])
             || !is_array($data['php']['verified'] ?? null) || $data['php']['verified'] === []
             || !is_array($data['database']['engines'] ?? null) || $data['database']['engines'] === []
+            || !is_array($foreignKeyCensus)
+            || $foreignKeyCensusKeys !== ['metadata_sources', 'profile', 'required_global_privilege', 'scope']
+            || ($foreignKeyCensus['profile'] ?? null) !== 'complete-innodb-foreign-key-census/v1'
+            || ($foreignKeyCensus['scope'] ?? null) !== 'transactional-database-mutation'
+            || ($foreignKeyCensus['required_global_privilege'] ?? null) !== 'PROCESS'
+            || $foreignKeySourceKeys !== ['MariaDB', 'MySQL']
+            || ($foreignKeySources['MariaDB'] ?? null) !== 'INNODB_SYS_FOREIGN'
+            || ($foreignKeySources['MySQL'] ?? null) !== 'INNODB_FOREIGN'
             || !is_array($data['filesystem'] ?? null)
             || ($data['filesystem']['directory_separator'] ?? null) !== '/'
             || ($data['filesystem']['profile'] ?? null) !== 'local-posix-atomic-rename-flock-fsync/v1'
             || ($data['filesystem']['os_families'] ?? null) !== ['Darwin', 'Linux']
             || ($data['filesystem']['required_functions'] ?? null) !== ['chmod', 'flock', 'fsync', 'lstat', 'rename']
             || !is_array($data['process'] ?? null)
-            || ($data['process']['profile'] ?? null) !== 'local-posix-process-group-exec/v1'
+            || ($data['process']['profile'] ?? null) !== 'local-posix-process-group-exec-no-cli-opcache/v1'
             || ($data['process']['os_families'] ?? null) !== ['Darwin', 'Linux']
             || ($data['process']['required_functions'] ?? null) !== [
                 'passthru', 'posix_kill', 'posix_setsid', 'proc_close',
                 'proc_get_status', 'proc_open', 'proc_terminate',
             ]
             || ($data['process']['shell'] ?? null) !== '/bin/sh'
+            || ($data['process']['wp_cli_opcache_enabled'] ?? null) !== false
             || !isset($data['wordpress']['min'], $data['wordpress']['max'])
             || !is_array($data['wordpress']['verified'] ?? null) || $data['wordpress']['verified'] === []) {
             return null;

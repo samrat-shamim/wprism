@@ -6,6 +6,10 @@ require __DIR__ . '/../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../agent/src/Capture/Capture.php';
 require_once __DIR__ . '/../../../agent/src/Capture/CaptureSafetyGates.php';
 
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
+
 use WPrism\Capture;
 use WPrism\CaptureSafetyGates;
 use WPrism\Canon;
@@ -171,11 +175,21 @@ $wpdb = new class {
     public string $marker = '';
 
     public function prepare(string $query, mixed ...$arguments): string {
+        foreach ($arguments as $argument) {
+            $quoted = "'" . str_replace("'", "''", (string) $argument) . "'";
+            $query = preg_replace('/%s/', $quoted, $query, 1) ?? $query;
+        }
         return $query;
     }
 
-    public function get_var(mixed $query): string {
-        return $this->marker;
+    public function get_row(string $query, mixed $output = null): ?array {
+        if (preg_match("/WHERE k = '((?:''|[^'])*)'/D", $query, $match) !== 1) {
+            return null;
+        }
+        return [
+            'k' => str_replace("''", "'", $match[1]),
+            'v' => $this->marker,
+        ];
     }
 };
 $markerStatus = new ReflectionMethod(Capture::class, 'publication_commit_status');

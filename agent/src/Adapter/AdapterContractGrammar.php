@@ -272,6 +272,13 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [],
         ],
+        // Manifest providers may opt a capability into the engine's fixed
+        // stdin/receipt child protocol. The provider declaration is already a
+        // non-surface section; the feature widens only its execution metadata.
+        ManifestProviderRuntime::FRESH_PROCESS_FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
         // A plugin incompatibility is a constraint on which adapter contracts
         // may share one policy, not a state surface. The exact-basename list is
         // therefore non-surface, while PolicyLoadFinalizer enforces it before
@@ -782,10 +789,10 @@ final class AdapterContractGrammar {
         // lazy interpreters() lookup to hand a non-string to preg_match().
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
             $interpreter = $manifest['interpreter'];
-            if (!is_string($interpreter) || preg_match('/^[a-z0-9_-]+$/D', $interpreter) !== 1) {
+            if (!is_string($interpreter) || preg_match('/^[a-z][a-z0-9_-]*$/D', $interpreter) !== 1) {
                 throw new \RuntimeException(
                     "wprism: manifest '$name' declares interpreter " . var_export($interpreter, true)
-                    . ' — an interpreter name must be a non-empty string matching ^[a-z0-9_-]+$, since it resolves '
+                    . ' — an interpreter name must be a non-empty string matching ^[a-z][a-z0-9_-]*$, since it resolves '
                     . 'to <manifests_dir>/interpreters/<name>.php'
                 );
             }

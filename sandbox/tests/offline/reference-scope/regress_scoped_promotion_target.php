@@ -136,8 +136,21 @@ namespace WPrism {
             return $GLOBALS['wpdb']->execute($sql);
         }
 
-        public static function start(string $context = 'transaction start'): void {
+        public static function start(
+            string $context,
+            NativeDatabaseProfile $profile
+        ): void {
             ScopedPromotionTargetLedger::start();
+        }
+
+        public static function mutation(
+            string $head,
+            string $condition,
+            string $tail,
+            string $context,
+            array $readTables = []
+        ): int {
+            return $GLOBALS['wpdb']->executeMutation($head, $condition, $tail);
         }
 
         public static function commit(string $context = 'transaction commit'): void {
@@ -296,6 +309,30 @@ namespace {
                 return 0;
             }
             throw new RuntimeException('unexpected promotion-lock mutation query');
+        }
+
+        public function executeMutation(string $head, string $condition, string $tail): int {
+            [$headTemplate, $headArgs] = $this->decodeFragment($head);
+            [$conditionTemplate, $conditionArgs] = $this->decodeFragment($condition);
+            [$tailTemplate, $tailArgs] = $this->decodeFragment($tail);
+            $template = $headTemplate
+                . ($conditionTemplate === '' ? '' : ' WHERE ' . $conditionTemplate)
+                . ($tailTemplate === '' ? '' : ' ' . $tailTemplate);
+            return $this->execute('wprism-test-sql:' . base64_encode(serialize([
+                $template,
+                array_merge($headArgs, $conditionArgs, $tailArgs),
+            ])));
+        }
+
+        /** @return array{0:string,1:list<mixed>} */
+        private function decodeFragment(string $fragment): array {
+            if ($fragment === '') {
+                return ['', []];
+            }
+            if (!str_starts_with($fragment, 'wprism-test-sql:')) {
+                return [$fragment, []];
+            }
+            return $this->decode($fragment);
         }
 
         /** @return array{0:string,1:list<mixed>} */
@@ -621,7 +658,7 @@ namespace {
     );
     $replacementTransactionStartOffset = strpos(
         $acquireInternalSource,
-        "Db::start('scoped ordinary session replacement transaction start')"
+        "'scoped ordinary session replacement transaction start',"
     );
     $replacementLockReadOffset = strpos($acquireInternalSource, '$before = self::current();');
     $replacementSessionReadOffset = strpos($acquireInternalSource, '$existingSession = self::current_session(');

@@ -35,6 +35,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-code-config-grammar regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver
 .PHONY: regress-delete-guard-value-codec
 .PHONY: regress-delete-guard-evaluator
+.PHONY: regress-db-transaction-authority regress-provider-database-session regress-provider-operation-process
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
 .PHONY: regress-full-apply-attachment-recovery
 .PHONY: regress-plugin-incompatibility
@@ -1121,6 +1122,21 @@ regress-code-config-grammar:
 
 regress-agent-src-requires:
 	php sandbox/tests/offline/guards/regress_agent_src_requires.php
+
+# The shared database boundary must distinguish physical session generations,
+# settle replayed data-free controls, and retain the original transaction's
+# savepoint witness across ambiguous responses on both supported SQL engines.
+regress-db-transaction-authority:
+	php sandbox/tests/offline/guards/regress_db_transaction_authority.php
+
+# Provider callbacks use the engine-owned database and process boundaries;
+# these suites pin settlement and the fixed digest-bound child protocol rather
+# than allowing adapter capsules to grow their own transaction/process loops.
+regress-provider-database-session:
+	php sandbox/tests/offline/guards/regress_provider_database_session.php
+
+regress-provider-operation-process:
+	php sandbox/tests/offline/guards/regress_provider_operation_process.php
 
 regress-code-descriptor-unit:
 	bash sandbox/tests/offline/code-half/regress_code_descriptor_unit.sh

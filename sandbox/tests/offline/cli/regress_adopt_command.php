@@ -36,7 +36,10 @@ final class AdoptCommandPlainDriver implements EnvironmentDriver {
         $this->calls++;
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected target contact'];
     }
-    public function streamWp(array $wpArgs): int { $this->calls++; return 99; }
+    public function streamWp(array $wpArgs): int {
+        $this->calls++;
+        return 99;
+    }
     public function wpInstruction(array $wpArgs): string { return implode(' ', $wpArgs); }
     public function capabilityReport(string $operation): DriverCapabilityReport {
         return DriverCapabilityReport::forDriver('plain-fixture', 'plain-fixture', $operation, []);
@@ -55,7 +58,9 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         private string $sourceRoot,
         private bool $failUpload = false,
         public string $topology = 'wprism-single-site',
-        public int $topologyExit = 0
+        public int $topologyExit = 0,
+        public string $loaderGeneration = 'absent',
+        public bool $directGlobalProcess = true
     ) {
         $this->distributionSha256 = Adopt::distributionDigest($sourceRoot);
     }
@@ -83,6 +88,19 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         }
         if (str_contains($script, 'archive=') && str_contains($script, 'agent_new=')) {
             return ['exit' => 0, 'stdout' => "wprism-repo-created\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'loader_generation_fence=absent')) {
+            $loaderSha256 = match ($this->loaderGeneration) {
+                'absent' => 'absent',
+                'legacy-unfenced' => (string) hash_file('sha256', dirname(__DIR__, 2) . '/fixtures/legacy-wprism-loader.php'),
+                'fenced-v1' => (string) hash_file('sha256', $this->sourceRoot . '/agent/wprism-loader.php'),
+                default => hash('sha256', 'foreign-loader'),
+            };
+            return [
+                'exit' => 0,
+                'stdout' => "loader_generation_fence={$this->loaderGeneration}\nloader_sha256=$loaderSha256\n",
+                'stderr' => '',
+            ];
         }
         if (str_contains($script, 'agent/scoped-promotion-control.json')
             && str_contains($script, 'hash_final($ctx)')) {
@@ -132,6 +150,11 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
+                'database_mutation' => [
+                    'direct_global_process' => $this->directGlobalProcess,
+                    'metadata_source' => 'INNODB_SYS_FOREIGN',
+                    'metadata_source_readable' => $this->directGlobalProcess,
+                ],
                 'filesystem' => [
                     'directory_separator' => '/',
                     'os_family' => 'Linux',
@@ -155,6 +178,7 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
                         'proc_terminate' => true,
                     ],
                     'shell' => ['executable' => true, 'path' => '/bin/sh'],
+                    'wp_cli_opcache_enabled' => false,
                 ],
                 'wp' => '7.0.3',
                 'site_mode' => 'single-site',
@@ -207,7 +231,7 @@ $failedOutput = (string) ob_get_clean();
 assert_adopt_command($failedExit === 73, 'archive upload failure preserves the transport exit code');
 assert_adopt_command(str_contains($failedOutput, 'adopt phase: staged install + transactional doctor'), 'failure prints the adopt phase');
 assert_adopt_command($failed->uploadCalls === 1, 'failed adoption stops at the first upload');
-assert_adopt_command(count($failed->rawScripts) === 1, 'upload failure performs only the transport preflight');
+assert_adopt_command(count($failed->rawScripts) === 2, 'upload failure performs only transport and loader-generation preflights');
 // 2 -> 3: the pre-swap topology probe runs inside the try, ahead of the tar
 // and the upload, so every path past the preflight now carries it.
 assert_adopt_command(count($failed->wpArgs) === 3, 'upload failure performs only the WordPress preflight plus the pre-swap topology probe');
@@ -223,8 +247,60 @@ assert_adopt_command(str_contains($healthyOutput, '[WARN] DISALLOW_FILE_MODS set
 assert_adopt_command($healthy->uploadCalls === 1, 'successful adoption uploads one archive');
 // The post-swap distribution readback adds one raw proof before the commit
 // barrier. Doctor's composed probes remain 2 raw + 2 wp.
-assert_adopt_command(count($healthy->rawScripts) === 9, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
+assert_adopt_command(count($healthy->rawScripts) === 10, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
 assert_adopt_command(count($healthy->wpArgs) === 7, 'adoption plus doctor performs the bounded WordPress probe set (' . count($healthy->wpArgs) . ')');
+
+$withoutProcess = new AdoptCommandFakeTransport($sourceRoot, directGlobalProcess: false);
+ob_start();
+$withoutProcessExit = AdoptCommand::run($withoutProcess, [], $sourceRoot);
+$withoutProcessOutput = (string) ob_get_clean();
+assert_adopt_command($withoutProcessExit === 0, 'adoption remains available without the mutation-scoped PROCESS grant');
+assert_adopt_command(
+    str_contains($withoutProcessOutput, 'adopt: installed agent ')
+        && str_contains($withoutProcessOutput, '[WARN] transactional database mutation (mariadb)')
+        && str_contains($withoutProcessOutput, 'direct global PROCESS is missing'),
+    'adoption succeeds but names its unavailable transactional database-mutation scope'
+);
+
+$legacyWithoutAttestation = new AdoptCommandFakeTransport(
+    $sourceRoot,
+    false,
+    'wprism-single-site',
+    0,
+    'legacy-unfenced'
+);
+$legacyWithoutAttestationExit = AdoptCommand::run($legacyWithoutAttestation, [], $sourceRoot);
+assert_adopt_command($legacyWithoutAttestationExit !== 0, 'the host adopt command refuses an unfenced legacy loader without attestation');
+assert_adopt_command($legacyWithoutAttestation->uploadCalls === 0, 'legacy refusal occurs before distribution upload or target mutation');
+
+$legacyAttested = new AdoptCommandFakeTransport(
+    $sourceRoot,
+    false,
+    'wprism-single-site',
+    0,
+    'legacy-unfenced'
+);
+ob_start();
+$legacyAttestedExit = AdoptCommand::run(
+    $legacyAttested,
+    ['--attest-legacy-loader-quiesced'],
+    $sourceRoot
+);
+$legacyAttestedOutput = (string) ob_get_clean();
+assert_adopt_command($legacyAttestedExit === 0, 'the host adopt command carries an explicit legacy-loader quiescence attestation');
+assert_adopt_command(
+    str_contains($legacyAttestedOutput, 'legacy unfenced loader transition used the explicit quiescence attestation'),
+    'successful legacy adoption reports the one-time attested transition'
+);
+
+$blanketAttestation = new AdoptCommandFakeTransport($sourceRoot);
+$blanketAttestationExit = AdoptCommand::run(
+    $blanketAttestation,
+    ['--attest-legacy-loader-quiesced'],
+    $sourceRoot
+);
+assert_adopt_command($blanketAttestationExit !== 0, 'adopt rejects a blanket quiescence attestation when no legacy loader is installed');
+assert_adopt_command($blanketAttestation->uploadCalls === 0, 'misapplied adoption attestation changes no target byte');
 
 // The topology question is asked BEFORE the swap, and a network is refused
 // with nothing installed. mu-plugins are network-wide, so the window between

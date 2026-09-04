@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace {
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
+    $root = dirname(__DIR__, 3);
+    require_once "$root/sandbox/tests/support/wp_cli_child_process_fake.php";
 
     $GLOBALS['pll_scoped_options'] = [
         'polylang' => ['default_lang' => '', 'nav_menus' => ['fixture-theme' => []]],
@@ -68,6 +70,8 @@ namespace {
     }
 
     final class WP_CLI {
+        use \WPrismTest\WpCliChildRuntime;
+
         public static function runcommand(string $command, array $options): object {
             if ($command === 'rewrite flush') {
                 $GLOBALS['pll_scoped_options']['rewrite_rules'] = ['^fresh$' => 'index.php?fresh=1'];
@@ -87,64 +91,40 @@ namespace {
         }
     }
 
-    final class PllScopedWpdb {
-        public string $options = 'wp_options';
-        public string $last_error = '';
-
-        public function prepare(string $sql, mixed ...$args): string {
-            foreach ($args as $arg) {
-                $quoted = "'" . str_replace("'", "''", (string) $arg) . "'";
-                $sql = preg_replace('/%s/', $quoted, $sql, 1) ?? $sql;
-            }
-            return $sql;
-        }
-
-        public function get_var(string $sql): mixed {
-            if (preg_match("/option_name = '((?:''|[^'])*)'/D", $sql, $match) !== 1) {
-                throw new \RuntimeException('fixture received an unsupported scoped receipt query');
-            }
-            $name = str_replace("''", "'", $match[1]);
-            return $GLOBALS['pll_scoped_options'][$name] ?? null;
-        }
-    }
 }
 
 namespace WPrism {
     final class Policy {
         public const SURFACE_PATTERN = '/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D';
     }
-
-    final class WpCliChildProcess {
-        /** @return array{return_code:int,stdout:string,stderr:string} */
-        public static function capture(
-            string $command,
-            int $timeoutSeconds,
-            int $stdoutLimit,
-            int $stderrLimit
-        ): array {
-            if (!str_starts_with($command, 'eval ')
-                || $timeoutSeconds !== 120
-                || $stdoutLimit !== 262144
-                || $stderrLimit !== 131072) {
-                throw new \RuntimeException('fixture received an invalid bounded catalog-child contract');
-            }
-            $projection = ['catalogs' => []];
-            return [
-                'return_code' => 0,
-                'stdout' => 'WPRISM_PLL_NATIVE:'
-                    . base64_encode((string) json_encode($projection)) . "\n",
-                'stderr' => '',
-            ];
-        }
-    }
 }
 
 namespace {
-    $root = dirname(__DIR__, 3);
+    require_once "$root/sandbox/tests/lib/wp_stubs.php";
+    require_once "$root/sandbox/tests/lib/FakeWpdb.php";
     require_once "$root/agent/src/Adapter/Providers.php";
     require_once "$root/adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php";
 
-    $GLOBALS['wpdb'] = new PllScopedWpdb();
+    $GLOBALS['wpdb'] = (new \WPrismTest\FakeWpdb())
+        ->setColumns('options', [
+            'option_id' => 'bigint unsigned',
+            'option_name' => 'varchar(191)',
+            'option_value' => 'longtext',
+            'autoload' => 'varchar(20)',
+        ])
+        ->setAutoIncrement('options', 1, 'option_id')
+        ->setUniqueKey('options', ['option_name'])
+        ->setIndexes('options', [[
+            'Key_name' => 'option_name',
+            'Seq_in_index' => 1,
+            'Column_name' => 'option_name',
+            'Sub_part' => null,
+            'Non_unique' => 0,
+            'Index_type' => 'BTREE',
+        ]])
+        ->setTableEngine('options', 'InnoDB')
+        ->seedTable('options', [])
+        ->enableInformationSchema();
     $manifest = json_decode(
         (string) file_get_contents("$root/adapter-packages/polylang/package/manifest.json"),
         true,

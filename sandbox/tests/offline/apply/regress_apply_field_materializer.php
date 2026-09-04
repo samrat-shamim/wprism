@@ -13,6 +13,9 @@ declare(strict_types=1);
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
+if (!defined('ARRAY_N')) {
+    define('ARRAY_N', 'ARRAY_N');
+}
 
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
@@ -37,7 +40,8 @@ function wp_cache_delete($key, $group = ''): bool {
 }
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/DatabaseExceptions.php';
+require_once __DIR__ . '/../../lib/AuthoredFieldDbDouble.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/EntityAdopter.php';
@@ -134,6 +138,10 @@ final class ApplyFieldMaterializerFakeWpdb {
 
     public function get_row(string $sql, mixed $mode): ?array {
         $this->queries[] = $sql;
+        if ($mode === ARRAY_N
+            && preg_match('/^SHOW CREATE TABLE `([^`]+)`$/D', trim($sql), $match) === 1) {
+            return [$match[1], "CREATE TABLE `{$match[1]}` (`id` bigint) ENGINE=InnoDB"];
+        }
         if ($mode !== ARRAY_A) {
             throw new RuntimeException('fixture expected ARRAY_A');
         }
@@ -225,12 +233,18 @@ final class ApplyFieldMaterializerFakeWpdb {
             throw new RuntimeException('fixture expected ARRAY_A');
         }
         if (str_contains($sql, 'information_schema.TABLES')) {
-            return [
-                ['TABLE_NAME' => $this->options, 'ENGINE' => 'InnoDB'],
-                ['TABLE_NAME' => $this->postmeta, 'ENGINE' => 'InnoDB'],
-                ['TABLE_NAME' => $this->termmeta, 'ENGINE' => 'InnoDB'],
-                ['TABLE_NAME' => $this->term_taxonomy, 'ENGINE' => 'InnoDB'],
-            ];
+            preg_match_all("/'((?:''|[^'])*)'/", $sql, $matches);
+            $requested = array_map(
+                static fn(string $table): string => str_replace("''", "'", $table),
+                $matches[1]
+            );
+            return array_map(
+                static fn(string $table): array => ['TABLE_NAME' => $table, 'ENGINE' => 'InnoDB'],
+                array_values(array_filter(
+                    [$this->options, $this->postmeta, $this->termmeta, $this->term_taxonomy],
+                    static fn(string $table): bool => in_array($table, $requested, true)
+                ))
+            );
         }
         if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
             return [[

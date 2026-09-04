@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/ManifestExecutableLoader.php';
 require_once __DIR__ . '/AdapterPackage.php';
 
 /** A closed physical inventory of one explicitly selected adapter library. */
@@ -262,15 +263,28 @@ final class AdapterLibrary
             'providers' => [],
             'regenerators' => [],
         ];
+        $runtimeClasses = [
+            'interpreters' => [],
+            'providers' => [],
+            'regenerators' => [],
+        ];
         foreach ($specs as $name => $spec) {
             if ($spec['interpreter'] !== null) {
                 self::claimRuntime($expectedRuntime['interpreters'], $spec['interpreter'], $name, 'interpreter');
+                self::claimRuntimeClass(
+                    $runtimeClasses['interpreters'],
+                    $spec['interpreter'],
+                    $name,
+                    'interpreters'
+                );
             }
             foreach ($spec['providers'] as $provider) {
                 self::claimRuntime($expectedRuntime['providers'], $provider, $name, 'provider');
+                self::claimRuntimeClass($runtimeClasses['providers'], $provider, $name, 'providers');
             }
             foreach ($spec['regenerators'] as $regenerator) {
                 self::claimRuntime($expectedRuntime['regenerators'], $regenerator, $name, 'regenerator');
+                self::claimRuntimeClass($runtimeClasses['regenerators'], $regenerator, $name, 'regenerators');
             }
         }
         foreach (self::RUNTIME_DIRECTORIES as $runtimeDirectory) {
@@ -322,6 +336,44 @@ final class AdapterLibrary
     public function root(): string
     {
         return $this->root;
+    }
+
+    /**
+     * Reopen the exact resolved root in a fresh process without path search.
+     *
+     * The three layouts are structurally disjoint. Requiring exactly one is
+     * what keeps a child request from selecting a looser reader for the same
+     * bytes. The embedded control path is the production path Policy derives
+     * from an installed agent; source and legacy layouts keep revocations
+     * inside their already-closed library roots.
+     */
+    public static function reopenResolvedRoot(string $directory): self
+    {
+        $root = self::canonicalRoot($directory);
+        $source = is_dir($root . '/adapter-packages')
+            && is_dir($root . '/platform/adapter-library');
+        $embedded = is_dir($root . '/adapters')
+            && is_dir($root . '/platform');
+        $legacy = is_dir($root . '/capabilities')
+            && is_dir($root . '/dispositions')
+            && is_dir($root . '/interpreters')
+            && is_dir($root . '/providers')
+            && is_dir($root . '/regenerators');
+        if (count(array_filter([$source, $embedded, $legacy])) !== 1) {
+            throw new \RuntimeException(
+                "wprism: resolved adapter library root has no unique supported layout: $root"
+            );
+        }
+        if ($source) {
+            return self::fromSourceTree($root);
+        }
+        if ($embedded) {
+            return self::fromEmbeddedDirectory(
+                $root,
+                dirname($root, 2) . '/wprism-control/adapter-revocations.json'
+            );
+        }
+        return self::fromLegacyFlatDirectory($root);
     }
 
     /** @return list<AdapterPackage> */
@@ -444,6 +496,11 @@ final class AdapterLibrary
             'provider' => [],
             'regenerator' => [],
         ];
+        $runtimeClasses = [
+            'interpreters' => [],
+            'providers' => [],
+            'regenerators' => [],
+        ];
         $anchors = array_merge($initialAnchors, [$coreRoot, $capabilitiesRoot, $revocations]);
         foreach ($adapterRoots as $slug => $packageRoot) {
             [$package, $packageAnchors, $runtime] = self::logicalPackage($root, $slug, $packageRoot);
@@ -457,12 +514,25 @@ final class AdapterLibrary
                     $package->name(),
                     'interpreter'
                 );
+                self::claimRuntimeClass(
+                    $runtimeClasses['interpreters'],
+                    $runtime['interpreter'],
+                    $package->name(),
+                    'interpreters'
+                );
             }
             foreach ($runtime['providers'] as $provider) {
                 self::claimRuntime($runtimeOwners['provider'], $provider, $package->name(), 'provider');
+                self::claimRuntimeClass($runtimeClasses['providers'], $provider, $package->name(), 'providers');
             }
             foreach ($runtime['regenerators'] as $regenerator) {
                 self::claimRuntime($runtimeOwners['regenerator'], $regenerator, $package->name(), 'regenerator');
+                self::claimRuntimeClass(
+                    $runtimeClasses['regenerators'],
+                    $regenerator,
+                    $package->name(),
+                    'regenerators'
+                );
             }
             $packages[$package->name()] = $package;
             $anchors = array_merge($anchors, $packageAnchors);
@@ -770,7 +840,7 @@ final class AdapterLibrary
                 throw new \RuntimeException("wprism: unexpected adapter runtime entry: $path");
             }
             $id = substr($entry, 0, -4);
-            self::assertName($id, "adapter runtime basename at $path");
+            self::assertRuntimeName($id, "adapter runtime basename at $path");
             $paths[$id] = self::assertFile($root, $path, "adapter runtime $directory/$id.php");
         }
         ksort($paths, SORT_STRING);
@@ -804,7 +874,7 @@ final class AdapterLibrary
             if (!is_string($manifest['interpreter'])) {
                 throw new \RuntimeException("wprism: adapter $name interpreter must be a string");
             }
-            self::assertName($manifest['interpreter'], "adapter $name interpreter id");
+            self::assertRuntimeName($manifest['interpreter'], "adapter $name interpreter id");
             $interpreter = $manifest['interpreter'];
         }
 
@@ -824,7 +894,7 @@ final class AdapterLibrary
                 if (!is_string($id)) {
                     throw new \RuntimeException("wprism: adapter $name manifest provider $index has no string id");
                 }
-                self::assertName($id, "adapter $name provider id");
+                self::assertRuntimeName($id, "adapter $name provider id");
                 if (in_array($id, $providers, true)) {
                     throw new \RuntimeException("wprism: adapter $name declares provider $id more than once");
                 }
@@ -851,7 +921,7 @@ final class AdapterLibrary
                         "wprism: adapter $name post type $postType regen_dependency has no string regenerator"
                     );
                 }
-                self::assertName($regenerator, "adapter $name regenerator id");
+                self::assertRuntimeName($regenerator, "adapter $name regenerator id");
                 if (!in_array($regenerator, $regenerators, true)) {
                     $regenerators[] = $regenerator;
                 }
@@ -871,6 +941,46 @@ final class AdapterLibrary
             );
         }
         $owners[$id] = $name;
+    }
+
+    /**
+     * PHP class names are case-insensitive and both '-' and '_' disappear in
+     * the runtime-name projection. Close that alias set while the complete
+     * physical library is inventoried, before a caller's pin order can choose
+     * which file occupies the process-wide symbol.
+     *
+     * @param array<string,array{adapter:string,id:string}> $classes
+     */
+    private static function claimRuntimeClass(array &$classes, string $id, string $adapter, string $kind): void
+    {
+        // The manifest grammar owns semantic ids and reports its established
+        // provider/interpreter/regenerator coordinate. A digit-leading
+        // physical basename is inventoried here, then refused there; it cannot
+        // produce a valid PHP class and therefore contributes no alias claim.
+        if (preg_match('/^[a-z]/D', $id) !== 1) {
+            return;
+        }
+        $class = self::runtimeClassName($kind, $id);
+        $key = strtolower($class);
+        $existing = $classes[$key] ?? null;
+        if ($existing !== null && $existing['id'] !== $id) {
+            $claims = [
+                $existing['adapter'] . '/' . $existing['id'],
+                $adapter . '/' . $id,
+            ];
+            sort($claims, SORT_STRING);
+            throw new \RuntimeException(
+                "wprism: adapter runtime $kind " . implode(' and ', $claims)
+                . " normalize to the same PHP class $class"
+            );
+        }
+        $classes[$key] = ['adapter' => $adapter, 'id' => $id];
+    }
+
+    /** @return class-string The class identity every manifest executable descriptor must name. */
+    public static function runtimeClassName(string $kind, string $id): string
+    {
+        return ManifestExecutableLoader::className($kind, $id);
     }
 
     /**
@@ -924,7 +1034,7 @@ final class AdapterLibrary
     private static function assertRuntimeName(string $name, string $label): void
     {
         if (preg_match('/\A[a-z0-9][a-z0-9_-]*\z/D', $name) !== 1) {
-            throw new \RuntimeException("wprism: $label is not a canonical runtime name: " . var_export($name, true));
+            throw new \RuntimeException("wprism: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
         }
     }
 }

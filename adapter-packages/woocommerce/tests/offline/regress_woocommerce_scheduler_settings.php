@@ -1330,11 +1330,69 @@ namespace {
         return $wpdb;
     }
 
-    function woo_scheduler_provider(Policy $policy): \WPrism\Providers\WoocommerceSchedulerSettings {
-        return new \WPrism\Providers\WoocommerceSchedulerSettings($policy);
+    function woo_scheduler_provider(Policy $policy): object {
+        $declaration = $policy->provider_declarations()['woocommerce-scheduler-settings'] ?? null;
+        if (!is_array($declaration)) {
+            throw new RuntimeException('scheduler-settings fixture could not resolve its manifest declaration');
+        }
+        // Use the production digest/provenance loader so the legacy mutex
+        // tests exercise the exact-object runtime authority rather than a
+        // test-only caller or SQL bypass. The wrapper reaches only the private
+        // dispatch join; identity/capability behavior remains the package's.
+        $provider = (new ReflectionMethod(\WPrism\Providers::class, 'manifest_provider'))
+            ->invoke(null, $policy, $declaration);
+        return new class($provider) {
+            public function __construct(private readonly object $provider) {
+            }
+
+            /** @return array<string,mixed> */
+            public function identity(): array {
+                return $this->provider->identity();
+            }
+
+            /** @return array<string,array<string,mixed>> */
+            public function capabilities(): array {
+                return $this->provider->capabilities();
+            }
+
+            /** @return array<string,mixed> */
+            public function invoke(string $capability, array $args): array {
+                return $this->dispatch('invoke', $capability, [$capability, $args]);
+            }
+
+            /** @return array<string,mixed> */
+            public function invoke_scoped(string $capability, array $args, array $operation): array {
+                return $this->dispatch(
+                    'invoke_scoped',
+                    $capability,
+                    [$capability, $args, $operation]
+                );
+            }
+
+            /** @return array<string,mixed> */
+            public function reconcile_scoped(string $capability, array $args, array $operation): array {
+                return $this->dispatch(
+                    'reconcile_scoped',
+                    $capability,
+                    [$capability, $args, $operation]
+                );
+            }
+
+            /** @param list<mixed> $arguments @return array<string,mixed> */
+            private function dispatch(string $method, string $capability, array $arguments): array {
+                return (new ReflectionMethod(\WPrism\Providers::class, 'invoke_provider_callback'))
+                    ->invoke(
+                        null,
+                        $this->provider,
+                        'woocommerce-scheduler-settings',
+                        $capability,
+                        fn(): array => $this->provider->{$method}(...$arguments)
+                    );
+            }
+        };
     }
 
-    function woo_scheduler_prepare_no_to_yes(Policy $policy): \WPrism\Providers\WoocommerceSchedulerSettings {
+    function woo_scheduler_prepare_no_to_yes(Policy $policy): object {
         woo_scheduler_reset('no');
         $provider = woo_scheduler_provider($policy);
         $provider->invoke('reconcile_analytics_import_schedule', []);
@@ -1451,7 +1509,6 @@ namespace {
     require_once $root . '/agent/src/Policy/Policy.php';
     require_once $root . '/agent/src/Adapter/ProviderSdk.php';
     require_once $root . '/agent/src/Adapter/Providers.php';
-    require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php';
 
     $policy = Policy::load(
         null,

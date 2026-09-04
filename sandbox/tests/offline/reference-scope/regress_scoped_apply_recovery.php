@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 // WP-4.12: derived from agent/wprism.php — this suite reaches the shipped
 // platform.json, which restates both defines.
 require_once __DIR__ . '/../../lib/agent_version.php';
@@ -203,6 +204,10 @@ final class ScopedRecoveryEffectWpdb {
 
     public function get_row(string $query, mixed $output = null): array|false|null {
         $this->last_error = '';
+        if (preg_match("/SELECT k, v FROM wp_wprism_kv(?: FORCE INDEX \\(`[^`]+`\\))? WHERE k = '([^']*)'/", $query, $match) === 1) {
+            $value = $this->kvRows[$match[1]] ?? null;
+            return $value === null ? null : ['k' => $match[1], 'v' => $value];
+        }
         if (preg_match("/FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $match) === 1) {
             foreach ($this->mapRows as $row) {
                 if ($row['uuid'] === $match[1] && $row['id_kind'] === $match[2]) {
@@ -342,7 +347,8 @@ final class ScopedRecoveryEffectWpdb {
     }
 }
 
-$GLOBALS['wpdb'] = new ScopedRecoveryEffectWpdb();
+$scopedRecoveryEffectWpdb = new ScopedRecoveryEffectWpdb();
+$GLOBALS['wpdb'] = $scopedRecoveryEffectWpdb;
 $GLOBALS['scoped_recovery_cache'] = ['transient' => []];
 $GLOBALS['scoped_recovery_delete_calls'] = 0;
 
@@ -366,8 +372,33 @@ function add_filter(string $hook, callable $callback, int $priority = 10, int $a
     return true;
 }
 
+function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+    $allGate = is_array($GLOBALS['wp_filter'] ?? null) ? ($GLOBALS['wp_filter']['all'] ?? null) : null;
+    if (is_object($allGate) && method_exists($allGate, 'do_all_hook')) {
+        $allArgs = array_merge([$hook, $value], $args);
+        $allGate->do_all_hook($allArgs);
+    }
+    $gate = is_array($GLOBALS['wp_filter'] ?? null) ? ($GLOBALS['wp_filter'][$hook] ?? null) : null;
+    if (is_object($gate) && method_exists($gate, 'apply_filters')) {
+        return $gate->apply_filters($value, array_merge([$value], $args));
+    }
+    return $value;
+}
+
 function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $autoload = 'yes'): bool {
     global $wpdb;
+    if ($wpdb instanceof \WPrismTest\FakeWpdb) {
+        foreach ($wpdb->rows($wpdb->options) as $row) {
+            if (($row['option_name'] ?? null) === $name) {
+                return false;
+            }
+        }
+        return $wpdb->insert($wpdb->options, [
+            'option_name' => $name,
+            'option_value' => (string) $value,
+            'autoload' => is_bool($autoload) ? ($autoload ? 'yes' : 'no') : (string) $autoload,
+        ]) === 1;
+    }
     if (array_key_exists($name, $wpdb->optionRows)) {
         return false;
     }
@@ -377,6 +408,22 @@ function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $a
 
 function update_option(string $name, mixed $value, mixed $autoload = null): bool {
     global $wpdb;
+    if ($wpdb instanceof \WPrismTest\FakeWpdb) {
+        foreach ($wpdb->rows($wpdb->options) as $row) {
+            if (($row['option_name'] ?? null) !== $name) {
+                continue;
+            }
+            if (hash_equals((string) ($row['option_value'] ?? ''), (string) $value)) {
+                return false;
+            }
+            return $wpdb->update(
+                $wpdb->options,
+                ['option_value' => (string) $value],
+                ['option_name' => $name]
+            ) === 1;
+        }
+        return add_option($name, $value, '', $autoload ?? 'yes');
+    }
     $old = $wpdb->optionRows[$name] ?? null;
     $wpdb->optionRows[$name] = (string) $value;
     return $old !== $wpdb->optionRows[$name];
@@ -387,6 +434,12 @@ function wp_cache_get(string $key, string $group = '', bool $force = false, mixe
     return $found ? $GLOBALS['scoped_recovery_cache'][$group][$key] : false;
 }
 
+function wp_cache_delete(string $key, string $group = ''): bool {
+    $present = array_key_exists($key, $GLOBALS['scoped_recovery_cache'][$group] ?? []);
+    unset($GLOBALS['scoped_recovery_cache'][$group][$key]);
+    return $present;
+}
+
 function wp_cache_flush(): bool {
     return true;
 }
@@ -394,8 +447,13 @@ function wp_cache_flush(): bool {
 function delete_transient(string $name): bool {
     global $wpdb;
     $GLOBALS['scoped_recovery_delete_calls']++;
-    unset($wpdb->optionRows['_transient_' . $name]);
-    unset($wpdb->optionRows['_transient_timeout_' . $name]);
+    if ($wpdb instanceof \WPrismTest\FakeWpdb) {
+        $wpdb->delete($wpdb->options, ['option_name' => '_transient_' . $name]);
+        $wpdb->delete($wpdb->options, ['option_name' => '_transient_timeout_' . $name]);
+    } else {
+        unset($wpdb->optionRows['_transient_' . $name]);
+        unset($wpdb->optionRows['_transient_timeout_' . $name]);
+    }
     unset($GLOBALS['scoped_recovery_cache']['transient'][$name]);
     return true;
 }
@@ -2313,6 +2371,27 @@ $GLOBALS['wpdb']->postRows = [];
 $GLOBALS['wpdb']->optionRows = [];
 $GLOBALS['wpdb']->mapRows = [];
 
+$GLOBALS['wpdb'] = \WPrismTest\FakeWpdb::install()
+    ->setColumns('wp_options', [
+        'option_id' => 'bigint unsigned',
+        'option_name' => 'varchar(191)',
+        'option_value' => 'longtext',
+        'autoload' => 'varchar(20)',
+    ])
+    ->seedTable('wp_options', [])
+    ->setPrimaryKey('wp_options', 'option_id')
+    ->setUniqueKey('wp_options', ['option_name'])
+    ->setIndexes('wp_options', [[
+        'Key_name' => 'option_name',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'option_name',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ]])
+    ->setTableEngine('wp_options', 'InnoDB')
+    ->enableInformationSchema();
+
 // Operation-bound provider response loss: invocation is durable exactly once,
 // reconciliation calls the provider's readback hook, and a mismatched readback
 // is recovery_required rather than a second invocation.
@@ -2805,8 +2884,16 @@ $check(
 // Native transient delete uses the same operation receipt channel and must
 // not infer execution merely from an absent transient.
 $nativeName = 'scoped_recovery_native';
-$GLOBALS['wpdb']->optionRows['_transient_' . $nativeName] = 'stale';
-$GLOBALS['wpdb']->optionRows['_transient_timeout_' . $nativeName] = '123';
+$GLOBALS['wpdb']->insert($GLOBALS['wpdb']->options, [
+    'option_name' => '_transient_' . $nativeName,
+    'option_value' => 'stale',
+    'autoload' => 'no',
+]);
+$GLOBALS['wpdb']->insert($GLOBALS['wpdb']->options, [
+    'option_name' => '_transient_timeout_' . $nativeName,
+    'option_value' => '123',
+    'autoload' => 'no',
+]);
 $GLOBALS['scoped_recovery_cache']['transient'][$nativeName] = false;
 $nativeArgs = ['name' => $nativeName];
 $nativeOperation = [
@@ -2975,9 +3062,55 @@ $check(
 );
 
 // Exercise the public full-plan entrypoint at its generic interlock gate as
-// well. The scratch repository is compile-only; the fake ledger returns an
-// already-persisted nonterminal session, so Apply::plan() must refuse before
-// it reaches any target snapshot or mutation path.
+// well. The scratch repository is compile-only; the shared strict database
+// model carries an already-persisted nonterminal session, so Apply::plan()
+// must refuse before it reaches any target snapshot or mutation path. This
+// public facade initializes the ledger before consulting the interlock, hence
+// the fixture exposes the real current InnoDB ledger schema rather than
+// bypassing Db's query-filter/session boundary with the effect-only fake.
+$interlockWpdb = \WPrismTest\FakeWpdb::install()
+    ->enableInformationSchema()
+    ->enableFullApplySqlExtensions();
+$interlockWpdb->seedTable('wprism_map', [])
+    ->setColumns('wprism_map', [
+        'uuid' => 'char(36)',
+        'entity_type' => 'varchar(64)',
+        'id_kind' => 'varchar(64)',
+        'local_id' => 'bigint unsigned',
+    ])
+    ->setUniqueKey('wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wprism_map', 'InnoDB');
+$interlockWpdb->seedTable('wprism_state', [])
+    ->setColumns('wprism_state', [
+        'uuid' => 'varchar(64)',
+        'entity_type' => 'varchar(64)',
+        'content_hash' => 'char(64)',
+    ])
+    ->setUniqueKey('wprism_state', ['uuid'])
+    ->setTableEngine('wprism_state', 'InnoDB');
+$interlockWpdb->seedTable('wprism_kv', [[
+    'k' => ScopedApplySession::STORAGE_KEY,
+    'v' => $interlockSession->canonical(),
+]])
+    ->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+    ->setUniqueKey('wprism_kv', ['k'])
+    ->setTableEngine('wprism_kv', 'InnoDB');
+$interlockWpdb->seedTable('wprism_journal', [])
+    ->setColumns('wprism_journal', [
+        'id' => 'bigint unsigned',
+        't' => 'datetime',
+        'op' => 'varchar(8)',
+        'tbl' => 'varchar(64)',
+        'item' => 'varchar(191)',
+        'surface' => 'varchar(32)',
+        'actor' => 'bigint unsigned',
+        'caps' => 'varchar(64)',
+        'hook' => 'varchar(191)',
+        'proposal' => 'varchar(16)',
+    ])
+    ->setUniqueKey('wprism_journal', ['id'])
+    ->setTableEngine('wprism_journal', 'InnoDB');
 $interlockRepo = sys_get_temp_dir() . '/wprism-scoped-apply-interlock-' . bin2hex(random_bytes(5));
 if (!mkdir($interlockRepo . '/state/options', 0700, true)
     || !mkdir($interlockRepo . '/media', 0700, true)) {
@@ -3020,16 +3153,19 @@ file_put_contents(
     $interlockRepo . '/state/options/core.json',
     Canon::encode(\WPrism\OptionState::document($requiredOptions))
 );
-$GLOBALS['wpdb']->kvRows[ScopedApplySession::STORAGE_KEY] = $interlockSession->canonical();
 $expectThrow(
     static fn() => \WPrism\Apply::plan($interlockRepo),
     'full plan refused',
     'public full apply planning interlock refuses before target contact while scoped work is nonterminal'
 );
 $check(
-    $GLOBALS['wpdb']->kvRows[ScopedApplySession::STORAGE_KEY] === $interlockSession->canonical(),
+    $interlockWpdb->rows('wprism_kv') === [[
+        'k' => ScopedApplySession::STORAGE_KEY,
+        'v' => $interlockSession->canonical(),
+    ]],
     'public full-plan interlock leaves the exact scoped session bytes untouched'
 );
+$GLOBALS['wpdb'] = $scopedRecoveryEffectWpdb;
 
 $executorWithoutParticipant = (new ReflectionClass(\WPrism\AuthoredTransactionExecutor::class))
     ->newInstanceWithoutConstructor();
@@ -3324,8 +3460,9 @@ $check(
     'fresh scoped convergence rejects selected-map drift against ordinal one before selected content can pass'
 );
 $check(
-    str_contains($ledgerFinalizerSource, "Db::start_repeatable_read('scoped ledger transaction start')")
-        && str_contains($ledgerFinalizerSource, 'DeleteGuardEvaluator::assert_innodb_tables([')
+    str_contains($ledgerFinalizerSource, "'scoped ledger transaction start',")
+        && str_contains($ledgerFinalizerSource, 'self::ledger_profile()')
+        && str_contains($ledgerFinalizerSource, 'private static function ledger_profile(): NativeDatabaseProfile')
         && $finalizerMapLockAt !== false
         && $finalizerForgetAt !== false
         && $finalizerMapReadbackAt !== false
@@ -3341,7 +3478,7 @@ $check(
         && str_contains($ledgerFinalizerSource, 'scoped ledger map inventory exceeds the bounded row frontier')
         && str_contains($ledgerFinalizerSource, 'FORCE INDEX (PRIMARY) ORDER BY uuid ASC, id_kind ASC LIMIT $limit FOR UPDATE')
         && substr_count($ledgerFinalizerSource, "assert_transaction_isolation('scoped ledger map inventory") === 2,
-    'terminalization range-locks the complete selected map and permits only explicit tombstone cleanup before sealing roots'
+    'terminalization binds its complete ledger profile, range-locks the selected map, and permits only explicit tombstone cleanup before sealing roots'
 );
 $check(
     str_contains($repoFormatSource, 'admits at most 100,000 physical map rows')

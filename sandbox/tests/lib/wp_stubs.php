@@ -462,6 +462,14 @@ if (!function_exists('add_filter')) {
      * the ordering guarantee the engine's boot sequence relies on.
      */
     function add_filter(string $hook_name, callable $callback, int $priority = 10, int $accepted_args = 1): bool {
+        global $wp_filter;
+        $gate = is_array($wp_filter ?? null) ? ($wp_filter[$hook_name] ?? null) : null;
+        if (is_object($gate)
+            && method_exists($gate, 'hook_name')
+            && method_exists($gate, 'add_filter')) {
+            $gate->add_filter($hook_name, $callback, $priority, $accepted_args);
+            return true;
+        }
         $store = wprism_wp_store();
         $store->hooks[$hook_name][] = [
             'callback' => $callback,
@@ -469,7 +477,6 @@ if (!function_exists('add_filter')) {
             'accepted_args' => $accepted_args,
             'seq' => $store->hookSeq++,
         ];
-        global $wp_filter;
         if (isset($wp_filter) && is_array($wp_filter) && class_exists('WP_Hook')) {
             $hook = $wp_filter[$hook_name] ??= new \WP_Hook();
             if (is_object($hook) && property_exists($hook, 'callbacks')) {
@@ -497,12 +504,18 @@ if (!function_exists('remove_filter')) {
      * detached from the one named here.
      */
     function remove_filter(string $hook_name, callable $callback, int $priority = 10): bool {
+        global $wp_filter;
+        $gate = is_array($wp_filter ?? null) ? ($wp_filter[$hook_name] ?? null) : null;
+        if (is_object($gate)
+            && method_exists($gate, 'hook_name')
+            && method_exists($gate, 'remove_filter')) {
+            return $gate->remove_filter($hook_name, $callback, $priority);
+        }
         $store = wprism_wp_store();
         foreach ($store->hooks[$hook_name] ?? [] as $index => $entry) {
             if ($entry['priority'] === $priority && $entry['callback'] == $callback) {
                 unset($store->hooks[$hook_name][$index]);
                 $store->hooks[$hook_name] = array_values($store->hooks[$hook_name]);
-                global $wp_filter;
                 $hook = is_array($wp_filter ?? null) ? ($wp_filter[$hook_name] ?? null) : null;
                 if (is_object($hook) && property_exists($hook, 'callbacks')) {
                     foreach ($hook->callbacks[$priority] ?? [] as $callbackIndex => $registered) {
@@ -528,6 +541,46 @@ if (!function_exists('remove_action')) {
     }
 }
 
+if (!function_exists('remove_all_filters')) {
+    function remove_all_filters(string $hook_name, int|false $priority = false): bool {
+        global $wp_filter;
+        $gate = is_array($wp_filter ?? null) ? ($wp_filter[$hook_name] ?? null) : null;
+        if (is_object($gate)
+            && method_exists($gate, 'hook_name')
+            && method_exists($gate, 'remove_all_filters')) {
+            $gate->remove_all_filters($priority);
+            return true;
+        }
+        $store = wprism_wp_store();
+        if ($priority === false) {
+            unset($store->hooks[$hook_name]);
+            if (is_array($wp_filter ?? null)) {
+                unset($wp_filter[$hook_name]);
+            }
+            return true;
+        }
+        $store->hooks[$hook_name] = array_values(array_filter(
+            $store->hooks[$hook_name] ?? [],
+            static fn(array $entry): bool => $entry['priority'] !== $priority
+        ));
+        if ($store->hooks[$hook_name] === []) {
+            unset($store->hooks[$hook_name]);
+        }
+        if (is_array($wp_filter ?? null)
+            && is_object($wp_filter[$hook_name] ?? null)
+            && method_exists($wp_filter[$hook_name], 'remove_all_filters')) {
+            $wp_filter[$hook_name]->remove_all_filters($priority);
+        }
+        return true;
+    }
+}
+
+if (!function_exists('remove_all_actions')) {
+    function remove_all_actions(string $hook_name, int|false $priority = false): bool {
+        return remove_all_filters($hook_name, $priority);
+    }
+}
+
 if (!function_exists('has_filter')) {
     /**
      * WordPress returns the priority (an int, possibly 0) when a specific
@@ -536,6 +589,13 @@ if (!function_exists('has_filter')) {
      * int-0 case must stay an int.
      */
     function has_filter(string $hook_name, callable|false $callback = false): bool|int {
+        global $wp_filter;
+        $gate = is_array($wp_filter ?? null) ? ($wp_filter[$hook_name] ?? null) : null;
+        if (is_object($gate)
+            && method_exists($gate, 'hook_name')
+            && method_exists($gate, 'has_filter')) {
+            return $gate->has_filter($hook_name, $callback);
+        }
         $store = wprism_wp_store();
         $entries = $store->hooks[$hook_name] ?? [];
         if ($callback === false) {
@@ -564,6 +624,20 @@ if (!function_exists('apply_filters')) {
      * does -- a filter declared with one parameter must not receive three.
      */
     function apply_filters(string $hook_name, mixed $value, mixed ...$args): mixed {
+        global $wp_filter;
+        $allGate = is_array($wp_filter ?? null) ? ($wp_filter['all'] ?? null) : null;
+        if (is_object($allGate)
+            && method_exists($allGate, 'hook_name')
+            && method_exists($allGate, 'do_all_hook')) {
+            $allArgs = array_merge([$hook_name, $value], $args);
+            $allGate->do_all_hook($allArgs);
+        }
+        $gate = is_array($wp_filter ?? null) ? ($wp_filter[$hook_name] ?? null) : null;
+        if (is_object($gate)
+            && method_exists($gate, 'hook_name')
+            && method_exists($gate, 'apply_filters')) {
+            return $gate->apply_filters($value, array_merge([$value], $args));
+        }
         $store = wprism_wp_store();
         foreach ($store->sortedHooks($hook_name) as $entry) {
             $callArgs = array_slice(array_merge([$value], $args), 0, max(1, $entry['accepted_args']));
@@ -633,9 +707,20 @@ if (!function_exists('wp_cache_delete')) {
 }
 
 if (!function_exists('wp_cache_flush')) {
-    function wp_cache_flush(): bool {
+    function wp_cache_flush(): mixed {
         $store = wprism_wp_store();
         $store->cacheEvents[] = ['op' => 'flush', 'group' => '', 'key' => ''];
+        $results = $GLOBALS['wprism_wp_cache_flush_results'] ?? null;
+        if (is_array($results) && $results !== []) {
+            $result = array_shift($results);
+            $GLOBALS['wprism_wp_cache_flush_results'] = $results;
+            if ($result instanceof \Throwable) {
+                throw $result;
+            }
+            if ($result !== true) {
+                return $result;
+            }
+        }
         $store->cache = [];
         return true;
     }

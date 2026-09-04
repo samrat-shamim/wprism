@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/DurableFilesystem.php';
+require_once __DIR__ . '/AgentGenerationFence.php';
 
 use WPrism\DurableFilesystem;
 
@@ -94,7 +95,7 @@ IGNORE
     }
 
     /**
-     * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool, distribution_sha256?:string}
+     * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool, distribution_sha256?:string, legacy_loader_transition?:bool}
      */
     public static function install(
         AdoptionTransport $transport,
@@ -104,7 +105,8 @@ IGNORE
         ?array $recoveryConfig = null,
         ?BootstrapEligibilityReport $eligibility = null,
         ?callable $postSwapVerifier = null,
-        ?string $expectedDistributionSha256 = null
+        ?string $expectedDistributionSha256 = null,
+        bool $legacyLoaderQuiesced = false
     ): array {
         $agentDir = rtrim($sourceRoot, '/') . '/agent';
         $adapterPackagesDir = rtrim($sourceRoot, '/') . '/adapter-packages';
@@ -143,6 +145,11 @@ IGNORE
         }
         if ($recoveryConfig !== null && $rollbackKeyId === null) {
             return self::failure('local artifact', 'recovery configuration requires a rollback verification key', $version);
+        }
+        try {
+            AgentGenerationFence::assertCanonicalFencedLoader($agentDir . '/wprism-loader.php');
+        } catch (\Throwable $error) {
+            return self::failure('local artifact', $error->getMessage(), $version);
         }
         if ($expectedDistributionSha256 !== null
             && preg_match('/^[a-f0-9]{64}$/D', $expectedDistributionSha256) !== 1) {
@@ -183,6 +190,19 @@ IGNORE
             if ($mu['exit'] !== 0 || $muDir === '' || $muDir[0] !== '/') {
                 return self::fromTransport('mu-plugin path discovery', $mu, $version);
             }
+        }
+
+        try {
+            $loaderProbe = AgentGenerationFence::inspectInstalledLoader(
+                $transport,
+                rtrim($muDir, '/') . '/wprism-loader.php'
+            );
+            $legacyLoaderTransition = AgentGenerationFence::authorizeLoaderTransition(
+                $loaderProbe,
+                $legacyLoaderQuiesced
+            );
+        } catch (\Throwable $error) {
+            return self::failure('agent generation migration', $error->getMessage(), $version);
         }
 
         $token = bin2hex(random_bytes(12));
@@ -231,6 +251,9 @@ IGNORE
                 $distribution = self::stageDistribution($sourceRoot, $token, $assembler);
                 $localStage = $distribution['path'];
                 $distributionSha256 = $distribution['sha256'];
+                AgentGenerationFence::assertCanonicalFencedLoader(
+                    $localStage . '/agent/wprism-loader.php'
+                );
             } catch (\Throwable $error) {
                 return self::failure(
                     'local artifact',
@@ -271,7 +294,9 @@ IGNORE
                 $rollbackKeyId,
                 $rollbackPublicKey,
                 $recoveryConfig,
-                $remoteArchiveIdentity
+                $remoteArchiveIdentity,
+                $loaderProbe,
+                $legacyLoaderQuiesced
             ));
             if ($install['exit'] !== 0) {
                 return self::fromTransport('remote install', $install, $version);
@@ -391,6 +416,7 @@ IGNORE
                 'version' => $version,
                 'repo_created' => str_contains($install['stdout'], 'wprism-repo-created'),
                 'distribution_sha256' => $distributionSha256,
+                'legacy_loader_transition' => $legacyLoaderTransition,
             ];
         } catch (\Throwable $error) {
             $interrupted = $error;
@@ -482,7 +508,9 @@ IGNORE
         ?string $rollbackKeyId,
         ?string $rollbackPublicKey,
         ?array $recoveryConfig,
-        ?string $archiveIdentity
+        ?string $archiveIdentity,
+        array $loaderProbe,
+        bool $legacyLoaderQuiesced
     ): string {
         $agent = rtrim($muDir, '/') . '/wprism';
         $loader = rtrim($muDir, '/') . '/wprism-loader.php';
@@ -531,6 +559,7 @@ IGNORE
         return 'set -eu' . "\n"
             . 'archive=' . $q($archive) . "\n"
             . 'archive_identity=' . $q($archiveIdentity ?? '') . "\n"
+            . 'mu=' . $q(rtrim($muDir, '/')) . "\n"
             . 'stage=' . $q($stage) . "\n"
             . 'agent=' . $q($agent) . "\n"
             . 'loader=' . $q($loader) . "\n"
@@ -552,8 +581,9 @@ IGNORE
             . 'site_new=' . $q($siteNew) . "\n"
             . 'txn=' . $q($txn) . "\n"
             . 'lock=' . $q($lock) . "\n"
-            . "had_agent=0; had_loader=0; had_wprism=0; touched_agent=0; touched_loader=0; touched_wprism=0; seed_created=0; mu_created=0; mu_identity=''; repo_created=0; stage_created=0; stage_materialized=0; agent_new_created=0; agent_new_materialized=0; loader_new_created=0; loader_new_materialized=0; wprism_new_created=0; wprism_new_materialized=0; site_new_created=0; site_new_materialized=0; txn_created=0; lock_acquired=0; success=0\n"
+            . "had_agent=0; had_loader=0; had_wprism=0; touched_agent=0; touched_loader=0; touched_wprism=0; seed_created=0; mu_created=0; mu_identity=''; repo_created=0; stage_created=0; stage_materialized=0; agent_new_created=0; agent_new_materialized=0; loader_new_created=0; loader_new_materialized=0; wprism_new_created=0; wprism_new_materialized=0; site_new_created=0; site_new_materialized=0; txn_created=0; lock_acquired=0; generation_locked=0; generation_pending=0; success=0\n"
             . self::journalHelpers($muDir, $repo, $token, $identityPhp)
+            . AgentGenerationFence::shellHelpers()
             . "publish_marker() { marker=\"\$1\"; label=\"\$2\"; [ ! -e \"\$marker\" ] && [ ! -L \"\$marker\" ] || { echo \"wprism adopt: \$label marker collision\" >&2; exit 1; }; (umask 077; set -C; : > \"\$marker\") || { echo \"wprism adopt: could not publish \$label marker\" >&2; exit 1; }; assert_marker \"\$marker\" || { echo \"wprism adopt: published \$label marker is unsafe\" >&2; exit 1; }; }\n"
             . "record_identity() { path=\"\$1\"; proof=\"\$2\"; label=\"\${3:-transaction root}\"; actual=\$(identity \"\$path\") || { echo \"wprism adopt: could not read \$label identity\" >&2; exit 1; }; proof_dir=\$(dirname \"\$proof\") || { echo 'wprism adopt: could not resolve a transaction proof directory' >&2; exit 1; }; [ -d \"\$proof_dir\" ] && [ ! -L \"\$proof_dir\" ] || { echo 'wprism adopt: transaction proof directory is unsafe' >&2; exit 1; }; [ ! -e \"\$proof\" ] && [ ! -L \"\$proof\" ] || { echo \"wprism adopt: immutable \$label proof already exists\" >&2; exit 1; }; proof_tmp=\"\${proof}.new-\$\$\"; [ ! -e \"\$proof_tmp\" ] && [ ! -L \"\$proof_tmp\" ] || { echo 'wprism adopt: transaction proof staging collision' >&2; exit 1; }; (umask 077; set -C; printf '%s\\n' \"\$actual\" > \"\$proof_tmp\") || { echo 'wprism adopt: could not stage a transaction identity proof' >&2; exit 1; }; [ -f \"\$proof_tmp\" ] && [ ! -L \"\$proof_tmp\" ] || { echo 'wprism adopt: staged transaction identity proof is unsafe' >&2; exit 1; }; [ ! -e \"\$proof\" ] && [ ! -L \"\$proof\" ] || { echo \"wprism adopt: immutable \$label proof appeared during publish\" >&2; exit 1; }; mv \"\$proof_tmp\" \"\$proof\" || { echo 'wprism adopt: could not publish a transaction identity proof' >&2; exit 1; }; assert_proof \"\$proof\" || { echo 'wprism adopt: published transaction identity proof is unsafe' >&2; exit 1; }; recorded=\$(cat \"\$proof\") || { echo 'wprism adopt: could not read a published transaction identity proof' >&2; exit 1; }; [ \"\$recorded\" = \"\$actual\" ] || { echo \"wprism adopt: published \$label proof disagrees with its root\" >&2; exit 1; }; }\n"
             . "record_absence() { path=\"\$1\"; marker=\"\$2\"; label=\"\$3\"; [ ! -e \"\$path\" ] && [ ! -L \"\$path\" ] || { echo \"wprism adopt: \$label unexpectedly exists before publish\" >&2; exit 1; }; publish_marker \"\$marker\" \"\$label absence\"; [ ! -e \"\$path\" ] && [ ! -L \"\$path\" ] || { echo \"wprism adopt: \$label appeared during absence proof\" >&2; exit 1; }; }\n"
@@ -587,11 +617,13 @@ IGNORE
             . "  if [ \"\$loader_new_created\" -eq 1 ]; then remove_constructed_owned \"\$loader_new\" \"\$txn/loader_new.id\" \"\$txn/loader_new_construction.id\" file \"\$loader_new_materialized\" || cleanup_failed=1; fi\n"
             . "  if [ \"\$wprism_new_created\" -eq 1 ]; then remove_constructed_owned \"\$wprism_new\" \"\$txn/wprism_new.id\" \"\$txn/wprism_new_construction.id\" dir \"\$wprism_new_materialized\" || cleanup_failed=1; fi\n"
             . "  if [ \"\$site_new_created\" -eq 1 ]; then remove_constructed_owned \"\$site_new\" \"\$txn/site_new.id\" \"\$txn/site_new_construction.id\" file \"\$site_new_materialized\" || cleanup_failed=1; fi\n"
+            . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$generation_pending\" -eq 1 ]; then generation_lock_release 1 || cleanup_failed=1; fi\n"
             . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$repo_created\" -eq 1 ]; then assert_identity \"\$repo\" \"\$lock/repo.id\" && rmdir \"\$repo\" || cleanup_failed=1; fi\n"
             . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$txn_created\" -eq 1 ]; then assert_identity \"\$txn\" \"\$lock/txn.id\" && rm -rf \"\$txn\" || cleanup_failed=1; fi\n"
-            . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$lock_acquired\" -eq 1 ]; then assert_identity \"\$lock\" \"\$lock/lock.id\" || cleanup_failed=1; if [ \"\$cleanup_failed\" -eq 0 ]; then mu_proof=\$(cat \"\$lock/mu.id\" 2>/dev/null || true); rm -f \"\$lock/lock.id\" \"\$lock/txn.id\" \"\$lock/repo.id\" \"\$lock/mu.id\"; rmdir \"\$lock\" || cleanup_failed=1; fi; fi\n"
+            . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$lock_acquired\" -eq 1 ]; then assert_identity \"\$lock\" \"\$lock/lock.id\" || cleanup_failed=1; if [ \"\$cleanup_failed\" -eq 0 ]; then mu_proof=\$(cat \"\$lock/mu.id\" 2>/dev/null || true); rm -f \"\$lock/generation-writer-owner\" \"\$lock/lock.id\" \"\$lock/txn.id\" \"\$lock/repo.id\" \"\$lock/mu.id\"; rmdir \"\$lock\" || cleanup_failed=1; fi; fi\n"
             . '  if [ "$success" -ne 1 ] && [ "$cleanup_failed" -eq 0 ] && [ "$mu_created" -eq 1 ]; then actual_mu=$(identity ' . $q($muDir) . ' 2>/dev/null || true); [ -n "$mu_proof" ] && [ "$actual_mu" = "$mu_proof" ] && rmdir ' . $q($muDir) . " || cleanup_failed=1; fi\n"
             . "  if [ -e \"\$archive\" ] || [ -L \"\$archive\" ]; then if [ -n \"\$archive_identity\" ]; then actual_archive=\$(identity \"\$archive\" 2>/dev/null || true); [ \"\$actual_archive\" = \"\$archive_identity\" ] && rm -f \"\$archive\" || cleanup_failed=1; else rm -f \"\$archive\" || cleanup_failed=1; fi; fi\n"
+            . "  if [ \"\$generation_locked\" -eq 1 ]; then generation_lock_release 0 || cleanup_failed=1; fi\n"
             . "  if [ \"\$cleanup_failed\" -ne 0 ]; then echo 'wprism adopt: transaction cleanup identity changed; retained evidence for operator recovery' >&2; status=1; fi\n"
             . "  exit \"\$status\"\n"
             . "}\n"
@@ -630,6 +662,8 @@ IGNORE
             . "record_identity \"\$agent_new\" \"\$txn/agent_new.id\" 'agent publish source'; agent_new_materialized=1\n"
             . "if (set -C; umask 077; : > \"\$loader_new\"); then loader_new_created=1; else echo 'wprism adopt: loader staging collision' >&2; exit 1; fi; record_identity \"\$loader_new\" \"\$txn/loader_new_construction.id\" 'loader construction root'; cp \"\$stage/agent/wprism-loader.php\" \"\$loader_new\"; chmod 0644 \"\$loader_new\"\n"
             . "record_identity \"\$loader_new\" \"\$txn/loader_new.id\" 'loader publish source'; loader_new_materialized=1\n"
+            . "generation_lock_acquire 0\n"
+            . AgentGenerationFence::migrationAssertionShell($loaderProbe, $legacyLoaderQuiesced)
             . "(umask 077; mkdir \"\$wprism_new\"); wprism_new_created=1; record_identity \"\$wprism_new\" \"\$txn/wprism_new_construction.id\" 'WPrism authority construction root'; if [ -e \"\$wprism_state\" ]; then special=\$(find \"\$wprism_state\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$special\" ] || { echo 'wprism adopt: prior authority contains a link or special node' >&2; exit 1; }; unreadable=\$(find \"\$wprism_state\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; cp -Rp \"\$wprism_state/.\" \"\$wprism_new/\"; fi; chmod 700 \"\$wprism_new\"\n"
             . "mkdir -p \"\$control_new\"; chmod 700 \"\$control_new\"; rm -rf \"\$runtime_new\"; cp -R \"\$stage/recovery\" \"\$runtime_new\"\n"
             . "php \"\$runtime_new/rollback-control.php\" init --root=\"\$control_new\" >/dev/null\n"
@@ -648,6 +682,7 @@ IGNORE
             . "begin_surface \"\$txn/loader_move_intent\" loader; touched_loader=1; if [ -e \"\$loader\" ]; then record_identity \"\$loader\" \"\$txn/loader_old.id\" 'loader previous root'; publish_marker \"\$txn/had_loader\" 'loader previous root'; had_loader=1; move_owned \"\$loader\" \"\$loader_old\" \"\$txn/loader_old.id\" \"\$txn/loader_old_post.id\" file 'loader backup' \"\$txn/loader_move_intent\" loader-old-after-move; else record_absence \"\$loader\" \"\$txn/loader_old_absent\" 'loader previous root'; fi; move_owned \"\$loader_new\" \"\$loader\" \"\$txn/loader_new.id\" \"\$txn/loader_live_post.id\" file loader \"\$txn/loader_move_intent\" loader-live-after-move; complete_surface \"\$txn/loader_move_intent\" \"\$txn/loader_move_complete\" \"\$loader\" \"\$txn/loader_live_post.id\" \"\$txn/loader_new.id\" \"\$loader_old\" \"\$txn/loader_old_post.id\" \"\$txn/loader_old.id\" \"\$txn/had_loader\" \"\$txn/loader_old_absent\" file loader\n"
             . "begin_surface \"\$txn/wprism_move_intent\" wprism_state; touched_wprism=1; if [ -e \"\$wprism_state\" ]; then record_identity \"\$wprism_state\" \"\$txn/wprism_old.id\" 'wprism_state previous root'; publish_marker \"\$txn/had_wprism\" 'wprism_state previous root'; had_wprism=1; move_owned \"\$wprism_state\" \"\$wprism_old\" \"\$txn/wprism_old.id\" \"\$txn/wprism_old_post.id\" dir 'wprism_state backup' \"\$txn/wprism_move_intent\" wprism_state-old-after-move; else record_absence \"\$wprism_state\" \"\$txn/wprism_old_absent\" 'wprism_state previous root'; fi; move_owned \"\$wprism_new\" \"\$wprism_state\" \"\$txn/wprism_new.id\" \"\$txn/wprism_live_post.id\" dir wprism_state \"\$txn/wprism_move_intent\" wprism_state-live-after-move; complete_surface \"\$txn/wprism_move_intent\" \"\$txn/wprism_move_complete\" \"\$wprism_state\" \"\$txn/wprism_live_post.id\" \"\$txn/wprism_new.id\" \"\$wprism_old\" \"\$txn/wprism_old_post.id\" \"\$txn/wprism_old.id\" \"\$txn/had_wprism\" \"\$txn/wprism_old_absent\" dir wprism_state\n"
             . "assert_all_surfaces_ready || { echo 'wprism adopt: all surface post-move proofs were not published' >&2; exit 1; }; publish_marker \"\$txn/rollback_ready\" 'rollback-ready swap'\n"
+            . "generation_lock_release 1\n"
             . "success=1\n"
             . "if [ \"\$seed_created\" -eq 1 ]; then echo wprism-repo-created; else echo wprism-repo-retained; fi\n"
             . "echo wprism-install-complete\n";
@@ -687,19 +722,25 @@ IGNORE
         $wprismOld = rtrim($repo, '/') . '/.wprism-old-' . $token;
 
         return 'set -u' . "\n"
-            . 'txn=' . $q($txn) . '; lock=' . $q($lock) . "\n"
+            . 'mu=' . $q($root) . '; txn=' . $q($txn) . '; lock=' . $q($lock) . "\n"
+            . "generation_locked=0; generation_pending=0\n"
             . self::journalHelpers($muDir, $repo, $token, $identityPhp)
+            . AgentGenerationFence::shellHelpers()
             . "assert_identity \"\$lock\" \"\$lock/lock.id\" && assert_identity \"\$txn\" \"\$lock/txn.id\" && assert_marker \"\$txn/commit_started\" || { echo 'wprism adopt: committed cleanup evidence is incomplete' >&2; exit 1; }\n"
             . "assert_journal_ready || { echo 'wprism adopt: committed cleanup journal is incomplete' >&2; exit 1; }\n"
+            . "trap 'generation_lock_release 1' EXIT\n"
+            . "generation_lock_acquire 1\n"
             . "cleanup_failed=0\n"
             . 'if [ -e "$txn/had_wprism" ] || [ -L "$txn/had_wprism" ]; then assert_marker "$txn/had_wprism" && rm -rf ' . $q($wprismOld) . " || cleanup_failed=1; fi\n"
             . 'if [ -e "$txn/had_loader" ] || [ -L "$txn/had_loader" ]; then assert_marker "$txn/had_loader" && rm -f ' . $q($loaderOld) . " || cleanup_failed=1; fi\n"
             . 'if [ -e "$txn/had_agent" ] || [ -L "$txn/had_agent" ]; then assert_marker "$txn/had_agent" && rm -rf ' . $q($agentOld) . " || cleanup_failed=1; fi\n"
             . "if [ \"\$cleanup_failed\" -ne 0 ]; then echo 'wprism adopt: committed install retained partial backup cleanup evidence' >&2; exit 1; fi\n"
             . "assert_identity \"\$txn\" \"\$lock/txn.id\" || { echo 'wprism adopt: transaction identity changed before committed cleanup' >&2; exit 1; }\n"
+            . "generation_lock_release 1 || { echo 'wprism adopt: committed cleanup could not release the agent generation fence' >&2; exit 1; }\n"
+            . "trap - EXIT\n"
             . "rm -rf \"\$txn\" || { echo 'wprism adopt: committed install retained transaction cleanup evidence' >&2; exit 1; }\n"
             . "assert_identity \"\$lock\" \"\$lock/lock.id\" || { echo 'wprism adopt: adoption lock identity changed before committed cleanup' >&2; exit 1; }\n"
-            . "rm -f \"\$lock/lock.id\" \"\$lock/txn.id\" \"\$lock/repo.id\" \"\$lock/mu.id\" || { echo 'wprism adopt: committed install retained lock cleanup evidence' >&2; exit 1; }\n"
+            . "rm -f \"\$lock/generation-writer-owner\" \"\$lock/lock.id\" \"\$lock/txn.id\" \"\$lock/repo.id\" \"\$lock/mu.id\" || { echo 'wprism adopt: committed install retained lock cleanup evidence' >&2; exit 1; }\n"
             . "rmdir \"\$lock\" || { echo 'wprism adopt: committed install retained adoption lock evidence' >&2; exit 1; }";
     }
 
@@ -719,24 +760,30 @@ IGNORE
             . 'echo (string) $s["dev"], ":", (string) $s["ino"], ":", (string) ($s["mode"] & 0170000);';
 
         return 'set -eu' . "\n"
-            . 'txn=' . $q($txn) . '; lock=' . $q($lock) . "\n"
+            . 'mu=' . $q($root) . '; txn=' . $q($txn) . '; lock=' . $q($lock) . "\n"
+            . "generation_locked=0; generation_pending=0\n"
             . 'if [ ! -e "$txn" ] && [ ! -L "$txn" ]; then exit 0; fi' . "\n"
             . '[ -d "$txn" ] && [ ! -L "$txn" ] || { echo "wprism adopt: transaction journal is unsafe before rollback" >&2; exit 1; }' . "\n"
             . self::journalHelpers($muDir, $repo, $token, $identityPhp)
+            . AgentGenerationFence::shellHelpers()
             . "remove_owned() { path=\"\$1\"; proof=\"\$2\"; kind=\"\$3\"; label=\"\$4\"; destination_has_kind \"\$path\" \"\$kind\" && assert_identity \"\$path\" \"\$proof\" || { echo \"wprism adopt: live \$label identity changed before rollback\" >&2; exit 1; }; if [ \"\$kind\" = dir ]; then rm -rf \"\$path\"; else rm -f \"\$path\"; fi; }\n"
             . "restore_owned() { old=\"\$1\"; live=\"\$2\"; proof=\"\$3\"; kind=\"\$4\"; label=\"\$5\"; destination_has_kind \"\$old\" \"\$kind\" && assert_identity \"\$old\" \"\$proof\" || { echo \"wprism adopt: rollback \$label identity changed before restore\" >&2; exit 1; }; [ ! -e \"\$live\" ] && [ ! -L \"\$live\" ] || { echo \"wprism adopt: rollback \$label destination changed before restore\" >&2; exit 1; }; mv \"\$old\" \"\$live\" || exit 1; [ ! -e \"\$old\" ] && [ ! -L \"\$old\" ] && destination_has_kind \"\$live\" \"\$kind\" || { echo \"wprism adopt: rollback \$label restore did not complete\" >&2; exit 1; }; }\n"
             . "assert_identity \"\$lock\" \"\$lock/lock.id\" || { echo 'wprism adopt: transaction lock identity changed before rollback' >&2; exit 1; }\n"
             . "assert_identity \"\$txn\" \"\$lock/txn.id\" || { echo 'wprism adopt: transaction journal identity changed before rollback' >&2; exit 1; }\n"
             . "[ ! -e \"\$txn/commit_started\" ] && [ ! -L \"\$txn/commit_started\" ] || { echo 'wprism adopt: transaction has crossed the commit barrier; retained evidence for operator recovery' >&2; exit 1; }\n"
             . "assert_journal_ready || { echo 'wprism adopt: transaction journal is incomplete before rollback; retained evidence for operator recovery' >&2; exit 1; }\n"
+            . "trap 'generation_lock_release 0' EXIT\n"
+            . "generation_lock_acquire 1\n"
             . 'remove_owned ' . $q($wprismState) . ' "$txn/wprism_live_post.id" dir wprism_state; if [ -e "$txn/had_wprism" ] || [ -L "$txn/had_wprism" ]; then assert_marker "$txn/had_wprism" || exit 1; restore_owned ' . $q($wprismOld) . ' ' . $q($wprismState) . ' "$txn/wprism_old_post.id" dir wprism_state; fi' . "\n"
             . 'remove_owned ' . $q($loader) . ' "$txn/loader_live_post.id" file loader; if [ -e "$txn/had_loader" ] || [ -L "$txn/had_loader" ]; then assert_marker "$txn/had_loader" || exit 1; restore_owned ' . $q($loaderOld) . ' ' . $q($loader) . ' "$txn/loader_old_post.id" file loader; fi' . "\n"
             . 'remove_owned ' . $q($agent) . ' "$txn/agent_live_post.id" dir agent; if [ -e "$txn/had_agent" ] || [ -L "$txn/had_agent" ]; then assert_marker "$txn/had_agent" || exit 1; restore_owned ' . $q($agentOld) . ' ' . $q($agent) . ' "$txn/agent_old_post.id" dir agent; fi' . "\n"
             . 'if [ -e "$txn/seed_created" ] || [ -L "$txn/seed_created" ]; then assert_marker "$txn/seed_created" || exit 1; remove_owned ' . $q($site) . ' "$txn/site.id" file site_seed; fi' . "\n"
             . 'repo_created=0; mu_created=0; if [ -e "$txn/repo_created" ] || [ -L "$txn/repo_created" ]; then assert_marker "$txn/repo_created" || exit 1; repo_created=1; fi; if [ -e "$txn/mu_created" ] || [ -L "$txn/mu_created" ]; then assert_marker "$txn/mu_created" || exit 1; mu_created=1; fi' . "\n"
             . 'repo_proof=$(cat "$lock/repo.id" 2>/dev/null || true); mu_proof=$(cat "$lock/mu.id" 2>/dev/null || true)' . "\n"
+            . "generation_lock_release 1\n"
+            . "trap - EXIT\n"
             . 'assert_identity "$txn" "$lock/txn.id"; rm -rf "$txn"' . "\n"
-            . 'assert_identity "$lock" "$lock/lock.id"; rm -f "$lock/lock.id" "$lock/txn.id" "$lock/repo.id" "$lock/mu.id"; rmdir "$lock"' . "\n"
+            . 'assert_identity "$lock" "$lock/lock.id"; rm -f "$lock/generation-writer-owner" "$lock/lock.id" "$lock/txn.id" "$lock/repo.id" "$lock/mu.id"; rmdir "$lock"' . "\n"
             . 'if [ "$repo_created" -eq 1 ]; then actual=$(identity ' . $q(rtrim($repo, '/')) . '); [ -n "$repo_proof" ] && [ "$actual" = "$repo_proof" ] || { echo "wprism adopt: created repository identity changed" >&2; exit 1; }; rmdir ' . $q(rtrim($repo, '/')) . '; fi' . "\n"
             . 'if [ "$mu_created" -eq 1 ]; then actual=$(identity ' . $q($root) . '); [ -n "$mu_proof" ] && [ "$actual" = "$mu_proof" ] || { echo "wprism adopt: created control root identity changed" >&2; exit 1; }; rmdir ' . $q($root) . '; fi';
     }

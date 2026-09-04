@@ -7,7 +7,9 @@
 # valid_database_axis()). This suite is what that map's MySQL entry rests on:
 # one full round trip per CLAIMED engine, on that engine's own shared server,
 # plus the five dialect probe groups docs/mysql-dialect-audit.md derived from
-# the shipped SQL. Until it has run, the claim's own note says PENDING and
+# the shipped SQL. Its doctor assertion also executes each engine's declared
+# PROCESS-gated InnoDB FK source, so a profile/source mismatch cannot pass on
+# a version-only matrix. Until it has run, the claim's own note says PENDING and
 # names the remedy on failure — drop the MySQL entry and restore a
 # MariaDB-only engines map, never a fallback (AGENTS.md rule 9).
 #
@@ -163,9 +165,15 @@ jq -e '
   (.platform.compatibility.database as $db |
     ($db | has("engine") | not) and
     ($db.engines | type) == "object" and ($db.engines | length) > 0 and
-    ([$db.engines[] | (keys == ["max","min"])] | all))
+    ([$db.engines[] | (keys == ["max","min"])] | all) and
+    $db.foreign_key_census == {
+      metadata_sources:{MariaDB:"INNODB_SYS_FOREIGN",MySQL:"INNODB_FOREIGN"},
+      profile:"complete-innodb-foreign-key-census/v1",
+      required_global_privilege:"PROCESS",
+      scope:"transactional-database-mutation"
+    })
 ' "$PLATFORM_FILE" >/dev/null \
-  || fail 'shipped platform declaration does not carry a well-formed per-engine database map'
+  || fail 'shipped platform declaration does not carry a well-formed per-engine database/FK-census profile'
 
 # Every claimed engine must have a cell here, and every cell must be an engine
 # the claim names. Read out of the shipped file so an engine widened into the
@@ -379,7 +387,9 @@ for cell in "${ENGINE_CELLS[@]}"; do
     || fail "$cell_engine host doctor refused: $DOCTOR_OUT"
   grep -q "\[PASS\] database ($cell_env ${DB_VERSION//./\\.})" <<<"$DOCTOR_OUT" \
     || fail "$cell_engine host doctor did not pass the database row: $DOCTOR_OUT"
-  pass "$cell_engine: real round trip, verified zero-write repeat, byte-identical recapture, and a passing doctor database row"
+  grep -q "\[PASS\] transactional database mutation ($cell_env)" <<<"$DOCTOR_OUT" \
+    || fail "$cell_engine host doctor did not prove the PROCESS-gated FK census source: $DOCTOR_OUT"
+  pass "$cell_engine: real round trip, verified zero-write repeat, byte-identical recapture, and passing version/FK-census doctor rows"
   unset WPRISM_DB_ENGINE
 done
 

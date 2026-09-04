@@ -104,6 +104,9 @@ final class LocalBootstrapUploadCollisionTransport implements AdoptionTransport 
         if ($script === 'echo wprism-reachable') {
             return ['exit' => 0, 'stdout' => "wprism-reachable\n", 'stderr' => ''];
         }
+        if (str_contains($script, 'loader_generation_fence=absent')) {
+            return ['exit' => 0, 'stdout' => "loader_generation_fence=absent\nloader_sha256=absent\n", 'stderr' => ''];
+        }
         return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
     }
     public function captureWp(array $wpArgs): array {

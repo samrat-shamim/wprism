@@ -707,7 +707,7 @@ final class ActionProviderGrammar {
             // join as the one OPTIONAL key without every other declaration
             // having to carry it.
             $required = ['capabilities', 'id', 'plugin', 'source', 'version'];
-            $optional = ['contracts', 'requires'];
+            $optional = ['contracts', 'fresh_process_capabilities', 'requires'];
             $missing = array_diff($required, $keys);
             $unknown = array_diff($keys, $required, $optional);
             if ($missing !== [] || $unknown !== []) {
@@ -801,6 +801,57 @@ final class ActionProviderGrammar {
                         Providers::validate_scoped_capability_declaration(
                             $contract,
                             "$where.contracts.$capability"
+                        );
+                    }
+                }
+            }
+            if (array_key_exists('fresh_process_capabilities', $declaration)) {
+                $fresh = $declaration['fresh_process_capabilities'];
+                $features = (array) ($manifest['engine_features'] ?? []);
+                if (($declaration['source'] ?? null) !== 'manifest'
+                    || !array_key_exists('contracts', $declaration)) {
+                    throw new \RuntimeException(
+                        "wprism: $where.fresh_process_capabilities requires a manifest-sourced declarative runtime"
+                    );
+                }
+                if (!in_array(ManifestProviderRuntime::FRESH_PROCESS_FEATURE, $features, true)) {
+                    throw new \RuntimeException(
+                        "wprism: $where.fresh_process_capabilities requires engine feature '"
+                        . ManifestProviderRuntime::FRESH_PROCESS_FEATURE . "'"
+                    );
+                }
+                if (!is_array($fresh)
+                    || !array_is_list($fresh)
+                    || $fresh === []
+                    || array_filter($fresh, 'is_string') !== $fresh) {
+                    throw new \RuntimeException(
+                        "wprism: $where.fresh_process_capabilities must be a non-empty sorted capability list"
+                    );
+                }
+                $sorted = $fresh;
+                sort($sorted, SORT_STRING);
+                if ($fresh !== $sorted || count($fresh) !== count(array_unique($fresh, SORT_STRING))) {
+                    throw new \RuntimeException(
+                        "wprism: $where.fresh_process_capabilities must be sorted and unique"
+                    );
+                }
+                foreach ($fresh as $capability) {
+                    $contract = is_string($capability)
+                        ? ($declaration['contracts'][$capability] ?? null)
+                        : null;
+                    if (!is_array($contract)) {
+                        throw new \RuntimeException(
+                            "wprism: $where.fresh_process_capabilities names an undeclared capability"
+                        );
+                    }
+                    if (($contract['scope'] ?? null) !== 'site'
+                        || ($contract['idempotent'] ?? null) !== true
+                        || !is_int($contract['timeout_seconds'] ?? null)
+                        || $contract['timeout_seconds'] > ManifestProviderRuntime::FRESH_PROCESS_MAX_TIMEOUT_SECONDS) {
+                        throw new \RuntimeException(
+                            "wprism: $where fresh-process capability '$capability' requires scope: site, "
+                            . 'idempotent: true, and '
+                            . 'timeout_seconds <= ' . ManifestProviderRuntime::FRESH_PROCESS_MAX_TIMEOUT_SECONDS
                         );
                     }
                 }

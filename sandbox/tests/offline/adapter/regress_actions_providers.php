@@ -1280,8 +1280,27 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         // Contract-migrated providers receive their declaration through the
         // core runtime; legacy manifest providers retain the Policy constructor
         // until their product semantics are migrated independently.
-        $instance = array_key_exists('contracts', $declaration)
-            ? new $class($declaration)
+        $constructorDeclaration = $declaration;
+        if ((array) ($constructorDeclaration['fresh_process_capabilities'] ?? []) !== []) {
+            // The constructor verifies the parent-to-child identity envelope
+            // before any handler can run. This structural inventory test does
+            // not dispatch, so provide well-formed inert values while the
+            // product-path process suite proves the loader-derived originals.
+            $constructorDeclaration['_wprism_adapter_digest'] = str_repeat('a', 64);
+            $constructorDeclaration['_wprism_adapter_library_root'] = $shipped;
+            $constructorDeclaration['_wprism_execution_bound'] = false;
+            $constructorDeclaration['_wprism_execution_identity'] = null;
+            $constructorDeclaration['_wprism_plugin_runtime'] = [
+                'active' => true,
+                'installed' => true,
+                'version' => (string) $declaration['version'],
+            ];
+            $constructorDeclaration['_wprism_policy_snapshot'] = ['fixture' => 'provider-inventory'];
+            $constructorDeclaration['_wprism_provider_file'] = (string) realpath($file);
+            $constructorDeclaration['_wprism_provider_sha256'] = hash_file('sha256', $file);
+        }
+        $instance = array_key_exists('contracts', $constructorDeclaration)
+            ? new $class($constructorDeclaration)
             : new $class($shippedPolicy);
         $identity = $instance->identity();
         ksort($identity, SORT_STRING);

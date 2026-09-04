@@ -74,12 +74,28 @@ function proc_open_compat(
         return false;
     }
     $stderrFirst = ($GLOBALS['wprism_wp_cli_child_fake_stderr_first'] ?? false) === true;
-    $script = $stderrFirst
-        ? 'fwrite(STDERR, base64_decode($argv[2], true)); fwrite(STDOUT, base64_decode($argv[1], true)); '
-        : 'fwrite(STDOUT, base64_decode($argv[1], true)); fwrite(STDERR, base64_decode($argv[2], true)); ';
+    // Mirror the production wrapper's setsid + parent start gate. The fake
+    // still supplies in-process semantic output, but transport exercises the
+    // real parent watchdog and cannot let plugin-shaped output race ahead of
+    // its liveness fence.
+    $script = '$sid=posix_setsid();$gate=fopen("php://fd/3","rb");'
+        . '$start=is_resource($gate)?fread($gate,1):false;if(is_resource($gate)){fclose($gate);}'
+        . 'if(!is_int($sid)||$sid<1||$start!=="S"){exit(125);}'
+        . 'if(($argv[4]??"")==="1"){stream_get_contents(STDIN);}'
+        . ($stderrFirst
+            ? 'fwrite(STDERR, base64_decode($argv[2], true)); fwrite(STDOUT, base64_decode($argv[1], true)); '
+            : 'fwrite(STDOUT, base64_decode($argv[1], true)); fwrite(STDERR, base64_decode($argv[2], true)); ');
     $script .= 'exit((int) $argv[3]);';
     return proc_open(
-        [PHP_BINARY, '-r', $script, base64_encode($stdout), base64_encode($stderr), (string) $exit],
+        [
+            PHP_BINARY,
+            '-r',
+            $script,
+            base64_encode($stdout),
+            base64_encode($stderr),
+            (string) $exit,
+            is_array($descriptors[0] ?? null) ? '1' : '0',
+        ],
         $descriptors,
         $pipes,
         $cwd,

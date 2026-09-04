@@ -189,9 +189,11 @@ foreach (token_get_all($source) as $token) {
     $code .= is_array($token) ? $token[1] : $token;
 }
 check_re(
-    str_contains($source, "Db::start_read_only_consistent_snapshot('starting read-only production snapshot')")
+    str_contains($source, 'Db::start_read_only_consistent_snapshot(')
+        && str_contains($source, "'starting read-only production snapshot',")
+        && str_contains($source, '$profile')
         && !str_contains($source, "self::query(\$wpdb, 'START TRANSACTION"),
-    'read-only export delegates exact isolation, connection, and transaction outcome proof to Db'
+    'read-only export delegates exact isolation, connection, transaction outcome, and table-profile proof to Db'
 );
 check_re(preg_match('/Ledger::(?:ensure|set|forget|prune_state|prune_dead_map|prune_dead_table_map|kv_set|kv_delete)\(/', $code) !== 1, 'exporter calls a forbidden ledger mutation');
 check_re(preg_match('/Snapshot::(?:repair_truncated_entity_types|prune_dead_map|prune_option_name_ref_map)\(/', $code) !== 1, 'exporter calls a forbidden snapshot repair');

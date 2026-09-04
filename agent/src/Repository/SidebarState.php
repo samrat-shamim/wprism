@@ -1044,10 +1044,16 @@ final class SidebarState {
             $type = self::type_from_kind($row['id_kind']);
             if ($type !== null && isset($policy->widget_types()[$type])
                 && !isset($options[$type][$row['local_id']])) {
-                Db::query($wpdb->prepare(
-                    "DELETE FROM {$wpdb->prefix}wprism_map WHERE uuid = %s AND id_kind = %s",
-                    $row['uuid'], $row['id_kind']
-                ), 'ledger prune dead widget identity');
+                Db::mutation(
+                    "DELETE FROM {$wpdb->prefix}wprism_map",
+                    $wpdb->prepare(
+                        'uuid = %s AND id_kind = %s',
+                        $row['uuid'],
+                        $row['id_kind']
+                    ),
+                    '',
+                    'ledger prune dead widget identity'
+                );
             }
         }
     }

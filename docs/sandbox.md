@@ -175,12 +175,18 @@ grant** — `pair.sh up` idempotently runs:
 ```sql
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
 GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 ```
 
 (`wp\_%` — escaped underscore, then a wildcard — matches every
 `wp_<name>{1,2}` database any pair will ever create; no per-pair user, no
-re-granting on every `up`.) Root credentials (`root`/`root`) are for admin
+re-granting on every `up`.) `PROCESS` is intentionally global: MySQL 8.4's
+`INNODB_FOREIGN` and MariaDB 11's `INNODB_SYS_FOREIGN` require it, and those
+are the claimed sources that expose an incoming cascade from a child in a
+schema the application account cannot otherwise see. Production accounts do
+not need it for capture/assessment, but transactional mutation refuses without
+it. Root credentials (`root`/`root`) are for admin
 operations only (`CREATE`/`DROP DATABASE`), always via `docker exec
 wprism-shared-db mariadb -uroot ...` from pair.sh — never over the published
 port. That port (`127.0.0.1:${WPRISM_SHARED_DB_PORT:-3316}`, loopback-only;

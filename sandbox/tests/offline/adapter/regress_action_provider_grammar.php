@@ -281,6 +281,123 @@ $assertThrows(
     'declares provider id \'dup\' more than once',
     'providers: duplicate provider id'
 );
+$freshContract = [
+    'args' => [],
+    'idempotent' => true,
+    'reads' => ['table:probe'],
+    'scope' => 'site',
+    'scoped' => [
+        'operation_envelope' => 'wprism-scoped-effect-operation/v1',
+        'receipt_projection' => 'handler',
+        'reconcile' => true,
+    ],
+    'timeout_seconds' => 30,
+    'writes' => ['table:probe'],
+];
+$freshProviderManifest = [
+    'engine_features' => [
+        'manifest-provider-fresh-process/v1',
+        'manifest-provider-runtime/v1',
+    ],
+    'name' => 'm',
+    'providers' => [[
+        'capabilities' => ['a', 'b'],
+        'contracts' => ['a' => $freshContract, 'b' => $freshContract],
+        'fresh_process_capabilities' => ['a'],
+        'id' => 'x',
+        'plugin' => 'x/x.php',
+        'source' => 'manifest',
+        'version' => '1.0.0',
+    ]],
+];
+$check(
+    (static function () use ($freshProviderManifest): bool {
+        ActionProviderGrammar::validate_providers($freshProviderManifest);
+        return true;
+    })(),
+    'providers: a fresh-process capability is a feature-gated subset of a manifest runtime contract'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['engine_features'] = ['manifest-provider-runtime/v1'];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    "requires engine feature 'manifest-provider-fresh-process/v1'",
+    'providers: fresh-process execution cannot bypass its engine feature'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = [];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'must be a non-empty sorted capability list',
+    'providers: an empty fresh-process declaration is refused rather than treated as inert'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = [['a']];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'must be a non-empty sorted capability list',
+    'providers: malformed fresh-process members refuse before string sorting can emit a warning'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = ['b', 'a'];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'must be sorted and unique',
+    'providers: fresh-process capability identity is canonical-order stable'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['contracts']['a']['timeout_seconds'] = 901;
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'timeout_seconds <= 900',
+    'providers: fresh-process timeout cannot exceed the generic child-process ceiling'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['contracts']['a']['idempotent'] = false;
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'idempotent: true',
+    'providers: fresh-process execution is retry-safe after an ambiguous child outcome'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = ['missing'];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'names an undeclared capability',
+    'providers: fresh-process execution cannot name behavior outside the digest-bound contract'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['contracts']['a']['scope'] = 'entity';
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'requires scope: site',
+    'providers: fresh execution excludes post-authored entity batches from its fixed request boundary'
+);
+$unscopedFreshProviderManifest = $freshProviderManifest;
+unset($unscopedFreshProviderManifest['providers'][0]['contracts']['a']['scoped']);
+$check(
+    (static function () use ($unscopedFreshProviderManifest): bool {
+        ActionProviderGrammar::validate_providers($unscopedFreshProviderManifest);
+        return true;
+    })(),
+    'providers: fresh execution is independent of the optional scoped-apply recovery contract'
+);
 
 // ------------------------------------------------ validate_no_conflicting_provider_ids
 

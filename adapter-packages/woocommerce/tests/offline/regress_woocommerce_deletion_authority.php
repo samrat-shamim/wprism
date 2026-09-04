@@ -75,7 +75,7 @@ require $root . '/agent/src/Grammar/Shortcodes.php';
 require $root . '/agent/src/Kernel/Canary.php';
 require $root . '/agent/src/Repository/IdentityNotes.php';
 require $root . '/agent/src/Repository/Snapshot.php';
-require $root . '/agent/src/Kernel/TransientDbException.php';
+require_once $root . '/agent/src/Kernel/TransientDbException.php';
 require $root . '/agent/src/Publication/Publish.php';
 require_once $root . '/agent/src/Kernel/PersonalData.php';
 require $root . '/agent/src/Promotion/PromotionLock.php';
@@ -91,6 +91,19 @@ require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Delete/DeleteGuardValueCodec.php';
 require_once $root . '/agent/src/Delete/ExecutableOwnerBoundary.php';
 require_once $root . '/agent/src/Apply/Apply.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+
+if (!function_exists('apply_filters')) {
+    /** Minimal WordPress query-filter dispatch needed by the shared wpdb fake. */
+    function apply_filters(string $hookName, mixed $value, mixed ...$args): mixed {
+        $hook = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter'][$hookName] ?? null)
+            : null;
+        return is_object($hook) && method_exists($hook, 'apply_filters')
+            ? $hook->apply_filters($value, array_merge([$value], $args))
+            : $value;
+    }
+}
 
 use WPrism\Deletion;
 use WPrism\DeleteGuardValueCodec;
@@ -191,11 +204,7 @@ function woo_writer_verifier(bool &$held, int &$verifications): Closure {
 }
 
 /** Minimal target seam for Apply::count_guard_refs()'s manifest guard branches. */
-final class WooDeletionFakeWpdb {
-    public string $prefix = 'wp_';
-    public string $postmeta = 'wp_postmeta';
-    public string $options = 'wp_options';
-    public string $last_error = '';
+final class WooDeletionFakeWpdb extends \WPrismTest\FakeWpdb {
     public string $transactionIsolation = 'REPEATABLE-READ';
     public string $legacyIsolation = 'REPEATABLE-READ';
     public bool $modernIsolationError = false;
@@ -204,8 +213,6 @@ final class WooDeletionFakeWpdb {
     public bool $metadataProbeError = false;
     public bool $ledgerReadError = false;
     public ?string $guardReadErrorTable = null;
-    public bool $savepointExists = false;
-    public int $insert_id = 0;
     private ?int $warningCode = null;
     /** @var list<string> */
     public array $lockingQueries = [];
@@ -256,7 +263,20 @@ final class WooDeletionFakeWpdb {
     /** @var list<array<string,mixed>> */
     public array $insertedShippingMethodRows = [];
 
-    public function prepare(string $sql, ...$args): string {
+    public function __construct() {
+        parent::__construct();
+        parent::seedTable('woocommerce_shipping_zone_methods', [])
+            ->setPrimaryKey('woocommerce_shipping_zone_methods', 'instance_id')
+            ->setColumns('woocommerce_shipping_zone_methods', [
+                'instance_id' => 'bigint(20) unsigned',
+                'zone_id' => 'bigint(20) unsigned',
+                'method_id' => 'varchar(64)',
+                'method_order' => 'bigint(20) unsigned',
+                'is_enabled' => 'tinyint(1)',
+            ]);
+    }
+
+    public function prepare(string $sql, mixed ...$args): string {
         foreach ($args as $arg) {
             $replacement = is_int($arg)
                 ? (string) $arg
@@ -266,7 +286,11 @@ final class WooDeletionFakeWpdb {
         return $sql;
     }
 
-    public function get_var(string $sql) {
+    public function get_var(string $sql, int $x = 0, int $y = 0): ?string {
+        if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode') {
+            return parent::get_var($sql, $x, $y);
+        }
+        $sql = $this->filteredQuery($sql);
         if ($sql === 'SELECT @@in_transaction') {
             return '1';
         }
@@ -288,7 +312,7 @@ final class WooDeletionFakeWpdb {
             }
             $this->last_error = 'simulated absent table';
             $this->warningCode = 1146;
-            return false;
+            return null;
         }
         if (str_contains($sql, 'SELECT 1 FROM `')) {
             $this->metadataQueries[] = $sql;
@@ -325,14 +349,15 @@ final class WooDeletionFakeWpdb {
             $m
         )) {
             $id = (int) $m[1];
-            return isset($this->shippingMethodRows[$id]) ? $id : null;
+            return isset($this->shippingMethodRows[$id]) ? (string) $id : null;
         }
         if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
             if ($this->ledgerReadError) {
                 $this->last_error = 'simulated ledger lookup failure';
                 return null;
             }
-            return $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
+            $id = $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
+            return $id === null ? null : (string) $id;
         }
         if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $sql, $m)) {
             return $this->idToUuid[$m[1] . ':' . $m[2]] ?? null;
@@ -340,7 +365,20 @@ final class WooDeletionFakeWpdb {
         return null;
     }
 
-    public function get_row(string $sql, $format = null): ?array {
+    public function get_row(string $sql, string $format = OBJECT, int $y = 0): array|object|null {
+        if (str_starts_with($sql, 'SELECT CONNECTION_ID() AS connection_id, ')) {
+            return parent::get_row($sql, $format, $y);
+        }
+        $sql = $this->filteredQuery($sql);
+        if (preg_match('/^SHOW CREATE TABLE `([A-Za-z0-9_]+)`$/D', $sql, $match) === 1) {
+            $table = $match[1];
+            if (!array_key_exists($table, $this->tableEngines)) {
+                $this->last_error = 'simulated absent table';
+                return null;
+            }
+            $row = [$table, "CREATE TABLE `$table` (`fixture_id` bigint) ENGINE=InnoDB"];
+            return $format === OBJECT ? (object) $row : $row;
+        }
         if (preg_match(
             "/SELECT entity_type, local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/",
             $sql,
@@ -380,31 +418,52 @@ final class WooDeletionFakeWpdb {
         return 1;
     }
 
-    public function query(string $sql): int|false {
-        if (str_starts_with($sql, 'SAVEPOINT `')) {
-            $this->savepointExists = true;
-            return 0;
-        }
-        if (str_starts_with($sql, 'RELEASE SAVEPOINT `')) {
-            if (!$this->savepointExists) {
-                $this->last_error = 'SAVEPOINT does not exist';
-                return false;
+    public function query(string $sql): int|bool {
+        if (str_starts_with($sql, 'INSERT INTO `wp_woocommerce_shipping_zone_methods`')) {
+            $result = parent::query($sql);
+            if ($result !== false) {
+                foreach (parent::rows('woocommerce_shipping_zone_methods') as $row) {
+                    $id = (int) ($row['instance_id'] ?? 0);
+                    if ($id <= 0 || isset($this->shippingMethodRows[$id])) {
+                        continue;
+                    }
+                    foreach (['instance_id', 'zone_id', 'method_order', 'is_enabled'] as $column) {
+                        if (array_key_exists($column, $row)) {
+                            $row[$column] = (int) $row[$column];
+                        }
+                    }
+                    $this->shippingMethodRows[$id] = $row;
+                    $this->insertedShippingMethodRows[] = $row;
+                    $this->insert_id = $id;
+                }
             }
-            $this->savepointExists = false;
-            return 0;
+            return $result;
         }
+        if (preg_match(
+            '/^(?:SET @wprism_tx_session = |SET TRANSACTION |START TRANSACTION|SAVEPOINT `|'
+                . 'RELEASE SAVEPOINT `|ROLLBACK TO SAVEPOINT `|COMMIT(?: |$)|ROLLBACK(?: |$))/',
+            $sql
+        ) === 1) {
+            return parent::query($sql);
+        }
+        $this->filteredQuery($sql);
         return 1;
     }
 
-    public function get_results(string $sql, $format = null): array {
+    public function get_results(string $sql, string $format = OBJECT): array|false|null {
         if ($sql === 'SHOW WARNINGS') {
+            if ($this->warningCode === null) {
+                return parent::get_results($sql, $format);
+            }
+            $this->filteredQuery($sql);
             $this->last_error = '';
-            return $this->warningCode === null ? [] : [[
+            return [[
                 'Level' => 'Error',
                 'Code' => $this->warningCode,
                 'Message' => 'simulated absent table',
             ]];
         }
+        $sql = $this->filteredQuery($sql);
         if ($this->optionScanError && str_contains($sql, 'SELECT `option_name` FROM `wp_options`')) {
             $this->last_error = 'simulated option scan failure';
             return [];
@@ -468,6 +527,19 @@ final class WooDeletionFakeWpdb {
             return $this->optionRows;
         }
         return [];
+    }
+
+    /** Dispatch through the installed transaction-local query gate. */
+    private function filteredQuery(string $sql): string {
+        $gate = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter']['query'] ?? null)
+            : null;
+        if (($GLOBALS['wpdb'] ?? null) === $this
+            && is_object($gate)
+            && method_exists($gate, 'hook_name')) {
+            $sql = apply_filters('query', $sql);
+        }
+        return $this->remove_placeholder_escape($sql);
     }
 }
 
@@ -965,10 +1037,14 @@ if (!function_exists('get_transient')) {
         return false;
     }
 }
-require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php';
-$cacheProvider = new \WPrism\Providers\WoocommerceCache(
-    $policy->provider_declarations()['woocommerce-cache']
-);
+// This fixture does not boot a WordPress plugin lifecycle, so cross the
+// engine's private manifest-provider loader join directly. It retains the
+// production digest/class checks and is the only path that may mint the
+// validated capability authority required by ManifestProviderRuntime.
+$manifestProviderLoader = new ReflectionMethod(\WPrism\Providers::class, 'manifest_provider');
+$cacheProvider = $manifestProviderLoader->invoke(null, $policy, $cacheProviderDeclaration);
+check($cacheProvider instanceof \WPrism\Providers\WoocommerceCache,
+    'Woo cache fixture resolves through the engine-owned manifest-provider loader');
 check($cacheProvider->identity() === [
     'id' => 'woocommerce-cache',
     'plugin' => 'woocommerce/woocommerce.php',
@@ -1148,6 +1224,18 @@ $fakeWpdb->last_error = '';
 $fakeWpdb->lockingQueries = [];
 $finalGuardMutationCount = 0;
 $finalGuardRefused = false;
+$deletionFixtureProfile = \WPrism\NativeDatabaseProfile::read_only([]);
+\WPrism\Db::start_repeatable_read(
+    'Woo deletion-authority fixture transaction',
+    $deletionFixtureProfile
+);
+// This suite directly exercises DeleteGuardEvaluator's own fallback engine
+// and topology proofs. Release only the empty profile while retaining the
+// engine-owned physical transaction/query gate those proofs now require.
+\WPrism\DatabaseQueryIsolation::release_profile(
+    $deletionFixtureProfile,
+    'Woo deletion-authority fixture direct guard proofs'
+);
 \WPrism\DeleteGuardEvaluator::begin_authored_transaction();
 try {
     $runtimeGuardWarnings = [];
@@ -2383,6 +2471,9 @@ $fakeWpdb->metaRows = [[
 $unsafe = $countGuard->invoke($apply, $metaGuard, $childUuid, [$childUuid => true], $deletions, $treeWithRef, []);
 check($unsafe['count'] === 0 && $unsafe['error'] !== null && $GLOBALS['woo_guard_wakeup'] === false,
     'metadata deletion guard decodes target values without instantiating supplied objects');
+
+\WPrism\DeleteGuardEvaluator::end_authored_transaction();
+\WPrism\Db::rollback('Woo deletion-authority fixture transaction rollback');
 
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

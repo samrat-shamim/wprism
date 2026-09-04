@@ -107,12 +107,14 @@ pair_db_ensure_app_user() {
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
 ALTER USER 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
 GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 SQL
   else
     pair_db_sql <<'SQL'
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
 GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 SQL
   fi
@@ -123,6 +125,8 @@ pair_db_create() { # pair_db_create <name>
   pair_db_sql <<SQL
 CREATE DATABASE IF NOT EXISTS wp_${name}1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS wp_${name}2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT TRIGGER ON wp_${name}1.* TO 'wordpress'@'%';
+GRANT TRIGGER ON wp_${name}2.* TO 'wordpress'@'%';
 SQL
 }
 

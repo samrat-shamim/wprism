@@ -63,7 +63,26 @@ if [ "$first:$second" = wprism:code-preflight ]; then
   exit 0
 fi
 if [ "$first:$second" = wprism:lifecycle-status ]; then
-  printf '%s\n' '{"format":"wprism-lifecycle-status/v1","reasons":[],"required":false}'
+  if [ "${FAKE_BASELINE_DRIFT:-0}" = 1 ]; then
+    printf '%s\n' '{"format":"wprism-lifecycle-status/v2","required":false,"reasons":[],"baseline_state":"drift","code_drift":[{"issue":"code_drift","kind":"plugin","plugin":"fixture/fixture.php","installed_version":"2.0.0","recorded_version":"1.0.0","message":"fixture/fixture.php changed from 1.0.0 to 2.0.0 outside WPrism"}],"code_boundary_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","findings_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","observation_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","warnings":[]}'
+  else
+    printf '%s\n' '{"format":"wprism-lifecycle-status/v2","required":false,"reasons":[],"baseline_state":"exact","code_drift":[],"code_boundary_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","findings_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","observation_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","warnings":[]}'
+  fi
+  exit 0
+fi
+if [ "$first:$second" = wprism:code-baseline-accept ]; then
+  [[ " $* " == *" --force-code-drift "* ]] || exit 24
+  operation_id=''
+  artifact_hash=''
+  observation_sha256=''
+  for arg in "$@"; do
+    case "$arg" in
+      --operation-id=*) operation_id="${arg#--operation-id=}" ;;
+      --artifact-hash=*) artifact_hash="${arg#--artifact-hash=}" ;;
+      --expected-observation-sha256=*) observation_sha256="${arg#--expected-observation-sha256=}" ;;
+    esac
+  done
+  printf '{"format":"wprism-code-baseline-acceptance/v2","operation_id":"%s","artifact_hash":"%s","observation_sha256":"%s","outcome":"accepted","replayed":false,"before_baseline_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","baseline_sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","code_drift":[{"issue":"code_drift","kind":"plugin","plugin":"fixture/fixture.php","installed_version":"2.0.0","recorded_version":"1.0.0","message":"fixture/fixture.php changed from 1.0.0 to 2.0.0 outside WPrism"}]}\n' "$operation_id" "$artifact_hash" "$observation_sha256"
   exit 0
 fi
 if [ "$first:$second" = wprism:checkpoint-target ]; then
@@ -140,16 +159,18 @@ assert_runtime_call() {
 # Extra public deploy flags for the next invoke(); reset by invoke() itself so
 # one --no-checkpoint case cannot silently leak into the runs after it.
 DEPLOY_EXTRA=""
+DEPLOY_FORCES="--force-code-mismatch --force-code-drift"
 invoke() {
   mode=$1
   shift
   : > "$LOG"
-  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_PREFLIGHT_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_SETTLE_FAIL=0 FAKE_FINALIZE_FAIL=0 FAKE_EXPORT_FAIL=0 "$@" "$WPRISM" --envs-file="$ENVS" deploy unit --force-code-mismatch --force-code-drift $DEPLOY_EXTRA 2>&1)"; then
+  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_PREFLIGHT_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_SETTLE_FAIL=0 FAKE_FINALIZE_FAIL=0 FAKE_EXPORT_FAIL=0 "$@" "$WPRISM" --envs-file="$ENVS" deploy unit $DEPLOY_FORCES $DEPLOY_EXTRA 2>&1)"; then
     CODE=0
   else
     CODE=$?
   fi
   DEPLOY_EXTRA=""
+  DEPLOY_FORCES="--force-code-mismatch --force-code-drift"
 }
 
 # --exec itself runs before wp-config.php. Prove the control bootstrap defers
@@ -418,6 +439,42 @@ assert_control_call "$(line 2)" "legacy lifecycle status"
 grep -q 'deploy complete: no code descriptor; lifecycle hooks not run' <<<"$OUT" || fail "descriptor-free completion missing"
 grep -q 'database checkpoint retained: ' <<<"$OUT" && fail "descriptor-free no-op retained an invented checkpoint"
 pass "descriptor-free deploy is a disclosed lifecycle-hook-free no-op"
+
+# Descriptor-free does not mean work-free when the target reports an
+# unaccepted installed-version baseline. The v2 preflight refuses before any
+# mutation without consent, then selects one isolated baseline phase with it.
+DEPLOY_FORCES="--force-code-mismatch"
+invoke 0 env FAKE_BASELINE_DRIFT=1
+[ "$CODE" -ne 0 ] || fail "descriptor-free drift unexpectedly succeeded without consent: $OUT"
+[ "$(calls)" = 2 ] || fail "unforced descriptor-free drift crossed the read-only preflight"
+grep -q 'code_drift' <<<"$OUT" || fail "unforced descriptor-free drift omitted its reason"
+grep -q -- '--force-code-drift' <<<"$OUT" || fail "unforced descriptor-free drift omitted its remedy"
+pass "descriptor-free drift refuses before target mutation without explicit consent"
+
+invoke 0 env FAKE_BASELINE_DRIFT=1
+[ "$CODE" -eq 0 ] || fail "descriptor-free baseline acceptance failed: $OUT"
+[ "$(calls)" = 3 ] || fail "baseline-only path expected compile, status and acceptance"
+ONE="$(line 1)"
+TWO="$(line 2)"
+THREE="$(line 3)"
+[[ "$ONE" == *"wprism compile"* \
+  && "$TWO" == *"wprism lifecycle-status"* \
+  && "$THREE" == *"wprism code-baseline-accept"* ]] \
+  || fail "baseline-only phase order is wrong"
+assert_control_call "$ONE" "baseline-only compile"
+assert_control_call "$TWO" "baseline-only status"
+assert_control_call "$THREE" "baseline-only acceptance"
+[[ "$THREE" == *"--force-code-drift"* ]] || fail "baseline acceptance dropped explicit drift consent"
+grep -q '^deploy phase: code-baseline-accept$' <<<"$OUT" \
+  || fail "baseline-only deploy did not disclose its selected phase"
+[ "$(grep -c 'FORCED past code_drift' <<<"$OUT")" = 1 ] \
+  || fail "baseline-only deploy did not report exactly one forced finding: $OUT"
+grep -q 'deploy complete: code-baseline-accept; no code descriptor' <<<"$OUT" \
+  || fail "baseline-only deploy returned the wrong terminal result"
+if grep -Eq 'promotion-begin|checkpoint|lifecycle-retire|lifecycle-activate|schema-settle|lifecycle-settle' <<<"$OUT"; then
+  fail "baseline-only deploy invented lifecycle/provider/recovery work: $OUT"
+fi
+pass "descriptor-free forced drift uses one isolated, checkpoint-free baseline phase"
 
 # Descriptor turns on exactly stage, lifecycle, settlement, and finalize. All use one artifact
 # and owner; only lifecycle gets hold/materializing-code. The DB checkpoint sits

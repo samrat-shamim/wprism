@@ -236,6 +236,81 @@ const REHEARSAL_GAPS = [
         . 'two version states deliberately use the explicit archive boundary. Its closed-layout refusals are '
         . 'exercised by tests/Adapter/AdapterLibraryTest.php and sandbox/tests/offline/adapter/'
         . 'regress_adapter_sources.php.',
+    // The executable-authority boundary is deliberately downstream of this
+    // state-only estate. The rehearsal loads policies, verifies compiled
+    // artifacts and compares identity projections, but never invokes package
+    // code, launches a provider child or opens an apply transaction. Crossing
+    // one of those boundaries here would add target/plugin/process state to a
+    // fixture whose only independent variable must remain the platform flip.
+    'agent/src/Adapter/ManifestProviderRuntime.php::__construct' =>
+        'requires a loader-derived provider descriptor and validated active plugin runtime, neither of which this '
+        . 'state-only estate constructs. sandbox/tests/offline/guards/regress_provider_operation_process.php '
+        . 'drives the constructor with the exact artifact binding and proves malformed descriptors refuse before '
+        . 'provider behavior; sandbox/tests/offline/adapter/regress_actions_providers.php covers the complete '
+        . 'shipped-provider constructor inventory.',
+    'agent/src/Adapter/ProviderOperationProcess.php::dispatch' =>
+        'is the private child protocol entry point and requires canonical stdin, a frozen policy file, a real '
+        . 'plugin lifecycle row and one-shot child authority. sandbox/tests/offline/guards/'
+        . 'regress_provider_operation_process.php drives its mutation and observer operations in isolated PHP '
+        . 'processes and refuses malformed, stale, recursive and oversized requests.',
+    'agent/src/Adapter/ProviderOperationProcess.php::invoke' =>
+        'launches the mutation and independent observer children for a fresh-process capability, while this estate '
+        . 'performs no adapter action. sandbox/tests/offline/guards/regress_provider_operation_process.php drives '
+        . 'the public product launcher, exact deadline, cache-freshness and ambiguous-recovery paths.',
+    'agent/src/Adapter/ProviderOperationProcess.php::run_operation' =>
+        'validates the child receipt after a real process launch, so it is unreachable without executing a '
+        . 'fresh-process provider. sandbox/tests/offline/guards/regress_provider_operation_process.php proves exact '
+        . 'request/adapter/capability/operation binding and rejects malformed stdout, stderr and postimage drift.',
+    'agent/src/Adapter/ProviderOperationProcess.php::valid_execution_identity' =>
+        'guards the fresh-process request envelope, which this state-only estate never mints. Its closed four-hash '
+        . 'shape and stale-identity refusals are exercised through both parent and child paths by '
+        . 'sandbox/tests/offline/guards/regress_provider_operation_process.php.',
+    'agent/src/Adapter/Providers.php::fresh_process_provider' =>
+        'reopens a frozen policy inside an adapter-operation child; the rehearsal intentionally has no child '
+        . 'operation. sandbox/tests/offline/guards/regress_provider_operation_process.php drives the exact method '
+        . 'against active, inactive, source-drifted, identity-drifted and disposition-drifted fixtures.',
+    'agent/src/Adapter/Providers.php::manifest_provider' =>
+        'loads executable provider bytes only after capability negotiation, while the estate stops at policy and '
+        . 'artifact verification. sandbox/tests/offline/guards/regress_provider_operation_process.php exercises '
+        . 'the artifact-bound route, and sandbox/tests/offline/adapter/regress_actions_providers.php proves every '
+        . 'shipped manifest provider has the exact declared class, identity and capability contract.',
+    'agent/src/Kernel/ManifestExecutableLoader.php::load' =>
+        'requires an interpreter, provider or regenerator descriptor and executable source, none of which should run '
+        . 'during a state-only platform transition. sandbox/tests/offline/policy/'
+        . 'regress_artifact_policy_identity.php drives the isolated manifest-executable-loader probe across all '
+        . 'three routes, including source drift, preloaded symbols, class collisions, reuse and opcode-cache refusal.',
+    'agent/src/Policy/Policy.php::assert_fresh_shipped_dispositions_current' =>
+        'is reached only when a provider child rebinds a frozen execution identity; this estate has no provider '
+        . 'child. sandbox/tests/offline/guards/regress_provider_operation_process.php mutates current disposition '
+        . 'bytes after the parent bind and proves the child refuses before provider execution.',
+    'agent/src/Policy/Policy.php::bind_execution_artifact_identity' =>
+        'is the apply/provider executable handoff after compiled-artifact validation. This rehearsal validates the '
+        . 'held artifact but deliberately performs no apply. sandbox/tests/offline/guards/'
+        . 'regress_provider_operation_process.php and sandbox/tests/fixtures/manifest-executable-loader-probe.php '
+        . 'exercise the exact site, manifest and resolved-adapter comparisons before runtime loading.',
+    'agent/src/Policy/Policy.php::bind_fresh_execution_identity' =>
+        'is the child-side counterpart and therefore requires a provider-operation child absent from this estate. '
+        . 'sandbox/tests/offline/guards/regress_provider_operation_process.php drives correct, malformed, stale '
+        . 'site and stale-disposition identities through the real dispatch path.',
+    'agent/src/Policy/Policy.php::interpreters' =>
+        'loads package code for capture/apply interpretation, which would make this identity-only rehearsal depend '
+        . 'on plugin behavior. sandbox/tests/offline/policy/regress_artifact_policy_identity.php exercises the '
+        . 'shared loader route, digest drift and symbol occupancy in isolated processes.',
+    'agent/src/Policy/Policy.php::regenerators' =>
+        'loads post-commit plugin regeneration code and needs a target operation, outside a state-only platform '
+        . 'transition. sandbox/tests/offline/policy/regress_artifact_policy_identity.php exercises the shared '
+        . 'loader adversarial matrix, while sandbox/tests/offline/policy/regress_regen_dependency_policy.php '
+        . 'drives the regenerator contract itself.',
+    'agent/src/Policy/Policy.php::retain_execution_artifact_identity' =>
+        'records executable authority only after the parent or child binding above succeeds, so the rehearsal never '
+        . 'reaches it. sandbox/tests/offline/guards/regress_provider_operation_process.php drives both bindings and '
+        . 'their exact resolved-adapter roster through the product provider-process path.',
+    'agent/src/Apply/ApplyRequestCoordinator.php::__construct' =>
+        'opens the target apply service graph and binds its compiled artifact before transaction work; the rehearsal '
+        . 'has no target database or apply request. sandbox/tests/offline/apply/'
+        . 'regress_full_apply_attachment_recovery.php drives the real coordinator path, while '
+        . 'sandbox/tests/offline/guards/regress_provider_database_session.php checks that provider database work '
+        . 'cannot bypass the engine-owned transaction/session boundary.',
     'agent/src/Promotion/Deploy.php::run_authorized' =>
         'promotion needs a live target: a promotion lease, the ledger and an apply session. The manifest-identity '
         . 'refusal it surfaces is CompiledArtifactReader::read_artifact()\'s, which this estate drives directly '

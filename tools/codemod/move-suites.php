@@ -146,10 +146,9 @@ declare(strict_types=1);
  * does not exist in a source checkout, so `--prove` cannot check it.
  * `ms_runtime_created_reason()` is the only thing that softens the prover, and
  * it is a classification carrying evidence rather than a list of paths that
- * were in the way: three runtime ROOTS (`sandbox/tmp/` and `sandbox/siterepo/`
- * from `.gitignore:3-4`, and `agent/wprism/`, the deployed mu-plugin layout) and
- * three named files. Anything it does not match is a dangling reference and
- * fails, which is what stops a wrong `../` run from hiding in the same bucket.
+ * were in the way: four runtime ROOTS and four named files. Anything it does
+ * not match is a dangling reference and fails, which is what stops a wrong
+ * `../` run from hiding in the same bucket.
  *
  * ------------------------------------------------ what --prove cannot catch
  *
@@ -253,12 +252,20 @@ const MS_SCAN_FILES = [
  * sentence with no meaning once the left side is rewritten. A wave moves a
  * subset, so both files must keep naming pre-move paths until the last one
  * lands; the prover's stale-mention check would otherwise force the corruption.
+ *
+ * The legacy loader is also source text ABOUT another location: CLI tests copy
+ * these exact identity-bound bytes to `wp-content/mu-plugins/wprism-loader.php`,
+ * where its sibling `wprism/wprism.php` exists. Resolving that `__DIR__` while
+ * the fixture is parked under `sandbox/tests/fixtures/` invents a source-tree
+ * dependency. Exclude this exact artifact, not the fixtures root, so ordinary
+ * fixture PHP still participates in missing-referent detection.
  */
 const MS_SCAN_EXCLUDE = [
     '.git/',
     '.phpunit.cache/',
     'manifests/',
     'sandbox/tmp/',
+    'sandbox/tests/fixtures/legacy-wprism-loader.php',
     'tests/Tooling/MoveSuitesTest.php',
     'tools/codemod/move-suites.php',
     'tools/suite-layout.json',
@@ -338,6 +345,11 @@ function ms_runtime_created_targets(): array
         // regular file with 0600 permissions before reading it, which is what
         // a secrets-grade operator drop-in looks like — never a repo file.
         'agent/scoped-promotion-control.json' => 'operator-installed on a managed site; ScopedPromotionAuthority::installed_config() asserts a 0600 regular file (agent/src/Promotion/ScopedPromotionAuthority.php:133-136)',
+        // The loader observes this shared writer-intent link on a managed
+        // site's MU-plugin directory. AgentGenerationFence::shellHelpers()
+        // creates it only while adoption or unadoption owns the transaction;
+        // it is neither a shipped agent byte nor valid source-tree state.
+        'agent/.wprism-generation-writer-pending' => 'runtime agent-generation writer intent; AgentGenerationFence::shellHelpers() creates it beside the deployed MU loader only while adoption or unadoption owns the generation transaction',
         // Machine-local php-cs-fixer result cache: `/.php-cs-fixer.cache` is
         // gitignored (.gitignore:67, the WPRISM WP-4 dev-toolchain block) and
         // written only the first time php-cs-fixer actually runs

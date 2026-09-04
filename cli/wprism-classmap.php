@@ -20,6 +20,7 @@ return [
     'WPrism\\Orchestrator\\Adopt' => 'src/Onboarding/Adopt.php',
     'WPrism\\Orchestrator\\AdoptCommand' => 'src/Command/AdoptCommand.php',
     'WPrism\\Orchestrator\\AdoptionTransport' => 'src/Transport/Transport.php',
+    'WPrism\\Orchestrator\\AgentGenerationFence' => 'src/Onboarding/AgentGenerationFence.php',
     'WPrism\\Orchestrator\\ApplicationContract' => 'src/Contract/ApplicationContract.php',
     'WPrism\\Orchestrator\\AssessCommand' => 'src/Command/AssessCommand.php',
     'WPrism\\Orchestrator\\AssessRenderer' => 'src/Assess/AssessRenderer.php',

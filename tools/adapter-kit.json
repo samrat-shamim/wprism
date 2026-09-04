@@ -36,16 +36,16 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/wp_stubs.php",
             "role": "WPrismTest\\WpStore plus function_exists()-guarded WordPress function stubs",
-            "bytes": 36082,
-            "sha256": "d28b583963be4b5fa5b58486710495830c4c03bd017cbdb25640d090a838f4bd"
+            "bytes": 39659,
+            "sha256": "6d82f813451a008952644fe31f8dab110585c625d072b21f441a72daa79bd2c6"
         },
         {
             "path": "lib/FakeWpdb.php",
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "WPrismTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 182584,
-            "sha256": "5aea1543cfae8406f03c3dd5f70b50349311b806bffdf51d9fa027d9bf48f5ef"
+            "bytes": 219097,
+            "sha256": "2b4a4877d58db4dd2d0fb9280420f0e871c8fbccfc246eda89c772fa3f58fe3a"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -60,8 +60,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/ConformanceVector.php",
             "role": "WPrismTest\\ConformanceVector — record a wprism-conformance-vector/v1 once on a pair, replay the round trip offline forever; needs the agent runtime",
-            "bytes": 22392,
-            "sha256": "51411e1d547bdc1ce2e4c4ada64c3bc24e4a2127130e475d17e5fe7af9167928"
+            "bytes": 22655,
+            "sha256": "758a81c16d62e98e6fcc770bc17aab436793ee0041912552e6e3d2c81864af77"
         },
         {
             "path": "lib/pair_identity.sh",

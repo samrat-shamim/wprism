@@ -47,7 +47,6 @@ require_once $repoRoot . '/agent/src/Capture/EntityMetaCapture.php';
 require_once $repoRoot . '/agent/src/Capture/MediaCapture.php';
 require_once $repoRoot . '/agent/src/Capture/PostCapture.php';
 require_once $repoRoot . '/agent/src/Repository/RepositoryPortableShapeValidator.php';
-require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/acf.php';
 
 use WPrism\Canon;
 use WPrism\EntityMetaCapture;
@@ -215,7 +214,9 @@ $policy = Policy::load(
     ['acf'],
     adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
 );
-$acf = new Acf($policy);
+// Use the production digest/provenance boundary for the first class load;
+// subsequent direct instances exercise behavior without inventing a preload.
+$acf = $policy->interpreters()['acf'];
 $fieldTree = [
     acf_readiness_field('field_image', 'image'),
     acf_readiness_field('field_file', 'file'),

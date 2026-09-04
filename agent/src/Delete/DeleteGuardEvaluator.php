@@ -1,6 +1,11 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseLockBoundary.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+
 /**
  * Lock-boundary proof for manifest-declared deletion guards.
  *
@@ -16,7 +21,7 @@ namespace WPrism;
  * index metadata, making the race-boundary rule directly characterizable.
  */
 final class DeleteGuardEvaluator {
-    private static ?string $continuitySavepoint = null;
+    private static bool $authoredTransaction = false;
 
     /**
      * Census exact guard-table topology without turning a read failure or a
@@ -155,32 +160,14 @@ final class DeleteGuardEvaluator {
 
     /** Establish the transaction identity immediately after START TRANSACTION. */
     public static function begin_authored_transaction(): void {
-        self::$continuitySavepoint = null;
+        self::$authoredTransaction = false;
         self::assert_active_transaction('authored transaction continuity');
-        try {
-            $name = 'wprism_authored_' . bin2hex(random_bytes(12));
-        } catch (\Throwable $failure) {
-            throw new \RuntimeException(
-                'wprism: authored transaction continuity could not allocate a unique savepoint',
-                0,
-                $failure
-            );
-        }
-        try {
-            self::checked_query("SAVEPOINT `$name`");
-        } catch (\Throwable $failure) {
-            throw new \RuntimeException(
-                'wprism: authored transaction continuity could not establish its savepoint',
-                0,
-                $failure
-            );
-        }
-        self::$continuitySavepoint = $name;
+        self::$authoredTransaction = true;
     }
 
     /** Forget process-local proof state after either COMMIT or ROLLBACK. */
     public static function end_authored_transaction(): void {
-        self::$continuitySavepoint = null;
+        self::$authoredTransaction = false;
     }
     /**
      * Prove that each fully-qualified guard table can sustain the locking
@@ -199,95 +186,15 @@ final class DeleteGuardEvaluator {
         array $tables,
         string $purpose = 'deletion guard locking'
     ): void {
-        global $wpdb;
+        DatabaseLockBoundary::assert_innodb_tables($tables, $purpose);
+    }
 
-        self::assert_table_identifiers($tables, $purpose);
-        $tables = array_values(array_unique($tables));
-        if (!$tables) {
-            return;
-        }
-        sort($tables, SORT_STRING);
-        $tableSet = array_fill_keys($tables, true);
-        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
-
-        // Lock each table's metadata before asking information_schema for its
-        // engine. A concurrent ALTER/RENAME/DROP must either finish before
-        // this read (so we inspect the resulting table) or wait for this
-        // transaction to end; otherwise an engine row could become stale
-        // between the check and the first SELECT ... FOR UPDATE. This is a
-        // harmless data read, not a row lock, and occurs before authored
-        // target mutations.
-        foreach ($tables as $table) {
-            self::touch_lock_table($table, $purpose);
-        }
-
-        // wpdb can retain the previous failed-query message (notably when
-        // the modern isolation variable probe falls back to tx_isolation),
-        // so clear it before this independent introspection query.
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)
-             ORDER BY TABLE_NAME ASC",
-            ...$tables
-        ), ARRAY_A);
-        $error = trim((string) ($wpdb->last_error ?? ''));
-        if ($rows === false || $rows === null || $error !== '') {
-            $detail = $error !== '' ? $error : 'no result returned';
-            throw new \RuntimeException(
-                "wprism: $purpose refused — storage-engine introspection failed for "
-                . implode(', ', $tables) . ": $detail"
-            );
-        }
-
-        $engines = [];
-        $duplicateRows = [];
-        foreach ((array) $rows as $row) {
-            $name = (string) ($row['TABLE_NAME'] ?? '');
-            if ($name === '' || !isset($tableSet[$name])) {
-                continue;
-            }
-            if (array_key_exists($name, $engines)) {
-                $duplicateRows[$name] = true;
-                continue;
-            }
-            $engine = $row['ENGINE'] ?? null;
-            $engines[$name] = $engine === null || trim((string) $engine) === ''
-                ? null
-                : strtoupper(trim((string) $engine));
-        }
-
-        $missing = array_values(array_diff($tables, array_keys($engines)));
-        $unknown = [];
-        $unsupported = [];
-        foreach ($engines as $name => $engine) {
-            if ($engine === null) {
-                $unknown[] = "$name (engine: NULL/unknown)";
-            } elseif ($engine !== 'INNODB') {
-                $unsupported[] = "$name (engine: $engine)";
-            }
-        }
-        foreach (array_keys($duplicateRows) as $name) {
-            $unknown[] = "$name (duplicate information_schema rows)";
-        }
-        sort($missing, SORT_STRING);
-        sort($unknown, SORT_STRING);
-        sort($unsupported, SORT_STRING);
-        if ($missing || $unknown || $unsupported) {
-            $details = [];
-            if ($missing) {
-                $details[] = 'missing from information_schema.TABLES: ' . implode(', ', $missing);
-            }
-            if ($unknown) {
-                $details[] = 'unknown engine: ' . implode(', ', $unknown);
-            }
-            if ($unsupported) {
-                $details[] = 'unsupported engine (InnoDB required): ' . implode(', ', $unsupported);
-            }
-            throw new \RuntimeException(
-                "wprism: $purpose refused — " . implode('; ', $details)
-            );
-        }
+    /** @param list<string> $tables */
+    public static function assert_atomic_mutation_tables(
+        array $tables,
+        string $purpose
+    ): void {
+        DatabaseLockBoundary::assert_atomic_mutation_tables($tables, $purpose);
     }
 
     /**
@@ -299,22 +206,13 @@ final class DeleteGuardEvaluator {
     public static function assert_transaction_isolation(
         string $purpose = 'deletion guard locking'
     ): void {
-        self::assert_active_transaction($purpose);
-        self::assert_transaction_continuity($purpose);
-    }
-
-    private static function assert_transaction_continuity(string $purpose): void {
-        $name = self::$continuitySavepoint;
-        if ($name === null) {
+        if (!self::$authoredTransaction) {
             throw new \RuntimeException(
-                "wprism: $purpose requires the authored transaction continuity savepoint"
+                "wprism: $purpose requires the authored transaction boundary"
             );
         }
         try {
-            // RELEASE fails if an intervening callback committed and started
-            // another transaction, even when its isolation happens to match.
-            self::checked_query("RELEASE SAVEPOINT `$name`");
-            self::checked_query("SAVEPOINT `$name`");
+            Db::transaction_authority($purpose . ' authored transaction continuity');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
                 "wprism: $purpose lost authored transaction continuity",
@@ -324,48 +222,17 @@ final class DeleteGuardEvaluator {
         }
     }
 
-    private static function touch_lock_table(string $table, string $purpose): void {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $probe = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 1");
-        $error = trim((string) ($wpdb->last_error ?? ''));
-        if ($probe === false || $error !== '') {
-            $detail = $error !== '' ? $error : 'no result returned';
-            $tableLabel = $purpose === 'deletion guard locking' ? 'guard table ' : 'table ';
-            throw new \RuntimeException(
-                "wprism: $purpose refused — unable to acquire metadata lock for "
-                . $tableLabel . "$table: $detail"
-            );
-        }
-    }
-
-    private static function checked_query(string $sql): void {
-        global $wpdb;
-        if (property_exists($wpdb, 'last_error')) {
-            $wpdb->last_error = '';
-        }
-        $result = $wpdb->query($sql);
-        if ($result === false || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('wprism: authored transaction savepoint query failed');
-        }
-    }
-
     public static function assert_active_transaction(string $purpose): void {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $active = $wpdb->get_var('SELECT @@in_transaction');
-        if ($active !== '1' || trim((string) ($wpdb->last_error ?? '')) !== '') {
+        try {
+            Db::transaction_authority($purpose . ' active transaction');
+        } catch (\Throwable $failure) {
             throw new \RuntimeException("wprism: $purpose requires an active transaction");
         }
     }
 
     /** @param list<string> $tables */
     public static function assert_table_identifiers(array $tables, string $purpose): void {
-        foreach ($tables as $table) {
-            if (!is_string($table) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
-                throw new \RuntimeException("wprism: $purpose refused — unsafe table identifier");
-            }
-        }
+        DatabaseLockBoundary::assert_table_identifiers($tables, $purpose);
     }
 
     /**
@@ -631,12 +498,11 @@ final class DeleteGuardEvaluator {
         string $purpose,
         bool $requireUnique = false
     ): string {
-        return self::locking_index(
+        return DatabaseLockBoundary::full_width_lock_index(
             $table,
             $column,
             $purpose,
-            $requireUnique ? [$column] : null,
-            null
+            $requireUnique
         );
     }
 
@@ -653,20 +519,11 @@ final class DeleteGuardEvaluator {
         array $columns,
         string $purpose
     ): string {
-        if (!array_is_list($columns)
-            || count($columns) < 2
-            || count($columns) > 16) {
-            throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
-        }
-        foreach ($columns as $column) {
-            if (!is_string($column) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $column) !== 1) {
-                throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
-            }
-        }
-        if (count(array_unique($columns, SORT_STRING)) !== count($columns)) {
-            throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
-        }
-        return self::locking_index($table, $columns[0], $purpose, $columns, null);
+        return DatabaseLockBoundary::full_width_composite_unique_lock_index(
+            $table,
+            $columns,
+            $purpose
+        );
     }
 
     /**
@@ -681,224 +538,12 @@ final class DeleteGuardEvaluator {
         int $minimumPrefixCharacters,
         string $purpose
     ): string {
-        if ($minimumPrefixCharacters < 1 || $minimumPrefixCharacters > 65535) {
-            throw new \RuntimeException("wprism: $purpose index proof received an invalid prefix frontier");
-        }
-        return self::locking_index($table, $column, $purpose, null, $minimumPrefixCharacters);
+        return DatabaseLockBoundary::bounded_prefix_lock_index(
+            $table,
+            $column,
+            $minimumPrefixCharacters,
+            $purpose
+        );
     }
 
-    private static function locking_index(
-        string $table,
-        string $column,
-        string $purpose,
-        ?array $requiredUniqueColumns,
-        ?int $minimumPrefixCharacters
-    ): string {
-        global $wpdb;
-        if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1
-            || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $column) !== 1) {
-            throw new \RuntimeException("wprism: $purpose index proof received an unsafe table/column name");
-        }
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results("SHOW INDEX FROM `$table`", ARRAY_A);
-        if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("wprism: $purpose index introspection failed");
-        }
-        if (count($rows) > 1024) {
-            throw new \RuntimeException("wprism: $purpose index introspection exceeded its bounded row limit");
-        }
-        $groups = [];
-        foreach ($rows as $row) {
-            $name = is_array($row) ? ($row['Key_name'] ?? null) : null;
-            if (!is_array($row) || !self::bounded_server_identifier($name)) {
-                throw new \RuntimeException("wprism: $purpose index introspection returned a malformed row");
-            }
-            // MySQL permits quoted Unicode/punctuated identifier names. They
-            // are valid introspection rows, but an exotic index name is never
-            // interpolated by this lock boundary. Group by a value-free hash
-            // so such an unrelated index cannot poison a usable WP index.
-            $groupKey = hash('sha256', $name);
-            if (isset($groups[$groupKey]) && !hash_equals($groups[$groupKey]['name'], $name)) {
-                throw new \RuntimeException("wprism: $purpose index introspection identity fingerprint collided");
-            }
-            $groups[$groupKey]['name'] = $name;
-            $groups[$groupKey]['safe_name'] = preg_match('/^[A-Za-z0-9_]{1,64}$/D', $name) === 1;
-            $groups[$groupKey]['rows'][] = $row;
-        }
-        $candidates = [];
-        foreach ($groups as $group) {
-            $name = $group['name'];
-            if (!$group['safe_name']) {
-                continue;
-            }
-            $firstColumnMatches = false;
-            $hasFunctionalPart = false;
-            foreach ($group['rows'] as $row) {
-                $columnName = $row['Column_name'] ?? null;
-                $seq = self::canonical_index_integer($row['Seq_in_index'] ?? null, 64, false);
-                if ($columnName === $column && $seq === null) {
-                    // A row naming our exact predicate column but carrying an
-                    // invalid ordinal makes candidate identity ambiguous.
-                    throw new \RuntimeException("wprism: $purpose index introspection returned a malformed row");
-                }
-                if ($columnName === $column && $seq === 1) {
-                    $firstColumnMatches = true;
-                }
-                if ($columnName === null && array_key_exists('Expression', $row)) {
-                    $hasFunctionalPart = true;
-                }
-            }
-            // Peculiarities in an unrelated index are irrelevant. A group is
-            // parsed strictly only once its first physical column is the
-            // requested predicate; functional groups are never interpolated.
-            if (!$firstColumnMatches || $hasFunctionalPart) {
-                continue;
-            }
-            $indexRows = [];
-            foreach ($group['rows'] as $row) {
-                $seq = $row['Seq_in_index'] ?? null;
-                $nonUnique = $row['Non_unique'] ?? null;
-                $subPart = $row['Sub_part'] ?? null;
-                $indexType = $row['Index_type'] ?? null;
-                $visible = $row['Visible'] ?? null;
-                $ignored = $row['Ignored'] ?? null;
-                $columnName = $row['Column_name'] ?? null;
-                $canonicalSeq = self::canonical_index_integer($seq, 64, false);
-                $canonicalNonUnique = self::canonical_index_integer($nonUnique, 1, true);
-                $canonicalSubPart = $subPart === null
-                    ? null
-                    : self::canonical_index_integer($subPart, 65535, false);
-                if (!self::bounded_server_identifier($columnName)
-                    || $canonicalSeq === null
-                    || $canonicalNonUnique === null
-                    || ($subPart !== null && $canonicalSubPart === null)
-                    || !is_string($indexType)
-                    || preg_match('/^[A-Z]{2,16}$/D', $indexType) !== 1
-                    || (array_key_exists('Visible', $row)
-                        && !in_array($visible, ['YES', 'NO'], true))
-                    || (array_key_exists('Ignored', $row)
-                        && !in_array($ignored, ['YES', 'NO'], true))) {
-                    throw new \RuntimeException("wprism: $purpose index introspection returned a malformed row");
-                }
-                if (isset($indexRows[$canonicalSeq])) {
-                    throw new \RuntimeException(
-                        "wprism: $purpose index introspection returned duplicate index positions"
-                    );
-                }
-                $indexRows[$canonicalSeq] = [
-                    'column' => $columnName,
-                    'non_unique' => $canonicalNonUnique,
-                    'sub_part' => $canonicalSubPart,
-                    'index_type' => $indexType,
-                    'has_visible' => array_key_exists('Visible', $row),
-                    'visible' => $visible,
-                    'has_ignored' => array_key_exists('Ignored', $row),
-                    'ignored' => $ignored,
-                ];
-            }
-            ksort($indexRows, SORT_NUMERIC);
-            $expectedPosition = 1;
-            $first = $indexRows[1] ?? null;
-            $firstMetadata = null;
-            foreach ($indexRows as $position => $row) {
-                if ($position !== $expectedPosition) {
-                    throw new \RuntimeException(
-                        "wprism: $purpose index introspection returned noncontiguous index positions"
-                    );
-                }
-                $metadata = [
-                    $row['non_unique'],
-                    $row['index_type'],
-                    $row['has_visible'],
-                    $row['visible'],
-                    $row['has_ignored'],
-                    $row['ignored'],
-                ];
-                $firstMetadata ??= $metadata;
-                if ($metadata !== $firstMetadata) {
-                    throw new \RuntimeException(
-                        "wprism: $purpose index introspection returned inconsistent composite-index metadata"
-                    );
-                }
-                ++$expectedPosition;
-            }
-            $matchesRequiredUniqueColumns = $requiredUniqueColumns === null;
-            if ($requiredUniqueColumns !== null && count($indexRows) === count($requiredUniqueColumns)) {
-                $matchesRequiredUniqueColumns = true;
-                foreach ($requiredUniqueColumns as $offset => $requiredColumn) {
-                    $requiredPart = $indexRows[$offset + 1] ?? null;
-                    if (($requiredPart['column'] ?? null) !== $requiredColumn
-                        || ($requiredPart['sub_part'] ?? null) !== null) {
-                        $matchesRequiredUniqueColumns = false;
-                        break;
-                    }
-                }
-            }
-            if ($first === null
-                || !$matchesRequiredUniqueColumns
-                || $first['column'] !== $column
-                || ($minimumPrefixCharacters === null
-                    ? $first['sub_part'] !== null
-                    : ($first['sub_part'] !== null && $first['sub_part'] < $minimumPrefixCharacters))
-                || ($requiredUniqueColumns !== null && $first['non_unique'] !== 0)
-                || ($first['has_visible'] && $first['visible'] !== 'YES')
-                || ($first['has_ignored'] && $first['ignored'] !== 'NO')
-                || $first['index_type'] !== 'BTREE') {
-                continue;
-            }
-            /*
-             * Nonunique owner-range indexes may be composite; equality on
-             * the complete first column still locks that owner's contiguous
-             * range and terminal gap. A singleton claim may not rely on a
-             * composite unique index because its first column alone is not
-             * necessarily unique. The compound boundary above admits one
-             * only when every full-width ordered column is also a predicate.
-             */
-            $candidates[(string) $name] = true;
-        }
-        if ($candidates === []) {
-            $indexLabel = $requiredUniqueColumns === null
-                ? "first-column index on $column"
-                : (count($requiredUniqueColumns) === 1
-                    ? "unique first-column index on $column"
-                    : 'unique ordered-columns index on (' . implode(', ', $requiredUniqueColumns) . ')');
-            throw new \RuntimeException(
-                "wprism: $purpose lacks a visible "
-                . ($minimumPrefixCharacters === null
-                    ? 'full-width '
-                    : "at-least-$minimumPrefixCharacters-character ")
-                . $indexLabel
-            );
-        }
-        $names = array_keys($candidates);
-        sort($names, SORT_STRING);
-        return $names[0];
-    }
-
-    private static function bounded_server_identifier(mixed $value): bool {
-        if (!is_string($value)
-            || $value === ''
-            || strlen($value) > 256
-            || str_contains($value, "\0")
-            || preg_match('//u', $value) !== 1) {
-            return false;
-        }
-        $characters = preg_match_all('/./us', $value);
-        return is_int($characters) && $characters <= 64;
-    }
-
-    private static function canonical_index_integer(mixed $value, int $max, bool $allowZero): ?int {
-        if (is_int($value)) {
-            $integer = $value;
-        } elseif (is_string($value)
-            && preg_match($allowZero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D', $value) === 1) {
-            $integer = filter_var($value, FILTER_VALIDATE_INT);
-            if (!is_int($integer)) {
-                return null;
-            }
-        } else {
-            return null;
-        }
-        return $integer >= ($allowZero ? 0 : 1) && $integer <= $max ? $integer : null;
-    }
 }

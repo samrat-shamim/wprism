@@ -60,6 +60,11 @@ namespace {
         return $GLOBALS['rank_math_test_options'][$name] ?? $default;
     }
 
+    function wp_cache_flush(): bool {
+        $GLOBALS['rank_math_test_cache_flush_calls']++;
+        return true;
+    }
+
     function get_permalink(int|object $post): string|false {
         $GLOBALS['rank_math_test_permalink_calls']++;
         $post = is_object($post) ? $post : get_post($post);
@@ -134,6 +139,16 @@ namespace {
         return isset($GLOBALS['rank_math_test_hooks'][$hook]) ? 10 : false;
     }
 
+    function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+        $gate = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter'][$hook] ?? null)
+            : null;
+        if (is_object($gate) && method_exists($gate, 'apply_filters')) {
+            return $gate->apply_filters($value, $args);
+        }
+        return $value;
+    }
+
     /** @return array<string,string> */
     function get_post_types(array $args = []): array {
         return $GLOBALS['rank_math_test_types'];
@@ -165,6 +180,15 @@ namespace {
 
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['rank_math_test_command_calls'][] = [$command, $options];
+            if (class_exists(\WPrism\ProviderOperationProcess::class, false)) {
+                $pendingIdentity = new \ReflectionMethod(
+                    \WPrism\ProviderOperationProcess::class,
+                    'pending_identity'
+                );
+                $GLOBALS['rank_math_test_pending_identity'] = $pendingIdentity->invoke(null);
+            } else {
+                $GLOBALS['rank_math_test_pending_identity'] = null;
+            }
             if ($GLOBALS['rank_math_test_command_throw'] instanceof \Throwable) {
                 throw $GLOBALS['rank_math_test_command_throw'];
             }
@@ -172,7 +196,11 @@ namespace {
                 ($GLOBALS['rank_math_test_after_command'])();
             }
             $result = $GLOBALS['rank_math_test_command_result'];
-            return is_callable($result) ? $result() : $result;
+            $result = is_callable($result) ? $result() : $result;
+            if (is_callable($GLOBALS['rank_math_test_after_result'] ?? null)) {
+                ($GLOBALS['rank_math_test_after_result'])();
+            }
+            return $result;
         }
     }
 }
@@ -314,6 +342,9 @@ namespace RankMath {
                 $GLOBALS['wpdb']->setColumnDefinitions($table, $tableSchema['columns']);
                 $GLOBALS['wpdb']->setIndexes($table, $tableSchema['indexes']);
                 $GLOBALS['wpdb']->setTableEngine($table, 'InnoDB');
+                if (!$GLOBALS['wpdb']->hasTable($GLOBALS['wpdb']->prefix . $table)) {
+                    $GLOBALS['wpdb']->seedTable($table, []);
+                }
             }
             $mutate = $GLOBALS['rank_math_test_installer_mutate_table'] ?? null;
             if (is_string($mutate)) {
@@ -333,7 +364,8 @@ namespace RankMath {
 namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/WpCliChildProcess.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderOperationProcess.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';
     require_once dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php';
 
     use WPrism\Providers\RankMathState;
@@ -604,14 +636,32 @@ namespace {
         $db->seedTable('postmeta', $markers);
     }
 
-    /** @return array<string,mixed> */
-    function rank_math_test_projection(): array {
+    /** Run a fixture-only projection through the runtime's exact contract slot. */
+    function rank_math_test_with_contract(callable $operation): mixed {
         $provider = $GLOBALS['rank_math_test_provider'] ?? null;
         if (!$provider instanceof RankMathState) {
-            throw new RuntimeException('fixture provider projection is unavailable');
+            throw new RuntimeException('fixture provider contract is unavailable');
         }
-        $method = new ReflectionMethod(RankMathState::class, 'link_projection');
-        $projection = $method->invoke($provider);
+        $contract = $provider->capabilities()['rebuild_all_link_state'] ?? null;
+        if (!is_array($contract)) {
+            throw new RuntimeException('fixture provider capability contract is unavailable');
+        }
+        $begin = new ReflectionMethod(\WPrism\ManifestProviderRuntime::class, 'beginContractInvocation');
+        $end = new ReflectionMethod(\WPrism\ManifestProviderRuntime::class, 'endContractInvocation');
+        $begin->invoke($provider, 'rebuild_all_link_state', $contract);
+        try {
+            return $operation($provider);
+        } finally {
+            $end->invoke($provider);
+        }
+    }
+
+    /** @return array<string,mixed> */
+    function rank_math_test_projection(): array {
+        $projection = rank_math_test_with_contract(static function (RankMathState $provider): mixed {
+            $method = new ReflectionMethod(RankMathState::class, 'link_projection');
+            return $method->invoke($provider);
+        });
         if (!is_array($projection)) {
             throw new RuntimeException('fixture provider projection failed');
         }
@@ -620,13 +670,62 @@ namespace {
 
     /** @param ?array<string,mixed> $projection */
     function rank_math_test_result(?array $projection = null): object {
+        $pendingIdentity = new ReflectionMethod(\WPrism\ProviderOperationProcess::class, 'pending_identity');
+        $pending = $pendingIdentity->invoke(null);
+        $provider = $GLOBALS['rank_math_test_provider'] ?? null;
+        if (!is_array($pending) || !$provider instanceof RankMathState) {
+            throw new RuntimeException('fixture provider-operation identity is unavailable');
+        }
+        $operation = $pending['operation'] ?? null;
+        if ($projection === null && $operation === 'invoke') {
+            $method = new ReflectionMethod(\WPrism\ManifestProviderRuntime::class, 'invokeDirect');
+            $receipt = $method->invoke($provider, 'rebuild_all_link_state', []);
+            if (!is_array($receipt)) {
+                throw new RuntimeException('fixture provider operation returned no receipt');
+            }
+            $project = new ReflectionMethod(RankMathState::class, 'project_fresh_postimage_rebuild_all_link_state');
+            $postimage = $project->invoke($provider, $receipt['after']);
+        } elseif ($projection !== null) {
+            $receipt = ['before' => $projection, 'after' => $projection, 'verified' => true];
+            $postimage = $projection;
+        } else {
+            $postimage = rank_math_test_with_contract(
+                static fn(RankMathState $provider): mixed => \WPrism\ProviderSdk::database_read_contract_snapshot(
+                    'Rank Math fixture fresh observation',
+                    static function () use ($provider): mixed {
+                        $observe = new ReflectionMethod(
+                            RankMathState::class,
+                            'observe_fresh_postimage_rebuild_all_link_state'
+                        );
+                        $project = new ReflectionMethod(
+                            RankMathState::class,
+                            'project_fresh_postimage_rebuild_all_link_state'
+                        );
+                        $observed = $observe->invoke($provider, []);
+                        return $project->invoke($provider, $observed);
+                    }
+                )
+            );
+            $receipt = null;
+        }
+        if ($operation === 'invoke') {
+            $GLOBALS['rank_math_test_last_child_receipt'] = $receipt;
+        }
+        $result = $operation === 'invoke'
+            ? ['postimage' => $postimage, 'receipt' => $receipt]
+            : ['postimage' => $postimage];
         return (object) [
             'return_code' => 0,
-            'stdout' => json_encode([
-                'format' => 'wprism-rank-math-link-rebuild/v1',
-                'projection' => $projection ?? rank_math_test_projection(),
-                'verified' => true,
-            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            'stdout' => \WPrism\Canon::encode([
+                'adapter' => $pending['adapter'],
+                'adapter_digest' => $pending['adapter_digest'],
+                'capability' => $pending['capability'],
+                'format' => \WPrism\ProviderOperationProcess::RECEIPT_FORMAT,
+                'operation' => $operation,
+                'provider' => $pending['provider'],
+                'request_sha256' => $pending['request_sha256'],
+                'result' => $result,
+            ]),
             'stderr' => '',
         ];
     }
@@ -657,12 +756,16 @@ namespace {
             'wp_page_for_privacy_policy' => 0,
         ];
         $GLOBALS['rank_math_test_clean_post_cache_calls'] = 0;
+        $GLOBALS['rank_math_test_cache_flush_calls'] = 0;
         $GLOBALS['rank_math_test_permalink_calls'] = 0;
         $GLOBALS['rank_math_test_url_to_postid_calls'] = 0;
         $GLOBALS['rank_math_test_url_to_postid_override'] = null;
         $GLOBALS['rank_math_test_in_native_process'] = false;
         $GLOBALS['rank_math_test_rebuild_links_override'] = null;
         $GLOBALS['rank_math_test_process_calls'] = 0;
+        $GLOBALS['rank_math_test_pending_identity'] = null;
+        $GLOBALS['rank_math_test_after_result'] = null;
+        $GLOBALS['rank_math_test_last_child_receipt'] = null;
         $GLOBALS['wprism_wp_cli_child_fake_stderr_first'] = false;
         $GLOBALS['wp_filter'] = [
             'rank_math/excluded_post_types' => new WP_Hook([
@@ -832,9 +935,7 @@ namespace {
                 ['object_id' => 999, 'internal_link_count' => 0, 'external_link_count' => 0, 'incoming_link_count' => 1],
             ]);
         }
-        $GLOBALS['rank_math_test_after_command'] = static function (): void {
-            rank_math_test_rebuild();
-        };
+        $GLOBALS['rank_math_test_after_command'] = null;
         $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result();
 
         $manifest = json_decode(
@@ -843,7 +944,39 @@ namespace {
             512,
             JSON_THROW_ON_ERROR
         );
-        $provider = new RankMathState($manifest['providers'][0]);
+        $providerFile = realpath(
+            dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php'
+        );
+        if ($providerFile === false) {
+            throw new RuntimeException('fixture provider source is unavailable');
+        }
+        $declaration = $manifest['providers'][0];
+        $declaration['manifest'] = 'rank-math';
+        $declaration['_wprism_adapter_digest'] = str_repeat('a', 64);
+        $declaration['_wprism_adapter_library_root'] = realpath(dirname(__DIR__, 4));
+        $declaration['_wprism_execution_bound'] = true;
+        $declaration['_wprism_execution_identity'] = [
+            'artifact_hash' => str_repeat('b', 64),
+            'manifest_hash' => str_repeat('c', 64),
+            'resolved_adapters_sha256' => str_repeat('d', 64),
+            'site_hash' => str_repeat('e', 64),
+        ];
+        $declaration['_wprism_plugin_runtime'] = [
+            'active' => true,
+            'installed' => true,
+            'version' => '1.0.238',
+        ];
+        $declaration['_wprism_policy_snapshot'] = ['fixture' => 'rank-math-provider'];
+        $declaration['_wprism_provider_file'] = $providerFile;
+        $declaration['_wprism_provider_sha256'] = hash_file('sha256', $providerFile);
+        $GLOBALS['rank_math_test_provider_declaration'] = $declaration;
+        $provider = new RankMathState($declaration);
+        // Production binds only the exact object returned by the private
+        // digest/provenance loader. This capsule-level provider fixture crosses
+        // that private join so the semantic tests retain the same SDK authority
+        // without adding a public test arm to shipped engine code.
+        $bind = new ReflectionMethod(\WPrism\Providers::class, 'bind_manifest_runtime_contracts');
+        $bind->invoke(null, $provider, $provider->capabilities());
         $GLOBALS['rank_math_test_provider'] = $provider;
         return $provider;
     }
@@ -881,149 +1014,18 @@ namespace {
         throw new RuntimeException('expected Rank Math provider refusal');
     }
 
-    /** @return array{exit:int,stdout:string,stderr:string} */
-    function rank_math_test_child_topology(string $mode): array {
-        $method = new ReflectionMethod(RankMathState::class, 'child_payload');
-        $payload = $method->invoke(null);
-        if (!is_string($payload)) {
-            throw new RuntimeException('could not read Rank Math child payload');
-        }
-        $probe = <<<'PHP'
-namespace RankMath {
-    class Defaults {
-        public function __construct() {
-            $registry = $GLOBALS['wp_filter'] ?? null;
-            if (!is_array($registry)
-                || array_key_exists('rank_math/excluded_post_types', $registry)) {
-                return;
-            }
-            $GLOBALS['wp_filter']['rank_math/excluded_post_types'] = new \WP_Hook([
-                10 => [
-                    'native' => [
-                        'accepted_args' => 1,
-                        'function' => [$this, 'excluded_post_types'],
-                    ],
-                ],
-            ]);
-        }
-
-        public function excluded_post_types(array $types): array { return $types; }
-    }
-    class SubstituteDefaults extends Defaults {
-        public function excluded_post_types(array $types): array { return []; }
-    }
-}
-namespace {
-    define('ARRAY_A', 'ARRAY_A');
-    final class WP_Hook {
-        /** @var array<int,array<string,array{accepted_args:int,function:array{object,string}}>> */
-        public array $callbacks;
-        public function __construct(array $callbacks) { $this->callbacks = $callbacks; }
-    }
-    final class RankMathTopologyWpdb {
-        public string $prefix = 'wp_';
-        public string $postmeta = 'wp_postmeta';
-        public string $posts = 'wp_posts';
-        public string $options = 'wp_options';
-        public string $term_relationships = 'wp_term_relationships';
-        public string $term_taxonomy = 'wp_term_taxonomy';
-        public string $terms = 'wp_terms';
-        public string $last_error = '';
-        public function query(string $sql): int { return 1; }
-        public function prepare(string $sql, mixed ...$args): string {
-            foreach ($args as $arg) {
-                $sql = preg_replace('/%s/', "'" . str_replace("'", "''", (string) $arg) . "'", $sql, 1);
-            }
-            return $sql;
-        }
-        public function get_results(string $sql, string $format): array {
-            if (str_starts_with($sql, 'SHOW TABLE STATUS LIKE ')) {
-                return [['Engine' => 'InnoDB']];
-            }
-            if (str_starts_with($sql, 'SELECT COUNT(*) AS row_count')) {
-                return [['row_count' => '0', 'total_bytes' => '0', 'max_row_bytes' => '0']];
-            }
-            return [];
-        }
-    }
-    function is_multisite(): bool { return false; }
-    function get_option(string $name, mixed $default = false): mixed {
-        return $name === 'rank_math_modules' ? [] : $default;
-    }
-    function has_filter(string $name): int|false { return false; }
-    function home_url(string $path = ''): string { return 'https://fixture.example.test' . $path; }
-    function wp_json_encode(mixed $value, int $flags = 0): string|false { return json_encode($value, $flags); }
-
-    $mode = $argv[1] ?? '';
-    $native = $mode === 'subclass'
-        ? new \RankMath\SubstituteDefaults()
-        : new \RankMath\Defaults();
-    $entries = [
-        'native' => ['accepted_args' => 1, 'function' => [$native, 'excluded_post_types']],
-    ];
-    if ($mode === 'extension') {
-        $entries['extension'] = ['accepted_args' => 1, 'function' => [new \RankMath\Defaults(), 'excluded_post_types']];
-    } elseif ($mode === 'method') {
-        $entries['native']['function'][1] = 'other_method';
-    }
-    $GLOBALS['wp_filter'] = $mode === 'missing'
-        ? []
-        : ['rank_math/excluded_post_types' => new WP_Hook([10 => $entries])];
-    $GLOBALS['wpdb'] = new RankMathTopologyWpdb();
-    try {
-        eval((string) base64_decode($argv[2] ?? '', true));
-    } catch (\Throwable $failure) {
-        fwrite(STDERR, $failure->getMessage());
-        exit(23);
-    }
-}
-PHP;
-        $pipes = [];
-        $process = proc_open(
-            [PHP_BINARY, '-r', $probe, $mode, base64_encode($payload)],
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes
-        );
-        if (!is_resource($process)) {
-            throw new RuntimeException('could not launch Rank Math topology probe');
-        }
-        fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exit = proc_close($process);
-        return [
-            'exit' => $exit,
-            'stdout' => is_string($stdout) ? $stdout : '',
-            'stderr' => is_string($stderr) ? $stderr : '',
-        ];
-    }
-
-    function rank_math_test_child_payload(): string {
-        $method = new ReflectionMethod(RankMathState::class, 'child_payload');
-        $payload = $method->invoke(null);
-        if (!is_string($payload)) {
-            throw new RuntimeException('could not read Rank Math child payload');
-        }
-        return $payload;
-    }
-
     /** @return array<string,mixed> */
     function rank_math_test_execute_child(): array {
-        $payload = rank_math_test_child_payload();
-        ob_start();
-        try {
-            eval($payload);
-            $stdout = ob_get_contents();
-        } finally {
-            ob_end_clean();
+        $provider = $GLOBALS['rank_math_test_provider'] ?? null;
+        if (!$provider instanceof RankMathState) {
+            throw new RuntimeException('fixture provider-operation provider is unavailable');
         }
-        $decoded = json_decode((string) $stdout, true, 16, JSON_THROW_ON_ERROR);
-        if (!is_array($decoded)) {
-            throw new RuntimeException('Rank Math child payload returned no receipt');
+        $invoke = new ReflectionMethod(\WPrism\ManifestProviderRuntime::class, 'invokeDirect');
+        $receipt = $invoke->invoke($provider, 'rebuild_all_link_state', []);
+        if (!is_array($receipt)) {
+            throw new RuntimeException('fixture provider operation returned no receipt');
         }
-        return $decoded;
+        return $receipt;
     }
 
     $provider = rank_math_test_reset('none');
@@ -1109,27 +1111,28 @@ PHP;
     );
     $snapshotStarts = array_keys(array_filter(
         $projectionQueries,
-        static fn(string $sql): bool => $sql === 'START TRANSACTION WITH CONSISTENT SNAPSHOT'
+        static fn(string $sql): bool => $sql === 'START TRANSACTION READ ONLY, WITH CONSISTENT SNAPSHOT'
     ));
-    $snapshotCommits = array_keys(array_filter(
+    $snapshotCloses = array_keys(array_filter(
         $projectionQueries,
-        static fn(string $sql): bool => $sql === 'COMMIT'
+        static fn(string $sql): bool => $sql === 'ROLLBACK AND NO CHAIN NO RELEASE'
     ));
-    $firstBounds = null;
+    $rowBounds = [];
     foreach ($projectionQueries as $queryIndex => $sql) {
         if (str_contains($sql, 'COUNT(*) AS row_count')
             && str_contains($sql, 'FROM `wp_rank_math_internal_links`')) {
-            $firstBounds = $queryIndex;
-            break;
+            $rowBounds[] = $queryIndex;
         }
     }
     wprism_check(
-        count($snapshotStarts) === 2
-            && count($snapshotCommits) === 2
-            && is_int($firstBounds)
-            && $snapshotStarts[0] < $firstBounds
-            && $firstBounds < $snapshotCommits[0],
-        'each before/after row witness is one explicit repeatable-read consistent snapshot'
+        count($snapshotStarts) === 4
+            && count($snapshotCloses) === 4
+            && count($rowBounds) === 2
+            && $snapshotStarts[1] < $rowBounds[0]
+            && $rowBounds[0] < $snapshotCloses[1]
+            && $snapshotStarts[3] < $rowBounds[1]
+            && $rowBounds[1] < $snapshotCloses[3],
+        'each before/after row witness follows isolated presence discovery in one profiled read-only snapshot'
     );
     $firstChunkHash = $chunkedReceipt['after']['rank_math_internal_links']['rows_sha256'] ?? null;
     $chunkedRows[1080]['url'] = '/chunk-1081-mutated';
@@ -1253,7 +1256,7 @@ PHP;
         static fn(): array => $provider->invoke('prepare_schema', []),
         RuntimeException::class,
         'a non-MVCC table cannot claim a coherent complete row witness',
-        "requires InnoDB for 'rank_math_internal_links'"
+        'unsupported engine (InnoDB required): wp_rank_math_internal_links'
     );
     wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
         'storage-engine refusal precedes the native schema installer');
@@ -1375,29 +1378,45 @@ PHP;
     );
     wprism_check_same('preserve', $GLOBALS['wpdb']->rows('postmeta')[0]['meta_value'] ?? null,
         'site repair preserves unrelated post metadata');
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
-        'site repair launches exactly one bounded fresh process');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'site repair launches one mutation child and one independent readback child');
     [$command, $options] = $GLOBALS['rank_math_test_command_calls'][0];
-    $repairPayload = rank_math_test_child_payload();
-    wprism_check(!str_contains($repairPayload, '$mode =')
-        && str_contains($command, 'Rank Math derived link-state reset failed'),
-        'fresh child carries the complete derived-state reset');
-    wprism_check(str_contains($command, 'rank_math_internal_links_processed'),
-        'fresh child binds the exact Rank Math processed-marker key');
-    wprism_check(substr_count($command, '$processPass();') === 2
-        && str_contains($command, 'process_post_links($id, $post)'),
-        'fresh child carries the native idempotence pass');
-    wprism_check(str_contains($command, 'is_multisite()'),
-        'fresh child carries the single-site scope guard');
-    wprism_check(str_contains($command, 'get_accessible_post_types'),
-        'fresh child inventories every Rank Math-accessible post type');
-    foreach ([
-        'rank_math/excluded_post_types',
-        'rank_math/links/content', 'rank_math/links/extract', 'rank_math/links/is_external',
-        'rank_math/links/link_type', 'rank_math/links/process_post', 'rank_math/links/save_links',
-    ] as $filter) {
-        wprism_check(str_contains($command, $filter), "fresh child refuses unreviewed callback authority at $filter");
-    }
+    $providerSource = file_get_contents(
+        dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php'
+    );
+    wprism_check(
+        str_contains($command, 'ProviderOperationProcess::child_main')
+            && !str_contains($command, 'rank_math_internal_links_processed')
+            && !str_contains($command, 'process_post_links'),
+        'fresh repair uses the engine fixed command without embedding adapter executable bytes'
+    );
+    wprism_check(
+        is_string($providerSource)
+            && str_contains($providerSource, 'clear_derived_link_state')
+            && str_contains($providerSource, 'process_post_links')
+            && substr_count($providerSource, '$this->repair_link_state_pass();') === 2,
+        'provider methods retain the complete native clear/process/idempotence semantics'
+    );
+    wprism_check(
+        is_string($providerSource)
+            && !str_contains($providerSource, 'WpCliChildProcess')
+            && !str_contains($providerSource, 'child_payload')
+            && preg_match('/\\b(?:START\\s+TRANSACTION|COMMIT|ROLLBACK|SET\\s+TRANSACTION)\\b/i', $providerSource) !== 1,
+        'adapter runtime contains no child-process or transaction-control machinery'
+    );
+    $pendingIdentity = $GLOBALS['rank_math_test_pending_identity'] ?? null;
+    wprism_check(
+        is_array($pendingIdentity)
+            && array_keys($pendingIdentity) === [
+                'request_sha256', 'adapter', 'adapter_digest', 'provider', 'capability', 'operation',
+            ]
+            && preg_match('/^[a-f0-9]{64}$/D', (string) $pendingIdentity['request_sha256']) === 1
+            && $pendingIdentity['adapter'] === 'rank-math'
+            && $pendingIdentity['provider'] === 'rank-math-state'
+            && $pendingIdentity['capability'] === 'rebuild_all_link_state'
+            && $pendingIdentity['operation'] === 'observe',
+        'engine transport exposes only the digest-bound request identity to its process fake'
+    );
     foreach ([
         'rank_math/links/content', 'rank_math/links/extract', 'rank_math/links/is_external',
         'rank_math/links/link_type', 'rank_math/links/process_post', 'rank_math/links/save_links',
@@ -1405,7 +1424,7 @@ PHP;
         $filteredProvider = rank_math_test_reset('link');
         $GLOBALS['rank_math_test_hooks'][$filter] = true;
         wprism_check_throws(
-            static fn(): array => $filteredProvider->invoke('rebuild_all_link_state', []),
+            static fn(): array => rank_math_test_execute_child(),
             RuntimeException::class,
             "a callback on $filter refuses before native link mutation",
             'refuses an unreviewed link-processing callback'
@@ -1420,7 +1439,7 @@ PHP;
     $emptyStoredRules = $GLOBALS['rank_math_test_options']['rewrite_rules'];
     $emptyStoredRows = $GLOBALS['wpdb']->rows('options');
     wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'pretty-permalink repair refuses empty stored and loaded rewrite rules before native resolution can regenerate them',
         'requires exact non-empty stored and loaded rewrite rules'
@@ -1441,7 +1460,7 @@ PHP;
     $GLOBALS['wp_rewrite']->rules = false;
     $malformedRuntimeRows = $GLOBALS['wpdb']->rows('options');
     wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'a present malformed rewrite cache is never replaced by otherwise-valid stored rules',
         'requires exact non-empty stored and loaded rewrite rules'
@@ -1459,7 +1478,7 @@ PHP;
     $GLOBALS['wp_rewrite']->rules = null;
     $malformedStoredRows = $GLOBALS['wpdb']->rows('options');
     wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'malformed stored rewrite rules are never promoted into an empty request-local cache',
         'requires exact non-empty stored and loaded rewrite rules'
@@ -1486,15 +1505,15 @@ PHP;
         'parent rewrite-cache hydration never regenerates or persists durable rules');
     wprism_check_same($lazyStoredRows, $GLOBALS['wpdb']->rows('options'),
         'parent rewrite-cache hydration leaves the durable options table byte-for-byte unchanged');
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
-        'the hydrated parent still launches exactly one bounded fresh repair process');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'the hydrated parent launches bounded mutation and readback processes');
 
     $provider = rank_math_test_reset('link');
     rank_math_test_set_option('permalink_structure', '/%postname%/');
     rank_math_test_set_option('rewrite_rules', $lazyRules);
     $GLOBALS['wp_rewrite'] = new RankMathExtendedRewrite(null);
     wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'a null rewrite cache on an extended runtime refuses before request-local initialization',
         'requires the exact core rewrite runtime'
@@ -1507,7 +1526,7 @@ PHP;
     rank_math_test_set_option('rewrite_rules', ['stored/?$' => 'index.php?pagename=stored']);
     $GLOBALS['wp_rewrite']->rules = ['loaded/?$' => 'index.php?pagename=loaded'];
     wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'pretty-permalink repair refuses stored/loaded rewrite-rule drift before URL resolution',
         'requires exact non-empty stored and loaded rewrite rules'
@@ -1533,31 +1552,39 @@ PHP;
             && ($firstDeployCallback[1] ?? null) === 'excluded_post_types',
         'the missing-hook bootstrap produces exactly the audited native callback'
     );
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
-        'the virgin pre-apply path still launches exactly one bounded fresh repair process');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'the virgin pre-apply path still launches bounded mutation and readback processes');
 
     $provider = rank_math_test_reset('link');
-    $receipt = $provider->invoke('rebuild_all_link_state', []);
-    $missingTopology = rank_math_test_child_topology('missing');
-    wprism_check(
-        $missingTopology['exit'] === 0
-            && str_contains($missingTopology['stdout'], 'wprism-rank-math-link-rebuild/v1'),
-        'the fresh child hydrates the audited native callback when registration short-circuited before authored apply'
-    );
-    $nativeTopology = rank_math_test_child_topology('native');
-    wprism_check(
-        $nativeTopology['exit'] === 0
-            && str_contains($nativeTopology['stdout'], 'wprism-rank-math-link-rebuild/v1'),
-        'the exact Rank Math native exclusion callback is the sole admitted topology'
-    );
-    foreach (['subclass', 'extension', 'method'] as $mode) {
-        $topology = rank_math_test_child_topology($mode);
-        wprism_check(
-            $topology['exit'] === 23
-                && $topology['stderr'] === 'Rank Math link repair requires exactly its audited native exclusion callback',
-            "fresh child refuses $mode substitution at the native exclusion hook"
+    $receipt = rank_math_test_execute_child();
+    wprism_check_same(true, $receipt['verified'] ?? null,
+        'the engine dispatcher grants one child authority to the exact native provider operation');
+    foreach (['substitute', 'extension', 'method'] as $mode) {
+        $provider = rank_math_test_reset('link');
+        $entries = $GLOBALS['wp_filter']['rank_math/excluded_post_types']->callbacks[10];
+        if ($mode === 'substitute') {
+            $substitute = new class {
+                public function excluded_post_types(array $types): array { return $types; }
+            };
+            $entries['rank-math-native']['function'] = [$substitute, 'excluded_post_types'];
+        } elseif ($mode === 'extension') {
+            $entries['extension'] = [
+                'accepted_args' => 1,
+                'function' => [new \RankMath\Defaults(), 'excluded_post_types'],
+            ];
+        } else {
+            $entries['rank-math-native']['function'][1] = 'other_method';
+        }
+        $GLOBALS['wp_filter']['rank_math/excluded_post_types'] = new WP_Hook([10 => $entries]);
+        wprism_check_throws(
+            static fn(): array => rank_math_test_execute_child(),
+            RuntimeException::class,
+            "engine-dispatched fresh operation refuses $mode substitution at the native exclusion hook",
+            'requires exactly its audited native exclusion callback'
         );
     }
+    $provider = rank_math_test_reset('link');
+    $receipt = $provider->invoke('rebuild_all_link_state', []);
     wprism_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
         $options,
@@ -1611,20 +1638,9 @@ PHP;
     );
 
     $provider = rank_math_test_reset('link');
-    $commitCount = 0;
     $scopedRaceInjected = false;
-    $GLOBALS['wpdb']->onQuery(static function (
-        string $sql,
-        string $method,
-        FakeWpdb $db
-    ) use (&$commitCount, &$scopedRaceInjected): null {
-        if ($method !== 'query' || strtoupper(trim($sql)) !== 'COMMIT') {
-            return null;
-        }
-        $commitCount++;
-        if ($commitCount !== 3) {
-            return null;
-        }
+    $GLOBALS['rank_math_test_after_result'] = static function () use (&$scopedRaceInjected): void {
+        $db = $GLOBALS['wpdb'];
         $rows = $db->rows('postmeta');
         foreach ($rows as &$row) {
             if ((int) ($row['post_id'] ?? 0) === 20
@@ -1635,26 +1651,38 @@ PHP;
         unset($row);
         $db->seedTable('postmeta', $rows);
         $scopedRaceInjected = true;
-        return null;
-    });
-    $racedScoped = $provider->invoke_scoped('rebuild_all_link_state', [], $operation);
-    $GLOBALS['wpdb']->onQuery(null);
-    $racedCurrent = $provider->reconcile_scoped('rebuild_all_link_state', [], $operation);
+    };
+    wprism_check_throws(
+        static fn(): array => $provider->invoke_scoped('rebuild_all_link_state', [], $operation),
+        RuntimeException::class,
+        'fresh-process parent proof refuses a competing write after child semantic verification',
+        'fresh-process receipt disagrees with independent parent readback'
+    );
     wprism_check_same(true, $scopedRaceInjected,
         'scoped receipt regression injects a competing write after semantic verification');
-    wprism_check(
-        ($racedScoped['after'] ?? null) !== ($racedCurrent['after'] ?? null),
-        'scoped invocation publishes the semantically verified handler projection rather than raced post-verification bytes'
-    );
+    $racedCurrent = $provider->reconcile_scoped('rebuild_all_link_state', [], $operation);
+    $childReceipt = $GLOBALS['rank_math_test_last_child_receipt'] ?? null;
+    $childAfter = is_array($childReceipt) ? ($childReceipt['after'] ?? null) : null;
+    $project = new ReflectionMethod(RankMathState::class, 'project_rebuild_all_link_state');
+    $childScoped = is_array($childAfter) ? $project->invoke($provider, $childAfter) : null;
     wprism_check_same(
         ['link_count', 'link_hash', 'meta_count', 'meta_hash', 'marker_count', 'marker_hash'],
-        array_keys($racedScoped['after'] ?? []),
+        array_keys(is_array($childScoped) ? $childScoped : []),
         'scoped receipt projection closes over only the three verified derived-state surfaces'
+    );
+    wprism_check(
+        $childScoped !== ($racedCurrent['after'] ?? null),
+        'the refused child receipt remains distinct from the independently observed raced postimage'
     );
 
     $provider = rank_math_test_reset('link');
-    $GLOBALS['rank_math_test_modules'] = [];
+    rank_math_test_set_option('rank_math_modules', []);
     $disabled = $provider->invoke('rebuild_all_link_state', []);
+    wprism_check_same(
+        ['link-counter', 'redirections'],
+        $GLOBALS['rank_math_test_modules'],
+        'durable module state wins even when a process-external option cache remains stale'
+    );
     wprism_check_same(false, $disabled['after']['enabled'] ?? null, 'receipt binds the disabled module decision');
     wprism_check_same([0, 0, 0], [
         $disabled['after']['link_count'] ?? null,
@@ -1674,11 +1702,12 @@ PHP;
     $provider = rank_math_test_reset('link');
     $GLOBALS['wpdb']->failNextQuery('projection secret sk_rank_math_projection', 'SELECT `url`');
     $readFailure = rank_math_test_throw_message(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', [])
+        static fn(): array => rank_math_test_execute_child()
     );
     wprism_check(
-        str_contains($readFailure, 'checked read failed') && !str_contains($readFailure, 'sk_rank_math_projection'),
-        'pre-mutation projection failure is loud, redacted and launches no child'
+        str_contains($readFailure, 'provider checked read failed: Rank Math link projection')
+            && !str_contains($readFailure, 'sk_rank_math_projection'),
+        'engine-dispatched pre-mutation projection failure is loud and redacted'
     );
     wprism_check_same([], $GLOBALS['rank_math_test_command_calls'], 'failed precondition read launches no child process');
 
@@ -1687,16 +1716,24 @@ PHP;
         'nonzero exit' => (object) ['return_code' => 9, 'stdout' => '', 'stderr' => $hostile],
         'stderr on success' => (object) ['return_code' => 0, 'stdout' => '{}', 'stderr' => $hostile],
         'malformed json' => (object) ['return_code' => 0, 'stdout' => '{' . $hostile, 'stderr' => ''],
-        'extra receipt authority' => (object) [
-            'return_code' => 0,
-            'stdout' => json_encode([
-                'format' => 'wprism-rank-math-link-rebuild/v1',
-                'projection' => [],
-                'verified' => true,
-                'secret' => $hostile,
-            ]),
-            'stderr' => '',
-        ],
+        'extra receipt authority' => static function () use ($hostile): object {
+            $pendingIdentity = new ReflectionMethod(\WPrism\ProviderOperationProcess::class, 'pending_identity');
+            $pending = $pendingIdentity->invoke(null);
+            return (object) [
+                'return_code' => 0,
+                'stdout' => \WPrism\Canon::encode([
+                    'format' => \WPrism\ProviderOperationProcess::RECEIPT_FORMAT,
+                    'request_sha256' => $pending['request_sha256'] ?? '',
+                    'adapter' => $pending['adapter'] ?? '',
+                    'adapter_digest' => $pending['adapter_digest'] ?? '',
+                    'provider' => $pending['provider'] ?? '',
+                    'capability' => $pending['capability'] ?? '',
+                    'receipt' => ['before' => [], 'after' => [], 'verified' => true],
+                    'secret' => $hostile,
+                ]),
+                'stderr' => '',
+            ];
+        },
     ];
     foreach ($cases as $label => $result) {
         $provider = rank_math_test_reset('link');
@@ -1716,7 +1753,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', [])
     );
     wprism_check(
-        str_contains($launchFailure, 'bounded fresh process') && !str_contains($launchFailure, 'sk_rank_math_child'),
+        str_contains($launchFailure, 'transport outcome is unknown') && !str_contains($launchFailure, 'sk_rank_math_child'),
         'child launch exception is wrapped without exposing its value'
     );
 
@@ -1743,10 +1780,12 @@ PHP;
     $staleParentWithoutDependency = $staleParentProjection;
     $freshWithoutDependency = $freshTopologyProjection;
     unset($staleParentWithoutDependency['dependency_hash'], $freshWithoutDependency['dependency_hash']);
+    ksort($staleParentWithoutDependency, SORT_STRING);
+    ksort($freshWithoutDependency, SORT_STRING);
     wprism_check_same(true, $freshTopologyReceipt['verified'] ?? null,
         'stable post-apply parent evidence publishes verified repair despite stale request-local topology');
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
-        'post-apply topology proof uses one fresh repair process and one checked parent readback');
+    wprism_check_same(2, count($GLOBALS['rank_math_test_command_calls']),
+        'post-apply topology proof uses independent fresh mutation and readback processes');
     wprism_check_same($staleParentWithoutDependency, $freshWithoutDependency,
         'the prior live defect fixture differs from the applying parent only at request-local route dependencies');
     wprism_check_same(
@@ -1771,7 +1810,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'success-shaped child receipt with a divergent exact projection refuses',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1799,7 +1838,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'a competing count write after child proof refuses verified success',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1828,7 +1867,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'same-count competing marker write after child proof refuses recovery debt',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1851,7 +1890,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'same-count authored post change after child proof refuses recovery debt',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1878,7 +1917,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'author nicename change after a %author% proof invalidates native resolution',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1911,7 +1950,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'default-category change after a no-term %category% proof invalidates native resolution',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1947,7 +1986,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'pretty-page query-option change after child proof invalidates native resolution',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -1975,7 +2014,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'old-comment closure option change after child proof invalidates singular native resolution',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -2005,7 +2044,7 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'comment-feed row change after child proof invalidates native resolution',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
@@ -2035,13 +2074,13 @@ PHP;
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'term route change after child proof refuses recovery debt',
-        'stable evidence disagrees with checked parent readback'
+        'fresh-process receipt disagrees with independent parent readback'
     );
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_helper_types'] = ['post' => 'post'];
     wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'stale Rank Math accessible-type cache refuses before native repair',
         'disagree with the current audited topology'
@@ -2052,10 +2091,10 @@ PHP;
     $provider = rank_math_test_reset('link');
     $GLOBALS['wpdb']->setTableEngine('terms', 'MyISAM');
     wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'non-transactional route dependency refuses before native repair',
-        "requires InnoDB for 'wp_terms'"
+        'InnoDB required): wp_terms'
     );
     wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
         'route storage-engine refusal launches no child process');
@@ -2172,7 +2211,7 @@ PHP;
     $GLOBALS['wpdb']->resetLog();
     $actualChild = rank_math_test_execute_child();
     wprism_check_same(true, $actualChild['verified'] ?? null,
-        'the emitted fresh-child program executes its complete enabled-module path offline');
+        'the engine-dispatched fresh operation executes its complete enabled-module path offline');
     wprism_check_same($childLazyRules, $GLOBALS['wp_rewrite']->rules,
         'the fresh child hydrates its independent null rewrite cache from exact non-empty stored rules');
     wprism_check_same($childStoredRules, $GLOBALS['rank_math_test_options']['rewrite_rules'],
@@ -2181,10 +2220,12 @@ PHP;
         'fresh-child rewrite-cache hydration leaves the durable options table byte-for-byte unchanged');
     wprism_check(
         ($GLOBALS['wp_filter']['rank_math/excluded_post_types'] ?? null) instanceof WP_Hook,
-        'one virgin emitted-child execution establishes both audited request-local native premises'
+        'one virgin dispatched-child execution establishes both audited request-local native premises'
     );
     $parentProjection = rank_math_test_projection();
-    wprism_check_same($parentProjection, $actualChild['projection'] ?? null,
+    wprism_check_same(
+        \WPrism\Canon::encode($parentProjection),
+        \WPrism\Canon::encode($actualChild['after'] ?? null),
         'an unchanged runtime gives the shared parent projector the same complete projection');
     wprism_check_same(1, count(array_filter(
         $GLOBALS['wpdb']->rows('rank_math_internal_links'),
@@ -2219,7 +2260,7 @@ PHP;
         static fn(): array => rank_math_test_execute_child(),
         RuntimeException::class,
         'fresh child refuses a non-transactional written table before its first reset',
-        "requires InnoDB for 'wp_rank_math_internal_links'"
+        'InnoDB required): wp_rank_math_internal_links'
     );
     wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
         'written-table storage refusal precedes every native process callback');

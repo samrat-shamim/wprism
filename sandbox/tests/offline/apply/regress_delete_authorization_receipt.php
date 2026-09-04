@@ -113,7 +113,27 @@ wprism_check_same(
 // -------------------------------------- (2) the shipped preparation branch
 
 $store = WpStore::reset();
-$wpdb = FakeWpdb::install();
+$wpdb = FakeWpdb::install()->enableInformationSchema();
+$wpdb
+    ->setColumns('wprism_map', [
+        'uuid' => 'char(36)',
+        'entity_type' => 'varchar(64)',
+        'id_kind' => 'varchar(32)',
+        'local_id' => 'bigint unsigned',
+    ])
+    ->setUniqueKey('wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wprism_map', 'InnoDB')
+    ->setColumns('wprism_state', [
+        'uuid' => 'char(36)',
+        'entity_type' => 'varchar(64)',
+        'content_hash' => 'char(64)',
+    ])
+    ->setUniqueKey('wprism_state', ['uuid'])
+    ->setTableEngine('wprism_state', 'InnoDB')
+    ->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+    ->setUniqueKey('wprism_kv', ['k'])
+    ->setTableEngine('wprism_kv', 'InnoDB');
 $policy = FrozenPolicy::policy([], FrozenPolicy::site([]));
 $compiled = CompiledRepository::create(['tree' => []]);
 
@@ -557,23 +577,7 @@ wprism_check(
     'same-process retry after engine/map/commit faults terminalizes the exact verifying session once'
 );
 
-$wpdb->resetLog();
-$terminalCommitApplied = false;
-$terminalCommitHook = null;
-$terminalCommitHook = static function (
-    string $sql,
-    string $method,
-    FakeWpdb $db
-) use (&$terminalCommitApplied): ?string {
-    if ($method !== 'query' || $sql !== 'COMMIT' || $terminalCommitApplied) {
-        return null;
-    }
-    $terminalCommitApplied = true;
-    $db->onQuery(null);
-    $db->query('COMMIT');
-    return 'simulated COMMIT client failure after server application';
-};
-$wpdb->onQuery($terminalCommitHook);
+$wpdb->resetLog()->injectTransactionOutcome('COMMIT', 'after_false');
 try {
     $finalize(false);
     $terminalCommitRefused = false;
@@ -586,7 +590,6 @@ foreach ($wpdb->rows('wp_wprism_kv') as $row) {
 }
 wprism_check(
     $terminalCommitRefused
-        && $terminalCommitApplied
         && ($terminalKv['applied_revision'] ?? null) === $revision
         && !in_array('ROLLBACK', $wpdb->queries(), true),
     'an inactive ambiguous ledger COMMIT preserves its physical postimage and never compensates through autocommit'

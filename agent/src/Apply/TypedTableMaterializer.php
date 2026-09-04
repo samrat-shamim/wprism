@@ -278,11 +278,23 @@ final class TypedTableMaterializer {
         if ($exists) {
             if ($authored) {
                 [$data, $format] = TableSchema::write_format($authored, $colTypes);
-                $wpdb->update($prefixed, $data, $where, $format);
+                Db::update(
+                    $prefixed,
+                    $data,
+                    $where,
+                    $format,
+                    null,
+                    "apply update typed-snapshot composite row {$entity['type']}"
+                );
             }
         } else {
             [$data, $format] = TableSchema::write_format($where + $authored, $colTypes);
-            $wpdb->insert($prefixed, $data, $format);
+            Db::insert(
+                $prefixed,
+                $data,
+                $format,
+                "apply insert typed-snapshot composite row {$entity['type']}"
+            );
         }
 
         $packed = ($this->packCompositeId)($entity['type'], $localByColumn);
@@ -397,8 +409,10 @@ final class TypedTableMaterializer {
             $column = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['column'] ?? 'id');
             $prefixed = $wpdb->prefix . $table;
             if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
-                Db::query(
-                    $wpdb->prepare("DELETE FROM `$prefixed` WHERE `$column` = %d", $localId),
+                Db::mutation(
+                    "DELETE FROM `$prefixed`",
+                    $wpdb->prepare("`$column` = %d", $localId),
+                    '',
                     "apply invalidate $table cache row"
                 );
             }

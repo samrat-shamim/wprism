@@ -8,6 +8,7 @@
 declare(strict_types=1);
 
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
+if (!defined('ARRAY_N')) define('ARRAY_N', 'ARRAY_N');
 if (!function_exists('untrailingslashit')) {
     function untrailingslashit($value): string { return rtrim((string) $value, '/\\'); }
 }
@@ -44,7 +45,8 @@ function wp_cache_set($key, $value, $group = '', $expire = 0): bool {
 }
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/DatabaseExceptions.php';
+require_once __DIR__ . '/../../lib/AuthoredFieldDbDouble.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
@@ -135,6 +137,15 @@ final class UserMetaMaterializerWpdb {
             return null;
         }
         throw new RuntimeException("unrecognized get_var query: $sql");
+    }
+
+    public function get_row(string $sql, mixed $mode): ?array {
+        $this->queries[] = $sql;
+        if ($mode === ARRAY_N
+            && preg_match('/^SHOW CREATE TABLE `([^`]+)`$/D', trim($sql), $match) === 1) {
+            return [$match[1], "CREATE TABLE `{$match[1]}` (`id` bigint) ENGINE=InnoDB"];
+        }
+        throw new RuntimeException("unrecognized get_row query: $sql");
     }
 
     public function get_results(string $sql, mixed $mode): mixed {
@@ -397,11 +408,11 @@ try {
     $subject->finalize_user_meta(['login' => 'Editor', 'meta' => ['description_en' => 'outside-txn']]);
     $lostTransactionRefused = false;
 } catch (Throwable $failure) {
-    $lostTransactionRefused = str_contains($failure->getMessage(), 'requires an active transaction');
+    $lostTransactionRefused = str_contains($failure->getMessage(), 'lost authored transaction continuity');
 }
 $check($lostTransactionRefused && $wpdb->metaRows === $beforeLostTransaction
     && count($wpdb->mutations) === $beforeLostMutations,
-    'transaction loss between owners refuses owner two despite cached engine/index descriptors');
+    'transaction identity loss between owners refuses owner two despite cached engine/index descriptors');
 $wpdb->transactionState = '1';
 $proofCount = count(array_filter($wpdb->queries,
     static fn(string $sql): bool => str_contains($sql, 'information_schema.TABLES')));

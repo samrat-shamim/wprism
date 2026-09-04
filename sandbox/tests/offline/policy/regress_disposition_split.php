@@ -286,6 +286,11 @@ const WPRISM_PRE_STABLE_READBACK_RANK_MATH_DIGEST = '887d618c304363dbc31f0904652
 const WPRISM_PRE_STABLE_READBACK_MANIFEST_HASH = 'e2fa3b32f8096a42fab5d8d81a25547328d8ae59cde3968dd8e2b47b8e929dd1';
 const WPRISM_PRE_STABLE_READBACK_SNAPSHOT_SHA = 'cf6167b6066448bf678f337256c8ffe4e49716ce67fda63d0a693ae6a38cb0d4';
 
+/** The prior Rank Math baseline, retained because engine-owned fresh-process observation moves shipped bytes. */
+const WPRISM_PRE_FRESH_PROCESS_RANK_MATH_DIGEST = '3e72a78a5780a39f78ad7359b02ba2aea3d1385723afec40202405eb916ac454';
+const WPRISM_PRE_FRESH_PROCESS_MANIFEST_HASH = '8eb6f947081fd0de2834d21c1495a660565f6715a5bac369e826fed10234283e';
+const WPRISM_PRE_FRESH_PROCESS_SNAPSHOT_SHA = '84c6eb649fa8dda4a52e6c1b539c5e651abf1dec7d7dbdf4265fbf8471a33e4d';
+
 /**
  * The duplicate durable-context declaration correction changes only the
  * WooCommerce manifest row. Preserve the immediately preceding fleet-visible
@@ -318,7 +323,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
-    'rank-math' => '3e72a78a5780a39f78ad7359b02ba2aea3d1385723afec40202405eb916ac454',
+    'rank-math' => 'd0bb3dc28e9b96d540e558c4c310762804860c26b3a4ef40e1c892b6de782f97',
     'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => 'c66724d62f9410b43208b172ebdf95f6a5003b81a00dd6137401da4ae5cc94e3',
@@ -327,10 +332,10 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '8eb6f947081fd0de2834d21c1495a660565f6715a5bac369e826fed10234283e';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'b1394e24b916520f09209815caeef991098acb7a12c66fa81d5f3d64a89c4647';
 const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
 const WPRISM_CURRENT_REGISTRY_SHA = '6e9e8bf30e6699cf127320ece2b12f594f421eb5025c36bc2e8aedba7b6a852c';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '84c6eb649fa8dda4a52e6c1b539c5e651abf1dec7d7dbdf4265fbf8471a33e4d';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '825a1dd5b5adb46496bbd535c97ed8a920fa7a9711e2b8612bbf168d2bace0dc';
 const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '5d50d0eb4137960b231743cc12e54180eb3716e59d993ada91d5f24954705836';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
@@ -590,6 +595,12 @@ wprism_check(
         && WPRISM_PRE_STABLE_READBACK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
         && WPRISM_PRE_STABLE_READBACK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
     'the historical stale-parent verification addresses are distinct from the stable-readback baseline'
+);
+wprism_check(
+    WPRISM_PRE_FRESH_PROCESS_RANK_MATH_DIGEST !== WPRISM_CURRENT_DIGESTS['rank-math']
+        && WPRISM_PRE_FRESH_PROCESS_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_FRESH_PROCESS_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    'the historical applying-parent readback addresses are distinct from the fresh-process observation baseline'
 );
 wprism_check_same(
     WPRISM_CURRENT_DIGESTS,

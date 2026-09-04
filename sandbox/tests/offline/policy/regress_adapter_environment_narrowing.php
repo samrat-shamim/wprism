@@ -413,7 +413,8 @@ $facts = static fn(
         'proc_get_status' => true, 'proc_open' => true, 'proc_terminate' => true,
     ],
     string $shellPath = '/bin/sh',
-    bool $shellExecutable = true
+    bool $shellExecutable = true,
+    bool $wpCliOpcacheEnabled = false
 ): array => [
     'php' => $php,
     'database' => ['engine' => $engine, 'version' => $database],
@@ -426,6 +427,7 @@ $facts = static fn(
         'functions' => $processFunctions,
         'os_family' => $processOsFamily,
         'shell' => ['executable' => $shellExecutable, 'path' => $shellPath],
+        'wp_cli_opcache_enabled' => $wpCliOpcacheEnabled,
     ],
     'wordpress' => $wordpress,
     'site_mode' => $siteMode,

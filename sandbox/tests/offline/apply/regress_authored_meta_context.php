@@ -127,7 +127,7 @@ $makeDb = static function (array $postmeta = [], array $termmeta = [], array $us
         ->seedTable('wprism_map', [[
             'uuid' => RELATED_UUID, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 41,
         ]]);
-    foreach ([$db->postmeta, $db->termmeta, $db->usermeta, $db->users] as $table) {
+    foreach ([$db->postmeta, $db->termmeta, $db->usermeta, $db->users, $db->prefix . 'wprism_map'] as $table) {
         $db->addInnoDbTable($table);
     }
     return $db->addIndex($db->postmeta, 'post_id', 'post_id')
@@ -152,7 +152,13 @@ $run = static function (LockingFakeWpdb $db, callable $body) use ($policy, $toke
     \WPrismTest\WpStore::reset();
     $field = new ApplyFieldMaterializer($policy, $tokens);
     $user = new UserMetaMaterializer($policy, $tokens, $field);
-    \WPrism\Db::start_repeatable_read('authored meta context fixture transaction');
+    \WPrism\Db::start_repeatable_read(
+        'authored meta context fixture transaction',
+        new \WPrism\NativeDatabaseProfile(
+            [$db->users, $db->prefix . 'wprism_map'],
+            [$db->postmeta, $db->termmeta, $db->usermeta]
+        )
+    );
     $field->begin_authored_transaction();
     CacheInvalidationTransaction::begin();
     $failure = null;

@@ -127,6 +127,24 @@ if (isset($policy)) {
         'and the shipped set really does exercise all three executable folds, so the digest is not being proved over '
             . 'rows that carry none of them'
     );
+    foreach ([
+        ['acf', 'interpreters', 'acf'],
+        ['woocommerce', 'providers', 'woocommerce-cache'],
+        ['the-events-calendar', 'regenerators', 'the-events-calendar'],
+    ] as [$adapter, $kind, $id]) {
+        $descriptor = ArtifactPolicyIdentity::runtime_component_descriptor($policy, $adapter, $kind, $id);
+        $check(
+            ($descriptor['adapter'] ?? null) === $adapter
+                && ($descriptor['kind'] ?? null) === $kind
+                && ($descriptor['id'] ?? null) === $id
+                && is_string($descriptor['sha256'] ?? null)
+                && hash_file('sha256', (string) ($descriptor['file'] ?? '')) === $descriptor['sha256']
+                && ($descriptor['adapter_sha256'] ?? null) === ($resolvedByName[$adapter]['digest'] ?? null)
+                && ($descriptor['class'] ?? null) === \WPrism\AdapterLibrary::runtimeClassName($kind, $id),
+            "runtime_component_descriptor(): $adapter/$kind/$id carries the sole path, class, component digest, "
+                . 'and adapter digest consumed by loading'
+        );
+    }
     $regeneratorRow = null;
     foreach ($rows as $identityRow) {
         if (isset($identityRow['regenerators']) && count($identityRow['regenerators']) > 1) {
@@ -155,6 +173,65 @@ $check(
         && substr_count($compilerSource, 'ArtifactPolicyIdentity::resolved_adapters($policy)') === 1,
     'RepositoryCompiler delegates every extracted identity entry point instead of retaining a duplicate implementation'
 );
+
+$policySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
+$providersSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Adapter/Providers.php');
+$check(
+    substr_count($policySource, 'ManifestExecutableLoader::load(') === 2
+        && substr_count($providersSource, 'ManifestExecutableLoader::load(') === 1
+        && !str_contains($policySource, 'require_once $file;')
+        && !str_contains($providersSource, 'require_once $file;'),
+    'providers, interpreters, and regenerators all cross the one manifest executable loader; no raw engine loading route remains'
+);
+
+echo "\n== manifest executable loader adversarial process matrix ==\n";
+$probe = __DIR__ . '/../../fixtures/manifest-executable-loader-probe.php';
+foreach ([
+    'routes' => 'all three product routes load their descriptor-bound class',
+    'drift-interpreters' => 'interpreter digest drift refuses before package marker execution',
+    'drift-providers' => 'provider digest drift refuses before package marker execution',
+    'drift-regenerators' => 'regenerator digest drift refuses before package marker execution',
+    'occupancy-class' => 'an ambient class cannot preempt a provider descriptor',
+    'occupancy-interface' => 'an ambient interface cannot occupy an interpreter class name',
+    'occupancy-trait' => 'an ambient trait cannot occupy a regenerator class name',
+    'occupancy-enum' => 'an ambient enum cannot occupy a provider class name',
+    'autoload' => 'ambient autoload is never consulted for a manifest executable symbol',
+    'reuse' => 'the same descriptor reuses one load while a different descriptor for that class refuses',
+    'opcache-seam' => 'configured opcode caching refuses when status is unavailable and invalidation fails',
+    'opcache-live' => 'the descriptor loader succeeds with CLI opcode caching enabled when the extension is available',
+    'opcache-restricted' => 'a restricted opcode API emits only the controlled loader refusal',
+    'collisions' => 'normalized class collisions in every runtime kind refuse independently of discovery order',
+] as $scenario => $message) {
+    $descriptors = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $pipes = [];
+    $command = [PHP_BINARY];
+    if (in_array($scenario, ['opcache-live', 'opcache-restricted'], true)) {
+        array_push($command, '-d', 'opcache.enable=1', '-d', 'opcache.enable_cli=1');
+    }
+    if ($scenario === 'opcache-restricted') {
+        array_push($command, '-d', 'opcache.restrict_api=/definitely/not/wprism');
+    }
+    array_push($command, $probe, $scenario);
+    $process = proc_open($command, $descriptors, $pipes);
+    if (!is_resource($process)) {
+        $check(false, "$message (could not start isolated process)");
+        continue;
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+    $check(
+        $exitCode === 0 && $stdout === "PASS $scenario\n" && $stderr === '',
+        $message . ($stderr === '' ? '' : " ($stderr)")
+    );
+}
 
 if ($failures !== []) {
     fwrite(STDERR, "\nFAILED " . count($failures) . " assertion(s)\n");

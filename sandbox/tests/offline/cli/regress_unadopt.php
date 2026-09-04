@@ -67,7 +67,7 @@ final class UnadoptFilesystemTransport implements AdoptionTransport, Environment
     private string $repo;
     private string $wp;
 
-    public function __construct(private string $root, string $sourceRoot) {
+    public function __construct(private string $root, string $sourceRoot, bool $legacyLoader = false) {
         $this->mu = $root . '/mu-plugins';
         $this->repo = $root . '/repository';
         $this->wp = $root . '/wordpress';
@@ -80,7 +80,12 @@ final class UnadoptFilesystemTransport implements AdoptionTransport, Environment
         mkdir($this->mu . '/wprism-control', 0700, true);
         mkdir($this->wp, 0700, true);
         copy($sourceRoot . '/agent/wprism.php', $this->mu . '/wprism/wprism.php');
-        copy($sourceRoot . '/agent/wprism-loader.php', $this->mu . '/wprism-loader.php');
+        copy(
+            $legacyLoader
+                ? dirname(__DIR__, 2) . '/fixtures/legacy-wprism-loader.php'
+                : $sourceRoot . '/agent/wprism-loader.php',
+            $this->mu . '/wprism-loader.php'
+        );
         copy(
             $sourceRoot . '/recovery/rollback-control.php',
             $this->repo . '/.wprism/control/recovery-runtime/rollback-control.php'
@@ -174,6 +179,20 @@ $repoBefore = [
     'git' => unadopt_tree_bytes($transport->repoPath() . '/.git'),
     'revocations' => file_get_contents($transport->muDir() . '/wprism-control/adapter-revocations.json'),
 ];
+$blanketArchive = $fixtureRoot . '/blanket-handoff';
+ob_start();
+$blanketExit = UnadoptCommand::run(
+    $transport,
+    ["--archive-to=$blanketArchive", '--yes', '--attest-legacy-loader-quiesced']
+);
+ob_end_clean();
+unadopt_check($blanketExit !== 0, 'unadopt rejects a blanket quiescence attestation for a fenced loader');
+unadopt_check(
+    !file_exists($blanketArchive)
+        && is_file($transport->muDir() . '/wprism-loader.php')
+        && is_dir($transport->muDir() . '/wprism'),
+    'misapplied unadopt attestation creates no archive and changes no live byte'
+);
 ob_start();
 $exit = UnadoptCommand::run($transport, ["--archive-to=$archive", '--yes']);
 $output = (string) ob_get_clean();
@@ -181,8 +200,9 @@ unadopt_check($exit === 0, 'the public unadopt command completes through the rea
 unadopt_check(
     !file_exists($transport->muDir() . '/wprism')
         && !file_exists($transport->muDir() . '/wprism-loader.php')
-        && !file_exists($transport->repoPath() . '/.wprism'),
-    'commit removes exactly the live agent, MU loader, and target-local control tree'
+        && !file_exists($transport->repoPath() . '/.wprism')
+        && !file_exists($transport->muDir() . '/.wprism-unadopt-lock'),
+    'commit removes exactly the live agent, MU loader, target-local control tree, and writer gate'
 );
 unadopt_check(
     is_file($archive . '/mu-plugins/wprism/wprism.php')
@@ -214,6 +234,62 @@ unadopt_check(
     'success tells the operator both where evidence went and what was deliberately retained'
 );
 
+$legacyTransport = new UnadoptFilesystemTransport($fixtureRoot . '/legacy-target', $sourceRoot, true);
+$legacyArchive = $fixtureRoot . '/legacy-handoff';
+$legacyBefore = [
+    unadopt_tree_bytes($legacyTransport->muDir()),
+    unadopt_tree_bytes($legacyTransport->repoPath()),
+];
+ob_start();
+$legacyRefusal = UnadoptCommand::run($legacyTransport, ["--archive-to=$legacyArchive", '--yes']);
+ob_end_clean();
+unadopt_check($legacyRefusal !== 0, 'the host unadopt command refuses an unfenced legacy loader without attestation');
+unadopt_check(
+    [
+        unadopt_tree_bytes($legacyTransport->muDir()),
+        unadopt_tree_bytes($legacyTransport->repoPath()),
+    ] === $legacyBefore
+        && !file_exists($legacyArchive),
+    'unattested legacy unadoption creates no archive and changes no target byte'
+);
+ob_start();
+$legacyExit = UnadoptCommand::run(
+    $legacyTransport,
+    ["--archive-to=$legacyArchive", '--yes', '--attest-legacy-loader-quiesced']
+);
+$legacyOutput = (string) ob_get_clean();
+$legacyReceipt = json_decode(
+    (string) file_get_contents($legacyArchive . '/receipt.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+unadopt_check($legacyExit === 0, 'the host unadopt command carries the explicit legacy-loader quiescence attestation');
+unadopt_check(
+    ($legacyReceipt['loader_generation_fence'] ?? null) === 'legacy-unfenced'
+        && ($legacyReceipt['legacy_loader_quiescence_attested'] ?? null) === true
+        && str_contains($legacyOutput, 'archived the explicit quiescence attestation'),
+    'attested legacy unadoption persists and reports its one-time migration evidence'
+);
+
+$lookalikeTransport = new UnadoptFilesystemTransport($fixtureRoot . '/lookalike-target', $sourceRoot);
+$lookalikeArchive = $fixtureRoot . '/lookalike-handoff';
+file_put_contents(
+    $lookalikeTransport->muDir() . '/wprism-loader.php',
+    "<?php\n/* WPRISM_AGENT_GENERATION_FENCE_PROTOCOL=1 */\n"
+        . "require_once __DIR__ . '/wprism/wprism.php';\n// foreign extension\n"
+);
+try {
+    Unadopt::plan($lookalikeTransport, $lookalikeArchive);
+    unadopt_fail('a foreign loader lookalike was accepted for unadoption');
+} catch (RuntimeException $expected) {
+    unadopt_check(
+        str_contains($expected->getMessage(), 'non-WPrism file')
+            && !file_exists($lookalikeArchive),
+        'a foreign loader containing protocol and require lookalikes cannot consume the legacy attestation'
+    );
+}
+
 $rollbackTransport = new UnadoptFilesystemTransport($fixtureRoot . '/rollback-target', $sourceRoot);
 $rollbackArchive = $fixtureRoot . '/failed-handoff';
 $agentBefore = unadopt_tree_bytes($rollbackTransport->muDir() . '/wprism');
@@ -226,8 +302,9 @@ unadopt_check($rollbackExit !== 0, 'a post-move verification failure refuses off
 unadopt_check(
     unadopt_tree_bytes($rollbackTransport->muDir() . '/wprism') === $agentBefore
         && is_file($rollbackTransport->muDir() . '/wprism-loader.php')
-        && unadopt_tree_bytes($rollbackTransport->repoPath() . '/.wprism') === $controlBefore,
-    'a refused offboarding restores all live control surfaces before returning'
+        && unadopt_tree_bytes($rollbackTransport->repoPath() . '/.wprism') === $controlBefore
+        && !file_exists($rollbackTransport->muDir() . '/.wprism-unadopt-lock'),
+    'a refused offboarding restores all live control surfaces and releases its writer gate before returning'
 );
 unadopt_check(
     is_file($rollbackArchive . '/receipt.json')
@@ -249,6 +326,92 @@ unadopt_check(
         && is_file($staleTransport->muDir() . '/wprism-loader.php')
         && is_dir($staleTransport->repoPath() . '/.wprism'),
     'stale-plan refusal mutates no control-plane path'
+);
+
+// Revalidate the reviewed bytes after the exclusive fence is actually held,
+// not merely before archive construction. A real reader keeps the generated
+// stage script queued while the fixture changes the installed loader itself;
+// the exact host-bound migration probe must refuse before its first mv and
+// retire only its own writer authority.
+$fenceTransport = new UnadoptFilesystemTransport($fixtureRoot . '/fence-target', $sourceRoot);
+$fenceArchive = $fixtureRoot . '/fence-handoff';
+$fencePlan = Unadopt::plan($fenceTransport, $fenceArchive);
+$receiptMethod = new ReflectionMethod(Unadopt::class, 'receipt');
+$encodeMethod = new ReflectionMethod(Unadopt::class, 'encode');
+$stageMethod = new ReflectionMethod(Unadopt::class, 'stageScript');
+$fenceReceipt = $receiptMethod->invoke(null, $fencePlan);
+$fenceReceiptBytes = $encodeMethod->invoke(null, $fenceReceipt);
+$fenceToken = bin2hex(random_bytes(12));
+$fenceStageScript = $stageMethod->invoke(null, $fencePlan, $fenceToken, $fenceReceiptBytes);
+if (!is_string($fenceStageScript)) unadopt_fail('could not render the generation-fenced unadopt stage script');
+$fenceAcquireOffset = strpos($fenceStageScript, 'generation_lock_acquire 0');
+$fenceMigrationOffset = strpos($fenceStageScript, 'generation_loader_probe=$(php -r ', $fenceAcquireOffset ?: 0);
+$fenceRevalidateOffset = strpos($fenceStageScript, '[ "$(fingerprint "$agent" directory)" = "$expected_agent" ]', $fenceMigrationOffset ?: 0);
+$fenceMoveOffset = strpos($fenceStageScript, 'mv "$loader" "$loader_old"', $fenceRevalidateOffset ?: 0);
+$fenceReleaseOffset = strpos($fenceStageScript, 'generation_lock_release 1', $fenceMoveOffset ?: 0);
+unadopt_check(
+    is_int($fenceAcquireOffset) && is_int($fenceMigrationOffset) && is_int($fenceRevalidateOffset) && is_int($fenceMoveOffset)
+        && is_int($fenceReleaseOffset) && $fenceAcquireOffset < $fenceRevalidateOffset
+        && $fenceAcquireOffset < $fenceMigrationOffset && $fenceMigrationOffset < $fenceRevalidateOffset
+        && $fenceRevalidateOffset < $fenceMoveOffset && $fenceMoveOffset < $fenceReleaseOffset
+        && str_contains($fenceStageScript, 'generation_marker="$mu/.wprism-generation-writer-pending"')
+        && str_contains($fenceStageScript, '"$mu/.wprism-adopt-lock"'),
+    'the generated unadoption script owns the shared fence, revalidates the host-bound loader and reviewed surfaces, moves, and releases in that order'
+);
+
+$readerReady = $fixtureRoot . '/fence-reader-ready';
+$readerCode = <<<'PHP'
+$handle = fopen($argv[1], 'rb');
+if (!is_resource($handle) || !flock($handle, LOCK_SH)) exit(2);
+file_put_contents($argv[2], 'ready');
+fgets(STDIN);
+PHP;
+$readerProcess = proc_open(
+    [PHP_BINARY, '-r', $readerCode, $fenceTransport->muDir(), $readerReady],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $readerPipes,
+    $fixtureRoot
+);
+if (!is_resource($readerProcess)) unadopt_fail('could not launch the generation-fence reader fixture');
+$readerDeadline = microtime(true) + 5.0;
+while (!is_file($readerReady) && microtime(true) < $readerDeadline) usleep(10_000);
+unadopt_check(is_file($readerReady), 'a real process holds the generation reader fence before unadopt stages');
+
+$stageProcess = proc_open(
+    ['/bin/sh', '-c', $fenceStageScript],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $stagePipes,
+    $fixtureRoot
+);
+if (!is_resource($stageProcess)) unadopt_fail('could not launch the generation-fenced unadopt stage fixture');
+fclose($stagePipes[0]);
+$sharedWriter = $fenceTransport->muDir() . '/.wprism-generation-writer-pending';
+$writerDeadline = microtime(true) + 5.0;
+while (!is_file($sharedWriter) && microtime(true) < $writerDeadline) usleep(10_000);
+unadopt_check(is_file($sharedWriter), 'the generated unadopt script publishes shared intent before waiting for readers');
+file_put_contents(
+    $fenceTransport->muDir() . '/wprism-loader.php',
+    "// changed while unadopt waited\n",
+    FILE_APPEND
+);
+fwrite($readerPipes[0], "\n");
+fclose($readerPipes[0]);
+foreach ([1, 2] as $pipe) fclose($readerPipes[$pipe]);
+$readerExit = proc_close($readerProcess);
+$stageStdout = stream_get_contents($stagePipes[1]);
+$stageStderr = stream_get_contents($stagePipes[2]);
+fclose($stagePipes[1]);
+fclose($stagePipes[2]);
+$stageExit = proc_close($stageProcess);
+unadopt_check(
+    $readerExit === 0 && $stageExit !== 0
+        && str_contains((string) $stageStderr, 'installed loader generation changed after host review')
+        && is_dir($fenceTransport->muDir() . '/wprism')
+        && is_file($fenceTransport->muDir() . '/wprism-loader.php')
+        && is_dir($fenceTransport->repoPath() . '/.wprism')
+        && !file_exists($sharedWriter)
+        && !file_exists($fenceTransport->muDir() . '/.wprism-unadopt-lock'),
+    'under-EX exact loader revalidation refuses stale unadopt bytes before any publish move and cleans only its own gate'
 );
 
 try {

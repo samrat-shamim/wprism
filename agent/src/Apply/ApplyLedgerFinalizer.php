@@ -11,6 +11,9 @@ if (!class_exists(CompiledRepository::class, false)) {
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
+if (!class_exists(NativeDatabaseProfile::class, false)) {
+    require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
+}
 if (!class_exists(Ledger::class, false)) {
     require_once __DIR__ . '/../Repository/Ledger.php';
 }
@@ -44,19 +47,16 @@ final class ApplyLedgerFinalizer {
         try {
             ($this->renewLease)();
             if ($scoped) {
-                Db::start_repeatable_read('scoped ledger transaction start');
+                Db::start_repeatable_read(
+                    'scoped ledger transaction start',
+                    self::ledger_profile()
+                );
                 $transactionStarted = true;
                 DeleteGuardEvaluator::begin_authored_transaction();
                 $scopedTransactionBoundary = true;
-                global $wpdb;
-                DeleteGuardEvaluator::assert_innodb_tables([
-                    $wpdb->prefix . 'wprism_map',
-                    $wpdb->prefix . 'wprism_state',
-                    $wpdb->prefix . 'wprism_kv',
-                ], 'scoped ledger finalization');
                 DeleteGuardEvaluator::assert_transaction_isolation('scoped ledger finalization');
             } else {
-                Db::start('ledger transaction start');
+                Db::start('ledger transaction start', self::ledger_profile());
                 $transactionStarted = true;
             }
             $lockedAuthorMap = null;
@@ -203,6 +203,16 @@ final class ApplyLedgerFinalizer {
                 DeleteGuardEvaluator::end_authored_transaction();
             }
         }
+    }
+
+    /** Every finalization read and write is confined to the three ledger tables. */
+    private static function ledger_profile(): NativeDatabaseProfile {
+        global $wpdb;
+        return new NativeDatabaseProfile([], [
+            $wpdb->prefix . 'wprism_map',
+            $wpdb->prefix . 'wprism_state',
+            $wpdb->prefix . 'wprism_kv',
+        ]);
     }
 
     /**

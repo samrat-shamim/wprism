@@ -9,6 +9,10 @@ if (!class_exists(Deploy::class, false)) {
 // nothing of its own, so unlike the Code.php require this class deliberately
 // avoids (see below) it widens no static-scan closure.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/../Repository/Ledger.php';
+}
+require_once __DIR__ . '/CodeLifecycleObservation.php';
 // Circular with Deploy.php (which requires this file too) — safe: PHP marks
 // a require_once path included the instant its own require begins, so by
 // the time Deploy.php's own require_once of this file executes, this file
@@ -25,9 +29,9 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * template/stylesheet against live WordPress facts (code_mismatch),
  * compares the compiled code descriptor's revision against Code's own
  * payload-completion proof (code_revision_mismatch), compares live installed
- * versions against the last-recorded baseline (code_drift), and writes that
- * baseline (record_code_versions). Every method here only DETECTS and
- * REPORTS findings or reads/writes the drift baseline -- none calls
+ * versions against the last-recorded baseline (code_drift), and projects the
+ * immutable snapshots consumed by the exact baseline writers. Every method
+ * here only DETECTS, REPORTS, or projects bytes -- none writes the baseline or calls
  * activate_plugin()/deactivate_plugins()/switch_theme() or otherwise fires a
  * WordPress lifecycle hook. That is LifecycleExecutor::execute()'s territory
  * (issue #3350 slice 8, the "LifecycleExecutor" half of this same seam,
@@ -44,11 +48,10 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * Deploy::run()'s own internal orchestration: Apply::build_plan() calls
  * code_mismatch()/code_revision_mismatch()/code_drift() directly for
  * `wprism plan`/`wprism status`'s own code_mismatch/code_drift plan buckets
- * (verified by reading Apply.php's own call sites, not assumed), and
- * CapturePublicationWorkflow calls observe_code_versions() to record a
- * "last known good" baseline only when capture sees no drift; it never accepts
- * an unreviewed code change. Deploy keeps thin compatibility facades over the
- * original four public entry points, matching every prior slice in this issue.
+ * (verified by reading Apply.php's own call sites, not assumed). Exact writes
+ * live in CodeBaselineAcceptance/CodeBaselineCapture/CodeBaselinePublication,
+ * all sharing CodeBaselineTransaction's lock and publication boundary. Deploy
+ * keeps thin compatibility facades over the three read-only plan entry points.
  *
  * require_plugin_admin_functions()/current_active_plugins()/in_range() stay
  * on Deploy (the first two widened private -> public) rather than moving
@@ -86,7 +89,7 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * consequence of adding this one require, not a hypothetical.
  */
 final class LifecyclePlanner {
-    /** wprism_kv key for code_drift()'s baseline — see record_code_versions(). */
+    /** wprism_kv key read by advisory drift observations. */
     private const CODE_VERSIONS_KEY = 'code_versions';
 
     /** @var list<string> Findings the host lifecycle phases can reconcile. */
@@ -106,7 +109,12 @@ final class LifecyclePlanner {
      * It shares code_mismatch() with deploy/apply so the host never guesses
      * whether activation, deactivation, ordering, or a theme switch is due.
      *
-     * @return array{format:string,required:bool,reasons:list<string>}
+     * Code-version drift is deliberately a separate work axis: accepting an
+     * already-installed version is neither lifecycle reconciliation nor code
+     * materialization. The host uses these rows to refuse before mutation or
+     * to select CodeBaselineAcceptance's isolated, fenced phase.
+     *
+     * @return array{format:string,required:bool,reasons:list<string>,baseline_state:string,code_drift:list<array{issue:string,kind:string,plugin?:string,theme?:string,message:string,installed_version:string,recorded_version:string}>,code_boundary_sha256:string,findings_sha256:string,observation_sha256:string,warnings:list<string>}
      */
     public static function deployment_status(
         Policy $policy,
@@ -117,7 +125,24 @@ final class LifecyclePlanner {
         $desired = isset($tree['options/core'])
             ? Deploy::extract_desired((array) ($tree['options/core']['data'] ?? []))
             : [];
-        $mismatch = self::code_mismatch($policy, $desired);
+        $observation = self::code_version_observation($desired);
+        return self::deployment_status_from_observation(
+            $policy,
+            $desired,
+            $forceCodeMismatch,
+            $observation
+        );
+    }
+
+    /** Project the host status wire from one immutable observation. */
+    public static function deployment_status_from_observation(
+        Policy $policy,
+        array $desired,
+        bool $forceCodeMismatch,
+        array $observation
+    ): array {
+        $observation = self::interpret_observation($observation);
+        $mismatch = self::code_mismatch_from_observation($policy, $desired, $observation);
         $blockers = array_values(array_filter(
             $mismatch,
             static fn(array $row): bool => !self::is_lifecycle_issue((string) ($row['issue'] ?? ''))
@@ -142,10 +167,22 @@ final class LifecyclePlanner {
             }
         }
         sort($reasons, SORT_STRING);
+        self::assert_publishable_versions($desired, $observation);
+        $drift = self::code_drift_from_observation($desired, $observation);
+        $baselineState = $observation['recorded_raw'] === null
+            ? 'absent'
+            : ($drift === [] ? 'exact' : 'drift');
+        $warnings = self::deployment_warnings($mismatch, $blockers, $forceCodeMismatch);
         return [
-            'format' => 'wprism-lifecycle-status/v1',
+            'format' => 'wprism-lifecycle-status/v2',
             'required' => $reasons !== [],
             'reasons' => $reasons,
+            'baseline_state' => $baselineState,
+            'code_drift' => $drift,
+            'code_boundary_sha256' => self::code_boundary_sha256($desired, $observation),
+            'findings_sha256' => self::code_findings_sha256($drift, $warnings),
+            'observation_sha256' => self::code_observation_sha256($desired, $observation, $drift, $warnings),
+            'warnings' => $warnings,
         ];
     }
 
@@ -182,18 +219,29 @@ final class LifecyclePlanner {
      * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version?:string, version_range?:array, manifest?:string}> `version_range` carries a plugin's `version_range` or (issue #3222) a theme's `theme_version_range` uniformly — one shared key regardless of `kind`, matching how both are consumed identically by Apply::build_plan()'s code_mismatch bucket
      */
     public static function code_mismatch(Policy $policy, array $desired): array {
+        return self::code_mismatch_from_observation(
+            $policy,
+            $desired,
+            self::code_version_observation($desired, false)
+        );
+    }
+
+    /** Interpret one already-read lifecycle/code snapshot against policy. */
+    private static function code_mismatch_from_observation(
+        Policy $policy,
+        array $desired,
+        array $observation
+    ): array {
         $rows = [];
-        Deploy::require_plugin_admin_functions();
 
         $desiredActive = $desired['active_plugins'] ?? null;
         if ($desiredActive !== null) {
-            $allPlugins = get_plugins();
+            $allPlugins = $observation['plugins'];
             $ranges = $policy->version_ranges();
-            $currentActive = Deploy::current_active_plugins();
+            $currentActive = $observation['active_plugins'];
             foreach ($desiredActive as $plugin) {
                 $plugin = (string) $plugin;
-                $valid = validate_plugin($plugin);
-                if (is_wp_error($valid)) {
+                if (($observation['plugin_exists'][$plugin] ?? false) !== true) {
                     $rows[] = [
                         'issue' => 'missing_in_code',
                         'kind' => 'plugin',
@@ -218,7 +266,7 @@ final class LifecyclePlanner {
                 }
                 if (isset($ranges[$plugin])) {
                     $r = $ranges[$plugin];
-                    $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
+                    $installed = (string) ($allPlugins[$plugin] ?? '');
                     if ($installed === '' || !Deploy::in_range($installed, $r['min'], $r['max'])) {
                         // WP-2.8's third state. graduated_version_range()
                         // returns rows only when this site has RECORDED probe
@@ -258,9 +306,9 @@ final class LifecyclePlanner {
                         . "active_plugins. Run 'wprism deploy <env>' before apply so its deactivation hooks complete first.",
                 ];
             }
-            if (!$rows
-                && count($currentActive) === count($desiredActive)
+            if (count($currentActive) === count($desiredActive)
                 && !array_diff($currentActive, $desiredActive)
+                && !array_diff($desiredActive, $currentActive)
                 && $currentActive !== $desiredActive) {
                 $rows[] = [
                     'issue' => 'active_plugin_order_mismatch',
@@ -284,7 +332,7 @@ final class LifecyclePlanner {
         $desiredStylesheet = $desired['stylesheet'] ?? null;
         $desiredTemplate = $desired['template'] ?? null;
         if ($desiredStylesheet !== null) {
-            if (!wp_get_theme($desiredStylesheet)->exists()) {
+            if (($observation['theme_exists'][$desiredStylesheet] ?? false) !== true) {
                 $rows[] = [
                     'issue' => 'missing_in_code',
                     'kind' => 'theme',
@@ -295,21 +343,26 @@ final class LifecyclePlanner {
                         . "code/ changes haven't reached this environment yet.",
                 ];
             } else {
-                self::check_theme_range($desiredStylesheet, $themeRanges, $rows);
-                if (get_option('stylesheet') !== $desiredStylesheet) {
+                self::check_theme_range(
+                    $desiredStylesheet,
+                    (string) ($observation['themes'][$desiredStylesheet] ?? ''),
+                    $themeRanges,
+                    $rows
+                );
+                if ($observation['stylesheet'] !== $desiredStylesheet) {
                     $rows[] = [
                         'issue' => 'inactive_in_environment',
                         'kind' => 'theme',
                         'theme' => $desiredStylesheet,
                         'message' => "stylesheet in state/options/core.json declares '$desiredStylesheet', and its code "
-                            . "is installed, but this environment has theme '" . (string) get_option('stylesheet')
+                            . "is installed, but this environment has theme '" . $observation['stylesheet']
                             . "' active. Run 'wprism deploy <env>' before apply so the theme lifecycle completes first.",
                     ];
                 }
             }
         }
         if ($desiredTemplate !== null && $desiredTemplate !== $desiredStylesheet) {
-            if (!wp_get_theme($desiredTemplate)->exists()) {
+            if (($observation['theme_exists'][$desiredTemplate] ?? false) !== true) {
                 $rows[] = [
                     'issue' => 'missing_in_code',
                     'kind' => 'theme',
@@ -321,7 +374,12 @@ final class LifecyclePlanner {
                         . "this branch's code/ changes haven't reached this environment yet.",
                 ];
             } else {
-                self::check_theme_range($desiredTemplate, $themeRanges, $rows);
+                self::check_theme_range(
+                    $desiredTemplate,
+                    (string) ($observation['themes'][$desiredTemplate] ?? ''),
+                    $themeRanges,
+                    $rows
+                );
             }
         }
         // A child theme's stylesheet can already be correct while the
@@ -332,17 +390,17 @@ final class LifecyclePlanner {
         // resolved is exactly the canonical one.
         if ($desiredStylesheet !== null
             && $desiredTemplate !== null
-            && get_option('stylesheet') === $desiredStylesheet
-            && get_option('template') !== $desiredTemplate) {
+            && $observation['stylesheet'] === $desiredStylesheet
+            && $observation['template'] !== $desiredTemplate) {
             $rows[] = [
                 'issue' => 'template_mismatch',
                 'kind' => 'theme',
                 'theme' => $desiredStylesheet,
                 'template' => $desiredTemplate,
-                'environment_template' => (string) get_option('template'),
+                'environment_template' => $observation['template'],
                 'message' => "stylesheet '$desiredStylesheet' is active, but state/options/core.json declares "
                     . "template '$desiredTemplate' and this environment has template '"
-                    . (string) get_option('template') . "'. Run 'wprism deploy <env>' so WordPress can reconcile "
+                    . $observation['template'] . "'. Run 'wprism deploy <env>' so WordPress can reconcile "
                     . 'the theme through switch_theme(); WPrism will refuse if this stylesheet cannot resolve to the '
                     . 'declared parent.',
             ];
@@ -424,10 +482,10 @@ final class LifecyclePlanner {
      * one-click update from 7.2.0 to 7.5.0 can land comfortably inside an
      * ">=7.0 <9.0" range and stay invisible to code_mismatch entirely,
      * while still being exactly the out-of-band mutation risk #1 names.
-     * The baseline this compares against is written by
-     * record_code_versions() below, reached after terminal lifecycle
-     * reconciliation by `wprism deploy` and through observe_code_versions()
-     * by a drift-free `wprism capture`. No baseline anywhere is the one
+     * The baseline this compares against is written only beneath
+     * CodeBaselineTransaction: terminal lifecycle reconciliation uses
+     * CodeBaselinePublication, capture uses CodeBaselineCapture, and isolated
+     * explicit acceptance uses CodeBaselineAcceptance. No baseline anywhere is the one
      * bootstrap case with nothing to compare. Once a baseline exists, a
      * currently active plugin absent from it is itself drift evidence:
      * silently minting it would make the first out-of-band activation or
@@ -442,37 +500,233 @@ final class LifecyclePlanner {
      * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version:string, recorded_version:string}>
      */
     public static function code_drift(Policy $policy, array $desired): array {
-        $rows = [];
-        $recordedRaw = Ledger::kv_get(self::CODE_VERSIONS_KEY);
-        if ($recordedRaw === null) {
-            return $rows; // no baseline recorded yet anywhere — nothing to compare
-        }
-        $recorded = json_decode($recordedRaw, true);
-        $recorded = is_array($recorded) ? $recorded : [];
+        $observation = self::code_version_observation($desired);
+        self::assert_publishable_versions($desired, $observation);
+        return self::code_drift_from_observation($desired, $observation);
+    }
 
+    /** Stable lifecycle-phase digest over installed desired bytes and prior baseline. */
+    public static function code_baseline_observation_sha256(
+        Policy $policy,
+        array $desired
+    ): string {
+        $observation = self::code_version_observation($desired);
+        self::assert_publishable_versions($desired, $observation);
+        return self::code_boundary_sha256($desired, $observation);
+    }
+
+    /** Recompute the full host-reportable finding set from one observation. */
+    public static function deployment_observation_sha256(
+        Policy $policy,
+        array $desired,
+        bool $forceCodeMismatch
+    ): string {
+        $observation = self::code_version_observation($desired);
+        $drift = self::code_drift_from_observation($desired, $observation);
+        $mismatch = self::code_mismatch_from_observation($policy, $desired, $observation);
+        $blockers = array_values(array_filter(
+            $mismatch,
+            static fn(array $row): bool => !self::is_lifecycle_issue((string) ($row['issue'] ?? ''))
+                && ($row['issue'] ?? null) !== VersionEvidenceGrammar::VERDICT
+        ));
+        return self::code_observation_sha256(
+            $desired,
+            $observation,
+            $drift,
+            self::deployment_warnings($mismatch, $blockers, $forceCodeMismatch)
+        );
+    }
+
+    /**
+     * Both witnesses a host lifecycle phase must recheck. The boundary digest
+     * survives intended activation changes; the findings digest does not, so
+     * a newly reportable row can never hide behind host-rendered evidence.
+     *
+     * @return array{code_boundary_sha256:string,findings_sha256:string}
+     */
+    public static function deployment_phase_observation(
+        Policy $policy,
+        array $desired,
+        bool $forceCodeMismatch
+    ): array {
+        $observation = self::code_version_observation($desired);
+        self::assert_publishable_versions($desired, $observation);
+        $drift = self::code_drift_from_observation($desired, $observation);
+        $mismatch = self::code_mismatch_from_observation($policy, $desired, $observation);
+        $blockers = array_values(array_filter(
+            $mismatch,
+            static fn(array $row): bool => !self::is_lifecycle_issue((string) ($row['issue'] ?? ''))
+                && ($row['issue'] ?? null) !== VersionEvidenceGrammar::VERDICT
+        ));
+        $warnings = self::deployment_warnings($mismatch, $blockers, $forceCodeMismatch);
+        return [
+            'code_boundary_sha256' => self::code_boundary_sha256($desired, $observation),
+            'findings_sha256' => self::code_findings_sha256($drift, $warnings),
+        ];
+    }
+
+    /**
+     * One immutable planner-owned snapshot for the promotion layer's atomic
+     * baseline/receipt transaction. Database control deliberately stays in
+     * CodeBaselineAcceptance; this value contains only observations and bytes.
+     *
+     * @return array{baseline_state:string,code_drift:list<array<string,mixed>>,warnings:list<string>,code_boundary_sha256:string,findings_sha256:string,observation_sha256:string,baseline_bytes:string,live_facts_sha256:string,before_baseline_sha256:?string}
+     */
+    public static function code_baseline_acceptance_snapshot(
+        Policy $policy,
+        array $desired,
+        bool $forceCodeMismatch,
+        array $observation
+    ): array {
+        $observation = self::interpret_observation($observation);
+        $mismatch = self::code_mismatch_from_observation($policy, $desired, $observation);
+        $blockers = array_values(array_filter(
+            $mismatch,
+            static fn(array $row): bool => !self::is_lifecycle_issue((string) ($row['issue'] ?? ''))
+                && ($row['issue'] ?? null) !== VersionEvidenceGrammar::VERDICT
+        ));
+        if ($blockers !== [] && !$forceCodeMismatch) {
+            $list = implode("\n\n", array_map(
+                static fn(array $row): string => '  - ' . (string) ($row['message'] ?? 'unknown code mismatch'),
+                $blockers
+            ));
+            throw new \RuntimeException(
+                "wprism: deploy refused — code_mismatch:\n\n$list\n\n"
+                . 'Install/vendor whatever is missing (or update code/) in this environment first, '
+                . 'or pass --force-code-mismatch to proceed anyway.'
+            );
+        }
+        foreach ($mismatch as $row) {
+            if (self::is_lifecycle_issue((string) ($row['issue'] ?? ''))) {
+                throw new \RuntimeException(
+                    'wprism: code-baseline acceptance requires exact lifecycle state'
+                );
+            }
+        }
+        self::assert_lifecycle_exact($desired, $observation);
+        self::assert_publishable_versions($desired, $observation);
+        $drift = self::code_drift_from_observation($desired, $observation);
+        $warnings = self::deployment_warnings($mismatch, $blockers, $forceCodeMismatch);
+        return [
+            'baseline_state' => $observation['recorded_raw'] === null
+                ? 'absent'
+                : ($drift === [] ? 'exact' : 'drift'),
+            'code_drift' => $drift,
+            'warnings' => $warnings,
+            'code_boundary_sha256' => self::code_boundary_sha256($desired, $observation),
+            'findings_sha256' => self::code_findings_sha256($drift, $warnings),
+            'observation_sha256' => self::code_observation_sha256($desired, $observation, $drift, $warnings),
+            'baseline_bytes' => self::baseline_bytes($observation),
+            'live_facts_sha256' => self::live_facts_sha256($observation),
+            'before_baseline_sha256' => $observation['recorded_raw'] === null
+                ? null
+                : hash('sha256', $observation['recorded_raw']),
+        ];
+    }
+
+    /**
+     * Pure terminal/capture publication projection from exact live facts.
+     * Consent and transaction ownership remain with the calling workflow.
+     *
+     * @return array{code_boundary_sha256:string,baseline_bytes:string,live_facts_sha256:string,before_baseline_sha256:?string}
+     */
+    public static function code_baseline_publication_snapshot(
+        array $desired,
+        array $observation
+    ): array {
+        $observation = self::interpret_observation($observation);
+        self::assert_lifecycle_exact($desired, $observation);
+        self::assert_publishable_versions($desired, $observation);
+        return [
+            'code_boundary_sha256' => self::code_boundary_sha256($desired, $observation),
+            'baseline_bytes' => self::baseline_bytes($observation),
+            'live_facts_sha256' => self::live_facts_sha256($observation),
+            'before_baseline_sha256' => $observation['recorded_raw'] === null
+                ? null
+                : hash('sha256', $observation['recorded_raw']),
+        ];
+    }
+
+    /**
+     * Capture may initialize an absent/exact baseline but never consume
+     * drift. This projection makes that decision from its locked candidate-
+     * matching observation without performing a write.
+     *
+     * @return array{code_drift:list<array<string,mixed>>,code_boundary_sha256:string,baseline_bytes:string,live_facts_sha256:string,before_baseline_sha256:?string}
+     */
+    public static function code_baseline_capture_snapshot(
+        array $desired,
+        array $observation
+    ): array {
+        $observation = self::interpret_observation($observation);
+        self::assert_lifecycle_exact($desired, $observation);
+        self::assert_publishable_versions($desired, $observation);
+        $snapshot = self::code_baseline_publication_snapshot($desired, $observation);
+        $snapshot['code_drift'] = self::code_drift_from_observation($desired, $observation);
+        return $snapshot;
+    }
+
+    /** Prove the exact authored baseline still describes one final live read. */
+    public static function assert_code_baseline_publication(
+        array $desired,
+        string $expectedLiveFactsSha256,
+        string $expectedBaselineBytes,
+        array $observation
+    ): void {
+        $observation = self::interpret_observation($observation);
+        self::assert_lifecycle_exact($desired, $observation);
+        self::assert_publishable_versions($desired, $observation);
+        if (!hash_equals($expectedLiveFactsSha256, self::live_facts_sha256($observation))
+            || !is_string($observation['recorded_raw'])
+            || !hash_equals($expectedBaselineBytes, $observation['recorded_raw'])
+            || !hash_equals($expectedBaselineBytes, self::baseline_bytes($observation))
+            || self::code_drift_from_observation($desired, $observation) !== []) {
+            throw new \RuntimeException(
+                'wprism: committed code-version baseline does not match the exact live environment'
+            );
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private static function code_version_observation(array $desired, bool $includeBaseline = true): array {
+        $recordedRaw = $includeBaseline ? Ledger::kv_get(self::CODE_VERSIONS_KEY) : null;
+        return self::interpret_observation(
+            CodeLifecycleObservation::read_unlocked($desired, $recordedRaw)
+        );
+    }
+
+    /** Add the decoded durable baseline without performing any observation. */
+    private static function interpret_observation(array $observation): array {
+        $recordedRaw = $observation['recorded_raw'] ?? null;
+        if ($recordedRaw !== null && !is_string($recordedRaw)) {
+            throw new \RuntimeException('wprism: recorded code-version baseline is malformed');
+        }
+        $observation['recorded'] = self::decode_code_versions($recordedRaw);
+        return $observation;
+    }
+
+    /** @return list<array<string,string>> */
+    private static function code_drift_from_observation(array $desired, array $observation): array {
+        if ($observation['recorded_raw'] === null) {
+            return [];
+        }
+        $recorded = $observation['recorded'];
+        $rows = [];
         $desiredActive = $desired['active_plugins'] ?? null;
         if ($desiredActive !== null) {
-            Deploy::require_plugin_admin_functions();
-            $allPlugins = get_plugins();
-            $currentActive = Deploy::current_active_plugins();
             $recordedPlugins = (array) ($recorded['plugins'] ?? []);
             foreach ($desiredActive as $plugin) {
                 $plugin = (string) $plugin;
+                self::assert_wire_atom($plugin, 'plugin identity');
+                if (!in_array($plugin, $observation['active_plugins'], true)) {
+                    continue;
+                }
+                $installed = (string) ($observation['plugins'][$plugin] ?? '');
+                self::assert_wire_atom($installed, 'plugin version');
                 if (!array_key_exists($plugin, $recordedPlugins)) {
-                    // Deploy::run() checks drift before LifecycleExecutor activates
-                    // desired code. Only current activation can be out-of-band
-                    // evidence; an inactive desired plugin is the lifecycle work
-                    // this same locked deploy is authorized to perform.
-                    if (!in_array($plugin, $currentActive, true)) {
-                        continue;
-                    }
-                    $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
                     $rows[] = [
-                        'issue' => 'code_baseline_missing',
-                        'kind' => 'plugin',
-                        'plugin' => $plugin,
-                        'installed_version' => $installed,
-                        'recorded_version' => '',
+                        'issue' => 'code_baseline_missing', 'kind' => 'plugin', 'plugin' => $plugin,
+                        'installed_version' => $installed, 'recorded_version' => '',
                         'message' => "$plugin " . ($installed === '' ? '(unknown version)' : $installed)
                             . ' is active on this environment but absent from the existing WPrism code-version baseline. '
                             . 'Its activation or first version change therefore cannot be distinguished from an '
@@ -481,17 +735,14 @@ final class LifecyclePlanner {
                     ];
                     continue;
                 }
-                $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
                 $baseline = (string) $recordedPlugins[$plugin];
+                self::assert_wire_atom($baseline, 'recorded plugin version');
                 if ($installed === '' || $installed === $baseline) {
                     continue;
                 }
                 $rows[] = [
-                    'issue' => 'code_drift',
-                    'kind' => 'plugin',
-                    'plugin' => $plugin,
-                    'installed_version' => $installed,
-                    'recorded_version' => $baseline,
+                    'issue' => 'code_drift', 'kind' => 'plugin', 'plugin' => $plugin,
+                    'installed_version' => $installed, 'recorded_version' => $baseline,
                     'message' => "$plugin is $installed on this environment, but the last successful 'wprism deploy' "
                         . "or 'wprism capture' recorded $baseline — its code changed here outside WPrism's own "
                         . 'reconciliation (a wp-admin/host auto-update is the common cause; see DISALLOW_FILE_MODS '
@@ -500,29 +751,41 @@ final class LifecyclePlanner {
                 ];
             }
         }
-
+        $recordedThemes = self::recorded_theme_versions($recorded);
+        $checked = [];
         foreach (['template', 'stylesheet'] as $slot) {
-            $desiredSlug = $desired[$slot] ?? null;
-            $baselineSlug = $recorded[$slot] ?? null;
-            $baselineVersion = $recorded["{$slot}_version"] ?? null;
-            if ($desiredSlug === null || $baselineSlug === null || $baselineVersion === null) {
-                continue; // no baseline, or nothing declared this run
+            $slug = $desired[$slot] ?? null;
+            if (!is_string($slug) || $slug === '' || isset($checked[$slug])) {
+                continue;
             }
-            if ($desiredSlug !== $baselineSlug) {
-                continue; // the theme ITSELF changed — code_mismatch's/plan's territory, not a version drift on one theme
+            self::assert_wire_atom($slug, 'theme identity');
+            if ((string) $observation[$slot] !== $slug) {
+                continue;
             }
-            $installed = (string) wp_get_theme($desiredSlug)->get('Version');
-            $baseline = (string) $baselineVersion;
+            $checked[$slug] = true;
+            $installed = (string) ($observation['themes'][$slug] ?? '');
+            self::assert_wire_atom($installed, 'theme version');
+            if (!array_key_exists($slug, $recordedThemes)) {
+                $rows[] = [
+                    'issue' => 'code_baseline_missing', 'kind' => 'theme', 'theme' => $slug,
+                    'installed_version' => $installed, 'recorded_version' => '',
+                    'message' => "$slug theme " . ($installed === '' ? '(unknown version)' : $installed)
+                        . ' is active on this environment but absent from the existing WPrism code-version baseline. '
+                        . 'Its activation or first version change therefore cannot be distinguished from an '
+                        . "out-of-band update. Run 'wprism deploy' to reconcile and record the installed bytes, or "
+                        . 'restore the recorded theme before capture/apply.',
+                ];
+                continue;
+            }
+            $baseline = $recordedThemes[$slug];
+            self::assert_wire_atom($baseline, 'recorded theme version');
             if ($installed === '' || $installed === $baseline) {
                 continue;
             }
             $rows[] = [
-                'issue' => 'code_drift',
-                'kind' => 'theme',
-                'theme' => $desiredSlug,
-                'installed_version' => $installed,
-                'recorded_version' => $baseline,
-                'message' => "$desiredSlug theme is $installed on this environment, but the last successful "
+                'issue' => 'code_drift', 'kind' => 'theme', 'theme' => $slug,
+                'installed_version' => $installed, 'recorded_version' => $baseline,
+                'message' => "$slug theme is $installed on this environment, but the last successful "
                     . "'wprism deploy' or 'wprism capture' recorded $baseline — its code changed here outside WPrism's own "
                     . "reconciliation. Re-run 'wprism deploy' to accept $installed as the new baseline, restore "
                     . "$baseline, or pass --force-code-drift to proceed at your own risk.",
@@ -531,92 +794,208 @@ final class LifecyclePlanner {
         return $rows;
     }
 
-    /**
-     * Writes the "last known good" code-version baseline code_drift() above
-     * compares against. Reads the environment's OWN CURRENT live state
-     * directly (get_plugins()/get_option()), not the just-captured/just-
-     * deployed canonical tree — the two are expected to agree at the
-     * instant this runs (deploy just reconciled activation; capture just
-     * read live state), and reading live state directly means this
-     * function needs nothing passed in beyond $policy, keeping its call
-     * sites to one line each.
-     *
-     * issue #3507: this is the UNCONDITIONAL writer, and Deploy::run() is the
-     * only caller entitled to use it that way. By the time terminal deploy
-     * re-baselines it has already refused on drift ("wprism: deploy refused —
-     * code_drift") or been explicitly forced past it while reporting every
-     * overridden row — the consent gate already happened, so this write is
-     * that decision's consequence rather than the decision itself. A split
-     * retire pass is not terminal and does not call this writer. Capture has
-     * no such gate and goes through observe_code_versions() below instead.
-     *
-     * Records EVERY currently-active plugin's version, not just ones a
-     * $desired list happens to name — code_drift() only ever CONSULTS the
-     * subset $desired scopes it to, so recording a wider baseline here is
-     * simply harmless, forward-compatible data (a plugin activated later
-     * already has a baseline the moment it's captured/deployed again,
-     * rather than needing a special first-run carve-out). Overwrites
-     * (never merges stale entries forward) — the goal is "what's true as
-     * of right now," not an append-only history.
-     */
-    public static function record_code_versions(Policy $policy): void {
-        Deploy::require_plugin_admin_functions();
-        $versions = ['plugins' => []];
-        foreach (Deploy::current_active_plugins() as $plugin) {
-            $info = get_plugins()[$plugin] ?? null;
-            if ($info !== null) {
-                $versions['plugins'][$plugin] = (string) $info['Version'];
+    private static function code_boundary_sha256(array $desired, array $observation): string {
+        $plugins = [];
+        foreach (array_values(array_unique(array_map('strval', (array) ($desired['active_plugins'] ?? [])))) as $plugin) {
+            $plugins[$plugin] = array_key_exists($plugin, $observation['plugins'])
+                ? $observation['plugins'][$plugin]
+                : null;
+        }
+        ksort($plugins, SORT_STRING);
+        $themes = [];
+        foreach (['template', 'stylesheet'] as $slot) {
+            $slug = $desired[$slot] ?? null;
+            if (is_string($slug) && $slug !== '') {
+                $themes[$slug] = $observation['themes'][$slug] ?? null;
             }
         }
-        $stylesheet = (string) get_option('stylesheet');
-        $template = (string) get_option('template');
-        if ($stylesheet !== '') {
-            $versions['stylesheet'] = $stylesheet;
-            $versions['stylesheet_version'] = (string) wp_get_theme($stylesheet)->get('Version');
-        }
-        if ($template !== '') {
-            $versions['template'] = $template;
-            $versions['template_version'] = (string) wp_get_theme($template)->get('Version');
-        }
-        Ledger::kv_set(self::CODE_VERSIONS_KEY, wp_json_encode($versions));
+        ksort($themes, SORT_STRING);
+        return hash('sha256', self::json_bytes([
+            'baseline_sha256' => $observation['recorded_raw'] === null
+                ? null
+                : hash('sha256', $observation['recorded_raw']),
+            'plugins' => $plugins,
+            'themes' => $themes,
+        ]));
     }
 
-    /**
-     * Capture's baseline write: observe, never accept (issue #3507).
-     *
-     * `wprism capture` reads live state and publishes it; it does not
-     * reconcile code, and it has no --force-code-drift consent gate the way
-     * Deploy::run() does. Overwriting the baseline across an unaccepted
-     * drift was therefore the one place a durable finding was erased by a
-     * verb that never asked: code_drift() reads exactly the key
-     * record_code_versions() writes (:369), so the re-baseline deleted
-     * the evidence from every later `wprism status`/`wprism plan`, and the drift
-     * row's own remedy text names 'wprism deploy' as the accept path
-     * (:400-401, :429-430) and never names capture.
-     *
-     * So: nothing to accept — no baseline recorded yet, or zero drift —
-     * writes exactly as before; anything to accept leaves the recorded blob
-     * byte-identical and hands the rows back for the caller to report. The
-     * scope handed to code_drift() is this environment's own live
-     * active_plugins/template/stylesheet rather than a repository's desired
-     * set, because capture is answering "what did I just observe here". Once
-     * any baseline exists, a newly active plugin is returned as
-     * `code_baseline_missing` and this observer leaves the baseline frozen;
-     * only deploy owns the reconciliation-and-acceptance path.
-     *
-     * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version:string, recorded_version:string}> non-empty means the baseline was NOT moved
-     */
-    public static function observe_code_versions(Policy $policy): array {
-        $drift = self::code_drift($policy, [
-            'active_plugins' => Deploy::current_active_plugins(),
-            'template' => (string) get_option('template'),
-            'stylesheet' => (string) get_option('stylesheet'),
-        ]);
-        if ($drift !== []) {
-            return $drift;
+    private static function code_findings_sha256(array $drift, array $warnings): string {
+        return hash('sha256', self::json_bytes([
+            'code_drift' => $drift,
+            'warnings' => $warnings,
+        ]));
+    }
+
+    private static function code_observation_sha256(
+        array $desired,
+        array $observation,
+        array $drift = [],
+        array $warnings = []
+    ): string {
+        return hash('sha256', self::json_bytes([
+            'code_boundary_sha256' => self::code_boundary_sha256($desired, $observation),
+            'findings_sha256' => self::code_findings_sha256($drift, $warnings),
+            'active_plugins' => $observation['active_plugins'],
+            'template' => $observation['template'],
+            'stylesheet' => $observation['stylesheet'],
+        ]));
+    }
+
+    /** @return list<string> */
+    private static function deployment_warnings(array $mismatch, array $blockers, bool $force): array {
+        $warnings = [];
+        if ($force) {
+            foreach ($blockers as $row) {
+                $warnings[] = 'FORCED past code_mismatch: ' . (string) ($row['message'] ?? '');
+            }
         }
-        self::record_code_versions($policy);
-        return [];
+        foreach ($mismatch as $row) {
+            if (($row['issue'] ?? null) === VersionEvidenceGrammar::VERDICT) {
+                $warnings[] = 'GRADUATED outside_version_range: ' . (string) ($row['message'] ?? '');
+            }
+        }
+        return $warnings;
+    }
+
+    private static function live_facts_sha256(array $observation): string {
+        return hash('sha256', self::json_bytes([
+            'active_plugins' => $observation['active_plugins'],
+            'plugins' => $observation['plugins'],
+            'stylesheet' => $observation['stylesheet'],
+            'template' => $observation['template'],
+            'themes' => $observation['themes'],
+        ]));
+    }
+
+    private static function baseline_bytes(array $observation): string {
+        self::assert_publishable_versions([], $observation);
+        $versions = ['plugins' => []];
+        foreach ($observation['active_plugins'] as $plugin) {
+            if (array_key_exists($plugin, $observation['plugins'])) {
+                $versions['plugins'][$plugin] = (string) $observation['plugins'][$plugin];
+            }
+        }
+        foreach (['stylesheet', 'template'] as $slot) {
+            $slug = (string) $observation[$slot];
+            if ($slug !== '') {
+                $versions[$slot] = $slug;
+                $versions["{$slot}_version"] = (string) ($observation['themes'][$slug] ?? '');
+            }
+        }
+        $encoded = wp_json_encode($versions);
+        if (!is_string($encoded)) {
+            throw new \RuntimeException('wprism: code-version baseline could not be encoded');
+        }
+        return $encoded;
+    }
+
+    /** @return ?array<string,mixed> */
+    private static function decode_code_versions(?string $raw): ?array {
+        if ($raw === null) {
+            return null;
+        }
+        try {
+            $decoded = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('wprism: recorded code-version baseline is malformed', 0, $failure);
+        }
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            throw new \RuntimeException('wprism: recorded code-version baseline is malformed');
+        }
+        return $decoded;
+    }
+
+    /** @return array<string,string> */
+    private static function recorded_theme_versions(array $recorded): array {
+        $themes = [];
+        foreach (['template', 'stylesheet'] as $slot) {
+            $slug = $recorded[$slot] ?? null;
+            $version = $recorded["{$slot}_version"] ?? null;
+            if (!is_string($slug) || $slug === '' || $version === null) {
+                continue;
+            }
+            $version = (string) $version;
+            if (isset($themes[$slug]) && $themes[$slug] !== $version) {
+                throw new \RuntimeException(
+                    'wprism: recorded code-version baseline assigns conflicting versions to one theme identity'
+                );
+            }
+            $themes[$slug] = $version;
+        }
+        return $themes;
+    }
+
+    private static function assert_lifecycle_exact(array $desired, array $observation): void {
+        if (array_key_exists('active_plugins', $desired)
+            && array_values(array_map('strval', (array) $desired['active_plugins'])) !== $observation['active_plugins']) {
+            throw new \RuntimeException('wprism: code-baseline acceptance requires exact plugin lifecycle state');
+        }
+        foreach (['template', 'stylesheet'] as $slot) {
+            if (array_key_exists($slot, $desired) && (string) $desired[$slot] !== (string) $observation[$slot]) {
+                throw new \RuntimeException('wprism: code-baseline acceptance requires exact theme lifecycle state');
+            }
+        }
+    }
+
+    /** A version baseline is evidence only when every named live identity is readable. */
+    private static function assert_publishable_versions(array $desired, array $observation): void {
+        $plugins = [];
+        foreach (array_merge(
+            (array) ($observation['active_plugins'] ?? []),
+            (array) ($desired['active_plugins'] ?? [])
+        ) as $plugin) {
+            if (!is_string($plugin) || $plugin === '') {
+                throw new \RuntimeException('wprism: code-version baseline contains a malformed plugin identity');
+            }
+            self::assert_wire_atom($plugin, 'plugin identity');
+            $plugins[$plugin] = true;
+        }
+        foreach (array_keys($plugins) as $plugin) {
+            $version = $observation['plugins'][$plugin] ?? null;
+            if (($observation['plugin_exists'][$plugin] ?? false) !== true
+                || !is_string($version)
+                || $version === '') {
+                throw new \RuntimeException(
+                    "wprism: code-version baseline refused — plugin '$plugin' has no readable non-empty Version header"
+                );
+            }
+            self::assert_wire_atom($version, 'plugin version');
+        }
+
+        $themes = [];
+        foreach (['template', 'stylesheet'] as $slot) {
+            foreach ([$observation[$slot] ?? null, $desired[$slot] ?? null] as $theme) {
+                if ($theme === null || $theme === '') {
+                    continue;
+                }
+                if (!is_string($theme)) {
+                    throw new \RuntimeException('wprism: code-version baseline contains a malformed theme identity');
+                }
+                self::assert_wire_atom($theme, 'theme identity');
+                $themes[$theme] = true;
+            }
+        }
+        foreach (array_keys($themes) as $theme) {
+            $version = $observation['themes'][$theme] ?? null;
+            if (($observation['theme_exists'][$theme] ?? false) !== true
+                || !is_string($version)
+                || $version === '') {
+                throw new \RuntimeException(
+                    "wprism: code-version baseline refused — theme '$theme' has no readable non-empty Version header"
+                );
+            }
+            self::assert_wire_atom($version, 'theme version');
+        }
+    }
+
+    private static function assert_wire_atom(string $value, string $label): void {
+        if (strlen($value) > 512 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            throw new \RuntimeException("wprism: $label contains unsupported control bytes");
+        }
+    }
+
+    private static function json_bytes(array $value): string {
+        return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -733,12 +1112,16 @@ final class LifecyclePlanner {
     }
 
     /** @param array<string,array{min:string,max:string,manifest:string}> $ranges @param list<array<string,mixed>> $rows */
-    private static function check_theme_range(string $slug, array $ranges, array &$rows): void {
+    private static function check_theme_range(
+        string $slug,
+        string $installed,
+        array $ranges,
+        array &$rows
+    ): void {
         if (!isset($ranges[$slug])) {
             return;
         }
         $r = $ranges[$slug];
-        $installed = (string) wp_get_theme($slug)->get('Version');
         if ($installed !== '' && Deploy::in_range($installed, $r['min'], $r['max'])) {
             return;
         }

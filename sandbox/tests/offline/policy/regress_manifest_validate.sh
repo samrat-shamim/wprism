@@ -140,11 +140,12 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # the private helpers explicit here so a new WordPress reach cannot hide behind
 # the wider dependency graph.
 #
-# issue #3350 slice 6 moved code_mismatch()/code_drift()/record_code_versions()/
-# check_theme_range() from Deploy.php into LifecyclePlanner.php (Deploy keeps
-# thin facades over the first three; check_theme_range had no other caller
-# and moved with no facade) -- this scanner keys its allowlist on exact
-# "file.php:function_name" pairs, so those four entries move filenames too.
+# issue #3350 slice 6 moved lifecycle/code observation into
+# LifecyclePlanner.php. The later exact-baseline transaction moved live option
+# reads again, into CodeLifecycleObservation/CodeBaselineTransaction, while
+# baseline_bytes() remains the planner's WordPress JSON boundary. Exact stale
+# entries are refused below, so this registry follows those owners rather than
+# retaining the planner methods that no longer reach WordPress.
 # current_active_plugins/plugin_runtime_state stay on Deploy.php. The
 # checkpoint-authenticated provider wrapper now owns public run(), while the
 # prior WordPress-reading body is run_authorized(), so this exact-name
@@ -157,16 +158,10 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # directly, earlier in the method, to compute $stylesheetMismatch/
 # $templateMismatch before the moved call.
 #
-# issue #3507 added LifecyclePlanner.php:observe_code_versions -- capture's
-# baseline write, which scopes code_drift() to this environment's own live
-# state and therefore reads get_option('template'/'stylesheet') directly, the
-# same unguarded reach its two neighbours code_drift/record_code_versions
-# already carry. It is a NEW entry, not a renamed one: manifest-validate does
-# not call it either (it is capture's call site, not this command's), and it
-# sits in the same load closure only because AdapterCertification pulls Deploy
-# -> LifecyclePlanner in. The alternative -- putting the drift check at the
-# capture call site instead -- was rejected precisely because it would teach a
-# second file where the live code facts live just to dodge this line.
+# issue #3507's capture observer and the host baseline status both consume the
+# same code_version_observation(); neither duplicates live option/plugin/theme
+# reads at its call site. baseline_bytes() is likewise the one WordPress JSON
+# encoder used by capture, lifecycle publication, and isolated acceptance.
 # PlatformCompatibility::current_facts() is similarly inert during this
 # command: Policy.php loads its class, but only live Policy::load() paths call
 # the method. The command's deferred document names that exact target boundary.
@@ -195,8 +190,19 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 #
 # ONE assignment, deliberately: the #561 merge left two consecutive `wp_allow=`
 # lines and the second silently won, dropping WP-3.3's four ProviderSdk and two
-# ProviderSurfaces entries and re-failing the scan. This is their union.
-wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_evidence,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run_authorized,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results'
+# ProviderSurfaces entries and re-failing the scan. This is their union. The
+# concatenated quoted segments remain one shell assignment while keeping the
+# exact function registry reviewable by its deferred owner: platform/native,
+# deploy/baseline, provider runtime, database transaction, and ledger.
+wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,PlatformCompatibility.php:wp_cli_opcache_enabled,Policy.php:taxonomies,'\
+'NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_evidence,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,'\
+'LifecyclePlanner.php:baseline_bytes,LifecycleExecutor.php:execute,Deploy.php:run_authorized,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,CodeLifecycleObservation.php:read_unlocked_options,CodeBaselinePublication.php:publish_terminal,CodeBaselineTransaction.php:lock_current,'\
+'PromotionLease.php:abort,PromotionLease.php:acquire_internal,PromotionLease.php:assert_transactional_promotion_storage,PromotionLease.php:begin_recovery_with_external_fence,PromotionLease.php:begin_with_external_fence,PromotionLease.php:complete_scoped,PromotionLease.php:heartbeat,PromotionLease.php:recover_session,PromotionLease.php:release,PromotionLease.php:release_after_failure,'\
+'Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results,ProviderSdk.php:checked_durable_option,ProviderSdk.php:database_table_presence,ProviderSdk.php:physical_tables_for_surfaces,ExactOptionWriter.php:persist,ExactOptionWriter.php:invalidate_cache_attempt,LockedOptionRows.php:read_one,'\
+'DatabaseLockBoundary.php:assert_closed_foreign_key_destinations,DatabaseLockBoundary.php:assert_foreign_key_metadata_authority,DatabaseLockBoundary.php:assert_innodb_tables,DatabaseLockBoundary.php:assert_no_triggers,DatabaseLockBoundary.php:assert_plain_physical_table,DatabaseLockBoundary.php:assert_trigger_metadata_visibility,DatabaseLockBoundary.php:foreign_key_internal_schema_name,DatabaseLockBoundary.php:foreign_key_metadata_source,DatabaseLockBoundary.php:locking_index,DatabaseLockBoundary.php:touch_table,'\
+'DatabaseQueryIsolation.php:add_filter,DatabaseQueryIsolation.php:apply_filters,DatabaseQueryIsolation.php:assert_profile_sql_mode,DatabaseQueryIsolation.php:begin,DatabaseTransportBoundary.php:begin,ProcessFence.php:acquire,ProcessFence.php:isContinuous,ProcessFence.php:name,ProcessFence.php:release,'\
+'Db.php:assemble_mutation,Db.php:bind_session_authority,Db.php:checked,Db.php:classified_savepoint_control,Db.php:delete,Db.php:driver_errno,Db.php:ensure_varchar_column_width,Db.php:finish_transaction,Db.php:idle_schema_statement,Db.php:idle_schema_transport,Db.php:insert,Db.php:insert_id,Db.php:native_table_identifier,Db.php:permitted_control_query,Db.php:read_session_identity,Db.php:require_savepoint_control,Db.php:set_next_transaction_repeatable_read,Db.php:start_control,Db.php:table_label,Db.php:transactional_mutation,Db.php:update,Db.php:where_fields,Db.php:write_fields,'\
+'Ledger.php:all_map,Ledger.php:all_state,Ledger.php:assert_read_only_schema,Ledger.php:checked_get_results,Ledger.php:checked_get_row,Ledger.php:checked_get_var,Ledger.php:ensure,Ledger.php:forget,Ledger.php:id_for,Ledger.php:kv_delete,Ledger.php:kv_delete_transactional,Ledger.php:kv_get,Ledger.php:kv_get_for_update,Ledger.php:kv_prefix,Ledger.php:kv_set,Ledger.php:kv_set_transactional,Ledger.php:migrate_widen_entity_type,Ledger.php:migrate_widen_id_kind,Ledger.php:prune_dead_composite_table_map,Ledger.php:prune_dead_map,Ledger.php:prune_dead_table_map,Ledger.php:prune_state,Ledger.php:require_read_only_mapping,Ledger.php:set,Ledger.php:set_state_hash,Ledger.php:state_hash,Ledger.php:uuid_for'
 wp_allow_via='AdapterRegistry::report() PlatformCompatibility::current_facts() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {

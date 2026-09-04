@@ -125,7 +125,8 @@ final class CaptureSnapshotService {
                     }
                 );
                 return $candidate;
-            }
+            },
+            readOnly: true
         );
         return self::records($build['entities']);
     }

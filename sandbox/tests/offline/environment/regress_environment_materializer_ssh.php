@@ -231,7 +231,7 @@ if ($sub === 'compile') {
 }
 if ($sub === 'plan') { echo file_get_contents((string) getenv('WPRISM_SSH_PROOF_PLAN')); exit(0); }
 if ($sub === 'lifecycle-status') {
-    echo "{\"format\":\"wprism-lifecycle-status/v1\",\"reasons\":[],\"required\":false}\n";
+    echo "{\"baseline_state\":\"exact\",\"code_boundary_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"code_drift\":[],\"findings_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"format\":\"wprism-lifecycle-status/v2\",\"observation_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"reasons\":[],\"required\":false,\"warnings\":[]}\n";
     exit(0);
 }
 if ($sub === 'checkpoint-target') {

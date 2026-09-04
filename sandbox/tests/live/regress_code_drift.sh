@@ -28,8 +28,8 @@
 # refuse by default and both proceed with --force-code-drift while still
 # reporting what was overridden (Architecture Rulings §1); apply's forced
 # pass does NOT clear the finding (apply never re-baselines — it doesn't
-# own code state); deploy's forced pass DOES clear it (re-baselines
-# unconditionally); and a plain capture (issue #3507) OBSERVES the drift —
+# own code state); deploy's forced pass DOES clear it through the isolated
+# baseline-acceptance phase; and a plain capture (issue #3507) OBSERVES the drift —
 # it warns once per row, leaves wprism_kv['code_versions'] byte-identical and
 # the finding standing, and records a baseline only when there is nothing
 # to accept. Capture is the observe-reality verb; accepting a code change
@@ -54,6 +54,18 @@ PORT2="${CODEDRIFT_PORT2:-8863}"
 COMPOSE="docker compose -p wprism-codedrift -f pair.yml"
 export WPRISM_PAIR=codedrift
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
+HOST_ENVS_FILE=$(mktemp)
+trap 'rm -f "$HOST_ENVS_FILE"' EXIT
+ABS_COMPOSE="$(pwd)/pair.yml"
+cat > "$HOST_ENVS_FILE" <<EOF
+{"envs": {"codedrift1": {"transport": "docker", "compose_file": "$ABS_COMPOSE", "service": "cli1", "repo_path": "/siterepo"}}}
+EOF
+host1() {
+  local verb="$1"
+  shift
+  COMPOSE_PROJECT_NAME=wprism-codedrift WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" \
+    php ../cli/wprism --envs-file="$HOST_ENVS_FILE" "$verb" codedrift1 "$@"
+}
 
 say "clean-room via pair.sh (own dedicated pair, headless — no render checks)"
 bash bin/pair.sh reset codedrift
@@ -87,7 +99,7 @@ cat > siterepo/codedrift1/site.wprism.json <<'EOF'
 EOF
 cp site-repo.gitignore.template siterepo/codedrift1/.gitignore
 
-say "PART 1 — capture: must record a code_versions baseline (LifecyclePlanner::observe_code_versions(), nothing to accept yet)"
+say "PART 1 — capture: must record a code_versions baseline through CodeBaselineCapture (nothing to accept yet)"
 wp1 wprism capture --repo=/siterepo
 git -C siterepo/codedrift1 add -A
 git -C siterepo/codedrift1 -c user.name=wprism -c user.email=wprism@example.test commit -qm "baseline capture ($HELLO_BASENAME active)"
@@ -149,26 +161,117 @@ echo "$PLAN3" | jq -e '.code_drift | length == 1' >/dev/null \
 pass "confirmed: apply forcing through a finding does not clear it — apply does not own code state"
 
 say "PART 1 — deploy must ALSO refuse by default on the same drift"
+DEPLOY_BASELINE_BEFORE=$(wp1 eval "echo \WPrism\Ledger::kv_get('code_versions');" 2>&1 | tail -1)
 set +e
-DEPLOY_REFUSE=$(wp1 wprism deploy --repo=/siterepo 2>&1)
+DEPLOY_REFUSE=$(host1 deploy 2>&1)
 DEPLOY_REFUSE_RC=$?
 set -e
 echo "$DEPLOY_REFUSE"
 [ "$DEPLOY_REFUSE_RC" -ne 0 ] || fail "expected wprism deploy to refuse on code_drift, got exit 0"
 grep -q "code_drift" <<<"$DEPLOY_REFUSE" || fail "deploy refusal did not mention code_drift"
 grep -q -- "--force-code-drift" <<<"$DEPLOY_REFUSE" || fail "deploy refusal did not name the escape hatch"
-pass "deploy refuses loudly too, names code_drift and --force-code-drift"
+DEPLOY_BASELINE_AFTER=$(wp1 eval "echo \WPrism\Ledger::kv_get('code_versions');" 2>&1 | tail -1)
+[ "$DEPLOY_BASELINE_BEFORE" = "$DEPLOY_BASELINE_AFTER" ] \
+  || fail "unforced host deploy moved the code baseline"
+grep -q '^deploy phase: lifecycle-status$' <<<"$DEPLOY_REFUSE" \
+  || fail "host deploy did not acquire read-only lifecycle/baseline evidence"
+if grep -Eq '^deploy phase: (promotion-begin|checkpoint|code-baseline-accept|lifecycle-retire|lifecycle-activate|schema-settle|lifecycle-settle)$' <<<"$DEPLOY_REFUSE"; then
+  fail "unforced host deploy crossed its read-only refusal boundary: $DEPLOY_REFUSE"
+fi
+pass "host deploy refuses before mutation, names code_drift and preserves the exact baseline"
 
 say "PART 1 — deploy --force-code-drift proceeds, reports the override, AND re-baselines"
-DEPLOY_FORCED=$(wp1 wprism deploy --repo=/siterepo --force-code-drift 2>&1)
+DEPLOY_FORCED=$(host1 deploy --force-code-drift 2>&1)
 echo "$DEPLOY_FORCED"
-grep -q "FORCED past code_drift" <<<"$DEPLOY_FORCED" || fail "forced deploy did not report the overridden finding in human output"
-pass "forced deploy succeeded and reported the overridden finding"
+[ "$(grep -c 'FORCED past code_drift' <<<"$DEPLOY_FORCED")" -eq 1 ] \
+  || fail "forced host deploy did not report exactly one overridden finding: $DEPLOY_FORCED"
+grep -q '^deploy phase: code-baseline-accept$' <<<"$DEPLOY_FORCED" \
+  || fail "forced host deploy omitted the dedicated baseline phase: $DEPLOY_FORCED"
+grep -q '^deploy complete: code-baseline-accept; no code descriptor$' <<<"$DEPLOY_FORCED" \
+  || fail "forced host deploy returned the wrong terminal result: $DEPLOY_FORCED"
+if grep -Eq '^deploy phase: (promotion-begin|checkpoint|lifecycle-retire|lifecycle-activate|schema-settle|lifecycle-settle)$' <<<"$DEPLOY_FORCED"; then
+  fail "baseline-only host deploy invented lifecycle/provider/checkpoint work: $DEPLOY_FORCED"
+fi
+pass "forced host deploy reported once and used the isolated baseline-only phase"
 
 PLAN4=$(wp1 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN4" | jq -e '.code_drift | length == 0' >/dev/null \
   || fail "expected code_drift to be CLEARED after a forced deploy (re-baseline), got: $(echo "$PLAN4" | jq -c .code_drift)"
 pass "confirmed: deploy re-baselines unconditionally — the drift it just forced past is gone on the next plan"
+
+say "PART 1 — an active plugin missing from an existing baseline uses the same explicit host acceptance path"
+wp1 eval "
+\$v = json_decode(\WPrism\Ledger::kv_get('code_versions'), true) ?: ['plugins' => []];
+unset(\$v['plugins']['$HELLO_BASENAME']);
+\WPrism\Ledger::kv_set('code_versions', wp_json_encode(\$v));
+" >/dev/null
+MISSING_PLAN=$(wp1 wprism plan --repo=/siterepo --format=json | tail -1)
+echo "$MISSING_PLAN" | jq -e --arg p "$HELLO_BASENAME" '
+  (.code_drift | length) == 1 and
+  .code_drift[0].issue == "code_baseline_missing" and
+  .code_drift[0].plugin == $p and
+  .code_drift[0].recorded_version == ""
+' >/dev/null || fail "active plugin missing-baseline finding is malformed: $MISSING_PLAN"
+MISSING_BEFORE=$(wp1 eval "echo \WPrism\Ledger::kv_get('code_versions');" 2>&1 | tail -1)
+set +e
+MISSING_REFUSE=$(host1 deploy 2>&1)
+MISSING_REFUSE_RC=$?
+set -e
+[ "$MISSING_REFUSE_RC" -ne 0 ] \
+  && grep -q 'absent from the existing WPrism code-version baseline' <<<"$MISSING_REFUSE" \
+  || fail "host deploy did not refuse the missing baseline precisely: $MISSING_REFUSE"
+[ "$MISSING_BEFORE" = "$(wp1 eval "echo \WPrism\Ledger::kv_get('code_versions');" 2>&1 | tail -1)" ] \
+  || fail "missing-baseline refusal mutated the ledger"
+MISSING_ACCEPT=$(host1 deploy --force-code-drift 2>&1) \
+  || fail "forced missing-baseline acceptance failed: $MISSING_ACCEPT"
+[ "$(grep -c 'FORCED past code_drift' <<<"$MISSING_ACCEPT")" -eq 1 ] \
+  && grep -q '^deploy phase: code-baseline-accept$' <<<"$MISSING_ACCEPT" \
+  || fail "missing-baseline acceptance did not use/report one baseline phase: $MISSING_ACCEPT"
+MISSING_AFTER=$(wp1 wprism plan --repo=/siterepo --format=json | tail -1)
+echo "$MISSING_AFTER" | jq -e '.code_drift == []' >/dev/null \
+  || fail "missing-baseline acceptance did not converge: $MISSING_AFTER"
+pass "code_baseline_missing refuses byte-identically, then converges through the same explicit phase"
+
+say "PART 1 — a standalone theme is one baseline identity even though WordPress stores it in two slots"
+THEME_STYLESHEET=$(wp1 option get stylesheet)
+THEME_TEMPLATE=$(wp1 option get template)
+[ -n "$THEME_STYLESHEET" ] && [ "$THEME_STYLESHEET" = "$THEME_TEMPLATE" ] \
+  || fail "fresh fixture does not expose one standalone theme identity: template=$THEME_TEMPLATE stylesheet=$THEME_STYLESHEET"
+THEME_INSTALLED=$(wp1 theme get "$THEME_STYLESHEET" --field=version)
+wp1 eval "
+\$v = json_decode(\WPrism\Ledger::kv_get('code_versions'), true) ?: ['plugins' => []];
+\$v['template'] = '$THEME_TEMPLATE';
+\$v['stylesheet'] = '$THEME_STYLESHEET';
+\$v['template_version'] = '0.0-wprism-prior';
+\$v['stylesheet_version'] = '0.0-wprism-prior';
+\WPrism\Ledger::kv_set('code_versions', wp_json_encode(\$v));
+" >/dev/null
+THEME_PLAN=$(wp1 wprism plan --repo=/siterepo --format=json | tail -1)
+echo "$THEME_PLAN" | jq -e --arg t "$THEME_STYLESHEET" --arg v "$THEME_INSTALLED" '
+  (.code_drift | length) == 1 and
+  .code_drift[0].issue == "code_drift" and
+  .code_drift[0].kind == "theme" and
+  .code_drift[0].theme == $t and
+  .code_drift[0].installed_version == $v
+' >/dev/null || fail "standalone theme emitted duplicate or malformed baseline evidence: $THEME_PLAN"
+THEME_BEFORE=$(wp1 eval "echo \WPrism\Ledger::kv_get('code_versions');" 2>&1 | tail -1)
+set +e
+THEME_REFUSE=$(host1 deploy 2>&1)
+THEME_REFUSE_RC=$?
+set -e
+[ "$THEME_REFUSE_RC" -ne 0 ] && grep -q "$THEME_STYLESHEET theme" <<<"$THEME_REFUSE" \
+  || fail "host did not refuse the one standalone-theme finding: $THEME_REFUSE"
+[ "$THEME_BEFORE" = "$(wp1 eval "echo \WPrism\Ledger::kv_get('code_versions');" 2>&1 | tail -1)" ] \
+  || fail "standalone-theme refusal moved the baseline"
+THEME_ACCEPT=$(host1 deploy --force-code-drift 2>&1) \
+  || fail "standalone-theme baseline acceptance failed: $THEME_ACCEPT"
+[ "$(grep -c 'FORCED past code_drift' <<<"$THEME_ACCEPT")" -eq 1 ] \
+  && grep -q '^deploy phase: code-baseline-accept$' <<<"$THEME_ACCEPT" \
+  || fail "standalone-theme acceptance was duplicated or used the wrong phase: $THEME_ACCEPT"
+THEME_AFTER=$(wp1 wprism plan --repo=/siterepo --format=json | tail -1)
+echo "$THEME_AFTER" | jq -e '.code_drift == []' >/dev/null \
+  || fail "standalone-theme acceptance did not converge: $THEME_AFTER"
+pass "standalone theme drift crosses the host wire once and converges through baseline acceptance"
 
 say "PART 1 — issue #3507: a plain capture OBSERVES the drift and refuses to accept it as the new baseline"
 wp1 eval "
@@ -211,14 +314,7 @@ echo "$PLAN7" | jq -e '.code_drift | length == 0' >/dev/null \
 pass "capture still maintains the baseline whenever there is no unaccepted finding standing in the way"
 
 say "PART 2 — DISALLOW_FILE_MODS advisory doctor check, via the real cli/wprism orchestrator"
-ABS_COMPOSE="$(pwd)/pair.yml"
-DOCTOR_ENVS_FILE=$(mktemp)
-cat > "$DOCTOR_ENVS_FILE" <<EOF
-{"envs": {"codedrift1": {"transport": "docker", "compose_file": "$ABS_COMPOSE", "service": "cli1", "repo_path": "/siterepo"}}}
-EOF
-trap 'rm -f "$DOCTOR_ENVS_FILE"' EXIT
-
-DOCTOR_OUT1=$(WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" php ../cli/wprism doctor codedrift1 --envs-file="$DOCTOR_ENVS_FILE" 2>&1)
+DOCTOR_OUT1=$(WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" COMPOSE_PROJECT_NAME=wprism-codedrift php ../cli/wprism doctor codedrift1 --envs-file="$HOST_ENVS_FILE" 2>&1)
 DOCTOR_RC1=$?
 echo "$DOCTOR_OUT1"
 [ "$DOCTOR_RC1" -eq 0 ] || fail "expected wprism doctor to exit 0 (advisory finding must not fail it), got $DOCTOR_RC1"
@@ -228,7 +324,7 @@ pass "doctor exits 0 and labels the missing constant WARN, not FAIL — advisory
 
 say "PART 2 — setting DISALLOW_FILE_MODS flips the check to PASS"
 wp1 config set DISALLOW_FILE_MODS true --raw --type=constant >/dev/null
-DOCTOR_OUT2=$(WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" php ../cli/wprism doctor codedrift1 --envs-file="$DOCTOR_ENVS_FILE" 2>&1)
+DOCTOR_OUT2=$(WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" COMPOSE_PROJECT_NAME=wprism-codedrift php ../cli/wprism doctor codedrift1 --envs-file="$HOST_ENVS_FILE" 2>&1)
 echo "$DOCTOR_OUT2"
 grep -q '\[PASS\] DISALLOW_FILE_MODS set' <<<"$DOCTOR_OUT2" \
   || fail "expected [PASS] DISALLOW_FILE_MODS set once the constant is actually defined true"

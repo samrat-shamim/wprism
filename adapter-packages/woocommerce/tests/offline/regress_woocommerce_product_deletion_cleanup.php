@@ -8,7 +8,7 @@ if (!defined('ARRAY_A')) {
 $root = dirname(__DIR__, 4);
 require $root . '/agent/src/Adapter/ManifestProviderRuntime.php';
 require $root . '/agent/src/Adapter/ProviderSdk.php';
-require $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
 require $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php';
 
 $failures = 0;

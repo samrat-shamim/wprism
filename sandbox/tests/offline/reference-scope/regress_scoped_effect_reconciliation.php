@@ -14,53 +14,30 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 
-if (!defined('ARRAY_A')) {
-    define('ARRAY_A', 'ARRAY_A');
-}
+use WPrismTest\FakeWpdb;
 
-final class WPrismScopedEffectFakeWpdb {
-    public string $options = 'wp_options';
-    public string $last_error = '';
-    /** @var array<string,string> */
-    public array $optionRows = [];
-
-    public function prepare(string $query, mixed ...$args): string {
-        foreach ($args as $arg) {
-            $query = preg_replace_callback('/%[sd]/', static function (array $match) use ($arg): string {
-                return $match[0] === '%d'
-                    ? (string) (int) $arg
-                    : "'" . str_replace("'", "''", (string) $arg) . "'";
-            }, $query, 1) ?? $query;
-        }
-        return $query;
-    }
-
-    public function get_var(string $query): string|false|null {
-        $this->last_error = '';
-        if (str_contains($query, 'SELECT option_value')
-            && preg_match("/option_name = '([^']*)'/", $query, $match) === 1) {
-            return $this->optionRows[$match[1]] ?? null;
-        }
-        if (preg_match("/option_name = '([^']*)'/", $query, $match) === 1) {
-            return array_key_exists($match[1], $this->optionRows) ? $match[1] : null;
-        }
-        return null;
-    }
-
-    /** Preserve an exact empty option value instead of conflating it with a failed scalar read. */
-    public function get_row(string $query, mixed $output = ARRAY_A): ?array {
-        $this->last_error = '';
-        if (str_contains($query, 'SELECT option_value')
-            && preg_match("/option_name = '([^']*)'/", $query, $match) === 1
-            && array_key_exists($match[1], $this->optionRows)) {
-            return ['option_value' => $this->optionRows[$match[1]]];
-        }
-        return null;
-    }
-}
-
-$GLOBALS['wpdb'] = new WPrismScopedEffectFakeWpdb();
+$GLOBALS['wpdb'] = FakeWpdb::install()
+    ->setColumns('wp_options', [
+        'option_id' => 'bigint unsigned',
+        'option_name' => 'varchar(191)',
+        'option_value' => 'longtext',
+        'autoload' => 'varchar(20)',
+    ])
+    ->seedTable('wp_options', [])
+    ->setPrimaryKey('wp_options', 'option_id')
+    ->setUniqueKey('wp_options', ['option_name'])
+    ->setIndexes('wp_options', [[
+        'Key_name' => 'option_name',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'option_name',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ]])
+    ->setTableEngine('wp_options', 'InnoDB')
+    ->enableInformationSchema();
 $GLOBALS['wprism_scoped_effect_cache'] = ['transient' => []];
 $GLOBALS['wprism_scoped_effect_deletes'] = 0;
 $GLOBALS['wprism_scoped_effect_filters'] = [];
@@ -69,21 +46,58 @@ $GLOBALS['wprism_scoped_rewrite_cache_deletes'] = [];
 
 function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $autoload = 'yes'): bool {
     global $wpdb;
-    if (array_key_exists($name, $wpdb->optionRows)) {
+    if (scoped_effect_option($name) !== null) {
         return false;
     }
-    $wpdb->optionRows[$name] = (string) $value;
-    return true;
+    return $wpdb->insert($wpdb->options, [
+        'option_name' => $name,
+        'option_value' => (string) $value,
+        'autoload' => is_bool($autoload) ? ($autoload ? 'yes' : 'no') : (string) $autoload,
+    ]) === 1;
 }
 
 function update_option(string $name, mixed $value, mixed $autoload = null): bool {
     global $wpdb;
     $value = sanitize_option($name, $value);
-    $old = $wpdb->optionRows[$name] ?? null;
-    $wpdb->optionRows[$name] = is_array($value) || is_object($value) || is_bool($value)
+    $old = scoped_effect_option($name);
+    $stored = is_array($value) || is_object($value) || is_bool($value)
         ? serialize($value)
         : (string) $value;
-    return $old !== $wpdb->optionRows[$name];
+    if ($old === null) {
+        return add_option($name, $stored, '', $autoload ?? 'yes');
+    }
+    if (hash_equals($old, $stored)) {
+        return false;
+    }
+    return $wpdb->update(
+        $wpdb->options,
+        ['option_value' => $stored],
+        ['option_name' => $name]
+    ) === 1;
+}
+
+function scoped_effect_option(string $name): ?string {
+    global $wpdb;
+    foreach ($wpdb->rows($wpdb->options) as $row) {
+        if (($row['option_name'] ?? null) === $name) {
+            return is_string($row['option_value'] ?? null) ? $row['option_value'] : null;
+        }
+    }
+    return null;
+}
+
+function scoped_effect_set_option(string $name, string $value, string $autoload = 'yes'): void {
+    global $wpdb;
+    $row = scoped_effect_option($name);
+    if ($row === null) {
+        $wpdb->insert($wpdb->options, [
+            'option_name' => $name,
+            'option_value' => $value,
+            'autoload' => $autoload,
+        ]);
+        return;
+    }
+    $wpdb->update($wpdb->options, ['option_value' => $value], ['option_name' => $name]);
 }
 
 function maybe_unserialize(mixed $value): mixed {
@@ -95,10 +109,8 @@ function maybe_unserialize(mixed $value): mixed {
 }
 
 function get_option(string $name, mixed $default = false): mixed {
-    global $wpdb;
-    return array_key_exists($name, $wpdb->optionRows)
-        ? maybe_unserialize($wpdb->optionRows[$name])
-        : $default;
+    $stored = scoped_effect_option($name);
+    return $stored === null ? $default : maybe_unserialize($stored);
 }
 
 function sanitize_option(string $name, mixed $value): mixed {
@@ -115,6 +127,10 @@ function add_filter(string $hook, callable $callback, int $priority = 10): bool 
 }
 
 function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
+    $gate = is_array($GLOBALS['wp_filter'] ?? null) ? ($GLOBALS['wp_filter'][$hook] ?? null) : null;
+    if (is_object($gate) && method_exists($gate, 'hook_name')) {
+        return $gate->remove_filter($hook, $callback, $priority);
+    }
     foreach (($GLOBALS['wprism_scoped_effect_filters'][$hook][$priority] ?? []) as $index => $candidate) {
         if ($candidate === $callback) {
             unset($GLOBALS['wprism_scoped_effect_filters'][$hook][$priority][$index]);
@@ -122,6 +138,24 @@ function remove_filter(string $hook, callable $callback, int $priority = 10): bo
         }
     }
     return false;
+}
+
+function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+    $allGate = is_array($GLOBALS['wp_filter'] ?? null) ? ($GLOBALS['wp_filter']['all'] ?? null) : null;
+    if (is_object($allGate) && method_exists($allGate, 'do_all_hook')) {
+        $allArgs = array_merge([$hook, $value], $args);
+        $allGate->do_all_hook($allArgs);
+    }
+    $gate = is_array($GLOBALS['wp_filter'] ?? null) ? ($GLOBALS['wp_filter'][$hook] ?? null) : null;
+    if (is_object($gate) && method_exists($gate, 'apply_filters')) {
+        return $gate->apply_filters($value, array_merge([$value], $args));
+    }
+    foreach ($GLOBALS['wprism_scoped_effect_filters'][$hook] ?? [] as $callbacks) {
+        foreach ($callbacks as $callback) {
+            $value = $callback($value, ...$args);
+        }
+    }
+    return $value;
 }
 
 function wp_cache_get(string $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
@@ -139,8 +173,8 @@ function wp_cache_delete(int|string $key, string $group = ''): bool {
 function delete_transient(string $name): bool {
     global $wpdb;
     $GLOBALS['wprism_scoped_effect_deletes']++;
-    unset($wpdb->optionRows['_transient_' . $name]);
-    unset($wpdb->optionRows['_transient_timeout_' . $name]);
+    $wpdb->delete($wpdb->options, ['option_name' => '_transient_' . $name]);
+    $wpdb->delete($wpdb->options, ['option_name' => '_transient_timeout_' . $name]);
     unset($GLOBALS['wprism_scoped_effect_cache']['transient'][$name]);
     return true;
 }
@@ -355,16 +389,21 @@ $check(
     'scoped invocation returns exact operation binding and hash-only reviewed evidence'
 );
 $storedOperationRows = array_values(array_filter(
-    $GLOBALS['wpdb']->optionRows,
-    static fn(string $value): bool => str_contains($value, Providers::SCOPED_OPERATION_RECEIPT_FORMAT)
+    $GLOBALS['wpdb']->rows($GLOBALS['wpdb']->options),
+    static fn(array $row): bool => str_contains(
+        (string) ($row['option_value'] ?? ''),
+        Providers::SCOPED_OPERATION_RECEIPT_FORMAT
+    )
 ));
+$storedOperationValue = (string) ($storedOperationRows[0]['option_value'] ?? '');
 $check(
     count($storedOperationRows) === 1
-        && !str_contains($storedOperationRows[0], '"before":')
-        && !str_contains($storedOperationRows[0], '"after":')
-        && str_contains($storedOperationRows[0], '"before_hash"')
-        && str_contains($storedOperationRows[0], '"after_hash"'),
-    'the durable provider-owned receipt contains hashes rather than raw provider before/after evidence'
+        && ($storedOperationRows[0]['autoload'] ?? null) === 'off'
+        && !str_contains($storedOperationValue, '"before":')
+        && !str_contains($storedOperationValue, '"after":')
+        && str_contains($storedOperationValue, '"before_hash"')
+        && str_contains($storedOperationValue, '"after_hash"'),
+    'the durable provider-owned receipt is non-autoloaded with hashes rather than raw provider before/after evidence'
 );
 
 $recovered = Providers::reconcile_scoped($provider, $action, $decl, $op);
@@ -416,8 +455,8 @@ $check(
     $nativeNotStarted['status'] === 'not_started' && $GLOBALS['wprism_scoped_effect_deletes'] === 0,
     'native reconciliation does not infer execution from transient absence without a durable receipt'
 );
-$GLOBALS['wpdb']->optionRows['_transient_scoped_native'] = 'stale';
-$GLOBALS['wpdb']->optionRows['_transient_timeout_scoped_native'] = '123';
+scoped_effect_set_option('_transient_scoped_native', 'stale');
+scoped_effect_set_option('_transient_timeout_scoped_native', '123');
 $GLOBALS['wprism_scoped_effect_cache']['transient']['scoped_native'] = false;
 $nativeReceipt = NativeActions::invoke_scoped('transient.delete', $nativeArgs, $nativeOp);
 $nativeRecovered = NativeActions::reconcile_scoped('transient.delete', $nativeArgs, $nativeOp);
@@ -438,10 +477,10 @@ $throws(
     'a scoped native operation with a mismatched input witness is refused before any read/delete effect'
 );
 
-$GLOBALS['wpdb']->optionRows['permalink_structure'] = '/scoped/%postname%/';
-$GLOBALS['wpdb']->optionRows['rewrite_rules'] = serialize([
+scoped_effect_set_option('permalink_structure', '/scoped/%postname%/');
+scoped_effect_set_option('rewrite_rules', serialize([
     '^old/([0-9]+)/?$' => 'index.php?p=$matches[1]',
-]);
+]));
 $GLOBALS['wp_rewrite'] = new WPrismScopedRewriteRuntime();
 $rewriteOp = $operation(NativeActions::scoped_input_hash('rewrite.flush', []), 'operation.0005');
 $rewriteNotStarted = NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp);
@@ -449,15 +488,18 @@ $check(
     $rewriteNotStarted['status'] === 'not_started' && $GLOBALS['wprism_scoped_rewrite_child_flushes'] === 0,
     'scoped rewrite reconciliation requires a durable receipt and never infers execution from target state'
 );
+$GLOBALS['wprism_scoped_rewrite_cache_deletes'] = [];
 $rewriteReceipt = NativeActions::invoke_scoped('rewrite.flush', [], $rewriteOp);
 $rewriteRecovered = NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp);
+$rewriteDeletes = $GLOBALS['wprism_scoped_rewrite_cache_deletes'];
 $check(
     $rewriteReceipt['status'] === 'verified'
         && $rewriteRecovered['status'] === 'verified'
         && $rewriteRecovered['after_hash'] === $rewriteReceipt['after_hash']
         && $rewriteReceipt['capability_digest'] === NativeActions::scoped_action_digest('rewrite.flush')
         && $GLOBALS['wprism_scoped_rewrite_child_flushes'] === 1
-        && $GLOBALS['wprism_scoped_rewrite_cache_deletes'] === [
+        && count($rewriteDeletes) === 12
+        && array_slice($rewriteDeletes, 3, 6) === [
             ['rewrite_rules', 'options'],
             ['tribe_last_generate_rewrite_rules', 'options'],
             ['tribe_last_updated_option', 'options'],
@@ -467,9 +509,9 @@ $check(
         ],
     'scoped rewrite recovery checks the persisted/runtime grammar against hash-only evidence without a second flush'
 );
-$GLOBALS['wpdb']->optionRows['rewrite_rules'] = serialize([
+scoped_effect_set_option('rewrite_rules', serialize([
     '^drifted/?$' => 'index.php?drifted=1',
-]);
+]));
 $throws(
     static fn() => NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp),
     'recovery_required',

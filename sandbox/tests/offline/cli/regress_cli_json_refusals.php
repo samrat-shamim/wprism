@@ -152,6 +152,22 @@ namespace WPrism {
     }
 
     /**
+     * Keep the isolated host acceptance backend behind Cli's argument and
+     * refusal boundary. Loading its production graph would replace this
+     * command-level probe's planted Policy double with the concrete class.
+     */
+    final class CodeBaselineAcceptance {
+        public static function run(
+            string $repo,
+            string $compiledPath,
+            string $artifactHash,
+            array $options = []
+        ): array {
+            return [];
+        }
+    }
+
+    /**
      * issue #3397: refresh-export and scope reach their catch boundaries through
      * their own real backends, so both stubs do exactly what the others do —
      * throw the chosen Throwable and nothing else.
@@ -376,6 +392,7 @@ namespace {
     $commands = [
         'compile' => 'compile',
         'code_preflight' => 'code-preflight',
+        'code_baseline_accept' => 'code-baseline-accept',
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
         'init' => 'init',
@@ -1679,13 +1696,14 @@ namespace {
     // guards at authoring time; 33 with the asynchronous `lifecycle-settle`
     // completion gate; 34 with the pre-observation `schema-settle` gate; 37
     // after lifecycle/schema status and the value-free `checkpoint-target`
-    // identity preflight closed the host-owned provider-settlement sequence.
+    // identity preflight closed the host-owned provider-settlement sequence;
+    // 38 with the isolated `code-baseline-accept` host phase.
     // Checkpoint authentication and opening are intentionally absent: recovery
     // performs them before WordPress loads, so public WP commands would be a
     // second authority over the destructive restore boundary.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 37, 'every one of the 37 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 38, 'every one of the 38 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -1693,7 +1711,7 @@ namespace {
     // regression this closes.
     $armed = new ReflectionMethod(\WPrism\Cli::class, 'refusal_remediation');
     foreach ([
-        'code-preflight', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
+        'code-preflight', 'code-baseline-accept', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
         'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
         'journal-report', 'effect-coverage', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
     ] as $command) {

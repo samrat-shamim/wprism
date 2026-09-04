@@ -431,10 +431,15 @@ final class Snapshot {
                 continue;
             }
             foreach (['wprism_map', 'wprism_state'] as $table) {
-                $affected = (int) Db::query($wpdb->prepare(
-                    "UPDATE {$wpdb->prefix}{$table} SET entity_type = %s WHERE entity_type = %s",
-                    $full, $truncated
-                ), "ledger repair truncated entity_type in $table ($truncated -> $full)");
+                $affected = Db::mutation(
+                    $wpdb->prepare(
+                        "UPDATE {$wpdb->prefix}{$table} SET entity_type = %s",
+                        $full
+                    ),
+                    $wpdb->prepare('entity_type = %s', $truncated),
+                    '',
+                    "ledger repair truncated entity_type in $table ($truncated -> $full)"
+                );
                 if ($affected > 0) {
                     $repaired[] = "$table: '$truncated' -> '$full' ($affected row" . ($affected === 1 ? '' : 's') . ')';
                 }

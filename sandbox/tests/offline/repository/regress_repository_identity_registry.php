@@ -139,6 +139,8 @@ namespace {
 
     $root = dirname(__DIR__, 4);
     $registryPath = "$root/agent/src/Repository/RepositoryIdentityRegistry.php";
+    require_once "$root/sandbox/tests/lib/wp_stubs.php";
+    require_once "$root/sandbox/tests/lib/FakeWpdb.php";
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -307,11 +309,13 @@ namespace {
         'identity backup refuses payload drift after the compact identity witness'
     );
 
-    $transactionWpdb = new IdentityBackupFakeWpdb();
-    $transactionWpdb->ambiguousCommit = true;
-    $GLOBALS['wpdb'] = $transactionWpdb;
+    $transactionWpdb = \WPrismTest\FakeWpdb::install()
+        ->injectTransactionOutcome('COMMIT', 'after_false');
     Db::forget_transaction_tracking();
-    Db::start_consistent_snapshot('identity transaction outcome regression start');
+    Db::start_consistent_snapshot(
+        'identity transaction outcome regression start',
+        \WPrism\NativeDatabaseProfile::read_only([])
+    );
     try {
         Db::commit('identity transaction outcome regression commit');
         $commitFailure = null;
@@ -330,7 +334,10 @@ namespace {
         $identityRecovery = $failure;
     }
     try {
-        Db::start('identity transaction outcome accidental retry');
+        Db::start(
+            'identity transaction outcome accidental retry',
+            \WPrism\NativeDatabaseProfile::read_only([])
+        );
         $identityRetryBlocked = false;
     } catch (Throwable $failure) {
         $identityRetryBlocked = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
@@ -339,7 +346,10 @@ namespace {
         $commitFailure instanceof \WPrism\DatabaseTransactionOutcomeException
             && $identityRecovery instanceof \WPrism\DatabaseTransactionOutcomeException
             && $identityRecovery->getPrevious() === $commitFailure
-            && $transactionWpdb->rollbackQueries === 0
+            && !array_filter(
+                $transactionWpdb->queries(),
+                static fn(string $sql): bool => str_starts_with($sql, 'ROLLBACK AND')
+            )
             && $identityRetryBlocked,
         'identity recovery retains an inactive ambiguous COMMIT and never compensates through autocommit'
     );

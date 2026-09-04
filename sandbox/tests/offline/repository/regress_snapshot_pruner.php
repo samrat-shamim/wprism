@@ -17,9 +17,11 @@ require_once __DIR__ . '/../../../../agent/src/Repository/SnapshotPruner.php';
 use WPrism\Ledger;
 use WPrism\OptionState;
 use WPrism\Policy;
+use WPrism\Db;
 use WPrism\Snapshot;
 use WPrism\SnapshotPruner;
 use WPrism\TableGraph;
+use WPrismTest\FakeWpdb;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -43,6 +45,8 @@ $check(!class_exists(Policy::class, false), 'SnapshotPruner does not pull in Pol
 $check(!class_exists(Ledger::class, false), 'SnapshotPruner does not pull in Ledger');
 $check(!class_exists(OptionState::class, false), 'SnapshotPruner does not pull in OptionState');
 
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
@@ -190,20 +194,55 @@ $throws(
 $wpdb->optionScanFails = false;
 $wpdb->last_error = '';
 
-$wpdb->queries = [];
+$snapshotWpdb = $wpdb;
+Db::forget_transaction_tracking();
+$pruneWpdb = FakeWpdb::install()
+    ->seedTable('wp_wprism_map', [[
+        'uuid' => $uuid,
+        'entity_type' => 'things',
+        'id_kind' => 'thing',
+        'local_id' => 7,
+    ]])
+    ->seedTable('wp_options', [
+        ['option_name' => 'plugin_9_settings'],
+        ['option_name' => 'plugin_7_settings'],
+    ])
+    ->seedTable('wp_things', [])
+    ->seedTable('wp_others', [])
+    ->seedTable('wp_joins', [])
+    ->enableInformationSchema()
+    ->acknowledgeNextQueryWithoutExecution('NOT EXISTS', 3);
 $pruner->prune_dead_map($rowTables, $canonical);
-$check(count($wpdb->queries) === 3,
+$deleteQueries = array_values(array_filter(
+    $pruneWpdb->queries(),
+    static fn(string $sql): bool => str_starts_with($sql, 'DELETE FROM `wp_wprism_map`')
+));
+$check(count($deleteQueries) === 3,
     'full pruning covers ordinary, natural-key, and composite-ref tables');
-$check(str_contains($wpdb->queries[0], "m.id_kind = 'thing'")
-    && str_contains($wpdb->queries[0], 'm.local_id NOT IN (7,9)'),
+$check(str_contains($deleteQueries[0], "id_kind = 'thing'")
+    && str_contains($deleteQueries[0], 'local_id NOT IN (7,9)')
+    && str_contains($deleteQueries[0], 'NOT EXISTS (SELECT 1 FROM `wp_things` src')
+    && in_array('SHOW CREATE TABLE `wp_things`', $pruneWpdb->queries(), true),
     'full pruning carries the exact option-name preservation set into the ledger DELETE');
-$check(str_contains($wpdb->queries[1], "m.id_kind = 'other'")
-    && !str_contains($wpdb->queries[1], 'NOT IN'),
+$check(str_contains($deleteQueries[1], "id_kind = 'other'")
+    && str_contains($deleteQueries[1], 'NOT EXISTS (SELECT 1 FROM `wp_others` src')
+    && !str_contains($deleteQueries[1], 'NOT IN')
+    && in_array('SHOW CREATE TABLE `wp_others`', $pruneWpdb->queries(), true),
     'full pruning includes unrelated ordinary table kinds without widening preservation');
-$check(str_contains($wpdb->queries[2], "m.id_kind = 'join'")
-    && str_contains($wpdb->queries[2], 'src.`left_id` = (m.local_id >> 31)')
-    && str_contains($wpdb->queries[2], 'src.`right_id` = (m.local_id & 2147483647)'),
+$check(str_contains($deleteQueries[2], "id_kind = 'join'")
+    && str_contains($deleteQueries[2], 'NOT EXISTS (SELECT 1 FROM `wp_joins` src')
+    && str_contains($deleteQueries[2], 'src.`left_id` = (`wp_wprism_map`.`local_id` >> 31)')
+    && str_contains($deleteQueries[2], 'src.`right_id` = (`wp_wprism_map`.`local_id` % 2147483648)')
+    && in_array('SHOW CREATE TABLE `wp_joins`', $pruneWpdb->queries(), true),
     'full pruning proves packed composite identities against their exact live tuple');
+$check(
+    array_filter(
+        $deleteQueries,
+        static fn(string $sql): bool => str_contains($sql, 'DELETE m FROM')
+            || str_contains($sql, 'LEFT JOIN')
+    ) === [],
+    'identity pruning never relies on MySQL multi-table DELETE grammar'
+);
 
 $throws(
     static fn() => Ledger::prune_dead_composite_table_map([], 0),
@@ -217,6 +256,7 @@ $throws(
     'invalid composite identity table declaration',
     'composite pruning rejects a hostile identifier instead of sanitizing it into SQL'
 );
+$wpdb = $snapshotWpdb;
 $wpdb->queries = [];
 $wpdb->missingTables = ['wp_missing_joins'];
 Ledger::prune_dead_composite_table_map([
@@ -226,13 +266,33 @@ $check($wpdb->queries === [],
     'composite pruning skips an absent lifecycle-owned table without mutating its ledger');
 $wpdb->missingTables = [];
 
-$wpdb->queries = [];
+$lifecyclePruneWpdb = FakeWpdb::install()
+    ->seedTable('wp_wprism_map', [[
+        'uuid' => $uuid,
+        'entity_type' => 'things',
+        'id_kind' => 'thing',
+        'local_id' => 7,
+    ]])
+    ->seedTable('wp_options', [
+        ['option_name' => 'plugin_9_settings'],
+        ['option_name' => 'plugin_7_settings'],
+    ])
+    ->seedTable('wp_things', [])
+    ->enableInformationSchema()
+    ->acknowledgeNextQueryWithoutExecution('NOT EXISTS');
 $pruner->prune_option_name_ref_map(static fn(): array => $rowTables, $canonical);
-$check(count($wpdb->queries) === 1 && str_contains($wpdb->queries[0], "m.id_kind = 'thing'"),
+$lifecycleDeletes = array_values(array_filter(
+    $lifecyclePruneWpdb->queries(),
+    static fn(string $sql): bool => str_starts_with($sql, 'DELETE FROM `wp_wprism_map`')
+));
+$check(count($lifecycleDeletes) === 1
+    && str_contains($lifecycleDeletes[0], "id_kind = 'thing'")
+    && str_contains($lifecycleDeletes[0], 'FROM `wp_things` src'),
     'lifecycle pruning touches only the option-name-referenced row kind');
-$check(!str_contains($wpdb->queries[0], "m.id_kind = 'other'")
-    && !str_contains($wpdb->queries[0], "m.id_kind = 'join'"),
+$check(!str_contains($lifecycleDeletes[0], "id_kind = 'other'")
+    && !str_contains($lifecycleDeletes[0], "id_kind = 'join'"),
     'lifecycle pruning excludes unrelated and composite row kinds');
+$wpdb = $snapshotWpdb;
 
 $noRefsPolicy = new Policy();
 $noRefsPolicy->manifests = [['name' => 'no-option-name-refs']];

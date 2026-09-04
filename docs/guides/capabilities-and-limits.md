@@ -564,7 +564,7 @@ from the same list:
 | blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `wprism promote <env> --with-deletes --force-delete-referenced`. Forced execution stays loud. |
 | `missing_user` | An authored user-meta sidecar names an exact login that does not exist here. Apply refuses before mutation. | Create or reconcile the user outside WPrism, or declare `missing_user: "warn"` on every authored key in that sidecar to warn-and-skip it. |
 | `code_mismatch` | Installed code disagrees with what state declares active. | Install/vendor the code, deploy first, or `--force-code-mismatch`. |
-| `code_drift` | Managed code changed here since WPrism's last trusted observation. | Re-deploy to accept the new baseline, restore the recorded version yourself, or `--force-code-drift`. Unlike ordinary `drift` below, a `wprism capture` does **not** clear this one: capture observes the drift and warns once per finding, it does not accept a code change (issue #3507). |
+| `code_drift` | Managed code changed here since WPrism's last trusted observation. | Restore the recorded version yourself, or explicitly accept the installed version with host `wprism deploy <env> --force-code-drift`. Unlike ordinary `drift` below, a `wprism capture` does **not** clear this one: capture observes the drift and warns once per finding, it does not accept a code change (issue #3507). |
 | `code_revision_stale` | The artifact's code payload never completed stage → lifecycle → finalize. | `wprism deploy <env>`. **Non-forceable** — this is the ordering invariant, not a judgment call. |
 | `incomplete_apply` | A prior promotion failed before required rebuild/convergence finished. | Re-run apply; the retry clears the marker. If the interrupted apply preserved environment drift, its row says so and names how many: the retry will *not* overwrite those entities, so `wprism capture` first — otherwise the retry fails the same convergence gate again. The retry also refuses three-way `conflict` rows on entities that apply never wrote — the marker records its own write set, so recompiling between the two runs cannot turn a real conflict into an automatic override — and the row names those too; they need the same `--force-theirs` or capture-first choice as any first apply. |
 | `incomplete_lifecycle` | A hook window failed after its durable pre-hook boundary, so a hook may already have committed state. | Restore the exact pre-lifecycle database checkpoint. **Non-forceable.** |
@@ -847,6 +847,19 @@ actually observed — never against another product's numbers. The
 measured evidence record gone, `AdapterRegistry::target_reasons()` does not
 re-derive global compatibility as adapter-local reasons. The adapter plugin
 window remains a separate authored and enforced contract.
+
+The sibling `database.foreign_key_census` declaration is intentionally scoped
+to `transactional-database-mutation`, not policy load. Complete incoming InnoDB
+referential-action discovery uses MariaDB 11's `INNODB_SYS_FOREIGN` or MySQL
+8.4's `INNODB_FOREIGN`; both require a direct global `PROCESS` grant. Doctor
+reports a missing grant/source as a warning so adoption, capture, assessment
+and review remain usable. Every transactional database mutation independently
+proves the profile and refuses before its first write when it cannot census a
+cross-schema cascading child. The shipped declaration's whole-boundary
+`platform_sha256` identity carries this contract, while runtime enforcement
+proves the current account. A site-adapter certificate's database axis
+continues to bind its engine/version cells, not an operator account's live
+admin grant.
 
 The platform boundary is also load-bearing in one other way:
 `ManifestDispositions::platform_boundary()` refuses at agent load time —

@@ -212,6 +212,11 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_row(string $sql, $output = null): ?array {
         $this->last_error = '';
+        if (preg_match("/SELECT k, v FROM wp_wprism_kv WHERE k = '([^']*)'/i", $sql, $m)) {
+            return array_key_exists($m[1], $this->kv)
+                ? ['k' => $m[1], 'v' => $this->kv[$m[1]]]
+                : null;
+        }
         if (preg_match(
             "/SELECT entity_type, local_id FROM wp_wprism_map WHERE uuid = '([^']*)' AND id_kind = '([^']*)'/i",
             $sql,
@@ -339,6 +344,8 @@ require_once "$root/agent/src/Repository/RepositoryCompiler.php";
 require_once "$root/agent/src/Delete/Deletion.php";
 require_once "$root/agent/src/Publication/Publish.php";
 require_once "$root/agent/src/Capture/Capture.php";
+require_once "$root/sandbox/tests/lib/wp_stubs.php";
+require_once "$root/sandbox/tests/lib/FakeWpdb.php";
 
 if (!defined('WPRISM_SPEC_VERSION')) {
     define('WPRISM_SPEC_VERSION', 2);
@@ -355,6 +362,7 @@ use WPrism\Ledger;
 use WPrism\Policy;
 use WPrism\ProcessFence;
 use WPrism\Snapshot;
+use WPrismTest\FakeWpdb;
 
 $wpdb = new CaptureAtomicityFakeWpdb();
 
@@ -365,6 +373,64 @@ function assert_capture_atomicity(bool $condition, string $message): void {
     echo "ok: $message\n";
 }
 
+/** Install the complete InnoDB read set CaptureTransaction validates. */
+function capture_atomicity_database(array $missingCoreColumns = []): FakeWpdb {
+    Db::forget_transaction_tracking();
+    $db = FakeWpdb::install()->enableInformationSchema();
+    foreach (WPrism\TableSchema::core_capture_required_columns() as $property => $columns) {
+        $columns = array_values(array_diff($columns, $missingCoreColumns[$property] ?? []));
+        $db
+            ->setColumns($db->$property, array_fill_keys($columns, 'longtext'))
+            ->setTableEngine($db->$property, 'InnoDB');
+    }
+    return $db
+        ->setColumns('wp_wprism_map', [
+            'uuid' => 'char(36)',
+            'entity_type' => 'varchar(64)',
+            'id_kind' => 'varchar(32)',
+            'local_id' => 'bigint unsigned',
+        ])
+        ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+        ->setTableEngine('wp_wprism_map', 'InnoDB')
+        ->setColumns('wp_wprism_state', [
+            'uuid' => 'char(36)',
+            'entity_type' => 'varchar(64)',
+            'content_hash' => 'char(64)',
+        ])
+        ->setUniqueKey('wp_wprism_state', ['uuid'])
+        ->setTableEngine('wp_wprism_state', 'InnoDB')
+        ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+        ->setUniqueKey('wp_wprism_kv', ['k'])
+        ->setTableEngine('wp_wprism_kv', 'InnoDB');
+}
+
+/** @return array{starts:int,commits:int,rollbacks:int} */
+function capture_atomicity_transaction_counts(FakeWpdb $db): array {
+    $counts = ['starts' => 0, 'commits' => 0, 'rollbacks' => 0];
+    foreach ($db->queries() as $sql) {
+        if (preg_match('/^START TRANSACTION\b/i', $sql) === 1) {
+            $counts['starts']++;
+        } elseif (preg_match('/^COMMIT\b/i', $sql) === 1) {
+            $counts['commits']++;
+        } elseif (preg_match('/^ROLLBACK(?:\s+AND|\s*$)/i', $sql) === 1) {
+            // ROLLBACK TO SAVEPOINT is an observation, not a terminal control.
+            $counts['rollbacks']++;
+        }
+    }
+    return $counts;
+}
+
+/** @return array<string,string> */
+function capture_atomicity_kv(FakeWpdb $db): array {
+    $kv = [];
+    foreach ($db->rows('wp_wprism_kv') as $row) {
+        $kv[(string) ($row['k'] ?? '')] = (string) ($row['v'] ?? '');
+    }
+    ksort($kv, SORT_STRING);
+    return $kv;
+}
+
 $captureSource = (string) file_get_contents("$root/agent/src/Capture/Capture.php");
 $transactionSource = (string) file_get_contents("$root/agent/src/Capture/CaptureTransaction.php");
 assert_capture_atomicity(
@@ -372,9 +438,11 @@ assert_capture_atomicity(
     'Capture directly loads its transaction collaborator without bootstrap-order coupling'
 );
 assert_capture_atomicity(
-    str_contains($transactionSource, "Db::start_consistent_snapshot('capture transaction start')")
+    str_contains($transactionSource, "Db::start_consistent_snapshot('capture transaction start', \$profile)")
+        && str_contains($transactionSource, 'Db::start_read_only_consistent_snapshot(')
+        && str_contains($transactionSource, '$profile = self::database_profile(')
         && !str_contains($captureSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'"),
-    'the consistent-read protocol delegates one-shot isolation and exact START outcome to Db'
+    'capture delegates one-shot isolation, exact START outcome, and its complete database profile to Db'
 );
 $transactionRun = new ReflectionMethod(CaptureTransaction::class, 'run');
 assert_capture_atomicity(
@@ -471,13 +539,14 @@ assert_capture_atomicity(
 );
 $transactionRunParameters = $transactionRun->getParameters();
 assert_capture_atomicity(
-    count($transactionRunParameters) === 4
+    count($transactionRunParameters) === 5
         && ($transactionRunParameters[0]->getType()?->getName() ?? null) === Policy::class
         && $transactionRunParameters[2]->isPassedByReference()
         && $transactionRunParameters[2]->isDefaultValueAvailable()
         && $transactionRunParameters[2]->getDefaultValue() === null
-        && $transactionRunParameters[3]->getDefaultValue() === false,
-    'CaptureTransaction requires a path policy and preserves the optional by-reference publication phase contract'
+        && $transactionRunParameters[3]->getDefaultValue() === false
+        && $transactionRunParameters[4]->getDefaultValue() === false,
+    'CaptureTransaction requires a path policy and preserves its phase, options-only, and read-only contracts'
 );
 
 $consistentSnapshot = new ReflectionMethod(Capture::class, 'run_in_consistent_snapshot');
@@ -494,6 +563,49 @@ assert_capture_atomicity(
 );
 
 $transactionPolicy = Policy::load(null, ['core']);
+
+// MySQL 1213 rolls back the complete server transaction before wpdb reports
+// the error. Exercise the product retry seam with the shared row-backed fake:
+// the first attempt's successful DML must disappear, no second ROLLBACK may be
+// issued against the already-ended transaction, and only a fresh snapshot may
+// publish the rebuilt candidate.
+$deadlockDb = capture_atomicity_database();
+$deadlockAttempts = 0;
+$deadlockResult = CaptureTransaction::run(
+    $transactionPolicy,
+    static function () use (&$deadlockAttempts, $deadlockDb): array {
+        $deadlockAttempts++;
+        if ($deadlockAttempts === 1) {
+            Ledger::kv_set('deadlock_prior', 'must-roll-back');
+            $deadlockDb->simulateDeadlock('deadlock_trigger');
+            Ledger::kv_set('deadlock_trigger', 'must-not-persist');
+        }
+        Ledger::kv_set('deadlock_retry', 'committed');
+        return ['attempt' => $deadlockAttempts];
+    }
+);
+$deadlockQueries = $deadlockDb->queries();
+assert_capture_atomicity(
+    $deadlockResult === ['attempt' => 2] && $deadlockAttempts === 2,
+    'a product-path 1213 rebuilds the candidate exactly once from a fresh snapshot'
+);
+assert_capture_atomicity(
+    $deadlockDb->rows('wp_wprism_kv') === [['k' => 'deadlock_retry', 'v' => 'committed']],
+    'the server-side 1213 rollback removes all first-attempt DML before the retry commits'
+);
+assert_capture_atomicity(
+    count(array_filter(
+        $deadlockQueries,
+        static fn(string $sql): bool => $sql === 'START TRANSACTION WITH CONSISTENT SNAPSHOT'
+    )) === 2
+        && count(array_filter(
+            $deadlockQueries,
+            static fn(string $sql): bool => $sql === 'COMMIT AND NO CHAIN NO RELEASE'
+        )) === 1
+        && !in_array('ROLLBACK AND NO CHAIN NO RELEASE', $deadlockQueries, true),
+    '1213 cleanup proves the old witness absent without a second terminal control'
+);
+
 $invokeConsistentSnapshot = static function (
     callable $fn,
     ?array &$phase = null,
@@ -510,7 +622,7 @@ $invokeConsistentSnapshot = static function (
 // Keep the historical private facade callable with only its original callback
 // argument. Production paths pass their exact policy; reflection probes fall
 // back to core and still receive engine validation before START.
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb = capture_atomicity_database()->setTransactionIsolation('READ-COMMITTED');
 $legacyCallbackRuns = 0;
 $observedCaptureIsolation = null;
 $legacyResult = $consistentSnapshot->invoke(null, static function () use (
@@ -519,27 +631,28 @@ $legacyResult = $consistentSnapshot->invoke(null, static function () use (
     $wpdb
 ): array {
     $legacyCallbackRuns++;
-    $observedCaptureIsolation = $wpdb->activeIsolation;
+    $observedCaptureIsolation = $wpdb->activeTransactionIsolation();
     return ['legacy' => true];
 });
+$legacyCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity(
     $legacyResult === ['legacy' => true] && $legacyCallbackRuns === 1,
     'the callback-only historical reflection facade remains invocation-compatible'
 );
 assert_capture_atomicity(
-    $wpdb->starts === 1 && $wpdb->commits === 1 && $wpdb->rollbacks === 0,
+    $legacyCounts === ['starts' => 1, 'commits' => 1, 'rollbacks' => 0],
     'the callback-only facade still runs one validated transaction'
 );
 assert_capture_atomicity(
-    $observedCaptureIsolation === 'REPEATABLE-READ' && $wpdb->isolationSets >= 1,
+    $observedCaptureIsolation === 'REPEATABLE-READ'
+        && in_array('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ', $wpdb->queries(), true),
     'a READ COMMITTED session is overridden by the one-shot repeatable-read capture boundary'
 );
 
 // The extracted public seam must enforce the same storage-engine precondition
 // as Capture's higher-level entry points rather than trusting callers to have
 // performed an earlier private preflight.
-$wpdb->tableEngines = [$wpdb->posts => 'MyISAM'];
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb = capture_atomicity_database()->setTableEngine('wp_posts', 'MyISAM');
 $callbackRuns = 0;
 $unsupportedEngine = null;
 try {
@@ -550,19 +663,18 @@ try {
 } catch (Throwable $failure) {
     $unsupportedEngine = $failure;
 }
+$unsupportedEngineCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity(
     $unsupportedEngine instanceof CommandRefusalException
         && $unsupportedEngine->reasonCode === 'capture_snapshot_unsupported',
     'the direct transaction seam refuses a non-InnoDB read set with the existing reason code'
 );
 assert_capture_atomicity(
-    $wpdb->starts === 0 && $callbackRuns === 0,
+    $unsupportedEngineCounts['starts'] === 0 && $callbackRuns === 0,
     'storage-engine refusal happens before START and before candidate execution'
 );
-$wpdb->tableEngines = [];
 
-$wpdb->missingCoreColumns = ['posts.post_excerpt'];
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb = capture_atomicity_database(['posts' => ['post_excerpt']]);
 $callbackRuns = 0;
 $schemaFailure = null;
 try {
@@ -573,6 +685,7 @@ try {
 } catch (Throwable $failure) {
     $schemaFailure = $failure;
 }
+$schemaFailureCounts = capture_atomicity_transaction_counts($wpdb);
 $schemaPayload = $schemaFailure instanceof CommandRefusalException ? $schemaFailure->payload() : [];
 assert_capture_atomicity(
     ($schemaPayload['error'] ?? null) === 'capture_schema_unsupported'
@@ -583,17 +696,23 @@ assert_capture_atomicity(
     'schema refusal publishes the fixed logical table/column location while retaining the typed reason code'
 );
 assert_capture_atomicity(
-    $wpdb->starts === 0 && $callbackRuns === 0,
+    $schemaFailureCounts['starts'] === 0 && $callbackRuns === 0,
     'schema refusal happens before START and before candidate execution'
 );
-$wpdb->missingCoreColumns = [];
 
 // A retry opens a new snapshot against database state that may have changed
 // since the first attempt. Revalidate engines on every attempt rather than
 // allowing the first check to authorize all later STARTs.
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
-$wpdb->failStartBeforeOpen = true;
-$wpdb->engineAfterStartFailure = 'MyISAM';
+$wpdb = capture_atomicity_database();
+$wpdb->simulateDeadlock('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+$engineChanged = false;
+$wpdb->onQuery(static function (string $sql) use ($wpdb, &$engineChanged): null {
+    if (!$engineChanged && $sql === 'START TRANSACTION WITH CONSISTENT SNAPSHOT') {
+        $wpdb->setTableEngine('wp_posts', 'MyISAM');
+        $engineChanged = true;
+    }
+    return null;
+});
 $callbackRuns = 0;
 $retryEngineFailure = null;
 try {
@@ -604,35 +723,36 @@ try {
 } catch (Throwable $failure) {
     $retryEngineFailure = $failure;
 }
+$retryEngineCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity(
     $retryEngineFailure instanceof CommandRefusalException
         && $retryEngineFailure->reasonCode === 'capture_snapshot_unsupported',
     'a retry refuses when its fresh read set no longer uses InnoDB'
 );
 assert_capture_atomicity(
-    $wpdb->starts === 2 && $wpdb->rollbacks === 1
-        && $wpdb->commits === 0 && $callbackRuns === 0,
+    $retryEngineCounts === ['starts' => 2, 'commits' => 0, 'rollbacks' => 1]
+        && $callbackRuns === 0,
     'retry engine validation runs after bounded isolation cleanup but before a second capture START and callback'
 );
-$wpdb->tableEngines = [];
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 
 // A START failure is retryable even though no transaction was opened by the
 // driver. The callback must run exactly once, only after the fresh start.
-$wpdb->failStartBeforeOpen = true;
+$wpdb = capture_atomicity_database();
+$wpdb->simulateDeadlock('START TRANSACTION WITH CONSISTENT SNAPSHOT');
 $callbackRuns = 0;
 $result = $invokeConsistentSnapshot(static function () use (&$callbackRuns): array {
     $callbackRuns++;
     return ['captured' => true];
 });
+$startRetryCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity($result === ['captured' => true], 'transaction-start contention retries and returns the candidate');
 assert_capture_atomicity(
-    $wpdb->starts === 3,
+    $startRetryCounts['starts'] === 3,
     'a transient START failure consumes its one-shot isolation before the bounded retry attempt'
 );
 assert_capture_atomicity($callbackRuns === 1, 'the capture callback is not run against the failed transaction start');
 assert_capture_atomicity(
-    $wpdb->commits === 1 && $wpdb->rollbacks === 1,
+    $startRetryCounts['commits'] === 1 && $startRetryCounts['rollbacks'] === 1,
     'a pre-open START failure rolls back only its isolation-cleanup transaction'
 );
 
@@ -640,66 +760,83 @@ assert_capture_atomicity(
 // same-connection active-state proof is authoritative: replaying or rolling
 // back this healthy snapshot merely because the client result was false would
 // mix two different database observations.
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
-$wpdb->ddlQueries = 0;
-$wpdb->failStartAfterOpen = true;
-$wpdb->map = ['stable|post' => [
+$wpdb = capture_atomicity_database();
+$wpdb->seedTable('wp_wprism_map', [[
     'uuid' => 'stable', 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 7,
-]];
-$wpdb->state = ['stable' => ['uuid' => 'stable', 'entity_type' => 'post', 'content_hash' => 'base']];
-$wpdb->kv = ['stable' => 'base'];
-$beforeRetry = ['map' => $wpdb->map, 'state' => $wpdb->state, 'kv' => $wpdb->kv];
-$result = $invokeConsistentSnapshot(static function () use (&$wpdb): array {
-    $wpdb->kv['stable'] = 'candidate';
+]])
+    ->seedTable('wp_wprism_state', [[
+        'uuid' => 'stable', 'entity_type' => 'post', 'content_hash' => 'base',
+    ]])
+    ->seedTable('wp_wprism_kv', [['k' => 'stable', 'v' => 'base']])
+    ->injectTransactionOutcome('START', 'after_false');
+$beforeRetry = [
+    'map' => $wpdb->rows('wp_wprism_map'),
+    'state' => $wpdb->rows('wp_wprism_state'),
+];
+$result = $invokeConsistentSnapshot(static function (): array {
+    Ledger::kv_set('stable', 'candidate');
     return ['retried' => true];
 });
+$appliedStartCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity($result === ['retried' => true], 'an applied-but-false START proceeds on its proven exact snapshot');
-assert_capture_atomicity($wpdb->starts === 1 && $wpdb->rollbacks === 0,
+assert_capture_atomicity($appliedStartCounts['starts'] === 1 && $appliedStartCounts['rollbacks'] === 0,
     'an applied-but-false START is neither replayed nor spuriously rolled back');
-assert_capture_atomicity($wpdb->commits === 1, 'the proven started snapshot commits exactly once');
-assert_capture_atomicity($wpdb->kv === ['stable' => 'candidate'], 'the proven snapshot owns the committed candidate mutation');
-assert_capture_atomicity($beforeRetry['map'] === $wpdb->map && $beforeRetry['state'] === $wpdb->state,
+assert_capture_atomicity($appliedStartCounts['commits'] === 1, 'the proven started snapshot commits exactly once');
+assert_capture_atomicity(capture_atomicity_kv($wpdb) === ['stable' => 'candidate'], 'the proven snapshot owns the committed candidate mutation');
+assert_capture_atomicity(
+    $beforeRetry['map'] === $wpdb->rows('wp_wprism_map')
+        && $beforeRetry['state'] === $wpdb->rows('wp_wprism_state'),
     'the applied-but-false START preserves untouched map/state in the same snapshot');
 
 // A normal COMMIT is a terminal success: its callback is not rerun and no
 // rollback is attempted after the driver has accepted COMMIT.
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb = capture_atomicity_database();
 $callbackRuns = 0;
 $result = $invokeConsistentSnapshot(static function () use (&$callbackRuns): array {
     $callbackRuns++;
     return ['committed' => true];
 });
+$successCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity($result === ['committed' => true], 'a successful COMMIT returns the candidate');
-assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1, 'a successful COMMIT runs the callback exactly once');
-assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'a successful COMMIT has no rollback');
+assert_capture_atomicity($callbackRuns === 1 && $successCounts['starts'] === 1, 'a successful COMMIT runs the callback exactly once');
+assert_capture_atomicity($successCounts['commits'] === 1 && $successCounts['rollbacks'] === 0, 'a successful COMMIT has no rollback');
 
 // Active->inactive does not distinguish an accepted COMMIT from a server-side
 // rollback/rejection when the client also reports an error. Capture must keep
 // the physical candidate for recovery inspection without replay or rollback.
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
-$wpdb->commitCheckpointError = 'Deadlock found when trying to get lock';
+$wpdb = capture_atomicity_database();
+$commitErrorInjected = false;
+$wpdb->onQuery(static function (string $sql) use ($wpdb, &$commitErrorInjected): null {
+    if (!$commitErrorInjected && $sql === 'COMMIT AND NO CHAIN NO RELEASE') {
+        $wpdb->last_error = FakeWpdb::DEADLOCK_ERROR;
+        $commitErrorInjected = true;
+    }
+    return null;
+});
 $callbackRuns = 0;
 $uncertainClientErrorCommit = null;
 try {
-    $invokeConsistentSnapshot(static function () use (&$callbackRuns, &$wpdb): array {
+    $invokeConsistentSnapshot(static function () use (&$callbackRuns): array {
         $callbackRuns++;
-        $wpdb->kv['client_error_candidate'] = 'physically-ambiguous';
+        Ledger::kv_set('client_error_candidate', 'physically-ambiguous');
         return ['must-not-return' => true];
     });
 } catch (Throwable $failure) {
     $uncertainClientErrorCommit = $failure;
 }
+$uncertainClientErrorCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity(
     $uncertainClientErrorCommit instanceof CommandRefusalException
         && $uncertainClientErrorCommit->reasonCode === 'capture_commit_uncertain',
     'truthy COMMIT plus a driver error becomes the typed capture recovery refusal'
 );
-assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1,
+assert_capture_atomicity($callbackRuns === 1 && $uncertainClientErrorCounts['starts'] === 1,
     'an ambiguous inactive COMMIT never replays the callback');
-assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0,
+assert_capture_atomicity(
+    $uncertainClientErrorCounts['commits'] === 1 && $uncertainClientErrorCounts['rollbacks'] === 0,
     'an ambiguous inactive COMMIT never runs a compensating rollback');
 assert_capture_atomicity(
-    ($wpdb->kv['client_error_candidate'] ?? null) === 'physically-ambiguous',
+    (capture_atomicity_kv($wpdb)['client_error_candidate'] ?? null) === 'physically-ambiguous',
     'capture preserves the physical postimage for exact recovery classification'
 );
 Db::forget_transaction_tracking();
@@ -707,8 +844,7 @@ Db::forget_transaction_tracking();
 // A reconnect during COMMIT destroys that proof. Capture must translate the
 // exact Db outcome exception into its durable recovery refusal and never run
 // rollback or replay on the replacement connection.
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
-$wpdb->replaceConnectionOnCommit = true;
+$wpdb = capture_atomicity_database()->injectTransactionOutcome('COMMIT', 'after_reconnect');
 $callbackRuns = 0;
 $uncertainCommit = null;
 try {
@@ -719,15 +855,17 @@ try {
 } catch (Throwable $failure) {
     $uncertainCommit = $failure;
 }
+$uncertainCommitCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity(
     $uncertainCommit instanceof CommandRefusalException
         && $uncertainCommit->reasonCode === 'capture_commit_uncertain',
     'a connection replacement during COMMIT becomes the typed capture recovery refusal'
 );
-assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1,
+assert_capture_atomicity($callbackRuns === 1 && $uncertainCommitCounts['starts'] === 1,
     'an uncertain reconnected COMMIT never replays the candidate');
-assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0,
+assert_capture_atomicity($uncertainCommitCounts['commits'] === 1 && $uncertainCommitCounts['rollbacks'] === 0,
     'an uncertain reconnected COMMIT never rolls back on the replacement connection');
+Db::connection_transaction_active('capture uncertain reconnect idle settlement');
 Db::forget_transaction_tracking();
 
 // The production publication sequence keeps the database transaction open
@@ -747,8 +885,10 @@ register_shutdown_function(static function () use ($protocolRoot): void {
 });
 WPrism\Canon::write_file($protocolState . '/revision.txt', "old\n");
 WPrism\Canon::write_file(WPrism\Publish::stage_dir($protocolState) . '/revision.txt', "candidate\n");
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
-$wpdb->kv = ['prior' => 'keep'];
+$wpdb = capture_atomicity_database()->seedTable(
+    'wp_wprism_kv',
+    [['k' => 'prior', 'v' => 'keep']]
+);
 $phase = [];
 $result = $invokeConsistentSnapshot(
     static function () use (
@@ -768,8 +908,12 @@ $result = $invokeConsistentSnapshot(
     },
     $phase
 );
+$publicationCounts = capture_atomicity_transaction_counts($wpdb);
 $diskIntent = WPrism\Canon::decode((string) file_get_contents(WPrism\Publish::intent_path($protocolState)));
-assert_capture_atomicity($wpdb->starts === 1 && $wpdb->commits === 1 && $wpdb->rollbacks === 0, 'filesystem publication and commit marker share one committed snapshot');
+assert_capture_atomicity(
+    $publicationCounts === ['starts' => 1, 'commits' => 1, 'rollbacks' => 0],
+    'filesystem publication and commit marker share one committed snapshot'
+);
 assert_capture_atomicity(($diskIntent['phase'] ?? null) === 'committing', 'durable intent advances immediately before database COMMIT');
 assert_capture_atomicity(is_dir(WPrism\Publish::backup_dir($protocolState)), 'previous tree remains retained after COMMIT until receipt cleanup');
 assert_capture_atomicity($publicationStatus->invoke(null, $protocolState, $diskIntent) === true, 'transaction-bound database marker proves the exact on-disk intent committed');
@@ -778,12 +922,13 @@ assert_capture_atomicity(
     $markerKey === $publicationKey->invoke(null, $protocolRoot . '/./state'),
     'destination marker identity is stable across equivalent lexical paths'
 );
-$validMarker = $wpdb->kv[$markerKey];
+$validMarker = Ledger::kv_get($markerKey);
+assert_capture_atomicity(is_string($validMarker), 'the committed publication marker is durably readable');
 $malformedMarker = WPrism\Canon::decode($validMarker);
 $malformedMarker['intent_id'] = 'not-an-intent-id';
 unset($malformedMarker['record_sha256']);
 $malformedMarker['record_sha256'] = hash('sha256', WPrism\Canon::encode($malformedMarker));
-$wpdb->kv[$markerKey] = WPrism\Canon::encode($malformedMarker);
+Ledger::kv_set($markerKey, WPrism\Canon::encode($malformedMarker));
 $malformedMarkerFailure = null;
 try {
     $publicationStatus->invoke(null, $protocolState, $diskIntent);
@@ -795,8 +940,8 @@ assert_capture_atomicity(
         && str_contains($malformedMarkerFailure->getMessage(), 'malformed database commit marker fields'),
     'self-hashed but malformed database commit marker fails closed'
 );
-$wpdb->kv[$markerKey] = $validMarker;
-$recovery = WPrism\Publish::recover(
+Ledger::kv_set($markerKey, $validMarker);
+WPrism\Publish::recover(
     $protocolState,
     static fn(array $intent): bool => $publicationStatus->invoke(null, $protocolState, $intent)
 );
@@ -808,8 +953,10 @@ assert_capture_atomicity(!is_dir(WPrism\Publish::backup_dir($protocolState)) && 
 WPrism\Publish::rrmdir($protocolRoot);
 WPrism\Canon::write_file($protocolState . '/revision.txt', "stable\n");
 WPrism\Canon::write_file(WPrism\Publish::stage_dir($protocolState) . '/revision.txt', "refused\n");
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
-$wpdb->kv = ['prior' => 'keep'];
+$wpdb = capture_atomicity_database()->seedTable(
+    'wp_wprism_kv',
+    [['k' => 'prior', 'v' => 'keep']]
+);
 $phase = [];
 $preCommitFailure = null;
 putenv('WPRISM_TEST_MODE=1');
@@ -842,9 +989,13 @@ try {
     putenv('WPRISM_TEST_PUBLISH_FAIL_PHASE');
     putenv('WPRISM_TEST_MODE');
 }
+$preCommitCounts = capture_atomicity_transaction_counts($wpdb);
 $diskIntent = WPrism\Canon::decode((string) file_get_contents(WPrism\Publish::intent_path($protocolState)));
 assert_capture_atomicity($preCommitFailure instanceof RuntimeException && str_contains($preCommitFailure->getMessage(), 'commit-attempt'), 'deterministic pre-COMMIT fault propagates without retry');
-assert_capture_atomicity($wpdb->rollbacks === 1 && $wpdb->commits === 0, 'deterministic pre-COMMIT fault rolls back the database snapshot');
+assert_capture_atomicity(
+    $preCommitCounts['rollbacks'] === 1 && $preCommitCounts['commits'] === 0,
+    'deterministic pre-COMMIT fault rolls back the database snapshot'
+);
 assert_capture_atomicity(($diskIntent['phase'] ?? null) === 'ready', 'pre-COMMIT exception does not falsely record that COMMIT was attempted');
 assert_capture_atomicity($publicationStatus->invoke(null, $protocolState, $diskIntent) === false, 'rolled-back transaction leaves no current-intent commit proof');
 WPrism\Publish::recover(
@@ -858,13 +1009,19 @@ assert_capture_atomicity(file_get_contents($protocolState . '/revision.txt') ===
 // kv marker. Deletion::capture_tombstones() is the actual refusal boundary,
 // not a synthetic exception standing in for it.
 $uuid = '12345678-1234-4123-8123-123456789012';
-$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
-$wpdb->map = ['stale|post' => [
+$wpdb = capture_atomicity_database()
+    ->seedTable('wp_wprism_map', [[
     'uuid' => 'stale', 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 99,
-]];
-$wpdb->state = ['stale' => ['uuid' => 'stale', 'entity_type' => 'post', 'content_hash' => 'old']];
-$wpdb->kv = ['capture_phase' => 'before'];
-$beforeRefusal = ['map' => $wpdb->map, 'state' => $wpdb->state, 'kv' => $wpdb->kv];
+    ]])
+    ->seedTable('wp_wprism_state', [[
+        'uuid' => 'stale', 'entity_type' => 'post', 'content_hash' => 'old',
+    ]])
+    ->seedTable('wp_wprism_kv', [['k' => 'capture_phase', 'v' => 'before']]);
+$beforeRefusal = [
+    'map' => $wpdb->rows('wp_wprism_map'),
+    'state' => $wpdb->rows('wp_wprism_state'),
+    'kv' => $wpdb->rows('wp_wprism_kv'),
+];
 $previous = CompiledRepository::create([
     'revision_hash' => str_repeat('a', 64),
     'tree' => [
@@ -882,11 +1039,10 @@ $refused = null;
 try {
     $invokeConsistentSnapshot(static function () use ($uuid, $previous, $policy): array {
         global $wpdb;
-        Db::query(
-            $wpdb->prepare(
-                "DELETE FROM {$wpdb->prefix}wprism_map WHERE uuid = %s",
-                'stale'
-            ),
+        Db::delete(
+            $wpdb->prefix . 'wprism_map',
+            ['uuid' => 'stale'],
+            null,
             'ledger prune dead post identities'
         );
         // Snapshot::capture() invokes this repair before it captures declared
@@ -905,6 +1061,7 @@ try {
 } catch (Throwable $e) {
     $refused = $e;
 }
+$refusalCounts = capture_atomicity_transaction_counts($wpdb);
 assert_capture_atomicity(
     $refused instanceof CommandRefusalException,
     'unsupported deletion is a reviewed public refusal from the real Deletion capability boundary'
@@ -919,10 +1076,19 @@ assert_capture_atomicity(
     'unsupported deletion public evidence names the exact generic selector'
 );
 assert_capture_atomicity($refused !== null && str_contains($refused->getMessage(), 'post:product'), 'unsupported deletion names the refused selector');
-assert_capture_atomicity($wpdb->map === $beforeRefusal['map'], 'refusal rolls back wprism_map pruning and identity minting');
-assert_capture_atomicity($wpdb->state === $beforeRefusal['state'], 'refusal rolls back wprism_state mutation');
-assert_capture_atomicity($wpdb->kv === $beforeRefusal['kv'], 'refusal rolls back wprism_kv mutation');
-assert_capture_atomicity($wpdb->rollbacks === 1 && $wpdb->commits === 0, 'refusal rolls back once and never commits a candidate');
-assert_capture_atomicity($wpdb->ddlQueries === 0, 'transactional capture performs no implicit-commit schema DDL');
+assert_capture_atomicity($wpdb->rows('wp_wprism_map') === $beforeRefusal['map'], 'refusal rolls back wprism_map pruning and identity minting');
+assert_capture_atomicity($wpdb->rows('wp_wprism_state') === $beforeRefusal['state'], 'refusal rolls back wprism_state mutation');
+assert_capture_atomicity($wpdb->rows('wp_wprism_kv') === $beforeRefusal['kv'], 'refusal rolls back wprism_kv mutation');
+assert_capture_atomicity(
+    $refusalCounts['rollbacks'] === 1 && $refusalCounts['commits'] === 0,
+    'refusal rolls back once and never commits a candidate'
+);
+assert_capture_atomicity(
+    array_filter(
+        $wpdb->ddlLog(),
+        static fn(string $sql): bool => preg_match('/^(?:CREATE|ALTER) TABLE\b/i', $sql) === 1
+    ) === [],
+    'transactional capture performs no implicit-commit schema DDL'
+);
 
 echo "ALL PASSED\n";

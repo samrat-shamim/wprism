@@ -364,8 +364,8 @@ Usage:
   wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
   wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
   wprism onboard <env> status --git-url=<same-url> --format=json
-  wprism adopt  <env>
-  wprism unadopt <env> --archive-to=<absolute-path> [--yes]
+  wprism adopt  <env> [--attest-legacy-loader-quiesced]
+  wprism unadopt <env> --archive-to=<absolute-path> [--yes] [--attest-legacy-loader-quiesced]
   wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   wprism init   <env> --archive-interrupted-to=<absolute-sibling> [--yes]
   wprism status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--cursor=<token>] [--limit=<1..200>]
@@ -886,11 +886,17 @@ Verbs:
                           the exact agent version, policy load, rollback
                           authority, and doctor checks before transaction
                           commit. Existing site.wprism.json is retained.
+    --attest-legacy-      One-time migration assertion accepted only when the
+      loader-quiesced     exact pre-fence WPrism loader is installed: traffic
+                          remains held and every PHP/WP-CLI process that could
+                          have loaded it has exited through command completion.
   unadopt <env>           Archive the exact installed agent, MU loader, and
     --archive-to=<path>   target-local recovery/control tree before removing
     [--yes]               them. Repository code/media/state/Git/site.wprism.json
                           and durable revocations remain in place. The archive
                           path is mandatory; evidence is never discarded.
+    [--attest-legacy-     The same one-time, exact-loader quiescence assertion
+      loader-quiesced]    required before removing a pre-fence installation.
   init <env>              Discover an existing authenticated local/docker/SSH
                           target and print a content-addressed proposal before
                           writing anything. Unsupported active extensions,
@@ -2355,6 +2361,8 @@ function is_orchestrator_internal_flag(string $arg): bool {
         '--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold',
         '--materializing-code', '--state-handoff', '--lifecycle-phase', '--checkpoint',
         '--presence-only', '--after-code-transition', '--release-on-success',
+        '--operation-id', '--expected-observation-sha256', '--expected-baseline-state',
+        '--expected-code-boundary', '--expected-code-findings', '--host-reported-code-findings',
     ] as $flag) {
         if ($arg === $flag || str_starts_with($arg, $flag . '=')) {
             return true;
@@ -3007,6 +3015,12 @@ function cmd_promote_internal(
         if (!is_string($arg)) {
             continue;
         }
+        if (str_starts_with($arg, '--force-code-mismatch=')
+            || str_starts_with($arg, '--force-code-drift=')
+            || str_starts_with($arg, '--force-unresolved-refs=')) {
+            fwrite(STDERR, "wprism: promote boolean force flags are valueless; remove '=value' from '$arg'\n");
+            return 1;
+        }
         if ($arg === '--with-deletes') {
             if ($allowDeletes) {
                 return scope_wire_refusal(
@@ -3206,6 +3220,17 @@ function cmd_promote_internal(
             $lifecycleStatus = CodeDeploy::lifecycleStatusResult($lifecycleStatusResult);
         } catch (\Throwable $failure) {
             fwrite(STDERR, "wprism: promote: {$failure->getMessage()}; no target mutation occurred\n");
+            return 1;
+        }
+        if ($lifecycleStatus['baseline_state'] !== 'exact') {
+            $baselineRemedy = $lifecycleStatus['baseline_state'] === 'drift'
+                ? "run host 'wprism deploy <env> --force-code-drift' to review and accept it"
+                : "run host 'wprism deploy <env>' to initialize it";
+            fwrite(
+                STDERR,
+                "wprism: promote: target code-version baseline is {$lifecycleStatus['baseline_state']}; "
+                . "$baselineRemedy before promotion\n"
+            );
             return 1;
         }
         if ($lifecycleStatus['required']) {
@@ -3477,10 +3502,7 @@ function cmd_promote_internal(
     $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
         return $arg === '--force-code-mismatch'
             || $arg === '--force-code-drift'
-            || $arg === '--force-unresolved-refs'
-            || str_starts_with($arg, '--force-code-mismatch=')
-            || str_starts_with($arg, '--force-code-drift=')
-            || str_starts_with($arg, '--force-unresolved-refs=');
+            || $arg === '--force-unresolved-refs';
     }));
 
     if ($codeChangeRequired) {
@@ -4406,10 +4428,7 @@ function cmd_promote_verified(
     $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
         return $arg === '--force-code-mismatch'
             || $arg === '--force-code-drift'
-            || $arg === '--force-unresolved-refs'
-            || str_starts_with($arg, '--force-code-mismatch=')
-            || str_starts_with($arg, '--force-code-drift=')
-            || str_starts_with($arg, '--force-unresolved-refs=');
+            || $arg === '--force-unresolved-refs';
     }));
 
     if ($codeChangeRequired) {

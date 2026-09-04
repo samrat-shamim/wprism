@@ -295,6 +295,7 @@ for both engines:
 ```sql
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
 GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 ```
 

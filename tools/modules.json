@@ -61,8 +61,20 @@
         "entry_points": [
           "ActionTriggerMatcher",
           "Canon",
-          "Db",
-          "OptionState",
+    "Db",
+    "DatabaseLockBoundary",
+    "DatabaseMutationException",
+    "DatabaseQueryIsolation",
+    "DatabaseQueryIsolationViolationException",
+    "DatabaseTransportBoundary",
+    "DatabaseTransactionOutcomeException",
+    "ExactOptionReader",
+    "ExactOptionWriter",
+    "ManifestExecutableLoader",
+    "NativeDatabaseProfile",
+    "NativeTableDefinition",
+    "LockedOptionRows",
+    "OptionState",
           "CommandRefusal",
           "SiteTopology",
           "Secrets",
@@ -95,8 +107,10 @@
           "MediaPayloadAuthority",
           "WpCliChildProcess",
           "Canary",
-          "CheckpointRecoveryIntent",
-          "ProviderSettlementIntent"
+    "CheckpointRecoveryIntent",
+    "ProviderSettlementIntent",
+    "TransactionAuthority",
+    "TransactionalTableBoundary"
         ],
         "depends_on": [
           "Kernel"
@@ -120,17 +134,27 @@
             ]
           }
         ],
-        "file_count": 40,
+  "file_count": 53,
         "files": [
           "ActionTriggerMatcher.php",
           "Canary.php",
           "Canon.php",
           "CheckpointRecoveryIntent.php",
-          "CommandRefusal.php",
-          "Db.php",
-          "DurableFilesystem.php",
-          "IdentityTokenCodec.php",
-          "JsonRefs.php",
+    "CommandRefusal.php",
+          "DatabaseLockBoundary.php",
+    "DatabaseExceptions.php",
+    "DatabaseQueryIsolation.php",
+    "DatabaseTransportBoundary.php",
+    "Db.php",
+    "DurableFilesystem.php",
+    "ExactOptionReader.php",
+    "ExactOptionWriter.php",
+    "IdentityTokenCodec.php",
+    "JsonRefs.php",
+    "LockedOptionRows.php",
+    "ManifestExecutableLoader.php",
+    "NativeDatabaseProfile.php",
+    "NativeTableDefinition.php",
           "MediaPayloadAuthority.php",
           "MetaRows.php",
           "OptionState.php",
@@ -156,12 +180,15 @@
           "StructuredValue.php",
           "TableGraph.php",
           "TableSchema.php",
-          "TextTokenizer.php",
-          "TransientDbException.php",
+    "TextTokenizer.php",
+    "TransactionAuthority.php",
+    "TransactionalTableBoundary.php",
+    "TransientDbException.php",
           "UrlQueryReferenceCodec.php",
           "UserMetaState.php",
           "Uuid.php",
-          "WpCliChildProcess.php"
+          "WpCliChildProcess.php",
+          "WpdbFieldCodec.php"
         ]
       },
       "Policy": {
@@ -176,6 +203,7 @@
           "ManifestDispositions",
           "ScopeClosure",
           "ArtifactPolicyIdentity",
+          "LegacyRuntimeExecutionDebt",
           "ScopeDiscovery",
           "PolicyRuleResolver",
           "ScopeAdoption"
@@ -269,7 +297,7 @@
             ]
           }
         ],
-        "file_count": 24,
+        "file_count": 25,
         "files": [
           "AdapterClaimResolutions.php",
           "AdapterLibrary.php",
@@ -279,6 +307,7 @@
           "CrossManifestGuards.php",
           "DeletionCapabilityResolver.php",
           "DiscoveryGrammar.php",
+          "LegacyRuntimeExecutionDebt.php",
           "ManifestDispositions.php",
           "ManifestGrammar.php",
           "ManifestValidator.php",
@@ -571,13 +600,14 @@
               "InitialCaptureBoundary.php -> InitProtocol.php"
             ]
           },
-          {
-            "module": "Promotion",
-            "kind": "intra-layer",
-            "count": 1,
-            "edges": [
-              "CapturePublicationWorkflow.php -> Deploy.php"
-            ]
+    {
+      "module": "Promotion",
+      "kind": "intra-layer",
+      "count": 2,
+      "edges": [
+        "CapturePublicationWorkflow.php -> CodeBaselineCapture.php",
+        "CapturePublicationWorkflow.php -> Deploy.php"
+      ]
           },
           {
             "module": "Publication",
@@ -948,8 +978,10 @@
         "purpose": "Deploy, lifecycle and promotion mechanics — planners, leases, locks, externally-authorized repository binding, session journals and state handoff between environments.",
         "status": "populated",
         "entry_points": [
-          "AuthorizedReleaseRepository",
-          "PromotionLock",
+    "AuthorizedReleaseRepository",
+    "CodeBaselineAcceptance",
+    "CodeBaselineCapture",
+    "PromotionLock",
           "Deploy",
           "ScopedPromotionAuthority",
           "VerifiedPromotionAuthority"
@@ -971,10 +1003,15 @@
             ]
           }
         ],
-        "file_count": 13,
-        "files": [
-          "AuthorizedReleaseRepository.php",
-          "Deploy.php",
+  "file_count": 18,
+  "files": [
+    "AuthorizedReleaseRepository.php",
+    "CodeBaselineAcceptance.php",
+    "CodeBaselineCapture.php",
+    "CodeBaselinePublication.php",
+    "CodeBaselineTransaction.php",
+    "CodeLifecycleObservation.php",
+    "Deploy.php",
           "DeployPlanner.php",
           "LifecycleExecutor.php",
           "LifecycleJournal.php",
@@ -1190,7 +1227,9 @@
           "AdapterObservation",
           "AdapterProbe",
           "AdapterRegistry",
-          "ManifestProviderRuntime",
+        "ManifestProviderRuntime",
+        "ProviderDatabaseSession",
+        "ProviderOperationProcess",
           "DeletionFeasibility",
           "LifecycleSettlement",
           "SchemaSettlement"
@@ -1207,7 +1246,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 21,
+        "file_count": 23,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1223,7 +1262,9 @@
           "ManifestProviderRuntime.php",
           "ProviderPhaseExecutor.php",
           "ProviderActionBatchBuilder.php",
-          "ProviderSdk.php",
+        "ProviderDatabaseSession.php",
+        "ProviderOperationProcess.php",
+        "ProviderSdk.php",
           "ProviderSurfaces.php",
           "Providers.php",
           "SchemaSettlement.php",
@@ -1483,9 +1524,10 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 10,
+        "file_count": 11,
         "files": [
           "Adopt.php",
+          "AgentGenerationFence.php",
           "BootstrapEligibility.php",
           "ClassificationBatch.php",
           "ConnectionReceipt.php",

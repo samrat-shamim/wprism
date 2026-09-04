@@ -69,6 +69,32 @@ if (!function_exists('is_multisite')) {
     }
 }
 
+// FakeWpdb crosses WordPress's real `query` filter surface when it is
+// available. This fixture needs only the engine-installed isolation gates,
+// not wp_stubs.php's unrelated application APIs used by full WP simulations.
+if (!function_exists('apply_filters')) {
+    function apply_filters(string $hookName, mixed $value, mixed ...$args): mixed {
+        $allGate = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter']['all'] ?? null)
+            : null;
+        if (is_object($allGate)
+            && method_exists($allGate, 'hook_name')
+            && method_exists($allGate, 'do_all_hook')) {
+            $allArgs = array_merge([$hookName, $value], $args);
+            $allGate->do_all_hook($allArgs);
+        }
+        $gate = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter'][$hookName] ?? null)
+            : null;
+        if (is_object($gate)
+            && method_exists($gate, 'hook_name')
+            && method_exists($gate, 'apply_filters')) {
+            return $gate->apply_filters($value, array_merge([$value], $args));
+        }
+        return $value;
+    }
+}
+
 /** Non-cooperating writer that replaces the named ciphertext on first plaintext output. */
 final class SameInodeCheckpointSwapOutput {
     public mixed $context;
@@ -983,9 +1009,15 @@ final class DeployCheckpointDriver implements EnvironmentDriver {
         }
         if ($command === 'lifecycle-status') {
             return ['exit' => 0, 'stdout' => json_encode([
-                'format' => 'wprism-lifecycle-status/v1',
+                'format' => 'wprism-lifecycle-status/v2',
                 'reasons' => $this->lifecycleChangeRequired ? ['inactive_in_environment'] : [],
                 'required' => $this->lifecycleChangeRequired,
+                'baseline_state' => 'exact',
+                'code_drift' => [],
+                'code_boundary_sha256' => str_repeat('1', 64),
+                'findings_sha256' => str_repeat('2', 64),
+                'observation_sha256' => str_repeat('3', 64),
+                'warnings' => [],
             ], JSON_THROW_ON_ERROR), 'stderr' => ''];
         }
         if ($command === 'promotion-begin') {

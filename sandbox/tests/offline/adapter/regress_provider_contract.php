@@ -61,6 +61,12 @@ function is_wp_error(mixed $thing): bool {
     return $thing instanceof \WP_Error;
 }
 function apply_filters(string $hook, mixed $value): mixed {
+    $gate = is_array($GLOBALS['wp_filter'] ?? null)
+        ? ($GLOBALS['wp_filter'][$hook] ?? null)
+        : null;
+    if (is_object($gate) && method_exists($gate, 'apply_filters')) {
+        return $gate->apply_filters($value, [$value]);
+    }
     if ($hook === 'wprism_providers' && $GLOBALS['wprism_test_provider_registry_throw'] !== null) {
         throw new \RuntimeException($GLOBALS['wprism_test_provider_registry_throw']);    }
     return $hook === 'wprism_providers' ? $GLOBALS['wprism_test_providers'] : $value;
@@ -235,8 +241,8 @@ require $root . '/agent/src/Policy/ManifestDispositions.php';
 require $root . '/agent/src/Policy/Policy.php';
 require $root . '/agent/src/Code/CodeCompatibility.php';
 require $root . '/agent/src/Promotion/Deploy.php';
-require $root . '/agent/src/Adapter/ProviderSdk.php';
-require $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Adapter/ProviderSdk.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
 // issue #3339: `wprism status`'s renderer is pure and is one half of the documented
 // two-renderer lockstep for plan rows, so it is driven directly below.
 require $root . '/cli/src/Plan/PlanSummary.php';
@@ -399,9 +405,6 @@ final class ProbeSupplied {
 }
 PHP);
 require_once WP_PLUGIN_DIR . '/probe/wprism-provider.php';
-// Loaded up front so the per-case reset below can address the fixture's static
-// override slots; Providers::negotiate() require_once's the same file itself.
-require_once $dir . '/providers/probe-cache.php';
 // A SECOND manifest-shipped provider, for the one shape a single provider with
 // two capabilities cannot express: a channel collision ACROSS providers, which
 // is the realistic form (two adapters, one surface) and the only one that can
@@ -420,8 +423,10 @@ final class ProbeIndex {
     }
 
     public function capabilities(): array {
+        $overrides = $GLOBALS['wprism_test_probe_index_capability_overrides']
+            ?? self::$capabilityOverrides;
         return [
-            'reindex' => self::$capabilityOverrides + [
+            'reindex' => $overrides + [
                 'args' => [],
                 'reads' => ['option:probe_setting'],
                 'writes' => ['entity:probe-index'],
@@ -437,7 +442,6 @@ final class ProbeIndex {
     }
 }
 PHP);
-require_once $dir . '/providers/probe-index.php';
 file_put_contents($dir . '/regenerators/probe-lookups.php', "<?php\n// Test-owned packaging fixture; negotiation never invokes this regenerator.\n");
 
 $manifest = [
@@ -525,17 +529,20 @@ $reset = static function (): void {
     $GLOBALS['wprism_test_active'] = ['probe/probe.php'];
     $GLOBALS['wprism_test_providers'] = [];
     $GLOBALS['wprism_test_provider_registry_throw'] = null;
-    \WPrism\Providers\ProbeCache::$capabilityMapOverride = null;
-    \WPrism\Providers\ProbeCache::$capabilityOverrides = [];
-    \WPrism\Providers\ProbeCache::$capabilitiesThrows = null;
-    \WPrism\Providers\ProbeCache::$extraCapabilities = [];
-    \WPrism\Providers\ProbeCache::$identityOverrides = [];
-    \WPrism\Providers\ProbeCache::$identityThrows = null;
-    \WPrism\Providers\ProbeCache::$invokeThrows = null;
-    \WPrism\Providers\ProbeCache::$lastInvokeThrowable = null;
-    \WPrism\Providers\ProbeCache::$receiptOverride = null;
-    \WPrism\Providers\ProbeCache::$sleepSeconds = 0.0;
-    \WPrism\Providers\ProbeCache::$optionWrites = [];
+    $GLOBALS['wprism_test_probe_index_capability_overrides'] = [];
+    if (class_exists(\WPrism\Providers\ProbeCache::class, false)) {
+        \WPrism\Providers\ProbeCache::$capabilityMapOverride = null;
+        \WPrism\Providers\ProbeCache::$capabilityOverrides = [];
+        \WPrism\Providers\ProbeCache::$capabilitiesThrows = null;
+        \WPrism\Providers\ProbeCache::$extraCapabilities = [];
+        \WPrism\Providers\ProbeCache::$identityOverrides = [];
+        \WPrism\Providers\ProbeCache::$identityThrows = null;
+        \WPrism\Providers\ProbeCache::$invokeThrows = null;
+        \WPrism\Providers\ProbeCache::$lastInvokeThrowable = null;
+        \WPrism\Providers\ProbeCache::$receiptOverride = null;
+        \WPrism\Providers\ProbeCache::$sleepSeconds = 0.0;
+        \WPrism\Providers\ProbeCache::$optionWrites = [];
+    }
 };
 
 echo "\n== closed native-action vocabulary ==\n";
@@ -2781,11 +2788,12 @@ echo "\n== the engine half: what Apply assembles for each declared channel ==\n"
 // rebuild() pass through the same fake, so the edges BETWEEN these projections
 // and Providers::invoke() are covered too; what stays live-only is the rest of
 // that pass (term recounts, attachment metadata, cron rescheduling).
-require $root . '/agent/src/Kernel/Db.php';
-require $root . '/agent/src/Repository/Ledger.php';
-require $root . '/agent/src/Apply/Apply.php';
+require_once $root . '/agent/src/Kernel/Db.php';
+require_once $root . '/agent/src/Repository/Ledger.php';
+require_once $root . '/agent/src/Apply/Apply.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 
-final class ProbeBatchWpdb {
+final class ProbeBatchWpdb extends \WPrismTest\FakeWpdb {
     public string $prefix = 'wp_';
     public string $options = 'wp_options';
     public string $posts = 'wp_posts';
@@ -2801,72 +2809,130 @@ final class ProbeBatchWpdb {
     public array $optionRows = [];
     /** @var list<string> */
     public array $optionReadNames = [];
+    private string $fixtureState = '';
+
+    public function __construct() {
+        parent::__construct('wp_');
+        $this->enableInformationSchema();
+        foreach (['wprism_map', 'wprism_kv', 'posts', 'options', 'term_taxonomy'] as $table) {
+            $this->setTableEngine($table, 'InnoDB');
+        }
+        $this->setUniqueKey('wprism_map', ['uuid', 'id_kind']);
+        $this->setUniqueKey('wprism_kv', ['k']);
+        $this->setColumns('wprism_map', [
+            'uuid' => 'char(36)',
+            'id_kind' => 'varchar(32)',
+            'local_id' => 'bigint unsigned',
+        ]);
+        $this->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+        $this->setColumns('posts', ['ID' => 'bigint unsigned', 'post_type' => 'varchar(20)', 'post_parent' => 'bigint unsigned']);
+        $this->setColumns('options', ['option_name' => 'varchar(191)', 'option_value' => 'longtext', 'autoload' => 'varchar(20)']);
+        $this->setColumns('term_taxonomy', ['term_taxonomy_id' => 'bigint unsigned']);
+        $this->syncFixtureToStore();
+    }
 
     public function prepare(string $query, ...$args): string {
-        foreach ($args as $arg) {
-            $value = is_int($arg) || is_float($arg) ? (string) $arg : "'" . addslashes((string) $arg) . "'";
-            $query = (string) preg_replace('/%[dsif]/', $value, $query, 1);
-        }
-        return $query;
+        return parent::prepare($query, ...$args);
     }
 
-    public function query(string $query): int {
-        if (preg_match("/INSERT INTO wp_wprism_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
-            $this->kv[stripslashes($m[1])] = stripslashes($m[2]);
-            return 1;
-        }
-        if (preg_match("/DELETE FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
-            unset($this->kv[stripslashes($m[1])]);
-            return 1;
-        }
-        return 1;
+    public function query(string $query): int|bool {
+        $this->syncFixtureToStore();
+        $result = parent::query($query);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_results(string $query, $output = null): array {
-        if (!str_contains($query, 'SELECT k, v FROM wp_wprism_kv')) {
-            return [];
-        }
-        return array_map(
-            static fn(string $k, string $v): array => ['k' => $k, 'v' => $v],
-            array_keys($this->kv),
-            array_values($this->kv)
-        );
+    public function get_results(string $query, string $output = OBJECT): array|false|null {
+        $this->syncFixtureToStore();
+        $result = parent::get_results($query, $output);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_row(string $query, $output = null): ?array {
-        if (preg_match('/FROM wp_posts WHERE ID = (\d+)/', $query, $m)) {
-            return $this->postsRows[(int) $m[1]] ?? null;
-        }
-        return null;
+    public function get_row(string $query, string $output = OBJECT, int $y = 0): array|object|null {
+        $this->syncFixtureToStore();
+        $result = parent::get_row($query, $output, $y);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
     /** Term recounts find no term_taxonomy rows, so the rebuild pass walks past them. */
-    public function get_col(string $query): array {
-        return [];
+    public function get_col(string $query, int $x = 0): array {
+        $this->syncFixtureToStore();
+        $result = parent::get_col($query, $x);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_var(string $query): mixed {
-        if (preg_match("/SELECT option_value FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/", $query, $m)) {
-            $name = stripslashes($m[1]);
-            $this->optionReadNames[] = $name;
-            return array_key_exists($name, $this->optionRows) ? $this->optionRows[$name] : null;
+    public function get_var(string $query, int $x = 0, int $y = 0): ?string {
+        if (preg_match("/SELECT option_value FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/", $query, $match) === 1) {
+            $this->optionReadNames[] = stripslashes($match[1]);
         }
-        if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
-            return $this->map[$m[1] . "\0" . $m[2]] ?? null;
+        $this->syncFixtureToStore();
+        $result = parent::get_var($query, $x, $y);
+        $this->syncStoreToFixture();
+        return $result;
+    }
+
+    private function syncFixtureToStore(): void {
+        $state = $this->fixtureState();
+        if (hash_equals($this->fixtureState, $state)) {
+            return;
         }
-        if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
-            foreach ($this->map as $key => $id) {
-                [$uuid, $kind] = explode("\0", $key, 2);
-                if ($kind === $m[1] && (int) $id === (int) $m[2]) {
-                    return $uuid;
-                }
-            }
-            return null;
+        $mapRows = [];
+        foreach ($this->map as $key => $localId) {
+            [$uuid, $kind] = explode("\0", $key, 2);
+            $mapRows[] = ['uuid' => $uuid, 'id_kind' => $kind, 'local_id' => $localId];
         }
-        if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
-            return $this->kv[stripslashes($m[1])] ?? null;
+        $postRows = [];
+        foreach ($this->postsRows as $id => $row) {
+            $postRows[] = ['ID' => $id] + $row;
         }
-        return null;
+        $optionRows = [];
+        foreach ($this->optionRows as $name => $value) {
+            $optionRows[] = ['option_name' => $name, 'option_value' => $value, 'autoload' => 'no'];
+        }
+        $kvRows = [];
+        foreach ($this->kv as $key => $value) {
+            $kvRows[] = ['k' => $key, 'v' => $value];
+        }
+        $this->seedTable('wprism_map', $mapRows);
+        $this->seedTable('wprism_kv', $kvRows);
+        $this->seedTable('posts', $postRows);
+        $this->seedTable('options', $optionRows);
+        $this->seedTable('term_taxonomy', []);
+        $this->fixtureState = $state;
+    }
+
+    private function syncStoreToFixture(): void {
+        $this->map = [];
+        foreach ($this->rows('wprism_map') as $row) {
+            $this->map[(string) $row['uuid'] . "\0" . (string) $row['id_kind']] = (int) $row['local_id'];
+        }
+        $this->kv = [];
+        foreach ($this->rows('wprism_kv') as $row) {
+            $this->kv[(string) $row['k']] = (string) $row['v'];
+        }
+        $this->optionRows = [];
+        foreach ($this->rows('options') as $row) {
+            $this->optionRows[(string) $row['option_name']] = $row['option_value'];
+        }
+        $this->postsRows = [];
+        foreach ($this->rows('posts') as $row) {
+            $id = (int) $row['ID'];
+            unset($row['ID']);
+            $this->postsRows[$id] = $row;
+        }
+        $this->fixtureState = $this->fixtureState();
+    }
+
+    private function fixtureState(): string {
+        return hash('sha256', serialize([
+            $this->map,
+            $this->postsRows,
+            $this->kv,
+            $this->optionRows,
+        ]));
     }
 }
 
@@ -4041,7 +4107,7 @@ $check($twoConsumers(['deletions'], [], ['post:probe'], 'flush')['problems'] ===
 // under one key, so unbinding "the first claimant" alone would look identical.
 $reset();
 \WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
-\WPrism\Providers\ProbeIndex::$capabilityOverrides = ['context' => ['deletions']];
+$GLOBALS['wprism_test_probe_index_capability_overrides'] = ['context' => ['deletions']];
 $crossManifest = $manifest;
 $crossManifest['actions'][0]['triggers'] = ['post:probe'];
 $crossManifest['providers'][] = [
@@ -4094,7 +4160,7 @@ $check(\WPrism\Providers::problems($crossPolicy, $crossGating) === [],
     . 'even though the row is attributed to only one of its claimants');
 $check(\WPrism\Providers::problems($crossPolicy) !== [],
     'subtraction, never suppression: with nothing gating, the same call still reports it');
-\WPrism\Providers\ProbeIndex::$capabilityOverrides = [];
+$GLOBALS['wprism_test_probe_index_capability_overrides'] = [];
 
 $reset();
 \WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];

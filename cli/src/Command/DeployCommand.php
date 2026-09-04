@@ -127,6 +127,13 @@ final class DeployCommand {
         $schemaDeclared = CodeDeploy::schemaSettlementRequired($compile['summary']);
         $lifecycleSettlementDeclared = CodeDeploy::lifecycleSettlementDeclared($compile['summary']);
         $codeChangeRequired = false;
+        $codeBaselineRequired = false;
+        $codeBaselineState = 'exact';
+        $codeObservationSha256 = null;
+        $codeBoundarySha256 = null;
+        $codeFindingsSha256 = null;
+        $codeDrift = [];
+        $codeWarnings = [];
         if ($codeEnabled) {
             $preflight = self::runtimePreflight(
                 $transport,
@@ -160,6 +167,13 @@ final class DeployCommand {
                 return 1;
             }
             $lifecycleTransitionRequired = $lifecycleStatus['required'];
+            $codeBaselineState = $lifecycleStatus['baseline_state'];
+            $codeBaselineRequired = $codeBaselineState !== 'exact';
+            $codeObservationSha256 = $lifecycleStatus['observation_sha256'];
+            $codeBoundarySha256 = $lifecycleStatus['code_boundary_sha256'];
+            $codeFindingsSha256 = $lifecycleStatus['findings_sha256'];
+            $codeDrift = $lifecycleStatus['code_drift'];
+            $codeWarnings = $lifecycleStatus['warnings'];
         }
         $schemaSettlementRequired = false;
         if ($schemaDeclared) {
@@ -218,10 +232,57 @@ final class DeployCommand {
                 $providerTransactionPhases
             );
         }
-        if (!$codeChangeRequired && !$lifecyclePhasesRequired && !$schemaSettlementRequired) {
+        // All target preflights above are read-only. Render the exact bounded
+        // status evidence once here, before promotion-begin or baseline writes.
+        foreach ($codeWarnings as $warning) {
+            fwrite(STDERR, "wprism: WARNING $warning\n");
+        }
+        if ($codeBaselineState === 'drift' && !self::hasForceFlag($deployExtra, '--force-code-drift')) {
+            $list = implode("\n\n", array_map(
+                static fn(array $row): string => '  - ' . (string) $row['message'],
+                $codeDrift
+            ));
+            fwrite(
+                STDERR,
+                "wprism: deploy refused — code_drift:\n\n$list\n\n"
+                . "Reconcile the environment to a known version first, or pass --force-code-drift to proceed anyway.\n"
+            );
+            return 1;
+        }
+        if ($codeBaselineState === 'drift') {
+            foreach ($codeDrift as $row) {
+                fwrite(STDERR, 'wprism: WARNING FORCED past code_drift: ' . $row['message'] . "\n");
+            }
+        }
+        if (!$codeChangeRequired
+            && !$lifecyclePhasesRequired
+            && !$schemaSettlementRequired
+            && !$codeBaselineRequired) {
             echo $codeEnabled
                 ? "deploy complete: code revision already exact; lifecycle hooks not run\n"
                 : "deploy complete: no code descriptor; lifecycle hooks not run\n";
+            return 0;
+        }
+        if (!$codeChangeRequired
+            && !$lifecyclePhasesRequired
+            && !$schemaSettlementRequired
+            && $codeBaselineRequired) {
+            $baseline = self::acceptCodeBaseline(
+                $transport,
+                $repo,
+                $artifact,
+                $artifactHash,
+                $runId,
+                (string) $codeObservationSha256,
+                $codeBaselineState,
+                $codeDrift,
+                $deployExtra
+            );
+            if (is_int($baseline)) {
+                return $baseline;
+            }
+            echo 'deploy complete: code-baseline-accept; '
+                . ($codeEnabled ? 'code revision already exact' : 'no code descriptor') . "\n";
             return 0;
         }
         if ($providerSettlementPhases !== [] && !$wantCheckpoint) {
@@ -323,7 +384,10 @@ final class DeployCommand {
                 false,
                 'retire',
                 $deployExtra,
-                in_array('lifecycle-retire', $providerTransactionPhases, true) ? $checkpoint : ''
+                in_array('lifecycle-retire', $providerTransactionPhases, true) ? $checkpoint : '',
+                $codeBoundarySha256,
+                $codeFindingsSha256,
+                $codeBoundarySha256 !== null
             ));
             if ($retire !== 0) {
                 fwrite(STDERR, "wprism: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
@@ -375,7 +439,10 @@ final class DeployCommand {
                 false,
                 'activate',
                 $deployExtra,
-                in_array('lifecycle-activate', $providerTransactionPhases, true) ? $checkpoint : ''
+                in_array('lifecycle-activate', $providerTransactionPhases, true) ? $checkpoint : '',
+                $codeBoundarySha256,
+                $codeFindingsSha256,
+                $codeBoundarySha256 !== null
             ));
             if ($activate !== 0) {
                 fwrite(STDERR, "wprism: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
@@ -565,6 +632,29 @@ final class DeployCommand {
             }
         }
 
+        // A lifecycle activation already publishes the terminal baseline.
+        // Schema-only/provider-only work does not, so retain code acceptance
+        // as its own final, checkpoint-free axis after the provider lease is
+        // durably complete and released.
+        $baselineAccepted = false;
+        if ($codeBaselineRequired && !$lifecyclePhasesRequired) {
+            $baseline = self::acceptCodeBaseline(
+                $transport,
+                $repo,
+                $artifact,
+                $artifactHash,
+                $runId,
+                (string) $codeObservationSha256,
+                $codeBaselineState,
+                $codeDrift,
+                $deployExtra
+            );
+            if (is_int($baseline)) {
+                return $baseline;
+            }
+            $baselineAccepted = true;
+        }
+
         if ($codeChangeRequired) {
             echo "deploy phase: code-finalize\n";
             $finalize = $transport->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
@@ -597,12 +687,82 @@ final class DeployCommand {
         if ($lifecycleSettlementRequired) {
             $phases[] = 'lifecycle-settle';
         }
+        if ($baselineAccepted) {
+            $phases[] = 'code-baseline-accept';
+        }
         echo 'deploy complete: ' . implode(' -> ', $phases) . '; '
             . ($codeEnabled ? 'code revision already exact' : 'no code descriptor') . "\n";
         if ($wantCheckpoint) {
             echo "database checkpoint retained: $checkpoint\n";
         }
         return 0;
+    }
+
+    /**
+     * Run the isolated baseline-only phase and require its strict receipt.
+     * A lost response is deliberately reported as unconfirmed: the ledger
+     * upsert may have landed, but retrying deploy/status is safe and proves it.
+     *
+     * @param list<array<string,mixed>> $expectedDrift
+     * @return array<string,mixed>|int
+     */
+    private static function acceptCodeBaseline(
+        EnvironmentDriver $transport,
+        string $repo,
+        string $artifact,
+        string $artifactHash,
+        string $operationId,
+        string $expectedObservationSha256,
+        string $expectedBaselineState,
+        array $expectedDrift,
+        array $deployExtra
+    ): array|int {
+        echo "deploy phase: code-baseline-accept\n";
+        $args = CodeDeploy::codeBaselineAcceptArgs(
+            $repo,
+            $artifact,
+            $artifactHash,
+            $operationId,
+            $expectedObservationSha256,
+            $expectedBaselineState,
+            $deployExtra
+        );
+        $lastResult = null;
+        $lastFailure = null;
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $result = $transport->captureWp($args);
+            $lastResult = $result;
+            if (($result['exit'] ?? 1) !== 0) {
+                continue;
+            }
+            try {
+                $summary = CodeDeploy::codeBaselineAcceptResult($result);
+                $expectedOutcome = $expectedBaselineState === 'absent' ? 'initialized' : 'accepted';
+                if (!hash_equals($operationId, $summary['operation_id'])
+                    || !hash_equals($artifactHash, $summary['artifact_hash'])
+                    || !hash_equals($expectedObservationSha256, $summary['observation_sha256'])
+                    || $summary['outcome'] !== $expectedOutcome
+                    || $summary['code_drift'] !== $expectedDrift) {
+                    throw new \RuntimeException('target returned acceptance evidence for a different observation');
+                }
+                return $summary;
+            } catch (\Throwable $failure) {
+                $lastFailure = $failure;
+            }
+        }
+        fwrite(
+            STDERR,
+            'wprism: deploy: code-baseline acceptance was not confirmed after its same-operation retry; '
+            . "rerun deploy or inspect status\n"
+        );
+        if ($lastFailure !== null) {
+            fwrite(STDERR, "wprism: deploy: {$lastFailure->getMessage()}\n");
+        } elseif (is_array($lastResult)) {
+            CommandOutput::renderTransportDetail($lastResult);
+        }
+        return is_array($lastResult) && (int) ($lastResult['exit'] ?? 0) !== 0
+            ? (int) $lastResult['exit']
+            : 1;
     }
 
     /**
@@ -652,9 +812,7 @@ final class DeployCommand {
                     "$verb owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'"
                 );
             }
-            if ($arg === '--force-code-mismatch' || $arg === '--force-code-drift'
-                || str_starts_with($arg, '--force-code-mismatch=')
-                || str_starts_with($arg, '--force-code-drift=')) {
+            if ($arg === '--force-code-mismatch' || $arg === '--force-code-drift') {
                 $allowed[] = $arg;
                 continue;
             }
@@ -683,6 +841,10 @@ final class DeployCommand {
      */
     public static function checkpointRequested(array $extra): bool {
         return !in_array('--no-checkpoint', $extra, true);
+    }
+
+    private static function hasForceFlag(array $extra, string $flag): bool {
+        return in_array($flag, $extra, true);
     }
 
     /**
@@ -721,7 +883,12 @@ final class DeployCommand {
     }
 
     private static function isOrchestratorInternalFlag(string $arg): bool {
-        foreach (['--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold', '--materializing-code', '--state-handoff', '--lifecycle-phase'] as $flag) {
+        foreach ([
+            '--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold',
+            '--materializing-code', '--state-handoff', '--lifecycle-phase', '--operation-id',
+            '--expected-observation-sha256', '--expected-baseline-state', '--expected-code-boundary',
+            '--expected-code-findings', '--host-reported-code-findings',
+        ] as $flag) {
             if ($arg === $flag || str_starts_with($arg, $flag . '=')) return true;
         }
         return false;

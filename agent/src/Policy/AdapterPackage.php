@@ -66,7 +66,7 @@ final class AdapterPackage
         $this->interpreterPath = null;
         if ($interpreterPath !== null) {
             $interpreter = pathinfo($interpreterPath, PATHINFO_FILENAME);
-            self::assertName($interpreter, "adapter $name interpreter id");
+            self::assertRuntimeName($interpreter, "adapter $name interpreter id");
             $this->interpreterPath = self::packageFile(
                 $canonicalRoot,
                 $interpreterPath,
@@ -125,7 +125,7 @@ final class AdapterPackage
 
     public function providerPath(string $provider): string
     {
-        self::assertName($provider, 'provider id');
+        self::assertRuntimeName($provider, 'provider id');
         if (!isset($this->providerPaths[$provider])) {
             throw new \RuntimeException("wprism: adapter {$this->name} does not declare provider $provider");
         }
@@ -134,7 +134,7 @@ final class AdapterPackage
 
     public function regeneratorPath(string $regenerator): string
     {
-        self::assertName($regenerator, 'regenerator id');
+        self::assertRuntimeName($regenerator, 'regenerator id');
         if (!isset($this->regeneratorPaths[$regenerator])) {
             throw new \RuntimeException("wprism: adapter {$this->name} does not declare regenerator $regenerator");
         }
@@ -188,7 +188,7 @@ final class AdapterPackage
     {
         $validated = [];
         foreach ($paths as $id => $path) {
-            self::assertName($id, "$label id");
+            self::assertRuntimeName($id, "$label id");
             if (isset($validated[$id])) {
                 throw new \RuntimeException("wprism: $label $id is declared more than once");
             }
@@ -207,6 +207,13 @@ final class AdapterPackage
     {
         if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1
             || preg_match('/[a-z]/D', $name) !== 1) {
+            throw new \RuntimeException("wprism: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
+        }
+    }
+
+    private static function assertRuntimeName(string $name, string $label): void
+    {
+        if (preg_match('/\A[a-z0-9][a-z0-9_-]*\z/D', $name) !== 1) {
             throw new \RuntimeException("wprism: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
         }
     }

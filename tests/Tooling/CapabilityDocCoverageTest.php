@@ -60,6 +60,7 @@ final class CapabilityDocCoverageTest extends TestCase
         foreach ([
             'tools/capability-doc.php',
             'agent/src/Kernel/Canon.php',
+            'agent/src/Kernel/ManifestExecutableLoader.php',
             'agent/src/Policy/AdapterLibrary.php',
             'agent/src/Policy/AdapterPackage.php',
             'agent/wprism.php',

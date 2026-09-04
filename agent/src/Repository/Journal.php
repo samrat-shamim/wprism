@@ -127,17 +127,26 @@ final class Journal {
         remove_filter('query', [self::class, 'observe'], -2147483646);
         try {
             Ledger::ensure();
-            $values = [];
-            $params = [];
+            $records = [];
             foreach ($rows as $r) {
-                $values[] = '(%s,%s,%s,%s,%s,%d,%s,%s,%s)';
-                array_push($params, $r[0], $r[1], $r[2], $r[3], $r[4], $r[5], $r[6], $r[7], $r[8]);
+                $records[] = [
+                    't' => $r[0],
+                    'op' => $r[1],
+                    'tbl' => $r[2],
+                    'item' => $r[3],
+                    'surface' => $r[4],
+                    'actor' => $r[5],
+                    'caps' => $r[6],
+                    'hook' => $r[7],
+                    'proposal' => $r[8],
+                ];
             }
-            Db::query($wpdb->prepare(
-                "INSERT INTO {$wpdb->prefix}wprism_journal (t, op, tbl, item, surface, actor, caps, hook, proposal) VALUES "
-                . implode(',', $values),
-                $params
-            ), 'journal flush observations');
+            Db::insert_rows(
+                $wpdb->prefix . 'wprism_journal',
+                $records,
+                ['%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s'],
+                'journal flush observations'
+            );
         } finally {
             add_filter('query', [self::class, 'observe'], -2147483646);
         }

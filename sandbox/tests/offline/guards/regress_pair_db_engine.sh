@@ -58,8 +58,10 @@ done
 # is proven rather than assumed.
 FAKE_BIN="$TMP/bin"
 DOCKER_LOG="$TMP/docker.log"
+SQL_LOG="$TMP/sql.log"
 mkdir -p "$FAKE_BIN"
 : > "$DOCKER_LOG"
+: > "$SQL_LOG"
 cat > "$FAKE_BIN/docker" <<FAKE_DOCKER
 #!/usr/bin/env bash
 set -euo pipefail
@@ -67,7 +69,7 @@ printf '%s\n' "\$*" >> "$DOCKER_LOG"
 # Admin SQL is the only invocation this suite lets succeed; anything else is a
 # sentinel so an unexpected escape to a real daemon is loud, not skipped.
 if [ "\${1:-}" = exec ]; then
-  cat >/dev/null 2>/dev/null || true
+  cat >> "$SQL_LOG" 2>/dev/null || true
   exit 0
 fi
 printf 'FAKE-DOCKER-SENTINEL: %s\n' "\$*" >&2
@@ -108,6 +110,18 @@ got="$(cat "$DOCKER_LOG")"
 expected='exec -i -e MYSQL_PWD=root wprism-shared-db mariadb -uroot'
 [ "$got" = "$expected" ] || fail "pair_db_sql argv moved: got '$got', expected '$expected'"
 pass "pair_db_sql still runs: docker $expected"
+
+say "pair creation grants exact-schema trigger visibility for mutation proofs"
+: > "$SQL_LOG"
+pair_db_create fixture
+grep -Fqx "GRANT TRIGGER ON wp_fixture1.* TO 'wordpress'@'%';" "$SQL_LOG" \
+  || fail "pair database 1 lacks its exact-schema TRIGGER grant: $(cat "$SQL_LOG")"
+grep -Fqx "GRANT TRIGGER ON wp_fixture2.* TO 'wordpress'@'%';" "$SQL_LOG" \
+  || fail "pair database 2 lacks its exact-schema TRIGGER grant: $(cat "$SQL_LOG")"
+if grep -Fq 'GRANT TRIGGER ON `wp\\_%`.*' "$SQL_LOG"; then
+  fail "pair creation must not substitute wildcard grant semantics for exact-schema evidence"
+fi
+pass "each concrete pair schema receives directly observable TRIGGER authority"
 
 say "an explicit WPRISM_DB_ENGINE=mariadb is identical to leaving it unset"
 export WPRISM_DB_ENGINE=mariadb

@@ -12,8 +12,10 @@ namespace WPrism;
  * path, and either stream is accumulated without a byte or wall-clock bound.
  * WPrism needs the same runtime config and alias propagation, so this helper
  * reproduces only that reviewed command construction and replaces the capture
- * loop. Receipt grammar, acceptable output, and exit policy stay with the
- * closed caller rather than becoming a generic command-success oracle.
+ * loop. A kernel liveness pipe also holds plugin startup behind an acknowledged
+ * watchdog and fences the full process group if the lock-holding parent dies.
+ * Receipt grammar, acceptable output, and exit policy stay with the closed
+ * caller rather than becoming a generic command-success oracle.
  */
 final class WpCliChildProcess {
     private const MAX_COMMAND_BYTES = 262144;
@@ -31,7 +33,7 @@ final class WpCliChildProcess {
     // Yoast and Elementor's reviewed native commands each declare 600s;
     // ConvergenceVerifier admits 900s for its full snapshot verification, so
     // that exact longest caller is the hard ceiling rather than an open value.
-    private const MAX_TIMEOUT_SECONDS = 900;
+    public const MAX_TIMEOUT_SECONDS = 900;
     private const READ_BYTES = 65536;
     private const SELECT_MICROSECONDS = 50000;
     // Linux and Darwin both expose POSIX EINTR as errno 4. PHP's documented
@@ -42,10 +44,111 @@ final class WpCliChildProcess {
     private const NANOSECONDS_PER_SECOND = 1000000000;
     private const TERM_GRACE_NANOSECONDS = 250000000;
     private const KILL_GRACE_NANOSECONDS = 2000000000;
-    // This fixed program runs under the exact PHP binary WP-CLI selected. It
-    // creates the process group before any plugin code and independently
-    // refuses a child binary that lacks the required primitives.
-    private const SESSION_WRAPPER = 'if(!function_exists("passthru")||!function_exists("posix_setsid")){fwrite(STDERR,"wprism-child-process-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"wprism-child-session-unavailable\\n");exit(125);}$status=126;$result=passthru("exec /bin/sh -c ".escapeshellarg((string)($argv[1]??"")),$status);if($result===false){fwrite(STDERR,"wprism-child-exec-unavailable\\n");exit(126);}exit(is_int($status)&&$status>=0&&$status<=255?$status:126);';
+    // This fixed watchdog is a direct child of the lock-holding PHP process and
+    // outside the mutation session. Descriptor 3 has exactly one writer in that
+    // parent: SIGKILL/OOM closes it in the kernel without shutdown handlers or
+    // pcntl, and the watchdog can still escalate against the whole target group.
+    private const PARENT_WATCHDOG = <<<'PHP'
+foreach ([
+    'ctype_digit',
+    'fopen',
+    'fread',
+    'fwrite',
+    'hrtime',
+    'posix_kill',
+    'stream_select',
+    'usleep',
+] as $function) {
+    if (!function_exists($function)) {
+        exit(124);
+    }
+}
+$target = isset($argv[1]) && ctype_digit((string) $argv[1]) ? (int) $argv[1] : 0;
+$liveness = @fopen('php://fd/3', 'rb');
+$ready = @fopen('php://fd/4', 'wb');
+if ($target < 2 || !is_resource($liveness) || !is_resource($ready)) {
+    exit(124);
+}
+if (@fwrite($ready, 'R') !== 1) {
+    exit(124);
+}
+@fclose($ready);
+$fence = static function () use ($target): never {
+    if (@posix_kill(-$target, 0) !== true) {
+        exit(0);
+    }
+    @posix_kill(-$target, 15);
+    usleep(250000);
+    $deadline = hrtime(true) + 2000000000;
+    do {
+        @posix_kill(-$target, 9);
+        if (@posix_kill(-$target, 0) !== true) {
+            break;
+        }
+        usleep(50000);
+    } while (hrtime(true) < $deadline);
+    exit(0);
+};
+while (true) {
+    $read = [$liveness];
+    $write = [];
+    $except = null;
+    $selected = @stream_select($read, $write, $except, 0, 50000);
+    if ($selected === false) {
+        $fence();
+    }
+    if ($selected === 0) {
+        continue;
+    }
+    if (in_array($liveness, $read, true)) {
+        $byte = @fread($liveness, 1);
+        if ($byte === 'D') {
+            exit(0);
+        }
+        if (!is_string($byte) || $byte !== '' || feof($liveness)) {
+            $fence();
+        }
+    }
+}
+PHP;
+
+    // This fixed program creates the process group, then admits plugin code
+    // only after the lock-holding parent has armed its independent watchdog.
+    private const SESSION_WRAPPER = <<<'PHP'
+$required = [
+    'fopen',
+    'fread',
+    'passthru',
+    'posix_setsid',
+];
+foreach ($required as $function) {
+    if (!function_exists($function)) {
+        fwrite(STDERR, "wprism-child-process-profile-unavailable\n");
+        exit(125);
+    }
+}
+$sid = posix_setsid();
+if (!is_int($sid) || $sid < 1) {
+    fwrite(STDERR, "wprism-child-session-unavailable\n");
+    exit(125);
+}
+$gate = @fopen('php://fd/3', 'rb');
+$start = is_resource($gate) ? @fread($gate, 1) : false;
+if (is_resource($gate)) {
+    @fclose($gate);
+}
+if ($start !== 'S') {
+    fwrite(STDERR, "wprism-child-parent-fence-unavailable\n");
+    exit(125);
+}
+$status = 126;
+$result = passthru('exec /bin/sh -c ' . escapeshellarg((string) ($argv[1] ?? '')), $status);
+if ($result === false) {
+    fwrite(STDERR, "wprism-child-exec-unavailable\n");
+    exit(126);
+}
+exit(is_int($status) && $status >= 0 && $status <= 255 ? $status : 126);
+PHP;
 
     /**
      * Launch one fixed caller-owned WP-CLI command and capture bounded output.
@@ -63,7 +166,33 @@ final class WpCliChildProcess {
         int $stdoutLimit,
         int $stderrLimit
     ): array {
-        return self::capture_request($command, null, $timeoutSeconds, $stdoutLimit, $stderrLimit);
+        self::assert_timeout($timeoutSeconds);
+        return self::capture_until(
+            $command,
+            hrtime(true) + ($timeoutSeconds * self::NANOSECONDS_PER_SECOND),
+            $stdoutLimit,
+            $stderrLimit
+        );
+    }
+
+    /**
+     * Launch one fixed command under a caller-owned absolute monotonic deadline.
+     *
+     * @return array{return_code:int,stdout:string,stderr:string}
+     */
+    public static function capture_until(
+        string $command,
+        int $deadlineNanoseconds,
+        int $stdoutLimit,
+        int $stderrLimit
+    ): array {
+        return self::capture_request_until(
+            $command,
+            null,
+            $deadlineNanoseconds,
+            $stdoutLimit,
+            $stderrLimit
+        );
     }
 
     /**
@@ -83,28 +212,59 @@ final class WpCliChildProcess {
         int $stdoutLimit,
         int $stderrLimit
     ): array {
+        self::assert_timeout($timeoutSeconds);
+        return self::capture_with_input_until(
+            $command,
+            $input,
+            hrtime(true) + ($timeoutSeconds * self::NANOSECONDS_PER_SECOND),
+            $stdoutLimit,
+            $stderrLimit
+        );
+    }
+
+    /**
+     * Launch one fixed stdin command under an absolute monotonic deadline.
+     *
+     * @return array{return_code:int,stdout:string,stderr:string}
+     */
+    public static function capture_with_input_until(
+        string $command,
+        string $input,
+        int $deadlineNanoseconds,
+        int $stdoutLimit,
+        int $stderrLimit
+    ): array {
         $bytes = strlen($input);
         if ($bytes < 1 || $bytes > self::MAX_INPUT_BYTES) {
             throw new \RuntimeException('wprism: bounded WP-CLI child input is outside the fixed transport boundary');
         }
-        return self::capture_request($command, $input, $timeoutSeconds, $stdoutLimit, $stderrLimit);
+        return self::capture_request_until(
+            $command,
+            $input,
+            $deadlineNanoseconds,
+            $stdoutLimit,
+            $stderrLimit
+        );
     }
 
     /** @return array{return_code:int,stdout:string,stderr:string} */
-    private static function capture_request(
+    private static function capture_request_until(
         string $command,
         ?string $input,
-        int $timeoutSeconds,
+        int $deadlineNanoseconds,
         int $stdoutLimit,
         int $stderrLimit
     ): array {
-        self::assert_request($command, $timeoutSeconds, $stdoutLimit, $stderrLimit);
+        self::assert_request($command, $stdoutLimit, $stderrLimit);
+        self::assert_deadline($deadlineNanoseconds);
         self::assert_process_profile();
         $commandBoundary = self::command_line($command);
+        self::assert_deadline_not_elapsed($deadlineNanoseconds);
         $launchLine = self::session_launch_line(
             $commandBoundary['php_binary'],
             $commandBoundary['command_line']
         );
+        self::assert_deadline_not_elapsed($deadlineNanoseconds);
         if ($input === null && (!defined('STDIN') || !is_resource(STDIN))) {
             throw new \RuntimeException('wprism: bounded WP-CLI child has no inherited standard input');
         }
@@ -118,7 +278,12 @@ final class WpCliChildProcess {
             // descendant is therefore inside the same lifecycle boundary.
             $process = \WP_CLI\Utils\proc_open_compat(
                 $launchLine,
-                [0 => $input === null ? STDIN : ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                [
+                    0 => $input === null ? STDIN : ['pipe', 'r'],
+                    1 => ['pipe', 'w'],
+                    2 => ['pipe', 'w'],
+                    3 => ['pipe', 'r'],
+                ],
                 $pipes
             );
         } catch (\Throwable $failure) {
@@ -126,10 +291,12 @@ final class WpCliChildProcess {
         }
         if (!is_resource($process)
             || !isset($pipes[1], $pipes[2])
+            || !isset($pipes[3])
             || ($input !== null && !isset($pipes[0]))
             || ($input !== null && !is_resource($pipes[0]))
             || !is_resource($pipes[1])
-            || !is_resource($pipes[2])) {
+            || !is_resource($pipes[2])
+            || !is_resource($pipes[3])) {
             if (is_resource($process)) {
                 self::terminate_and_reap($process, $pipes, null);
             }
@@ -145,38 +312,91 @@ final class WpCliChildProcess {
             throw new \RuntimeException('wprism: bounded WP-CLI child process state became unreadable');
         }
         $leaderPid = $initialStatus['pid'];
+        $watchdog = null;
+        $watchdogPipes = [];
+        $watchdogExit = null;
 
         try {
-            return self::capture_process(
+            $sessionReady = self::await_child_session(
+                $process,
+                $leaderPid,
+                $initialStatus,
+                $deadlineNanoseconds
+            );
+            if (!$sessionReady) {
+                @fclose($pipes[3]);
+                unset($pipes[3]);
+                return self::capture_process(
+                    $process,
+                    $pipes,
+                    $leaderPid,
+                    $initialStatus,
+                    $deadlineNanoseconds,
+                    $stdoutLimit,
+                    $stderrLimit,
+                    $input,
+                    $watchdog,
+                    $watchdogExit,
+                    false
+                );
+            }
+            self::start_parent_watchdog(
+                $commandBoundary['php_binary'],
+                $leaderPid,
+                $watchdog,
+                $watchdogPipes,
+                $watchdogExit,
+                $deadlineNanoseconds
+            );
+            // The session wrapper cannot cross into plugin code once the
+            // caller's authority has expired. Cleanup may exceed that deadline
+            // solely to terminate and reap the still-gated process group.
+            self::assert_deadline_not_elapsed($deadlineNanoseconds);
+            // A failed write means the gated wrapper already refused or died;
+            // capture its bounded diagnostics below. No plugin byte can run
+            // without reading this exact start token.
+            self::write_control_byte($pipes[3], 'S');
+            @fclose($pipes[3]);
+            unset($pipes[3]);
+            $receipt = self::capture_process(
                 $process,
                 $pipes,
                 $leaderPid,
                 $initialStatus,
-                $timeoutSeconds,
+                $deadlineNanoseconds,
                 $stdoutLimit,
                 $stderrLimit,
-                $input
+                $input,
+                $watchdog,
+                $watchdogExit,
+                true
             );
+            self::finish_parent_watchdog($watchdog, $watchdogPipes, $watchdogExit, true, false);
+            self::assert_deadline_not_elapsed($deadlineNanoseconds);
+            return $receipt;
         } catch (\Throwable $failure) {
             if (is_resource($process)) {
                 self::terminate_and_reap($process, $pipes, $leaderPid);
             }
+            self::finish_parent_watchdog(
+                $watchdog,
+                $watchdogPipes,
+                $watchdogExit,
+                false,
+                self::process_group_exists($leaderPid)
+            );
             throw $failure;
         }
     }
 
     private static function assert_request(
         string $command,
-        int $timeoutSeconds,
         int $stdoutLimit,
         int $stderrLimit
     ): void {
         $bytes = strlen($command);
         if ($bytes < 1 || $bytes > self::MAX_COMMAND_BYTES || str_contains($command, "\0")) {
             throw new \RuntimeException('wprism: bounded WP-CLI child command is outside the fixed transport boundary');
-        }
-        if ($timeoutSeconds < 1 || $timeoutSeconds > self::MAX_TIMEOUT_SECONDS) {
-            throw new \RuntimeException('wprism: bounded WP-CLI child timeout is outside the fixed transport boundary');
         }
         if ($stdoutLimit < 1
             || $stderrLimit < 1
@@ -187,6 +407,26 @@ final class WpCliChildProcess {
         }
         if (!in_array(PHP_OS_FAMILY, ['Linux', 'Darwin'], true)) {
             throw new \RuntimeException('wprism: bounded WP-CLI child requires the reviewed POSIX process profile');
+        }
+    }
+
+    private static function assert_timeout(int $timeoutSeconds): void {
+        if ($timeoutSeconds < 1 || $timeoutSeconds > self::MAX_TIMEOUT_SECONDS) {
+            throw new \RuntimeException('wprism: bounded WP-CLI child timeout is outside the fixed transport boundary');
+        }
+    }
+
+    private static function assert_deadline(int $deadlineNanoseconds): void {
+        $remaining = $deadlineNanoseconds - hrtime(true);
+        if ($remaining <= 0
+            || $remaining > self::MAX_TIMEOUT_SECONDS * self::NANOSECONDS_PER_SECOND) {
+            throw new \RuntimeException('wprism: bounded WP-CLI child deadline is outside the fixed transport boundary');
+        }
+    }
+
+    private static function assert_deadline_not_elapsed(int $deadlineNanoseconds): void {
+        if (hrtime(true) >= $deadlineNanoseconds) {
+            throw new \RuntimeException('wprism: bounded WP-CLI child exceeded its wall-clock limit');
         }
     }
 
@@ -317,9 +557,224 @@ final class WpCliChildProcess {
     }
 
     /**
+     * Prove setsid() completed while plugin code is still blocked on its gate.
+     *
+     * @param resource $process
+     * @param array<string,mixed> $status
+     */
+    private static function await_child_session(
+        &$process,
+        int $leaderPid,
+        array &$status,
+        int $callerDeadlineNanoseconds
+    ): bool {
+        $startupDeadline = min(
+            hrtime(true) + self::KILL_GRACE_NANOSECONDS,
+            $callerDeadlineNanoseconds
+        );
+        do {
+            if (hrtime(true) >= $callerDeadlineNanoseconds) {
+                self::assert_deadline_not_elapsed($callerDeadlineNanoseconds);
+            }
+            if (self::process_group_exists($leaderPid)) {
+                return true;
+            }
+            $current = @proc_get_status($process);
+            if (!is_array($current) || !array_key_exists('running', $current)) {
+                throw new \RuntimeException('wprism: bounded WP-CLI child process state became unreadable');
+            }
+            $status = $current;
+            if ($current['running'] !== true) {
+                return false;
+            }
+            usleep(1000);
+        } while (hrtime(true) < $startupDeadline);
+        self::assert_deadline_not_elapsed($callerDeadlineNanoseconds);
+        throw new \RuntimeException('wprism: bounded WP-CLI child parent-death fence could not start');
+    }
+
+    /**
+     * Arm the direct parent-owned watchdog before releasing the child gate.
+     *
+     * @param resource|null $watchdog
+     * @param array<int,resource> $watchdogPipes
+     */
+    private static function start_parent_watchdog(
+        string $phpBinary,
+        int $leaderPid,
+        &$watchdog,
+        array &$watchdogPipes,
+        ?int &$watchdogExit,
+        int $callerDeadlineNanoseconds
+    ): void {
+        self::assert_deadline_not_elapsed($callerDeadlineNanoseconds);
+        $watchdog = @proc_open(
+            [
+                $phpBinary,
+                '-d',
+                'memory_limit=32M',
+                '-r',
+                self::PARENT_WATCHDOG,
+                '--',
+                (string) $leaderPid,
+            ],
+            [
+                0 => ['file', '/dev/null', 'r'],
+                1 => ['file', '/dev/null', 'a'],
+                2 => ['file', '/dev/null', 'a'],
+                3 => ['pipe', 'r'],
+                4 => ['pipe', 'w'],
+            ],
+            $watchdogPipes
+        );
+        if (!is_resource($watchdog)
+            || !isset($watchdogPipes[3], $watchdogPipes[4])
+            || !is_resource($watchdogPipes[3])
+            || !is_resource($watchdogPipes[4])
+            || @stream_set_blocking($watchdogPipes[4], false) !== true) {
+            self::finish_parent_watchdog($watchdog, $watchdogPipes, $watchdogExit, false, false);
+            throw new \RuntimeException('wprism: bounded WP-CLI child parent-death fence could not start');
+        }
+
+        $ready = '';
+        $startupDeadline = min(
+            hrtime(true) + self::KILL_GRACE_NANOSECONDS,
+            $callerDeadlineNanoseconds
+        );
+        do {
+            if (hrtime(true) >= $callerDeadlineNanoseconds) {
+                break;
+            }
+            // This readiness descriptor can exceed FD_SETSIZE before the
+            // ordinary transport performs its own classified select. A
+            // monotonic nonblocking poll keeps watchdog startup bounded while
+            // preserving that existing non-EINTR refusal path for callers.
+            $chunk = @fread($watchdogPipes[4], 1);
+            if (is_string($chunk)) {
+                $ready .= $chunk;
+            }
+            $status = @proc_get_status($watchdog);
+            if (is_array($status)
+                && ($status['running'] ?? null) === false
+                && is_int($status['exitcode'] ?? null)
+                && $status['exitcode'] >= 0) {
+                $watchdogExit = $status['exitcode'];
+            }
+            if ($ready === 'R' || !is_array($status) || ($status['running'] ?? false) !== true) {
+                break;
+            }
+            usleep(1000);
+        } while (hrtime(true) < $startupDeadline);
+
+        @fclose($watchdogPipes[4]);
+        unset($watchdogPipes[4]);
+        if ($ready !== 'R') {
+            self::finish_parent_watchdog($watchdog, $watchdogPipes, $watchdogExit, false, false);
+            self::assert_deadline_not_elapsed($callerDeadlineNanoseconds);
+            throw new \RuntimeException('wprism: bounded WP-CLI child parent-death fence could not start');
+        }
+        self::assert_deadline_not_elapsed($callerDeadlineNanoseconds);
+    }
+
+    /**
+     * Stop/reap the watchdog, or close liveness so it fences a residual group.
+     *
+     * @param resource|null $watchdog
+     * @param array<int,resource> $watchdogPipes
+     */
+    private static function finish_parent_watchdog(
+        &$watchdog,
+        array &$watchdogPipes,
+        ?int &$watchdogExit,
+        bool $requireClean,
+        bool $fenceGroup
+    ): void {
+        if (isset($watchdogPipes[3]) && is_resource($watchdogPipes[3])) {
+            if (!$fenceGroup) {
+                self::write_control_byte($watchdogPipes[3], 'D');
+            }
+            @fclose($watchdogPipes[3]);
+        }
+        unset($watchdogPipes[3]);
+        foreach ($watchdogPipes as $index => $pipe) {
+            if (is_resource($pipe)) {
+                @fclose($pipe);
+            }
+            unset($watchdogPipes[$index]);
+        }
+        if (!is_resource($watchdog)) {
+            $watchdog = null;
+            if ($requireClean) {
+                throw new \RuntimeException('wprism: bounded WP-CLI child parent-death fence was lost');
+            }
+            return;
+        }
+
+        $deadline = hrtime(true) + self::TERM_GRACE_NANOSECONDS + self::KILL_GRACE_NANOSECONDS;
+        $running = true;
+        do {
+            $status = @proc_get_status($watchdog);
+            if (!is_array($status) || !array_key_exists('running', $status)) {
+                break;
+            }
+            $running = $status['running'] === true;
+            if (!$running) {
+                if (is_int($status['exitcode'] ?? null) && $status['exitcode'] >= 0) {
+                    $watchdogExit = $status['exitcode'];
+                }
+                break;
+            }
+            usleep(self::SELECT_MICROSECONDS);
+        } while (hrtime(true) < $deadline);
+        if ($running) {
+            @proc_terminate($watchdog, 9);
+        }
+        $closedExit = @proc_close($watchdog);
+        $watchdog = null;
+        $exit = $watchdogExit ?? $closedExit;
+        if ($requireClean && (!$running || $closedExit >= 0) && $exit !== 0) {
+            throw new \RuntimeException('wprism: bounded WP-CLI child parent-death fence was lost');
+        }
+        if ($requireClean && $running) {
+            throw new \RuntimeException('wprism: bounded WP-CLI child parent-death fence was lost');
+        }
+    }
+
+    /** @param resource $stream */
+    private static function write_control_byte($stream, string $byte): bool {
+        $previous = null;
+        $previous = set_error_handler(
+            static function (
+                int $severity,
+                string $message,
+                string $file,
+                int $line
+            ) use (&$previous): bool {
+                // EPIPE is already a closed-gate/fence outcome. Do not leak
+                // this expected control race into a caller-owned handler; all
+                // other diagnostics retain the handler chain unchanged.
+                if (in_array($severity, [E_NOTICE, E_WARNING], true)
+                    && str_starts_with($message, 'fwrite(): Write of 1 bytes failed with errno=32 ')) {
+                    return true;
+                }
+                return $previous !== null
+                    ? (bool) $previous($severity, $message, $file, $line)
+                    : false;
+            }
+        );
+        try {
+            $written = @fwrite($stream, $byte);
+        } finally {
+            restore_error_handler();
+        }
+        return $written === 1;
+    }
+
+    /**
      * @param resource|null $process
      * @param array<int,resource> $pipes
      * @param array<string,mixed> $initialStatus
+     * @param resource|null $watchdog
      * @return array{return_code:int,stdout:string,stderr:string}
      */
     private static function capture_process(
@@ -327,10 +782,13 @@ final class WpCliChildProcess {
         array &$pipes,
         int $leaderPid,
         array $initialStatus,
-        int $timeoutSeconds,
+        int $deadlineNanoseconds,
         int $stdoutLimit,
         int $stderrLimit,
-        ?string $input
+        ?string $input,
+        &$watchdog,
+        ?int &$watchdogExit,
+        bool $watchdogRequired
     ): array {
         if (@stream_set_blocking($pipes[1], false) !== true
             || @stream_set_blocking($pipes[2], false) !== true
@@ -341,7 +799,6 @@ final class WpCliChildProcess {
         $limits = [1 => $stdoutLimit, 2 => $stderrLimit];
         $inputLength = $input === null ? 0 : strlen($input);
         $inputOffset = 0;
-        $deadline = hrtime(true) + ($timeoutSeconds * self::NANOSECONDS_PER_SECOND);
         $termination = null;
         $termAt = null;
         $killAt = null;
@@ -451,47 +908,50 @@ final class WpCliChildProcess {
                         @fclose($pipes[0]);
                         unset($pipes[0]);
                     }
-                    // Reap the exact leader before probing its process group.
-                    // Otherwise an unreaped zombie can make kill(-pgid, 0)
-                    // look like a surviving descendant on some POSIX hosts.
-                    // Drain every byte the exited leader already committed;
-                    // proc_close invalidates its pipe resources on supported
-                    // PHP builds, so no later read may safely own this data.
-                    foreach ([1, 2] as $index) {
-                        if (!isset($pipes[$index]) || !is_resource($pipes[$index])) {
+                    // Each outer pass reads at most one bounded chunk from
+                    // each stream before checking the absolute deadline and
+                    // residual process group. An inherited pipe held by a
+                    // continuously-writing descendant therefore cannot trap
+                    // the parent in an unbounded post-leader drain.
+                    $pipesOpen = isset($pipes[1]) || isset($pipes[2]);
+                    if ($termination !== null || !$pipesOpen) {
+                        foreach ([1, 2] as $index) {
+                            if (isset($pipes[$index]) && is_resource($pipes[$index])) {
+                                @fclose($pipes[$index]);
+                            }
                             unset($pipes[$index]);
-                            continue;
                         }
-                        while (true) {
-                            $chunk = @fread($pipes[$index], self::READ_BYTES);
-                            if (!is_string($chunk)) {
-                                if ($termination === null) {
-                                    $termination = 'wprism: bounded WP-CLI child output transport failed';
-                                }
-                                break;
-                            }
-                            if ($chunk === '') {
-                                break;
-                            }
-                            if ($termination === null) {
-                                if (strlen($buffers[$index]) + strlen($chunk) > $limits[$index]) {
-                                    $termination = 'wprism: bounded WP-CLI child output exceeded its fixed byte limit';
-                                } else {
-                                    $buffers[$index] .= $chunk;
-                                }
-                            }
-                        }
-                        @fclose($pipes[$index]);
-                        unset($pipes[$index]);
+                        // Reap before the group probe whenever no descendant
+                        // can still own an output descriptor. On Linux the
+                        // process-group probe independently discounts zombies;
+                        // on Darwin normal pipe EOF reaches this path promptly.
+                        $closedExit = @proc_close($process);
+                        $process = null;
                     }
-                    $closedExit = @proc_close($process);
-                    $process = null;
                 }
             }
 
             $now = hrtime(true);
             $groupAlive = self::process_group_exists($leaderPid);
-            if ($termination === null && $now >= $deadline) {
+            $watchdogRunning = false;
+            if (is_resource($watchdog)) {
+                $watchdogStatus = @proc_get_status($watchdog);
+                $watchdogRunning = is_array($watchdogStatus)
+                    && ($watchdogStatus['running'] ?? null) === true;
+                if (!$watchdogRunning
+                    && is_array($watchdogStatus)
+                    && is_int($watchdogStatus['exitcode'] ?? null)
+                    && $watchdogStatus['exitcode'] >= 0) {
+                    $watchdogExit = $watchdogStatus['exitcode'];
+                }
+            }
+            if ($termination === null
+                && $watchdogRequired
+                && !$watchdogRunning
+                && ($running || $groupAlive)) {
+                $termination = 'wprism: bounded WP-CLI child parent-death fence was lost';
+            }
+            if ($termination === null && $now >= $deadlineNanoseconds) {
                 $termination = 'wprism: bounded WP-CLI child exceeded its wall-clock limit';
             }
             if ($termination === null
@@ -525,7 +985,7 @@ final class WpCliChildProcess {
             }
         }
 
-        foreach ([0, 1, 2] as $index) {
+        foreach ([0, 1, 2, 3] as $index) {
             if (isset($pipes[$index]) && is_resource($pipes[$index])) {
                 fclose($pipes[$index]);
                 unset($pipes[$index]);
@@ -534,6 +994,9 @@ final class WpCliChildProcess {
         if (is_resource($process)) {
             $closedExit = @proc_close($process);
             $process = null;
+        }
+        if ($termination === null && hrtime(true) >= $deadlineNanoseconds) {
+            $termination = 'wprism: bounded WP-CLI child exceeded its wall-clock limit';
         }
         if ($termination !== null) {
             throw new \RuntimeException($termination);
@@ -657,19 +1120,27 @@ final class WpCliChildProcess {
         $killed = false;
         $running = true;
         do {
+            $readAny = false;
             foreach ([1, 2] as $index) {
                 if (isset($pipes[$index]) && is_resource($pipes[$index])) {
                     @stream_set_blocking($pipes[$index], false);
-                    while (($chunk = @fread($pipes[$index], self::READ_BYTES)) !== false && $chunk !== '') {
-                        // Drain and discard so a terminating child cannot block
-                        // on a full pipe while the parent is trying to reap it.
-                    }
+                    // One bounded read per stream keeps a terminating child
+                    // moving without letting an inherited continuously-ready
+                    // pipe postpone TERM/KILL status and monotonic deadlines.
+                    $chunk = @fread($pipes[$index], self::READ_BYTES);
+                    $readAny = $readAny || (is_string($chunk) && $chunk !== '');
                 }
             }
             if (is_resource($process)) {
                 $status = @proc_get_status($process);
                 $running = !is_array($status) || ($status['running'] ?? true) !== false;
                 if (!$running) {
+                    foreach ($pipes as $index => $pipe) {
+                        if (is_resource($pipe)) {
+                            @fclose($pipe);
+                        }
+                        unset($pipes[$index]);
+                    }
                     @proc_close($process);
                     $process = null;
                 }
@@ -688,7 +1159,9 @@ final class WpCliChildProcess {
             if ($now >= $killDeadline) {
                 break;
             }
-            usleep(self::SELECT_MICROSECONDS);
+            if (!$readAny) {
+                usleep(self::SELECT_MICROSECONDS);
+            }
         } while (true);
         foreach ($pipes as $index => $pipe) {
             if (is_resource($pipe)) {

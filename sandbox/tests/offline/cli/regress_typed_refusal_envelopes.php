@@ -214,39 +214,44 @@ namespace {
      * JSON_EXTRACT upsert would let it be exercised offline too, and is
      * recorded as follow-up work rather than done inside this change.
      */
-    final class LeaseStatementWpdb {
+    final class LeaseStatementWpdb extends FakeWpdb {
         public int $intercepted = 0;
 
-        public function __construct(public FakeWpdb $inner, public string $mode) {}
+        public function __construct(public string $mode) {
+            parent::__construct();
+        }
 
         public function query(string $query): int|bool {
             if (str_contains($query, 'JSON_EXTRACT')) {
                 $this->intercepted++;
-                if ($this->mode === 'clear') {
-                    $this->inner->seedTable('wp_wprism_kv', array_values(array_filter(
-                        $this->inner->rows('wp_wprism_kv'),
-                        static fn(array $row): bool => ($row['k'] ?? '') !== 'promotion_lock'
-                    )));
+                // Send the exact statement through the shared wpdb transport
+                // first so the engine's query/isolation gates observe it. The
+                // fixture then selects the real server outcome this suite is
+                // characterizing: conditional upsert kept the prior row, or a
+                // heartbeat raced with deletion and changed zero rows.
+                $before = $this->rows('wp_wprism_kv');
+                try {
+                    parent::query($query);
+                } catch (\LogicException $unsupportedFixtureGrammar) {
+                    if ($this->mode !== 'clear' || !str_starts_with(ltrim($query), 'UPDATE ')) {
+                        throw $unsupportedFixtureGrammar;
+                    }
+                    // The shared fake deliberately has no JSON_EXTRACT DML
+                    // grammar for this authority-fenced renewal. Its parent
+                    // call has still consumed the exact engine permit; this
+                    // fixture supplies only the selected zero-row server
+                    // outcome after that transport proof.
                 }
+                $after = $this->mode === 'clear'
+                    ? array_values(array_filter(
+                        $before,
+                        static fn(array $row): bool => ($row['k'] ?? '') !== 'promotion_lock'
+                    ))
+                    : $before;
+                $this->seedTable('wp_wprism_kv', $after);
                 return 0;
             }
-            return $this->inner->query($query);
-        }
-
-        public function __call(string $method, array $arguments): mixed {
-            return $this->inner->$method(...$arguments);
-        }
-
-        public function __get(string $name): mixed {
-            return $this->inner->$name;
-        }
-
-        public function __set(string $name, mixed $value): void {
-            $this->inner->$name = $value;
-        }
-
-        public function __isset(string $name): bool {
-            return isset($this->inner->$name);
+            return parent::query($query);
         }
     }
 
@@ -274,9 +279,14 @@ namespace {
      */
     function typed_refusal_wpdb(array $rows = [], ?string $leaseMode = null, int $lockResult = 1): object {
         WpStore::reset();
-        $inner = new FakeWpdb();
-        $inner->setLockResult($lockResult);
-        $inner->seedTable('wp_wprism_kv', array_values(array_map(
+        $wpdb = ($leaseMode === null ? new FakeWpdb() : new LeaseStatementWpdb($leaseMode))
+            ->enableInformationSchema()
+            ->enableFullApplySqlExtensions()
+            ->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+            ->setUniqueKey('wprism_kv', ['k'])
+            ->setTableEngine('wprism_kv', 'InnoDB');
+        $wpdb->setLockResult($lockResult);
+        $wpdb->seedTable('wp_wprism_kv', array_values(array_map(
             static fn(string $key, array $payload): array => [
                 'k' => $key,
                 'v' => json_encode($payload, JSON_UNESCAPED_SLASHES),
@@ -284,7 +294,6 @@ namespace {
             array_keys($rows),
             array_values($rows)
         )));
-        $wpdb = $leaseMode === null ? $inner : new LeaseStatementWpdb($inner, $leaseMode);
         $GLOBALS['wpdb'] = $wpdb;
         // ProcessFence caches the fence name and connection id in statics; a
         // new $wpdb without this would look like a continuously-held fence.

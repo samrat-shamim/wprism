@@ -13,6 +13,26 @@ namespace WPrism {
             return $result;
         }
 
+        public static function mutation(
+            string $head,
+            string|array $condition,
+            string $tail,
+            string $context,
+            array $readTables = []
+        ): int {
+            if (is_array($condition)) {
+                $statement = [
+                    'sql' => rtrim(trim($head) . ' WHERE ' . $condition['sql'] . ' ' . trim($tail)),
+                    'args' => $condition['args'],
+                ];
+            } else {
+                $statement = trim($head)
+                    . ($condition !== '' ? ' WHERE ' . $condition : '')
+                    . ($tail !== '' ? ' ' . $tail : '');
+            }
+            return self::query($statement, $context);
+        }
+
         public static function insert(string $table, array $data, $format = null, ?string $context = null): int {
             global $wpdb;
             $result = $wpdb->insert($table, $data, $format);

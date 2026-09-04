@@ -41,7 +41,6 @@ function woo_ok(bool $condition, string $message): void {
 $root = dirname(__DIR__, 4);
 require_once $root . '/sandbox/tests/lib/wp_stubs.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
-require_once $root . '/sandbox/tests/lib/frozen_policy.php';
 require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
 require_once $root . '/agent/src/Capture/CaptureCandidateBuilder.php';
 if (!function_exists('get_taxonomies')) {
@@ -1473,7 +1472,9 @@ $captureDb->seedTable('wp_posts', [])
     ->seedTable('wp_usermeta', [])
     ->seedTable('wp_wprism_map', [])
     ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
-    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
+    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wp_wprism_map', 'InnoDB')
+    ->enableInformationSchema();
 $candidate = (new CaptureCandidateBuilder('/siterepo', $capturePolicy))->build(false);
 $termEntities = array_values(array_filter(
     $candidate['entities'],
@@ -1503,19 +1504,10 @@ woo_ok(count(array_filter(
 $lintState = sys_get_temp_dir() . '/wprism-woo-lint-' . bin2hex(random_bytes(6));
 mkdir($lintState . '/options', 0777, true);
 mkdir($lintState . '/terms/pa_conf-color', 0777, true);
-$lintLibrary = $lintState . '/manifest-library';
-mkdir($lintLibrary . '/interpreters', 0777, true);
-// The real package interpreter was loaded above. This fixture needs a regular
-// inventory member at the explicit archive path, not a second copy that would
-// redeclare the already-loaded class (the retired symlink happened to collapse
-// to the original require_once path, but strict AdapterLibrary rejects links).
-file_put_contents($lintLibrary . '/interpreters/woocommerce.php', "<?php\n");
 $lintFiles = [
     $lintState . '/options/core.json',
     $lintState . '/terms/pa_conf-color/11111111-1111-5111-8111-111111111111--red.json',
     $lintState . '/terms/pa_conf-color/22222222-2222-5222-8222-222222222222--blue.json',
-    $lintLibrary . '/woocommerce.json',
-    $lintLibrary . '/interpreters/woocommerce.php',
 ];
 $removeLintTree = static function (string $path) use (&$removeLintTree): void {
     if (is_dir($path) && !is_link($path)) {
@@ -1570,25 +1562,25 @@ foreach ([
     ['ID' => 3, 'post_type' => 'page', 'post_title' => 'Cart', 'post_status' => 'publish'],
     ['ID' => 7, 'post_type' => 'page', 'post_title' => 'Catalog', 'post_status' => 'publish'],
 ]);
-$lintPolicy = static function (array $wooManifest) use ($lintLibrary, $root): Policy {
-    return \WPrismTest\FrozenPolicy::policy(
-        [$wooManifest],
-        \WPrismTest\FrozenPolicy::site([$wooManifest], WPRISM_SPEC_VERSION),
-        $lintLibrary,
-        \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
-    );
-};
 $preReviewManifest = $manifest;
 unset(
     $preReviewManifest['term_meta']['order']['lint_ok'],
     $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_height']['lint_ok'],
     $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_width']['lint_ok']
 );
-$preReviewFindings = \WPrism\Lint::scan_tree(
-    $lintState,
-    $lintPolicy($preReviewManifest),
-    \WPrism\LintEnvironment::live()
-);
+// The lint comparison deliberately varies only reviewed declarations. Keep
+// the already validated policy/package and its one executable path, then use
+// Policy's public mutable-fixture surface for the duration of this scan.
+$policy->manifests = [$preReviewManifest];
+try {
+    $preReviewFindings = \WPrism\Lint::scan_tree(
+        $lintState,
+        $policy,
+        \WPrism\LintEnvironment::live()
+    );
+} finally {
+    $policy->manifests = [$manifest];
+}
 $preReviewLocators = array_column($preReviewFindings, 'locator');
 sort($preReviewLocators, SORT_STRING);
 woo_ok($preReviewLocators === [
@@ -1597,7 +1589,7 @@ woo_ok($preReviewLocators === [
 ] && array_values(array_unique(array_column($preReviewFindings, 'class'))) === ['bare_id'],
 'the pre-review Woo policy reproduces both non-boolean bare-id collisions while wholly-1 option values stay suppressed');
 woo_ok(
-    \WPrism\Lint::scan_tree($lintState, $lintPolicy($manifest), \WPrism\LintEnvironment::live()) === [],
+    \WPrism\Lint::scan_tree($lintState, $policy, \WPrism\LintEnvironment::live()) === [],
     'the shipped Woo policy audits the exact term-order and thumbnail-dimension scalars without suppressing other keys'
 );
 foreach ($lintFiles as $file) {

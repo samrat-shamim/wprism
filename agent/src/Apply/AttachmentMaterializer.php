@@ -9,6 +9,7 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/MetaOwnerRangeLock.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 if (!class_exists(Db::class, false)) {
@@ -463,10 +464,18 @@ final class AttachmentMaterializer {
 
     /** Run one filesystem transition while its exact physical attachment rows are locked. */
     private function with_locked_pending_bindings(\Closure $operation, string $purpose): mixed {
+        global $wpdb;
         $started = false;
         $lockBoundaryStarted = false;
         try {
-            Db::start_repeatable_read($purpose . ' transaction start');
+            Db::start_repeatable_read(
+                $purpose . ' transaction start',
+                NativeDatabaseProfile::read_only([
+                    $wpdb->posts,
+                    $wpdb->postmeta,
+                    $wpdb->prefix . 'wprism_map',
+                ])
+            );
             $started = true;
             // This wrapper runs after the authored COMMIT as a new physical
             // transaction. Its schema descriptors and continuity savepoint
@@ -638,7 +647,18 @@ final class AttachmentMaterializer {
         $committed = false;
         $primary = null;
         try {
-            Db::start_repeatable_read('attachment metadata transaction start');
+            Db::start_repeatable_read(
+                'attachment metadata transaction start',
+                new NativeDatabaseProfile([
+                    $wpdb->posts,
+                    $wpdb->postmeta,
+                    $wpdb->prefix . 'wprism_map',
+                    $wpdb->prefix . 'wprism_kv',
+                ], [
+                    $wpdb->postmeta,
+                    $wpdb->prefix . 'wprism_kv',
+                ])
+            );
             $started = true;
             $this->fieldMaterializer->begin_authored_transaction();
             CacheInvalidationTransaction::begin();
@@ -758,6 +778,7 @@ final class AttachmentMaterializer {
 
     /** Remove the terminal marker in its own classified database transaction. */
     private function delete_terminal_marker(string $key, string $expected): void {
+        global $wpdb;
         $current = Ledger::kv_get($key);
         if ($current === null) return;
         if (!hash_equals($expected, $current)) {
@@ -765,7 +786,17 @@ final class AttachmentMaterializer {
         }
         $started = false;
         try {
-            Db::start_repeatable_read('attachment terminal marker transaction start');
+            Db::start_repeatable_read(
+                'attachment terminal marker transaction start',
+                new NativeDatabaseProfile([
+                    $wpdb->posts,
+                    $wpdb->postmeta,
+                    $wpdb->prefix . 'wprism_map',
+                    $wpdb->prefix . 'wprism_kv',
+                ], [
+                    $wpdb->prefix . 'wprism_kv',
+                ])
+            );
             $started = true;
             $inside = Ledger::kv_get($key);
             if (!is_string($inside) || !hash_equals($expected, $inside)) {

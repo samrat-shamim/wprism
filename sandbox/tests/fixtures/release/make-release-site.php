@@ -333,7 +333,7 @@ case " $* " in
       if [ -n "${WPRISM_PENDING:-}" ]; then cat "$WPRISM_PENDING"; else printf '[]\n'; fi
       exit 0 ;;
   *" wprism lifecycle-status "*)
-      printf '%s\n' '{"format":"wprism-lifecycle-status/v1","reasons":[],"required":false}'
+      printf '%s\n' '{"baseline_state":"exact","code_boundary_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","code_drift":[],"findings_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","format":"wprism-lifecycle-status/v2","observation_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","reasons":[],"required":false,"warnings":[]}'
       exit 0 ;;
   *" wprism promotion-begin "*)
       if [ "${WPRISM_ENFORCE_RELEASE_BINDING:-0}" = 1 ]; then

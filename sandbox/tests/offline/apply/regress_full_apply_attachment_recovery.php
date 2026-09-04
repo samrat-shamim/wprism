@@ -11,7 +11,11 @@
  */
 declare(strict_types=1);
 
+$tmp = sys_get_temp_dir() . '/wprism-full-apply-' . bin2hex(random_bytes(6));
 define('ABSPATH', __DIR__ . '/../../../../');
+define('WP_CONTENT_DIR', $tmp . '/target/wp-content');
+define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
+define('WPMU_PLUGIN_DIR', WP_CONTENT_DIR . '/mu-plugins');
 
 require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 
@@ -227,10 +231,14 @@ function full_apply_attachment_core_columns(): array {
     ];
 }
 
-$tmp = sys_get_temp_dir() . '/wprism-full-apply-' . bin2hex(random_bytes(6));
 $repo = $tmp . '/repo';
 mkdir($repo . '/state/posts/attachment', 0777, true);
 mkdir($repo . '/media', 0777, true);
+mkdir(WP_CONTENT_DIR . '/themes/fixture-theme', 0777, true);
+file_put_contents(
+    WP_CONTENT_DIR . '/themes/fixture-theme/style.css',
+    "/*\nTheme Name: Full Apply Fixture\nVersion: 1.0.0\n*/\n"
+);
 $repo = (string) realpath($repo);
 $GLOBALS['full_apply_repo'] = $repo;
 register_shutdown_function(static function () use ($tmp): void {
@@ -297,6 +305,9 @@ $store = WpStore::reset()->seedOptions([
     'home' => 'https://full-apply.example.test',
     'siteurl' => 'https://full-apply.example.test',
     'admin_email' => 'admin@full-apply.example.test',
+    'active_plugins' => [],
+    'stylesheet' => 'fixture-theme',
+    'template' => 'fixture-theme',
 ]);
 $store->ensureUploadDir();
 $wpdb = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions();
@@ -306,6 +317,11 @@ foreach (full_apply_attachment_core_columns() as $table => $columns) {
         array_fill_keys(explode(',', $columns), 'longtext')
     )->setTableEngine('wp_' . $table, 'InnoDB');
 }
+$wpdb->seedTable('wp_options', [
+    ['option_id' => 1, 'option_name' => 'active_plugins', 'option_value' => 'a:0:{}', 'autoload' => 'yes'],
+    ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'fixture-theme', 'autoload' => 'yes'],
+]);
 $index = static function (string $name, int $unique, int $seq, string $column, ?int $subPart = null): array {
     return [
         'Key_name' => $name, 'Non_unique' => $unique, 'Seq_in_index' => $seq,

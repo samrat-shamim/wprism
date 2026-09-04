@@ -65,6 +65,11 @@ final class DoctorTransport extends Transport {
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
+                'database_mutation' => [
+                    'direct_global_process' => true,
+                    'metadata_source' => 'INNODB_SYS_FOREIGN',
+                    'metadata_source_readable' => true,
+                ],
                 'filesystem' => [
                     'directory_separator' => '/',
                     'os_family' => 'Linux',
@@ -88,6 +93,7 @@ final class DoctorTransport extends Transport {
                         'proc_terminate' => true,
                     ],
                     'shell' => ['executable' => true, 'path' => '/bin/sh'],
+                    'wp_cli_opcache_enabled' => false,
                 ],
                 'wp' => '7.0.3',
                 'site_mode' => 'single-site',

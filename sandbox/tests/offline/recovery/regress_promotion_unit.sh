@@ -57,7 +57,7 @@ if [ "$first" = wprism ] && [ "$second" = lifecycle-status ]; then
     required=true
     reasons='["inactive_in_environment"]'
   fi
-  printf '%s\n' '{"format":"wprism-lifecycle-status/v1","reasons":'"$reasons"',"required":'"$required"'}'
+  printf '%s\n' '{"baseline_state":"exact","code_boundary_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","code_drift":[],"findings_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","format":"wprism-lifecycle-status/v2","observation_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","reasons":'"$reasons"',"required":'"$required"',"warnings":[]}'
   exit 0
 fi
 

@@ -14,7 +14,6 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require_once __DIR__ . '/../../../../adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';

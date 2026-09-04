@@ -9,6 +9,7 @@ if (!class_exists(Db::class, false)) {
 if (!class_exists(PlainData::class, false)) {
     require_once __DIR__ . '/../Kernel/PlainData.php';
 }
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 if (!class_exists(DeleteGuardEvaluator::class, false)) {
     require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 }
@@ -424,6 +425,7 @@ final class AttachmentNativeMetadataGenerator {
 
     /** @return array<mixed> bounded native metadata */
     public function generate(int $attachmentId, string $stageFile): array {
+        global $wpdb;
         if ($attachmentId <= 0) {
             throw new \RuntimeException('wprism: native attachment metadata generation requires a positive attachment id');
         }
@@ -505,7 +507,14 @@ final class AttachmentNativeMetadataGenerator {
             $adapterQuarantine = $this->quarantine_reviewed_adapter_callbacks();
             $this->assert_closed_filter_topology();
             $priorUmask = umask(0077);
-            Db::start_repeatable_read('native attachment metadata rollback-only transaction start');
+            Db::start_repeatable_read(
+                'native attachment metadata rollback-only transaction start',
+                NativeDatabaseProfile::read_only([
+                    $wpdb->posts,
+                    $wpdb->postmeta,
+                    $wpdb->prefix . 'wprism_map',
+                ])
+            );
             $transactionStarted = true;
             DeleteGuardEvaluator::begin_authored_transaction();
             $transactionContinuityStarted = true;

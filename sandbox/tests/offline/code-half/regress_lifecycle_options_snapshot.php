@@ -14,8 +14,8 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-function add_filter(...$args): void {}
-function add_action(...$args): void {}
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+
 function untrailingslashit($value): string { return rtrim((string) $value, '/\\'); }
 function wp_upload_dir($time = null, $create = true, $refresh = false): array {
     return ['baseurl' => 'https://example.test/wp-content/uploads', 'basedir' => '/tmp/wprism-uploads'];
@@ -108,9 +108,12 @@ final class LifecycleOptionsFakeWpdb {
     public array $menuTerms = [];
     /** @var array<int,string> */
     public array $termUuidById = [];
-    public mixed $transactionState = '1';
-    public bool $transactionStateError = false;
+    public mixed $transactionState = '0';
     public bool $savepointExists = false;
+    public string $connectionId = '8401';
+    public string $autocommit = '1';
+    public ?string $sessionNonce = null;
+    public bool $nextRepeatableRead = false;
     public bool $failOptionUpdate = false;
     public bool $retainOptionUpdate = false;
     public bool $retainOptionDelete = false;
@@ -123,11 +126,38 @@ final class LifecycleOptionsFakeWpdb {
     /** @var array<string,true> */
     public array $retainOptionUpdateNames = [];
     public mixed $afterOptionMutation = null;
+    private bool $strictTransport = false;
+    private bool $suppressErrors = false;
+    private ?int $warningCode = null;
+    /** @var array<string,true> */
+    private array $savepoints = [];
 
     public function get_charset_collate(): string { return ''; }
 
+    /** Model a plugin callback ending the exact transaction WPrism started. */
+    public function endTransactionOutOfBand(): void {
+        $this->transactionState = '0';
+        $this->savepointExists = false;
+        $this->savepoints = [];
+    }
+
+    /** Model COMMIT followed by START on the same connection and isolation. */
+    public function replaceTransactionOutOfBand(): void {
+        $this->transactionState = '1';
+        $this->savepointExists = false;
+        $this->savepoints = [];
+    }
+
     public function prepare($query, ...$args) {
         if (count($args) === 1 && is_array($args[0])) $args = $args[0];
+        if ((class_exists(\WPrism\DatabaseQueryIsolation::class, false)
+                && \WPrism\DatabaseQueryIsolation::is_active())
+            || preg_match('/^%[dfsF]$/D', (string) $query) === 1
+            || preg_match('/^(?:INSERT|UPDATE|DELETE)\b/i', ltrim((string) $query)) === 1
+            || (str_contains((string) $query, 'id_kind = %s')
+                && str_contains((string) $query, 'NOT EXISTS'))) {
+            return $this->renderPrepared((string) $query, $args);
+        }
         // UserMetaCapture deliberately accepts only real wpdb prepare output
         // (a SQL string). This content-free lifecycle fake needs no argument
         // witness after the first empty user page, so model that call exactly.
@@ -139,18 +169,51 @@ final class LifecycleOptionsFakeWpdb {
 
     public function query($sql) {
         [$sql, $args] = $this->unwrap($sql);
+        $sql = $this->filterQuery($sql);
         $this->queries[] = $sql;
         $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
+        if (preg_match("/^SET @wprism_tx_session = '([a-f0-9]{64})'$/D", $sql, $match) === 1) {
+            $this->sessionNonce = $match[1];
+            return 1;
+        }
         if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
+            $this->nextRepeatableRead = true;
             return 1;
         }
         if (str_starts_with($sql, 'START TRANSACTION')) {
             $this->transactionState = '1';
+            $this->nextRepeatableRead = false;
+            $this->savepoints = [];
+            $this->savepointExists = false;
             return 1;
         }
-        if ($sql === 'COMMIT' || $sql === 'ROLLBACK') {
+        if (preg_match('/^(?:COMMIT|ROLLBACK)(?: AND NO CHAIN NO RELEASE)?$/D', $sql) === 1) {
             $this->transactionState = '0';
             $this->savepointExists = false;
+            $this->savepoints = [];
+            return 1;
+        }
+        if (preg_match('/^SAVEPOINT `(wprism_tx_[0-9a-f]{32})`$/D', $sql, $match) === 1) {
+            if ($this->transactionState === '1') {
+                $this->savepoints[$match[1]] = true;
+                $this->savepointExists = true;
+            }
+            return 1;
+        }
+        if (preg_match(
+            '/^(RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) `(wprism_tx_[0-9a-f]{32})`$/D',
+            $sql,
+            $match
+        ) === 1) {
+            if ($this->transactionState !== '1' || !isset($this->savepoints[$match[2]])) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                $this->warningCode = 1305;
+                return false;
+            }
+            if ($match[1] === 'RELEASE SAVEPOINT') {
+                unset($this->savepoints[$match[2]]);
+                $this->savepointExists = $this->savepoints !== [];
+            }
             return 1;
         }
         if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
@@ -164,6 +227,116 @@ final class LifecycleOptionsFakeWpdb {
             }
             $this->savepointExists = false;
             return 1;
+        }
+        if (preg_match(
+            '/^INSERT INTO `?wp_options`? \(([^)]+)\) SELECT (.+?)(?:\nWHERE |\nON DUPLICATE KEY UPDATE|$)/sD',
+            $sql,
+            $match
+        ) === 1) {
+            preg_match_all('/`([A-Za-z0-9_]+)`/', $match[1], $columnMatches);
+            $values = $this->sqlValues($match[2]);
+            $data = array_combine($columnMatches[1] ?? [], $values);
+            if (!is_array($data)) {
+                $this->last_error = 'malformed option insert fixture SQL';
+                return false;
+            }
+            return $this->insert($this->options, $data);
+        }
+        if (preg_match('/^UPDATE `?wp_options`? SET (.+?)\nWHERE /sD', $sql, $match) === 1) {
+            preg_match_all(
+                "/`([A-Za-z0-9_]+)` = (NULL|'(?:\\\\.|''|[^'])*'|-?[0-9]+(?:\\.[0-9]+)?)/s",
+                $match[1],
+                $assignments,
+                PREG_SET_ORDER
+            );
+            $data = [];
+            foreach ($assignments as $assignment) {
+                $data[$assignment[1]] = $this->sqlValue($assignment[2]);
+            }
+            $name = $this->optionNameArgument($sql);
+            if ($data === [] || $name === null) {
+                $this->last_error = 'malformed option update fixture SQL';
+                return false;
+            }
+            return $this->update($this->options, $data, ['option_name' => $name]);
+        }
+        if (preg_match('/^DELETE FROM `?wp_options`?\nWHERE /sD', $sql) === 1) {
+            $name = $this->optionNameArgument($sql);
+            if ($name === null) {
+                $this->last_error = 'malformed option delete fixture SQL';
+                return false;
+            }
+            return $this->delete($this->options, ['option_name' => $name]);
+        }
+        if (preg_match(
+            '/^INSERT INTO `?wp_wprism_map`? \([^)]*\)\s+SELECT (.+?)(?:\nWHERE |\nON DUPLICATE KEY UPDATE|$)/sD',
+            $sql,
+            $match
+        ) === 1) {
+            $values = $this->sqlValues($match[1]);
+            if (count($values) !== 4) {
+                $this->last_error = 'malformed ledger insert fixture SQL';
+                return false;
+            }
+            [$uuid, $entityType, $kind, $id] = $values;
+            $this->queryCalls[array_key_last($this->queryCalls)]['args'] = [$uuid, $entityType, $kind, $id];
+            foreach ($this->map as &$entry) {
+                if ($entry['uuid'] === $uuid && $entry['kind'] === $kind) {
+                    $entry['entity_type'] = (string) $entityType;
+                    $entry['id'] = (int) $id;
+                    unset($entry);
+                    return 1;
+                }
+            }
+            unset($entry);
+            $this->map[] = [
+                'uuid' => (string) $uuid,
+                'entity_type' => (string) $entityType,
+                'kind' => (string) $kind,
+                'id' => (int) $id,
+            ];
+            return 1;
+        }
+        if (preg_match('/^DELETE FROM `?wp_wprism_map`?\nWHERE /sD', $sql) === 1) {
+            if (preg_match("/\\buuid = '((?:\\\\.|''|[^'])*)'/", $sql, $uuidMatch) === 1) {
+                $uuid = stripslashes(str_replace("''", "'", $uuidMatch[1]));
+                $this->map = array_values(array_filter(
+                    $this->map,
+                    static fn(array $entry): bool => $entry['uuid'] !== $uuid
+                ));
+                return 1;
+            }
+            if (preg_match("/\\bid_kind = '((?:\\\\.|''|[^'])*)'/", $sql, $kindMatch) === 1
+                && preg_match(
+                    '/NOT EXISTS \(SELECT 1 FROM `([A-Za-z0-9_]+)` [A-Za-z0-9_]+ '
+                        . 'WHERE [A-Za-z0-9_]+\.`([A-Za-z0-9_]+)` = `?wp_wprism_map`?\.`local_id`\)/',
+                    $sql,
+                    $sourceMatch
+                ) === 1) {
+                $kind = stripslashes(str_replace("''", "'", $kindMatch[1]));
+                $sourceTable = $sourceMatch[1];
+                $table = str_starts_with($sourceTable, $this->prefix)
+                    ? substr($sourceTable, strlen($this->prefix))
+                    : $sourceTable;
+                $primaryKey = $sourceMatch[2];
+                $live = [];
+                foreach ($this->tableColumns[$table]['rows'] ?? [] as $row) {
+                    $live[(int) ($row[$primaryKey] ?? 0)] = true;
+                }
+                $preserved = [];
+                if (preg_match('/local_id NOT IN \(([0-9,]+)\)/', $sql, $keepMatch) === 1) {
+                    foreach (explode(',', $keepMatch[1]) as $id) {
+                        $preserved[(int) $id] = true;
+                    }
+                }
+                $this->map = array_values(array_filter(
+                    $this->map,
+                    static fn(array $entry): bool => $entry['kind'] !== $kind
+                        || isset($preserved[(int) $entry['id']])
+                        || isset($live[(int) $entry['id']])
+                ));
+                return 1;
+            }
         }
         if (preg_match('/DELETE m FROM wp_wprism_map m LEFT JOIN `wp_([A-Za-z0-9_]+)` src ON src.`([A-Za-z0-9_]+)` = m\.local_id/', $sql, $m)) {
             $kind = (string) ($args[0] ?? '');
@@ -182,10 +355,74 @@ final class LifecycleOptionsFakeWpdb {
         return true;
     }
 
+    public function remove_placeholder_escape(string $sql): string { return $sql; }
+
+    public function wprism_test_set_strict_transport(bool $enabled): bool {
+        $previous = $this->strictTransport;
+        $this->strictTransport = $enabled;
+        return $previous;
+    }
+
+    public function wprism_test_strict_transport(): bool { return $this->strictTransport; }
+
+    public function suppress_errors(?bool $suppress = null): bool {
+        $previous = $this->suppressErrors;
+        if ($suppress !== null) {
+            $this->suppressErrors = $suppress;
+        }
+        return $previous;
+    }
+
+    protected function process_fields(string $table, array $data, mixed $format): array|false {
+        $formats = is_array($format) ? array_values($format) : [];
+        $fallback = is_string($format) ? $format : '%s';
+        $processed = [];
+        foreach ($data as $column => $value) {
+            $fieldFormat = array_shift($formats) ?? $fallback;
+            if (!is_string($fieldFormat) || preg_match('/^%(?:d|f|F|s)$/D', $fieldFormat) !== 1) {
+                return false;
+            }
+            $processed[$column] = ['value' => $value, 'format' => $fieldFormat];
+        }
+        return $processed;
+    }
+
     public function get_results($query, $output = ARRAY_A): array {
         [$sql, $args] = $this->unwrap($query);
+        $sql = $this->filterQuery($sql);
+        if ($args === [] && ($optionName = $this->optionNameArgument($sql)) !== null) {
+            $args = [$optionName];
+        }
+        if ($args === []) {
+            $args = $this->ledgerLookupArguments($sql);
+        }
         $this->queries[] = $sql;
         $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
+        if ($sql === 'SHOW WARNINGS') {
+            $code = $this->warningCode;
+            $this->last_error = '';
+            return $code === null ? [] : [[
+                'Level' => 'Error',
+                'Code' => $code,
+                'Message' => 'simulated transaction control diagnostic',
+            ]];
+        }
+        if (str_contains($sql, 'direct_trigger_grants')) {
+            return [['scope_type' => 'schema', 'table_name' => '']];
+        }
+        if (str_contains($sql, 'information_schema.USER_PRIVILEGES')
+            && str_contains($sql, "PRIVILEGE_TYPE = 'PROCESS'")) {
+            return [['PRIVILEGE_TYPE' => 'PROCESS']];
+        }
+        if (str_contains($sql, 'information_schema.TABLES')
+            && str_contains($sql, "'INNODB_FOREIGN'")
+            && str_contains($sql, "'INNODB_SYS_FOREIGN'")) {
+            return [['TABLE_NAME' => 'INNODB_FOREIGN']];
+        }
+        if (str_contains($sql, 'information_schema.INNODB_FOREIGN')
+            || str_contains($sql, 'information_schema.INNODB_SYS_FOREIGN')) {
+            return [];
+        }
         if (str_contains($sql, 'information_schema.COLUMNS')) {
             $rows = [];
             foreach (self::CORE_COLUMNS as $property => $columns) {
@@ -196,7 +433,24 @@ final class LifecycleOptionsFakeWpdb {
             return $rows;
         }
         if (str_contains($sql, 'information_schema.TABLES')) {
-            return [['TABLE_NAME' => $this->options, 'ENGINE' => 'InnoDB']];
+            $rows = [];
+            $tables = [
+                $this->prefix . 'wprism_map',
+                $this->prefix . 'wprism_kv',
+                $this->prefix . 'wprism_state',
+            ];
+            foreach (array_keys(self::CORE_COLUMNS) as $property) {
+                $tables[] = $this->$property;
+            }
+            foreach (array_keys($this->existingTables) as $table) {
+                $tables[] = $table;
+            }
+            foreach (array_unique($tables) as $table) {
+                if (str_contains($sql, "'$table'")) {
+                    $rows[] = ['TABLE_NAME' => $table, 'ENGINE' => 'InnoDB'];
+                }
+            }
+            return $rows;
         }
         if (str_starts_with($sql, 'SHOW INDEX FROM `wp_options`')) {
             return [[
@@ -407,8 +661,46 @@ final class LifecycleOptionsFakeWpdb {
 
     public function get_row($query, $output = ARRAY_A) {
         [$sql, $args] = $this->unwrap($query);
+        $sql = $this->filterQuery($sql);
+        if ($args === [] && ($optionName = $this->optionNameArgument($sql)) !== null) {
+            $args = [$optionName];
+        }
+        if ($args === []) {
+            $args = $this->ledgerLookupArguments($sql);
+        }
         $this->queries[] = $sql;
         $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
+        $identitySql = 'SELECT CONNECTION_ID() AS connection_id, '
+            . '@@SESSION.autocommit AS autocommit, '
+            . 'OCTET_LENGTH(@wprism_tx_session) AS session_nonce_bytes, '
+            . 'LEFT(@wprism_tx_session, 64) AS session_nonce';
+        if ($sql === $identitySql) {
+            return [
+                'connection_id' => $this->connectionId,
+                'autocommit' => $this->autocommit,
+                'session_nonce_bytes' => $this->sessionNonce === null
+                    ? null
+                    : (string) strlen($this->sessionNonce),
+                'session_nonce' => $this->sessionNonce,
+            ];
+        }
+        if (preg_match('/^SHOW CREATE TABLE `([A-Za-z0-9_]{1,64})`$/D', $sql, $match) === 1
+            && $output === ARRAY_N) {
+            return [$match[1], "CREATE TABLE `{$match[1]}` (`id` bigint) ENGINE=InnoDB"];
+        }
+        if (str_contains($sql, 'SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE')
+            && str_contains($sql, 'information_schema.COLUMNS')) {
+            if ($this->schemaProbeErrorColumn !== ''
+                && str_contains($sql, "COLUMN_NAME = '" . $this->schemaProbeErrorColumn . "'")) {
+                $this->last_error = 'simulated schema-width probe failure';
+                return null;
+            }
+            return [
+                'DATA_TYPE' => 'varchar',
+                'CHARACTER_MAXIMUM_LENGTH' => '64',
+                'IS_NULLABLE' => 'NO',
+            ];
+        }
         if (str_contains($sql, 'option_value, autoload') && $args !== []) {
             $name = (string) $args[0];
             if (isset($this->optionRowReadErrors[$name])) {
@@ -440,20 +732,36 @@ final class LifecycleOptionsFakeWpdb {
 
     public function get_var($query) {
         [$sql, $args] = $this->unwrap($query);
+        $sql = $this->filterQuery($sql);
+        if ($args === [] && ($optionName = $this->optionNameArgument($sql)) !== null) {
+            $args = [$optionName];
+        }
+        if ($args === []) {
+            $args = $this->ledgerLookupArguments($sql);
+        }
         $this->queries[] = $sql;
+        if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode') {
+            return '';
+        }
+        if ($sql === 'SELECT CURRENT_USER()') {
+            return 'wordpress@localhost';
+        }
+        if ($sql === 'SELECT VERSION()') {
+            return '8.0.36';
+        }
+        if ($sql === 'SELECT DATABASE()') {
+            return 'wordpress';
+        }
+        if (str_contains($sql, 'information_schema.TRIGGERS')) {
+            return '0';
+        }
         if (trim($sql) === 'SELECT CONNECTION_ID()') {
             return '8401';
-        }
-        if (trim($sql) === 'SELECT @@in_transaction') {
-            if ($this->transactionStateError) {
-                $this->last_error = 'simulated transaction-state failure';
-            }
-            return $this->transactionState;
         }
         if (trim($sql) === 'SELECT @@transaction_isolation') {
             return 'REPEATABLE-READ';
         }
-        if (trim($sql) === 'SELECT 1 FROM `wp_options` LIMIT 1') {
+        if (preg_match('/^SELECT 1 FROM `(?:wp_options|wp_wprism_map)` LIMIT 1$/D', trim($sql)) === 1) {
             return '1';
         }
         if (str_contains($sql, 'SELECT option_value FROM') && $args !== []) {
@@ -478,8 +786,13 @@ final class LifecycleOptionsFakeWpdb {
             return '64';
         }
         if (str_contains($sql, 'SHOW TABLES LIKE')) {
-            return isset($this->existingTables[(string) ($args[0] ?? '')])
-                ? (string) ($args[0] ?? '')
+            $table = (string) ($args[0] ?? '');
+            if ($table === ''
+                && preg_match("/SHOW TABLES LIKE '((?:\\\\.|''|[^'])*)'/", $sql, $match) === 1) {
+                $table = stripslashes(str_replace("''", "'", $match[1]));
+            }
+            return isset($this->existingTables[$table])
+                ? $table
                 : null;
         }
         if (str_contains($sql, 'SELECT uuid FROM wp_wprism_map') && count($args) >= 2) {
@@ -512,6 +825,7 @@ final class LifecycleOptionsFakeWpdb {
 
     public function get_col($query): array {
         [$sql] = $this->unwrap($query);
+        $sql = $this->filterQuery($sql);
         $this->queries[] = $sql;
         return [];
     }
@@ -576,6 +890,100 @@ final class LifecycleOptionsFakeWpdb {
         return is_array($query) && isset($query['sql'])
             ? [$query['sql'], $query['args'] ?? []]
             : [(string) $query, []];
+    }
+
+    /** @param list<mixed> $args */
+    private function renderPrepared(string $query, array $args): string {
+        foreach ($args as $arg) {
+            $query = (string) preg_replace_callback(
+                '/%(?:d|f|F|s)/',
+                static function (array $match) use ($arg): string {
+                    if ($match[0] === '%d') {
+                        return (string) (int) $arg;
+                    }
+                    if ($match[0] === '%f' || $match[0] === '%F') {
+                        return (string) (float) $arg;
+                    }
+                    return "'" . addslashes((string) $arg) . "'";
+                },
+                $query,
+                1
+            );
+        }
+        return $query;
+    }
+
+    private function filterQuery(string $sql): string {
+        if (($GLOBALS['wpdb'] ?? null) !== $this || !is_array($GLOBALS['wp_filter'] ?? null)) {
+            return $sql;
+        }
+        $all = $GLOBALS['wp_filter']['all'] ?? null;
+        if (is_object($all) && method_exists($all, 'do_all_hook')) {
+            $args = ['query', $sql];
+            $all->do_all_hook($args);
+        }
+        $query = $GLOBALS['wp_filter']['query'] ?? null;
+        if (is_object($query) && method_exists($query, 'apply_filters')) {
+            $filtered = $query->apply_filters($sql, [$sql]);
+            if (!is_string($filtered)) {
+                throw new RuntimeException('lifecycle fixture query filter returned malformed SQL');
+            }
+            return $filtered;
+        }
+        return $sql;
+    }
+
+    private function optionNameArgument(string $sql): ?string {
+        if (preg_match(
+            "/(?:BINARY\\s+)?`?option_name`?\\s*=\\s*(?:BINARY\\s+)?'((?:\\\\.|''|[^'])*)'/i",
+            $sql,
+            $match
+        ) !== 1) {
+            return null;
+        }
+        return stripslashes(str_replace("''", "'", $match[1]));
+    }
+
+    /** @return list<mixed> */
+    private function ledgerLookupArguments(string $sql): array {
+        if (preg_match(
+            "/\\buuid = '((?:\\\\.|''|[^'])*)' AND id_kind = '((?:\\\\.|''|[^'])*)'/",
+            $sql,
+            $match
+        ) === 1) {
+            return [
+                stripslashes(str_replace("''", "'", $match[1])),
+                stripslashes(str_replace("''", "'", $match[2])),
+            ];
+        }
+        if (preg_match(
+            "/\\bid_kind = '((?:\\\\.|''|[^'])*)' AND local_id = ([1-9][0-9]*)/",
+            $sql,
+            $match
+        ) === 1) {
+            return [stripslashes(str_replace("''", "'", $match[1])), (int) $match[2]];
+        }
+        return [];
+    }
+
+    /** @return list<mixed> */
+    private function sqlValues(string $sql): array {
+        preg_match_all(
+            "/NULL|'(?:\\\\.|''|[^'])*'|-?[0-9]+(?:\\.[0-9]+)?/s",
+            $sql,
+            $matches
+        );
+        return array_map(fn(string $value): mixed => $this->sqlValue($value), $matches[0] ?? []);
+    }
+
+    private function sqlValue(string $value): mixed {
+        if ($value === 'NULL') {
+            return null;
+        }
+        if ($value !== '' && $value[0] === "'") {
+            return stripslashes(str_replace("''", "'", substr($value, 1, -1)));
+        }
+        return str_contains($value, '.') ? (float) $value : (int) $value;
     }
 }
 
@@ -661,6 +1069,14 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     }
     echo "FAIL: $message\n";
     $failures++;
+};
+$failureChainContains = static function (Throwable $failure, string $needle): bool {
+    for ($cause = $failure; $cause instanceof Throwable; $cause = $cause->getPrevious()) {
+        if (str_contains($cause->getMessage(), $needle)) {
+            return true;
+        }
+    }
+    return false;
 };
 
 // An uncertain INFORMATION_SCHEMA read cannot be interpreted as an
@@ -755,8 +1171,26 @@ $materializerPolicy->site['policy']['options']['owned_blob'] = [
 $ownedBlobRule = $materializerPolicy->site['policy']['options']['owned_blob'];
 $materializerTokens = new \WPrism\Tokens();
 $fieldMaterializer = new \WPrism\ApplyFieldMaterializer($materializerPolicy, $materializerTokens);
-$fieldMaterializer->begin_authored_transaction();
-\WPrism\CacheInvalidationTransaction::begin();
+$startMaterializerTransaction = static function (string $context) use ($fieldMaterializer, $wpdb): void {
+    \WPrism\Db::start_repeatable_read(
+        $context,
+        new \WPrism\NativeDatabaseProfile([], [$wpdb->options])
+    );
+    $fieldMaterializer->begin_authored_transaction();
+    \WPrism\CacheInvalidationTransaction::begin();
+};
+$commitMaterializerTransaction = static function (string $context) use ($fieldMaterializer): void {
+    \WPrism\Db::commit($context);
+    \WPrism\CacheInvalidationTransaction::finish();
+    \WPrism\CacheInvalidationTransaction::end();
+    $fieldMaterializer->end_authored_transaction();
+};
+$endMaterializerParticipants = static function () use ($fieldMaterializer): void {
+    \WPrism\CacheInvalidationTransaction::finish();
+    \WPrism\CacheInvalidationTransaction::end();
+    $fieldMaterializer->end_authored_transaction();
+};
+$startMaterializerTransaction('lifecycle option materializer fixture');
 $apply = new \WPrism\MenuMaterializer($materializerPolicy, $materializerTokens, $fieldMaterializer);
 $assignLocations = new ReflectionMethod(\WPrism\MenuMaterializer::class, 'assign_locations');
 // issue #3347 slice 7: apply_option_sub_keys() moved from Apply onto
@@ -897,30 +1331,8 @@ try {
 $check($primaryAmbiguityRefused, 'mixed-option apply refuses two collation-equal primary identities');
 unset($wpdb->optionRows['Owned_Blob']);
 
-foreach (['0', '01', '1.0', '1junk', 1, false, null] as $transactionState) {
-    $wpdb->transactionState = $transactionState;
-    $writesBeforeTransactionRefusal = count($wpdb->writes);
-    try {
-        $transactionWarnings = [];
-        $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
-            'owned_blob',
-            ['owned' => 'new'],
-            $ownedBlobRule,
-            'site.wprism.json',
-            'yes',
-            &$transactionWarnings,
-        ]);
-        $transactionStateRefused = false;
-    } catch (Throwable $failure) {
-        $transactionStateRefused = str_contains($failure->getMessage(), 'requires an active transaction');
-    }
-    $check(
-        $transactionStateRefused && count($wpdb->writes) === $writesBeforeTransactionRefusal,
-        'mixed-option product path rejects noncanonical transaction state ' . json_encode($transactionState)
-    );
-}
-$wpdb->transactionState = '1';
-$wpdb->transactionStateError = true;
+$wpdb->endTransactionOutOfBand();
+$writesBeforeTransactionRefusal = count($wpdb->writes);
 try {
     $transactionWarnings = [];
     $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
@@ -931,15 +1343,21 @@ try {
         'yes',
         &$transactionWarnings,
     ]);
-    $transactionErrorRefused = false;
+    $endedTransactionRefused = false;
 } catch (Throwable $failure) {
-    $transactionErrorRefused = str_contains($failure->getMessage(), 'requires an active transaction');
+    $endedTransactionRefused = str_contains($failure->getMessage(), 'requires an active transaction');
 }
-$check($transactionErrorRefused, 'mixed-option product path rejects transaction state plus driver error');
-$wpdb->transactionStateError = false;
+$check(
+    $endedTransactionRefused && count($wpdb->writes) === $writesBeforeTransactionRefusal,
+    'mixed-option product path rejects a server-ended authored transaction before mutation'
+);
+$endMaterializerParticipants();
+\WPrism\Db::forget_transaction_tracking();
+$startMaterializerTransaction('lifecycle replacement-transaction fixture');
 
-$wpdb->savepointExists = false;
+$wpdb->replaceTransactionOutOfBand();
 $writesBeforeRestart = count($wpdb->writes);
+$restartFailure = null;
 try {
     $restartWarnings = [];
     $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
@@ -952,13 +1370,18 @@ try {
     ]);
     $sameIsolationRestartRefused = false;
 } catch (Throwable $failure) {
-    $sameIsolationRestartRefused = str_contains($failure->getMessage(), 'lost authored transaction continuity');
+    $restartFailure = $failure;
+    $sameIsolationRestartRefused = str_contains($failure->getMessage(), 'requires an active transaction');
 }
 $check(
     $sameIsolationRestartRefused && count($wpdb->writes) === $writesBeforeRestart,
     'mixed-option row lock refuses COMMIT plus same-isolation START before reading or mutation'
 );
-$fieldMaterializer->begin_authored_transaction();
+$endMaterializerParticipants();
+if ($restartFailure instanceof Throwable) {
+    \WPrism\Db::rollback_after_failure($restartFailure, 'lifecycle replacement-transaction cleanup');
+}
+$startMaterializerTransaction('lifecycle post-replacement option materializer fixture');
 
 $safeOptionsTable = $wpdb->options;
 $wpdb->options = 'wp_options` WHERE 1=0 --';
@@ -1065,6 +1488,8 @@ $check(
 );
 unset($wpdb->optionRows['authored_setting']);
 
+$commitMaterializerTransaction('lifecycle option materializer fixture commit');
+
 // The native companion-lock callback must itself be exercised through the
 // OptionsMaterializer product path. The fixture hook deliberately reads no
 // object-cache value: a stale cached `yes` cannot override the exact raw row
@@ -1148,7 +1573,7 @@ $nativeInterpreter = new class ($nativeState) {
         }
         if ($this->state->transaction_after_setter !== null) {
             global $wpdb;
-            $wpdb->transactionState = $this->state->transaction_after_setter;
+            $wpdb->endTransactionOutOfBand();
         }
         if ($this->state->write_primary) {
             $storage = $captured;
@@ -1194,7 +1619,7 @@ $nativeInterpreter = new class ($nativeState) {
             );
             if ($this->state->transaction_loss_after_runtime_position === $runtimePosition) {
                 global $wpdb;
-                $wpdb->transactionState = '0';
+                $wpdb->endTransactionOutOfBand();
             }
             if ($this->state->runtime_duplicate_write) {
                 $writeRuntimeOption(
@@ -1213,7 +1638,7 @@ $nativeInterpreter = new class ($nativeState) {
         }
         if ($this->state->transaction_after_runtime !== null) {
             global $wpdb;
-            $wpdb->transactionState = $this->state->transaction_after_runtime;
+            $wpdb->endTransactionOutOfBand();
         }
         if ($this->state->throw_after_runtime) {
             if ($this->state->arm_rollback_failures) {
@@ -1335,18 +1760,28 @@ $nativePolicy->manifests = [[
 ]];
 $nativeInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
 $nativeInstances->setValue($nativePolicy, ['native-lock-fixture' => $nativeInterpreter]);
+$nativeFieldMaterializer = new \WPrism\ApplyFieldMaterializer($nativePolicy, $materializerTokens);
 $nativeMaterializer = new \WPrism\OptionsMaterializer(
     $nativePolicy,
     $materializerTokens,
-    new \WPrism\ApplyFieldMaterializer($nativePolicy, $materializerTokens)
+    $nativeFieldMaterializer
 );
 $invokeNative = static function (string $autoload = 'yes', array $captured = ['portable' => 'desired']) use (
     $applyOptionSubKeys,
+    $nativeFieldMaterializer,
     $nativeMaterializer,
-    $nativeRule
+    $nativeRule,
+    $wpdb
 ): void {
+    \WPrism\Db::start_repeatable_read(
+        'lifecycle native option materializer fixture',
+        new \WPrism\NativeDatabaseProfile([], [$wpdb->options])
+    );
+    $transactionStarted = true;
+    $nativeFieldMaterializer->begin_authored_transaction();
     $warnings = [];
     $nativeMaterializer->begin_authored_transaction();
+    \WPrism\CacheInvalidationTransaction::begin();
     try {
         $applyOptionSubKeys->invokeArgs($nativeMaterializer, [
             'native_blob',
@@ -1356,12 +1791,74 @@ $invokeNative = static function (string $autoload = 'yes', array $captured = ['p
             $autoload,
             &$warnings,
         ]);
+        \WPrism\Db::commit('lifecycle native option materializer fixture commit');
+        $transactionStarted = false;
         $nativeMaterializer->commit_authored_transaction();
+        \WPrism\CacheInvalidationTransaction::finish();
     } catch (Throwable $failure) {
-        $nativeMaterializer->rollback_authored_transaction();
+        if (!$transactionStarted) {
+            throw $failure;
+        }
+
+        $transactionActive = null;
+        try {
+            $transactionActive = \WPrism\Db::transaction_active(
+                'lifecycle native option materializer recovery boundary'
+            );
+        } catch (Throwable $_stateFailure) {
+            // A replacement transaction is cleanup-only; the branch below
+            // settles it without running plugin rollback callbacks in it.
+        }
+
+        if ($transactionActive !== true) {
+            \WPrism\CacheInvalidationTransaction::finish();
+            if ($wpdb->transactionState === '1') {
+                \WPrism\Db::rollback_after_failure(
+                    $failure,
+                    'lifecycle native replacement-transaction cleanup'
+                );
+            } else {
+                \WPrism\Db::forget_transaction_tracking();
+            }
+            $transactionStarted = false;
+            throw new RuntimeException(
+                'wprism: lifecycle native transaction ended or was replaced before recovery; recovery_required',
+                0,
+                $failure
+            );
+        }
+
+        $participantFailure = null;
+        $rollbackFailure = null;
+        $cacheFailure = null;
+        try {
+            $nativeMaterializer->rollback_authored_transaction();
+        } catch (Throwable $rollbackParticipantFailure) {
+            $participantFailure = $rollbackParticipantFailure;
+        }
+        try {
+            \WPrism\Db::rollback('lifecycle native option materializer fixture rollback');
+            $transactionStarted = false;
+        } catch (Throwable $rollback) {
+            $rollbackFailure = $rollback;
+        }
+        try {
+            \WPrism\CacheInvalidationTransaction::finish();
+        } catch (Throwable $cachePurgeFailure) {
+            $cacheFailure = $cachePurgeFailure;
+        }
+        if ($participantFailure !== null || $rollbackFailure !== null || $cacheFailure !== null) {
+            throw new RuntimeException(
+                'wprism: lifecycle native rollback participant failed; recovery_required',
+                0,
+                $participantFailure ?? $rollbackFailure ?? $cacheFailure
+            );
+        }
         throw $failure;
     } finally {
+        \WPrism\CacheInvalidationTransaction::end();
         $nativeMaterializer->end_authored_transaction();
+        $nativeFieldMaterializer->end_authored_transaction();
     }
 };
 $wpdb->optionRows['native_blob'] = [
@@ -1641,20 +2138,17 @@ try {
     $invokeNative();
     $rollbackAggregationProven = false;
 } catch (Throwable $failure) {
-    $participantFailure = $failure->getPrevious();
-    $callbackMessage = $participantFailure?->getMessage() ?? '';
     $rollbackAggregationProven = str_contains($failure->getMessage(), 'recovery_required')
-        && str_contains($callbackMessage, 'runtime=')
-        && str_contains($callbackMessage, 'companions=')
-        && str_contains($callbackMessage, 'storage=')
-        && str_contains($callbackMessage, 'cache=');
+        && $failureChainContains($failure, 'runtime=')
+        && $failureChainContains($failure, 'companions=')
+        && $failureChainContains($failure, 'storage=')
+        && $failureChainContains($failure, 'cache=');
 }
 $GLOBALS['lifecycle_external_object_cache'] = false;
 $nativeState->local_restore_failure = false;
 $nativeState->arm_rollback_failures = false;
 $nativeState->throw_after_runtime = false;
 $nativeState->local_runtime = 'clean';
-$wpdb->transactionState = '1';
 $wpdb->optionRows = $runtimeRollbackBefore;
 $check(
     $rollbackAggregationProven,
@@ -1810,7 +2304,6 @@ $secondRuntimeWrites = array_filter(
         || ($write['where']['option_name'] ?? null) === 'runtime_effect_two'
 );
 $nativeState->transaction_loss_after_runtime_position = null;
-$wpdb->transactionState = '1';
 $wpdb->optionRows = $runtimeFailureBefore;
 $check(
     $runtimeTransactionLossRefused && $secondRuntimeWrites === [],
@@ -2029,10 +2522,7 @@ foreach ([
         // compensated in-process; the recovery_required result is the exact
         // contract. Reset only this content-free fake before later cases.
         $wpdb->optionRows = $attackBefore;
-        $wpdb->transactionState = '1';
         $wpdb->last_error = '';
-        $fieldMaterializer->end_authored_transaction();
-        $fieldMaterializer->begin_authored_transaction();
         $rollbackOutcomeExact = str_contains($projectionAttackMessage, 'recovery_required');
     } elseif ($projectionAttack === 'rewrite-companion') {
         // Plugin SQL is restored by the outer database ROLLBACK; this fake has
@@ -2192,16 +2682,18 @@ try {
     $invokeNative('yes');
     $committedHookRefused = false;
 } catch (Throwable $failure) {
-    $committedHookRefused = str_contains($failure->getMessage(), 'requires an active transaction');
+    $committedHookRefused = str_contains($failure->getMessage(), 'recovery_required')
+        && ($failureChainContains($failure, 'requires an active transaction')
+            || $failureChainContains($failure, 'lost authored transaction continuity'));
     $wpdb->optionRows = $beforeCommittedHook;
 }
-$wpdb->transactionState = '1';
 $nativeState->transaction_after_setter = null;
 $nativeState->finalize_storage = false;
 $check($committedHookRefused && $wpdb->optionRows === $beforeCommittedHook,
     'native callback transaction loss is detected before post-save storage finalization');
 $GLOBALS['lifecycle_stale_option_cache'] = [];
 
+$startMaterializerTransaction('lifecycle serialized-object apply fixture');
 $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize(new ApplySerializedWakeupProbe());
 ApplySerializedWakeupProbe::$woke = false;
 ApplySerializedWakeupProbe::$unserialized = false;
@@ -2233,6 +2725,7 @@ try {
 }
 $check($applySubKeysObjectRejected && !ApplySerializedWakeupProbe::$woke && !ApplySerializedWakeupProbe::$unserialized,
     'Apply apply_option_sub_keys rejects serialized objects without invoking __wakeup/__unserialize');
+$commitMaterializerTransaction('lifecycle serialized-object apply fixture commit');
 
 // Restore the lifecycle fixture's baseline after the direct Apply probes;
 // the following snapshot/hash comparisons intentionally start from this exact
@@ -2523,6 +3016,34 @@ $sidebarPolicy->manifests[0]['widgets'] = [
     'text' => ['settings' => ['title' => ['class' => 'authored']]],
 ];
 $sidebarDeclared = $sidebarPolicy->widget_types();
+$startSidebarTransaction = static function (string $context) use ($fieldMaterializer, $wpdb): void {
+    \WPrism\Db::start_repeatable_read(
+        $context,
+        new \WPrism\NativeDatabaseProfile(
+            [],
+            [$wpdb->options, $wpdb->prefix . 'wprism_map']
+        )
+    );
+    $fieldMaterializer->begin_authored_transaction();
+    \WPrism\CacheInvalidationTransaction::begin();
+    SidebarState::begin_authored_transaction(
+        static fn(string $name, string $purpose): ?array =>
+            \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+        static function (string $name, string $purpose): void {
+            \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
+        },
+        static function (string $name, string $value, string $autoload, string $purpose): void {
+            \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+        }
+    );
+};
+$commitSidebarTransaction = static function (string $context) use ($fieldMaterializer): void {
+    \WPrism\Db::commit($context);
+    \WPrism\CacheInvalidationTransaction::finish();
+    SidebarState::end_authored_transaction();
+    $fieldMaterializer->end_authored_transaction();
+    \WPrism\CacheInvalidationTransaction::end();
+};
 $sidebarLoadWidgets = new ReflectionMethod(SidebarState::class, 'load_widget_options');
 $sidebarLoadSidebars = new ReflectionMethod(SidebarState::class, 'load_sidebars_option');
 $sidebarWidgetValue = [3 => ['title' => 'Hello'], '_multiwidget' => 1];
@@ -2588,18 +3109,7 @@ $wpdb->optionRows = [
         'selected' => [], 'protected' => ['block-9'], 'array_version' => 3,
     ]), 'autoload' => 'yes'],
 ];
-$wpdb->transactionState = '1';
-$fieldMaterializer->begin_authored_transaction();
-SidebarState::begin_authored_transaction(
-    static fn(string $name, string $purpose): ?array =>
-        \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
-    static function (string $name, string $purpose): void {
-        \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
-    },
-    static function (string $name, string $value, string $autoload, string $purpose): void {
-        \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
-    }
-);
+$startSidebarTransaction('lifecycle scoped sidebar fixture');
 SidebarState::ensure_widgets($sidebarPolicy, $selectedSidebarTree);
 $allocatedWidgetUuids = [];
 foreach ($wpdb->queryCalls as $call) {
@@ -2646,9 +3156,7 @@ SidebarState::finalize_sidebar(
     $completeSidebarTree,
     true
 );
-SidebarState::end_authored_transaction();
-$fieldMaterializer->end_authored_transaction();
-$wpdb->transactionState = '0';
+$commitSidebarTransaction('lifecycle scoped sidebar fixture commit');
 $widgetOptionWrites = [];
 foreach ($wpdb->writes as $write) {
     if (($write['table'] ?? null) !== 'wp_options') continue;
@@ -2718,18 +3226,7 @@ $activeMoveTree = [
     ],
 ];
 $inactiveMapPreimage = serialize($wpdb->map);
-$wpdb->transactionState = '1';
-$fieldMaterializer->begin_authored_transaction();
-SidebarState::begin_authored_transaction(
-    static fn(string $name, string $purpose): ?array =>
-        \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
-    static function (string $name, string $purpose): void {
-        \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
-    },
-    static function (string $name, string $value, string $autoload, string $purpose): void {
-        \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
-    }
-);
+$startSidebarTransaction('lifecycle inactive-to-active sidebar fixture');
 SidebarState::finalize_sidebar(
     $sidebarPolicy,
     $tokens,
@@ -2767,8 +3264,7 @@ $check(
     ],
     'inactive-to-active same-process retry is byte-identical and does not duplicate the selected assignment'
 );
-SidebarState::end_authored_transaction();
-$fieldMaterializer->end_authored_transaction();
+$commitSidebarTransaction('lifecycle inactive-to-active sidebar fixture commit');
 
 $wpdb->optionRows['sidebars_widgets']['option_value'] = serialize([
     'selected' => ['text-1'],
@@ -2785,17 +3281,7 @@ $inactiveMoveTree = [
         ]]],
     ],
 ];
-$fieldMaterializer->begin_authored_transaction();
-SidebarState::begin_authored_transaction(
-    static fn(string $name, string $purpose): ?array =>
-        \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
-    static function (string $name, string $purpose): void {
-        \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
-    },
-    static function (string $name, string $value, string $autoload, string $purpose): void {
-        \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
-    }
-);
+$startSidebarTransaction('lifecycle active-to-inactive sidebar fixture');
 SidebarState::finalize_sidebar(
     $sidebarPolicy,
     $tokens,
@@ -2856,9 +3342,7 @@ $check(
     $wpdb->optionRows['widget_text']['option_value'] === $inactiveOptionWithoutMarker,
     'inactive-to-active move preserves exact absence of _multiwidget on a preexisting target family'
 );
-SidebarState::end_authored_transaction();
-$fieldMaterializer->end_authored_transaction();
-$wpdb->transactionState = '0';
+$commitSidebarTransaction('lifecycle active-to-inactive sidebar fixture commit');
 
 // A complete repository sidebar treats a Polylang uninstall's contentless
 // sidebars_widgets key as target-only deletion evidence. Exercise the actual
@@ -2867,9 +3351,10 @@ $wpdb->transactionState = '0';
 $finalizeContentlessSidebar = static function (array $widgets) use (
     $sidebarPolicy,
     $tokens,
-    $fieldMaterializer,
     $wpdb,
-    $selectedSidebarWidget
+    $selectedSidebarWidget,
+    $startSidebarTransaction,
+    $commitSidebarTransaction
 ): array {
     $tree = [
         'sidebar/selected' => [
@@ -2890,26 +3375,18 @@ $finalizeContentlessSidebar = static function (array $widgets) use (
             'selected' => ['text-4'], 'array_version' => 3,
         ]), 'autoload' => 'yes'],
     ];
-    $wpdb->transactionState = '1';
-    $fieldMaterializer->begin_authored_transaction();
-    SidebarState::begin_authored_transaction(
-        static fn(string $name, string $purpose): ?array =>
-            \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
-        static function (string $name, string $purpose): void {
-            \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
-        },
-        static function (string $name, string $value, string $autoload, string $purpose): void {
-            \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
-        }
+    $startSidebarTransaction('lifecycle contentless sidebar fixture');
+    SidebarState::finalize_sidebar(
+        $sidebarPolicy,
+        $tokens,
+        $tree['sidebar/selected']['data'],
+        'selected',
+        $tree,
+        true
     );
-    try {
-        SidebarState::finalize_sidebar($sidebarPolicy, $tokens, $tree['sidebar/selected']['data'], 'selected', $tree, true);
-        return maybe_unserialize((string) $wpdb->optionRows['sidebars_widgets']['option_value']);
-    } finally {
-        SidebarState::end_authored_transaction();
-        $fieldMaterializer->end_authored_transaction();
-        $wpdb->transactionState = '0';
-    }
+    $assignments = maybe_unserialize((string) $wpdb->optionRows['sidebars_widgets']['option_value']);
+    $commitSidebarTransaction('lifecycle contentless sidebar fixture commit');
+    return $assignments;
 };
 $contentlessPopulatedAssignments = $finalizeContentlessSidebar([[
     'uuid' => $selectedSidebarWidget,

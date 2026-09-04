@@ -346,14 +346,17 @@ $check(str_contains($identity, 'public function ensurePost(')
 // default WordPress metadata collation is case-insensitive, so an alias must
 // be observed in the same equality set and refused rather than ignored/minted
 // over; a failed compact read likewise cannot become "identity absent".
+require_once "$root/sandbox/tests/lib/wp_stubs.php";
 require_once "$root/sandbox/tests/lib/FakeWpdb.php";
 $identityDb = static function (array $postmeta): \WPrismTest\FakeWpdb {
     $db = new \WPrismTest\FakeWpdb();
-    $db->seedTable('wp_postmeta', $postmeta);
+    $db->seedTable('wp_postmeta', $postmeta)
+        ->setTableEngine('wp_postmeta', 'InnoDB');
     $db->seedTable('wp_wprism_map', [])
+        ->setTableEngine('wp_wprism_map', 'InnoDB')
         ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
         ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
-    return $db;
+    return $db->enableInformationSchema();
 };
 $canonicalUuid = '11111111-1111-7111-8111-111111111111';
 $GLOBALS['wpdb'] = $identityDb([[

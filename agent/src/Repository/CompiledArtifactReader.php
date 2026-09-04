@@ -95,6 +95,17 @@ final class CompiledArtifactReader {
                 );
             }
         }
+        // Every artifact consumer, including lifecycle settlement before an
+        // Apply coordinator exists, executes manifest code under this exact
+        // site/action and adapter-byte identity. The second identical bind in
+        // ApplyRequestCoordinator is intentional: it proves that the object
+        // handed across that boundary is still the artifact read here.
+        $policy->bind_execution_artifact_identity(
+            $artifact->artifact_hash(),
+            $artifact->site_hash(),
+            $artifact->manifest_hash(),
+            $artifact->resolved_adapters()
+        );
         // Artifact consumers need the identical repository-derived schema
         // facts compilation used; never let a loaded artifact make ACF (or
         // a future interpreter) fall back to target-only rows during apply.

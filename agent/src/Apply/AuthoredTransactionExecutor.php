@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
+
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/AuthoredTransactionRequest.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
@@ -23,6 +25,9 @@ if (!class_exists(Canary::class, false)) {
 }
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
+}
+if (!class_exists(NativeDatabaseProfile::class, false)) {
+    require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 }
 if (!class_exists(Ledger::class, false)) {
     require_once __DIR__ . '/../Repository/Ledger.php';
@@ -135,13 +140,12 @@ final class AuthoredTransactionExecutor {
         Canary::arm();
         try {
             $this->attachmentMaterializer->prepare_filesystem($work, $tree);
-            Db::start_repeatable_read('apply transaction start');
+            Db::start_repeatable_read(
+                'apply transaction start',
+                $this->authored_transaction_profile()
+            );
             $transactionStarted = true;
             $this->fieldMaterializer->begin_authored_transaction();
-            DeleteGuardEvaluator::assert_innodb_tables(
-                $this->authored_transaction_tables(),
-                'authored transaction storage-engine boundary'
-            );
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'authored transaction storage-engine boundary'
             );
@@ -532,11 +536,11 @@ final class AuthoredTransactionExecutor {
      * an ALTER ENGINE race one of the earlier core/plugin mutations while the
      * later atomic scoped receipt still committed successfully.
      *
-     * @return list<string>
+     * @return NativeDatabaseProfile
      */
-    private function authored_transaction_tables(): array {
+    private function authored_transaction_profile(): NativeDatabaseProfile {
         global $wpdb;
-        $tables = [
+        $writeTables = [
             $wpdb->posts,
             $wpdb->postmeta,
             $wpdb->terms,
@@ -544,31 +548,30 @@ final class AuthoredTransactionExecutor {
             $wpdb->term_relationships,
             $wpdb->termmeta,
             $wpdb->options,
-            $wpdb->users,
             $wpdb->usermeta,
             $wpdb->prefix . 'wprism_map',
             $wpdb->prefix . 'wprism_state',
             $wpdb->prefix . 'wprism_kv',
         ];
         foreach ($this->snapshotRowTables as $name => $declaration) {
-            $tables[] = $wpdb->prefix . (string) $name;
+            $writeTables[] = $wpdb->prefix . (string) $name;
             $attachedMeta = $this->policy->attached_meta_table_for_owner((string) $name);
             if (is_array($attachedMeta)) {
-                $tables[] = $wpdb->prefix . (string) ($attachedMeta['name'] ?? '');
+                $writeTables[] = $wpdb->prefix . (string) ($attachedMeta['name'] ?? '');
             }
             foreach ((array) ($declaration['invalidate'] ?? []) as $invalidation) {
                 if (is_array($invalidation) && isset($invalidation['table'])) {
-                    $tables[] = $wpdb->prefix . (string) $invalidation['table'];
+                    $writeTables[] = $wpdb->prefix . (string) $invalidation['table'];
                 }
             }
         }
         DeleteGuardEvaluator::assert_table_identifiers(
-            $tables,
+            $writeTables,
             'authored transaction storage-engine boundary'
         );
-        $tables = array_values(array_unique($tables));
-        sort($tables, SORT_STRING);
-        return $tables;
+        $writeTables = array_values(array_unique($writeTables));
+        sort($writeTables, SORT_STRING);
+        return new NativeDatabaseProfile([$wpdb->users], $writeTables);
     }
 
     private static function failure_fingerprint(\Throwable $failure): string {

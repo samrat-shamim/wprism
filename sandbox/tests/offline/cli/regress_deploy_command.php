@@ -22,6 +22,7 @@ final class DeployCommandDriver implements EnvironmentDriver {
     /** @var list<array<int,string>> */
     public array $calls = [];
     public int $preflightExit = 0;
+    public int $codeBaselineExit = 0;
     public int $schemaStatusExit = 0;
     public int $stageExit = 0;
     public int $exportExit = 0;
@@ -34,6 +35,12 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public bool $codeEnabled = true;
     public bool $codeChangeRequired = true;
     public bool $lifecycleChangeRequired = false;
+    public string $codeBaselineState = 'exact';
+    public bool $malformedCodeBaselineReceipt = false;
+    public int $lostCodeBaselineResponses = 0;
+    public int $malformedCodeBaselineResponses = 0;
+    /** @var list<string> */
+    public array $codeWarnings = [];
     public bool $schemaDeclared = false;
     public bool $schemaRequired = false;
     public bool $lifecycleSettlementDeclared = false;
@@ -44,6 +51,8 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public bool $contenderPassedInitialFence = false;
     public ?int $contenderBeginExit = null;
     public ?bool $leaseActiveAtProviderComplete = null;
+    /** @var array<string,mixed>|null */
+    private ?array $committedCodeBaselineReceipt = null;
 
     public function name(): string { return 'deploy-fixture'; }
     public function driverId(): string { return 'deploy-fixture'; }
@@ -153,11 +162,68 @@ final class DeployCommandDriver implements EnvironmentDriver {
             ], JSON_THROW_ON_ERROR), 'stderr' => ''];
         }
         if ($command === 'lifecycle-status') {
+            $drift = $this->codeBaselineState === 'drift' ? $this->codeDriftRows() : [];
             return ['exit' => 0, 'stdout' => json_encode([
-                'format' => 'wprism-lifecycle-status/v1',
+                'format' => 'wprism-lifecycle-status/v2',
                 'reasons' => $this->lifecycleChangeRequired ? ['inactive_in_environment'] : [],
                 'required' => $this->lifecycleChangeRequired,
+                'baseline_state' => $this->codeBaselineState,
+                'code_drift' => $drift,
+                'code_boundary_sha256' => str_repeat('c', 64),
+                'findings_sha256' => str_repeat('d', 64),
+                'observation_sha256' => str_repeat('e', 64),
+                'warnings' => $this->codeWarnings,
             ], JSON_THROW_ON_ERROR), 'stderr' => ''];
+        }
+        if ($command === 'code-baseline-accept') {
+            $operationId = (string) $this->option($wpArgs, '--operation-id=');
+            $artifactHash = (string) $this->option($wpArgs, '--artifact-hash=');
+            $observation = (string) $this->option($wpArgs, '--expected-observation-sha256=');
+            $expectedState = (string) $this->option($wpArgs, '--expected-baseline-state=');
+            if ($this->committedCodeBaselineReceipt === null) {
+                $drift = $this->codeBaselineState === 'drift' ? $this->codeDriftRows() : [];
+                $this->committedCodeBaselineReceipt = [
+                    'format' => 'wprism-code-baseline-acceptance/v2',
+                    'operation_id' => $operationId,
+                    'artifact_hash' => $artifactHash,
+                    'observation_sha256' => $observation,
+                    'outcome' => $expectedState === 'absent' ? 'initialized' : 'accepted',
+                    'replayed' => false,
+                    'before_baseline_sha256' => $expectedState === 'absent' ? null : str_repeat('f', 64),
+                    'baseline_sha256' => str_repeat('1', 64),
+                    'code_drift' => $drift,
+                ];
+                $this->codeBaselineState = 'exact';
+            } else {
+                $this->committedCodeBaselineReceipt['replayed'] = true;
+            }
+            if ($this->codeBaselineExit !== 0) {
+                return [
+                    'exit' => $this->codeBaselineExit,
+                    'stdout' => '',
+                    'stderr' => 'fixture baseline acceptance response was lost',
+                ];
+            }
+            if ($this->lostCodeBaselineResponses > 0) {
+                $this->lostCodeBaselineResponses--;
+                return [
+                    'exit' => 28,
+                    'stdout' => '',
+                    'stderr' => 'fixture baseline acceptance response was lost after commit',
+                ];
+            }
+            if ($this->malformedCodeBaselineReceipt) {
+                return ['exit' => 0, 'stdout' => '{"accepted":true}', 'stderr' => ''];
+            }
+            if ($this->malformedCodeBaselineResponses > 0) {
+                $this->malformedCodeBaselineResponses--;
+                return ['exit' => 0, 'stdout' => '{"accepted":true}', 'stderr' => ''];
+            }
+            return [
+                'exit' => 0,
+                'stdout' => json_encode($this->committedCodeBaselineReceipt, JSON_THROW_ON_ERROR),
+                'stderr' => '',
+            ];
         }
         if ($command === 'schema-status') {
             if ($this->schemaStatusExit !== 0) {
@@ -269,6 +335,18 @@ final class DeployCommandDriver implements EnvironmentDriver {
         return $phases;
     }
 
+    /** @return list<array<string,string>> */
+    private function codeDriftRows(): array {
+        return [[
+            'issue' => 'code_drift',
+            'kind' => 'plugin',
+            'plugin' => 'fixture/fixture.php',
+            'installed_version' => '2.0.0',
+            'recorded_version' => '1.0.0',
+            'message' => 'fixture/fixture.php changed from 1.0.0 to 2.0.0 outside WPrism',
+        ]];
+    }
+
     public function abortLease(): bool {
         if ($this->abortRemovesLease) {
             $this->leaseActive = false;
@@ -335,8 +413,20 @@ function schema_loss_deploy_driver(): DeployCommandDriver {
     return $driver;
 }
 
+function baseline_drift_deploy_driver(): DeployCommandDriver {
+    $driver = new DeployCommandDriver();
+    $driver->codeEnabled = false;
+    $driver->codeChangeRequired = false;
+    $driver->codeBaselineState = 'drift';
+    return $driver;
+}
+
 if (($argv[1] ?? '') === '--schema-loss-output-child') {
     $childResult = run_deploy_command(schema_loss_deploy_driver(), []);
+    exit($childResult['exit']);
+}
+if (($argv[1] ?? '') === '--baseline-output-child') {
+    $childResult = run_deploy_command(baseline_drift_deploy_driver(), ['--force-code-drift']);
     exit($childResult['exit']);
 }
 
@@ -491,6 +581,227 @@ assert_deploy_command(
     count(array_filter($unchanged->events, static fn(string $event): bool => str_contains($event, 'deploy:'))) === 0,
     'unchanged-code deploy invokes neither retirement nor activation'
 );
+
+// Code-version acceptance is its own work axis. Without explicit consent the
+// host refuses from read-only v2 evidence before a lease, checkpoint, provider,
+// lifecycle hook, or baseline write.
+$driftRefused = baseline_drift_deploy_driver();
+$driftRefusedResult = run_deploy_command($driftRefused, []);
+assert_deploy_command($driftRefusedResult['exit'] === 1, 'descriptor-free code drift refuses without consent');
+assert_deploy_command(
+    $driftRefused->events === ['raw:mkdir', 'capture:compile', 'capture:lifecycle-status'],
+    'unforced drift stops at the read-only deployment preflight'
+);
+assert_deploy_command($driftRefused->codeBaselineState === 'drift', 'unforced drift leaves the fixture baseline unchanged');
+
+// With consent, exactly one isolated baseline command runs. It does not invent
+// lifecycle/provider effects or a recovery checkpoint for one idempotent KV
+// replacement.
+$driftAccepted = baseline_drift_deploy_driver();
+$driftAcceptedResult = run_deploy_command($driftAccepted, ['--force-code-drift']);
+assert_deploy_command($driftAcceptedResult['exit'] === 0, 'descriptor-free forced drift acceptance succeeds');
+assert_deploy_command(
+    $driftAccepted->events === [
+        'raw:mkdir', 'capture:compile', 'capture:lifecycle-status', 'capture:code-baseline-accept',
+    ],
+    'forced drift selects only the isolated baseline phase'
+);
+assert_deploy_command($driftAccepted->codeBaselineState === 'exact', 'the baseline phase consumes its exact drift finding');
+$baselineCall = $driftAccepted->calls[2];
+assert_deploy_command(
+    in_array('code-baseline-accept', $baselineCall, true)
+        && in_array('--force-code-drift', $baselineCall, true)
+        && in_array('--skip-plugins', $baselineCall, true)
+        && in_array('--skip-themes', $baselineCall, true)
+        && count(array_filter(
+            $baselineCall,
+            static fn(string $arg): bool => str_starts_with($arg, '--exec=')
+                && str_contains($arg, 'WPRISM_CONTROL_PLANE')
+        )) === 1,
+    'baseline acceptance carries consent through the isolated control-plane bootstrap'
+);
+assert_deploy_command(
+    count(array_filter(
+        $driftAccepted->events,
+        static fn(string $event): bool => str_contains($event, 'promotion-begin')
+            || str_contains($event, 'checkpoint')
+            || str_contains($event, 'deploy:')
+            || str_contains($event, 'settle')
+    )) === 0,
+    'baseline-only acceptance takes no host lease, checkpoint, lifecycle, or provider phase'
+);
+
+$baselineOutputProcess = proc_open(
+    [PHP_BINARY, __FILE__, '--baseline-output-child'],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $baselineOutputPipes
+);
+assert_deploy_command(is_resource($baselineOutputProcess), 'baseline output child starts');
+$baselineStdout = (string) stream_get_contents($baselineOutputPipes[1]);
+$baselineStderr = (string) stream_get_contents($baselineOutputPipes[2]);
+fclose($baselineOutputPipes[1]);
+fclose($baselineOutputPipes[2]);
+$baselineOutputStatus = proc_close($baselineOutputProcess);
+assert_deploy_command($baselineOutputStatus === 0, 'baseline output child succeeds');
+assert_deploy_command(
+    $baselineStdout === "deploy phase: compile\ndeploy phase: lifecycle-status\ndeploy phase: code-baseline-accept\n"
+        . "deploy complete: code-baseline-accept; no code descriptor\n",
+    'baseline-only output names the selected phase and honest terminal result'
+);
+assert_deploy_command(
+    substr_count($baselineStderr, 'FORCED past code_drift') === 1
+        && str_contains($baselineStderr, 'fixture/fixture.php changed from 1.0.0 to 2.0.0'),
+    'one forced baseline finding produces exactly one operator warning'
+);
+
+// A missing or malformed receipt cannot be called success. The operation is
+// retry-safe and the handler never falls through to a completion line.
+$baselineLost = baseline_drift_deploy_driver();
+$baselineLost->codeBaselineExit = 28;
+$baselineLostResult = run_deploy_command($baselineLost, ['--force-code-drift']);
+assert_deploy_command($baselineLostResult['exit'] === 28, 'lost baseline response preserves the target exit');
+assert_deploy_command(
+    array_slice($baselineLost->events, -1) === ['capture:code-baseline-accept'],
+    'lost baseline response stops at the acceptance boundary'
+);
+$baselineMalformed = baseline_drift_deploy_driver();
+$baselineMalformed->malformedCodeBaselineReceipt = true;
+$baselineMalformedResult = run_deploy_command($baselineMalformed, ['--force-code-drift']);
+assert_deploy_command($baselineMalformedResult['exit'] === 1, 'malformed baseline receipt refuses completion');
+
+// Lifecycle work still owns its terminal baseline publication. Combining
+// drift with an activation mismatch therefore runs the real fresh-process
+// lifecycle sequence and never the baseline-only phase.
+$driftWithLifecycle = baseline_drift_deploy_driver();
+$driftWithLifecycle->lifecycleChangeRequired = true;
+$driftWithLifecycleResult = run_deploy_command($driftWithLifecycle, ['--force-code-drift']);
+assert_deploy_command($driftWithLifecycleResult['exit'] === 0, 'forced drift composes with lifecycle work');
+assert_deploy_command(
+    $driftWithLifecycle->events === [
+        'raw:mkdir', 'capture:compile', 'capture:lifecycle-status', 'capture:promotion-begin',
+        'capture:checkpoint-target', 'capture:db-export',
+        'stream:deploy:retire', 'stream:deploy:activate',
+    ],
+    'combined drift/lifecycle work keeps the fresh lifecycle path and skips baseline-only acceptance'
+);
+assert_deploy_command(
+    in_array('--force-code-drift', $driftWithLifecycle->calls[6], true)
+        && in_array('--force-code-drift', $driftWithLifecycle->calls[7], true),
+    'combined lifecycle phases both retain the explicit drift consent for their locked rechecks'
+);
+
+// Both v2 documents are closed contracts. Old format, inconsistent booleans,
+// duplicate rows, and invented warning text all fail rather than degrading.
+$validDriftRow = [
+    'issue' => 'code_drift',
+    'kind' => 'plugin',
+    'plugin' => 'fixture/fixture.php',
+    'installed_version' => '2.0.0',
+    'recorded_version' => '1.0.0',
+    'message' => 'fixture drift',
+];
+$validThemeDriftRow = [
+    'issue' => 'code_baseline_missing',
+    'kind' => 'theme',
+    'theme' => 'fixture-theme',
+    'installed_version' => '3.1.0',
+    'recorded_version' => '',
+    'message' => 'fixture theme has no baseline',
+];
+$validThemeStatus = CodeDeploy::lifecycleStatusResult([
+    'exit' => 0,
+    'stdout' => json_encode([
+        'baseline_state' => 'drift',
+        'code_boundary_sha256' => str_repeat('1', 64),
+        'code_drift' => [$validThemeDriftRow],
+        'findings_sha256' => str_repeat('2', 64),
+        'format' => 'wprism-lifecycle-status/v2',
+        'observation_sha256' => str_repeat('3', 64),
+        'reasons' => [],
+        'required' => false,
+        'warnings' => [],
+    ], JSON_THROW_ON_ERROR),
+    'stderr' => '',
+]);
+assert_deploy_command(
+    $validThemeStatus['code_drift'] === [$validThemeDriftRow],
+    'strict lifecycle status accepts one closed missing-theme baseline row'
+);
+foreach ([
+    [
+        'baseline_state' => 'exact', 'code_boundary_sha256' => str_repeat('1', 64),
+        'code_drift' => [], 'findings_sha256' => str_repeat('2', 64),
+        'format' => 'wprism-lifecycle-status/v1', 'observation_sha256' => str_repeat('3', 64),
+        'reasons' => [], 'required' => false, 'warnings' => [],
+    ],
+    [
+        'baseline_state' => 'exact', 'code_boundary_sha256' => str_repeat('1', 64),
+        'code_drift' => [$validDriftRow], 'findings_sha256' => str_repeat('2', 64),
+        'format' => 'wprism-lifecycle-status/v2', 'observation_sha256' => str_repeat('3', 64),
+        'reasons' => [], 'required' => false, 'warnings' => [],
+    ],
+    [
+        'baseline_state' => 'drift', 'code_boundary_sha256' => str_repeat('1', 64),
+        'code_drift' => [$validDriftRow, $validDriftRow], 'findings_sha256' => str_repeat('2', 64),
+        'format' => 'wprism-lifecycle-status/v2', 'observation_sha256' => str_repeat('3', 64),
+        'reasons' => [], 'required' => false, 'warnings' => [],
+    ],
+    [
+        'baseline_state' => 'drift', 'code_boundary_sha256' => str_repeat('1', 64),
+        'code_drift' => [[...$validThemeDriftRow, 'installed_version' => "3.1.0\nforged"]],
+        'findings_sha256' => str_repeat('2', 64), 'format' => 'wprism-lifecycle-status/v2',
+        'observation_sha256' => str_repeat('3', 64), 'reasons' => [], 'required' => false,
+        'warnings' => [],
+    ],
+    [
+        'baseline_state' => 'drift', 'code_boundary_sha256' => str_repeat('1', 64),
+        'code_drift' => [[...$validThemeDriftRow, 'message' => "fixture\033[31mforged"]],
+        'findings_sha256' => str_repeat('2', 64), 'format' => 'wprism-lifecycle-status/v2',
+        'observation_sha256' => str_repeat('3', 64), 'reasons' => [], 'required' => false,
+        'warnings' => [],
+    ],
+    [
+        'baseline_state' => 'exact', 'code_boundary_sha256' => str_repeat('1', 64),
+        'code_drift' => [], 'findings_sha256' => str_repeat('2', 64),
+        'format' => 'wprism-lifecycle-status/v2', 'observation_sha256' => str_repeat('3', 64),
+        'reasons' => [], 'required' => false,
+        'warnings' => ["FORCED past code_mismatch: forged\nline"],
+    ],
+] as $malformedStatus) {
+    $refused = false;
+    try {
+        CodeDeploy::lifecycleStatusResult([
+            'exit' => 0,
+            'stdout' => json_encode($malformedStatus, JSON_THROW_ON_ERROR),
+            'stderr' => '',
+        ]);
+    } catch (RuntimeException $failure) {
+        $refused = str_contains($failure->getMessage(), 'malformed lifecycle preflight evidence');
+    }
+    assert_deploy_command($refused, 'malformed lifecycle/baseline status evidence is refused closed');
+}
+$badAcceptance = [
+    'artifact_hash' => str_repeat('a', 64),
+    'baseline_sha256' => str_repeat('b', 64),
+    'before_baseline_sha256' => str_repeat('c', 64),
+    'code_drift' => [[...$validDriftRow, 'message' => "forged\nreceipt"]],
+    'format' => 'wprism-code-baseline-acceptance/v2',
+    'observation_sha256' => str_repeat('d', 64),
+    'operation_id' => 'deploy-command-test',
+    'outcome' => 'accepted',
+    'replayed' => false,
+];
+$badAcceptanceRefused = false;
+try {
+    CodeDeploy::codeBaselineAcceptResult([
+        'exit' => 0,
+        'stdout' => json_encode($badAcceptance, JSON_THROW_ON_ERROR),
+        'stderr' => '',
+    ]);
+} catch (RuntimeException $failure) {
+    $badAcceptanceRefused = str_contains($failure->getMessage(), 'malformed code-baseline acceptance evidence');
+}
+assert_deploy_command($badAcceptanceRefused, 'baseline receipt rows reject control-character output injection');
 
 // A repository can intentionally omit a code descriptor while still owning
 // the target plugin's activation, schema installation and derived-state

@@ -53,6 +53,8 @@ namespace WPrism {
         public int $primeCalls = 0;
         /** @var list<array<string,mixed>> */
         public array $primedTrees = [];
+        /** @var list<array{artifact_hash:string,site_hash:string,manifest_hash:string,resolved_adapters:list<array<string,mixed>>}> */
+        public array $boundIdentities = [];
 
         /** @param ?array<string,mixed> $code */
         public function __construct(?array $code = null) {
@@ -72,6 +74,21 @@ namespace WPrism {
         /** @return ?array<string,mixed> */
         public function code_config(): ?array {
             return $this->code;
+        }
+
+        /** @param list<array<string,mixed>> $resolvedAdapters */
+        public function bind_execution_artifact_identity(
+            string $artifactHash,
+            string $siteHash,
+            string $manifestHash,
+            array $resolvedAdapters
+        ): void {
+            $this->boundIdentities[] = [
+                'artifact_hash' => $artifactHash,
+                'site_hash' => $siteHash,
+                'manifest_hash' => $manifestHash,
+                'resolved_adapters' => $resolvedAdapters,
+            ];
         }
 
         /** @param array<string,mixed> $tree */
@@ -209,8 +226,14 @@ PHP;
     $check(
         $actual->export() === $expected->export()
             && $stateOnly->primeCalls === 1
-            && $stateOnly->primedTrees === [[]],
-        'a valid state-only artifact round-trips exactly and primes interpreters only after validation'
+            && $stateOnly->primedTrees === [[]]
+            && $stateOnly->boundIdentities === [[
+                'artifact_hash' => $expected->artifact_hash(),
+                'site_hash' => $expected->site_hash(),
+                'manifest_hash' => $expected->manifest_hash(),
+                'resolved_adapters' => $expected->resolved_adapters(),
+            ]],
+        'a valid state-only artifact binds execution identity and primes interpreters only after validation'
     );
 
     $linkedPath = "$tmp/linked.json";
@@ -345,6 +368,12 @@ namespace WPrism {
         public function manifest_disposition(string $name): ?array { return null; }
         public function effects_inventory(): array { return $this->effects; }
         public function code_config(): ?array { return $this->code; }
+        public function bind_execution_artifact_identity(
+            string $artifactHash,
+            string $siteHash,
+            string $manifestHash,
+            array $resolvedAdapters
+        ): void {}
         public function prime_interpreters_from_repository(array $tree): void {}
     }
 }
@@ -488,8 +517,9 @@ PHP);
     $check(
         $codeSuccess->code_descriptor() === ['code_revision' => 'test']
             && \WPrism\CodeStateContract::$calls === 2
-            && $codeSuccessPolicy->primeCalls === 1,
-        'a code-bearing artifact primes interpreters only after the optional bridge accepts its descriptor'
+            && $codeSuccessPolicy->primeCalls === 1
+            && count($codeSuccessPolicy->boundIdentities) === 1,
+        'a code-bearing artifact binds execution identity and primes interpreters only after the optional bridge accepts its descriptor'
     );
 
     $compilerSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php');

@@ -1,9 +1,12 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
+
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/TransientDbException.php';
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/TableSchema.php';
 require_once __DIR__ . '/../Publication/Publish.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -42,17 +45,7 @@ final class CaptureTransaction {
         }
 
         global $wpdb;
-        $prefix = $wpdb->prefix;
-        $tables = [
-            $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy,
-            $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options, $wpdb->users,
-            $wpdb->usermeta,
-            $prefix . 'wprism_map', $prefix . 'wprism_state', $prefix . 'wprism_kv',
-        ];
-        foreach (array_keys($policy->declared_tables()) as $name) {
-            $tables[] = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', $name);
-        }
-        $tables = array_values(array_unique($tables));
+        $tables = self::database_profile($policy)->readable_tables();
 
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
         $wpdb->last_error = '';
@@ -107,26 +100,7 @@ final class CaptureTransaction {
     /** Validate only the tables read by the lifecycle options handoff. */
     private static function assert_options_engine_support(Policy $policy): void {
         global $wpdb;
-        $prefix = $wpdb->prefix;
-        $tables = [
-            $wpdb->postmeta, $wpdb->termmeta, $wpdb->posts, $wpdb->terms,
-            $wpdb->term_taxonomy, $wpdb->options,
-            $prefix . 'wprism_map', $prefix . 'wprism_state', $prefix . 'wprism_kv',
-        ];
-        $refKinds = array_fill_keys(array_map(
-            static fn(array $rule): string => (string) ($rule['id_kind'] ?? ''),
-            $policy->option_name_ref_rules()
-        ), true);
-        foreach ($policy->declared_tables() as $name => $declaration) {
-            if (!isset($refKinds[(string) ($declaration['id_kind'] ?? '')])) {
-                continue;
-            }
-            $tables[] = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
-        }
-        $tables = array_values(array_unique(array_filter(
-            $tables,
-            static fn($table): bool => (string) $table !== ''
-        )));
+        $tables = self::database_profile($policy, true)->readable_tables();
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -206,7 +180,8 @@ final class CaptureTransaction {
         Policy $policy,
         callable $fn,
         ?array &$phase = null,
-        bool $optionsOnly = false
+        bool $optionsOnly = false,
+        bool $readOnly = false
     ) {
         $phase ??= [];
         $attempt = 0;
@@ -230,7 +205,15 @@ final class CaptureTransaction {
                 // one exact server transaction. A false client result after
                 // an applied START is safe only because that active state is
                 // positively proven on the same connection.
-                Db::start_consistent_snapshot('capture transaction start');
+                $profile = self::database_profile($policy, $optionsOnly, $readOnly);
+                if ($profile->is_read_only()) {
+                    Db::start_read_only_consistent_snapshot(
+                        'capture transaction start',
+                        $profile
+                    );
+                } else {
+                    Db::start_consistent_snapshot('capture transaction start', $profile);
+                }
                 $transactionOpen = true;
                 $result = $fn();
                 if (isset($phase['state_dir'], $phase['intent'])
@@ -339,6 +322,89 @@ final class CaptureTransaction {
         }
     }
 
+    /**
+     * Bind the complete physical query surface before capture code or plugin
+     * filters run. Options-only and strict observation cannot mint identity;
+     * ordinary capture may repair the two embedded identities and ledger.
+     */
+    public static function database_profile(
+        Policy $policy,
+        bool $optionsOnly = false,
+        bool $readOnly = false
+    ): NativeDatabaseProfile {
+        global $wpdb;
+        $prefix = $wpdb->prefix;
+        if ($optionsOnly) {
+            $tables = [
+                $wpdb->postmeta,
+                $wpdb->termmeta,
+                $wpdb->posts,
+                $wpdb->terms,
+                $wpdb->term_taxonomy,
+                $wpdb->options,
+                $prefix . 'wprism_map',
+                $prefix . 'wprism_state',
+                $prefix . 'wprism_kv',
+            ];
+            $refKinds = array_fill_keys(array_map(
+                static fn(array $rule): string => (string) ($rule['id_kind'] ?? ''),
+                $policy->option_name_ref_rules()
+            ), true);
+            foreach ($policy->declared_tables() as $name => $declaration) {
+                if (isset($refKinds[(string) ($declaration['id_kind'] ?? '')])) {
+                    $table = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+                    if (self::declared_table_exists($table)) {
+                        $tables[] = $table;
+                    }
+                }
+            }
+            $tables = array_values(array_unique(array_filter(
+                $tables,
+                static fn($table): bool => is_string($table) && $table !== ''
+            )));
+            return NativeDatabaseProfile::read_only($tables);
+        }
+
+        $tables = [
+            $wpdb->posts,
+            $wpdb->postmeta,
+            $wpdb->terms,
+            $wpdb->term_taxonomy,
+            $wpdb->term_relationships,
+            $wpdb->termmeta,
+            $wpdb->options,
+            $wpdb->users,
+            $wpdb->usermeta,
+            $prefix . 'wprism_map',
+            $prefix . 'wprism_state',
+            $prefix . 'wprism_kv',
+        ];
+        foreach (array_keys($policy->declared_tables()) as $name) {
+            $table = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+            if (self::declared_table_exists($table)) {
+                $tables[] = $table;
+            }
+        }
+        $tables = array_values(array_unique($tables));
+        if ($readOnly) {
+            return NativeDatabaseProfile::read_only($tables);
+        }
+        return new NativeDatabaseProfile($tables, [
+            $wpdb->postmeta,
+            $wpdb->termmeta,
+            $prefix . 'wprism_map',
+            $prefix . 'wprism_state',
+            $prefix . 'wprism_kv',
+        ]);
+    }
+
+    /** Match Snapshot's optional-table behavior without authorizing an alias. */
+    private static function declared_table_exists(string $table): bool {
+        global $wpdb;
+        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        return is_string($found) && hash_equals($table, $found);
+    }
+
     /** Build the stable machine-readable refusal for every uncertain COMMIT. */
     public static function commit_outcome_uncertain(
         string $operatorMessage,
@@ -371,7 +437,12 @@ final class CaptureTransaction {
         if ($err === '') {
             return;
         }
-        if (stripos($err, 'Deadlock found') !== false || stripos($err, 'Lock wait timeout') !== false) {
+        if (stripos($err, 'Deadlock found') !== false) {
+            throw new DeadlockTransactionAbortedException(
+                "wprism: database deadlock aborted the transaction at $where"
+            );
+        }
+        if (stripos($err, 'Lock wait timeout') !== false) {
             throw new TransientDbException("wprism: transient DB contention at $where");
         }
         throw new \RuntimeException("wprism: unexpected SQL error at $where");

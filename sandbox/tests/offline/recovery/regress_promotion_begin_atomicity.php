@@ -159,14 +159,14 @@ wprism_check_same(null, begin_atomicity_row($debtDb, 'promotion_lock'), 'externa
 $writeDb = begin_atomicity_database();
 $writeDb->failNextQuery(
     'fixture: promotion session publication failed',
-    "VALUES ('promotion_session',"
+    "SELECT 'promotion_session',"
 );
 $rollbackContender = (new FakeWpdb())
     ->setConnectionId(2)
     ->shareAdvisoryLocksWith($writeDb);
 $rollbackFenceBlocked = false;
 $writeDb->onQuery(static function (string $sql) use ($rollbackContender, &$rollbackFenceBlocked): null {
-    if (strtoupper(trim($sql)) !== 'ROLLBACK') {
+    if (strtoupper(trim($sql)) !== 'ROLLBACK AND NO CHAIN NO RELEASE') {
         return null;
     }
     $fence = ProcessFence::name();
@@ -199,7 +199,7 @@ wprism_check_same(
 wprism_check_same(null, begin_atomicity_row($writeDb, 'promotion_lock'), 'failed session publication rolls back the contender lease too');
 $writeQueries = $writeDb->queries();
 $start = array_search('START TRANSACTION', $writeQueries, true);
-$rollback = array_search('ROLLBACK', $writeQueries, true);
+$rollback = array_search('ROLLBACK AND NO CHAIN NO RELEASE', $writeQueries, true);
 $release = null;
 foreach ($writeQueries as $index => $sql) {
     if (str_starts_with($sql, 'SELECT RELEASE_LOCK(')) {
@@ -218,7 +218,7 @@ wprism_check(
 wprism_check(
     count(array_filter(
         $writeQueries,
-        static fn(string $sql): bool => str_contains($sql, "VALUES ('promotion_lock',")
+        static fn(string $sql): bool => str_contains($sql, "SELECT 'promotion_lock',")
     )) === 1,
     'the failure is injected after the real contender lease upsert executes'
 );

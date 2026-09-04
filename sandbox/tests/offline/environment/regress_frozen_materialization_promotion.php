@@ -172,9 +172,15 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
         }
         if ($verb === 'lifecycle-status') {
             return $this->ok(json_encode([
-                'format' => 'wprism-lifecycle-status/v1',
+                'baseline_state' => 'exact',
+                'code_boundary_sha256' => str_repeat('c', 64),
+                'code_drift' => [],
+                'findings_sha256' => str_repeat('d', 64),
+                'format' => 'wprism-lifecycle-status/v2',
+                'observation_sha256' => str_repeat('e', 64),
                 'reasons' => [],
                 'required' => false,
+                'warnings' => [],
             ], JSON_UNESCAPED_SLASHES) . "\n");
         }
         if ($verb === 'checkpoint-target') {

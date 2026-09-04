@@ -28,14 +28,30 @@ final class Ledger {
 final class FakePromotionWpdb {
     public string $prefix = 'wp_wprism_';
     public string $dbname = 'wprism_unit';
-    /** @var list<mixed> */
-    public array $preparedArgs = [];
+    /** @var list<list<mixed>> */
+    public array $preparedCalls = [];
     public bool $fenceHeld = false;
     public int $connectionId = 17;
 
     public function prepare(string $sql, mixed ...$args): string {
-        $this->preparedArgs = $args;
+        $this->preparedCalls[] = $args;
         return $sql;
+    }
+
+    public function takePreparedJson(): string {
+        for ($i = count($this->preparedCalls) - 1; $i >= 0; $i--) {
+            foreach ($this->preparedCalls[$i] as $arg) {
+                if (!is_string($arg)) {
+                    continue;
+                }
+                $decoded = json_decode($arg, true);
+                if (is_array($decoded) && isset($decoded['owner'], $decoded['artifact_hash'])) {
+                    $this->preparedCalls = [];
+                    return $arg;
+                }
+            }
+        }
+        throw new \RuntimeException('unit promotion mutation carried no prepared lease payload');
     }
 
     public function get_var(string $sql): mixed {
@@ -58,21 +74,29 @@ final class FakePromotionWpdb {
 }
 
 final class Db {
-    public static function query(string $sql, string $label): int {
+    public static function mutation(
+        string $head,
+        string $condition,
+        string $tail,
+        string $label,
+        array $readTables = []
+    ): int {
         global $wpdb;
         if ($label === 'promotion lock acquire') {
-            Ledger::kv_set('promotion_lock', (string) ($wpdb->preparedArgs[1] ?? ''));
+            Ledger::kv_set('promotion_lock', $wpdb->takePreparedJson());
             return 1;
         }
         if ($label === 'promotion lock release') {
+            $existed = isset(Ledger::$rows['promotion_lock']);
             unset(Ledger::$rows['promotion_lock']);
-            return 1;
+            $wpdb->preparedCalls = [];
+            return $existed ? 1 : 0;
         }
         if ($label === 'promotion lock heartbeat') {
-            Ledger::kv_set('promotion_lock', (string) ($wpdb->preparedArgs[0] ?? ''));
+            Ledger::kv_set('promotion_lock', $wpdb->takePreparedJson());
             return 1;
         }
-        throw new \RuntimeException("unexpected unit Db::query operation: $label");
+        throw new \RuntimeException("unexpected unit Db::mutation operation: $label");
     }
 }
 

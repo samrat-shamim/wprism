@@ -111,7 +111,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testRuntimeSdkIsVersionedAndInventoriesEveryCurrentLegitimateDependency(): void
     {
         self::assertSame([
-            'format' => 'wprism-adapter-runtime-sdk/v1',
+            'format' => 'wprism-adapter-runtime-sdk/v2',
             'symbols' => [
                 'WPrism\\CacheInvalidationTransaction',
                 'WPrism\\Canon',
@@ -127,9 +127,145 @@ final class AdapterPackageTestsTest extends TestCase
                 'WPrism\\Secrets',
                 'WPrism\\SidebarState',
                 'WPrism\\Tokens',
-                'WPrism\\WpCliChildProcess',
             ],
         ], AdapterPackageValidator::runtimeSdk());
+    }
+
+    /** @return iterable<string,array{0:string,1:string}> */
+    public static function forbiddenRuntimeExecutionMachinery(): iterable
+    {
+        yield 'direct engine child process' => [
+            "\n\\WPrism\\WpCliChildProcess::capture('plugin command');\n",
+            'wp-cli-child-process',
+        ];
+        yield 'direct operating-system process' => [
+            "\nproc_open('php', [], \$pipes);\n",
+            'direct-process',
+        ];
+        yield 'raw wpdb query transport' => [
+            "\nglobal \$wpdb;\n\$wpdb->query(\$sql);\n",
+            'raw-database-mutation',
+        ];
+        yield 'raw wpdb typed mutation transport' => [
+            "\nglobal \$wpdb;\n\$wpdb->update('wp_rows', ['value' => 1], ['id' => 1]);\n",
+            'raw-database-mutation',
+        ];
+        yield 'raw DML behind an adapter wrapper' => [
+            "\n\$transport('DELETE FROM `wp_rows`');\n",
+            'raw-database-mutation',
+        ];
+        yield 'transaction control behind an adapter wrapper' => [
+            "\n\$transport('START TRANSACTION');\n",
+            'transaction-control',
+        ];
+        yield 'direct current-file include' => [
+            "\nrequire_once __FILE__;\n",
+            'direct-self-include',
+        ];
+        yield 'current-file include encoded for a child' => [
+            "\n\$code = 'require_once ' . var_export(__FILE__, true);\n",
+            'direct-self-include',
+        ];
+    }
+
+    #[DataProvider('forbiddenRuntimeExecutionMachinery')]
+    public function testValidatorRejectsNewAdapterOwnedExecutionMachinery(string $mutation, string $finding): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write($path, (string) file_get_contents($path) . $mutation);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("introduces engine-owned runtime machinery '$finding'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testRuntimeExecutionGuardIgnoresCommentsAndDiagnosticProse(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write(
+            $path,
+            (string) file_get_contents($path)
+                . "\n// WpCliChildProcess, proc_open(), and \$wpdb->query('COMMIT') are inert prose.\n"
+                . "function wprismRuntimeBoundaryDiagnostic(): string { return 'COMMIT outcome was unknown'; }\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertContains('runtime-execution-boundary:0', $result['checks']);
+    }
+
+    public function testReviewedLegacyRuntimeDebtMatchesEveryCurrentPathAndSourceDigest(): void
+    {
+        $reflection = new \ReflectionClass(AdapterPackageValidator::class);
+        $registry = $reflection->getReflectionConstant('LEGACY_RUNTIME_EXECUTION_DEBT');
+        self::assertNotFalse($registry);
+        $rows = $registry->getValue();
+        self::assertIsArray($rows);
+        self::assertCount(10, $rows);
+        $guard = $reflection->getMethod('assertRuntimeExecutionBoundary');
+        $repo = dirname(__DIR__, 2);
+
+        foreach ($rows as $relative => $_row) {
+            self::assertIsString($relative);
+            self::assertMatchesRegularExpression(
+                '~^adapter-packages/(?<slug>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/~D',
+                $relative
+            );
+            preg_match('~^adapter-packages/(?<slug>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/~D', $relative, $match);
+            $slug = $match['slug'];
+            $capsule = $repo . '/adapter-packages/' . $slug;
+            $path = $repo . '/' . $relative;
+            $source = file_get_contents($path);
+            self::assertIsString($source);
+            self::assertSame($relative, $guard->invoke(null, $capsule, $path, $source, $slug));
+        }
+    }
+
+    public function testReviewedLegacyRuntimeDebtRejectsSourceDriftInsteadOfRefreshingItsHash(): void
+    {
+        $repo = dirname(__DIR__, 2);
+        $slug = 'elementor';
+        $capsule = $repo . '/adapter-packages/' . $slug;
+        $path = $capsule . '/package/runtime/providers/elementor-css.php';
+        $source = (string) file_get_contents($path) . "\n";
+        $guard = (new \ReflectionClass(AdapterPackageValidator::class))
+            ->getMethod('assertRuntimeExecutionBoundary');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('changed frozen legacy runtime debt');
+        $guard->invoke(null, $capsule, $path, $source, $slug);
+    }
+
+    public function testReviewedLegacyRuntimeDebtRequiresEveryRegisteredPathToBeVisited(): void
+    {
+        $reflection = new \ReflectionClass(AdapterPackageValidator::class);
+        $registry = $reflection->getReflectionConstant('LEGACY_RUNTIME_EXECUTION_DEBT');
+        self::assertNotFalse($registry);
+        $rows = $registry->getValue();
+        self::assertIsArray($rows);
+        $visited = [];
+        foreach (array_keys($rows) as $path) {
+            if (str_starts_with($path, 'adapter-packages/woocommerce/')) {
+                $visited[$path] = true;
+            }
+        }
+        self::assertCount(5, $visited);
+        unset($visited[array_key_first($visited)]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('did not consume its frozen legacy runtime debt row');
+        $reflection->getMethod('assertCompleteLegacyRuntimeDebt')->invoke(null, 'woocommerce', $visited);
+    }
+
+    public function testGrandfatheredRuntimeStillValidatesWithoutAdvertisingItsEngineInternal(): void
+    {
+        $result = AdapterPackageValidator::validate(dirname(__DIR__, 2), 'elementor');
+
+        self::assertContains('runtime-sdk:wprism-adapter-runtime-sdk/v2', $result['checks']);
+        self::assertContains('runtime-execution-boundary:1', $result['checks']);
+        self::assertNotContains('WPrism\\WpCliChildProcess', AdapterPackageValidator::runtimeSdk()['symbols']);
     }
 
     public function testValidatorRejectsRuntimeDependencyOutsideTheVersionedSdk(): void

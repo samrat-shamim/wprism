@@ -312,7 +312,14 @@ $menuDb = static function (
     $db->seedTable('wprism_map', $map)
         ->setUniqueKey('wprism_map', ['uuid', 'id_kind'])
         ->setUniqueKey('wprism_map', ['id_kind', 'local_id']);
-    foreach ([$db->terms, $db->term_taxonomy, $db->term_relationships, $db->posts, $db->postmeta] as $table) {
+    foreach ([
+        $db->terms,
+        $db->term_taxonomy,
+        $db->term_relationships,
+        $db->posts,
+        $db->postmeta,
+        $db->prefix . 'wprism_map',
+    ] as $table) {
         $db->addInnoDbTable($table);
     }
     $db->addIndex($db->terms, 'PRIMARY', 'term_id', true)
@@ -336,7 +343,19 @@ $runMenu = static function (\WPrismTest\LockingFakeWpdb $db, array $taxonomies =
     \WPrismTest\WpStore::reset();
     $field = new ApplyFieldMaterializer($runtimePolicy, $runtimeTokens);
     $subject = new MenuMaterializer($runtimePolicy, $runtimeTokens, $field);
-    \WPrism\Db::start_repeatable_read('menu fixture transaction');
+    \WPrism\Db::start_repeatable_read(
+        'menu fixture transaction',
+        new \WPrism\NativeDatabaseProfile(
+            [$db->term_taxonomy],
+            [
+                $db->terms,
+                $db->term_relationships,
+                $db->posts,
+                $db->postmeta,
+                $db->prefix . 'wprism_map',
+            ]
+        )
+    );
     $field->begin_authored_transaction();
     \WPrism\CacheInvalidationTransaction::begin();
     \WPrism\CacheInvalidationTransaction::prepare_term_hierarchy_options(['nav_menu' => false]);
@@ -380,7 +399,7 @@ $managedKeys = array_values(array_filter(
 ));
 $orphanOk = $orphanResult['failure'] === null
     && $orphanResult['rows']['relationships'] === [[
-        'object_id' => 30, 'term_taxonomy_id' => 20, 'term_order' => 0,
+        'object_id' => '30', 'term_taxonomy_id' => '20', 'term_order' => '0',
     ]]
     && count($managedKeys) === 8;
 if (!$orphanOk && $orphanResult['failure'] instanceof Throwable) {

@@ -4,8 +4,12 @@ namespace WPrism;
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
+require_once __DIR__ . '/../Kernel/ExactOptionWriter.php';
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
+}
+if (!class_exists(NativeDatabaseProfile::class, false)) {
+    require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 }
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
@@ -112,6 +116,12 @@ final class ApplyRequestCoordinator {
         $this->repo = rtrim($repo, '/');
         $this->policy = $policy;
         $this->compiled = $compiled;
+        $policy->bind_execution_artifact_identity(
+            $compiled->artifact_hash(),
+            $compiled->site_hash(),
+            $compiled->manifest_hash(),
+            $compiled->resolved_adapters()
+        );
         $callbacks = new ApplyServiceCallbacks(
             taxonomyOwnership: fn(): array => $this->taxonomyContext->ownership($this->warnings),
             renewPromotionLock: fn(string $phase): mixed => $this->renew_promotion_lock($phase),
@@ -578,12 +588,8 @@ final class ApplyRequestCoordinator {
      * never captured (Policy::env_options()'s own docblock), so there is no
      * canonical record to reconcile against here, no ledger/token rewriting
      * involved, and no plan/apply transaction wrapping it — this is a
-     * direct, human-operator-initiated write, closer in shape (and
-     * precedent) to Deploy.php's own standalone
-     * update_option('active_plugins', ...) call than to this class's own
-     * batch upsert_option()/Db:: pipeline (which exists for a transactional,
-     * many-row, retry-classified apply — a genuinely different problem than
-     * one operator setting one value once).
+     * direct, human-operator-initiated write through the kernel's exact
+     * single-option transaction rather than the many-row apply transaction.
      *
      * Refuses, loudly, before writing anything:
      *   - a name not declared `class: "env"` anywhere in the loaded policy
@@ -609,18 +615,10 @@ final class ApplyRequestCoordinator {
      * with_option_autoload()) — but 'preserve' means something different
      * here than it does for a captured, authored value: there is no
      * captured source row to preserve FROM, only whatever is already live
-     * on THIS target. update_option()'s own native $autoload=null contract
-     * already means exactly that (keep the existing row's autoload if
-     * updating; apply WordPress's own 6.6+ 'auto' heuristic if inserting
-     * fresh), so 'preserve'/unset both map to null here rather than WPrism
-     * re-inventing that decision.
-     *
-     * update_option()'s own return value cannot distinguish "write failed"
-     * from "the value was already exactly this" — both return false. Rather
-     * than guess which, this re-reads the live value after the call and
-     * compares it to what was intended: the only postcondition that
-     * actually matters is "the option now holds $value", regardless of
-     * which internal WordPress branch produced it.
+     * on THIS target. ExactOptionWriter preserves an existing row's physical
+     * autoload bytes. For a new row, an explicit policy value wins; an absent
+     * or `preserve` decision becomes WordPress 6.9's deterministic `auto`
+     * physical state without invoking filterable option APIs.
      *
      * @return array{name:string, previously_set:bool}
      */
@@ -655,14 +653,23 @@ final class ApplyRequestCoordinator {
             $continuityStarted = false;
             $postId = null;
             try {
-                Db::start_repeatable_read('env-set protected post transaction start');
+                global $wpdb;
+                Db::start_repeatable_read(
+                    'env-set protected post transaction start',
+                    new NativeDatabaseProfile([
+                        $wpdb->prefix . 'wprism_map',
+                        $wpdb->postmeta,
+                        $wpdb->terms,
+                        $wpdb->termmeta,
+                    ], [$wpdb->posts])
+                );
                 $transactionStarted = true;
                 DeleteGuardEvaluator::begin_authored_transaction();
                 $continuityStarted = true;
                 $postWitness = ProtectedPostIdentity::lock($passwordUuid, $postType);
                 $postId = $postWitness['post_id'] ?? null;
                 $oldPassword = $postWitness['post_password'] ?? null;
-                $connectionId = Db::transaction_connection_id(
+                $transactionAuthority = Db::transaction_authority(
                     'env-set protected post publication session proof'
                 );
                 DeleteGuardEvaluator::assert_transaction_isolation(
@@ -681,14 +688,14 @@ final class ApplyRequestCoordinator {
                             $postType,
                             $oldPassword,
                             $value,
-                            $connectionId
+                            $transactionAuthority
                         )) {
                         throw new \RuntimeException(
                             "wprism: env-set: wrote '$name' but the live post password does not match afterward"
                         );
                     }
                 }
-                Db::transaction_connection_id('env-set protected post precommit session proof');
+                Db::transaction_authority('env-set protected post precommit session proof');
                 DeleteGuardEvaluator::assert_transaction_isolation(
                     'env-set protected post precommit continuity'
                 );
@@ -730,31 +737,23 @@ final class ApplyRequestCoordinator {
                 . "itself; see this manifest's own notes for '$name')"
             );
         }
+        $autoload = $rule['autoload'] ?? null;
+        if ($autoload !== null && !is_string($autoload)) {
+            throw new \RuntimeException("wprism: env-set: '$name' resolved a malformed autoload policy");
+        }
         // The target-local file is the intended-value authority. Publish it
         // before touching WordPress so a crash can leave only a loud drift
         // (`env_missing`), never a green value with no recorded intent.
         EnvironmentValues::set($repo, $name, $value);
 
-        global $wpdb;
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-        ));
-        $previouslySet = $existing !== null && $existing !== '';
+        $result = ExactOptionWriter::upsert_plain(
+            $name,
+            $value,
+            $autoload,
+            'env-set plain option persistence'
+        );
 
-        $autoload = $rule['autoload'] ?? null;
-        if ($autoload === 'preserve') {
-            $autoload = null;
-        }
-        update_option($name, $value, $autoload);
-
-        $confirm = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-        ));
-        if ($confirm !== $value) {
-            throw new \RuntimeException("wprism: env-set: wrote '$name' but the stored value does not match afterward");
-        }
-
-        return ['name' => $name, 'previously_set' => $previouslySet];
+        return ['name' => $name, 'previously_set' => $result['previously_nonempty']];
     }
 
     // ----------------------------------------------------------------- apply
