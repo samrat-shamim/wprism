@@ -169,19 +169,27 @@ assumes `wp1`/`wp2` resolve to "your own" pair on this network.
 
 Every pair gets two databases on the shared server: `wp_<name>1` /
 `wp_<name>2` (e.g. pair `conf` → `wp_conf1`/`wp_conf2`). One application
-user, `wordpress`/`wordpress`, is shared by every pair via a **wildcard
-grant** — `pair.sh up` idempotently runs:
+user, `wordpress`/`wordpress`, is shared by every pair. `pair.sh up`
+idempotently authenticates that principal, then grants each newly resolved
+pair schema directly:
 
 ```sql
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
 GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
+CREATE DATABASE IF NOT EXISTS wp_<name>1;
+CREATE DATABASE IF NOT EXISTS wp_<name>2;
+GRANT ALL PRIVILEGES ON wp_<name>1.* TO 'wordpress'@'%';
+GRANT ALL PRIVILEGES ON wp_<name>2.* TO 'wordpress'@'%';
 ```
 
-(`wp\_%` — escaped underscore, then a wildcard — matches every
-`wp_<name>{1,2}` database any pair will ever create; no per-pair user, no
-re-granting on every `up`.) `PROCESS` is intentionally global: MySQL 8.4's
+The exact schema grants are required evidence, not just least privilege:
+transactional mutation proves direct `TRIGGER` visibility from
+`information_schema.SCHEMA_PRIVILEGES`. A narrower exact `TRIGGER` grant
+beside the former `wp\_%` wildcard is invalid on MariaDB because the exact row
+shadows the wildcard row, leaving WordPress unable to create or read its own
+tables. Exact `ALL PRIVILEGES` supplies both normal application authority and
+the direct trigger-metadata proof. `PROCESS` is intentionally global: MySQL 8.4's
 `INNODB_FOREIGN` and MariaDB 11's `INNODB_SYS_FOREIGN` require it, and those
 are the claimed sources that expose an incoming cascade from a child in a
 schema the application account cannot otherwise see. Production accounts do
@@ -271,7 +279,7 @@ validate the
 dynamic host CPU/RAM pair budget (before creating any
 pair state); ensure the shared db is up and healthy without recreating an
 already-running singleton; ensure the `wordpress`
-user/grant exist; create this pair's two databases; create its site-repo
+user exists; create this pair's two databases with exact grants; create its site-repo
 directories (and, under `--codebind`, the plugin subdirectory the bind
 mount needs to exist before any container attaches to it — see below); bring
 up `wp1/wp2/cli1/cli2`;

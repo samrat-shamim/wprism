@@ -82,10 +82,12 @@ pair_db_ensure_up() {
 }
 
 pair_db_ensure_app_user() {
-  # Wildcard grant, not a per-pair user: `wp\_%` matches every wp_<name>{1,2}
-  # database this or any other pair will ever create. Quoted heredoc (no
-  # variable interpolation needed) so the backticks and backslash reach
-  # mysql literally instead of bash trying to parse them.
+  # One fleet-shared principal, with database authority granted only after a
+  # concrete pair schema exists (pair_db_create below). A schema-level TRIGGER
+  # proof must be direct for DatabaseLockBoundary; adding a narrower
+  # TRIGGER-only row beside the old `wp\_%` wildcard makes MariaDB select that
+  # row for the schema and shadow every ordinary privilege. Exact ALL grants
+  # provide both the direct metadata proof and the permissions WordPress needs.
   #
   # Engine-conditional SINCE the MySQL lane's first live probe ran and
   # decided (2026-08-24), exactly as the earlier note here said it would.
@@ -106,14 +108,12 @@ pair_db_ensure_app_user() {
     pair_db_sql <<'SQL'
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
 ALTER USER 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
 GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 SQL
   else
     pair_db_sql <<'SQL'
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
 GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 SQL
@@ -125,8 +125,8 @@ pair_db_create() { # pair_db_create <name>
   pair_db_sql <<SQL
 CREATE DATABASE IF NOT EXISTS wp_${name}1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS wp_${name}2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-GRANT TRIGGER ON wp_${name}1.* TO 'wordpress'@'%';
-GRANT TRIGGER ON wp_${name}2.* TO 'wordpress'@'%';
+GRANT ALL PRIVILEGES ON wp_${name}1.* TO 'wordpress'@'%';
+GRANT ALL PRIVILEGES ON wp_${name}2.* TO 'wordpress'@'%';
 SQL
 }
 

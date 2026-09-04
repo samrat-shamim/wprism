@@ -665,11 +665,11 @@ cmd_up() {
   say "shared infra: $DB_LABEL + wprism-shared network"
   pair_db_ensure_up
   pair_db_ensure_app_user
-  pass "shared db up, healthy, wordpress user granted on wp\\_%"
+  pass "shared db up, healthy, wordpress user authenticated"
 
   say "pair '$name': databases"
   pair_db_create "$name"
-  pass "wp_${name}1, wp_${name}2 exist"
+  pass "wp_${name}1, wp_${name}2 exist with exact application grants"
 
   say "pair '$name': site-repo directories"
   pair_siterepo_prepare_roots "$name"
@@ -773,6 +773,7 @@ cmd_reset() {
   # host process that clears them. The helper preserves both bind-root inodes.
   pair_siterepo_host "$name" both
   pair_db_ensure_up
+  pair_db_ensure_app_user
 
   say "pair '$name': reset"
   pair_db_drop "$name"

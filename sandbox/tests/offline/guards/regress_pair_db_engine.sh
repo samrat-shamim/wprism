@@ -111,17 +111,38 @@ expected='exec -i -e MYSQL_PWD=root wprism-shared-db mariadb -uroot'
 [ "$got" = "$expected" ] || fail "pair_db_sql argv moved: got '$got', expected '$expected'"
 pass "pair_db_sql still runs: docker $expected"
 
-say "pair creation grants exact-schema trigger visibility for mutation proofs"
+say "shared authentication stays global while application authority is exact per schema"
+: > "$SQL_LOG"
+pair_db_ensure_app_user
+grep -Fqx "GRANT PROCESS ON *.* TO 'wordpress'@'%';" "$SQL_LOG" \
+  || fail "MariaDB application principal lacks the PROCESS authority required by the FK census: $(cat "$SQL_LOG")"
+if grep -Fq 'GRANT ALL PRIVILEGES ON `wp\_%`.*' "$SQL_LOG"; then
+  fail "principal setup must not retain wildcard database authority: $(cat "$SQL_LOG")"
+fi
 : > "$SQL_LOG"
 pair_db_create fixture
-grep -Fqx "GRANT TRIGGER ON wp_fixture1.* TO 'wordpress'@'%';" "$SQL_LOG" \
-  || fail "pair database 1 lacks its exact-schema TRIGGER grant: $(cat "$SQL_LOG")"
-grep -Fqx "GRANT TRIGGER ON wp_fixture2.* TO 'wordpress'@'%';" "$SQL_LOG" \
-  || fail "pair database 2 lacks its exact-schema TRIGGER grant: $(cat "$SQL_LOG")"
-if grep -Fq 'GRANT TRIGGER ON `wp\\_%`.*' "$SQL_LOG"; then
-  fail "pair creation must not substitute wildcard grant semantics for exact-schema evidence"
+grep -Fqx "GRANT ALL PRIVILEGES ON wp_fixture1.* TO 'wordpress'@'%';" "$SQL_LOG" \
+  || fail "pair database 1 lacks its exact all-privileges grant: $(cat "$SQL_LOG")"
+grep -Fqx "GRANT ALL PRIVILEGES ON wp_fixture2.* TO 'wordpress'@'%';" "$SQL_LOG" \
+  || fail "pair database 2 lacks its exact all-privileges grant: $(cat "$SQL_LOG")"
+if grep -Fq 'GRANT TRIGGER ON ' "$SQL_LOG"; then
+  fail "a narrower exact TRIGGER row would shadow ordinary wildcard privileges on MariaDB: $(cat "$SQL_LOG")"
 fi
-pass "each concrete pair schema receives directly observable TRIGGER authority"
+pass "each concrete schema receives normal WordPress authority and directly observable TRIGGER authority in one row"
+
+say "every database-creating command establishes the shared principal before its first grant"
+for creator in cmd_up cmd_reset; do
+  body=$(awk -v fn="$creator" '
+    $0 ~ "^" fn "\\(\\)" { inside=1 }
+    inside { print }
+    inside && /^}/ { exit }
+  ' "$PAIR_SH")
+  principal_line=$(grep -n 'pair_db_ensure_app_user' <<<"$body" | head -1 | cut -d: -f1)
+  create_line=$(grep -n 'pair_db_create "\$name"' <<<"$body" | head -1 | cut -d: -f1)
+  [[ "$principal_line" =~ ^[0-9]+$ && "$create_line" =~ ^[0-9]+$ && "$principal_line" -lt "$create_line" ]] \
+    || fail "$creator must establish the wordpress principal before pair_db_create: $body"
+done
+pass "up and reset cannot grant an absent principal or leave fresh-host conformance order-dependent"
 
 say "an explicit WPRISM_DB_ENGINE=mariadb is identical to leaving it unset"
 export WPRISM_DB_ENGINE=mariadb
@@ -149,6 +170,18 @@ expected='exec -i -e MYSQL_PWD=root wprism-shared-mysql mysql -uroot'
 # (pair_db_sql's own comment) -- getting this wrong fails at exec time, on a
 # live server, after the pair is already half up.
 pass "pair_db_sql runs: docker $expected"
+
+say "the MySQL principal path also defers database authority to exact pair schemas"
+: > "$SQL_LOG"
+pair_db_ensure_app_user
+grep -Fqx "ALTER USER 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';" "$SQL_LOG" \
+  || fail "MySQL principal setup lost its client-compatible authentication convergence: $(cat "$SQL_LOG")"
+grep -Fqx "GRANT PROCESS ON *.* TO 'wordpress'@'%';" "$SQL_LOG" \
+  || fail "MySQL principal setup lacks PROCESS authority: $(cat "$SQL_LOG")"
+if grep -Fq 'GRANT ALL PRIVILEGES ON `wp\_%`.*' "$SQL_LOG"; then
+  fail "MySQL principal setup must not retain wildcard database authority: $(cat "$SQL_LOG")"
+fi
+pass "MySQL authentication and FK-census authority remain explicit; schema access is pair-owned"
 
 say "an unknown engine refuses by name, before any docker invocation"
 : > "$DOCKER_LOG"

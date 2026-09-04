@@ -13,9 +13,9 @@ name: wprism-db
 #
 # Here, each pair (sandbox/pair.yml) gets two logical databases on THIS one
 # server: wp_${WPRISM_PAIR}1 / wp_${WPRISM_PAIR}2. sandbox/bin/pair.sh creates/
-# drops those databases (and the shared `wordpress` application user's
-# wildcard grant) — this compose file only brings up the server itself, it
-# never touches per-pair schema.
+# drops those databases (and grants the shared `wordpress` application user
+# exact authority on each concrete schema) — this compose file only brings up
+# the server itself; it never touches per-pair schema.
 #
 # Own compose project (`wprism-db`, set via the top-level `name:` below and
 # also passed explicitly as `-p wprism-db` by pair.sh) — deliberately separate

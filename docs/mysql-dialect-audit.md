@@ -289,14 +289,19 @@ rest on these keys being distinct.
 
 ## 5. Authentication — the lane's gating unknown (not a dialect risk, but blocking)
 
-`pair_db_ensure_app_user()` (`sandbox/lib/pair_db.sh`) runs, byte-identically
-for both engines:
+`pair_db_ensure_app_user()` and `pair_db_create()`
+(`sandbox/lib/pair_db.sh`) establish the same principal and exact pair-schema
+authority on both engines (the MySQL arm additionally pins
+`mysql_native_password`):
 
 ```sql
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
 GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
+CREATE DATABASE IF NOT EXISTS wp_<name>1;
+CREATE DATABASE IF NOT EXISTS wp_<name>2;
+GRANT ALL PRIVILEGES ON wp_<name>1.* TO 'wordpress'@'%';
+GRANT ALL PRIVILEGES ON wp_<name>2.* TO 'wordpress'@'%';
 ```
 
 ### MySQL 8.4 behaviour [wp-knowledge]
