@@ -366,16 +366,6 @@ final class DatabaseQueryIsolation {
         self::$profileSqlBytes = 0;
     }
 
-    public static function release_profile(NativeDatabaseProfile $profile, string $context): void {
-        if (!self::$active || self::$profile !== $profile) {
-            self::violation("wprism: $context lost its isolated native database profile");
-        }
-        self::$profile = null;
-        self::$profileStatements = 0;
-        self::$profileSqlBytes = 0;
-        self::assert_active($context . ' query profile release');
-    }
-
     /**
      * Prove the string-literal rules used by the closed SQL lexer.
      *
@@ -699,7 +689,7 @@ final class DatabaseQueryIsolation {
         string $structure,
         NativeDatabaseProfile $profile
     ): void {
-        $presenceTable = self::show_tables_like_identifier($sql);
+        $presenceTable = self::table_presence_identifier($sql);
         if ($presenceTable !== null) {
             $allowed = array_fill_keys(array_merge(
                 $profile->readable_tables(),
@@ -792,14 +782,23 @@ final class DatabaseQueryIsolation {
     }
 
     /**
-     * Recognize the one metadata query which can prove a table absent before
-     * a physical table profile exists. ProviderSdk's topology snapshot uses
+     * Recognize the exact physical-name probes admitted by a presence scope.
+     * ProviderSdk's legacy topology snapshot uses
      * wpdb::esc_like(), whose `%s` rendering carries each underscore as the
      * three SQL source bytes `\\_`; existing reviewed providers also use the
      * conservative unescaped spelling. Both decode only to a safe identifier.
      */
-    private static function show_tables_like_identifier(string $sql): ?string {
-        if (preg_match("/^SHOW\\s+TABLES\\s+LIKE\\s+'([^']{1,256})'\\s*$/Di", trim($sql), $match) !== 1) {
+    private static function table_presence_identifier(string $sql): ?string {
+        $trimmed = trim($sql);
+        foreach ([
+            '/^SELECT\\s+1\\s+FROM\\s+`([A-Za-z0-9_]{1,64})`\\s+LIMIT\\s+0\\s*$/Di',
+            '/^SHOW\\s+CREATE\\s+TABLE\\s+`([A-Za-z0-9_]{1,64})`\\s*$/Di',
+        ] as $pattern) {
+            if (preg_match($pattern, $trimmed, $exact) === 1) {
+                return $exact[1];
+            }
+        }
+        if (preg_match("/^SHOW\\s+TABLES\\s+LIKE\\s+'([^']{1,256})'\\s*$/Di", $trimmed, $match) !== 1) {
             return null;
         }
         $encoded = $match[1];

@@ -56,6 +56,8 @@ final class AuthoredTransactionExecutor {
     private readonly \Closure $renewLease;
     /** @var \Closure(array,array,array,array,array):void */
     private readonly \Closure $lockDeleteGuards;
+    /** @var \Closure(array):array{read_tables:list<string>,table_presence_reads:list<string>} */
+    private readonly \Closure $deletionDatabaseProfile;
     /** @var \Closure(array,array,array,bool,array,array,bool):(\Closure():void) */
     private readonly \Closure $recheckDeleteGuard;
     /** @var \Closure():void */
@@ -81,6 +83,7 @@ final class AuthoredTransactionExecutor {
         \Closure $taxonomyOwnership,
         \Closure $renewLease,
         \Closure $lockDeleteGuards,
+        \Closure $deletionDatabaseProfile,
         \Closure $recheckDeleteGuard,
         \Closure $verifyDeleteCommit,
         \Closure $endDeleteTransaction
@@ -88,6 +91,7 @@ final class AuthoredTransactionExecutor {
         $this->taxonomyOwnership = $taxonomyOwnership;
         $this->renewLease = $renewLease;
         $this->lockDeleteGuards = $lockDeleteGuards;
+        $this->deletionDatabaseProfile = $deletionDatabaseProfile;
         $this->recheckDeleteGuard = $recheckDeleteGuard;
         $this->verifyDeleteCommit = $verifyDeleteCommit;
         $this->endDeleteTransaction = $endDeleteTransaction;
@@ -140,9 +144,12 @@ final class AuthoredTransactionExecutor {
         Canary::arm();
         try {
             $this->attachmentMaterializer->prepare_filesystem($work, $tree);
+            $deletionProfile = $executeDeletes && $deleteWork !== []
+                ? ($this->deletionDatabaseProfile)($deleteWork)
+                : ['read_tables' => [], 'table_presence_reads' => []];
             Db::start_repeatable_read(
                 'apply transaction start',
-                $this->authored_transaction_profile()
+                $this->authored_transaction_profile($deletionProfile)
             );
             $transactionStarted = true;
             $this->fieldMaterializer->begin_authored_transaction();
@@ -538,8 +545,15 @@ final class AuthoredTransactionExecutor {
      *
      * @return NativeDatabaseProfile
      */
-    private function authored_transaction_profile(): NativeDatabaseProfile {
+    private function authored_transaction_profile(array $deletionProfile): NativeDatabaseProfile {
         global $wpdb;
+        if (array_keys($deletionProfile) !== ['read_tables', 'table_presence_reads']
+            || !is_array($deletionProfile['read_tables'])
+            || !is_array($deletionProfile['table_presence_reads'])) {
+            throw new \RuntimeException('wprism: deletion database profile is malformed');
+        }
+        $readTables = array_merge([$wpdb->users], $deletionProfile['read_tables']);
+        $presenceReads = $deletionProfile['table_presence_reads'];
         $writeTables = [
             $wpdb->posts,
             $wpdb->postmeta,
@@ -566,12 +580,16 @@ final class AuthoredTransactionExecutor {
             }
         }
         DeleteGuardEvaluator::assert_table_identifiers(
-            $writeTables,
+            array_merge($readTables, $writeTables, $presenceReads),
             'authored transaction storage-engine boundary'
         );
+        $readTables = array_values(array_unique($readTables));
         $writeTables = array_values(array_unique($writeTables));
+        $presenceReads = array_values(array_unique($presenceReads));
+        sort($readTables, SORT_STRING);
         sort($writeTables, SORT_STRING);
-        return new NativeDatabaseProfile([$wpdb->users], $writeTables);
+        sort($presenceReads, SORT_STRING);
+        return new NativeDatabaseProfile($readTables, $writeTables, $presenceReads);
     }
 
     private static function failure_fingerprint(\Throwable $failure): string {

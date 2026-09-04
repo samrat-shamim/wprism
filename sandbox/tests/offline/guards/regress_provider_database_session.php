@@ -1114,7 +1114,7 @@ $schemaProjection = ProviderSdkContractProbe::run(
 );
 $schemaPresenceQueries = array_values(array_filter(
     $wpdb->queries(),
-    static fn(string $sql): bool => str_starts_with($sql, 'SHOW TABLES LIKE ')
+    static fn(string $sql): bool => preg_match('/^SELECT 1 FROM `[A-Za-z0-9_]+` LIMIT 0$/D', $sql) === 1
 ));
 wprism_check(
     $schemaProjection === [
@@ -1125,12 +1125,12 @@ wprism_check(
         'rows' => [],
     ]
         && count($schemaPresenceQueries) === 6
-        && array_filter(
-            $schemaPresenceQueries,
-            static fn(string $sql): bool => !str_contains($sql, '\\\\_')
-        ) === []
+        && count(array_filter(
+            $wpdb->queries(),
+            static fn(string $sql): bool => $sql === 'SHOW WARNINGS'
+        )) === 3
         && $wpdb->activeTransactionIsolation() === null,
-    'the schema SDK brackets an exact escaped absent/present topology around one profiled InnoDB projection'
+    'the schema SDK brackets exact resolvable/1146 topology around one profiled InnoDB projection'
 );
 
 $wpdb = provider_database_session_fixture();
@@ -1270,8 +1270,9 @@ wprism_check(
         )) === 1
         && count(array_filter(
             $nestedSchemaQueries,
-            static fn(string $sql): bool => str_starts_with($sql, 'SHOW TABLES LIKE ')
+            static fn(string $sql): bool => $sql === 'SELECT 1 FROM `wp_wprism_provider_state` LIMIT 0'
         )) === 2
+        && !in_array('SHOW WARNINGS', $nestedSchemaQueries, true)
         && $wpdb->activeTransactionIsolation() === null,
     'schema evidence reuses one complete read-only fresh-observer profile without nesting a transaction'
 );

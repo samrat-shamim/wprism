@@ -16,11 +16,15 @@ require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/NativeTableDefinition.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 
 use WPrism\DatabaseMutationException;
 use WPrism\DatabaseQueryIsolationViolationException;
+use WPrism\DatabaseTablePresence;
+use WPrism\DatabaseTablePresenceException;
 use WPrism\DatabaseTransactionOutcomeException;
+use WPrism\DatabaseTransportBoundary;
 use WPrism\DeadlockTransactionAbortedException;
 use WPrism\Db;
 use WPrism\NativeDatabaseProfile;
@@ -95,6 +99,87 @@ wprism_check(
         && !in_array('START TRANSACTION', $wpdb->queries(), true),
     'every transaction owner must supply an explicit physical-table profile before START'
 );
+
+$wpdb = db_authority_fixture();
+Db::start_repeatable_read(
+    'strict table-presence start',
+    NativeDatabaseProfile::schema_read_only([], ['wp_optional'])
+);
+$wpdb->resetLog();
+$optionalPresent = DatabaseTablePresence::base_table_exists('wp_optional');
+DatabaseTransportBoundary::assert_intact('strict table-presence continuity');
+$presenceQueries = $wpdb->queries();
+$strictDuringPresence = $wpdb->wprism_test_strict_transport();
+Db::rollback('strict table-presence rollback');
+wprism_check(
+    !$optionalPresent
+        && $strictDuringPresence
+        && $presenceQueries === ['SELECT 1 FROM `wp_optional` LIMIT 0', 'SHOW WARNINGS']
+        && !$wpdb->wprism_test_strict_transport(),
+    'strict authored presence accepts absence only after the exact 1146 diagnostic permit and remains rollbackable'
+);
+
+$presenceFailures = [
+    'compatible-driver probe exception' => static fn(FakeWpdb $db): FakeWpdb => $db->onQuery(
+        static function (string $sql): ?string {
+            if (str_starts_with($sql, 'SELECT 1 FROM `wp_optional`')) {
+                throw new RuntimeException('private presence detail sk_presence_driver');
+            }
+            return null;
+        }
+    ),
+    'privilege error' => static fn(FakeWpdb $db): FakeWpdb => $db->failNextQuery(
+        'SELECT command denied',
+        'SELECT 1 FROM `wp_optional`',
+        1,
+        1142
+    ),
+    'empty diagnostics' => static fn(FakeWpdb $db): FakeWpdb => $db->returnNextGetResultsAs(
+        [],
+        'SHOW WARNINGS'
+    ),
+    'multiple diagnostics' => static fn(FakeWpdb $db): FakeWpdb => $db->returnNextGetResultsAs([
+        ['Level' => 'Error', 'Code' => 1146, 'Message' => 'missing'],
+        ['Level' => 'Error', 'Code' => 1142, 'Message' => 'denied'],
+    ], 'SHOW WARNINGS'),
+    'malformed diagnostics' => static fn(FakeWpdb $db): FakeWpdb => $db->returnNextGetResultsAs([
+        ['Level' => 'Error', 'Code' => 'not-numeric', 'Message' => 'malformed'],
+    ], 'SHOW WARNINGS'),
+    'unreadable diagnostics' => static fn(FakeWpdb $db): FakeWpdb => $db->failNextQuery(
+        'SHOW WARNINGS denied',
+        'SHOW WARNINGS',
+        1,
+        1142
+    ),
+    'compatible-driver diagnostic exception' => static fn(FakeWpdb $db): FakeWpdb => $db->onQuery(
+        static function (string $sql): ?string {
+            if ($sql === 'SHOW WARNINGS') {
+                throw new RuntimeException('private diagnostic detail sk_presence_driver');
+            }
+            return null;
+        }
+    ),
+];
+foreach ($presenceFailures as $label => $configure) {
+    $wpdb = db_authority_fixture();
+    Db::start_repeatable_read(
+        "strict table-presence $label start",
+        NativeDatabaseProfile::schema_read_only([], ['wp_optional'])
+    );
+    $configure($wpdb);
+    $presenceFailure = db_authority_failure(
+        static fn() => DatabaseTablePresence::base_table_exists('wp_optional')
+    );
+    $continuous = Db::transaction_active("strict table-presence $label continuity");
+    Db::rollback("strict table-presence $label rollback");
+    wprism_check(
+        $presenceFailure instanceof DatabaseTablePresenceException
+            && $continuous
+            && !str_contains($presenceFailure->getMessage(), 'sk_presence_driver')
+            && !$wpdb->wprism_test_strict_transport(),
+        "strict authored presence refuses $label without poisoning rollback authority"
+    );
+}
 
 // Engine DDL is a closed definition boundary rather than a raw SQL escape.
 // Definitions render completely before target contact, and one bounded set of

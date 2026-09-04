@@ -689,7 +689,9 @@ final class LifecyclePlanner {
 
     /** @return array<string,mixed> */
     private static function code_version_observation(array $desired, bool $includeBaseline = true): array {
-        $recordedRaw = $includeBaseline ? Ledger::kv_get(self::CODE_VERSIONS_KEY) : null;
+        $recordedRaw = $includeBaseline && Ledger::kv_table_installed()
+            ? Ledger::kv_get(self::CODE_VERSIONS_KEY)
+            : null;
         return self::interpret_observation(
             CodeLifecycleObservation::read_unlocked($desired, $recordedRaw)
         );

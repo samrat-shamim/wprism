@@ -25,6 +25,20 @@ final class DatabaseTransportBoundary {
     private static bool $offline = false;
     private static ?bool $offlinePreviousStrict = null;
 
+    /**
+     * Read errno only from the exception type emitted synchronously by mysqli.
+     * A provider-created Throwable with a convenient numeric code is never
+     * database evidence, whether or not a transport boundary is active.
+     */
+    public static function synchronous_driver_errno(\Throwable $failure): int {
+        if (!class_exists('mysqli_sql_exception', false)
+            || !$failure instanceof \mysqli_sql_exception) {
+            return 0;
+        }
+        $errno = $failure->getCode();
+        return is_int($errno) && $errno >= 0 ? $errno : 0;
+    }
+
     public static function begin(string $context): void {
         if (self::$active) {
             throw new DatabaseQueryIsolationViolationException(

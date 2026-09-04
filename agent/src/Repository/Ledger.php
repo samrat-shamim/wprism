@@ -7,6 +7,7 @@ if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
 require_once __DIR__ . '/../Kernel/NativeTableDefinition.php';
+require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../Kernel/TransactionAuthority.php';
 
 /**
@@ -684,6 +685,27 @@ final class Ledger {
             "SELECT k, v FROM {$wpdb->prefix}wprism_kv WHERE k = %s", $k
         ), 'key/value lookup');
         return self::checked_kv_value($row, $k, 'key/value lookup');
+    }
+
+    /**
+     * Read-only existence fact for first-install observers of the KV store.
+     *
+     * A missing table is a legitimate virgin-site state; a privilege-hidden,
+     * shadowed, failed, or malformed probe is not. Callers still choose
+     * explicitly whether absence is meaningful before using kv_get().
+     */
+    public static function kv_table_installed(): bool {
+        global $wpdb;
+        $table = $wpdb->prefix . 'wprism_kv';
+        try {
+            return DatabaseTablePresence::base_table_exists($table);
+        } catch (DatabaseTablePresenceException $failure) {
+            throw new \RuntimeException(
+                'wprism: ledger read failed: key/value table presence lookup',
+                0,
+                $failure
+            );
+        }
     }
 
     /**

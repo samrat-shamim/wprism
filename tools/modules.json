@@ -63,6 +63,11 @@
           "Canon",
     "Db",
     "DatabaseLockBoundary",
+    "DatabaseServerDiagnosticException",
+    "DatabaseServerDiagnostics",
+    "DatabaseTableIdentifier",
+    "DatabaseTablePresence",
+    "DatabaseTablePresenceException",
     "DatabaseMutationException",
     "DatabaseQueryIsolation",
     "DatabaseQueryIsolationViolationException",
@@ -134,7 +139,7 @@
             ]
           }
         ],
-  "file_count": 53,
+  "file_count": 56,
         "files": [
           "ActionTriggerMatcher.php",
           "Canary.php",
@@ -142,6 +147,9 @@
           "CheckpointRecoveryIntent.php",
     "CommandRefusal.php",
           "DatabaseLockBoundary.php",
+          "DatabaseServerDiagnostics.php",
+          "DatabaseTableIdentifier.php",
+          "DatabaseTablePresence.php",
     "DatabaseExceptions.php",
     "DatabaseQueryIsolation.php",
     "DatabaseTransportBoundary.php",

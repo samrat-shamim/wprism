@@ -144,6 +144,8 @@ final class ApplyRequestCoordinator {
                 $tree,
                 $guardRepairUuids
             ),
+            deletionDatabaseProfile: fn(array $deleteWork): array =>
+                $this->deleteGuardCoordinator->transaction_database_profile($deleteWork),
             recheckDeleteGuard: function (
                 array $row,
                 array $deleteUuids,

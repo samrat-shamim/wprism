@@ -3,6 +3,10 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+require_once __DIR__ . '/../Kernel/TransactionAuthority.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/Deletion.php';
@@ -50,12 +54,56 @@ final class ExecutableOwnerBoundary {
 
     public function __construct(private readonly Policy $policy) {}
 
+    /**
+     * Exact database rows this boundary will lock in the authored transaction.
+     *
+     * @param list<array<string,mixed>> $deleteWork
+     * @return list<string>
+     */
+    public function transaction_read_tables(array $deleteWork): array {
+        global $wpdb;
+        if ($this->capabilities_for($deleteWork) === []) {
+            return [];
+        }
+        if (!isset($wpdb->options) || !is_string($wpdb->options)) {
+            throw new \RuntimeException('wprism: deletion executable-owner boundary requires wpdb->options');
+        }
+        $tables = [$wpdb->options];
+        if (function_exists('is_multisite') && is_multisite()) {
+            if (!isset($wpdb->sitemeta) || !is_string($wpdb->sitemeta)) {
+                throw new \RuntimeException(
+                    'wprism: deletion executable-owner boundary cannot profile multisite plugin activation facts'
+                );
+            }
+            $tables[] = $wpdb->sitemeta;
+        }
+        DeleteGuardEvaluator::assert_table_identifiers($tables, self::PURPOSE);
+        $tables = array_values(array_unique($tables));
+        sort($tables, SORT_STRING);
+        return $tables;
+    }
+
     /** @param list<array<string,mixed>> $deleteWork */
     public function bind(array $deleteWork): void {
         if ($this->boundOwners !== null) {
             $this->assert_unchanged();
             return;
         }
+        $capabilities = $this->capabilities_for($deleteWork);
+        if ($capabilities === []) {
+            return;
+        }
+        ksort($capabilities, SORT_STRING);
+        $this->boundSelectors = array_keys($capabilities);
+        $this->boundOwners = $this->live_owners(true);
+        $this->assert_agreements($capabilities, $this->boundOwners);
+    }
+
+    /**
+     * @param list<array<string,mixed>> $deleteWork
+     * @return array<string,array<string,mixed>>
+     */
+    private function capabilities_for(array $deleteWork): array {
         $capabilities = [];
         foreach ($deleteWork as $row) {
             $selector = Deletion::selector(
@@ -67,13 +115,8 @@ final class ExecutableOwnerBoundary {
                 $capabilities[$selector] = $capability;
             }
         }
-        if ($capabilities === []) {
-            return;
-        }
         ksort($capabilities, SORT_STRING);
-        $this->boundSelectors = array_keys($capabilities);
-        $this->boundOwners = $this->live_owners(true);
-        $this->assert_agreements($capabilities, $this->boundOwners);
+        return $capabilities;
     }
 
     /** Prove locked DB facts and unlocked filesystem rosters did not move. */
@@ -340,20 +383,100 @@ final class ExecutableOwnerBoundary {
             'site_id',
             self::PURPOSE . ' network plugins'
         );
+        $authority = Db::transaction_authority(self::PURPOSE . ' network plugin authority');
+        $predicate = "FROM `{$wpdb->sitemeta}` FORCE INDEX (`$index`) "
+            . "WHERE site_id = %d AND meta_key = 'active_sitewide_plugins' "
+            . 'AND CONNECTION_ID() = %s '
+            . 'AND BINARY @wprism_tx_session = BINARY %s '
+            . 'ORDER BY meta_id ASC LIMIT 2 FOR UPDATE';
+        $args = [
+            $wpdb->siteid,
+            $authority->connection_id(),
+            $authority->session_nonce(),
+        ];
         $wpdb->last_error = '';
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM `{$wpdb->sitemeta}` FORCE INDEX (`$index`) "
-                . "WHERE site_id = %d AND meta_key = 'active_sitewide_plugins' ORDER BY meta_id ASC LIMIT 2 FOR UPDATE",
-            $wpdb->siteid
+        $sizes = $wpdb->get_results($wpdb->prepare(
+            'SELECT meta_id, meta_key, OCTET_LENGTH(meta_value) AS meta_value_bytes '
+                . $predicate,
+            ...$args
         ), ARRAY_A);
-        if (!is_array($rows) || !array_is_list($rows) || count($rows) > 1
+        self::assert_transaction_authority($authority, self::PURPOSE . ' network size witness');
+        if (!is_array($sizes) || !array_is_list($sizes) || count($sizes) > 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
             throw new \RuntimeException('wprism: deletion executable-owner boundary could not bind network plugin activation');
         }
-        if ($rows === []) {
+        if ($sizes === []) {
             return [];
         }
-        $decoded = self::decode_array((string) ($rows[0]['meta_value'] ?? ''), 'active_sitewide_plugins');
+        $size = $sizes[0];
+        $metaId = is_array($size) ? self::canonical_positive_id($size['meta_id'] ?? null) : null;
+        $valueBytes = is_array($size) ? self::canonical_nonnegative_size($size['meta_value_bytes'] ?? null) : null;
+        if (!is_array($size)
+            || array_keys($size) !== ['meta_id', 'meta_key', 'meta_value_bytes']
+            || $metaId === null
+            || !is_string($size['meta_key'] ?? null)
+            || !hash_equals('active_sitewide_plugins', $size['meta_key'])
+            || $valueBytes === null
+            || $valueBytes > self::MAX_OPTION_VALUE_BYTES) {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation is ambiguous or oversized'
+            );
+        }
+
+        $wpdb->last_error = '';
+        $hashRows = $wpdb->get_results($wpdb->prepare(
+            'SELECT meta_id, meta_key, SHA2(meta_value, 256) AS meta_value_sha256 '
+                . $predicate,
+            ...$args
+        ), ARRAY_A);
+        self::assert_transaction_authority($authority, self::PURPOSE . ' network hash witness');
+        if (!is_array($hashRows) || !array_is_list($hashRows) || count($hashRows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation changed under its lock'
+            );
+        }
+        $hashRow = $hashRows[0];
+        $valueHash = is_array($hashRow) ? ($hashRow['meta_value_sha256'] ?? null) : null;
+        if (!is_array($hashRow)
+            || array_keys($hashRow) !== ['meta_id', 'meta_key', 'meta_value_sha256']
+            || self::canonical_positive_id($hashRow['meta_id'] ?? null) !== $metaId
+            || !is_string($hashRow['meta_key'] ?? null)
+            || !hash_equals('active_sitewide_plugins', $hashRow['meta_key'])
+            || !is_string($valueHash)
+            || preg_match('/^[a-f0-9]{64}$/D', $valueHash) !== 1) {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation hash is malformed'
+            );
+        }
+
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT meta_id, meta_key, meta_value ' . $predicate,
+            ...$args
+        ), ARRAY_A);
+        self::assert_transaction_authority($authority, self::PURPOSE . ' network value witness');
+        if (!is_array($rows) || !array_is_list($rows) || count($rows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation changed under its lock'
+            );
+        }
+        $row = $rows[0];
+        $raw = is_array($row) ? ($row['meta_value'] ?? null) : null;
+        if (!is_array($row)
+            || array_keys($row) !== ['meta_id', 'meta_key', 'meta_value']
+            || self::canonical_positive_id($row['meta_id'] ?? null) !== $metaId
+            || !is_string($row['meta_key'] ?? null)
+            || !hash_equals('active_sitewide_plugins', $row['meta_key'])
+            || !is_string($raw)
+            || strlen($raw) !== $valueBytes
+            || !hash_equals($valueHash, hash('sha256', $raw))) {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation disagrees with its bounded witness'
+            );
+        }
+        $decoded = self::decode_array($raw, 'active_sitewide_plugins');
         $plugins = array_keys($decoded);
         foreach ($plugins as $plugin) {
             if (!is_string($plugin)) {
@@ -362,6 +485,31 @@ final class ExecutableOwnerBoundary {
         }
         sort($plugins, SORT_STRING);
         return $plugins;
+    }
+
+    private static function assert_transaction_authority(
+        TransactionAuthority $authority,
+        string $context
+    ): void {
+        if (!$authority->equals(Db::transaction_authority($context))) {
+            throw new \RuntimeException("wprism: $context changed database session authority");
+        }
+    }
+
+    private static function canonical_positive_id(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+            return null;
+        }
+        $id = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($id) && $id > 0 ? $id : null;
+    }
+
+    private static function canonical_nonnegative_size(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $size = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($size) && $size >= 0 ? $size : null;
     }
 
     /** @return array<string,array{format:string,root:string,sha256:string}> */

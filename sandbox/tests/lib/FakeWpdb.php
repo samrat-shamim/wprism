@@ -793,12 +793,13 @@ class FakeWpdb {
     public function failNextQuery(
         string $error = 'injected wpdb failure',
         ?string $matching = null,
-        int $times = 1
+        int $times = 1,
+        int $errno = 0
     ): self {
         $this->injectedFailures[] = [
             'match' => $matching,
             'error' => $error,
-            'errno' => 0,
+            'errno' => $errno,
             'remaining' => $times,
             'abort_transaction' => false,
         ];
@@ -1822,6 +1823,17 @@ class FakeWpdb {
         if ($transactionOutcome === 'before_throw') {
             throw new \RuntimeException('injected transaction exception before server apply');
         }
+        if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]{1,64})` LIMIT 0$/D', trim($sql), $match) === 1
+            && !array_key_exists($match[1], $this->store)) {
+            $this->driverErrno = 1146;
+            $this->serverDiagnostics = [[
+                'Level' => 'Error',
+                'Code' => 1146,
+                'Message' => "Table '{$this->dbname}.{$match[1]}' doesn't exist",
+            ]];
+            $this->fail($method, $sql, "Table '{$this->dbname}.{$match[1]}' doesn't exist");
+            return null;
+        }
         // PromotionLease's fenced upsert deliberately uses JSON_EXTRACT in
         // its conditional duplicate clause. Keep the ordinary SQL grammar
         // loud, but model this one reviewed target-lease statement so a full
@@ -2712,7 +2724,7 @@ class FakeWpdb {
                     // separately interpreted below; it has no shared-write
                     // seam, so a synthetic range lock would only reject it.
                 } elseif (preg_match(
-                    '/\bWHERE\b[^;]*\b`?(?:ID|option_id|meta_id|event_id|occurrence_id|post_id|term_id|user_id|object_id|action_id|claim_id|group_id|log_id)`?\s*=\s*[0-9]+\b/is',
+                    '/\bWHERE\b[^;]*\b`?(?:ID|option_id|meta_id|event_id|occurrence_id|post_id|post_parent|term_id|user_id|object_id|action_id|claim_id|group_id|log_id)`?\s*=\s*[0-9]+\b/is',
                     $trimmed
                 ) !== 1) {
                     throw $this->unsupported('unregistered SELECT FOR UPDATE lock target');

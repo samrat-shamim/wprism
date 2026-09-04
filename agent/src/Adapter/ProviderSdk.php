@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ExactOptionReader.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Policy/LegacyRuntimeExecutionDebt.php';
 if (!class_exists(ManifestProviderRuntime::class, false)) {
@@ -382,28 +383,20 @@ final class ProviderSdk {
     /** @param list<string> $tables @return array<string,bool> */
     private static function database_table_presence(array $tables, string $context): array {
         $wpdb = $GLOBALS['wpdb'] ?? null;
-        if (!is_object($wpdb)
-            || !method_exists($wpdb, 'esc_like')
-            || !method_exists($wpdb, 'prepare')) {
+        if (!is_object($wpdb)) {
             throw new \RuntimeException("wprism: $context requires exact wpdb schema discovery");
         }
         $presence = [];
         foreach ($tables as $table) {
-            $sql = $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table));
-            if (!is_string($sql)) {
-                throw new \RuntimeException("wprism: $context could not prepare exact table discovery");
-            }
-            $found = self::checked_get_var($sql, $context, $wpdb);
-            if ($found === null) {
-                $presence[$table] = false;
-                continue;
-            }
-            if (!is_string($found) || !hash_equals($table, $found)) {
+            try {
+                $presence[$table] = DatabaseTablePresence::base_table_exists($table);
+            } catch (DatabaseTablePresenceException $failure) {
                 throw new \RuntimeException(
-                    "wprism: $context returned malformed exact table-presence evidence"
+                    "wprism: provider database read failed: $context",
+                    0,
+                    $failure
                 );
             }
-            $presence[$table] = true;
         }
         return $presence;
     }

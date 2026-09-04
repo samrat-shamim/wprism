@@ -107,7 +107,8 @@ namespace WPrism {
         ?string $activeRaw = null,
         bool $withTemplate = true,
         string $optionsEngine = 'InnoDB',
-        bool $withOptionIndex = true
+        bool $withOptionIndex = true,
+        bool $withLedger = true
     ) use ($plugin, $theme, $writePlugin, $writeTheme, $index): FakeWpdb {
         try {
             ProcessFence::release();
@@ -156,13 +157,15 @@ namespace WPrism {
             ->setPrimaryKey('wp_options', 'option_id')
             ->setUniqueKey('wp_options', ['option_name'])
             ->setIndexes('wp_options', $withOptionIndex ? $index('option_name', 'option_name') : [])
-            ->setTableEngine('wp_options', $optionsEngine)
-            ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
-            ->seedTable('wp_wprism_kv', $kvRows)
-            ->setUniqueKey('wp_wprism_kv', ['k'])
-            ->setIndexes('wp_wprism_kv', $index('PRIMARY', 'k'))
-            ->setTableEngine('wp_wprism_kv', 'InnoDB')
-            ->enableInformationSchema();
+            ->setTableEngine('wp_options', $optionsEngine);
+        if ($withLedger) {
+            $wpdb->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+                ->seedTable('wp_wprism_kv', $kvRows)
+                ->setUniqueKey('wp_wprism_kv', ['k'])
+                ->setIndexes('wp_wprism_kv', $index('PRIMARY', 'k'))
+                ->setTableEngine('wp_wprism_kv', 'InnoDB');
+        }
+        $wpdb->enableInformationSchema();
         ProcessFence::acquire();
         return $wpdb;
     };
@@ -206,6 +209,105 @@ namespace WPrism {
     };
 
     $policy = new Policy();
+    $compiled = CompiledRepository::create([
+        'tree' => ['options/core' => [
+            'data' => OptionState::document([
+                'active_plugins' => OptionState::present([$plugin], 'yes'),
+                'stylesheet' => OptionState::present($theme, 'yes'),
+                'template' => OptionState::present($theme, 'yes'),
+            ]),
+        ]],
+    ]);
+
+    // A virgin deploy asks for lifecycle status before any writer provisions
+    // the ledger. Absence of the whole store is explicit evidence of an absent
+    // baseline, not permission to query a table that is not there.
+    $wpdb = $environment(withLedger: false);
+    $wpdb->resetLog();
+    $virginStatus = LifecyclePlanner::deployment_status($policy, $compiled);
+    wprism_check_same('wprism-lifecycle-status/v2', $virginStatus['format'] ?? null, 'virgin target emits the reviewed lifecycle-status wire');
+    wprism_check_same('absent', $virginStatus['baseline_state'] ?? null, 'virgin lifecycle status reports an explicitly absent baseline');
+    wprism_check_same([], $virginStatus['code_drift'] ?? null, 'virgin lifecycle status reports no recorded drift');
+    $virginQueries = $wpdb->queries();
+    wprism_check_same(
+        1,
+        count(array_filter(
+            $virginQueries,
+            static fn(string $sql): bool => $sql === 'SELECT 1 FROM `wp_wprism_kv` LIMIT 0'
+        )),
+        'virgin lifecycle observation probes the exact ledger-table identity once'
+    );
+    wprism_check(
+        !array_filter($virginQueries, static fn(string $sql): bool => str_contains($sql, 'SELECT k, v FROM wp_wprism_kv')),
+        'virgin lifecycle status never reads rows from the absent ledger table'
+    );
+    wprism_check(
+        (bool) array_filter($virginQueries, static fn(string $sql): bool => $sql === 'SELECT 1 FROM `wp_wprism_kv` LIMIT 0')
+            && (bool) array_filter($virginQueries, static fn(string $sql): bool => $sql === 'SHOW WARNINGS'),
+        'virgin lifecycle status accepts absence only from the exact 1146 server diagnostic'
+    );
+    wprism_check_same([], $wpdb->ddlLog(), 'virgin lifecycle observation provisions or repairs no schema');
+
+    $wpdb = $environment(withLedger: false);
+    $wpdb->failNextQuery('simulated ledger presence failure', 'SELECT 1 FROM `wp_wprism_kv`', 1);
+    $presenceFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $presenceFailure instanceof \RuntimeException
+            && str_contains($presenceFailure->getMessage(), 'key/value table presence lookup'),
+        'an unreadable ledger-presence fact is refused rather than reported as absent'
+    );
+
+    $wpdb = $environment();
+    $wpdb->failNextQuery('SELECT command denied', 'SELECT 1 FROM `wp_wprism_kv`', 1);
+    $restrictedFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $restrictedFailure instanceof \RuntimeException
+            && str_contains($restrictedFailure->getMessage(), 'key/value table presence lookup'),
+        'an unreadable existing ledger is refused rather than reported as absent'
+    );
+
+    $wpdb = $environment();
+    $wpdb->setTemporaryTableEngine('wp_wprism_kv', 'InnoDB');
+    $shadowFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $shadowFailure instanceof \RuntimeException
+            && str_contains($shadowFailure->getMessage(), 'key/value table presence lookup'),
+        'a session-local table shadow cannot borrow the physical ledger identity'
+    );
+
+    $wpdb = $environment();
+    $wpdb->failNextQuery('simulated ledger resolution race', 'SHOW CREATE TABLE', 1);
+    $resolutionFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $resolutionFailure instanceof \RuntimeException
+            && str_contains($resolutionFailure->getMessage(), 'key/value table presence lookup'),
+        'a ledger that becomes unreadable between census and session resolution is refused'
+    );
+
+    $wpdb = $environment();
+    $wpdb->failNextQuery('simulated ledger row failure', 'SELECT k, v FROM', 1);
+    $rowFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $rowFailure instanceof \RuntimeException
+            && str_contains($rowFailure->getMessage(), 'key/value lookup'),
+        'an existing but unreadable ledger is refused rather than reported as baseline-absent'
+    );
+
+    $wpdb = $environment(recorded: $baseline('1.7.1', '2.0'));
+    $establishedStatus = LifecyclePlanner::deployment_status($policy, $compiled);
+    wprism_check_same('drift', $establishedStatus['baseline_state'] ?? null, 'established lifecycle status consumes the durable baseline');
+    wprism_check_same([[
+        'issue' => 'code_drift',
+        'kind' => 'plugin',
+        'plugin' => $plugin,
+        'installed_version' => '1.7.2',
+        'recorded_version' => '1.7.1',
+        'message' => "$plugin is 1.7.2 on this environment, but the last successful 'wprism deploy' "
+            . "or 'wprism capture' recorded 1.7.1 — its code changed here outside WPrism's own "
+            . 'reconciliation (a wp-admin/host auto-update is the common cause; see DISALLOW_FILE_MODS '
+            . "in 'wp wprism doctor'). Re-run 'wprism deploy' to accept 1.7.2 as the new baseline, "
+            . 'restore 1.7.1, or pass --force-code-drift to proceed at your own risk.',
+    ]], $establishedStatus['code_drift'] ?? null, 'established lifecycle status projects the exact stored-version drift row');
 
     // Advisory observation is one raw SQL snapshot plus direct header reads.
     $wpdb = $environment();

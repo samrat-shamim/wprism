@@ -1331,10 +1331,11 @@ namespace {
         wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'], "$hook refusal never calls the installer");
     }
     $provider = rank_math_test_reset('none');
-    $GLOBALS['wpdb']->failNextQuery('schema secret sk_rank_math_schema', 'SHOW TABLES');
+    $GLOBALS['wpdb']->failNextQuery('schema secret sk_rank_math_schema', 'SELECT 1 FROM');
     $schemaFailure = rank_math_test_throw_message(static fn(): array => $provider->invoke('prepare_schema', []));
     wprism_check(
-        str_contains($schemaFailure, 'checked read failed') && !str_contains($schemaFailure, 'sk_rank_math_schema'),
+        str_contains($schemaFailure, 'provider database read failed')
+            && !str_contains($schemaFailure, 'sk_rank_math_schema'),
         'schema discovery failure is loud and value-redacted'
     );
 

@@ -4,6 +4,8 @@ namespace WPrism;
 require_once __DIR__ . '/DatabaseExceptions.php';
 require_once __DIR__ . '/DatabaseLockBoundary.php';
 require_once __DIR__ . '/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/DatabaseServerDiagnostics.php';
+require_once __DIR__ . '/DatabaseTransportBoundary.php';
 require_once __DIR__ . '/NativeDatabaseProfile.php';
 require_once __DIR__ . '/NativeTableDefinition.php';
 require_once __DIR__ . '/TransactionAuthority.php';
@@ -531,7 +533,7 @@ final class Db {
         \Throwable $failure,
         string $context
     ): \Throwable {
-        $errno = self::strict_driver_errno($failure);
+        $errno = DatabaseTransportBoundary::synchronous_driver_errno($failure);
         if ($errno === 1213) {
             $normalized = new DeadlockTransactionAbortedException(
                 "wprism: database deadlock aborted the transaction at $context",
@@ -1130,7 +1132,7 @@ final class Db {
         $queryError = trim((string) ($wpdb->last_error ?? ''));
         $queryErrno = $failure === null
             ? self::driver_errno()
-            : self::strict_driver_errno($failure);
+            : DatabaseTransportBoundary::synchronous_driver_errno($failure);
 
         try {
             $state = self::authority_transaction_state(
@@ -1917,20 +1919,6 @@ final class Db {
     }
 
     /**
-     * Read an errno only from the exception type emitted synchronously by the
-     * strict mysqli transport. A provider-created RuntimeException with a
-     * convenient numeric code is not server evidence.
-     */
-    private static function strict_driver_errno(\Throwable $failure): int {
-        if (!class_exists('mysqli_sql_exception', false)
-            || !$failure instanceof \mysqli_sql_exception) {
-            return 0;
-        }
-        $errno = $failure->getCode();
-        return is_int($errno) && $errno >= 0 ? $errno : 0;
-    }
-
-    /**
      * Read transaction state without engine-specific session variables.
      *
      * MariaDB exposes @@in_transaction; MySQL 8.4 does not. Both engines
@@ -2463,7 +2451,7 @@ final class Db {
             $error = trim((string) ($wpdb->last_error ?? ''));
             $errno = $failure === null
                 ? self::driver_errno()
-                : self::strict_driver_errno($failure);
+                : DatabaseTransportBoundary::synchronous_driver_errno($failure);
             if ($failure === null && $result !== false && $error === '') {
                 return true;
             }
@@ -2482,29 +2470,17 @@ final class Db {
             // witness. SHOW WARNINGS exposes the stable numeric MySQL/MariaDB
             // classification: exactly ER_SP_DOES_NOT_EXIST (1305) proves an
             // idle connection or a transaction that lost the old witness.
-            $wpdb->last_error = '';
-            $warnings = self::permitted_transport(
-                'SHOW WARNINGS',
-                $context . ' diagnostics',
-                static fn(string $statement): mixed => $wpdb->get_results($statement, ARRAY_A)
-            );
-            $warningError = trim((string) ($wpdb->last_error ?? ''));
-            if (!is_array($warnings)
-                || !array_is_list($warnings)
-                || count($warnings) !== 1
-                || $warningError !== '') {
+            try {
+                $warningCode = DatabaseServerDiagnostics::sole_error_code(
+                    $context . ' savepoint state'
+                );
+            } catch (DatabaseServerDiagnosticException $diagnosticFailure) {
                 throw new DatabaseTransactionOutcomeException(
-                    $context . ' returned ambiguous savepoint diagnostics'
+                    $context . ' returned ambiguous savepoint diagnostics',
+                    $diagnosticFailure
                 );
             }
-            $warning = $warnings[0];
-            $level = is_array($warning) ? ($warning['Level'] ?? null) : null;
-            $code = is_array($warning) ? ($warning['Code'] ?? null) : null;
-            if (!is_string($level)
-                || strcasecmp($level, 'Error') !== 0
-                || (!is_int($code) && !is_string($code))
-                || preg_match('/^[0-9]+$/D', (string) $code) !== 1
-                || (int) $code !== 1305) {
+            if ($warningCode !== 1305) {
                 throw new DatabaseTransactionOutcomeException(
                     $context . ' returned an unexpected savepoint diagnostic'
                 );

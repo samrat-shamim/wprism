@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
+
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
 }
@@ -119,26 +121,22 @@ final class SchemaSettlement {
         $present = [];
         foreach (Ledger::OWN_TABLES as $table) {
             $physical = (string) $wpdb->prefix . $table;
-            $wpdb->last_error = '';
-            $found = $wpdb->get_var($wpdb->prepare(
-                'SHOW TABLES LIKE %s',
-                $wpdb->esc_like($physical)
-            ));
-            if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
+            try {
+                $present[$table] = DatabaseTablePresence::base_table_exists($physical);
+            } catch (DatabaseTablePresenceException $failure) {
+                if ($failure->reason() === DatabaseTablePresenceException::NOT_PLAIN_BASE_TABLE) {
+                    throw new \RuntimeException(
+                        'wprism: schema-status target ledger inventory returned an ambiguous identity',
+                        0,
+                        $failure
+                    );
+                }
                 throw new \RuntimeException(
-                    'wprism: schema-status could not inspect the target ledger boundary'
+                    'wprism: schema-status could not inspect the target ledger boundary',
+                    0,
+                    $failure
                 );
             }
-            if ($found === null) {
-                $present[$table] = false;
-                continue;
-            }
-            if (!is_string($found) || !hash_equals($physical, $found)) {
-                throw new \RuntimeException(
-                    'wprism: schema-status target ledger inventory returned an ambiguous identity'
-                );
-            }
-            $present[$table] = true;
         }
         if (!in_array(true, $present, true)) {
             return false;
@@ -513,17 +511,20 @@ final class SchemaSettlement {
                 throw new \RuntimeException('wprism: schema settlement received an invalid declared table name');
             }
             $physical = $wpdb->prefix . $table;
-            $wpdb->last_error = '';
-            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $physical));
-            if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
+            try {
+                $present = DatabaseTablePresence::base_table_exists($physical);
+            } catch (DatabaseTablePresenceException $failure) {
+                if ($failure->reason() === DatabaseTablePresenceException::NOT_PLAIN_BASE_TABLE) {
+                    throw new \RuntimeException(
+                        'wprism: schema settlement table inventory returned an ambiguous identity',
+                        0,
+                        $failure
+                    );
+                }
                 throw new \RuntimeException(
-                    'wprism: schema settlement table inventory could not be read; refusing to infer absence'
-                );
-            }
-            $present = is_string($found) && hash_equals($physical, $found);
-            if ($found !== null && !$present) {
-                throw new \RuntimeException(
-                    'wprism: schema settlement table inventory returned an ambiguous identity'
+                    'wprism: schema settlement table inventory could not be read; refusing to infer absence',
+                    0,
+                    $failure
                 );
             }
             if ($present) {

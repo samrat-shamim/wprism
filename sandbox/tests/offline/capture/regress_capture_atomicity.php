@@ -57,6 +57,7 @@ final class CaptureAtomicityFakeWpdb {
     public ?string $engineAfterStartFailure = null;
     public ?string $commitCheckpointError = null;
     public bool $replaceConnectionOnCommit = false;
+    private ?int $warningCode = null;
     /** @var array<string,string> table name -> storage engine */
     public array $tableEngines = [];
     /** @var list<string> logical wpdb-property.column locations hidden from schema inventory */
@@ -212,6 +213,11 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_row(string $sql, $output = null): ?array {
         $this->last_error = '';
+        if (preg_match('/^SHOW CREATE TABLE `([A-Za-z0-9_]+)`$/D', $sql, $match) === 1) {
+            return $this->kvTableExists && $match[1] === 'wp_wprism_kv'
+                ? ['wp_wprism_kv', 'CREATE TABLE `wp_wprism_kv` (`k` varchar(191)) ENGINE=InnoDB']
+                : null;
+        }
         if (preg_match("/SELECT k, v FROM wp_wprism_kv WHERE k = '([^']*)'/i", $sql, $m)) {
             return array_key_exists($m[1], $this->kv)
                 ? ['k' => $m[1], 'v' => $this->kv[$m[1]]]
@@ -271,6 +277,15 @@ final class CaptureAtomicityFakeWpdb {
             && stripos($sql, "TABLE_NAME = 'wp_wprism_kv'") !== false) {
             return $this->kvTableExists ? 'wp_wprism_kv' : null;
         }
+        if ($sql === 'SELECT 1 FROM `wp_wprism_kv` LIMIT 0') {
+            if ($this->kvTableExists) {
+                $this->warningCode = null;
+                return null;
+            }
+            $this->last_error = "Table 'wordpress.wp_wprism_kv' doesn't exist";
+            $this->warningCode = 1146;
+            return null;
+        }
         if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '([^']*)'/i", $sql, $m)) {
             return $this->kv[$m[1]] ?? null;
         }
@@ -287,6 +302,13 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_results(string $sql, $output = null): array {
         $this->last_error = '';
+        if ($sql === 'SHOW WARNINGS') {
+            return $this->warningCode === null ? [] : [[
+                'Level' => 'Error',
+                'Code' => $this->warningCode,
+                'Message' => 'simulated table-presence diagnostic',
+            ]];
+        }
         if (stripos($sql, 'information_schema.COLUMNS') !== false
             && stripos($sql, 'TABLE_NAME, COLUMN_NAME') !== false) {
             $rows = [];

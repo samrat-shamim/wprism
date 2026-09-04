@@ -607,7 +607,7 @@ $check(
         ])),
     'only table_absence=empty accepts exact absence, and its witness cannot equal present-empty topology'
 );
-$absenceDb->topologyProbeError = true;
+$absenceDb->exactTableProbeErrorCodes['wp_version_optional_refs'] = 1105;
 $probeFailure = $scanner->count(
     [
         'table' => 'version_optional_refs', 'column' => 'product_id',
@@ -618,9 +618,10 @@ $probeFailure = $scanner->count(
     []
 );
 $check(
-    str_contains((string) $probeFailure['error'], 'exact guard-table topology census failed')
+    str_contains((string) $probeFailure['error'], 'exact absence confirmation failed')
+        && str_contains((string) $probeFailure['error'], 'server code 1105')
         && $probeFailure['rows'] === [],
-    'an exact topology census error remains blocking rather than masquerading as absence'
+    'an exact table-presence error remains blocking rather than masquerading as absence'
 );
 $restrictedDb = new DeleteGuardEvaluatorFakeWpdb([], [
     'wp_options' => 'InnoDB',
@@ -645,10 +646,11 @@ $check(
         && $restrictedFailure['rows'] === [],
     'an existing exact table hidden by restricted database privileges cannot masquerade as absence'
 );
-$nearMatchDb = new DeleteGuardEvaluatorFakeWpdb([]);
-$nearMatchDb->topologyRowsOverride = [['TABLE_NAME' => 'wpXversion_optional_refs']];
+$nearMatchDb = new DeleteGuardEvaluatorFakeWpdb([], [
+    'wpXversion_optional_refs' => 'InnoDB',
+]);
 $GLOBALS['wpdb'] = $nearMatchDb;
-$nearMatchFailure = $scanner->count(
+$nearMatchResult = $scanner->count(
     [
         'table' => 'version_optional_refs', 'column' => 'product_id',
         'id_kind' => 'post', 'table_absence' => 'empty',
@@ -658,8 +660,15 @@ $nearMatchFailure = $scanner->count(
     []
 );
 $check(
-    str_contains((string) $nearMatchFailure['error'], 'ambiguous table identity'),
-    'a case-fold or wildcard-like near match never proves exact guard-table absence'
+    $nearMatchResult['count'] === 0
+        && $nearMatchResult['error'] === null
+        && ($nearMatchResult['witness'] ?? null) === hash('sha256', \WPrism\Canon::encode([
+            'format' => 'wprism-delete-guard-witness/v2',
+            'rows' => [],
+            'state' => 'absent',
+            'table' => 'wp_version_optional_refs',
+        ])),
+    'an unrelated wildcard-like table name cannot masquerade as the exact guard table'
 );
 
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
@@ -2228,11 +2237,32 @@ $check(
 $applySource = file_get_contents(__DIR__ . '/../../../../agent/src/Delete/DeleteGuardLockCoordinator.php');
 $planBuilderSource = file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyPlanBuilder.php');
 $scannerSource = file_get_contents(__DIR__ . '/../../../../agent/src/Delete/DeleteGuardReferenceScanner.php');
+$transactionExecutorSource = (string) file_get_contents(
+    __DIR__ . '/../../../../agent/src/Apply/AuthoredTransactionExecutor.php'
+);
+$requestCoordinatorSource = (string) file_get_contents(
+    __DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php'
+);
+$profileSelection = strpos($transactionExecutorSource, '($this->deletionDatabaseProfile)($deleteWork)');
+$transactionStart = strpos($transactionExecutorSource, 'Db::start_repeatable_read(');
+$guardLock = strpos($transactionExecutorSource, '($this->lockDeleteGuards)(');
+$check(
+    $profileSelection !== false
+        && $transactionStart !== false
+        && $guardLock !== false
+        && $profileSelection < $transactionStart
+        && $transactionStart < $guardLock
+        && str_contains(
+            $requestCoordinatorSource,
+            '$this->deleteGuardCoordinator->transaction_database_profile($deleteWork)'
+        ),
+    'apply selects the coordinator-owned deletion profile before START and consumes it before guard locking'
+);
 $engineFacade = substr(
     $applySource,
-    strpos($applySource, 'public function assert_guard_engines('),
+    strpos($applySource, 'private function assert_guard_engines_for_modes('),
     strpos($applySource, 'public function assert_lock_isolation(')
-        - strpos($applySource, 'public function assert_guard_engines(')
+        - strpos($applySource, 'private function assert_guard_engines_for_modes(')
 );
 $check(
     str_contains($applySource, "require_once __DIR__ . '/DeleteGuardEvaluator.php';")
@@ -2259,8 +2289,9 @@ $check(
 );
 $check(
     !str_contains($applySource, 'private function guard_lock_index(')
-        && !str_contains($scannerSource, 'private function guard_lock_index('),
-    'the lock boundary retains no duplicate index evaluator'
+        && !str_contains($scannerSource, 'private function guard_lock_index(')
+        && !str_contains($applySource, 'public function assert_guard_engines('),
+    'the lock boundary retains no duplicate index evaluator or caller-resettable admission facade'
 );
 $isolationFacade = substr(
     $applySource,
@@ -2277,7 +2308,7 @@ $check(
 $recheckFacade = substr(
     $applySource,
     strpos($applySource, 'public function recheck('),
-    strpos($applySource, 'public static function append_forced_warnings(')
+    strpos($applySource, 'public function assert_executable_owner_boundary(')
         - strpos($applySource, 'public function recheck(')
 );
 $check(
@@ -2290,7 +2321,7 @@ $check(
 $lockFacade = substr(
     $applySource,
     strpos($applySource, 'public function lock_and_revalidate('),
-    strpos($applySource, 'public function assert_guard_engines(')
+    strpos($applySource, 'private function assert_guard_engines_for_modes(')
         - strpos($applySource, 'public function lock_and_revalidate(')
 );
 $check(

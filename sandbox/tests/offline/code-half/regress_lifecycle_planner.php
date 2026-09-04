@@ -28,8 +28,9 @@ wprism_check(
 );
 wprism_check(
     str_contains($sources['workflow'], "require_once __DIR__ . '/../Promotion/CodeBaselineCapture.php';")
-        && str_contains($sources['workflow'], 'CodeBaselineCapture::observe_or_publish($capturedDesired)'),
-    'capture delegates its exact baseline decision to the capture-owned writer'
+        && str_contains($sources['workflow'], 'CodeBaselineCapture::observe_or_publish($capturedDesired)')
+        && str_contains($sources['workflow'], 'Ledger::kv_table_installed()'),
+    'capture delegates baseline writes and the shared first-install ledger fact to their owners'
 );
 wprism_check(
     str_contains($sources['acceptance'], 'final class CodeBaselineAcceptance')

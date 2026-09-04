@@ -1084,18 +1084,18 @@ final class CapturePublicationWorkflow {
      * unconditional post-ensure check above.
      */
     private static function assertNoPromotionSessionIfLedgerExists(): void {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $table = $wpdb->prefix . 'wprism_kv';
-        $found = $wpdb->get_var($wpdb->prepare(
-            'SELECT TABLE_NAME FROM information_schema.TABLES '
-            . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
-            $table
-        ));
-        if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException('wprism: capture could not inspect the target ledger boundary');
+        try {
+            $installed = Ledger::kv_table_installed();
+        } catch (\Throwable $failure) {
+            // Capture owns this public refusal text; Ledger supplies only the
+            // checked presence fact shared with lifecycle observation.
+            throw new \RuntimeException(
+                'wprism: capture could not inspect the target ledger boundary',
+                0,
+                $failure
+            );
         }
-        if (is_string($found) && hash_equals($table, $found)) {
+        if ($installed) {
             self::assertNoPromotionSession();
         }
     }

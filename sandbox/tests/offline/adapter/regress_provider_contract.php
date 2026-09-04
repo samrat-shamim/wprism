@@ -3167,6 +3167,10 @@ $driveRebuild = static function (
             renewRegenerationLease: static function (): void {},
             renewProviderLease: static function (): void {},
             lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            deletionDatabaseProfile: static fn(array $work): array => [
+                'read_tables' => [],
+                'table_presence_reads' => [],
+            ],
             recheckDeleteGuard: static function (array $a, array $b, array $c, bool $d, array $e, array $f, bool $g): void {},
             selectionDeclaresChannelFor: fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface),
             selectionDeclaresEntityBatchFor: fn(string $surface): bool => $selection->declares_entity_batch_for($surface),

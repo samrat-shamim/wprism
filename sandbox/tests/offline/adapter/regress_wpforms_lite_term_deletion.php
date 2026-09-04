@@ -548,6 +548,9 @@ $prepare = static function (array $deleteRow, array $opts, Policy $runPolicy): a
             renewRegenerationLease: $noop,
             renewProviderLease: $noop,
             lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            deletionDatabaseProfile: static fn(array $work): array => [
+                'read_tables' => [], 'table_presence_reads' => [],
+            ],
             recheckDeleteGuard: static function (
                 array $row,
                 array $uuids,

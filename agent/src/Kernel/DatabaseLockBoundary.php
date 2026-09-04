@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/DatabaseTableIdentifier.php';
+require_once __DIR__ . '/DatabaseTablePresence.php';
 
 /**
  * Storage and index proof shared by every authoritative locking read.
@@ -228,11 +230,7 @@ final class DatabaseLockBoundary {
 
     /** @param list<string> $tables */
     public static function assert_table_identifiers(array $tables, string $purpose): void {
-        foreach ($tables as $table) {
-            if (!is_string($table) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
-                throw new \RuntimeException("wprism: $purpose refused — unsafe table identifier");
-            }
-        }
+        DatabaseTableIdentifier::assert_many($tables, $purpose);
     }
 
     private static function touch_table(
@@ -262,30 +260,25 @@ final class DatabaseLockBoundary {
         string $purpose,
         ?callable $continuity
     ): void {
-        global $wpdb;
         self::prove_continuity($continuity);
-        $wpdb->last_error = '';
-        $row = $wpdb->get_row("SHOW CREATE TABLE `$table`", ARRAY_N);
-        $error = trim((string) ($wpdb->last_error ?? ''));
-        self::prove_continuity($continuity);
-        if (!is_array($row)
-            || !array_is_list($row)
-            || count($row) !== 2
-            || !is_string($row[0])
-            || !hash_equals($table, $row[0])
-            || !is_string($row[1])
-            || $error !== '') {
-            $detail = $error !== '' ? $error : 'malformed SHOW CREATE TABLE result';
+        try {
+            DatabaseTablePresence::assert_plain_base_table($table);
+        } catch (DatabaseTablePresenceException $failure) {
+            if ($failure->reason() === DatabaseTablePresenceException::NOT_PLAIN_BASE_TABLE) {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — $table is not the plain base table resolved by this session",
+                    0,
+                    $failure
+                );
+            }
             throw new \RuntimeException(
-                "wprism: $purpose refused — physical-table introspection failed for $table: $detail"
+                "wprism: $purpose refused — physical-table introspection failed for $table: "
+                    . ($failure->detail() ?? 'malformed SHOW CREATE TABLE result'),
+                0,
+                $failure
             );
         }
-        $quoted = preg_quote($table, '/');
-        if (preg_match("/^CREATE TABLE `$quoted`\\s*\\(/D", $row[1]) !== 1) {
-            throw new \RuntimeException(
-                "wprism: $purpose refused — $table is not the plain base table resolved by this session"
-            );
-        }
+        self::prove_continuity($continuity);
     }
 
     /**

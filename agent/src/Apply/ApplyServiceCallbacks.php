@@ -26,6 +26,8 @@ final class ApplyServiceCallbacks {
         public readonly \Closure $renewProviderLease,
         /** @var \Closure(array,array,array,array,array):void */
         public readonly \Closure $lockDeleteGuards,
+        /** @var \Closure(array):array{read_tables:list<string>,table_presence_reads:list<string>} */
+        public readonly \Closure $deletionDatabaseProfile,
         /** @var \Closure(array,array,array,bool,array,array,bool):(\Closure():void) */
         public readonly \Closure $recheckDeleteGuard,
         /** @var \Closure(string,string):bool */
