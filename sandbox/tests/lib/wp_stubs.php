@@ -255,8 +255,34 @@ if (!defined('ARRAY_N')) {
 
 // Path constants. Defined, never created: an offline suite that only reads
 // paths must not leave directories behind in a parallel `make -j8` run.
+//
+// UNIQUE PER PROCESS, for the reason uploadBaseDir already is (:143-147) and
+// one that is worse. "Never created" is this file's contract, not a property
+// of the tree, and the cost of relying on it is not a stray directory -- it
+// is a permanently red corpus. AdapterSources::plugin_source() decides
+// whether to call get_option('active_plugins') on `is_dir($dir)`
+// (agent/src/Adapter/AdapterSources.php:1629), so the moment anything creates
+// <tmp>/wprism-root/wp-content/plugins, every later suite on that host that
+// calls Policy::load() before installing its $wpdb fatals with "Call to a
+// member function rows() on null". Observed exactly that way: green on a
+// fresh checkout, red once a live-tier run had left `hello` and `newly`
+// there, and red from then on.
+//
+// tools/offline.php hid it behind a per-worker TMPDIR; `make
+// regress-offline-all` inherits the ambient one, so the canonical gate was
+// the one that broke. A per-pid root cannot be inherited from an earlier run,
+// which is the whole property -- a leftover tree under THIS pid's root is
+// unreachable by any other run and therefore harmless.
+//
+// Nothing is registered to delete it. Every suite that mkdirs under
+// WP_CONTENT_DIR / WP_PLUGIN_DIR today defines its own root first (four of
+// them do not include this file at all), so a cleanup hook here would have
+// nothing to collect -- while arming a recursive delete inside a file
+// tools/adapter-kit.php ships to adapter authors, in processes where a caller
+// has already defined ABSPATH as something real. Uniqueness is the fix;
+// deletion was machinery for a leak that does not exist.
 if (!defined('ABSPATH')) {
-    define('ABSPATH', sys_get_temp_dir() . '/wprism-root/');
+    define('ABSPATH', sys_get_temp_dir() . '/wprism-root-' . getmypid() . '-' . bin2hex(random_bytes(4)) . '/');
 }
 if (!defined('WP_CONTENT_DIR')) {
     define('WP_CONTENT_DIR', rtrim(ABSPATH, '/') . '/wp-content');
@@ -264,6 +290,7 @@ if (!defined('WP_CONTENT_DIR')) {
 if (!defined('WP_PLUGIN_DIR')) {
     define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
 }
+
 if (!defined('MINUTE_IN_SECONDS')) {
     define('MINUTE_IN_SECONDS', 60);
 }

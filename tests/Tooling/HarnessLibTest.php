@@ -73,6 +73,99 @@ final class HarnessLibTest extends TestCase
         return $db;
     }
 
+    // ------------------------------------------------------ path constants
+
+    /**
+     * ABSPATH must be unique per process, and it must not be a path a
+     * previous run could have created.
+     *
+     * The defect this pins: ABSPATH was a fixed
+     * `sys_get_temp_dir() . '/wprism-root/'`. wp_stubs.php's contract is that
+     * the path is defined and never created, but seven suites DO mkdir under
+     * WP_PLUGIN_DIR, so a failed run left the tree on disk -- and
+     * AdapterSources::plugin_source() branches on `is_dir(WP_PLUGIN_DIR)`
+     * (agent/src/Adapter/AdapterSources.php:1629) to decide whether to call
+     * get_option('active_plugins'). Once created, every later suite that
+     * called Policy::load() before installing its $wpdb fataled on that host
+     * and only that host. A per-pid root makes the inheritance impossible
+     * rather than merely discouraged.
+     */
+    public function testPathConstantsCannotBeInheritedFromAnEarlierRun(): void
+    {
+        $root = rtrim((string) ABSPATH, '/');
+
+        self::assertMatchesRegularExpression(
+            '#/wprism-root-' . getmypid() . '-[0-9a-f]{8}$#D',
+            $root,
+            'ABSPATH must carry this process id and a random suffix, not a fixed shared name'
+        );
+        self::assertStringStartsWith(
+            rtrim(sys_get_temp_dir(), '/'),
+            $root,
+            'ABSPATH must stay under the temp dir the shutdown cleanup is scoped to'
+        );
+        self::assertDirectoryDoesNotExist(
+            $root,
+            'wp_stubs.php defines the path and must never create it at include time'
+        );
+        self::assertSame(
+            $root . '/wp-content/plugins',
+            (string) WP_PLUGIN_DIR,
+            'WP_PLUGIN_DIR must hang off the unique root, or the branch above is reachable again'
+        );
+    }
+
+    /**
+     * Including wp_stubs.php must never delete a caller-defined ABSPATH tree.
+     *
+     * The file currently registers no cleanup at all, so this passes trivially
+     * today — it is here because the obvious way to tidy the per-pid root is a
+     * shutdown hook, and the obvious way to write that hook is wrong.
+     * sandbox/tests/offline/apply/regress_full_apply_attachment_recovery.php:14
+     * defines ABSPATH as the CHECKOUT ROOT and then includes this file at :87,
+     * so a hook registered at file scope arms a recursive delete against the
+     * repository, and tools/adapter-kit.php ships the same file to adapter
+     * authors. A guard that tests whether the path LOOKS minted is not enough:
+     * the victim below is named exactly like a minted root, using the child's
+     * own pid, and a shape-only guard deletes it.
+     */
+    public function testIncludingTheStubsNeverDeletesACallerDefinedAbspath(): void
+    {
+        // The victim is named the way a MINTED root is named, using the
+        // child's own pid, so the pre-fix shape test
+        // (`/wprism-root-<pid>-[0-9a-f]{8}$`) matches it exactly. That is the
+        // whole point: shape is not ownership, and a test whose victim fails
+        // the regex would pass against the defect it is meant to catch.
+        $stubs = dirname(__DIR__, 2) . '/sandbox/tests/lib/wp_stubs.php';
+        $child = <<<'PHP'
+            $victim = sys_get_temp_dir() . '/wprism-root-' . getmypid() . '-deadbeef';
+            mkdir($victim . '/wp-content/plugins', 0777, true);
+            file_put_contents($victim . '/keep.txt', 'must survive');
+            echo $victim, "\n";
+            define('ABSPATH', $victim . '/');
+            require %s;
+            PHP;
+        exec(
+            escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg(sprintf($child, var_export($stubs, true))) . ' 2>&1',
+            $output,
+            $status
+        );
+
+        self::assertSame(0, $status, 'child failed: ' . implode("\n", $output));
+        $victim = (string) ($output[0] ?? '');
+        self::assertNotSame('', $victim, 'child did not report its victim path');
+        self::assertFileExists(
+            $victim . '/keep.txt',
+            'wp_stubs.php deleted a tree under an ABSPATH a suite defined for itself'
+        );
+        self::assertDirectoryExists($victim . '/wp-content/plugins');
+
+        // Only reached when the assertions above hold, so a failure leaves the
+        // evidence on disk rather than tidying it away.
+        array_map('unlink', [$victim . '/keep.txt']);
+        array_map('rmdir', [$victim . '/wp-content/plugins', $victim . '/wp-content', $victim]);
+    }
+
     // --------------------------------------------------------- prepare()
 
     public function testPrepareRendersEveryWordPressPlaceholderType(): void

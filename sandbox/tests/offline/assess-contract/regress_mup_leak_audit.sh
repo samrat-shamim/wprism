@@ -316,6 +316,68 @@ JSON
     printf '%s\n' "$out" >&2
   fi
 
+  # --harness-root must mask the scratch PREFIX and nothing more. Both halves
+  # are checked from one view, because a mask that swallowed the whole token
+  # would pass the first and silently lose the second -- and losing it is how
+  # a real leak would hide behind a path.
+  mkdir -p "$scratch/root-mask"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/root-mask/doc.json"
+  cat > "$scratch/root-mask/human.txt" <<TXT
+wrote $scratch/root-mask/3f2504e0-4f89-41d3-9a0c-0305e82c3301.json
+TXT
+  out="$(php "$FIX/identifier-scan.php" 'fake view' "$scratch/root-mask/human.txt" \
+        "$scratch/root-mask/doc.json" --harness-root="$scratch/root-mask" 2>&1)"
+  if [ "$?" -eq 0 ]; then
+    fail 'self-test A: --harness-root masked a UUID FILENAME under the root, not just the prefix'
+    printf '%s\n' "$out" >&2
+  else
+    pass 'self-test A: a product-minted UUID under the masked root is still reported'
+  fi
+  # And the prefix itself, which is the environment, must not be reported.
+  mkdir -p "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/doc.json"
+  printf 'wrote %s/plan.json\n' "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301" \
+    > "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' \
+      "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/human.txt" \
+      "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/doc.json" \
+      --harness-root="$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301" >/dev/null 2>&1; then
+    pass 'self-test A: a UUID that is only part of the harness root is not reported'
+  else
+    fail 'self-test A: the audit reported its own TMPDIR back as a product leak'
+  fi
+
+  # The root as the SHELL passes it and the root as the PRODUCT prints it are
+  # different strings on stock macOS: TMPDIR carries a trailing slash, so
+  # mktemp yields `//`, and the views print realpath() with the /var symlink
+  # resolved. A byte-exact mask matches neither, which is how the first
+  # version of this passed on a normalised TMPDIR and left the audit failing
+  # on a default one.
+  mkdir -p "$scratch/norm"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/norm/doc.json"
+  printf 'wrote %s/plan.json\n' "$(cd "$scratch/norm" && pwd -P)" > "$scratch/norm/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' "$scratch/norm/human.txt" \
+      "$scratch/norm/doc.json" --harness-root="$scratch//norm/" >/dev/null 2>&1; then
+    pass 'self-test A: --harness-root masks the realpath the views print, not just the string it was given'
+  else
+    fail 'self-test A: a denormalised --harness-root failed to mask the path the product printed'
+  fi
+
+  # mktemp fills XXXXXX from [A-Za-z0-9], so a root can END in hex. An
+  # unanchored replace then eats the head of a longer token that merely starts
+  # with the root, and the remainder matches no shape -- a leak deleted from
+  # the findings rather than reported.
+  mkdir -p "$scratch/anchor"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/anchor/doc.json"
+  printf 'wrote /var/folders/qj/T/audit.a1a1b280f1f2b7d1cc179dba8d36aa88463eda6ac11cb8e60a4583e1bd16aa3c\n' \
+    > "$scratch/anchor/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' "$scratch/anchor/human.txt" \
+      "$scratch/anchor/doc.json" --harness-root=/var/folders/qj/T/audit.a1a1b2 >/dev/null 2>&1; then
+    fail 'self-test A: a root that PREFIXES a real 64-hex token swallowed it'
+  else
+    pass 'self-test A: masking is anchored to a path boundary, so a prefix root hides no identifier'
+  fi
+
   # (b) removing a row from internals.md must fail the disposition gate, and
   #     a row naming a command that does not exist must fail it too.
   echo 'self-test B: an internals.md missing a row must fail the disposition gate'
@@ -707,7 +769,10 @@ cp "$TMP/rehearse/rehearse.json" "$TMP/rehearse-preview.json"
 # a documented command that consumes what it admits.
 scan() {
   local label="$1" view="$2"; shift 2
-  if php "$FIX/identifier-scan.php" "$label" "$TMP/$view.human" "$TMP/$view.json" "$@"; then
+  # --harness-root names OUR scratch prefix so the shape scan does not report
+  # this audit's own TMPDIR back to us; see identifier-scan.php §2.
+  if php "$FIX/identifier-scan.php" "$label" "$TMP/$view.human" "$TMP/$view.json" \
+      --harness-root="$TMP" "$@"; then
     return 0
   fi
   fail "$label leaks an internal identifier into its human view (MUP §5.2)"
