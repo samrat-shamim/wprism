@@ -36,8 +36,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/wp_stubs.php",
             "role": "WPrismTest\\WpStore plus function_exists()-guarded WordPress function stubs",
-            "bytes": 37153,
-            "sha256": "f591ad32f92ba438b97bd01995b7c7c936cae0504a1963640ff364fea1a74374"
+            "bytes": 36082,
+            "sha256": "d28b583963be4b5fa5b58486710495830c4c03bd017cbdb25640d090a838f4bd"
         },
         {
             "path": "lib/FakeWpdb.php",

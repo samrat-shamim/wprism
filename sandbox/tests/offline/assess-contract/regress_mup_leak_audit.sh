@@ -347,6 +347,37 @@ TXT
     fail 'self-test A: the audit reported its own TMPDIR back as a product leak'
   fi
 
+  # The root as the SHELL passes it and the root as the PRODUCT prints it are
+  # different strings on stock macOS: TMPDIR carries a trailing slash, so
+  # mktemp yields `//`, and the views print realpath() with the /var symlink
+  # resolved. A byte-exact mask matches neither, which is how the first
+  # version of this passed on a normalised TMPDIR and left the audit failing
+  # on a default one.
+  mkdir -p "$scratch/norm"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/norm/doc.json"
+  printf 'wrote %s/plan.json\n' "$(cd "$scratch/norm" && pwd -P)" > "$scratch/norm/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' "$scratch/norm/human.txt" \
+      "$scratch/norm/doc.json" --harness-root="$scratch//norm/" >/dev/null 2>&1; then
+    pass 'self-test A: --harness-root masks the realpath the views print, not just the string it was given'
+  else
+    fail 'self-test A: a denormalised --harness-root failed to mask the path the product printed'
+  fi
+
+  # mktemp fills XXXXXX from [A-Za-z0-9], so a root can END in hex. An
+  # unanchored replace then eats the head of a longer token that merely starts
+  # with the root, and the remainder matches no shape -- a leak deleted from
+  # the findings rather than reported.
+  mkdir -p "$scratch/anchor"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/anchor/doc.json"
+  printf 'wrote /var/folders/qj/T/audit.a1a1b280f1f2b7d1cc179dba8d36aa88463eda6ac11cb8e60a4583e1bd16aa3c\n' \
+    > "$scratch/anchor/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' "$scratch/anchor/human.txt" \
+      "$scratch/anchor/doc.json" --harness-root=/var/folders/qj/T/audit.a1a1b2 >/dev/null 2>&1; then
+    fail 'self-test A: a root that PREFIXES a real 64-hex token swallowed it'
+  else
+    pass 'self-test A: masking is anchored to a path boundary, so a prefix root hides no identifier'
+  fi
+
   # (b) removing a row from internals.md must fail the disposition gate, and
   #     a row naming a command that does not exist must fail it too.
   echo 'self-test B: an internals.md missing a row must fail the disposition gate'

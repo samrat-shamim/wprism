@@ -251,9 +251,48 @@ foreach ($leaked as $line) {
 // correct. Masking the prefix rather than the whole token is what keeps the
 // scan honest: a product-minted UUID used as a FILENAME under that root still
 // has to answer for itself.
-$shapeHuman = $harnessRoot !== ''
-    ? str_replace($harnessRoot, '<harness-root>', $human)
-    : $human;
+// Both forms of the root are masked, and matching is anchored to a path
+// boundary. Neither is optional:
+//
+//   NORMALISATION. macOS ships TMPDIR with a trailing slash, so
+//   `mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX"` yields `/var/folders/…/T//x.AbC123`,
+//   while the views print what realpath() returns -- `/private/var/folders/
+//   …/T/x.AbC123`, `//` collapsed and the /var symlink resolved. A byte-exact
+//   replace of the raw string matches nothing there, which is how the first
+//   version of this masking passed on an already-normalised TMPDIR and left
+//   the audit failing on a stock macOS one.
+//
+//   ANCHORING. mktemp fills its XXXXXX from [A-Za-z0-9], so a root can end in
+//   hex, and an unanchored replace then eats the HEAD of a longer token that
+//   merely starts with the root -- turning a leaked 64-hex digest into a
+//   remainder that matches no shape and is silently dropped. Requiring the
+//   next character to be a path separator or nothing keeps the mask to whole
+//   path segments, so a product-minted identifier used as a FILENAME under
+//   the root still has to answer for itself.
+// Three shapes, because the haystack is not normalised either: a view built
+// by the shell prints the `//` verbatim, while one that went through the
+// product prints realpath(). Collapsing only the needle would miss the first.
+$shapeHuman = $human;
+$maskRoots = [];
+foreach ([
+    $harnessRoot,
+    (string) preg_replace('#/+#', '/', $harnessRoot),
+    (string) realpath($harnessRoot),
+] as $candidate) {
+    $candidate = rtrim($candidate, '/');
+    if ($candidate !== '' && $candidate !== '/') {
+        $maskRoots[$candidate] = strlen($candidate);
+    }
+}
+// Longest first: a shorter root that prefixes a longer one must not consume it.
+arsort($maskRoots);
+foreach (array_keys($maskRoots) as $root) {
+    $shapeHuman = (string) preg_replace(
+        '#' . preg_quote($root, '#') . '(?=/|$|[^A-Za-z0-9._-])#m',
+        '<harness-root>',
+        $shapeHuman
+    );
+}
 $shaped = [];
 foreach (MUP_LEAK_SHAPE_RE as $kind => $pattern) {
     if (preg_match_all($pattern, $shapeHuman, $matches) < 1) {
