@@ -383,12 +383,41 @@ final class OfflineRunner
                 continue;
             }
             $body = @file_get_contents($abs);
-            if ($body !== false && preg_match(self::HARDCODED_TMP_REGEX, $body) === 1) {
+            if ($body !== false && preg_match(self::HARDCODED_TMP_REGEX, self::withoutConcatenatedTmp($body)) === 1) {
                 $hits[] = $rel;
             }
         }
 
         return $hits;
+    }
+
+    /**
+     * $body with every CONCATENATED `'/tmp/...'` literal removed.
+     *
+     * `dirname(__DIR__, 3) . '/tmp/policy-load-scale'` and
+     * `$sandbox . '/tmp/demo-' . $name . '.env'` are `sandbox/tmp/...` --
+     * gitignored per-repo scratch, already isolated per checkout, and NOT the
+     * shared `/tmp` inode the serial group exists to protect. HARDCODED_TMP_REGEX
+     * cannot see the difference on its own: it anchors on "not a path
+     * character", and the `'` opening the literal qualifies, so a relative
+     * concatenation scanned identically to an absolute path.
+     *
+     * That misread is not free. It put regress-ideal-onboarding (82.7 s),
+     * regress-policy-load-scale (10.8 s) and their siblings in the serial
+     * group, and the group runs strictly one-at-a-time -- 217.0 s of the
+     * corpus's 242.9 s wall, against 1113.9 s of total suite time that
+     * otherwise spreads over the workers. The chain, not the work, was the
+     * bound.
+     *
+     * Only a literal introduced by a `.` concatenation operator is dropped. A
+     * literal that STARTS an expression (`$p = '/tmp/fixed' . $x;`) is a real
+     * absolute path and still matches -- which is why this strips rather than
+     * loosens the regex, keeping the over-match bias the serial group is built
+     * on (a false serial costs wall time; a false parallel corrupts scratch).
+     */
+    public static function withoutConcatenatedTmp(string $body): string
+    {
+        return (string) preg_replace('#\.\s*[\'"]/tmp/#', '', $body);
     }
 
     // ----------------------------------------------------------- diagnostics

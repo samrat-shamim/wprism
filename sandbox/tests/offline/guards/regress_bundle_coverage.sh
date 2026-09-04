@@ -495,10 +495,10 @@ grep -q "missing from tools/offline-corpus.mk: ${EXCLUDED}" "$TMP/derive-exclude
 pass "self-test: an attempted exclusion of '$EXCLUDED' was refused by name"
 
 say "real check: every sandbox/tests/regress_*.{sh,php} file vs. Makefile's regress-offline-all / regress-live-list"
-if check_coverage sandbox/tests Makefile . 2>/tmp/coverage_real.log; then
+if check_coverage sandbox/tests Makefile . 2>"$TMP/coverage_real.log"; then
   pass "every regress-* suite file has a regress-offline-all or regress-live-list entry"
 else
-  cat /tmp/coverage_real.log >&2
+  cat "$TMP/coverage_real.log" >&2
   fail "one or more regress_*.{sh,php} files exist with no regress-offline-all or regress-live-list entry -- see above. Add the missing target to whichever bundle matches its docker/pair.sh dependency (see regress-offline-all's own comment for the classification rule), or if it's a genuine helper invoked by another suite (php/bash <this-file> appearing in another regress_*.{sh,php} file's own code), this check already excludes it -- so a flag here means neither is currently true."
 fi
 
