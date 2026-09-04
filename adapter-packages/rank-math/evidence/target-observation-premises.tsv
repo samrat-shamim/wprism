@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=43 fixtures=8
+# expected observations=45 fixtures=8
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty "$side Rank Math observation"
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math zero-change plan' json
@@ -41,6 +41,8 @@ observation	tests/certify/version-matrix.sh	capture_wprism_json_success RANK_MAT
 observation	tests/certify/version-matrix.sh	capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply'
 observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math upgrade source native module readiness'
 observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math upgrade target native module readiness'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math virgin-target private refusal baseline'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math virgin-target private refusal receipt'
 observation	tests/certify/version-matrix.sh	require_wprism_answered 'Rank Math virgin-target strict plan' json
 observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math outside-range state baseline'
 observation	tests/certify/version-matrix.sh	require_wprism_answered 'Rank Math outside-range host deploy' human

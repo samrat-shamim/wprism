@@ -9,6 +9,12 @@ declare(strict_types=1);
 const WPRISM_RANK_MATH_PRIVATE_REFUSAL_FORMAT = 'wprism-rank-math-private-refusal-check/v1';
 const WPRISM_RANK_MATH_PRIVATE_REFUSAL_RECORD_LIMIT = 262144;
 const WPRISM_RANK_MATH_PRIVATE_REFUSAL_PROFILES = [
+    'virgin-schema' => [
+        'command' => 'plan',
+        'reason_code' => 'plan_failed',
+        'message' => "wprism: declared table 'rank_math_redirections' does not exist on this environment "
+            . '(plugin inactive, or manifest stale?)',
+    ],
     'missing-code' => [
         'command' => 'lifecycle-status',
         'reason_code' => 'lifecycle_status_failed',

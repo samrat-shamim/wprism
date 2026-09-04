@@ -90,6 +90,12 @@ echo wp_json_encode([
 ' | awk 'NF { line=$0 } END { print line }'
 }
 
+rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseline]
+  "${PAIR_COMPOSE[@]}" run --rm -T --entrypoint php cli2 \
+    /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
+    "$@"
+}
+
 VMATRIX_PLUGIN_SLUG=seo-by-rank-math
 
 version_matrix_preflight() {
@@ -159,13 +165,37 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
 
   PREDEPLOY_STATE=$(rank_math_native_state_hash wp2)
   require_observed_nonempty 'Rank Math virgin-target native baseline' "$PREDEPLOY_STATE"
+  PREDEPLOY_PRIVATE_BASELINE=$(rank_math_private_evidence \
+    snapshot virgin-schema /siterepo/.wprism/refusals) \
+    || fail 'Rank Math virgin-target plan could not snapshot private evidence as the target CLI identity'
+  require_observed_nonempty 'Rank Math virgin-target private refusal baseline' "$PREDEPLOY_PRIVATE_BASELINE"
   PREDEPLOY_RC=0
   PREDEPLOY_PLAN=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || PREDEPLOY_RC=$?
   require_wprism_answered 'Rank Math virgin-target strict plan' json "$PREDEPLOY_PLAN"
+  PREDEPLOY_PLAN_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$PREDEPLOY_PLAN")
   [ "$PREDEPLOY_RC" -ne 0 ] \
-    && grep -Fq "declared table 'rank_math_" <<<"$PREDEPLOY_PLAN" \
-    && grep -Fq 'does not exist on this environment' <<<"$PREDEPLOY_PLAN" \
-    || fail "Rank Math virgin-target plan invented virtual schema instead of refusing: $PREDEPLOY_PLAN"
+    && jq -e '
+      . == {
+        format:"wprism-command-refusal/v1",ok:false,command:"plan",
+        error:"plan_failed",reason_code:"plan_failed",
+        message:"plan refused at an unclassified safety gate",
+        remediation:"inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker",
+        details_redacted:true,
+        diagnostics:[{
+          code:"plan_failed",message:"plan refused at an unclassified safety gate",
+          remediation:"inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker"
+        }]
+      }
+    ' <<<"$PREDEPLOY_PLAN_JSON" >/dev/null \
+    && ! grep -Fq "declared table 'rank_math_" <<<"$PREDEPLOY_PLAN" \
+    || fail "Rank Math virgin-target plan did not return its exact redacted refusal: $PREDEPLOY_PLAN"
+  PREDEPLOY_PRIVATE_RECEIPT=$(rank_math_private_evidence \
+    verify virgin-schema /siterepo/.wprism/refusals "$PREDEPLOY_PRIVATE_BASELINE") \
+    || fail 'Rank Math virgin-target plan could not verify private evidence as the target CLI identity'
+  require_observed_nonempty 'Rank Math virgin-target private refusal receipt' "$PREDEPLOY_PRIVATE_RECEIPT"
+  [ "$PREDEPLOY_PRIVATE_RECEIPT" = \
+    '{"command":"plan","format":"wprism-rank-math-private-refusal-check/v1","new_records":1,"root_message_sha256":"4a8208927399b3863b0973d34410b2fd71bfc406d286d10dc14de0b24763ff76","verified":true}' ] \
+    || fail "Rank Math virgin-target private evidence is malformed: $PREDEPLOY_PRIVATE_RECEIPT"
   [ "$(rank_math_native_state_hash wp2)" = "$PREDEPLOY_STATE" ] \
     || fail 'Rank Math virgin-target strict-plan refusal mutated plugin state'
 

@@ -166,6 +166,25 @@ $check(
             === '9145307bebd452be68d85b17d6bcd43b48921710b4a3f4fd9ffd0010d7690d93',
     'the lifecycle profile proves the exact private missing-code cause without disclosing it'
 );
+$virginSchemaBaseline = $run(['snapshot', 'virgin-schema', $directory]);
+$check(
+    $virginSchemaBaseline['exit'] === 0
+        && $virginSchemaBaseline['stdout'] === "[]\n"
+        && $virginSchemaBaseline['stderr'] === '',
+    'plan-scoped inventory excludes schema-status and lifecycle-status records'
+);
+$virginSchemaName = '20260903-164522-plan-' . str_repeat('e', 24) . '.json';
+$virginSchemaMessage = rank_math_private_refusal_profile('virgin-schema')['message'];
+$writeRecord($directory . '/' . $virginSchemaName, 'virgin-schema', $virginSchemaMessage);
+$virginSchemaVerified = $run(['verify', 'virgin-schema', $directory, '[]']);
+$check(
+    $virginSchemaVerified['exit'] === 0
+        && $virginSchemaVerified['stdout'] === rank_math_private_refusal_receipt('virgin-schema') . "\n"
+        && !str_contains($virginSchemaVerified['stdout'], $virginSchemaMessage)
+        && hash('sha256', $virginSchemaMessage)
+            === '4a8208927399b3863b0973d34410b2fd71bfc406d286d10dc14de0b24763ff76',
+    'the plan profile proves the exact private virgin-schema cause without disclosing it'
+);
 $unknownProfile = $run(['snapshot', 'not-a-profile', $directory]);
 $check(
     $unknownProfile['exit'] !== 0
@@ -174,6 +193,6 @@ $check(
 );
 
 echo $failures === 0
-    ? "PASS: Rank Math private refusal evidence (11 assertions)\n"
+    ? "PASS: Rank Math private refusal evidence (13 assertions)\n"
     : "FAIL: Rank Math private refusal evidence ($failures failures)\n";
 exit($failures === 0 ? 0 : 1);
