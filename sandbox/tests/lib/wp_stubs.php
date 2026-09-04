@@ -255,8 +255,27 @@ if (!defined('ARRAY_N')) {
 
 // Path constants. Defined, never created: an offline suite that only reads
 // paths must not leave directories behind in a parallel `make -j8` run.
+//
+// UNIQUE PER PROCESS, for the reason uploadBaseDir already is (:143-147) and
+// one more that is worse. "Never created" is this file's contract, not a
+// property of the tree: seven suites DO mkdir under WP_PLUGIN_DIR /
+// WP_CONTENT_DIR, and a failed run leaves the directory behind. Once
+// <tmp>/wprism-root/wp-content/plugins exists, it exists for every later run
+// on that host, and AdapterSources::plugin_source() changes branch on exactly
+// that -- `is_dir($dir)` at agent/src/Adapter/AdapterSources.php:1629 is what
+// gates the get_option('active_plugins') call. A suite that calls
+// Policy::load() before installing its $wpdb then fatals with "Call to a
+// member function rows() on null", and it fatals FOREVER AFTER on that
+// machine, having passed on every clean one. Observed exactly this way:
+// green on a fresh checkout, red once a live-tier run had populated
+// <tmp>/wprism-root/wp-content/plugins with `hello` and `newly`.
+//
+// tools/offline.php hides it (per-worker TMPDIR); `make regress-offline-all`
+// does not, so the canonical gate was the one that broke. A per-pid root
+// cannot be inherited from a previous run, so the contract holds even when a
+// suite ignores it.
 if (!defined('ABSPATH')) {
-    define('ABSPATH', sys_get_temp_dir() . '/wprism-root/');
+    define('ABSPATH', sys_get_temp_dir() . '/wprism-root-' . getmypid() . '-' . bin2hex(random_bytes(4)) . '/');
 }
 if (!defined('WP_CONTENT_DIR')) {
     define('WP_CONTENT_DIR', rtrim(ABSPATH, '/') . '/wp-content');
@@ -264,6 +283,40 @@ if (!defined('WP_CONTENT_DIR')) {
 if (!defined('WP_PLUGIN_DIR')) {
     define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
 }
+
+// A per-pid root cannot be INHERITED, but the seven suites that mkdir inside
+// it still leave one tree per run, so uniqueness alone would trade an
+// inheritance bug for a litter one -- and this host already carries 11,861
+// temp entries. Removing it at shutdown keeps both properties.
+//
+// The shape test is the safety gate, not decoration: ABSPATH is defined above
+// only when a suite has not already defined its own, so this must delete
+// nothing but a path THIS process could have minted. Matching pid plus the
+// random suffix proves that without needing a global to remember it, which
+// the header's no-side-effects rule would otherwise forbid.
+//
+// Silent for the reason WpStore::removeUploadDir() is: this runs at shutdown,
+// where a warning is indistinguishable from a real PHP diagnostic to
+// sandbox/tests/offline_diagnostics_guard.sh.
+register_shutdown_function(static function (): void {
+    $root = rtrim((string) ABSPATH, '/');
+    if (preg_match('#/wprism-root-' . getmypid() . '-[0-9a-f]{8}$#D', $root) !== 1 || !is_dir($root)) {
+        return;
+    }
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($entries as $entry) {
+        /** @var SplFileInfo $entry */
+        if ($entry->isDir()) {
+            @rmdir($entry->getPathname());
+            continue;
+        }
+        @unlink($entry->getPathname());
+    }
+    @rmdir($root);
+});
 if (!defined('MINUTE_IN_SECONDS')) {
     define('MINUTE_IN_SECONDS', 60);
 }

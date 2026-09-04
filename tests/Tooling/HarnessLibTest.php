@@ -73,6 +73,48 @@ final class HarnessLibTest extends TestCase
         return $db;
     }
 
+    // ------------------------------------------------------ path constants
+
+    /**
+     * ABSPATH must be unique per process, and it must not be a path a
+     * previous run could have created.
+     *
+     * The defect this pins: ABSPATH was a fixed
+     * `sys_get_temp_dir() . '/wprism-root/'`. wp_stubs.php's contract is that
+     * the path is defined and never created, but seven suites DO mkdir under
+     * WP_PLUGIN_DIR, so a failed run left the tree on disk -- and
+     * AdapterSources::plugin_source() branches on `is_dir(WP_PLUGIN_DIR)`
+     * (agent/src/Adapter/AdapterSources.php:1629) to decide whether to call
+     * get_option('active_plugins'). Once created, every later suite that
+     * called Policy::load() before installing its $wpdb fataled on that host
+     * and only that host. A per-pid root makes the inheritance impossible
+     * rather than merely discouraged.
+     */
+    public function testPathConstantsCannotBeInheritedFromAnEarlierRun(): void
+    {
+        $root = rtrim((string) ABSPATH, '/');
+
+        self::assertMatchesRegularExpression(
+            '#/wprism-root-' . getmypid() . '-[0-9a-f]{8}$#D',
+            $root,
+            'ABSPATH must carry this process id and a random suffix, not a fixed shared name'
+        );
+        self::assertStringStartsWith(
+            rtrim(sys_get_temp_dir(), '/'),
+            $root,
+            'ABSPATH must stay under the temp dir the shutdown cleanup is scoped to'
+        );
+        self::assertDirectoryDoesNotExist(
+            $root,
+            'wp_stubs.php defines the path and must never create it at include time'
+        );
+        self::assertSame(
+            $root . '/wp-content/plugins',
+            (string) WP_PLUGIN_DIR,
+            'WP_PLUGIN_DIR must hang off the unique root, or the branch above is reachable again'
+        );
+    }
+
     // --------------------------------------------------------- prepare()
 
     public function testPrepareRendersEveryWordPressPlaceholderType(): void

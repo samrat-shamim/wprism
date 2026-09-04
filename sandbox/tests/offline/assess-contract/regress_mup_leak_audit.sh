@@ -316,6 +316,37 @@ JSON
     printf '%s\n' "$out" >&2
   fi
 
+  # --harness-root must mask the scratch PREFIX and nothing more. Both halves
+  # are checked from one view, because a mask that swallowed the whole token
+  # would pass the first and silently lose the second -- and losing it is how
+  # a real leak would hide behind a path.
+  mkdir -p "$scratch/root-mask"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/root-mask/doc.json"
+  cat > "$scratch/root-mask/human.txt" <<TXT
+wrote $scratch/root-mask/3f2504e0-4f89-41d3-9a0c-0305e82c3301.json
+TXT
+  out="$(php "$FIX/identifier-scan.php" 'fake view' "$scratch/root-mask/human.txt" \
+        "$scratch/root-mask/doc.json" --harness-root="$scratch/root-mask" 2>&1)"
+  if [ "$?" -eq 0 ]; then
+    fail 'self-test A: --harness-root masked a UUID FILENAME under the root, not just the prefix'
+    printf '%s\n' "$out" >&2
+  else
+    pass 'self-test A: a product-minted UUID under the masked root is still reported'
+  fi
+  # And the prefix itself, which is the environment, must not be reported.
+  mkdir -p "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+  printf '{"format":"wprism-fake/v1"}\n' > "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/doc.json"
+  printf 'wrote %s/plan.json\n' "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301" \
+    > "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' \
+      "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/human.txt" \
+      "$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301/doc.json" \
+      --harness-root="$scratch/3f2504e0-4f89-41d3-9a0c-0305e82c3301" >/dev/null 2>&1; then
+    pass 'self-test A: a UUID that is only part of the harness root is not reported'
+  else
+    fail 'self-test A: the audit reported its own TMPDIR back as a product leak'
+  fi
+
   # (b) removing a row from internals.md must fail the disposition gate, and
   #     a row naming a command that does not exist must fail it too.
   echo 'self-test B: an internals.md missing a row must fail the disposition gate'
@@ -707,7 +738,10 @@ cp "$TMP/rehearse/rehearse.json" "$TMP/rehearse-preview.json"
 # a documented command that consumes what it admits.
 scan() {
   local label="$1" view="$2"; shift 2
-  if php "$FIX/identifier-scan.php" "$label" "$TMP/$view.human" "$TMP/$view.json" "$@"; then
+  # --harness-root names OUR scratch prefix so the shape scan does not report
+  # this audit's own TMPDIR back to us; see identifier-scan.php §2.
+  if php "$FIX/identifier-scan.php" "$label" "$TMP/$view.human" "$TMP/$view.json" \
+      --harness-root="$TMP" "$@"; then
     return 0
   fi
   fail "$label leaks an internal identifier into its human view (MUP §5.2)"

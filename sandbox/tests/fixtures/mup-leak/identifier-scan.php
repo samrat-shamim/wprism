@@ -169,7 +169,12 @@ $label = array_shift($argvList);
 $humanPath = array_shift($argvList);
 $jsonPath = array_shift($argvList);
 $allowKeys = [];
+$harnessRoot = '';
 foreach ($argvList as $arg) {
+    if (is_string($arg) && str_starts_with($arg, '--harness-root=')) {
+        $harnessRoot = substr($arg, strlen('--harness-root='));
+        continue;
+    }
     if (!is_string($arg) || !str_starts_with($arg, '--allow-key=')) {
         fwrite(STDERR, "identifier-scan: unexpected argument '" . (string) $arg . "'\n");
         exit(2);
@@ -236,9 +241,22 @@ foreach ($leaked as $line) {
 }
 
 // ------------------------------------------------------------- 2. the shapes
+//
+// The harness's own scratch ROOT is masked first, and only the root. A view
+// that names a file under it prints the whole path, so an identifier shape
+// inside that PREFIX is the operator's directory, not something the product
+// minted -- `mktemp -d "${TMPDIR:-/tmp}/..."` inherits whatever TMPDIR is, and
+// a TMPDIR carrying a UUID (a per-session agent scratch, for one) made this
+// audit report the environment and fail on a machine where the product was
+// correct. Masking the prefix rather than the whole token is what keeps the
+// scan honest: a product-minted UUID used as a FILENAME under that root still
+// has to answer for itself.
+$shapeHuman = $harnessRoot !== ''
+    ? str_replace($harnessRoot, '<harness-root>', $human)
+    : $human;
 $shaped = [];
 foreach (MUP_LEAK_SHAPE_RE as $kind => $pattern) {
-    if (preg_match_all($pattern, $human, $matches) < 1) {
+    if (preg_match_all($pattern, $shapeHuman, $matches) < 1) {
         continue;
     }
     foreach (array_unique($matches[0]) as $token) {
