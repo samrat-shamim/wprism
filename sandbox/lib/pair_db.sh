@@ -63,7 +63,15 @@ pair_db_sql() { # pair_db_sql — run SQL read from stdin as root against the sh
 }
 
 pair_db_ensure_up() {
-  "${DB_COMPOSE[@]}" up -d >/dev/null
+  # The server is fleet-shared across every pair and every linked worktree.
+  # Compose includes the absolute config path in container metadata, so plain
+  # `up` from another clean checkout can replace a healthy singleton even when
+  # db.yml is byte-identical; an in-flight host compile then fails with "Error
+  # establishing a database connection". Pair lifecycle may create or start
+  # this server, never reconfigure it underneath already-running pairs. A real
+  # DB image/config change is an explicit fleet-admin recreate, outside one
+  # pair's lifecycle.
+  "${DB_COMPOSE[@]}" up -d --no-recreate >/dev/null
   for _ in $(seq 1 60); do
     if [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB_CONTAINER" 2>/dev/null || true)" = "healthy" ]; then
       return 0

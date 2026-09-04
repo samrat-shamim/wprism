@@ -263,7 +263,8 @@ In order: report (and, when `WPRISM_EXPECTED_SOURCE_SHA` is set, verify) the
 agent/adapter-packages/platform bind-mount source, before anything else at all;
 validate the
 dynamic host CPU/RAM pair budget (before creating any
-pair state); ensure the shared db is up and healthy; ensure the `wordpress`
+pair state); ensure the shared db is up and healthy without recreating an
+already-running singleton; ensure the `wordpress`
 user/grant exist; create this pair's two databases; create its site-repo
 directories (and, under `--codebind`, the plugin subdirectory the bind
 mount needs to exist before any container attaches to it — see below); bring
@@ -274,6 +275,15 @@ bootstrap (`core install`, theme, permalinks, `.htaccess`) on each side
 pattern. Re-running `up` on an already-installed pair is safe and fast — it
 re-converges the containers (a no-op if config hasn't changed) and skips
 the bootstrap entirely.
+
+The shared server is deliberately stricter than a pair's own containers:
+ordinary `up`, `start`, `reset`, and `destroy` prerequisites use Compose
+`--no-recreate`. Compose records an absolute config-file path, so two clean
+linked worktrees can otherwise replace the same healthy `wprism-shared-db` container
+despite supplying byte-identical `db.yml`, disconnecting every in-flight pair.
+Changing the shared database image or configuration is a fleet-wide admin
+operation and must be recreated explicitly when no pair is using it; it is not
+an implicit side effect of one pair's lifecycle.
 
 **The readiness fix task #74 called for**: every script in this sandbox
 (`setup.sh`, `conformance/run.sh`, the spike scripts) polls `wp core

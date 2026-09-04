@@ -54,7 +54,6 @@ namespace {
     require_once __DIR__ . '/../../lib/check.php';
 
     $priorMemoryLimit = ini_set('memory_limit', '32M');
-    wprism_check($priorMemoryLimit !== false && ini_get('memory_limit') === '32M', 'the transport suite runs under a 32 MiB parent ceiling');
 
     final class WpCliChildConfigurator {
         /** @return array{0:array{},1:array{},2:array<string,mixed>} */
@@ -125,8 +124,213 @@ namespace {
         return isset($fields[0]) && in_array($fields[0], ['Z', 'X'], true);
     }
 
+    /** Install a probe briefly and report whether the exact expected handler was current. */
+    function wp_cli_child_handler_is_current(callable $expected): bool {
+        $probe = static fn(int $_severity, string $_message): bool => true;
+        $current = set_error_handler($probe);
+        restore_error_handler();
+        return $current === $expected;
+    }
+
+    /** @param array<string,mixed> $result */
+    function wp_cli_child_write_probe_result(string $path, array $result): never {
+        $encoded = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        if (file_put_contents($path, $encoded) !== strlen($encoded)) {
+            exit(97);
+        }
+        exit(0);
+    }
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    function wp_cli_child_run_probe(array $arguments): array {
+        $process = proc_open(
+            array_merge([PHP_BINARY, __FILE__], $arguments),
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        if (!is_resource($process)) {
+            return ['exit' => -1, 'stdout' => '', 'stderr' => 'probe could not start'];
+        }
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return [
+            'exit' => proc_close($process),
+            'stdout' => is_string($stdout) ? $stdout : '',
+            'stderr' => is_string($stderr) ? $stderr : '',
+        ];
+    }
+
     $root = dirname(__DIR__, 4);
     require_once $root . '/agent/src/Kernel/WpCliChildProcess.php';
+
+    $probeMode = $GLOBALS['argv'][1] ?? null;
+    if (in_array($probeMode, ['--eintr-probe', '--non-eintr-probe'], true)) {
+        $fixture = $GLOBALS['argv'][2] ?? '';
+        $readyFile = $GLOBALS['argv'][3] ?? '';
+        $resultFile = $GLOBALS['argv'][4] ?? '';
+        $GLOBALS['argv'] = [$fixture];
+        $GLOBALS['wp_cli_child_runtime_config'] = ['path' => '/srv/probe'];
+        $GLOBALS['wp_cli_child_alias'] = 'probe';
+        $GLOBALS['wp_cli_child_php_binary'] = PHP_BINARY;
+        $GLOBALS['wp_cli_child_commands'] = [];
+        $GLOBALS['wp_cli_child_proc_checks'] = [];
+
+        if ($probeMode === '--eintr-probe') {
+            $outerWarnings = [];
+            $outer = static function (
+                int $severity,
+                string $message,
+                string $_file,
+                int $_line
+            ) use (&$outerWarnings): bool {
+                $outerWarnings[] = [$severity, $message];
+                return true;
+            };
+            set_error_handler($outer);
+            pcntl_async_signals(true);
+            pcntl_signal(SIGUSR1, static function (): void {}, false);
+            $workerPid = getmypid();
+            $signalerPid = pcntl_fork();
+            if ($signalerPid === 0) {
+                $readyDeadline = hrtime(true) + 2000000000;
+                while (!is_file($readyFile) && hrtime(true) < $readyDeadline) {
+                    usleep(1000);
+                }
+                if (!is_file($readyFile)) {
+                    exit(41);
+                }
+                for ($signal = 0; $signal < 60; $signal++) {
+                    if (@posix_kill($workerPid, SIGUSR1) !== true) {
+                        exit(42);
+                    }
+                    usleep(5000);
+                }
+                exit(0);
+            }
+
+            $receipt = null;
+            $failure = null;
+            if ($signalerPid < 1) {
+                $failure = 'signal helper could not start';
+            } else {
+                try {
+                    $receipt = WPrism\WpCliChildProcess::capture(
+                        'delayed-receipt ' . escapeshellarg($readyFile),
+                        5,
+                        65536,
+                        65536
+                    );
+                } catch (Throwable $exception) {
+                    $failure = $exception->getMessage();
+                }
+            }
+
+            $signalerStatus = 0;
+            $signalerWaited = -1;
+            if ($signalerPid > 0) {
+                $waitDeadline = hrtime(true) + 3000000000;
+                do {
+                    $signalerWaited = @pcntl_waitpid($signalerPid, $signalerStatus, WNOHANG);
+                    if ($signalerWaited === $signalerPid || $signalerWaited === -1) {
+                        break;
+                    }
+                    usleep(1000);
+                } while (hrtime(true) < $waitDeadline);
+                if ($signalerWaited !== $signalerPid) {
+                    @posix_kill($signalerPid, SIGKILL);
+                    $signalerWaited = @pcntl_waitpid($signalerPid, $signalerStatus);
+                }
+            }
+
+            wp_cli_child_write_probe_result($resultFile, [
+                'receipt' => $receipt,
+                'failure' => $failure,
+                'signaler_ok' => $signalerPid > 0
+                    && $signalerWaited === $signalerPid
+                    && pcntl_wifexited($signalerStatus)
+                    && pcntl_wexitstatus($signalerStatus) === 0,
+                'outer_warnings' => $outerWarnings,
+                'handler_restored' => wp_cli_child_handler_is_current($outer),
+            ]);
+        }
+
+        $handles = [];
+        for ($index = 0; $index < 1300; $index++) {
+            $handle = @fopen('/dev/null', 'rb');
+            if (!is_resource($handle)) {
+                break;
+            }
+            $handles[] = $handle;
+        }
+        $probeWarning = null;
+        $warningProbe = static function (
+            int $_severity,
+            string $message,
+            string $_file,
+            int $_line
+        ) use (&$probeWarning): bool {
+            $probeWarning = $message;
+            return true;
+        };
+        set_error_handler($warningProbe);
+        $probeRead = $handles === [] ? [] : [end($handles)];
+        $probeWrite = [];
+        $probeExcept = null;
+        $probeSelected = $probeRead === []
+            ? null
+            : stream_select($probeRead, $probeWrite, $probeExcept, 0, 0);
+        restore_error_handler();
+        $supported = $probeSelected === false
+            && is_string($probeWarning)
+            && str_contains($probeWarning, 'FD_SETSIZE');
+
+        $receipt = null;
+        $failure = null;
+        $outerWarningCount = 0;
+        $outerWarning = null;
+        $handlerRestored = null;
+        if ($supported) {
+            $outer = static function (
+                int $_severity,
+                string $message,
+                string $_file,
+                int $_line
+            ) use (&$outerWarningCount, &$outerWarning): bool {
+                $outerWarningCount++;
+                $outerWarning ??= $message;
+                return true;
+            };
+            set_error_handler($outer);
+            try {
+                $receipt = WPrism\WpCliChildProcess::capture(
+                    'delayed-receipt ' . escapeshellarg($readyFile),
+                    5,
+                    65536,
+                    65536
+                );
+            } catch (Throwable $exception) {
+                $failure = $exception->getMessage();
+            }
+            $handlerRestored = wp_cli_child_handler_is_current($outer);
+        }
+        foreach ($handles as $handle) {
+            fclose($handle);
+        }
+        wp_cli_child_write_probe_result($resultFile, [
+            'supported' => $supported,
+            'opened' => count($handles),
+            'probe_warning' => $probeWarning,
+            'receipt' => $receipt,
+            'failure' => $failure,
+            'outer_warning_count' => $outerWarningCount,
+            'outer_warning' => $outerWarning,
+            'handler_restored' => $handlerRestored,
+        ]);
+    }
+
+    wprism_check($priorMemoryLimit !== false && ini_get('memory_limit') === '32M', 'the transport suite runs under a 32 MiB parent ceiling');
 
     $scratch = sys_get_temp_dir() . '/wprism-cli-child-' . bin2hex(random_bytes(8));
     wprism_check(mkdir($scratch, 0700), 'the process fixture allocates a private scratch directory');
@@ -157,6 +361,13 @@ if ($mode === 'argv') {
 }
 if ($mode === 'receipt') {
     echo "{\"format\":\"bounded-receipt/v1\",\"verified\":true}\n";
+    exit(0);
+}
+if ($mode === 'delayed-receipt') {
+    $readyFile = (string) ($args[0] ?? '');
+    file_put_contents($readyFile, 'ready');
+    usleep(700000);
+    echo "{\"format\":\"delayed-receipt/v1\"}\n";
     exit(0);
 }
 if ($mode === 'memory-limit') {
@@ -556,6 +767,108 @@ PHP;
         json_decode(trim($receipt['stdout']), true, 4, JSON_THROW_ON_ERROR),
         'a tiny canonical receipt crosses the bounded transport byte-exactly'
     );
+
+    $signalFunctions = [
+        'pcntl_async_signals',
+        'pcntl_fork',
+        'pcntl_signal',
+        'pcntl_waitpid',
+        'pcntl_wifexited',
+        'pcntl_wexitstatus',
+        'posix_kill',
+    ];
+    $signalProbeSupported = defined('SIGUSR1') && defined('SIGKILL') && defined('WNOHANG');
+    foreach ($signalFunctions as $signalFunction) {
+        $signalProbeSupported = $signalProbeSupported && function_exists($signalFunction);
+    }
+    if (!$signalProbeSupported) {
+        echo "note: pcntl signal primitives unavailable; interrupted stream_select transport proof skipped\n";
+        wprism_check(true, 'the EINTR proof has an explicit portable skip outside the pcntl test profile');
+    } else {
+        $signalReadyFile = $scratch . '/eintr.ready';
+        $signalResultFile = $scratch . '/eintr.json';
+        $signalProbe = wp_cli_child_run_probe([
+            '--eintr-probe',
+            $child,
+            $signalReadyFile,
+            $signalResultFile,
+        ]);
+        $signalRaw = @file_get_contents($signalResultFile);
+        $signalResult = is_string($signalRaw) ? json_decode($signalRaw, true) : null;
+        wprism_check_same(
+            ['exit' => 0, 'stdout' => '', 'stderr' => ''],
+            $signalProbe,
+            'the isolated non-restarting signal worker exits without PHP diagnostics'
+        );
+        wprism_check_same(
+            [
+                'return_code' => 0,
+                'stdout' => "{\"format\":\"delayed-receipt/v1\"}\n",
+                'stderr' => '',
+            ],
+            is_array($signalResult) ? ($signalResult['receipt'] ?? null) : null,
+            'a storm of non-restarting signals cannot turn valid blocked child pipes into transport failure'
+        );
+        wprism_check_same(
+            [null, true, []],
+            is_array($signalResult)
+                ? [
+                    $signalResult['failure'] ?? null,
+                    $signalResult['signaler_ok'] ?? null,
+                    $signalResult['outer_warnings'] ?? null,
+                ]
+                : null,
+            'only numeric EINTR is consumed while the synchronized signaler exits cleanly'
+        );
+        wprism_check_same(
+            true,
+            is_array($signalResult) ? ($signalResult['handler_restored'] ?? null) : null,
+            'the EINTR path restores the exact pre-existing error handler after every interrupted wait'
+        );
+    }
+
+    $fdReadyFile = $scratch . '/fd-select.ready';
+    $fdResultFile = $scratch . '/fd-select.json';
+    $fdProbe = wp_cli_child_run_probe([
+        '--non-eintr-probe',
+        $child,
+        $fdReadyFile,
+        $fdResultFile,
+    ]);
+    $fdRaw = @file_get_contents($fdResultFile);
+    $fdResult = is_string($fdRaw) ? json_decode($fdRaw, true) : null;
+    wprism_check_same(
+        ['exit' => 0, 'stdout' => '', 'stderr' => ''],
+        $fdProbe,
+        'the isolated high-descriptor worker exits without PHP diagnostics'
+    );
+    if (!is_array($fdResult) || ($fdResult['supported'] ?? false) !== true) {
+        echo 'note: this PHP/ulimit profile did not expose an FD_SETSIZE stream_select refusal after '
+            . (is_array($fdResult) ? (int) ($fdResult['opened'] ?? 0) : 0)
+            . " descriptors; non-EINTR descriptor proof skipped\n";
+        wprism_check(
+            is_array($fdResult),
+            'the non-EINTR proof has an explicit portable skip when descriptor pressure cannot reach FD_SETSIZE'
+        );
+    } else {
+        wprism_check_same(
+            [null, 'wprism: bounded WP-CLI child transport failed'],
+            [$fdResult['receipt'] ?? null, $fdResult['failure'] ?? null],
+            'a non-EINTR stream_select false retains the immediate fixed transport refusal'
+        );
+        wprism_check(
+            ($fdResult['outer_warning_count'] ?? 0) > 0
+                && is_string($fdResult['outer_warning'] ?? null)
+                && str_contains($fdResult['outer_warning'], 'FD_SETSIZE'),
+            'non-EINTR transport diagnostics are delegated to the pre-existing error handler'
+        );
+        wprism_check_same(
+            true,
+            $fdResult['handler_restored'] ?? null,
+            'the non-EINTR refusal restores the exact pre-existing error handler'
+        );
+    }
+
     wprism_check_same(
         0,
         WPrism\WpCliChildProcess::capture('receipt', 600, 131072, 131072)['return_code'],

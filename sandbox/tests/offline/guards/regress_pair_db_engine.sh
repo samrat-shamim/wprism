@@ -43,8 +43,9 @@ COMPOSE_LIB="$ROOT/sandbox/lib/pair_compose.sh"
 PAIR_SH="$ROOT/sandbox/bin/pair.sh"
 PAIR_YML="$ROOT/sandbox/pair.yml"
 DB_MYSQL_YML="$ROOT/sandbox/db.mysql.yml"
+DB_SCOPE_LIVE="$ROOT/sandbox/tests/live/regress_core_scope_database.sh"
 
-for f in "$DB_LIB" "$IDENTITY_LIB" "$COMPOSE_LIB" "$PAIR_SH" "$PAIR_YML" "$DB_MYSQL_YML"; do
+for f in "$DB_LIB" "$IDENTITY_LIB" "$COMPOSE_LIB" "$PAIR_SH" "$PAIR_YML" "$DB_MYSQL_YML" "$DB_SCOPE_LIVE"; do
   [ -r "$f" ] || fail "missing file this suite is about: $f"
 done
 for f in "$DB_LIB" "$IDENTITY_LIB" "$COMPOSE_LIB" "$PAIR_SH"; do
@@ -352,5 +353,19 @@ grep -Fq 'image: mariadb:11' "$ROOT/sandbox/db.yml" \
 grep -Fq '"127.0.0.1:${WPRISM_SHARED_DB_PORT:-3316}:3306"' "$ROOT/sandbox/db.yml" \
   || fail "db.yml's published port lost its task-specific override with default 3316"
 pass "db.yml still defaults mariadb:11 / wprism-shared-db to 3316 and permits a task-scoped port override"
+
+say "every direct live-suite prerequisite preserves the fleet-shared database container"
+direct_db_up="$(grep -RhE 'docker compose .*wprism-db .*up ' "$ROOT/sandbox/tests/live" || true)"
+expected_db_up='docker compose -p wprism-db -f db.yml up -d --no-recreate >/dev/null'
+[ "$direct_db_up" = "$expected_db_up" ] \
+  || fail "direct live-suite wprism-db calls must be the one reviewed non-recreating prerequisite; got: $direct_db_up"
+case "$direct_db_up" in
+  *--force-recreate*) fail "a live suite may not force-recreate the fleet-shared database" ;;
+esac
+matrix_db_up="$(grep -F 'docker compose -p "$cell_project"' "$DB_SCOPE_LIVE" || true)"
+expected_matrix_db_up='  docker compose -p "$cell_project" -f "$cell_file" up -d --no-recreate >/dev/null'
+[ "$matrix_db_up" = "$expected_matrix_db_up" ] \
+  || fail "the database matrix's shared-engine prerequisite must be the exact reviewed non-recreating command; got: $matrix_db_up"
+pass "direct and matrix live-suite DB prerequisites are exact --no-recreate calls"
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_DB_ENGINE PASSED\033[0m\n'

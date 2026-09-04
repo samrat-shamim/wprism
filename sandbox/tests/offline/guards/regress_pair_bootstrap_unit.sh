@@ -906,9 +906,13 @@ run_start_safe_case() {
     || fail "$label did not complete after Compose start became visible"
   grep -F "<-p> <wprism-$pair> <-f> <pair.yml> <start>" "$log" >/dev/null \
     || fail "$label did not issue the expected Compose start operation"
-  assert_file_contains "$log" "docker <compose> <-p> <wprism-db> <-f> <db.yml> <up> <-d>" \
-    "$label did not preserve the shared-DB prerequisite"
-  pass "$label: in-budget start keeps DB readiness and Compose visibility behind reservation"
+  assert_file_contains "$log" "docker <compose> <-p> <wprism-db> <-f> <db.yml> <up> <-d> <--no-recreate>" \
+    "$label did not preserve the non-recreating shared-DB prerequisite"
+  if grep -F "docker <compose> <-p> <wprism-db> <-f> <db.yml>" "$log" \
+      | grep -F "<--force-recreate>" >/dev/null; then
+    fail "$label allowed ordinary pair lifecycle to replace the fleet-shared database"
+  fi
+  pass "$label: in-budget start keeps DB readiness and a non-recreating Compose prerequisite behind reservation"
 }
 
 run_start_budget_override_case() {

@@ -21,7 +21,10 @@ name: wprism-db
 # also passed explicitly as `-p wprism-db` by pair.sh) — deliberately separate
 # from every pair's own project (`wprism-<name>`, sandbox/pair.yml) so pairs
 # can be created and destroyed freely without this server ever being in
-# their `compose down`/`up --force-recreate` blast radius.
+# their `compose down`/`up --force-recreate` blast radius. The prerequisite
+# call in pair_db_ensure_up() additionally uses `--no-recreate`: a second
+# linked worktree's absolute Compose metadata must not replace this singleton
+# while another pair is using it.
 #
 # Cross-project reachability is via the `wprism-shared` external network this
 # file OWNS: it's declared here WITHOUT `external: true`, so this is the one

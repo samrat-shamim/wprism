@@ -218,10 +218,10 @@ say 'audit §5: the wordpress account authenticates on every claimed engine'
 # db.yml FIRST and unconditionally: it is the sole creator of the `wprism-shared`
 # network (db.yml:37-39 declares it without `external: true`), and every other
 # compose file in this lane attaches to it as external.
-docker compose -p wprism-db -f db.yml up -d >/dev/null
+docker compose -p wprism-db -f db.yml up -d --no-recreate >/dev/null
 for cell in "${ENGINE_CELLS[@]}"; do
   read -r _ _ _ _ cell_project cell_file <<<"$cell"
-  docker compose -p "$cell_project" -f "$cell_file" up -d >/dev/null
+  docker compose -p "$cell_project" -f "$cell_file" up -d --no-recreate >/dev/null
 done
 
 for cell in "${ENGINE_CELLS[@]}"; do

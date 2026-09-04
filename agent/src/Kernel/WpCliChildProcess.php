@@ -34,6 +34,11 @@ final class WpCliChildProcess {
     private const MAX_TIMEOUT_SECONDS = 900;
     private const READ_BYTES = 65536;
     private const SELECT_MICROSECONDS = 50000;
+    // Linux and Darwin both expose POSIX EINTR as errno 4. PHP's documented
+    // stream_select() signal path reports that numeric errno in its warning;
+    // regress_wp_cli_child_process.php delivers a non-restarting signal while
+    // valid child pipes are blocked and pins this classification.
+    private const POSIX_EINTR = 4;
     private const NANOSECONDS_PER_SECOND = 1000000000;
     private const TERM_GRACE_NANOSECONDS = 250000000;
     private const KILL_GRACE_NANOSECONDS = 2000000000;
@@ -380,8 +385,7 @@ final class WpCliChildProcess {
                 $write[] = $pipes[0];
             }
             if ($read !== [] || $write !== []) {
-                $except = null;
-                $selected = @stream_select($read, $write, $except, 0, self::SELECT_MICROSECONDS);
+                $selected = self::select_pipes($read, $write);
                 if ($selected === false && $termination === null) {
                     $termination = 'wprism: bounded WP-CLI child transport failed';
                 } elseif (is_int($selected) && $selected > 0) {
@@ -543,6 +547,46 @@ final class WpCliChildProcess {
             'stdout' => $buffers[1],
             'stderr' => $buffers[2],
         ];
+    }
+
+    /**
+     * @param array<int,resource> $read
+     * @param array<int,resource> $write
+     */
+    private static function select_pipes(array &$read, array &$write): int|false {
+        $interrupted = false;
+        $previous = null;
+        $previous = set_error_handler(
+            static function (
+                int $severity,
+                string $message,
+                string $file,
+                int $line
+            ) use (&$interrupted, &$previous): bool {
+                if ($severity === E_WARNING
+                    && str_starts_with(
+                        $message,
+                        'stream_select(): Unable to select [' . self::POSIX_EINTR . ']:'
+                    )) {
+                    $interrupted = true;
+                    return true;
+                }
+                return $previous !== null
+                    ? (bool) $previous($severity, $message, $file, $line)
+                    : false;
+            }
+        );
+        try {
+            $except = null;
+            $selected = @stream_select($read, $write, $except, 0, self::SELECT_MICROSECONDS);
+        } finally {
+            restore_error_handler();
+        }
+        // Zero follows the ordinary no-ready path below, so process status,
+        // the monotonic deadline and group reaping are still checked during
+        // every signal-interrupted iteration. Every non-EINTR false retains
+        // the fixed transport refusal in capture_process().
+        return $selected === false && $interrupted ? 0 : $selected;
     }
 
     private static function process_group_exists(int $leaderPid): bool {
