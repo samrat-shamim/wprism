@@ -125,9 +125,10 @@
  * solely to bound a following SHOW transfer, whose rows still come from
  * setColumns()/setColumnDefinitions()/setIndexes(). SHOW schema probes are
  * otherwise supported only from explicit fixtures; no schema fact is inferred
- * from stored rows. Ledger::assert_read_only_schema() and
- * Ledger::prune_dead_table_map() (a multi-table DELETE) therefore remain
- * live-certification paths.
+ * from stored rows. Ledger::assert_read_only_schema() uses these same SHOW
+ * probes under its real read-only profile; explicit fixtures exercise the
+ * proof without granting schema-qualified row access. The default grammar
+ * still refuses Ledger::prune_dead_table_map() (a multi-table DELETE).
  * SHOW TABLES LIKE / SHOW COLUMNS FROM are supported and are the intended way
  * to probe existence and column shape offline.
  *

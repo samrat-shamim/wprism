@@ -247,13 +247,19 @@ table with no recorded index fixture. Those facts already live in
 `setColumns()` / `setUniqueKey()` / `setPrimaryKey()`, so a synthetic
 `information_schema` — or a `SHOW INDEX` that answered `[]` because nobody
 called `setIndexes()` — would only be asserting this harness's own
-bookkeeping. Concretely it means `Ledger::assert_read_only_schema()`,
-`Ledger::prune_dead_table_map()` (a multi-table `DELETE`) and
+bookkeeping. Concretely it means `Ledger::prune_dead_table_map()` (a multi-table `DELETE`) and
 `Snapshot::assert_all_mapped_rows_managed()` (`Snapshot.php:532-533` — a
 `LEFT JOIN` whose `ON` carries two conditions, one of them against a literal)
 stay live-certification paths and cannot be moved here. `SHOW TABLES LIKE` and
 `SHOW COLUMNS FROM` *are* supported — they are the offline way to probe
 existence and column shape.
+
+`Ledger::assert_read_only_schema()` now uses exact-table `SHOW FULL COLUMNS`
+and `SHOW INDEX` within the real read-only profile. Its offline regression
+supplies explicit column/index fixtures and checks that profile's refusal of
+raw schema-qualified reads. Opted-in metadata projections still pass through
+the ordinary query gate, interception, logging and error-reset pipeline; they
+must never manufacture an answer before the active authority sees the query.
 
 Joins are refused with ONE exception, added when the engine's own term-deletion
 path turned out to need it: a single `LEFT JOIN` whose `ON` is exactly one
