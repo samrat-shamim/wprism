@@ -13,6 +13,31 @@ cd "$(dirname "$0")/../../.."   # -> sandbox/
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+# The ownership boundary is executable harness/hook source, not every byte
+# under a test directory. Offline ShellProbe programs deliberately contain
+# private test doubles (in PHP strings and shell fixtures); those are not
+# runners that export the conformance ABI. Class and language select owners,
+# never a named test exception.
+conformance_runtime_shell_files() {
+  find conformance tests ../adapter-packages/*/tests \
+    \( -path tests/offline -o -path '../adapter-packages/*/tests/offline' \) -prune \
+    -o -type f -name '*.sh' -print | LC_ALL=C sort
+}
+conformance_private_shell_definitions() { # <definition regexp> <shared owner>
+  local expression="$1" shared="$2" files file result
+  files=$(conformance_runtime_shell_files) || return
+  [ -n "$files" ] || return 2
+  while IFS= read -r file; do
+    [ "$file" != "$shared" ] || continue
+    if grep -Eq "$expression" "$file"; then
+      printf '%s\n' "$file"
+    else
+      result=$?
+      [ "$result" -eq 1 ] || return "$result"
+    fi
+  done <<<"$files"
+}
+
 FRAGMENT=conformance/asserts.sh
 [ -f "$FRAGMENT" ] || fail "shared fragment $FRAGMENT is missing"
 
@@ -48,9 +73,8 @@ for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
   grep -q '^\. lib/host_orchestrator\.sh$' "$harness" \
     || fail "$harness does not source the shared host_wprism implementation"
 done
-HOST_DEFINITION_DUPES=$(grep -rlE '^host_wprism\(\) \{' \
-  conformance/ tests/ ../adapter-packages/*/tests/ \
-  | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
+HOST_DEFINITION_DUPES=$(conformance_private_shell_definitions '^host_wprism\(\) \{' "$HOST_LIBRARY") \
+  || fail 'could not inventory runtime shell owners of the host_wprism ABI'
 [ -z "$HOST_DEFINITION_DUPES" ] \
   || fail "host_wprism has a runner/package-private definition instead of one shared owner: $HOST_DEFINITION_DUPES"
 grep -Eq '^export -f .*[[:space:]]host_wprism([[:space:]]|$)' conformance/run.sh \
@@ -113,7 +137,8 @@ pass 'post-apply target-local witness hooks have one convention path and an exac
 
 # And the fragment must not silently grow a second definition home: the
 # helpers may be defined nowhere else.
-DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ ../adapter-packages/*/tests/conformance/ | grep -v "^$FRAGMENT\$" | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
+DUPES=$(conformance_private_shell_definitions '^require_[a-z_]+\(\) \{' "$FRAGMENT") \
+  || fail 'could not inventory runtime shell owners of the assertion fragment'
 [ -z "$DUPES" ] || fail "helper definitions exist outside the fragment (one owner per grammar):$DUPES"
 pass "the fragment is the single definition home"
 
@@ -188,6 +213,56 @@ trap 'rm -rf -- "$MATRIX_PROBE"' EXIT
 mkdir -p "$MATRIX_PROBE/sandbox/tests/certify" "$MATRIX_PROBE/sandbox/conformance"
 cp tests/certify/certify_version_matrix.sh "$MATRIX_PROBE/sandbox/tests/certify/"
 : > "$MATRIX_PROBE/sandbox/conformance/asserts.sh"
+
+# Exercise the same inventory and duplicate scan used above. An empty scan
+# cannot earn a pass: the actual shared fragment is in the fixture inventory,
+# and every planted executable owner must be reported by its exact path.
+OWNER_PROBE="$MATRIX_PROBE/shell-owners"
+mkdir -p "$OWNER_PROBE/sandbox/conformance/checks/offline" \
+  "$OWNER_PROBE/sandbox/tests/certify" "$OWNER_PROBE/sandbox/tests/offline/probe" \
+  "$OWNER_PROBE/sandbox/lib" "$OWNER_PROBE/adapter-packages/probe/tests/conformance" \
+  "$OWNER_PROBE/adapter-packages/probe/tests/certify" "$OWNER_PROBE/adapter-packages/probe/tests/offline"
+cp "$FRAGMENT" "$OWNER_PROBE/sandbox/conformance/asserts.sh"
+cp "$HOST_LIBRARY" "$OWNER_PROBE/sandbox/lib/host_orchestrator.sh"
+printf '%s\n' '. conformance/asserts.sh' '. lib/host_orchestrator.sh' \
+  > "$OWNER_PROBE/sandbox/conformance/run.sh"
+printf '%s\n' '<?php' '$fixture = <<<'"'SH'" 'host_wprism() { :; }' 'require_fixture_ids() { :; }' 'SH;' \
+  > "$OWNER_PROBE/adapter-packages/probe/tests/offline/capsule_probe.php"
+printf '%s\n' 'host_wprism() { :; }' 'require_fixture_ids() { :; }' \
+  > "$OWNER_PROBE/sandbox/tests/offline/probe/shared_probe.sh"
+# PHP fixture text remains data even beside a runtime hook; extension alone
+# must not make it a shell definition owner.
+cp "$OWNER_PROBE/adapter-packages/probe/tests/offline/capsule_probe.php" \
+  "$OWNER_PROBE/adapter-packages/probe/tests/conformance/payload.php"
+owner_scan_probe() { # <host|require>
+  (
+    cd "$OWNER_PROBE/sandbox"
+    case "$1" in
+      host) conformance_private_shell_definitions '^host_wprism\(\) \{' lib/host_orchestrator.sh ;;
+      require) conformance_private_shell_definitions '^require_[a-z_]+\(\) \{' conformance/asserts.sh ;;
+      *) return 64 ;;
+    esac
+  )
+}
+OWNER_INVENTORY=$(cd "$OWNER_PROBE/sandbox" && conformance_runtime_shell_files)
+[ "$OWNER_INVENTORY" = $'conformance/asserts.sh\nconformance/run.sh' ] \
+  || fail "runtime shell inventory did not retain real owners while excluding offline/data fixtures: $OWNER_INVENTORY"
+for owner_abi in host require; do
+  OWNER_OUT=$(owner_scan_probe "$owner_abi") \
+    || fail "$owner_abi ownership scan could not inspect its healthy shared ABI"
+  [ -z "$OWNER_OUT" ] || fail "$owner_abi ownership scan mistook offline fixture text for a runtime definition: $OWNER_OUT"
+  for owner_path in conformance/run.sh conformance/checks/private.sh conformance/checks/offline/private.sh tests/certify/private.sh \
+    ../adapter-packages/probe/tests/conformance/private.sh ../adapter-packages/probe/tests/certify/private.sh; do
+    if [ "$owner_abi" = host ]; then owner_function=host_wprism; else owner_function=require_fixture_ids; fi
+    printf '%s\n' "$owner_function() { :; }" > "$OWNER_PROBE/sandbox/$owner_path"
+    OWNER_OUT=$(owner_scan_probe "$owner_abi") \
+      || fail "$owner_abi ownership scan could not inspect the planted runtime owner $owner_path"
+    [ "$OWNER_OUT" = "$owner_path" ] \
+      || fail "$owner_abi ownership scan missed or misattributed a real private definition: $owner_path / $OWNER_OUT"
+    : > "$OWNER_PROBE/sandbox/$owner_path"
+  done
+done
+pass 'actual shell ownership scans ignore offline/data fixtures, retain shared ABIs, and detect every planted runner/conformance/certify definition'
 
 # A dev-bound pair loads agent/ directly, whereas every real adopted target
 # also owns an initialized, database-independent recovery runtime. The host
