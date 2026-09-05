@@ -196,6 +196,31 @@ native_state() { # <wp1|wp2>
   local side="$1"
   "$side" eval '
 global $wpdb;
+// This program crosses the outer Bash single-quoted wp-eval boundary. The
+// 900b3e52 live run lost three inline SQL quote pairs there; prepare every
+// data literal, and reject last_error before an empty set or zero can pose as
+// a valid post-apply observation.
+$readRows = static function (string $sql) use ($wpdb): array {
+    $rows = $wpdb->get_results($sql, ARRAY_A);
+    if ($wpdb->last_error !== "" || !is_array($rows)) {
+        throw new RuntimeException("combined native database row-set observation failed");
+    }
+    return $rows;
+};
+$readRow = static function (string $sql) use ($wpdb): ?array {
+    $row = $wpdb->get_row($sql, ARRAY_A);
+    if ($wpdb->last_error !== "" || ($row !== null && !is_array($row))) {
+        throw new RuntimeException("combined native database row observation failed");
+    }
+    return $row;
+};
+$readValue = static function (string $sql) use ($wpdb) {
+    $value = $wpdb->get_var($sql);
+    if ($wpdb->last_error !== "") {
+        throw new RuntimeException("combined native database scalar observation failed");
+    }
+    return $value;
+};
 $en = get_page_by_path("rmcombo-product-en", OBJECT, "product");
 $de = get_page_by_path("rmcombo-product-de", OBJECT, "product");
 $neighbor = get_page_by_path("rmcombo-target-neighbor", OBJECT, "product");
@@ -211,20 +236,20 @@ $rows = [];
 foreach ($products as $language => $product) {
     if (!$product instanceof WC_Product) throw new RuntimeException("Woo product API read failed");
     $post = $language === "en" ? $en : $de;
-    $lookup = $wpdb->get_row($wpdb->prepare(
+    $lookup = $readRow($wpdb->prepare(
         "SELECT min_price,max_price,stock_status FROM {$wpdb->wc_product_meta_lookup} WHERE product_id=%d",
         $post->ID
-    ), ARRAY_A);
-    $counts = $wpdb->get_row($wpdb->prepare(
+    ));
+    $counts = $readRow($wpdb->prepare(
         "SELECT internal_link_count,external_link_count,incoming_link_count " .
         "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
         $post->ID
-    ), ARRAY_A);
-    $linkRows = $wpdb->get_results($wpdb->prepare(
+    ));
+    $linkRows = $readRows($wpdb->prepare(
         "SELECT url,target_post_id,type FROM {$wpdb->prefix}rank_math_internal_links " .
         "WHERE post_id=%d ORDER BY type,url,target_post_id",
         $post->ID
-    ), ARRAY_A);
+    ));
     $rows[$language] = [
         "acf" => get_field("rmcombo_badge", $post->ID),
         "canonical" => get_post_meta($post->ID, "rank_math_canonical_url", true),
@@ -243,7 +268,7 @@ foreach ($products as $language => $product) {
     ];
 }
 $redirection = null;
-foreach ((array) $wpdb->get_results("SELECT * FROM {$wpdb->prefix}rank_math_redirections ORDER BY id", ARRAY_A) as $row) {
+foreach ($readRows("SELECT * FROM {$wpdb->prefix}rank_math_redirections ORDER BY id") as $row) {
     $sources = maybe_unserialize($row["sources"] ?? "");
     if (is_array($sources) && ($sources[0]["pattern"] ?? null) === "rmcombo-old") {
         $redirection = [
@@ -255,27 +280,44 @@ foreach ((array) $wpdb->get_results("SELECT * FROM {$wpdb->prefix}rank_math_redi
 $bookLinks = [];
 $bookCounts = null;
 if ($book instanceof WP_Post) {
-    $bookLinks = $wpdb->get_results($wpdb->prepare(
+    $bookLinks = $readRows($wpdb->prepare(
         "SELECT url,target_post_id,type FROM {$wpdb->prefix}rank_math_internal_links " .
         "WHERE post_id=%d ORDER BY type,url,target_post_id",
         $book->ID
-    ), ARRAY_A);
-    $bookCounts = $wpdb->get_row($wpdb->prepare(
+    ));
+    $bookCounts = $readRow($wpdb->prepare(
         "SELECT internal_link_count,external_link_count,incoming_link_count " .
         "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
         $book->ID
-    ), ARRAY_A);
+    ));
 }
 if (!function_exists("as_get_scheduled_actions")) {
     throw new RuntimeException("Action Scheduler API is unavailable");
 }
-$scheduler = $wpdb->get_results(
+$scheduler = $readRows($wpdb->prepare(
     "SELECT a.action_id,a.hook,a.status,g.slug AS group_slug " .
     "FROM {$wpdb->prefix}actionscheduler_actions a " .
     "LEFT JOIN {$wpdb->prefix}actionscheduler_groups g ON g.group_id=a.group_id " .
-    "WHERE a.hook IN ('rmcombo_source_runtime','rmcombo_target_runtime') ORDER BY a.action_id",
-    ARRAY_A
-);
+    "WHERE a.hook IN (%s,%s) ORDER BY a.action_id",
+    "rmcombo_source_runtime",
+    "rmcombo_target_runtime"
+));
+$redirectionCache = $readRows($wpdb->prepare(
+    "SELECT from_url,redirection_id,object_id,object_type,is_redirected " .
+    "FROM {$wpdb->prefix}rank_math_redirections_cache WHERE from_url=%s ORDER BY id",
+    "rmcombo-old"
+));
+$retiredTargetCounts = $neighbor instanceof WP_Post ? $readRow($wpdb->prepare(
+    "SELECT internal_link_count,external_link_count,incoming_link_count " .
+    "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
+    $neighbor->ID
+)) : null;
+$staleLinkSentinels = (int) $readValue($wpdb->prepare(
+    "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_internal_links " .
+    "WHERE url IN (%s,%s)",
+    "/target-stale",
+    "/target-stale-book"
+));
 $neighborState = null;
 if ($neighbor instanceof WP_Post) {
     $neighborProduct = wc_get_product($neighbor);
@@ -301,21 +343,10 @@ echo wp_json_encode([
     "neighbor" => $neighborState,
     "products" => $rows,
     "redirection" => $redirection,
-    "redirection_cache" => (array) $wpdb->get_results(
-        "SELECT from_url,redirection_id,object_id,object_type,is_redirected " .
-        "FROM {$wpdb->prefix}rank_math_redirections_cache WHERE from_url='rmcombo-old' ORDER BY id",
-        ARRAY_A
-    ),
-    "retired_target_counts" => $neighbor instanceof WP_Post ? $wpdb->get_row($wpdb->prepare(
-        "SELECT internal_link_count,external_link_count,incoming_link_count " .
-        "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
-        $neighbor->ID
-    ), ARRAY_A) : null,
+    "redirection_cache" => $redirectionCache,
+    "retired_target_counts" => $retiredTargetCounts,
     "scheduler" => $scheduler,
-    "stale_link_sentinels" => (int) $wpdb->get_var(
-        "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_internal_links " .
-        "WHERE url IN ('/target-stale','/target-stale-book')"
-    ),
+    "stale_link_sentinels" => $staleLinkSentinels,
     "term_translations" => array_map("intval", pll_get_term_translations($catEn->term_id)),
     "translations" => array_map("intval", pll_get_post_translations($en->ID)),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

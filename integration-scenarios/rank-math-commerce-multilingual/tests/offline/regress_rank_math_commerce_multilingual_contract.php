@@ -177,6 +177,180 @@ foreach ([
     wprism_check(str_contains($live, $witness), "the candidate-bound live scenario pins: $witness");
 }
 
+// Execute the actual native_state shell function far enough to observe the
+// PHP program handed to `wp eval`. At 900b3e52, Bash consumed three SQL quote
+// pairs before WordPress saw them; reading the file or pinning its text would
+// preserve those bytes and miss the live defect.
+$nativeStateStart = strpos($live, 'native_state() {');
+$nativeStateEnd = $nativeStateStart === false ? false : strpos($live, "\nproduct_response() {", $nativeStateStart);
+$nativeStateDefinition = $nativeStateStart === false || $nativeStateEnd === false
+    ? ''
+    : substr($live, $nativeStateStart, $nativeStateEnd - $nativeStateStart);
+$nativeStateCapture = <<<'SH'
+set -euo pipefail
+wp1() {
+  [ "$#" -eq 2 ] && [ "$1" = eval ] || return 81
+  php -r 'printf("%s\n", base64_encode($argv[1]));' "$2"
+}
+SH;
+$nativeStateProcess = proc_open(
+    ['bash', '-c', $nativeStateCapture . "\n" . $nativeStateDefinition . "\nnative_state wp1\n", 'rmcombo-native-state'],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $nativeStatePipes,
+    $root,
+    ['PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin')]
+);
+$nativeStateStdout = '';
+$nativeStateStderr = '';
+$nativeStateStatus = 127;
+if (is_resource($nativeStateProcess)) {
+    $nativeStateStdout = (string) stream_get_contents($nativeStatePipes[1]);
+    fclose($nativeStatePipes[1]);
+    $nativeStateStderr = (string) stream_get_contents($nativeStatePipes[2]);
+    fclose($nativeStatePipes[2]);
+    $nativeStateStatus = proc_close($nativeStateProcess);
+}
+$submittedNativeState = base64_decode(trim($nativeStateStdout), true);
+$submittedNativeState = is_string($submittedNativeState) ? $submittedNativeState : '';
+wprism_check(
+    $nativeStateDefinition !== ''
+        && $nativeStateStatus === 0
+        && $nativeStateStderr === ''
+        && $submittedNativeState !== '',
+    'the actual shell function submits one inspectable native-state program to wp eval'
+);
+
+$nativeReadersStart = strpos($submittedNativeState, '$readRows =');
+$nativeReadersEnd = $nativeReadersStart === false ? false : strpos($submittedNativeState, '$en =', $nativeReadersStart);
+$nativeQueriesStart = $nativeReadersEnd === false ? false : strpos($submittedNativeState, '$scheduler =', $nativeReadersEnd);
+$nativeQueriesEnd = $nativeQueriesStart === false ? false : strpos($submittedNativeState, '$neighborState =', $nativeQueriesStart);
+$nativeSqlProgram = $nativeReadersStart === false || $nativeReadersEnd === false
+    || $nativeQueriesStart === false || $nativeQueriesEnd === false
+    ? ''
+    : substr($submittedNativeState, $nativeReadersStart, $nativeReadersEnd - $nativeReadersStart)
+        . substr($submittedNativeState, $nativeQueriesStart, $nativeQueriesEnd - $nativeQueriesStart);
+wprism_check($nativeSqlProgram !== '',
+    'the submitted native-state program retains its checked readers and literal-bearing query block');
+
+$runNativeSqlProgram = static function (string $failure) use ($nativeSqlProgram): array {
+    $wpdb = new class($failure) {
+        public string $prefix = 'wp_';
+        public string $last_error = '';
+
+        /** @var list<string> */
+        public array $queries = [];
+
+        public function __construct(private readonly string $failure) {}
+
+        public function prepare(string $sql, mixed ...$values): string {
+            $index = 0;
+            $prepared = preg_replace_callback(
+                '/%([ds])/',
+                static function (array $match) use (&$index, $values): string {
+                    if (!array_key_exists($index, $values)) {
+                        throw new RuntimeException('native SQL oracle received too few bindings');
+                    }
+                    $value = $values[$index++];
+                    return $match[1] === 'd'
+                        ? (string) (int) $value
+                        : "'" . str_replace(['\\', "'"], ['\\\\', "\\'"], (string) $value) . "'";
+                },
+                $sql
+            );
+            if (!is_string($prepared) || $index !== count($values)) {
+                throw new RuntimeException('native SQL oracle received an invalid binding count');
+            }
+            return $prepared;
+        }
+
+        /** @return list<array<string,int|string>> */
+        public function get_results(string $sql, string $output): array {
+            if (str_contains($sql, 'actionscheduler_actions')) {
+                if (!$this->accept(
+                    $sql,
+                    'scheduler',
+                    "WHERE a.hook IN ('rmcombo_source_runtime','rmcombo_target_runtime')"
+                )) {
+                    return [];
+                }
+                return [['action_id' => '71', 'hook' => 'rmcombo_source_runtime', 'status' => 'pending', 'group_slug' => '']];
+            }
+            if (str_contains($sql, 'rank_math_redirections_cache')) {
+                if (!$this->accept($sql, 'cache', "WHERE from_url='rmcombo-old'")) {
+                    return [];
+                }
+                return [[
+                    'from_url' => 'rmcombo-old',
+                    'redirection_id' => '19',
+                    'object_id' => '31',
+                    'object_type' => 'post',
+                    'is_redirected' => '1',
+                ]];
+            }
+            throw new RuntimeException('native SQL oracle received an unexpected row-set query');
+        }
+
+        /** @return array<string,int|string>|null */
+        public function get_row(string $sql, string $output): ?array {
+            throw new RuntimeException('native SQL oracle unexpectedly queried a row');
+        }
+
+        public function get_var(string $sql): int {
+            if (!$this->accept($sql, 'stale', "WHERE url IN ('/target-stale','/target-stale-book')")) {
+                return 0;
+            }
+            return 3;
+        }
+
+        private function accept(string $sql, string $kind, string $literal): bool {
+            $this->last_error = '';
+            $this->queries[] = $sql;
+            if ($this->failure === $kind || !str_contains($sql, $literal)) {
+                $this->last_error = 'fixture database error';
+                return false;
+            }
+            return true;
+        }
+    };
+    $neighbor = null;
+    $scheduler = null;
+    $redirectionCache = null;
+    $staleLinkSentinels = null;
+    eval($nativeSqlProgram);
+    return [
+        'queries' => $wpdb->queries,
+        'redirection_cache' => $redirectionCache,
+        'scheduler' => $scheduler,
+        'stale_link_sentinels' => $staleLinkSentinels,
+    ];
+};
+
+$nativeSqlObservation = $runNativeSqlProgram('');
+wprism_check(
+    ($nativeSqlObservation['scheduler'][0]['hook'] ?? null) === 'rmcombo_source_runtime'
+        && ($nativeSqlObservation['redirection_cache'][0]['from_url'] ?? null) === 'rmcombo-old'
+        && ($nativeSqlObservation['stale_link_sentinels'] ?? null) === 3
+        && count($nativeSqlObservation['queries'] ?? []) === 3,
+    'the actual submitted SQL binds both scheduler hooks, the redirection slug and both stale URLs'
+);
+foreach ([
+    'scheduler' => 'row-set',
+    'cache' => 'row-set',
+    'stale' => 'scalar',
+] as $failure => $reader) {
+    $exception = null;
+    try {
+        $runNativeSqlProgram($failure);
+    } catch (Throwable $caught) {
+        $exception = $caught;
+    }
+    wprism_check(
+        $exception instanceof RuntimeException
+            && $exception->getMessage() === "combined native database $reader observation failed",
+        "$failure query errors refuse instead of becoming an empty or zero native-state witness"
+    );
+}
+
 $configureDefinition = strpos($live, 'configure_rank_math() {');
 $nativeModuleDisable = strpos($live, 'RankMath\\Helper::update_modules(array_fill_keys($stored, "off"));');
 $nativeModuleEnable = strpos($live, 'RankMath\\Helper::update_modules(array_fill_keys($desired, "on"));');
