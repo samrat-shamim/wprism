@@ -1703,6 +1703,10 @@ regress-private-refusal-receipt:
 regress-scalar-reference-intersection:
 	php sandbox/tests/offline/reference-scope/regress_scalar_reference_intersection.php
 
+.PHONY: regress-core-conformance-evidence
+regress-core-conformance-evidence:
+	php sandbox/tests/offline/guards/regress_core_conformance_evidence.php
+
 # The lock/concurrency and repository-state refusals an orchestrator meets on
 # capture/plan/apply/deploy each reach --format=json as their own reason code
 # instead of `<command>_failed` + details_redacted, produced by the real
