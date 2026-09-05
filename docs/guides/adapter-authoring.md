@@ -1472,6 +1472,14 @@ interprets your SQL against them, and any statement it cannot interpret throws
 instead, which pushes your suite down a "no row" branch your real database
 never takes — every assertion after that point is green for the wrong reason.
 
+Seed storage engines, columns and indexes explicitly when a product gate needs
+those facts: row existence does not prove transactional storage. Every opt-in
+read projection, including metadata, must traverse the same query authority,
+error injection and logging as an ordinary read. A fixture shortcut before that
+boundary can hide a real profile refusal. Pair a refused-read callback spy with
+a healthy case that invokes the same spy; a counter that never runs proves
+nothing about where the refusal happened.
+
 The kit is assembled from the live files on every run and never stored as a
 second copy, so re-assemble from a newer checkout rather than patching a file
 inside a kit you already have.
@@ -2042,6 +2050,14 @@ library.
    Nor is an empty `warnings` array a universal first-apply invariant: that
    existing wire field also carries adoption and verified action receipts.
    Actual `env_missing:` diagnostics must not be accepted as green evidence.
+
+   Apply the same full-stream rule to native JSON observations, seed receipts,
+   route probes and successful host deploy/settlement. Validate diagnostics and
+   exit status before selecting JSON or trusting phase/native-state comparisons.
+   Reuse the shared JSON capture or diagnostic assertion, not a last-line pipe.
+   Exercise the actual helper or acceptance block with valid output plus a
+   zero-exit PHP warning on each stream, retaining a healthy control. Correct
+   payloads do not make ignored diagnostics into valid evidence.
 
    The source-SHA binding is part of the evidence. A green run against another
    checkout is not evidence for the candidate. The package validator requires
