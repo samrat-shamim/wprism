@@ -216,7 +216,12 @@ final class Ledger {
                     throw new \RuntimeException("wprism: refresh export refused — required ledger table/column '$table.$field' is missing; run the existing capture gate to provision or repair it");
                 }
                 if ($field === 'local_id') {
-                    if (preg_match('/^bigint(?:\([1-9][0-9]?\))? unsigned(?: zerofill)?$/D', $type) !== 1) {
+                    // Numeric display width is not storage capacity. MySQL's
+                    // Numeric Data Type Syntax permits widths through 255;
+                    // both that spelling and newer width-free SHOW output
+                    // retain the same unsigned BIGINT identity range.
+                    if (preg_match('/^bigint(?:\((0|[1-9][0-9]{0,2})\))? unsigned(?: zerofill)?$/D', $type, $display) !== 1
+                        || (isset($display[1]) && (int) $display[1] > 255)) {
                         throw new \RuntimeException("wprism: refresh export refused — ledger column '$table.$field' is not an unsigned BIGINT identity");
                     }
                     continue;

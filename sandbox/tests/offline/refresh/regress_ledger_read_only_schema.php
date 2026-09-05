@@ -116,13 +116,24 @@ wprism_check_same($expected, $metadata, 'all six metadata reads use only the thr
 wprism_check_same(1, count(array_filter($db->queries(), static fn(string $sql): bool => $sql === 'ROLLBACK AND NO CHAIN NO RELEASE')),
     'the healthy observer closes the same transaction exactly once');
 
-foreach (['bigint unsigned', 'BIGINT(20) UNSIGNED', 'bigint(20) unsigned zerofill'] as $type) {
+foreach (['bigint unsigned', 'BIGINT(20) UNSIGNED', 'bigint(20) unsigned zerofill', 'bigint(0) unsigned', 'bigint(100) unsigned', 'bigint(255) unsigned'] as $type) {
     $db = ledger_schema_fixture();
     $columns = ledger_schema_columns()['wp_wprism_map'];
     $columns['local_id'] = $type;
     $db->setColumns('wp_wprism_map', $columns);
     [$answer, $failure] = ledger_schema_observe($db, 'unsigned identity ' . $type);
     wprism_check($failure === null && $answer !== null, 'supported unsigned BIGINT metadata retains identity capacity');
+}
+
+foreach (['bigint(256) unsigned', 'bigint(-1) unsigned', 'varchar(64) unsigned bigint', 'int(20) unsigned'] as $type) {
+    $db = ledger_schema_fixture();
+    $columns = ledger_schema_columns()['wp_wprism_map'];
+    $columns['local_id'] = $type;
+    $db->setColumns('wp_wprism_map', $columns);
+    [$answer, $failure] = ledger_schema_observe($db, 'invalid identity ' . $type);
+    wprism_check($answer === null && $failure instanceof RuntimeException
+        && str_contains($failure->getMessage(), 'is not an unsigned BIGINT identity'),
+        'malformed or narrower integer metadata is not a full unsigned BIGINT identity');
 }
 
 $db = ledger_schema_fixture();
