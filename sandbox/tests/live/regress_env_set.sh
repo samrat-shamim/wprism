@@ -307,7 +307,7 @@ rm -f -- "$REFUSE_3"
 pass "refuses when --stdin is not given"
 
 printf 'stdin-x\n' | wp1 wprism env-set --repo=/siterepo --name=admin_email --value=argv-x --stdin >"$REFUSE_4" 2>&1 && fail "should have refused an argv value"
-grep -q 'does not accept --value because command-line arguments are observable' "$REFUSE_4" || fail "wrong refusal message for argv value: $(cat "$REFUSE_4")"
+grep -qx 'Error: remove --value and use --stdin' "$REFUSE_4" || fail "wrong refusal message for argv value: $(cat "$REFUSE_4")"
 [ "$(wp1 option get admin_email 2>/dev/null)" = "$BEFORE" ] || fail "admin_email changed despite the refusal (both flags)"
 rm -f -- "$REFUSE_4"
 pass "refuses an argv value even when --stdin is also given, writes nothing"

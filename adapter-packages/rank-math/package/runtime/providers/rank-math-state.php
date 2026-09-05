@@ -1318,6 +1318,9 @@ final class RankMathState extends ManifestProviderRuntime {
         global $wpdb;
         return [
             $wpdb->posts,
+            // url_to_postid() uses WP_Query, whose cold-cache path reads
+            // postmeta while resolving a pretty permalink (post.php:8093).
+            $wpdb->postmeta,
             $wpdb->options,
             $wpdb->comments,
             $wpdb->term_relationships,

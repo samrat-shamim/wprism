@@ -90,6 +90,17 @@ namespace {
 
     function url_to_postid(string $url): int {
         $GLOBALS['rank_math_test_url_to_postid_calls']++;
+        if (($GLOBALS['rank_math_test_cold_postmeta_cache'] ?? false) === true) {
+            // WordPress's pretty-permalink WP_Query primes post metadata even
+            // when Rank Math only asks for the resolved post id.
+            $database = $GLOBALS['wpdb'];
+            $database->get_results(
+                "SELECT post_id, meta_key, meta_value FROM {$database->postmeta} "
+                    . 'WHERE post_id IN (10,20) ORDER BY meta_id ASC',
+                ARRAY_A
+            );
+            $GLOBALS['rank_math_test_postmeta_cache_reads']++;
+        }
         $override = $GLOBALS['rank_math_test_url_to_postid_override'] ?? null;
         if (is_callable($override)) {
             $resolved = $override($url, (bool) ($GLOBALS['rank_math_test_in_native_process'] ?? false));
@@ -1340,7 +1351,12 @@ namespace {
     );
 
     $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_cold_postmeta_cache'] = true;
+    $GLOBALS['rank_math_test_postmeta_cache_reads'] = 0;
     $receipt = $provider->invoke('rebuild_all_link_state', []);
+    $GLOBALS['rank_math_test_cold_postmeta_cache'] = false;
+    wprism_check($GLOBALS['rank_math_test_postmeta_cache_reads'] > 0,
+        'fresh native URL resolution admits WordPress post-meta cache reads inside the dependency snapshot');
     wprism_check_same(true, $receipt['verified'] ?? null, 'site link repair returns a verified value-level receipt');
     wprism_check_same(2, $receipt['after']['post_count'] ?? null,
         'site repair binds every accessible source post in the complete projection');

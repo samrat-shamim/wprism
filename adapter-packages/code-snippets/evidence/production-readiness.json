@@ -39,6 +39,7 @@
     ],
     "failure-recovery": [
       "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "adapter-packages/code-snippets/tests/offline/regress_code_snippets_lifecycle.php",
       "adapter-packages/code-snippets/tests/offline/regress_code_snippets_state_provider.php",
       "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
     ],
@@ -48,6 +49,7 @@
     ],
     "lifecycle": [
       "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "adapter-packages/code-snippets/tests/offline/regress_code_snippets_lifecycle.php",
       "adapter-packages/code-snippets/tests/certify/version-matrix.sh"
     ],
     "data-boundary": [

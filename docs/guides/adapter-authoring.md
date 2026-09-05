@@ -752,6 +752,12 @@ exact runtime object returned by the engine's digest/provenance loader can
 activate either database scope; a direct, cloned, or unserialized runtime cannot
 reuse its declaration to mint a profile.
 
+Audit native API reads with cold caches as well as warm ones before narrowing
+that table list. For example, WordPress's `url_to_postid()` creates a `WP_Query`
+that can prime post metadata: an id-only answer still needs `postmeta` read
+authority. Declare those physical dependencies in the adapter; never widen the
+engine's table gate to accommodate an incomplete profile.
+
 When declared plugin tables may legitimately be absent, use
 `ProviderSdk::database_schema_snapshot($context, $physicalTables, $read)`.
 The engine first discovers exact presence inside an empty read-only profile,

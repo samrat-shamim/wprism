@@ -229,6 +229,8 @@ final class DatabaseQueryIsolation {
     private static array $hooks = [];
     /** @var array{all:DatabaseHookGate,query:DatabaseHookGate}|array{} */
     private static array $gates = [];
+    /** @var array{present:bool,value:mixed}|array{} */
+    private static array $currentFilterStack = [];
 
     public static function is_active(): bool {
         return self::$active;
@@ -317,8 +319,10 @@ final class DatabaseQueryIsolation {
         if (self::$active) {
             throw new \RuntimeException("wprism: $context found an already-isolated database query boundary");
         }
-        $current = $GLOBALS['wp_current_filter'] ?? [];
-        if (is_array($current) && in_array('query', $current, true)) {
+        $currentFilterPresent = array_key_exists('wp_current_filter', $GLOBALS);
+        $currentFilterValue = $currentFilterPresent ? $GLOBALS['wp_current_filter'] : null;
+        $current = is_array($currentFilterValue) ? $currentFilterValue : [];
+        if (in_array('query', $current, true)) {
             throw new \RuntimeException(
                 "wprism: $context cannot start from inside WordPress's database query filter"
             );
@@ -334,6 +338,10 @@ final class DatabaseQueryIsolation {
             );
         }
         DatabaseTransportBoundary::begin($context . ' transport boundary');
+        self::$currentFilterStack = [
+            'present' => $currentFilterPresent,
+            'value' => $currentFilterValue,
+        ];
 
         foreach (['all', 'query'] as $name) {
             $present = is_array($filters) && array_key_exists($name, $filters);
@@ -596,12 +604,20 @@ final class DatabaseQueryIsolation {
         self::install_clean_gates();
     }
 
-    /** Restore the exact pre-transaction hook entries after positive settlement. */
+    /** Restore the exact pre-transaction hook topology after positive settlement. */
     public static function finish(): void {
         if (!self::$active) {
             return;
         }
         DatabaseTransportBoundary::finish('database query isolation settlement');
+        // WordPress pops wp_current_filter only after a hook returns normally.
+        // A gate refusal escapes before that pop, so the engine boundary must
+        // restore the exact outer stack after its database transport settles.
+        if ((self::$currentFilterStack['present'] ?? false) === true) {
+            $GLOBALS['wp_current_filter'] = self::$currentFilterStack['value'];
+        } else {
+            unset($GLOBALS['wp_current_filter']);
+        }
         foreach (self::$hooks as $name => $entry) {
             if ($entry['present']) {
                 if (!isset($GLOBALS['wp_filter']) || !is_array($GLOBALS['wp_filter'])) {
@@ -622,6 +638,7 @@ final class DatabaseQueryIsolation {
         self::$profileSqlBytes = 0;
         self::$hooks = [];
         self::$gates = [];
+        self::$currentFilterStack = [];
     }
 
     private static function install_clean_gates(): void {

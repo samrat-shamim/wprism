@@ -1,7 +1,8 @@
 # format wprism-target-observation-premises/v1
-# expected observations=18 fixtures=5
+# expected observations=24 fixtures=5
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty "Code Snippets $side runtime observation"
+observation	tests/conformance/check.sh	require_observed_nonempty "Code Snippets recovery storage and identity observation"
 observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets deploy after deactivation" json
 observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets deploy with code absent" human
 observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets deploy after retained-state reinstall" json
@@ -13,10 +14,15 @@ observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets un
 observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets forced competing-row apply" json
 observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets zero-change plan" json
 observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets zero-change apply" json
-observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets deploy after complete uninstall" json
-observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets plan after complete uninstall" json
-observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets forced recovery after complete uninstall" json
-observation	tests/conformance/check.sh	require_wprism_answered "Code Snippets plan retry after complete-uninstall recovery" json
+observation	tests/conformance/check.sh	capture_wprism_json_success COMPLETE_BASE_PLAN "Code Snippets plan before complete uninstall"
+observation	tests/conformance/check.sh	capture_wprism_json_success COMPLETE_DEPLOY "Code Snippets deploy after complete uninstall"
+observation	tests/conformance/check.sh	capture_wprism_json_refusal COMPLETE_LOST_PLAN "Code Snippets plan after destructive identity loss"
+observation	tests/conformance/check.sh	capture_wprism_json_refusal COMPLETE_LOST_APPLY "Code Snippets forced apply after destructive identity loss"
+observation	tests/conformance/check.sh	capture_wprism_json_success COMPLETE_RESTORED_PLAN "Code Snippets plan after database-matched recovery"
+observation	tests/conformance/check.sh	capture_wprism_json_success COMPLETE_RESTORED_APPLY "Code Snippets no-op apply after database-matched recovery"
+observation	tests/conformance/check.sh	capture_wprism_json_success COMPLETE_PLAN "Code Snippets new intent plan after database recovery"
+observation	tests/conformance/check.sh	capture_wprism_json_success COMPLETE_APPLY "Code Snippets new intent apply after database recovery"
+observation	tests/conformance/check.sh	capture_wprism_json_success COMPLETE_RETRY "Code Snippets plan retry after complete-uninstall recovery"
 observation	tests/conformance/postdeploy.sh	require_observed_nonempty "Code Snippets hostile target seed"
 observation	tests/conformance/seed.sh	require_observed_nonempty "Code Snippets source seed"
 fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_CONTENT_ID TARGET_CONTENT_ID

@@ -1878,12 +1878,17 @@ class FakeWpdb {
             // Some capsule fixtures have no global apply_filters(), or a
             // WP_Hook-only double. Dispatch the installed engine gates in
             // WordPress order so neither can silently skip a query permit.
+            // Core pushes before dispatch and pops only after a normal return;
+            // deliberately do not add a finally that would hide its exception
+            // leak from DatabaseQueryIsolation's settlement regression.
+            $GLOBALS['wp_current_filter'][] = 'query';
             $all = $GLOBALS['wp_filter']['all'] ?? null;
             if (is_object($all) && method_exists($all, 'do_all_hook')) {
                 $arguments = ['query', $query];
                 $all->do_all_hook($arguments);
             }
             $query = $gate->apply_filters($query, [$query]);
+            array_pop($GLOBALS['wp_current_filter']);
             if (!is_string($query)) {
                 throw new \LogicException('FakeWpdb: query filter returned malformed SQL');
             }

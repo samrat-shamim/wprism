@@ -208,6 +208,66 @@ function provider_database_session_rows(FakeWpdb $wpdb): array {
     return $wpdb->rows('wp_wprism_provider_state');
 }
 
+$wpdb = provider_database_session_fixture()->seedTable('wp_wprism_provider_state', [[
+    'provider_key' => 'must_survive',
+    'provider_value' => 'private_fixture_value',
+]]);
+$outerFilterStack = ['wprism_provider_outer_fixture'];
+$GLOBALS['wp_current_filter'] = $outerFilterStack;
+$sequentialUnsafeShows = [
+    "SHOW TABLES LIKE 'wp_wprism_provider_state'",
+    "SHOW TABLE STATUS LIKE 'wp_wprism_provider_state'",
+];
+$sequentialShowFailures = [];
+$sequentialShowSettled = [];
+foreach ($sequentialUnsafeShows as $offset => $sql) {
+    $sequentialShowFailures[] = provider_database_session_failure(
+        static fn(): mixed => ProviderDatabaseSession::read_only_snapshot(
+            'sequential unsafe SHOW fixture ' . ($offset + 1),
+            provider_database_read_profile(),
+            static fn(): mixed => $wpdb->get_results($sql)
+        )
+    );
+    $sequentialShowSettled[] = !DatabaseQueryIsolation::is_active()
+        && $GLOBALS['wp_current_filter'] === $outerFilterStack;
+}
+wprism_check(
+    count(array_filter(
+        $sequentialShowFailures,
+        static fn(?Throwable $failure): bool => $failure instanceof DatabaseQueryIsolationViolationException
+    )) === 2
+        && $sequentialShowSettled === [true, true]
+        && array_intersect($sequentialUnsafeShows, $wpdb->queries()) === []
+        && provider_database_session_rows($wpdb) === [[
+            'provider_key' => 'must_survive',
+            'provider_value' => 'private_fixture_value',
+        ]],
+    'sequential query-gate refusals restore the exact outer hook stack without transporting target SQL'
+);
+unset($GLOBALS['wp_current_filter']);
+
+$wpdb = provider_database_session_fixture();
+ProviderDatabaseSession::read_only_snapshot(
+    'absent current-filter topology fixture',
+    provider_database_read_profile(),
+    static fn(): null => null
+);
+$absentCurrentFilterRestored = !array_key_exists('wp_current_filter', $GLOBALS);
+$GLOBALS['wp_current_filter'] = null;
+$wpdb = provider_database_session_fixture();
+ProviderDatabaseSession::read_only_snapshot(
+    'null current-filter topology fixture',
+    provider_database_read_profile(),
+    static fn(): null => null
+);
+$nullCurrentFilterRestored = array_key_exists('wp_current_filter', $GLOBALS)
+    && $GLOBALS['wp_current_filter'] === null;
+unset($GLOBALS['wp_current_filter']);
+wprism_check(
+    $absentCurrentFilterRestored && $nullCurrentFilterRestored,
+    'query isolation preserves absent and explicit-null current-filter topology after settlement'
+);
+
 $wpdb = FakeWpdb::install()->seedTable('wp_options', [[
     'option_id' => 1,
     'option_name' => 'durable_fixture',
