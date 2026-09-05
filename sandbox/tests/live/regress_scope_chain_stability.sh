@@ -65,6 +65,8 @@ BODY_COMPLETE=0
 say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/lib/pair_db.sh"
+pair_db_select_engine
 
 source_wp() { docker compose -f "$DRIVER_COMPOSE" run --rm -T source wp "$@"; }
 target_wp() { docker compose -f "$DRIVER_COMPOSE" run --rm -T target wp "$@"; }

@@ -2462,6 +2462,7 @@ SH
         self::write($root . '/agent/wprism.php', (string) file_get_contents($repo . '/agent/wprism.php'));
         foreach ([
             'agent/src/Kernel/PlainData.php',
+            'sandbox/lib/pair_db.sh',
             'sandbox/tests/live/regress_capture_concurrency.sh',
             'sandbox/tests/live/regress_multisite_refusal.sh',
             'sandbox/tests/offline/apply/regress_fatal_mutations.php',

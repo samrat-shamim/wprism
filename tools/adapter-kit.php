@@ -99,6 +99,7 @@ final class AdapterKit
         'lib/frozen_policy.php' => ['sandbox/tests/lib/frozen_policy.php', 'WPrismTest\\FrozenPolicy — a wprism-policy-snapshot/v6 envelope; needs the agent runtime'],
         'lib/ConformanceVector.php' => ['sandbox/tests/lib/ConformanceVector.php', 'WPrismTest\\ConformanceVector — record a wprism-conformance-vector/v1 once on a pair, replay the round trip offline forever; needs the agent runtime'],
         'lib/pair_identity.sh' => ['sandbox/lib/pair_identity.sh', 'candidate source resolution and caller-local Compose mount pinning for parallel evidence lanes'],
+        'lib/pair_db.sh' => ['sandbox/lib/pair_db.sh', 'canonical database engine selection and caller-local host pinning for parallel evidence lanes'],
         'lib/host_orchestrator.sh' => ['sandbox/lib/host_orchestrator.sh', 'host CLI registry, adoption-equivalent recovery setup and invocation boundary for checkpointed pair deployment'],
         'conformance/run.sh' => ['sandbox/conformance/run.sh', 'the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate'],
         'conformance/asserts.sh' => ['sandbox/conformance/asserts.sh', 'premise assertions every seed/postdeploy hook calls before its engine assertion'],

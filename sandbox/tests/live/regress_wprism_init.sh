@@ -73,6 +73,8 @@ export WPRISM_PAIR="$PAIR"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. sandbox/lib/pair_db.sh
+pair_db_select_engine
 
 # cleanup [preserve_evidence]
 #
@@ -346,8 +348,8 @@ wait_for_init_lease() {
   local repo="$1" log="$2" name holder
   name="wprism-init:$(php -r 'echo substr(hash("sha256", "wp_" . chr(0) . $argv[1]), 0, 48);' "$repo")"
   for _ in $(seq 1 100); do
-    holder=$(docker exec -e MYSQL_PWD=root wprism-shared-db \
-      mariadb -uroot -N -B --raw -e "SELECT COALESCE(IS_USED_LOCK('$name'), 0)" 2>/dev/null || true)
+    holder=$(docker exec -e MYSQL_PWD=root "$DB_CONTAINER" \
+      "$DB_CLIENT" -uroot -N -B --raw -e "SELECT COALESCE(IS_USED_LOCK('$name'), 0)" 2>/dev/null || true)
     if [[ "$holder" =~ ^[1-9][0-9]*$ ]]; then
       return 0
     fi

@@ -15,6 +15,7 @@
 # this file family.
 
 pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT/DB_COMPOSE/DB_LABEL from WPRISM_DB_ENGINE
+  local engine="${WPRISM_DB_ENGINE:-mariadb}"
   # The MySQL 8.x evidence lane (sandbox/db.mysql.yml) is a SECOND shared
   # server in its own compose project, so selecting it is a matter of which
   # container/client/project a pair talks to -- never an edit to db.yml, which
@@ -29,7 +30,7 @@ pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT
   # engine that silently produced MariaDB evidence while the operator believed
   # they were measuring MySQL is precisely the wrong-engine hazard this lane
   # exists to rule out (see sandbox/pair.yml's WPRISM_DB_HOST paragraph).
-  case "${WPRISM_DB_ENGINE:-mariadb}" in
+  case "$engine" in
     mariadb)
       DB_CONTAINER=wprism-shared-db
       DB_CLIENT=mariadb
@@ -46,6 +47,12 @@ pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT
       fail "unknown WPRISM_DB_ENGINE '${WPRISM_DB_ENGINE:-}' -- supported engines are 'mariadb' (default) and 'mysql'"
       ;;
   esac
+  # Fresh Compose and host-CLI descendants must retain this selection. A
+  # pair.sh subprocess cannot export back to its caller, and another pair can
+  # rewrite sandbox/.env mid-deploy (measured: MariaDB conformance reached the
+  # MySQL server at lifecycle-retire). The engine selector, not that shared
+  # fallback file or an inherited stale host, owns the engine/host mapping.
+  export WPRISM_DB_ENGINE="$engine" WPRISM_DB_HOST="$DB_CONTAINER"
 }
 
 pair_db_sql() { # pair_db_sql — run SQL read from stdin as root against the shared server

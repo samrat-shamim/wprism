@@ -11,6 +11,8 @@ COMPOSE="docker compose -p wprism-codexmac3229 -f pair.yml"
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 command -v jq >/dev/null || fail "jq required"
 bash bin/pair.sh reset codexmac3229

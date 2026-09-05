@@ -19,6 +19,8 @@ cd "$(dirname "$0")/../.."
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 require() { command -v "$1" >/dev/null 2>&1 || fail "required command is missing: $1"; }
 require id
 require mktemp
@@ -183,7 +185,7 @@ cleanup() {
       status=1
       teardown_verified=0
     fi
-    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
+    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root "$DB_CONTAINER" "$DB_CLIENT" -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
       printf 'FAIL: ecommerce cleanup could not verify database removal for %s\n' "$PAIR" >&2
       status=1
       teardown_verified=0
@@ -319,10 +321,10 @@ if (!is_file($path) || is_link($path) || !hash_equals($expected, (string) @hash_
   TARGET_CRON_FREEZE_SHA=""
 }
 source_db_scalar() {
-  docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}1" -e "$1" | tr -d '\r'
+  docker exec -e MYSQL_PWD=root "$DB_CONTAINER" "$DB_CLIENT" -uroot -N -B --raw "wp_${PAIR}1" -e "$1" | tr -d '\r'
 }
 target_db_scalar() {
-  docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}2" -e "$1" | tr -d '\r'
+  docker exec -e MYSQL_PWD=root "$DB_CONTAINER" "$DB_CLIENT" -uroot -N -B --raw "wp_${PAIR}2" -e "$1" | tr -d '\r'
 }
 ledger_value() { target_db_scalar "SELECT v FROM wp_wprism_kv WHERE k = '$1'"; }
 ledger_revision() { ledger_value code_revision; }
@@ -1352,8 +1354,8 @@ PAIR_VOLUMES="$(docker volume ls -q --filter "label=com.docker.compose.project=w
 PAIR_NETWORKS="$(docker network ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null || true)"
 [ -z "$PAIR_CONTAINERS$PAIR_VOLUMES$PAIR_NETWORKS" ] \
   || fail "refusing to reuse existing Docker resources for wprism-$PAIR"
-if docker inspect wprism-shared-db >/dev/null 2>&1; then
-  if ! PAIR_DATABASES="$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
+if docker inspect "$DB_CONTAINER" >/dev/null 2>&1; then
+  if ! PAIR_DATABASES="$(docker exec -e MYSQL_PWD=root "$DB_CONTAINER" "$DB_CLIENT" -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
     fail "cannot verify that pair databases for $PAIR are absent"
   fi
   [ -z "$PAIR_DATABASES" ] || fail "refusing to reuse existing pair database(s): $PAIR_DATABASES"

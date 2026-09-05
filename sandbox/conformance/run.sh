@@ -283,6 +283,8 @@ fi
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'conformance could not pin its selected source mounts in the caller environment'
+. lib/pair_db.sh
+pair_db_select_engine
 
 say "clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run)"
 bash bin/pair.sh reset "$CONF_PAIR"

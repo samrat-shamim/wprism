@@ -13,12 +13,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/lib/pair_db.sh"
+pair_db_select_engine
+[ "$WPRISM_DB_ENGINE" = mariadb ] \
+  || fail "environment materializer live evidence requires MariaDB; got WPRISM_DB_ENGINE=$WPRISM_DB_ENGINE"
+
 PAIR=environment-materializer
 PORT1=9100
 PORT2=9101
 SOURCE_CONTAINER="wprism-${PAIR}-wp1-1"
 TARGET_CONTAINER="wprism-${PAIR}-wp2-1"
-DB_CONTAINER=wprism-shared-db
 SITE1="$ROOT/sandbox/siterepo/${PAIR}1"
 SITE2="$ROOT/sandbox/siterepo/${PAIR}2"
 WPRISM="$ROOT/cli/wprism"
@@ -37,7 +42,6 @@ IMAGE_OWNED=0
 
 say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 source_wp() { docker compose -f "$DRIVER_COMPOSE" run --rm -T source wp "$@"; }
 target_wp() { docker compose -f "$DRIVER_COMPOSE" run --rm -T target wp "$@"; }

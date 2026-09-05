@@ -210,6 +210,10 @@ SCENARIOS_RUN=()
 # self-check below exercises every pure one against the recorded fixtures.
 # shellcheck source=../lib/grind_lib.sh
 . "$SANDBOX/tests/lib/grind_lib.sh"
+. "$SANDBOX/lib/pair_db.sh"
+pair_db_select_engine
+[ "$WPRISM_DB_ENGINE" = mariadb ] \
+  || fail "adapter walk reference-provider evidence requires MariaDB; got WPRISM_DB_ENGINE=$WPRISM_DB_ENGINE"
 
 
 

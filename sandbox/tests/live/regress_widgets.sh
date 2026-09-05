@@ -17,6 +17,8 @@ wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. sandbox/lib/pair_db.sh
+pair_db_select_engine
 cleanup() {
   bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
   rm -rf "$SITE1" "$SITE2"

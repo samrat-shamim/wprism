@@ -40,6 +40,8 @@ export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'WooCommerce multisite evidence could not pin its candidate mounts in the caller environment'
+. lib/pair_db.sh
+pair_db_select_engine
 PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 UP_FLAGS=(--artifacts --headless)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then

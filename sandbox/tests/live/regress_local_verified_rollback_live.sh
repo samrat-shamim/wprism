@@ -76,6 +76,8 @@ EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:-}"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. sandbox/lib/pair_db.sh
+pair_db_select_engine
 
 for command in git docker php jq sha256sum; do
   command -v "$command" >/dev/null || fail "$command is required"
@@ -517,7 +519,7 @@ docker run --rm --user 0 \
 
 DOCKER_COMMON=(
   --rm --network wprism-shared --user 33:33 --workdir /wprism-source
-  -e WORDPRESS_DB_HOST=wprism-shared-db
+  -e "WORDPRESS_DB_HOST=$WPRISM_DB_HOST"
   -e WORDPRESS_DB_USER=wordpress
   -e WORDPRESS_DB_PASSWORD=wordpress
   -e "WORDPRESS_DB_NAME=wp_${PAIR}1"

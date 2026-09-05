@@ -80,6 +80,14 @@
             "sha256": "7276aad568f8d23250bec8b85d07cbec7daf43c075072de86a3591baa712b756"
         },
         {
+            "path": "lib/pair_db.sh",
+            "origin": "copied",
+            "source": "sandbox/lib/pair_db.sh",
+            "role": "canonical database engine selection and caller-local host pinning for parallel evidence lanes",
+            "bytes": 9566,
+            "sha256": "ccf41b3c6c74984c2de34018590f9b32f3107ca0802f48526047306721f53f59"
+        },
+        {
             "path": "lib/host_orchestrator.sh",
             "origin": "copied",
             "source": "sandbox/lib/host_orchestrator.sh",
@@ -92,8 +100,8 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 37511,
-            "sha256": "2a5ba845df9b1f06be06086e6661a54fb6d0675bebb0d021cda17d2454ad1700"
+            "bytes": 37550,
+            "sha256": "967a8e530fcf7c96d2eccd69fa8f49b36e481afa4473d2ba5d33ae6dbff0c04d"
         },
         {
             "path": "conformance/asserts.sh",
@@ -124,8 +132,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 4865,
-            "sha256": "4b2d687bb2604bda627b08e3dd1c0aebc362e232170b30aaf6a9133453acb35f"
+            "bytes": 5009,
+            "sha256": "100658ff8ff4837568adf653fc95dc2775b44a1e01ad25d8796be62f0c1b01d6"
         }
     ]
 }

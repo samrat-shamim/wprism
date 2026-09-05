@@ -74,6 +74,8 @@ export WPRISM_PAIR="$PAIR"
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'version matrix could not pin its selected source mounts in the caller environment'
+. lib/pair_db.sh
+pair_db_select_engine
 PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then

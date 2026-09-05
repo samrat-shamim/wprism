@@ -103,6 +103,10 @@ SITUATIONS_RUN=()
 
 # shellcheck source=../lib/grind_lib.sh
 . "$SANDBOX/tests/lib/grind_lib.sh"
+. "$SANDBOX/lib/pair_db.sh"
+pair_db_select_engine
+[ "$WPRISM_DB_ENGINE" = mariadb ] \
+  || fail "adoption reference-provider evidence requires MariaDB; got WPRISM_DB_ENGINE=$WPRISM_DB_ENGINE"
 
 # TODO(build): situations A1..A10 (see t7-design.md); each is `situation_aN`.
 

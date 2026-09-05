@@ -45,7 +45,7 @@ final class AdapterPackageRunnerIsolationTest extends TestCase
                 $this->scratch . '/sandbox/conformance/' . $file
             );
         }
-        foreach (['bin/fetch-artifact.sh', 'lib/pair_identity.sh'] as $file) {
+        foreach (['bin/fetch-artifact.sh', 'lib/pair_identity.sh', 'lib/pair_db.sh'] as $file) {
             self::copyFile(
                 $repo . '/sandbox/' . $file,
                 $this->scratch . '/sandbox/' . $file

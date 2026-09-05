@@ -25,6 +25,8 @@ export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" WPR
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'WooCommerce rewrite co-install could not pin its candidate mounts in the caller environment'
+. lib/pair_db.sh
+pair_db_select_engine
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
 # Four exact production plugins exceed PHP's image-default 128 MiB while

@@ -12,6 +12,8 @@ wp1() { $COMPOSE run --rm -T cli1 wp --require=/siterepo/attachment-portability-
 wp2() { $COMPOSE run --rm -T cli2 wp --require=/siterepo/attachment-portability-register.php "$@"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 command -v jq >/dev/null || fail "jq required"
 bash bin/pair.sh reset "$WPRISM_PAIR"

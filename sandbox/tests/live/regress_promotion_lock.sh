@@ -16,6 +16,8 @@ wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. sandbox/lib/pair_db.sh
+pair_db_select_engine
 share_source_repo() {
   "${COMPOSE[@]}" run --rm -T cli1 sh -c '
     [ ! -e /siterepo/state ] || chmod -R a+rwX /siterepo/state

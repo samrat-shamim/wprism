@@ -81,23 +81,21 @@ exists only in MariaDB images, so db.mysql.yml runs `mysql -uroot -proot -e
 soon as the server accepts a connection, which is exactly the fake-readiness
 gap `--innodb_initialized` was chosen to close.
 
-`pair.sh` exports `WPRISM_DB_HOST="$DB_CONTAINER"` **at load**, beside the
-engine selection and therefore for every subcommand — not just `up`.
-`pair.yml` renders `WORDPRESS_DB_HOST: ${WPRISM_DB_HOST:-wprism-shared-db}` from it,
-and `pair_compose_configure()` writes it into `sandbox/.env` beside
-`WPRISM_AGENT_SRC`, `WPRISM_ADAPTER_PACKAGES_SRC`, and `WPRISM_PLATFORM_SRC`. The
-`.env` write is load-bearing,
-not belt-and-braces: `conformance/run.sh` and every `regress_*.sh` invoke
-`pair.sh up` as a subprocess and then make their own `docker compose -f
-pair.yml` calls, which never see pair.sh's export. A MySQL pair whose
-subprocesses re-rendered the `wprism-shared-db` default would run green against
-MariaDB and be recorded as MySQL evidence.
+`pair_db_select_engine()` exports the exact `WPRISM_DB_ENGINE` / `WPRISM_DB_HOST`
+tuple in the **calling process**. `pair.sh` calls it at load for every
+subcommand. Harnesses that also issue direct Compose or host-CLI calls must
+source `lib/pair_db.sh` and call the selector in their own parent shell before
+starting a pair; a subprocess cannot export back to its parent. Multi-engine
+drivers select each cell before starting it and finish that cell's cleanup
+before selecting the next engine.
 
-The load-time export matters for the same reason: `pair_compose_configure()`
-rewrites `sandbox/.env` on *every* call, and `stop`/`start`/`destroy` all call
-it, so exporting only inside `up` would let a later `pair.sh stop
-<mysql-pair>` put `wprism-shared-db` back into the file the next subprocess
-compose call reads. (Exactly the failure `WPRISM_AGENT_SRC` hit in issue #3277.)
+Database selection is never written to shared `sandbox/.env`. It previously
+let a concurrent MySQL lifecycle command reroute a MariaDB conformance run
+mid-deploy. The file now contains only the three source-mount paths, and each
+publication removes any pre-fix database entry. Legacy default callers retain
+`pair.yml`'s immutable MariaDB default. Candidate-bound callers additionally
+pin mounts through `pair_identity_export_source_mounts()`; their exported
+context outranks the source-path fallback throughout direct and host calls.
 
 **What this server now proves — and what it does not yet.**
 `platform/adapter-library/capabilities/platform.json`'s database axis is an engine-keyed map
@@ -136,11 +134,11 @@ three belong in the same commit as the claim:
   carrying signed site adapters may, and the PR that moves a bound cell must
   say so.
 
-**Bring it down when the matrix is not running**
-(`docker compose -p wprism-db-mysql -f db.mysql.yml down -v`). It adds a second
-2g / 2.0-cpu long-lived container to the same daemon accounting `db.yml:4-12`
-records as having wedged OrbStack under three concurrent stacks; never leave
-it up alongside a full conformance sweep.
+Both database servers are fleet-shared. A matrix owns its leased pair and
+exact schemas, not either server or its volume; its cleanup must never stop,
+recreate, or delete a shared database. Idle-server shutdown is a separate
+fleet-admin operation after proving no pair uses it. Pair budget and per-pair
+release discipline account for concurrent live work.
 
 ### Cross-project networking
 

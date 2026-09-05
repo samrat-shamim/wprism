@@ -30,7 +30,7 @@ final class AdapterPackageValidator
     private const PREMISE_EVIDENCE = 'target-observation-premises.tsv';
 
     /**
-     * Package live tests run from sandbox/, so these three reviewed harness
+     * Package live tests run from sandbox/, so these reviewed harness
      * libraries are the only intentional cwd-relative source dependencies.
      * Package-owned sources use the BASH_SOURCE-relative form enforced below.
      *
@@ -40,6 +40,7 @@ final class AdapterPackageValidator
         'bin/fetch-artifact.sh',
         'conformance/asserts.sh',
         'lib/pair_identity.sh',
+        'lib/pair_db.sh',
     ];
 
     /** @var list<string> */

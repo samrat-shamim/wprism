@@ -33,55 +33,19 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # version of this fix only set them in cmd_up and `stop` broke instantly).
   pair_identity_export_source_mounts \
     || fail "could not resolve a safe source checkout via git -- WPRISM_SOURCE_ROOT must be an exact physical worktree of this repository"
-  # Which shared database server pair.yml:94 renders into WORDPRESS_DB_HOST.
-  # pair.sh exports it once at load from DB_CONTAINER (pair_db_select_engine()),
-  # so it is already set for EVERY subcommand by the time they funnel through
-  # here -- the same reason the two source paths above are exported here rather
-  # than in cmd_up, and for the same measured failure: this rewrites .env on
-  # every call, so a cmd_up-only export let `stop` on a mysql-lane pair put the
-  # MariaDB host back in the file the next subprocess compose call reads.
-  # The wprism-shared-db default remains for a caller that sources this library
-  # without pair.sh at all; it matches pair.yml's own `${WPRISM_DB_HOST:-...}` so
-  # such a caller renders byte-identically to before the MySQL lane existed.
+  # Database authority stays process-local. pair_db_select_engine() exports
+  # the exact tuple before pair.sh reaches here; standalone default callers
+  # keep pair.yml's MariaDB default. Never publish this host into shared .env:
+  # a MySQL lifecycle command otherwise reroutes concurrent default-MariaDB
+  # harnesses, including the legacy parents that do not select an engine.
   export WPRISM_DB_HOST="${WPRISM_DB_HOST:-wprism-shared-db}"
 
-  # issue #3277 (CI caught this the first version above missed): that export
-  # only reaches pair.sh's OWN "${PAIR_COMPOSE[@]}" calls -- it dies with
-  # this process and never reaches the many OTHER scripts (sandbox/
-  # conformance/run.sh, every regress_*.sh/grind_*.sh) that invoke `pair.sh
-  # up` once as a subprocess and then make their own separate, direct
-  # `docker compose -f pair.yml ...` calls afterward (confirmed: that's how
-  # essentially every one of them actually works, not a hypothetical edge
-  # case -- see run.sh's own $COMPOSE + its wp_env() helper). Those scripts
-  # already re-export WPRISM_PAIR/WPRISM_PORT1/WPRISM_PORT2 themselves for the same
-  # process-boundary reason (see run.sh's comment by its own export line),
-  # but making every caller duplicate canonical_root()'s git logic too
-  # would be fragile -- easy to add a new call site and forget it, with no
-  # loud failure until that exact path runs.
-  #
-  # Persist the same three values to sandbox/.env instead, in addition to the
-  # export above: docker compose auto-loads a file by that exact name from
-  # the CWD (verified live with `env -i` stripping every inherited
-  # variable -- compose still resolved both mounts correctly from .env
-  # alone), and every caller in this codebase already `cd`s into sandbox/
-  # before making its own compose calls (this script's own line 45 above;
-  # run.sh's equivalent). One write here, in the single choke point every
-  # subcommand already funnels through, covers every current AND future
-  # caller with zero changes to any of them. Overwritten (never appended)
-  # so a stale value can never survive a worktree/checkout change. A teardown
-  # launched without an evidence lane's WPRISM_SOURCE_ROOT can still rewrite this
-  # worktree's file to the canonical checkout mid-run, so live callers also
-  # pin their resolved mounts via pair_identity_export_source_mounts(); shell
-  # environment variables outrank .env during Compose interpolation.
-  #
-  # WPRISM_DB_HOST rides this same channel for the same process-boundary reason,
-  # with a sharper failure mode than a broken mount: a pair brought up on the
-  # MySQL evidence lane whose conformance/regress subprocesses then re-rendered
-  # pair.yml's wprism-shared-db default would run GREEN against MariaDB while the
-  # operator recorded it as MySQL evidence -- wrong-engine evidence is worse
-  # than no evidence.
-  printf 'WPRISM_AGENT_SRC=%s\nWPRISM_ADAPTER_PACKAGES_SRC=%s\nWPRISM_PLATFORM_SRC=%s\nWPRISM_DB_HOST=%s\n' \
-    "$WPRISM_AGENT_SRC" "$WPRISM_ADAPTER_PACKAGES_SRC" "$WPRISM_PLATFORM_SRC" "$WPRISM_DB_HOST" > .env
+  # Source roots retain the existing convenience fallback for manual Compose
+  # calls. Candidate-bound evidence must pin them in its parent via
+  # pair_identity_export_source_mounts(); environment values outrank .env.
+  # Replacing rather than appending also removes a pre-fix persisted DB host.
+  printf 'WPRISM_AGENT_SRC=%s\nWPRISM_ADAPTER_PACKAGES_SRC=%s\nWPRISM_PLATFORM_SRC=%s\n' \
+    "$WPRISM_AGENT_SRC" "$WPRISM_ADAPTER_PACKAGES_SRC" "$WPRISM_PLATFORM_SRC" > .env
 
 }
 

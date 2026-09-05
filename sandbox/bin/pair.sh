@@ -385,16 +385,9 @@ remedy: commit or stash those changes, or produce this evidence from a clean sta
 # above: an unknown engine therefore refuses before ANY subcommand runs and
 # before a single docker call is made.
 pair_db_select_engine
-# The selected engine's server name travels with the WHOLE invocation, not just
-# `up`: pair_compose_configure() REWRITES sandbox/.env on every call (stop,
-# start and destroy each call it too, pair.sh:783/832/855), so exporting this
-# inside cmd_up only would let a later `pair.sh stop <mysql-pair>` overwrite
-# that file's WPRISM_DB_HOST with pair_compose.sh's wprism-shared-db default -- and
-# the next subprocess `docker compose -f pair.yml up` from conformance/run.sh
-# or a regress_*.sh would then recreate wp1/wp2 against MariaDB while the
-# operator recorded MySQL evidence. Exported at load, beside the selection it
-# derives from, that window does not exist.
-export WPRISM_DB_HOST="$DB_CONTAINER"
+# The selector exports engine and host for this entire invocation. Direct
+# Compose harnesses also call it in their own parent shell: a subprocess
+# export cannot protect that parent from another pair rewriting shared .env.
 DB_ROOT_USER=root
 DB_ROOT_PASS=root
 APP_USER=wordpress
@@ -1096,14 +1089,13 @@ Environment:
            wprism-shared-db, the `mariadb` client, project wprism-db. `mysql`
            selects the parallel evidence-lane server (db.mysql.yml's
            wprism-shared-mysql, the `mysql` client, project wprism-db-mysql) and
-           exports WPRISM_DB_HOST so pair.yml and every subprocess compose call
-           resolve it. Any other value is refused by name, at load, before any
-           subcommand. Selecting `mysql` CLAIMS NOTHING: the shipped platform
-           contract (platform/adapter-library/capabilities/platform.json) is still
-           MariaDB-only, so `wp wprism ...` on such a pair refuses
-           platform_unsupported / platform_database_engine_unsupported. That
-           refusal is the lane's first datum; widening the claim needs live
-           evidence and its own commit.
+           exports the engine/host tuple for this invocation's descendants.
+           A parent harness issuing its own Compose calls must source
+           lib/pair_db.sh and call pair_db_select_engine in that parent;
+           database selection is never persisted in shared sandbox/.env.
+           Any other value is refused by name, at load, before any subcommand.
+           Engine selection alone claims no support: the platform contract and
+           its named evidence define what has actually been exercised.
 USAGE
 }
 

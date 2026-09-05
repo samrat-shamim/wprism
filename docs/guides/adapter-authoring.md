@@ -1947,6 +1947,15 @@ library.
    conformance green and then die with `command not found` when the
    exact-version driver sources the identical hook.
 
+   The driver also owns caller-local infrastructure context. Before starting
+   a pair, pin source mounts with `pair_identity_export_source_mounts()` and
+   select the database with `pair_db_select_engine()` from `lib/pair_db.sh`.
+   Both standard drivers do this. A new direct-Compose harness must do so in
+   its parent shell; a `pair.sh` child cannot export back to it. Shared `.env`
+   never carries database authority, and multi-engine drivers finish each
+   cell's owned teardown before changing the selected engine. Plugin hooks
+   inherit this context and must not choose infrastructure themselves.
+
    The source-SHA binding is part of the evidence. A green run against another
    checkout is not evidence for the candidate. The package validator requires
    this matrix for every certified plugin adapter, requires every active pin to

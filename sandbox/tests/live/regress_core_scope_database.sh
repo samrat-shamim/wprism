@@ -38,7 +38,7 @@ PAIR="${CORE_SCOPE_DATABASE_PAIR:-coredb}"
 PORT1="${CORE_SCOPE_DATABASE_PORT1:-8990}"
 PORT2="${CORE_SCOPE_DATABASE_PORT2:-8991}"
 PLATFORM_FILE='../platform/adapter-library/capabilities/platform.json'
-ARTIFACTS='tmp/core-scope-database'
+ARTIFACTS="tmp/core-scope-database/$PAIR"
 
 # The web/cli pair every cell boots. The engine is the variable under test, so
 # core and PHP are held at the claim's own newest exercised values — a failure
@@ -76,13 +76,27 @@ SOURCE_SHA=$(git rev-parse --verify 'HEAD^{commit}') || fail 'database evidence 
 [ -z "$(git status --porcelain=v1 --untracked-files=all)" ] \
   || fail "database evidence checkout is dirty; commit the exact candidate $SOURCE_SHA first"
 
+REPO_ROOT="$(cd .. && pwd -P)"
+export WPRISM_SOURCE_ROOT="$REPO_ROOT"
 export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
 export WPRISM_ARTIFACT_OFFLINE=1
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
-ORIGIN="siterepo/origin-${PAIR}.git"
-ENVS_FILE=$(mktemp "${TMPDIR:-/tmp}/wprism-core-database.${PAIR}.XXXXXX")
 mkdir -p "$ARTIFACTS"
+
+# This matrix changes engines between legs. Keep each pair, both schemas, the
+# caller-local engine/host context, and cleanup under one engine-bound lease;
+# neither leg owns either fleet-shared database server itself.
+PAIR_CALLER_UMASK="$(umask)"
+# shellcheck source=../lib/pair_live_ownership.sh
+. "$REPO_ROOT/sandbox/tests/lib/pair_live_ownership.sh"
+pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" \
+  'database engine matrix evidence' 'wprism-core-scope-database'
+ENVS_FILE="$PAIR_LIVE_OWNERSHIP_TMP_ROOT/environments.json"
+# prepare() protects its private scratch with umask 077. Restore the caller's
+# mode before copying repository bytes that the pair's uid-33 CLI must read;
+# the registry remains protected by its already-created 0700 parent.
+umask "$PAIR_CALLER_UMASK"
 
 compose() { docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml "$@"; }
 wp1() { compose run --rm -T cli1 wp "$@"; }
@@ -94,41 +108,6 @@ wp2() { compose run --rm -T cli2 wp "$@"; }
 sql() { # sql <container> <client> <statement>
   docker exec -i -e MYSQL_PWD=root "$1" "$2" -uroot -N -B -e "$3"
 }
-
-remove_owned_path() {
-  local owned="$1"
-  [ ! -e "$owned" ] || find "$owned" -depth -delete
-}
-
-destroy_owned_pair() {
-  bash bin/pair.sh destroy "$PAIR" >/dev/null
-  remove_owned_path "$R1"
-  remove_owned_path "$R2"
-  remove_owned_path "$ORIGIN"
-}
-
-cleanup() {
-  local status=$? destroy_status=0
-  trap - EXIT
-  set +e
-  bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1
-  destroy_status=$?
-  remove_owned_path "$R1"
-  remove_owned_path "$R2"
-  remove_owned_path "$ORIGIN"
-  rm -f -- "$ENVS_FILE"
-  # The MySQL server is a SECOND 2g/2.0-cpu long-lived container beside
-  # db.yml's (db.mysql.yml:43-47 records the OrbStack wedge that motivated the
-  # rule), so this suite brings it down when it is done rather than leaving it
-  # for the next sweep to trip over. db.yml's own server is fleet-shared and is
-  # deliberately left alone.
-  docker compose -p wprism-db-mysql -f db.mysql.yml down -v >/dev/null 2>&1
-  if [ "$status" -eq 0 ] && [ "$destroy_status" -ne 0 ]; then
-    status=$destroy_status
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
 
 write_env_file() {
   jq -n --arg compose "$(pwd)/pair.yml" --arg name "${PAIR}1" '
@@ -234,9 +213,14 @@ done
 
 for cell in "${ENGINE_CELLS[@]}"; do
   read -r cell_engine cell_env cell_container cell_client _ _ <<<"$cell"
-  export WPRISM_DB_ENGINE="$cell_env" WPRISM_WP_IMAGE="$WP71_IMAGE" WPRISM_CLI_IMAGE="$CLI83_IMAGE"
-  destroy_owned_pair
-  bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
+  export WPRISM_WP_IMAGE="$WP71_IMAGE" WPRISM_CLI_IMAGE="$CLI83_IMAGE"
+  pair_live_ownership_acquire "$cell_env"
+  [ "$PAIR_LIVE_OWNERSHIP_ENGINE" = "$cell_env" ] \
+    && [ "$WPRISM_DB_ENGINE" = "$cell_env" ] \
+    && [ "$PAIR_LIVE_OWNERSHIP_CONTAINER" = "$cell_container" ] \
+    && [ "$WPRISM_DB_HOST" = "$cell_container" ] \
+    || fail "$cell_engine did not bind its lease and direct Compose context to $cell_env/$cell_container"
+  pair_live_ownership_up --headless --artifacts --wordpress-offline
   prepare_repo
   sql "$cell_container" "$cell_client" \
     "SELECT user, host, plugin FROM mysql.user WHERE user='wordpress'" \
@@ -390,7 +374,8 @@ for cell in "${ENGINE_CELLS[@]}"; do
   grep -q "\[PASS\] transactional database mutation ($cell_env)" <<<"$DOCTOR_OUT" \
     || fail "$cell_engine host doctor did not prove the PROCESS-gated FK census source: $DOCTOR_OUT"
   pass "$cell_engine: real round trip, verified zero-write repeat, byte-identical recapture, and passing version/FK-census doctor rows"
-  unset WPRISM_DB_ENGINE
+  pair_live_ownership_finish_leg
+  pass "$cell_engine pair, schemas, containers, volumes, and site roots were removed under its engine-bound lease"
 done
 
 # ------------------------------------------------ cross-engine record (audit §4)
@@ -407,4 +392,4 @@ diff "$ARTIFACTS/planted-mariadb.json" "$ARTIFACTS/planted-mysql.json" \
   > "$ARTIFACTS/planted-diff.txt" || true
 pass "cross-engine schema diff in $ARTIFACTS/schema-diff.txt; planted-row envelope diff in $ARTIFACTS/planted-diff.txt"
 
-printf '\n\033[1;32m✔ REGRESS_CORE_SCOPE_DATABASE PASSED\033[0m\n'
+pair_live_ownership_complete '✔ REGRESS_CORE_SCOPE_DATABASE PASSED'

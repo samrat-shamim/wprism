@@ -10,6 +10,8 @@ PAIR_LIVE_OWNERSHIP_REPO="$(cd "$PAIR_LIVE_OWNERSHIP_SANDBOX/.." && pwd -P)"
 
 # shellcheck source=../../lib/pair_identity.sh
 . "$PAIR_LIVE_OWNERSHIP_SANDBOX/lib/pair_identity.sh"
+# shellcheck source=../../lib/pair_db.sh
+. "$PAIR_LIVE_OWNERSHIP_SANDBOX/lib/pair_db.sh"
 # shellcheck source=../../lib/pair_lease.sh
 . "$PAIR_LIVE_OWNERSHIP_SANDBOX/lib/pair_lease.sh"
 
@@ -70,15 +72,15 @@ pair_live_ownership_prepare() { # <pair> <port1> <port2> <diagnostic-label> <scr
 }
 
 pair_live_ownership_select_engine() { # <mariadb|mysql>
-  local engine="$1" container
+  local engine="$1"
   case "$engine" in
-    mariadb) container='wprism-shared-db' ;;
-    mysql) container='wprism-shared-mysql' ;;
+    mariadb|mysql) ;;
     *) fail "$PAIR_LIVE_OWNERSHIP_LABEL requested unsupported database engine '$engine'" ;;
   esac
+  WPRISM_DB_ENGINE="$engine"
+  pair_db_select_engine
   PAIR_LIVE_OWNERSHIP_ENGINE="$engine"
-  PAIR_LIVE_OWNERSHIP_CONTAINER="$container"
-  export WPRISM_DB_ENGINE="$engine" WPRISM_DB_HOST="$container"
+  PAIR_LIVE_OWNERSHIP_CONTAINER="$DB_CONTAINER"
 }
 
 pair_live_ownership_acquire() { # <mariadb|mysql>

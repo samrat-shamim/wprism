@@ -23,6 +23,7 @@ FIXTURE="$TMP/repo"
 mkdir -p "$FIXTURE/sandbox/bin" "$FIXTURE/sandbox/lib" "$FIXTURE/sandbox/tests/lib" \
   "$FIXTURE/sandbox/siterepo" "$FIXTURE/agent" "$FIXTURE/adapter-packages" "$FIXTURE/platform"
 cp "$ROOT/sandbox/lib/pair_identity.sh" "$FIXTURE/sandbox/lib/pair_identity.sh"
+cp "$ROOT/sandbox/lib/pair_db.sh" "$FIXTURE/sandbox/lib/pair_db.sh"
 cp "$ROOT/sandbox/lib/pair_lease.sh" "$FIXTURE/sandbox/lib/pair_lease.sh"
 cp "$ROOT/sandbox/tests/lib/pair_live_ownership.sh" "$FIXTURE/sandbox/tests/lib/pair_live_ownership.sh"
 : > "$FIXTURE/agent/.fixture"
@@ -182,5 +183,38 @@ assert_before "$TMP/two-engine.out" 'release-visible:mysql' 'PAIR LIVE OWNERSHIP
 [ ! -e "$ACTIVE" ] && [ ! -e "$RESOURCE" ] && [ ! -e "$(cat "$SCRATCH_RECORD")" ] \
   || fail 'successful sequential cleanup left owned state'
 pass 'each engine leg gets a fresh token and verified release precedes reuse and sole PASS'
+
+say 'omitting per-leg settlement refuses before the engine or cleanup authority can change'
+: > "$EVENTS"
+if (
+  set -euo pipefail
+  cd "$FIXTURE/sandbox"
+  fail() { printf 'fixture failure: %s\n' "$*" >&2; exit 1; }
+  export WPRISM_SOURCE_ROOT="$FIXTURE" WPRISM_EXPECTED_SOURCE_SHA="$FIXTURE_SHA" \
+    TEST_FAIL_ACQUIRE=0 TEST_PARTIAL_UP_FAILURE=0 TEST_REQUIRE_SCRATCH_ABSENT=0
+  . tests/lib/pair_live_ownership.sh
+  pair_live_ownership_prepare "$TEST_PAIR" 9520 9521 'unsettled-engine fixture' 'wprism-owner-test'
+  printf '%s\n' "$PAIR_LIVE_OWNERSHIP_TMP_ROOT" > "$TEST_SCRATCH_RECORD"
+  pair_live_ownership_acquire mariadb
+  pair_live_ownership_up --headless
+  # Mutation of the matrix's required finish_leg: a second acquire must not
+  # export MySQL over MariaDB's still-active lease, even on this refusal path.
+  pair_live_ownership_acquire mysql
+  pair_live_ownership_complete 'UNREACHABLE UNSETTLED PASS'
+) >"$TMP/unsettled-engine.out" 2>&1; then
+  fail 'a matrix missing per-leg settlement changed engines successfully'
+fi
+grep -Fq 'attempted to acquire a second lease before releasing the first' "$TMP/unsettled-engine.out" \
+  || fail 'missing per-leg settlement did not produce the ownership refusal'
+grep -Fq 'destroy engine=mariadb host=wprism-shared-db' "$EVENTS" \
+  && grep -Fq 'lease-batch-release engine=mariadb host=wprism-shared-db' "$EVENTS" \
+  || fail 'unsettled-engine refusal lost the exact MariaDB cleanup context'
+! grep -Fq 'engine=mysql' "$EVENTS" \
+  || fail 'unsettled-engine refusal changed engine before cleanup'
+! grep -Fq 'UNREACHABLE UNSETTLED PASS' "$TMP/unsettled-engine.out" \
+  || fail 'unsettled-engine refusal published PASS'
+[ ! -e "$ACTIVE" ] && [ ! -e "$RESOURCE" ] && [ ! -e "$(cat "$SCRATCH_RECORD")" ] \
+  || fail 'unsettled-engine refusal leaked owned state'
+pass 'a missing finish_leg fails closed and still destroys/releases only the original engine'
 
 printf '\nPASS: regress-live-pair-ownership\n'
