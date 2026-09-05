@@ -1279,12 +1279,6 @@ class FakeWpdb {
 
     /** One row in $output shape, or null. */
     public function get_row(string $query, string $output = OBJECT, int $y = 0): array|object|null {
-        if ($this->fullApplySqlExtensionsEnabled) {
-            $witness = $this->fullApplyCanonicalPostWitnessRow($query);
-            if ($witness !== false) {
-                return is_array($witness) ? $this->shape($witness, $output) : null;
-            }
-        }
         $result = $this->run('get_row', $query);
         foreach ($this->getRowReturnOverrides as $index => $override) {
             if ($override['match'] !== null && !str_contains($query, $override['match'])) {
@@ -1331,62 +1325,6 @@ class FakeWpdb {
      * @return array<array-key,array<string,?string>|object>|false|null
      */
     public function get_results(string $query, string $output = OBJECT): array|false|null {
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyAttachmentMarkerQuery($query)) {
-            $rows = [];
-            foreach ($this->store[$this->tableName('wprism_kv')] ?? [] as $row) {
-                $key = (string) ($row['k'] ?? '');
-                if (!str_starts_with(strtolower($key), 'attachment_fs:')) continue;
-                $value = (string) ($row['v'] ?? '');
-                $rows[] = [
-                    'k' => $key,
-                    'v_bytes' => strlen($value),
-                    'bounded_v' => strlen($value) <= 512 ? $value : null,
-                ];
-            }
-            usort($rows, static fn(array $a, array $b): int => strcmp($a['k'], $b['k']));
-            $rows = array_slice($rows, 0, 2);
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostStatsQuery($query)) {
-            $rows = $this->capturePostRowsForFullApply($query);
-            $bytes = static function (array $row): int {
-                $columns = ['ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title', 'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password', 'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order', 'post_type', 'post_mime_type'];
-                $total = 0;
-                foreach ($columns as $column) $total += strlen((string) ($row[$column] ?? ''));
-                return $total;
-            };
-            $stats = [['row_count' => count($rows), 'total_bytes' => array_sum(array_map($bytes, $rows)), 'max_row_bytes' => $rows === [] ? 0 : max(array_map($bytes, $rows))]];
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyOptionsStatsQuery($query)) {
-            $rows = $this->store[$this->tableName('options')] ?? [];
-            $nameBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_name'] ?? '')), $rows);
-            $valueBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_value'] ?? '')), $rows);
-            $stats = [[
-                'row_count' => count($rows),
-                'total_bytes' => array_sum($nameBytes) + array_sum($valueBytes),
-                'max_name_bytes' => $nameBytes === [] ? 0 : max($nameBytes),
-                'max_name_characters' => $nameBytes === [] ? 0 : max($nameBytes),
-                'max_value_bytes' => $valueBytes === [] ? 0 : max($valueBytes),
-            ]];
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $stats);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostGroupsQuery($query)) {
-            $groups = [];
-            foreach ($this->capturePostRowsForFullApply($query) as $row) $groups[(string) $row['post_type']] = ($groups[(string) $row['post_type']] ?? 0) + 1;
-            $rows = [];
-            foreach ($groups as $type => $count) $rows[] = ['post_type' => $type, 'entities' => $count];
-            ksort($rows);
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostListQuery($query)) {
-            $rows = $this->capturePostRowsForFullApply($query);
-            usort($rows, static fn(array $a, array $b): int => ((int) $a['ID']) <=> ((int) $b['ID']));
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyTermsQuery($query)) {
-            return [];
-        }
         $result = $this->run('get_results', $query);
         foreach ($this->getResultsReturnOverrides as $index => $override) {
             if ($override['match'] !== null && !str_contains($query, $override['match'])) {
@@ -2412,6 +2350,71 @@ class FakeWpdb {
         $trimmed = rtrim(trim($sql), "; \t\n\r");
         if ($trimmed === '') {
             throw new \LogicException('FakeWpdb: empty SQL statement');
+        }
+        // These seven opt-in read projections share the same transport as
+        // parsed SELECTs. Returning from get_row/get_results skipped the
+        // active query gate, error injection, logging and stale-error reset.
+        if ($this->fullApplySqlExtensionsEnabled) {
+            $witness = $this->fullApplyCanonicalPostWitnessRow($sql);
+            if ($witness !== false) {
+                return ['kind' => 'rows', 'rows' => is_array($witness) ? [$witness] : []];
+            }
+        }
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyAttachmentMarkerQuery($sql)) {
+            $rows = [];
+            foreach ($this->store[$this->tableName('wprism_kv')] ?? [] as $row) {
+                $key = (string) ($row['k'] ?? '');
+                if (!str_starts_with(strtolower($key), 'attachment_fs:')) continue;
+                $value = (string) ($row['v'] ?? '');
+                $rows[] = [
+                    'k' => $key,
+                    'v_bytes' => strlen($value),
+                    'bounded_v' => strlen($value) <= 512 ? $value : null,
+                ];
+            }
+            usort($rows, static fn(array $a, array $b): int => strcmp($a['k'], $b['k']));
+            $rows = array_slice($rows, 0, 2);
+            return ['kind' => 'rows', 'rows' => $rows];
+        }
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostStatsQuery($sql)) {
+            $rows = $this->capturePostRowsForFullApply($sql);
+            $bytes = static function (array $row): int {
+                $columns = ['ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title', 'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password', 'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order', 'post_type', 'post_mime_type'];
+                $total = 0;
+                foreach ($columns as $column) $total += strlen((string) ($row[$column] ?? ''));
+                return $total;
+            };
+            $stats = [['row_count' => count($rows), 'total_bytes' => array_sum(array_map($bytes, $rows)), 'max_row_bytes' => $rows === [] ? 0 : max(array_map($bytes, $rows))]];
+            return ['kind' => 'rows', 'rows' => $stats];
+        }
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyOptionsStatsQuery($sql)) {
+            $rows = $this->store[$this->tableName('options')] ?? [];
+            $nameBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_name'] ?? '')), $rows);
+            $valueBytes = array_map(static fn(array $row): int => strlen((string) ($row['option_value'] ?? '')), $rows);
+            $stats = [[
+                'row_count' => count($rows),
+                'total_bytes' => array_sum($nameBytes) + array_sum($valueBytes),
+                'max_name_bytes' => $nameBytes === [] ? 0 : max($nameBytes),
+                'max_name_characters' => $nameBytes === [] ? 0 : max($nameBytes),
+                'max_value_bytes' => $valueBytes === [] ? 0 : max($valueBytes),
+            ]];
+            return ['kind' => 'rows', 'rows' => $stats];
+        }
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostGroupsQuery($sql)) {
+            $groups = [];
+            foreach ($this->capturePostRowsForFullApply($sql) as $row) $groups[(string) $row['post_type']] = ($groups[(string) $row['post_type']] ?? 0) + 1;
+            $rows = [];
+            foreach ($groups as $type => $count) $rows[] = ['post_type' => $type, 'entities' => $count];
+            ksort($rows);
+            return ['kind' => 'rows', 'rows' => $rows];
+        }
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPostListQuery($sql)) {
+            $rows = $this->capturePostRowsForFullApply($sql);
+            usort($rows, static fn(array $a, array $b): int => ((int) $a['ID']) <=> ((int) $b['ID']));
+            return ['kind' => 'rows', 'rows' => $rows];
+        }
+        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyTermsQuery($sql)) {
+            return ['kind' => 'rows', 'rows' => []];
         }
         if (strcasecmp($trimmed, 'SELECT @@SESSION.sql_mode AS sql_mode') === 0) {
             return ['kind' => 'rows', 'rows' => [['sql_mode' => $this->sqlMode]]];
