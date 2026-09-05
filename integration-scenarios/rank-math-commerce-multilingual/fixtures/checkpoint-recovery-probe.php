@@ -26,6 +26,7 @@ $hash = str_repeat('a1', 32);
 $cipher = (string) hash_file('sha256', $checkpoint);
 
 if ($verb === 'begin') {
+    file_put_contents($target . '/.wprism/probe-ledger-installed', 'initialized before checkpoint');
     ProviderSettlementIntent::begin($control, $target, $artifact, $checkpoint, $cipher,
         $owner, $hash, ['lifecycle-retire', 'lifecycle-activate', 'schema-settle', 'lifecycle-settle']);
     foreach (['lifecycle-retire', 'lifecycle-activate'] as $phase) {
@@ -44,8 +45,24 @@ if ($verb === 'begin') {
     }
 } elseif ($verb === 'observe') {
     $wpdb = FakeWpdb::install();
-    $wpdb->seedTable('wp_wprism_kv', $fault === 'schema-debt'
-        ? [['k' => 'schema_settlement_in_progress', 'v' => 'retained']] : []);
+    $installed = is_file($target . '/.wprism/probe-ledger-installed');
+    if ($installed || in_array($fault, ['virgin-partial', 'virgin-view'], true)) {
+        foreach (\WPrism\Ledger::OWN_TABLES as $suffix) {
+            if (in_array($fault, ['virgin-partial', 'ledger-partial'], true) && $suffix === 'wprism_map') continue;
+            $table = 'wp_' . $suffix;
+            $wpdb->seedTable($table, []);
+            $wpdb->setTableEngine($table, 'InnoDB');
+            // Presence is the subject, not a fabricated healthy full schema.
+            $wpdb->setColumns($table, ['k' => 'varchar(191)', 'v' => 'longtext']);
+        }
+        if ($fault === 'schema-debt') $wpdb->seedTable('wp_wprism_kv', [['k' => 'schema_settlement_in_progress', 'v' => 'retained']]);
+    }
+    if (in_array($fault, ['virgin-denied', 'ledger-denied'], true)) {
+        $wpdb->failNextQuery('permission denied', 'SELECT 1 FROM', 1, 1142);
+    }
+    if (in_array($fault, ['virgin-view', 'ledger-view'], true)) {
+        $wpdb->returnNextGetRowAs(['wp_wprism_journal', 'CREATE VIEW `wp_wprism_journal` AS SELECT 1'], 'SHOW CREATE TABLE');
+    }
     if ($fault === 'control-read-error') $wpdb->failNextQuery('fixture read failure', 'SELECT k, v');
     // A local offline target and /siterepo are the two physical bindings of
     // the same native invocation. Execute its actual PHP, not a canned status.

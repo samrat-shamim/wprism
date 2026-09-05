@@ -546,6 +546,7 @@ wp2() {
   [ "$#" -eq 2 ] && [ "$1" = eval ] || return 97
   local fault=ready
   [ ! -f "$probe_scratch/recovered" ] || fault="$fixture_case"
+  case "$fixture_case" in virgin-*) fault="$fixture_case" ;; esac
   "$PHP" "$probe_php" observe "$R2" "$fault" "$2"
 }
 active_plugin_order() {
@@ -557,8 +558,10 @@ default_product_category_state() {
   else printf '{"option":17}\n'; fi
 }
 identity_map_digest() {
-  if [ -f "$probe_scratch/recovered" ] && [ "$fixture_case" = map-drift ]; then printf '{"sha256":"changed"}\n'
-  else printf '{"sha256":"original"}\n'; fi
+  [ -f "$R2/.wprism/probe-ledger-installed" ] || return 101
+  if [ "$fixture_case" = map-before-minted ] || { [ -f "$probe_scratch/recovered" ] && [ "$fixture_case" = map-drift ]; }; then
+    printf '{"count":1,"sha256":"changed"}\n'
+  else printf '{"count":0,"sha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}\n'; fi
 }
 native_state() {
   [ "$*" = wp2 ] || return 98
@@ -609,7 +612,8 @@ SH;
 foreach (['ready', 'stop-failed', 'stop-noop', 'foreign-container', 'hint-missing', 'hint-duplicate', 'hint-wrong-target',
     'hint-wrong-id', 'import-failed', 'receipt-wrong-id', 'receipt-wrong-hash', 'receipt-wrong-target', 'receipt-missing-step',
     'receipt-failed-step', 'receipt-unrecovered', 'receipt-extra', 'receipt-warning', 'retained-debt', 'schema-debt',
-    'control-read-error', 'native-drift', 'order-drift', 'default-drift', 'map-drift', 'start-failed', 'start-noop'] as $case) {
+    'control-read-error', 'native-drift', 'order-drift', 'default-drift', 'map-drift', 'start-failed', 'start-noop',
+    'virgin-partial', 'virgin-denied', 'virgin-view', 'ledger-partial', 'ledger-denied', 'ledger-view', 'map-before-minted'] as $case) {
     $directory = $dirtyScratch . '/recovery-' . $case;
     mkdir($directory, 0700);
     $payload = $directory . '/candidate';
@@ -623,7 +627,7 @@ foreach (['ready', 'stop-failed', 'stop-noop', 'foreign-container', 'hint-missin
         : $status !== 0 && !str_contains($stdout, 'RECOVERY_WINDOW_READY'),
         "$case validates the actual target-bound recovery window before removing its fault and continuing");
     wprism_check_same(!in_array($case, ['stop-failed', 'stop-noop', 'foreign-container', 'hint-missing', 'hint-duplicate',
-        'hint-wrong-target', 'hint-wrong-id', 'import-failed'], true), str_contains($stdout, "RECOVERED\n"),
+        'hint-wrong-target', 'hint-wrong-id', 'import-failed', 'virgin-partial', 'virgin-denied', 'virgin-view', 'map-before-minted'], true), str_contains($stdout, "RECOVERED\n"),
         "$case reaches its intended side of actual host recovery, not an unrelated earlier failure");
     if (!in_array($case, ['ready', 'start-failed', 'start-noop'], true)) {
         $trace = is_file($directory . '/trace') ? (string) file_get_contents($directory . '/trace') : '';

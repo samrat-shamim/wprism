@@ -102,9 +102,19 @@ require_once "/siterepo/.wprism/control/recovery-runtime/CanonicalJson.php";
 require_once "/siterepo/.wprism/control/recovery-runtime/AtomicStore.php";
 require_once "/siterepo/.wprism/control/recovery-runtime/ProtocolLock.php";
 require_once "/siterepo/.wprism/control/recovery-runtime/ProviderSettlementIntent.php";
+global $wpdb;
+$presence = [];
+foreach (\WPrism\Ledger::OWN_TABLES as $table) {
+    $presence[] = \WPrism\DatabaseTablePresence::base_table_exists($wpdb->prefix . $table);
+}
+if (in_array(true, $presence, true) && in_array(false, $presence, true)) {
+    throw new RuntimeException("combined recovery ledger inventory is partial");
+}
+$installed = !in_array(false, $presence, true);
 echo json_encode([
+    "ledger_present" => $installed,
     "provider" => \WPrism\Recovery\ProviderSettlementIntent::recoveryStatus("/siterepo/.wprism/control"),
-    "schema_clear" => \WPrism\Ledger::kv_get("schema_settlement_in_progress") === null,
+    "schema_clear" => !$installed || \WPrism\Ledger::kv_get("schema_settlement_in_progress") === null,
 ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 '
   printf '%s\n' "$observed"
@@ -1229,10 +1239,9 @@ assert_rmcombo_recovery_web_state false
 RECOVERY_NATIVE_BEFORE=$(native_state wp2)
 RECOVERY_ORDER_BEFORE=$(active_plugin_order wp2)
 RECOVERY_DEFAULT_BEFORE=$(default_product_category_state wp2)
-RECOVERY_MAP_BEFORE=$(identity_map_digest wp2)
 RECOVERY_CONTROL_BEFORE=$(rmcombo_recovery_control)
-jq -e '.schema_clear == true and .provider.active == false' <<<"$RECOVERY_CONTROL_BEFORE" >/dev/null \
-  || fail 'the combined recovery preimage already contains settlement debt'
+jq -e '.ledger_present == false and .schema_clear == true and .provider.active == false' <<<"$RECOVERY_CONTROL_BEFORE" >/dev/null \
+  || fail 'the combined recovery preimage is not a virgin ledger without settlement debt'
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL' >/dev/null
 # Providers::invoke deliberately keeps the schema cause out of public errors.
 # Inventory immediately before this invocation, then inspect its one new v2
@@ -1280,11 +1289,18 @@ RECOVERY_ID=$(sed -n "s/^wprism: deploy: once that exclusion is in place, recove
   || fail 'the failed combined deploy did not name exactly one target-bound retained checkpoint'
 RECOVERY_CONTROL_DIRTY=$(rmcombo_recovery_control)
 jq -e --arg id "$RECOVERY_ID" '
-  .schema_clear == true and .provider.active == true and
+  .ledger_present == true and .schema_clear == true and .provider.active == true and
   .provider.owner == ($id | ltrimstr("deploy-")) and
   .provider.checkpoint.path == ("/siterepo/.wprism/checkpoints/" + $id + ".sql.enc")
 ' <<<"$RECOVERY_CONTROL_DIRTY" >/dev/null \
   || fail 'schema inspection refusal did not retain its exact external provider checkpoint before DDL'
+# The first promotion installs the ledger before taking its checkpoint.
+# 0f89b5c2 queried a nonexistent map before that boundary. Prove real absence
+# above (the engine accepts only numeric 1146), then an installed EMPTY map
+# here: lifecycle/schema settlement has no authority to mint content identity.
+RECOVERY_MAP_BEFORE=$(identity_map_digest wp2)
+jq -e '. == {count:0,sha256:"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}' \
+  <<<"$RECOVERY_MAP_BEFORE" >/dev/null || fail 'first host settlement unexpectedly minted target content identity'
 assert_rmcombo_recovery_web_state false
 # Host recovery emits pretty canonical JSON, unlike the agent compact-line
 # transport. Validate the whole document without selecting its final line.
@@ -1305,8 +1321,9 @@ jq -e --arg id "$RECOVERY_ID" --arg environment "${PAIR}2" \
 ' <<<"$RECOVERY_OUT" >/dev/null || fail 'combined recovery did not complete the exact retained checkpoint and every ordered step'
 assert_rmcombo_recovery_web_state false
 RECOVERY_CONTROL_AFTER=$(rmcombo_recovery_control)
-[ "$RECOVERY_CONTROL_AFTER" = "$RECOVERY_CONTROL_BEFORE" ] \
-  || fail 'checkpoint recovery did not restore the exact clear schema/provider control preimage'
+jq -en --argjson before "$RECOVERY_CONTROL_BEFORE" --argjson after "$RECOVERY_CONTROL_AFTER" \
+  '$after == ($before | .ledger_present = true)' >/dev/null \
+  || fail 'checkpoint recovery did not retain its initialized ledger and restore clear schema/provider control'
 [ ! -e "$R2/.wprism/control/provider-settlement-intent.json" ] \
   && [ ! -L "$R2/.wprism/control/provider-settlement-intent.json" ] \
   && [ ! -e "$R2/.wprism/control/checkpoint-recovery-intent.json" ] \
