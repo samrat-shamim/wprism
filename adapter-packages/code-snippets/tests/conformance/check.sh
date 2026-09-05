@@ -341,8 +341,10 @@ CONFLICT_AFTER=$(observe_code_snippets conf2)
 [ "$(jq -r '.raw_hash' <<<"$CONFLICT_AFTER")" = "$(jq -r '.raw_hash' <<<"$CONFLICT_BEFORE")" ] \
   || fail "unforced Code Snippets conflict partially mutated table/cache/file state"
 
-FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets forced competing-row apply" json "$FORCED"
+# Native count/hash receipts cannot excuse missing intent, PHP diagnostics,
+# or failed canonical verification. Check the full stream before JSON publication.
+capture_wprism_json_checked FORCED "Code Snippets forced competing-row apply" assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json
 jq -e '
   .canary == "clean" and
   (.warnings | any(contains("FORCED conflict"))) and
@@ -375,8 +377,8 @@ require_wprism_answered "Code Snippets zero-change plan" json "$ZERO_PLAN"
 jq -e '
   ([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0
 ' <<<"$ZERO_PLAN" >/dev/null || fail "Code Snippets retry retained repository work: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets zero-change apply" json "$ZERO_APPLY"
+capture_wprism_json_checked ZERO_APPLY "Code Snippets zero-change apply" assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 [ "$(jq -r '.canary' <<<"$ZERO_APPLY")" = clean ] && [ "$(jq '.actions | length' <<<"$ZERO_APPLY")" = 0 ] \
   || fail "Code Snippets zero-change retry fired a provider or dirtied the canary: $ZERO_APPLY"
 pass "same-name target rows do not alias identity; conflicts refuse atomically, forced intent converges with a secret-safe provider receipt, disabled flat files purge, and retry is idempotent"
@@ -511,7 +513,7 @@ capture_wprism_json_success COMPLETE_RESTORED_PLAN "Code Snippets plan after dat
   wp_conf2 wprism plan --repo=/siterepo --format=json
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$COMPLETE_RESTORED_PLAN" >/dev/null \
   || fail "Code Snippets database-matched recovery retained repository work: $COMPLETE_RESTORED_PLAN"
-capture_wprism_json_success COMPLETE_RESTORED_APPLY "Code Snippets no-op apply after database-matched recovery" \
+capture_wprism_json_checked COMPLETE_RESTORED_APPLY "Code Snippets no-op apply after database-matched recovery" assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$COMPLETE_RESTORED_APPLY" >/dev/null \
   || fail "Code Snippets database recovery incorrectly required a reconstructive provider: $COMPLETE_RESTORED_APPLY"
@@ -532,7 +534,7 @@ capture_wprism_json_success COMPLETE_PLAN "Code Snippets new intent plan after d
   wp_conf2 wprism plan --repo=/siterepo --format=json
 jq -e '([.create,.update,.conflict,.collision] | map(length) | add) > 0' <<<"$COMPLETE_PLAN" >/dev/null \
   || fail "Code Snippets post-recovery repository intent did not surface new work: $COMPLETE_PLAN"
-capture_wprism_json_success COMPLETE_APPLY "Code Snippets new intent apply after database recovery" \
+capture_wprism_json_checked COMPLETE_APPLY "Code Snippets new intent apply after database recovery" assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '
   .canary == "clean" and (.actions | length) == 1 and

@@ -23,9 +23,9 @@ foreach ([
     'db import /siterepo/.tmp-code-snippets-complete-uninstall.sql',
     '"$(code_snippets_recovery_hash)" = "$COMPLETE_PREIMAGE_HASH"',
     '"$(observe_code_snippets conf2)" = "$COMPLETE_PREIMAGE"',
-    'capture_wprism_json_success COMPLETE_RESTORED_APPLY ',
+    'capture_wprism_json_checked COMPLETE_RESTORED_APPLY ',
     'save_runtime_profile conf1 complete-uninstall-recovery',
-    'capture_wprism_json_success COMPLETE_APPLY ',
+    'capture_wprism_json_checked COMPLETE_APPLY ',
     'capture_wprism_json_success COMPLETE_RETRY ',
 ] as $step) {
     $position = strpos($lifecycle, $step);
