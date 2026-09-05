@@ -12,13 +12,16 @@ set -euo pipefail
 wprism_ssh_adopt_extension() {
   local adapter actual_version expected_version post_id product_id post_uuid
   local plan_json before_json after_json status_json
-  local converged_plan diagnostic_file promote_code seed_json
+  local converged_plan diagnostic_file promote_code seed_json plan_code converged_code
   local success_stdout="$DIAG_DIR/rank-math-commerce-multilingual-delete-success.stdout"
   local success_stderr="$DIAG_DIR/rank-math-commerce-multilingual-delete-success.stderr"
+  local plan_stdout="$DIAG_DIR/rank-math-commerce-multilingual-delete-plan.stdout"
   local plan_stderr="$DIAG_DIR/rank-math-commerce-multilingual-delete-plan.stderr"
+  local converged_stdout="$DIAG_DIR/rank-math-commerce-multilingual-delete-converged.stdout"
   local converged_stderr="$DIAG_DIR/rank-math-commerce-multilingual-delete-converged.stderr"
 
-  for diagnostic_file in "$success_stdout" "$success_stderr" "$plan_stderr" "$converged_stderr"; do
+  for diagnostic_file in "$success_stdout" "$success_stderr" "$plan_stdout" "$plan_stderr" \
+      "$converged_stdout" "$converged_stderr"; do
     ( umask 077; : >"$diagnostic_file" )
     chmod 0600 "$diagnostic_file"
   done
@@ -398,10 +401,19 @@ PHP
   post_uuid="$(wprism_ssh_publish_post_tombstone post rmcombo-ssh-delete)" \
     || fail "the combined deletion could not publish its engine-derived core-post tombstone"
 
-  plan_json="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json 2>"$plan_stderr")" \
+  # A PHP prelude may contain private operator values even at exit zero.
+  # Keep both streams and parser diagnostics private before selecting JSON;
+  # neither an invalid envelope nor a semantic refusal may echo its payload.
+  plan_code=0
+  "$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json \
+    >"$plan_stdout" 2>"$plan_stderr" || plan_code=$?
+  [ "$plan_code" -eq 0 ] \
     || fail "the combined deletion could not plan its signed full promotion"
-  assert_ssh_fixture_positive_diagnostics 'combined deletion plan' "$plan_stderr"
-  assert_wprism_required_environment 'combined deletion plan' json "$plan_json"
+  assert_ssh_fixture_positive_diagnostics 'combined deletion plan' "$plan_stdout" "$plan_stderr"
+  plan_json="$(jq -ce -s 'select(length == 1 and (.[0] | type == "object")) | .[0]' \
+    "$plan_stdout" 2>>"$plan_stderr")" \
+    || fail "the combined deletion plan did not return one JSON object; inspect its private capture"
+  assert_wprism_required_environment 'combined deletion plan' json "$plan_json" 2>>"$plan_stderr"
   jq -e --arg uuid "$post_uuid" '
     ([.delete[]? | select(
       .uuid == $uuid and .type == "post" and .deletion_type == "post"
@@ -413,8 +425,8 @@ PHP
     and .code_mismatch == []
     and .provider_problems == []
     and (.env_missing | type == "array" and all(.[]; type == "object" and .required == false))
-  ' <<<"$plan_json" >/dev/null \
-    || fail "the combined plan did not isolate one supported core deletion and its Rank Math repair: $plan_json"
+  ' <<<"$plan_json" >/dev/null 2>>"$plan_stderr" \
+    || fail "the combined plan did not isolate one supported core deletion and its Rank Math repair; inspect its private capture"
   pass "one core post deletion selects Rank Math repair while refusing to imply Woo product-delete authority"
 
   say "commit the supported combined deletion through signed full promotion"
@@ -463,10 +475,16 @@ PHP
   ' >/dev/null \
     || fail "the signed deletion retained plugin-owned rows or crossed the Woo/ACF/Polylang boundary: $after_json"
 
-  converged_plan="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json 2>"$converged_stderr")" \
+  converged_code=0
+  "$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json \
+    >"$converged_stdout" 2>"$converged_stderr" || converged_code=$?
+  [ "$converged_code" -eq 0 ] \
     || fail "the combined deletion did not permit a converged follow-up plan"
-  assert_ssh_fixture_positive_diagnostics 'combined deletion follow-up plan' "$converged_stderr"
-  assert_wprism_required_environment 'combined deletion follow-up plan' json "$converged_plan"
+  assert_ssh_fixture_positive_diagnostics 'combined deletion follow-up plan' "$converged_stdout" "$converged_stderr"
+  converged_plan="$(jq -ce -s 'select(length == 1 and (.[0] | type == "object")) | .[0]' \
+    "$converged_stdout" 2>>"$converged_stderr")" \
+    || fail "the combined deletion follow-up plan did not return one JSON object; inspect its private capture"
+  assert_wprism_required_environment 'combined deletion follow-up plan' json "$converged_plan" 2>>"$converged_stderr"
   jq -e '
     .create == [] and .update == [] and .adopt == []
     and .drift == [] and .conflict == []
@@ -474,8 +492,8 @@ PHP
     and .code_mismatch == [] and .selected_actions == []
     and .provider_problems == []
     and (.env_missing | type == "array" and all(.[]; type == "object" and .required == false))
-  ' <<<"$converged_plan" >/dev/null \
-    || fail "the combined signed deletion did not reach a no-action fixed point: $converged_plan"
+  ' <<<"$converged_plan" >/dev/null 2>>"$converged_stderr" \
+    || fail "the combined signed deletion did not reach a no-action fixed point; inspect its private capture"
   [ -z "$(target_ledger_value promotion_lock)" ] \
     || fail "the combined signed deletion retained a promotion lock"
   jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \

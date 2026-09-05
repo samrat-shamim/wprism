@@ -600,18 +600,20 @@ wprism_check(
 // action receipts stay admissible. Private host diagnostics are never echoed.
 $sshAdoptSource = (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
 preg_match('/^assert_ssh_fixture_positive_diagnostics\(\).*?^\}/ms', $sshAdoptSource, $sshDiagnosticDefinition);
-$sshProbe = static function (string $block, string $answer, string $diagnostic = '', int $exit = 0) use ($root, $sshDiagnosticDefinition): array {
+$sshCaptureStart = strpos($sshDeletion, '  local success_stdout=');
+$sshCaptureEnd = $sshCaptureStart === false ? false : strpos($sshDeletion, '  say "enroll full recovery', $sshCaptureStart);
+$sshCaptureBlock = $sshCaptureStart === false || $sshCaptureEnd === false ? ''
+    : substr($sshDeletion, $sshCaptureStart, $sshCaptureEnd - $sshCaptureStart);
+wprism_check($sshCaptureBlock !== '', 'the SSH scenario has an executable private capture allocation block');
+$sshProbe = static function (string $block, string $answer, string $diagnostic = '', int $exit = 0) use ($root, $sshDiagnosticDefinition, $sshCaptureBlock): array {
     $script = <<<'SH'
 set -euo pipefail
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 . "$1/sandbox/conformance/asserts.sh"
-umask 077
+umask 000
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/wprism-rmcombo-ssh-oracle.XXXXXX")
 trap 'rm -rf -- "$TMP"' EXIT
-success_stdout="$TMP/success.stdout"
-success_stderr="$TMP/success.stderr"
-plan_stderr="$TMP/plan.stderr"
-converged_stderr="$TMP/converged.stderr"
+DIAG_DIR="$TMP"
 post_uuid=12345678-1234-1234-1234-123456789abc
 WPRISM=fixture_host
 fixture_answer="$2" fixture_diagnostic="$3" fixture_exit="$4"
@@ -623,8 +625,19 @@ fixture_host() {
   return "$fixture_exit"
 }
 SH;
+    $privacy = <<<'SH'
+php -r '
+    $files = glob($argv[1] . "/*");
+    if (count($files) !== 6 || (fileperms($argv[1]) & 0777) !== 0700) exit(81);
+    foreach ($files as $file) {
+        if (!is_file($file) || is_link($file) || (fileperms($file) & 0777) !== 0600) exit(82);
+    }
+' "$DIAG_DIR" || fail 'the actual scenario did not keep all six stdout/stderr captures private'
+SH;
     $process = proc_open(
-        ['bash', '-c', $script . "\n" . ($sshDiagnosticDefinition[0] ?? '') . "\n" . $block . "\nprintf 'SSH_READY\\n'\n",
+        ['bash', '-c', $script . "\n" . ($sshDiagnosticDefinition[0] ?? '')
+            . "\nrun_scenario_probe() {\n" . $sshCaptureBlock . "\n" . $privacy . "\n" . $block
+            . "\nprintf 'SSH_READY\\n'\n}\nrun_scenario_probe\n",
             'ssh-scenario-oracle', $root, $answer, $diagnostic, (string) $exit],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
@@ -642,7 +655,7 @@ SH;
 };
 $sshPlanCases = [
     'deletion' => [
-        '  plan_json="$(', '  pass "one core post deletion',
+        '  plan_code=0', '  pass "one core post deletion',
         [
             'delete' => [['uuid' => '12345678-1234-1234-1234-123456789abc', 'type' => 'post', 'deletion_type' => 'post', 'blocked' => '']],
             'selected_actions' => [['manifest' => 'rank-math']],
@@ -651,7 +664,7 @@ $sshPlanCases = [
         ],
     ],
     'converged' => [
-        '  converged_plan="$(', '  [ -z "$(target_ledger_value promotion_lock)" ]',
+        '  converged_code=0', '  [ -z "$(target_ledger_value promotion_lock)" ]',
         array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'delete', 'delete_conflict', 'code_mismatch', 'selected_actions', 'provider_problems'], []),
     ],
 ];
@@ -663,7 +676,7 @@ foreach ($sshPlanCases as $phase => [$startToken, $endToken, $plan]) {
         "the SSH $phase plan has an executable command-to-acceptance block");
     $plan['env_missing'] = [['name' => 'fixture_optional', 'required' => false]];
     $plan['warnings'] = ['native action fired: fixture (verified)'];
-    foreach (['ready', 'required-row', 'required-warning', 'missing-env', 'malformed-env', 'provider-problem', 'php-stderr', 'refusal'] as $mutation) {
+    foreach (['ready', 'required-row', 'required-warning', 'missing-env', 'malformed-env', 'provider-problem', 'php-stderr', 'php-stdout', 'php-startup-stdout', 'php-parse-stdout', 'malformed-stdout', 'malformed-plan-value', 'refusal'] as $mutation) {
         $candidate = $plan;
         switch ($mutation) {
             case 'required-row':
@@ -681,10 +694,28 @@ foreach ($sshPlanCases as $phase => [$startToken, $endToken, $plan]) {
             case 'provider-problem':
                 $candidate['provider_problems'][] = ['provider' => 'fixture'];
                 break;
+            case 'malformed-plan-value':
+                $candidate['delete'] = 'private-operator-value';
+                break;
+        }
+        $answer = json_encode($candidate, JSON_THROW_ON_ERROR);
+        switch ($mutation) {
+            case 'php-stdout':
+                $answer = "PHP Warning: private-operator-value in /fixture.php on line 12\n" . $answer;
+                break;
+            case 'php-startup-stdout':
+                $answer = "PHP Warning: PHP Startup: Unable to load dynamic library private-operator-value in Unknown on line 0\n" . $answer;
+                break;
+            case 'php-parse-stdout':
+                $answer = "PHP Parse error: private-operator-value\n" . $answer;
+                break;
+            case 'malformed-stdout':
+                $answer = 'private-operator-value';
+                break;
         }
         [$status, $stdout, $stderr] = $sshProbe(
             $block,
-            json_encode($candidate, JSON_THROW_ON_ERROR),
+            $answer,
             $mutation === 'php-stderr' ? 'PHP Warning: private-operator-value in /fixture.php on line 12' : '',
             $mutation === 'refusal' ? 7 : 0
         );
