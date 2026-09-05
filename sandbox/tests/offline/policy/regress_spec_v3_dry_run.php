@@ -799,19 +799,22 @@ wprism_check_same(
 // The invariant the census is really protecting is unchanged and is what the
 // assertion says: exactly ONE file owns the vocabulary and can refuse an
 // unimplemented name.
+// ReferenceShapeGrammar consumes scalar-reference-intersection/v1 at its
+// lower-layer declaration boundary; it does not duplicate that vocabulary.
 wprism_check_same(
     [
         'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside four gate readers (provider contracts, body mode, column framing, '
-        . 'invalidate verbs) that ask only '
+        . 'refuses an unimplemented name — beside five gate readers (provider contracts, body mode, column framing, '
+        . 'scalar reference intersection, invalidate verbs) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
@@ -824,11 +827,12 @@ wprism_check_same(
 // column demand made it eight, and the bounded post-kind selector makes it
 // nine, schema-settlement/v1 makes it ten, plugin-incompatibility/v1 makes it
 // eleven while claiming the incompatibility section itself, and the fixed
-// manifest-provider child protocol makes it twelve.
+// manifest-provider child protocol makes it twelve, and scalar reference
+// intersection makes it thirteen without claiming a new top-level section.
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// eleven of these twelve shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// twelve of these thirteen shipped after the flip with WPRISM_SPEC_VERSION left at 3.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
@@ -838,6 +842,7 @@ wprism_check_same(
         'mixed-column-codecs/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
+        'scalar-reference-intersection/v1',
         'schema-settlement/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
@@ -845,7 +850,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries twelve names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries thirteen names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented

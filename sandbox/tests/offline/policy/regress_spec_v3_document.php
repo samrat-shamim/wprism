@@ -221,17 +221,20 @@ sort($featureReaders, SORT_STRING);
 // document, which until WP-6.5 could not describe the channel it documents.
 // The property being ratcheted is unchanged: exactly one file OWNS the
 // vocabulary and can refuse an unimplemented name.
+// Scalar reference intersection adds one lower-layer declaration reader;
+// it consumes the manifest's feature but owns no implementation roster.
 wprism_check_same(
     [
         'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER beside four gate readers that each consume one gated '
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside five gate readers that each consume one gated '
         . 'declaration and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
@@ -244,7 +247,8 @@ wprism_check_same(
 // measured mixed container made it eight, the bounded post-kind selector made
 // it nine, schema-settlement/v1 made it ten, plugin-incompatibility/v1 made it
 // eleven while claiming `incompatible_plugins`, and the fixed manifest-provider
-// child protocol made it twelve. The sixth section-claiming
+// child protocol made it twelve. Scalar reference intersection makes thirteen
+// without claiming a new top-level section. The sixth section-claiming
 // name remains `body_refs`
 // (§ v3.20) — another section that did not exist when v3 was cut, shipped with
 // WPRISM_SPEC_VERSION unmoved.
@@ -257,6 +261,7 @@ wprism_check_same(
         'mixed-column-codecs/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
+        'scalar-reference-intersection/v1',
         'schema-settlement/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
@@ -264,7 +269,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries twelve IMPLEMENTED features, and five claim sections v3 did not have — '
+    'v3.2: the vocabulary carries thirteen IMPLEMENTED features, and five claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked five times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by
