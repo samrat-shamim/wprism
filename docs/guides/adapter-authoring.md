@@ -1423,6 +1423,17 @@ plugin faithfully.
    The native observation boundary projects plugin iteration order without
    changing stored bytes; desired artifact rosters remain canonical lists.
 
+   Derive each phase's isolation oracle from its declared effects, not from
+   the assumption that all pre-Apply state is immutable. Rank Math declares
+   `rebuild_all_link_state` during `lifecycle_settle`: with its link counter
+   disabled, the correct postimage has no link rows, counts or processed
+   markers. Compare the complete native observation after changing only those
+   exact expected fields; never mask whole products, plugins or metadata
+   prefixes. If a later Apply also claims stale-state repair, re-seed checked
+   stale projections after the lifecycle assertion and independently verify
+   that preimage before Apply. A prior phase's successful cleanup otherwise
+   makes the later cleanup assertion vacuous.
+
    Establish local-identity divergence explicitly for every mapped table. Two
    fresh plugin tables commonly allocate primary key `1` on both sites, so
    equal ids prove no rebinding at all and prior scratch history can make a

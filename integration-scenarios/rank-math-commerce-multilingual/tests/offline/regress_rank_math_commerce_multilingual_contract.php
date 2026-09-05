@@ -233,6 +233,7 @@ foreach ([
     'default_product_category_state() {' => 'default_product_category_identity() {',
     'default_product_category_identity() {' => 'identity_map_digest() {',
     'identity_map_digest() {' => 'canonical_capture_digest() {',
+    'seed_rmcombo_stale_links() {' => 'native_state() {',
     'native_state() {' => 'product_response() {',
     'product_response() {' => 'head_projection() {',
     'redirection_response() {' => 'install_hostile_provider() {',
@@ -241,7 +242,7 @@ foreach ([
     $end = $start === false ? false : strpos($live, "\n$endToken", $start);
     $definition = $start === false || $end === false ? '' : substr($live, $start, $end - $start);
     wprism_check(
-        str_contains($definition, 'capture_rmcombo_native_json ')
+        (str_contains($definition, 'capture_rmcombo_native_json ') || str_contains($definition, 'capture_wprism_json_checked '))
             && !str_contains($definition, "| awk 'NF { line=\$0 } END { print line }'"),
         "$startToken retains complete-stream checked JSON transport"
     );
@@ -1493,19 +1494,59 @@ wprism_check(
     'host lifecycle order is independently read back and matched to canonical source before product apply'
 );
 $cleanDeployEndToken = "pass 'host deploy refuses hostile schema, then checkpoint-settles legitimate lifecycle/schema drift without crossing combination boundaries'";
-$cleanDeployEnd = $hostDeploy === false ? false : strpos($live, $cleanDeployEndToken, $hostDeploy);
-$cleanDeployBlock = $hostDeploy === false || $cleanDeployEnd === false
+$cleanDeployStart = strpos($diagnosticSource, 'CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy');
+$cleanDeployEnd = $cleanDeployStart === false ? false : strpos($diagnosticSource, $cleanDeployEndToken, $cleanDeployStart);
+$cleanDeployBlock = $cleanDeployStart === false || $cleanDeployEnd === false
     ? ''
-    : substr($live, $hostDeploy, $cleanDeployEnd + strlen($cleanDeployEndToken) - $hostDeploy);
+    : substr($diagnosticSource, $cleanDeployStart, $cleanDeployEnd + strlen($cleanDeployEndToken) - $cleanDeployStart);
 wprism_check($cleanDeployBlock !== '', 'the complete clean host-settlement acceptance block is extractable');
+// Native observation shape, not a fake "stable" field. The actual package
+// provider regression independently proves disabled-module [0,0,0] link,
+// count and marker cardinalities while preserving unrelated post metadata.
+// Here the real caller must accept precisely that postimage and nothing else.
+$hostileProduct = [
+    'acf' => 'target badge', 'canonical' => '', 'content' => '', 'description' => '',
+    'id' => 901, 'language' => 'en', 'links' => [['url' => '/target-stale', 'target_post_id' => '904', 'type' => 'internal']],
+    'lookup' => ['min_price' => '81.0000', 'max_price' => '81.0000', 'stock_status' => 'instock'],
+    'price' => '81', 'primary' => 921, 'processed' => true,
+    'rank_counts' => ['internal_link_count' => '999', 'external_link_count' => '999', 'incoming_link_count' => '999'],
+    'title' => 'target SEO', 'url' => 'http://target.invalid/product/en/',
+];
+$hostilePostimage = [
+    'book' => ['content' => 'target content', 'id' => 903, 'links' => $hostileProduct['links'],
+        'processed' => true, 'rank_counts' => $hostileProduct['rank_counts'], 'title' => 'target book SEO'],
+    'categories' => ['en' => 921, 'de' => 922], 'category_languages' => ['en' => 'en', 'de' => 'de'],
+    'modules' => ['redirections', 'rich-snippet'],
+    'neighbor' => ['acf' => 'target-only badge', 'id' => 904, 'price' => '97', 'title' => 'target-only SEO'],
+    'products' => ['en' => $hostileProduct, 'de' => array_replace($hostileProduct, ['id' => 902, 'language' => 'de', 'primary' => 922])],
+    'redirection' => ['header_code' => 301, 'hits' => 41, 'id' => 1,
+        'sources' => [['ignore' => '', 'pattern' => 'rmcombo-old', 'comparison' => 'exact']],
+        'status' => 'inactive', 'url_to' => 'http://target.invalid/target-stale/'],
+    'redirection_cache' => [['from_url' => 'rmcombo-old', 'redirection_id' => '1', 'object_id' => '999999999', 'object_type' => 'post', 'is_redirected' => '0']],
+    'retired_target_counts' => ['internal_link_count' => '0', 'external_link_count' => '0', 'incoming_link_count' => '999'],
+    'scheduler' => [['action_id' => '6', 'hook' => 'rmcombo_target_runtime', 'status' => 'pending', 'group_slug' => '']],
+    'stale_link_sentinels' => 3, 'term_translations' => ['en' => 921, 'de' => 922],
+    'translations' => ['en' => 901, 'de' => 902],
+];
+$settledPostimage = $hostilePostimage;
+$settledPostimage['redirection_cache'] = [];
+foreach (['en', 'de'] as $language) {
+    $settledPostimage['products'][$language]['links'] = [];
+    $settledPostimage['products'][$language]['rank_counts'] = null;
+    $settledPostimage['products'][$language]['processed'] = false;
+}
+$settledPostimage['book']['links'] = [];
+$settledPostimage['book']['rank_counts'] = null;
+$settledPostimage['book']['processed'] = false;
+$settledPostimage['retired_target_counts'] = null;
+$settledPostimage['stale_link_sentinels'] = 0;
 $cleanDeployProbe = <<<'SH'
 set -euo pipefail
-ROOT="$1" PROBE_CASE="$2" R2="$3" PAIR=rmcomboclean
+ROOT="$1" PROBE_CASE="$2" R2="$3" HOSTILE_NATIVE="$4" SETTLED_NATIVE="$5" PAIR=rmcomboclean
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'HOST_SETTLEMENT_ACCEPTED\n'; }
 . "$ROOT/sandbox/conformance/asserts.sh"
 expected_source='["polylang","advanced-custom-fields","seo-by-rank-math","woocommerce"]'
-HOSTILE_NATIVE='{"redirection_cache":[{"id":17}],"stable":"yes"}'
 TARGET_DEFAULT_FIXTURE='{"installer_default":41,"option":41,"term_id":42}'
 host_wprism_combo() {
   [ "$#" -eq 2 ] && [ "$1" = wp2 ] && [ "$2" = deploy ] || return 81
@@ -1546,7 +1587,7 @@ wp2() {
   return 82
 }
 active_plugin_order() { printf '%s\n' "$expected_source"; }
-native_state() { printf '%s\n' '{"redirection_cache":[],"stable":"yes"}'; }
+native_state() { printf '%s\n' "$SETTLED_NATIVE"; }
 default_product_category_state() {
   printf '%s\n' '{"option":41,"term":{"term_id":41,"slug":"fixture"},"term_taxonomy":{"term_taxonomy_id":41,"term_id":41,"taxonomy":"product_cat"}}'
 }
@@ -1558,7 +1599,7 @@ if (!mkdir($cleanDeployScratch, 0700)) {
 foreach (['ready', 'php-stdout', 'php-stderr', 'startup-stdout', 'startup-stderr', 'parse-stdout', 'parse-stderr'] as $case) {
     [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
         $cleanDeployProbe . "\n" . $scenarioAssertionDefinitions . "\n" . $cleanDeployBlock . "\nprintf 'HOST_SETTLEMENT_READY\\n'\n",
-        [$root, $case, $cleanDeployScratch],
+        [$root, $case, $cleanDeployScratch, json_encode($hostilePostimage, JSON_THROW_ON_ERROR), json_encode($settledPostimage, JSON_THROW_ON_ERROR)],
         $root
     );
     wprism_check(
@@ -1573,6 +1614,111 @@ foreach (['ready', 'php-stdout', 'php-stderr', 'startup-stdout', 'startup-stderr
                 && !str_contains($stdout . $stderr, 'fixture diagnostic'),
         "actual clean host-settlement block classifies $case before accepting phases and native state"
     );
+}
+// Mutate every observed terminal leaf, including empty/null derived fields:
+// filtering whole products or Rank-prefixed fields would admit these drifts.
+$postimageMutations = ['stale-derived-state' => array_replace($hostilePostimage, ['redirection_cache' => []])];
+$mutatePostimage = static function (array $node, array $path = []) use (&$mutatePostimage, &$postimageMutations, $settledPostimage): void {
+    foreach ($node as $key => $value) {
+        $next = [...$path, $key];
+        if (is_array($value) && $value !== []) {
+            $mutatePostimage($value, $next);
+            continue;
+        }
+        $candidate = $settledPostimage;
+        $leaf = &$candidate;
+        foreach ($next as $part) $leaf = &$leaf[$part];
+        $leaf = is_bool($value) ? !$value : ($value === null ? [] : 'postimage-drift-canary');
+        unset($leaf);
+        $postimageMutations[implode('.', $next)] = $candidate;
+    }
+};
+$mutatePostimage($settledPostimage);
+foreach ($postimageMutations as $case => $candidate) {
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+        $cleanDeployProbe . "\n" . $scenarioAssertionDefinitions . "\n" . $cleanDeployBlock,
+        [$root, 'ready', $cleanDeployScratch, json_encode($hostilePostimage, JSON_THROW_ON_ERROR), json_encode($candidate, JSON_THROW_ON_ERROR)],
+        $root
+    );
+    wprism_check($status !== 0 && !str_contains($stdout, 'HOST_SETTLEMENT_ACCEPTED'),
+        "actual clean host settlement refuses altered $case rather than masking a whole plugin/content boundary");
+}
+
+$reseedStart = $cleanDeployEnd === false ? false : strpos($diagnosticSource, "\nseed_rmcombo_stale_links\n", $cleanDeployEnd);
+$reseedEnd = $reseedStart === false ? false : strpos($diagnosticSource, "\nREVISION=", $reseedStart);
+wprism_check($reseedStart !== false && $reseedEnd !== false,
+    'Apply re-seeds and independently observes non-vacuous stale projections after host settlement');
+if ($reseedStart !== false && $reseedEnd !== false) {
+    $reseedBlock = substr($diagnosticSource, $reseedStart, $reseedEnd - $reseedStart);
+    $reseedProbe = <<<'SH'
+set -euo pipefail
+HOSTILE_NATIVE="$1" RESEEDED_NATIVE="$2" PROBE_CASE="$3"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+seed_rmcombo_stale_links() { printf 'RESEEDED\n'; [ "$PROBE_CASE" != seed-failed ]; }
+native_state() { printf '%s\n' "$RESEEDED_NATIVE"; }
+SH;
+    $reseeded = array_replace($hostilePostimage, ['redirection_cache' => []]);
+    foreach (['ready', 'seed-failed', 'already-clean', 'unrelated-drift'] as $case) {
+        $answer = $case === 'already-clean' ? $settledPostimage : $reseeded;
+        if ($case === 'unrelated-drift') $answer['neighbor']['price'] = '98';
+        [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+            $reseedProbe . "\n" . $reseedBlock . "\nprintf 'APPLY_PREMISE_READY\\n'\n",
+            [json_encode($hostilePostimage, JSON_THROW_ON_ERROR), json_encode($answer, JSON_THROW_ON_ERROR), $case], $root);
+        wprism_check($case === 'ready' ? $status === 0 && $stdout === "RESEEDED\nAPPLY_PREMISE_READY\n" && $stderr === ''
+            : $status !== 0 && !str_contains($stdout, 'APPLY_PREMISE_READY'),
+            "Apply premise $case must seed successfully and retain the exact hostile graph before mutation");
+    }
+}
+
+$seedStart = strpos($diagnosticSource, 'seed_rmcombo_stale_links() {');
+$seedEnd = $seedStart === false ? false : strpos($diagnosticSource, "\nnative_state() {", $seedStart);
+wprism_check($seedStart !== false && $seedEnd !== false, 'the reusable stale-link seed is an actual checked native command');
+if ($seedStart !== false && $seedEnd !== false) {
+    $seedDefinition = substr($diagnosticSource, $seedStart, $seedEnd - $seedStart);
+    $seedProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_CASE="$2" PHP="$3" WITNESS="$4" PAIR=rmcomboseed
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+wp2() {
+  [ "$#" -eq 2 ] && [ "$1" = eval ] || return 81
+  "$PHP" "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/stale-link-seed-probe.php" \
+    "$PROBE_CASE" "$2" "$WITNESS"
+}
+SH;
+    foreach (['ready', 'missing-post', 'overlap', 'delete-links', 'delete-counts', 'insert-links', 'insert-counts',
+        'marker', 'read-links', 'read-counts', 'short-count', 'extra', 'warning-stdout', 'warning-stderr', 'nonzero',
+        'owned-compose', 'foreign-compose'] as $case) {
+        $witness = $cleanDeployScratch . '/seed-witness.json';
+        [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+            $seedProbe . "\n" . $scenarioAssertionDefinitions . "\n" . $seedDefinition . "\nseed_rmcombo_stale_links\nprintf 'SEED_READY\\n'\n",
+            [$root, $case, PHP_BINARY, $witness], $root);
+        wprism_check((in_array($case, ['ready', 'owned-compose'], true) ? $status === 0 && $stdout === "SEED_READY\n"
+                && ($case === 'owned-compose' || $stderr === '')
+                : $status !== 0 && !str_contains($stdout, 'SEED_READY'))
+            && !str_contains($stdout . $stderr, 'private-seed-sql-canary'),
+            "actual stale-link native seed classifies $case before accepting its readback");
+        $observed = json_decode((string) file_get_contents($witness), true, flags: JSON_THROW_ON_ERROR);
+        wprism_check(($observed['redirections'] ?? null) === [['id' => 1, 'hits' => 41]]
+            && ($observed['scheduler'] ?? null) === [['action_id' => 6, 'hook' => 'target-runtime']]
+            && ($observed['meta'][101]['authored'] ?? null) === 'preserved',
+            "$case seed leaves authored metadata, redirects and unrelated scheduler rows exact");
+        if ($case === 'ready') {
+            wprism_check_same([
+                ['url' => '/target-stale', 'post_id' => 101, 'target_post_id' => 104, 'type' => 'internal'],
+                ['url' => '/target-stale', 'post_id' => 102, 'target_post_id' => 104, 'type' => 'internal'],
+                ['url' => '/target-stale-book', 'post_id' => 103, 'target_post_id' => 104, 'type' => 'internal'],
+            ], $observed['links'], 'the actual native seed binds all three stale edges to the target-only neighbor');
+            wprism_check_same([101, 102, 103, 104], array_column($observed['counts'], 'object_id'),
+                'the seed has four distinct count witnesses, including the retired target');
+            wprism_check_same(['1', '1', '1'], array_map(static fn(int $id): mixed =>
+                $observed['meta'][$id]['rank_math_internal_links_processed'] ?? null, [101, 102, 103]),
+                'both lifecycle and Apply begin with non-vacuous processed markers');
+        } elseif (in_array($case, ['missing-post', 'overlap'], true)) {
+            wprism_check_same([], $observed['queries'], "$case refuses before the first destructive fixture write");
+        }
+        unlink($witness);
+    }
 }
 rmdir($cleanDeployScratch);
 

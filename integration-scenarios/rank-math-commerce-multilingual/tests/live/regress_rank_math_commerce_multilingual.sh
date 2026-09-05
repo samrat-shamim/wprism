@@ -558,6 +558,52 @@ echo hash("sha256", json_encode($rows, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLAS
 ' "$1"
 }
 
+seed_rmcombo_stale_links() {
+  local receipt rmcombo_host_pair="$PAIR" rmcombo_host_service=cli2
+  capture_wprism_json_checked receipt 'Rank Math combination stale-link seed' assert_rmcombo_host_native_json wp2 eval '
+global $wpdb;
+$posts = [];
+foreach (["rmcombo-product-en"=>"product", "rmcombo-product-de"=>"product", "rmcombo-book"=>"rmcombo_book", "rmcombo-target-neighbor"=>"product"] as $slug=>$type) {
+    $post = get_page_by_path($slug, OBJECT, $type);
+    if (!$post instanceof WP_Post || $post->ID < 1) throw new RuntimeException("stale-link seed post is unavailable");
+    $posts[$slug] = (int) $post->ID;
+}
+if (count(array_unique($posts)) !== 4) throw new RuntimeException("stale-link seed identities overlap");
+$checked = static function ($result) use ($wpdb): void {
+    if ($result === false || $wpdb->last_error !== "") throw new RuntimeException("stale-link seed write failed");
+};
+$checked($wpdb->query("DELETE FROM {$wpdb->prefix}rank_math_internal_links"));
+$checked($wpdb->query("DELETE FROM {$wpdb->prefix}rank_math_internal_meta"));
+$neighbor = $posts["rmcombo-target-neighbor"];
+foreach ($posts as $slug=>$id) {
+    if ($id === $neighbor) continue;
+    $checked($wpdb->insert($wpdb->prefix."rank_math_internal_links", [
+        "url"=>$slug === "rmcombo-book" ? "/target-stale-book" : "/target-stale",
+        "post_id"=>$id,"target_post_id"=>$neighbor,"type"=>"internal",
+    ]));
+    $checked($wpdb->insert($wpdb->prefix."rank_math_internal_meta", [
+        "object_id"=>$id,"internal_link_count"=>999,"external_link_count"=>999,"incoming_link_count"=>999,
+    ]));
+    update_post_meta($id, "rank_math_internal_links_processed", "1");
+    if (get_post_meta($id, "rank_math_internal_links_processed", true) !== "1") {
+        throw new RuntimeException("stale-link seed marker readback failed");
+    }
+}
+$checked($wpdb->insert($wpdb->prefix."rank_math_internal_meta", [
+    "object_id"=>$neighbor,"internal_link_count"=>0,"external_link_count"=>0,"incoming_link_count"=>999,
+]));
+$counts = [];
+foreach (["links"=>"rank_math_internal_links", "counts"=>"rank_math_internal_meta"] as $key=>$suffix) {
+    $count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}{$suffix}");
+    if ($wpdb->last_error !== "" || !is_numeric($count)) throw new RuntimeException("stale-link seed count readback failed");
+    $counts[$key] = (int) $count;
+}
+echo wp_json_encode($counts);
+'
+  jq -e '. == {links:3,counts:4}' <<<"$receipt" >/dev/null \
+    || fail 'Rank Math combination stale-link seed did not retain every witness'
+}
+
 native_state() { # <wp1|wp2>
   local side="$1"
   capture_rmcombo_native_json 'Rank Math combination native-state observation' "$side" eval '
@@ -1110,15 +1156,6 @@ $wpdb->insert($wpdb->prefix."rank_math_redirections_cache",[
     "from_url"=>"rmcombo-old","redirection_id"=>$redirectionId,"object_id"=>999999999,
     "object_type"=>"post","is_redirected"=>0,
 ]);
-$wpdb->query("DELETE FROM {$wpdb->prefix}rank_math_internal_links");
-$wpdb->query("DELETE FROM {$wpdb->prefix}rank_math_internal_meta");
-foreach ($products as $id) {
-    $wpdb->insert($wpdb->prefix."rank_math_internal_links",["url"=>"/target-stale","post_id"=>$id,"target_post_id"=>$neighborId,"type"=>"internal"]);
-    $wpdb->insert($wpdb->prefix."rank_math_internal_meta",["object_id"=>$id,"internal_link_count"=>999,"external_link_count"=>999,"incoming_link_count"=>999]);
-}
-$wpdb->insert($wpdb->prefix."rank_math_internal_links",["url"=>"/target-stale-book","post_id"=>(int)$book,"target_post_id"=>$neighborId,"type"=>"internal"]);
-$wpdb->insert($wpdb->prefix."rank_math_internal_meta",["object_id"=>(int)$book,"internal_link_count"=>999,"external_link_count"=>999,"incoming_link_count"=>999]);
-$wpdb->insert($wpdb->prefix."rank_math_internal_meta",["object_id"=>$neighborId,"internal_link_count"=>0,"external_link_count"=>0,"incoming_link_count"=>999]);
 if (function_exists("as_schedule_single_action")) as_schedule_single_action(time()+7200,"rmcombo_target_runtime");
 echo wp_json_encode(["book"=>(int)$book,"categories"=>$categories,"category_tts"=>$categoryTts,"group"=>(int)$groupPosts[0],"neighbor"=>(int)$neighborId,"products"=>$products,"redirection"=>$redirectionId]);
 ')
@@ -1133,8 +1170,13 @@ jq -en --argjson source "$SOURCE_SEED" --argjson target "$TARGET_SEED" '
   $target.category_tts.en != $source.category_tts.en and
   $target.category_tts.de != $source.category_tts.de
 ' >/dev/null || fail "custom product categories lost their within-host and cross-host divergence: $SOURCE_SEED / $TARGET_SEED"
+seed_rmcombo_stale_links
 HOSTILE_NATIVE=$(native_state wp2)
 jq -e '
+  .modules == ["redirections","rich-snippet"] and
+  all(.products[], .book;
+    .processed == true and (.links | length) == 1 and
+    (.rank_counts | map_values(tonumber)) == {internal_link_count:999,external_link_count:999,incoming_link_count:999}) and
   .neighbor == {acf:"target-only badge",id:.neighbor.id,price:"97",title:"target-only SEO"} and
   .neighbor.id > 0 and
   .scheduler == [{action_id: .scheduler[0].action_id, hook:"rmcombo_target_runtime", status:"pending", group_slug:""}] and
@@ -1416,6 +1458,8 @@ assert_rmcombo_recovery_web_state true
 # drift, not content drift. It forces the no-code deploy path through both
 # lifecycle and schema settlement while the hostile cross-plugin graph remains
 # available as an exact isolation oracle after activation recreates the table.
+# Manifest lifecycle_settle also rebuilds links: with the target module off,
+# its declared postimage clears links/counts/markers, not authored state.
 wp2 plugin deactivate seo-by-rank-math >/dev/null
 wp2 db query 'DROP TABLE wp_rank_math_redirections_cache' >/dev/null
 assert_rmcombo_host_rank_math_state wp2 "$PAIR" inactive absent
@@ -1434,9 +1478,13 @@ jq -en --argjson actual "$HOST_SETTLED_ORDER" --argjson expected "$expected_sour
   || fail "host lifecycle did not settle canonical source plugin order: $HOST_SETTLED_ORDER"
 HOST_SETTLED_NATIVE=$(native_state wp2)
 jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$HOST_SETTLED_NATIVE" '
-  ($after | .redirection_cache = []) == ($before | .redirection_cache = []) and
-  ($after.redirection_cache | length) == 0
-' >/dev/null || fail "compatible host settlement crossed an unrelated plugin/content/runtime boundary: $HOST_SETTLED_NATIVE"
+  $before.modules == ["redirections","rich-snippet"] and
+  $after == ($before | .redirection_cache = [] |
+    .products.en.links = [] | .products.de.links = [] | .book.links = [] |
+    .products.en.rank_counts = null | .products.de.rank_counts = null | .book.rank_counts = null |
+    .products.en.processed = false | .products.de.processed = false | .book.processed = false |
+    .retired_target_counts = null | .stale_link_sentinels = 0)
+' >/dev/null || fail 'compatible host settlement did not retain the exact declared derived-state and unrelated-state postimage'
 HOST_SETTLED_DEFAULT=$(default_product_category_state wp2)
 jq -en --argjson fixture "$TARGET_DEFAULT_FIXTURE" --argjson observed "$HOST_SETTLED_DEFAULT" '
   $observed.option == $fixture.installer_default and
@@ -1449,6 +1497,14 @@ jq -en --argjson fixture "$TARGET_DEFAULT_FIXTURE" --argjson observed "$HOST_SET
   }
 ' >/dev/null || fail "host settlement changed or invalidated the target installer default before apply: $HOST_SETTLED_DEFAULT"
 pass 'host deploy refuses hostile schema, then checkpoint-settles legitimate lifecycle/schema drift without crossing combination boundaries'
+# Host settlement just removed every stale projection. Reintroduce the same
+# checked witnesses before Apply so its enabled-module repair is not credited
+# for cleanup already performed by lifecycle_settle (6fbf7298 live evidence).
+seed_rmcombo_stale_links
+APPLY_HOSTILE_NATIVE=$(native_state wp2)
+jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$APPLY_HOSTILE_NATIVE" \
+  '$after == ($before | .redirection_cache = [])' >/dev/null \
+  || fail 'combined Apply did not start with exact non-vacuous stale links and preserved unrelated state'
 REVISION=$(git -C "$R2" rev-parse HEAD)
 capture_wprism_json_checked INITIAL 'Rank Math commerce/multilingual initial apply' assert_rmcombo_default_apply_ready \
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
