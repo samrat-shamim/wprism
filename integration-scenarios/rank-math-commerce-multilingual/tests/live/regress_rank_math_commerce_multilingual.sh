@@ -77,6 +77,39 @@ try {
     <<<"$table" >/dev/null 2>&1 || fail 'Rank Math host derived table is not in the exact expected state'
 }
 
+assert_rmcombo_one_json() { # shared capture callback; host commands have no Compose prelude
+  jq -se 'length == 1 and (.[0] | type == "object")' <<<"$2" >/dev/null 2>&1 \
+    || fail "$1 did not return exactly one JSON object"
+}
+
+assert_rmcombo_recovery_web_state() { # <true|false>; the leased pair owns this exact target
+  local running="$1" observed
+  case "$running" in true|false) ;; *) fail 'unknown recovery web-process state' ;; esac
+  capture_wprism_json_checked observed 'Rank Math recovery web-process state' assert_rmcombo_one_json \
+    docker container inspect "wprism-${PAIR}-wp2-1" --format '{{json .}}'
+  jq -e --arg project "wprism-$PAIR" --argjson running "$running" '
+    .Name == ("/" + $project + "-wp2-1") and
+    .Config.Labels["com.docker.compose.project"] == $project and
+    .Config.Labels["com.docker.compose.service"] == "wp2" and
+    .State.Running == $running and .State.Paused == false and .State.Restarting == false
+  ' <<<"$observed" >/dev/null 2>&1 || fail 'the owned recovery target is not in the exact web-process state'
+}
+
+rmcombo_recovery_control() {
+  local observed rmcombo_host_pair="$PAIR" rmcombo_host_service=cli2
+  capture_wprism_json_checked observed 'Rank Math recovery control observation' assert_rmcombo_host_native_json wp2 eval '
+require_once "/siterepo/.wprism/control/recovery-runtime/CanonicalJson.php";
+require_once "/siterepo/.wprism/control/recovery-runtime/AtomicStore.php";
+require_once "/siterepo/.wprism/control/recovery-runtime/ProtocolLock.php";
+require_once "/siterepo/.wprism/control/recovery-runtime/ProviderSettlementIntent.php";
+echo json_encode([
+    "provider" => \WPrism\Recovery\ProviderSettlementIntent::recoveryStatus("/siterepo/.wprism/control"),
+    "schema_clear" => \WPrism\Ledger::kv_get("schema_settlement_in_progress") === null,
+], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+'
+  printf '%s\n' "$observed"
+}
+
 for command in docker git jq mktemp php; do
   command -v "$command" >/dev/null 2>&1 || fail "$command required"
 done
@@ -1186,6 +1219,20 @@ wprism_host_install_recovery_runtime "$ROOT" "$R2" \
   || fail 'Rank Math combination could not install the target recovery runtime'
 
 say 'deploy/apply combined product path against reverse-order hostile target'
+# The headless, uniquely leased pair has one CLI writer. Stop the target web
+# process as well: an unresolvable URL alone is not external writer exclusion
+# for a whole-database restore (RecoverCommand::WRITERS_EXCLUDED_FLAG).
+assert_rmcombo_recovery_web_state true
+RECOVERY_WEB_STOP=$("${COMPOSE[@]}" stop wp2 2>&1) || fail 'could not stop the owned recovery target web process'
+assert_no_php_runtime_diagnostics 'Rank Math recovery web-process stop' "$RECOVERY_WEB_STOP"
+assert_rmcombo_recovery_web_state false
+RECOVERY_NATIVE_BEFORE=$(native_state wp2)
+RECOVERY_ORDER_BEFORE=$(active_plugin_order wp2)
+RECOVERY_DEFAULT_BEFORE=$(default_product_category_state wp2)
+RECOVERY_MAP_BEFORE=$(identity_map_digest wp2)
+RECOVERY_CONTROL_BEFORE=$(rmcombo_recovery_control)
+jq -e '.schema_clear == true and .provider.active == false' <<<"$RECOVERY_CONTROL_BEFORE" >/dev/null \
+  || fail 'the combined recovery preimage already contains settlement debt'
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL' >/dev/null
 # Providers::invoke deliberately keeps the schema cause out of public errors.
 # Inventory immediately before this invocation, then inspect its one new v2
@@ -1224,7 +1271,60 @@ DIRTY_REFUSAL_RECEIPT=$("${COMPOSE[@]}" run --rm -T \
 DIRTY_NATIVE=$(native_state wp2)
 jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$DIRTY_NATIVE" '$before == $after' >/dev/null \
   || fail 'schema refusal crossed the target content/runtime boundary'
+
+# 0700be15 correctly retained provider debt, then retried deploy without
+# recovery. Consume the one target-bound hint, never the newest catalog row;
+# the host owns checkpoint identity, ordered import and final lease cleanup.
+RECOVERY_ID=$(sed -n "s/^wprism: deploy: once that exclusion is in place, recover with: wprism recover ${PAIR}2 --restore=\(deploy-[A-Za-z0-9._-]*\) --writers-excluded --operator-directed$/\1/p" <<<"$DIRTY_DEPLOY")
+[[ "$RECOVERY_ID" =~ ^deploy-[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+  || fail 'the failed combined deploy did not name exactly one target-bound retained checkpoint'
+RECOVERY_CONTROL_DIRTY=$(rmcombo_recovery_control)
+jq -e --arg id "$RECOVERY_ID" '
+  .schema_clear == true and .provider.active == true and
+  .provider.owner == ($id | ltrimstr("deploy-")) and
+  .provider.checkpoint.path == ("/siterepo/.wprism/checkpoints/" + $id + ".sql.enc")
+' <<<"$RECOVERY_CONTROL_DIRTY" >/dev/null \
+  || fail 'schema inspection refusal did not retain its exact external provider checkpoint before DDL'
+assert_rmcombo_recovery_web_state false
+# Host recovery emits pretty canonical JSON, unlike the agent compact-line
+# transport. Validate the whole document without selecting its final line.
+RECOVERY_RC=0
+RECOVERY_OUT=$(host_wprism_combo wp2 recover --restore="$RECOVERY_ID" \
+  --writers-excluded --operator-directed --format=json 2>&1) || RECOVERY_RC=$?
+[ "$RECOVERY_RC" -eq 0 ] || fail 'combined host checkpoint recovery failed'
+assert_no_php_runtime_diagnostics 'Rank Math combined checkpoint recovery' "$RECOVERY_OUT"
+assert_rmcombo_one_json 'Rank Math combined checkpoint recovery' "$RECOVERY_OUT"
+jq -e --arg id "$RECOVERY_ID" --arg environment "${PAIR}2" \
+  --argjson debt "$RECOVERY_CONTROL_DIRTY" '
+  .format == "wprism-recovery-outcome/v1" and .recovered == true and
+  .environment == $environment and .checkpoint.id == $id and
+  .checkpoint.owner == $debt.provider.owner and
+  .checkpoint.artifact_hash == $debt.provider.artifact_hash and
+  (.steps | map(.step)) == ["abort","begin","import","final-abort"] and
+  all(.steps[]; .ok == true)
+' <<<"$RECOVERY_OUT" >/dev/null || fail 'combined recovery did not complete the exact retained checkpoint and every ordered step'
+assert_rmcombo_recovery_web_state false
+RECOVERY_CONTROL_AFTER=$(rmcombo_recovery_control)
+[ "$RECOVERY_CONTROL_AFTER" = "$RECOVERY_CONTROL_BEFORE" ] \
+  || fail 'checkpoint recovery did not restore the exact clear schema/provider control preimage'
+[ ! -e "$R2/.wprism/control/provider-settlement-intent.json" ] \
+  && [ ! -L "$R2/.wprism/control/provider-settlement-intent.json" ] \
+  && [ ! -e "$R2/.wprism/control/checkpoint-recovery-intent.json" ] \
+  && [ ! -L "$R2/.wprism/control/checkpoint-recovery-intent.json" ] \
+  || fail 'checkpoint recovery retained external settlement or recovery debt'
+RECOVERY_NATIVE_AFTER=$(native_state wp2)
+RECOVERY_ORDER_AFTER=$(active_plugin_order wp2)
+RECOVERY_DEFAULT_AFTER=$(default_product_category_state wp2)
+RECOVERY_MAP_AFTER=$(identity_map_digest wp2)
+[ "$RECOVERY_NATIVE_AFTER" = "$RECOVERY_NATIVE_BEFORE" ] \
+  && [ "$RECOVERY_ORDER_AFTER" = "$RECOVERY_ORDER_BEFORE" ] \
+  && [ "$RECOVERY_DEFAULT_AFTER" = "$RECOVERY_DEFAULT_BEFORE" ] \
+  && [ "$RECOVERY_MAP_AFTER" = "$RECOVERY_MAP_BEFORE" ] \
+  || fail 'checkpoint recovery changed the combined native graph, active-plugin order, Woo default or identity map'
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema' >/dev/null
+RECOVERY_WEB_START=$("${COMPOSE[@]}" start wp2 2>&1) || fail 'could not restart the recovered target web process'
+assert_no_php_runtime_diagnostics 'Rank Math recovery web-process start' "$RECOVERY_WEB_START"
+assert_rmcombo_recovery_web_state true
 # An inactive plugin plus one absent derived table is a legitimate host-level
 # drift, not content drift. It forces the no-code deploy path through both
 # lifecycle and schema settlement while the hostile cross-plugin graph remains

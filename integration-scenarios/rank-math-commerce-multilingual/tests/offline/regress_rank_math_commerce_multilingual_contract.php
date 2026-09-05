@@ -318,11 +318,11 @@ foreach ([
 // real ALTER/refusal/receipt/native-equality block with an actual private
 // verifier; no stub is allowed to pronounce the receipt valid.
 $dirtyStartToken = "wp2 db query 'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL' >/dev/null";
-$dirtyEndToken = "wp2 db query 'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema' >/dev/null";
+$dirtyEndToken = 'RECOVERY_ID=$(sed';
 $dirtyStart = strpos($live, $dirtyStartToken);
 $dirtyEnd = $dirtyStart === false ? false : strpos($live, $dirtyEndToken, $dirtyStart);
 $dirtyBlock = $dirtyStart === false || $dirtyEnd === false ? ''
-    : substr($live, $dirtyStart, $dirtyEnd + strlen($dirtyEndToken) - $dirtyStart);
+    : substr($live, $dirtyStart, $dirtyEnd - $dirtyStart);
 wprism_check($dirtyBlock !== '', 'the actual hostile-schema command and full acceptance block are extractable');
 $dirtyProfile = rank_math_private_refusal_profile('schema-mismatch');
 $dirtyRecord = [
@@ -469,13 +469,168 @@ foreach ([
     wprism_check(
         ($case === 'valid'
             ? $status === 0 && $stdout === "SCHEMA_REFUSAL_READY\n" && $stderr === ''
-                && $trace === "ADD\nSNAPSHOT\nINVOKE\nVERIFY\nNATIVE\nDROP\n"
+                && $trace === "ADD\nSNAPSHOT\nINVOKE\nVERIFY\nNATIVE\n"
             : $status !== 0 && !str_contains($stdout, 'SCHEMA_REFUSAL_READY')
                 && str_contains($stderr, 'FAIL:') && !str_contains($trace, "DROP\n"))
             && !str_contains($stdout . $stderr, 'private scenario receipt canary')
             && !str_contains($stdout . $stderr, $dirtyProfile['private_cause_message']),
         "actual hostile-schema block $case checks mounted private evidence, terminal phases, cleanup and native nonmutation"
     );
+}
+
+// Cover the whole failed-deploy -> exact recover -> fault-removal window.
+// The older refusal test ended before the missing recovery, so it could not
+// reject 0700be15's immediate second deploy. The shared recovery fixture runs
+// cli/wprism itself; only native WP/import, Docker and plugin rows are doubles.
+$recoverySource = isset($argv[1]) ? (string) file_get_contents($argv[1]
+    . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh') : $live;
+$recoveryStart = strpos($recoverySource, "say 'deploy/apply combined product path against reverse-order hostile target'");
+$recoveryEnd = $recoveryStart === false ? false : strpos($recoverySource, '# An inactive plugin plus one absent derived table', $recoveryStart);
+$recoveryDefinitionsStart = strpos($recoverySource, 'assert_rmcombo_warning_free_capture() {');
+$recoveryDefinitionsEnd = strpos($recoverySource, "\nfor command in docker", $recoveryDefinitionsStart ?: 0);
+if ($recoveryStart === false || $recoveryEnd === false || $recoveryDefinitionsStart === false || $recoveryDefinitionsEnd === false) {
+    throw new LogicException('the actual combined host recovery window is not extractable');
+}
+$recoveryBlock = substr($recoverySource, $recoveryStart, $recoveryEnd - $recoveryStart);
+$recoveryDefinitions = substr($recoverySource, $recoveryDefinitionsStart, $recoveryDefinitionsEnd - $recoveryDefinitionsStart);
+$recoveryProbe = <<<'SH'
+PHP="$7" PAIR=rmcomborecovery
+say() { :; }
+probe_scratch=$(mktemp -d "${TMPDIR:-/tmp}/rmcombo-recovery.XXXXXX")
+trap 'if [ "$fixture_case" = ready ] && [ ! -f "$probe_scratch/resumed" ]; then printf "%s\n" "${RECOVERY_OUT:-}" >&2; fi; if [ -f "$probe_scratch/recovered" ]; then printf "RECOVERED\n"; fi; if [ -f "$probe_scratch/resumed" ]; then printf "RESUMED\n"; fi; rm -rf -- "$probe_scratch"' EXIT
+"$PHP" "$ROOT/sandbox/tests/fixtures/release/make-recover-site.php" "$probe_scratch/product" >/dev/null
+R2=$(cd "$probe_scratch/product/target" && pwd -P)
+jq --arg environment "${PAIR}2" '{envs:{($environment):.envs.plain}}' \
+  "$probe_scratch/product/envs.json" >"$probe_scratch/envs.json"
+export PATH="$probe_scratch/product/bin:$PATH"
+export WPRISM_WP_CALLS="$probe_scratch/wp-calls" WPRISM_PROVIDER_RECOVERY_STATUS="$probe_scratch/provider-status.json"
+export WPRISM_RECOVERY_RUNTIME_SOURCE="$ROOT/recovery/rollback-control.php"
+probe_php="$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/checkpoint-recovery-probe.php"
+COMPOSE=(recovery_compose)
+recovery_compose() {
+  if [ "$1" = run ]; then fixture_compose "$@"; return; fi
+  [ "$#" -eq 2 ] && [ "$2" = wp2 ] || return 91
+  case "$1" in
+    stop)
+      [ "$fixture_case" != stop-failed ] || return 7
+      [ "$fixture_case" = stop-noop ] || : >"$probe_scratch/stopped"
+      ;;
+    start)
+      [ -f "$probe_scratch/recovered" ] || return 92
+      [ "$fixture_case" != start-failed ] || return 7
+      [ "$fixture_case" = start-noop ] || rm "$probe_scratch/stopped"
+      : >"$probe_scratch/resumed"
+      ;;
+    *) return 93 ;;
+  esac
+}
+docker() {
+  [ "$*" = "container inspect wprism-${PAIR}-wp2-1 --format {{json .}}" ] || return 94
+  local running=true project="wprism-$PAIR"
+  [ ! -f "$probe_scratch/stopped" ] || running=false
+  [ "$fixture_case" != foreign-container ] || project=wprism-foreign
+  jq -nc --arg project "$project" --argjson running "$running" \
+    '{Name:("/"+$project+"-wp2-1"),Config:{Labels:{"com.docker.compose.project":$project,"com.docker.compose.service":"wp2"}},State:{Running:$running,Paused:false,Restarting:false}}'
+}
+wp2() {
+  if [ "$#" -eq 3 ] && [ "$1" = db ] && [ "$2" = query ]; then
+    case "$3" in
+      'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL') printf 'ADD\n' >>"$fixture_trace" ;;
+      'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema')
+        [ -f "$probe_scratch/recovered" ] || { printf 'FAIL: fault removal bypassed checkpoint recovery\n' >&2; return 95; }
+        printf 'DROP\n' >>"$fixture_trace" ;;
+      *) return 96 ;;
+    esac
+    return
+  fi
+  [ "$#" -eq 2 ] && [ "$1" = eval ] || return 97
+  local fault=ready
+  [ ! -f "$probe_scratch/recovered" ] || fault="$fixture_case"
+  "$PHP" "$probe_php" observe "$R2" "$fault" "$2"
+}
+active_plugin_order() {
+  if [ -f "$probe_scratch/recovered" ] && [ "$fixture_case" = order-drift ]; then printf '["changed"]\n'
+  else printf '["polylang","woocommerce","seo-by-rank-math","advanced-custom-fields"]\n'; fi
+}
+default_product_category_state() {
+  if [ -f "$probe_scratch/recovered" ] && [ "$fixture_case" = default-drift ]; then printf '{"option":19}\n'
+  else printf '{"option":17}\n'; fi
+}
+identity_map_digest() {
+  if [ -f "$probe_scratch/recovered" ] && [ "$fixture_case" = map-drift ]; then printf '{"sha256":"changed"}\n'
+  else printf '{"sha256":"original"}\n'; fi
+}
+native_state() {
+  [ "$*" = wp2 ] || return 98
+  if [ -f "$probe_scratch/recovered" ] && [ "$fixture_case" = native-drift ]; then printf '{"native":"changed"}\n'
+  else printf '%s\n' "$HOSTILE_NATIVE"; fi
+}
+host_wprism_combo() {
+  [ "$1" = wp2 ] || return 99
+  if [ "$2" = deploy ]; then
+    cp "$fixture_record" "$fixture_directory/20260905-095334-schema-settle-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+    chmod 0600 "$fixture_directory/20260905-095334-schema-settle-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+    "$PHP" "$probe_php" begin "$R2" "$fixture_case" >"$WPRISM_PROVIDER_RECOVERY_STATUS" || return "$?"
+    printf '%s\n' "$fixture_output"
+    local environment="${PAIR}2" id=deploy-recover-fixture-owner
+    [ "$fixture_case" != hint-wrong-target ] || environment=foreign2
+    [ "$fixture_case" != hint-wrong-id ] || id=deploy-another-owner
+    if [ "$fixture_case" != hint-missing ]; then
+      printf 'wprism: deploy: once that exclusion is in place, recover with: wprism recover %s --restore=%s --writers-excluded --operator-directed\n' "$environment" "$id"
+    fi
+    if [ "$fixture_case" = hint-duplicate ]; then
+      printf 'wprism: deploy: once that exclusion is in place, recover with: wprism recover %s --restore=%s --writers-excluded --operator-directed\n' "$environment" "$id"
+    fi
+    return 1
+  fi
+  [ "$#" -eq 6 ] && [ "$2" = recover ] && [ "$3" = --restore=deploy-recover-fixture-owner ] \
+    && [ "$4" = --writers-excluded ] && [ "$5" = --operator-directed ] && [ "$6" = --format=json ] \
+    && [ -f "$probe_scratch/stopped" ] || return 100
+  local result rc=0
+  if [ "$fixture_case" = import-failed ]; then export WPRISM_IMPORT_EXIT=7; fi
+  result=$(cd "$probe_scratch/product/site" && "$PHP" "$ROOT/cli/wprism" \
+    --envs-file="$probe_scratch/envs.json" recover "${PAIR}2" "${@:3}") || rc=$?
+  if [ "$rc" -ne 0 ]; then printf '%s\n' "$result"; return "$rc"; fi
+  "$PHP" "$probe_php" complete "$R2" "$fixture_case" || return "$?"
+  : >"$probe_scratch/recovered"
+  case "$fixture_case" in
+    receipt-wrong-id) result=$(jq '.checkpoint.id="deploy-another-owner"' <<<"$result") ;;
+    receipt-wrong-hash) result=$(jq '.checkpoint.artifact_hash="wrong"' <<<"$result") ;;
+    receipt-wrong-target) result=$(jq '.environment="foreign2"' <<<"$result") ;;
+    receipt-missing-step) result=$(jq '.steps |= .[:-1]' <<<"$result") ;;
+    receipt-failed-step) result=$(jq '.steps[2].ok=false' <<<"$result") ;;
+    receipt-unrecovered) result=$(jq '.recovered=false' <<<"$result") ;;
+    receipt-extra) printf '{}\n' ;;
+    receipt-warning) printf 'PHP Warning: fixture diagnostic\n' >&2 ;;
+  esac
+  printf '%s\n' "$result"
+}
+SH;
+foreach (['ready', 'stop-failed', 'stop-noop', 'foreign-container', 'hint-missing', 'hint-duplicate', 'hint-wrong-target',
+    'hint-wrong-id', 'import-failed', 'receipt-wrong-id', 'receipt-wrong-hash', 'receipt-wrong-target', 'receipt-missing-step',
+    'receipt-failed-step', 'receipt-unrecovered', 'receipt-extra', 'receipt-warning', 'retained-debt', 'schema-debt',
+    'control-read-error', 'native-drift', 'order-drift', 'default-drift', 'map-drift', 'start-failed', 'start-noop'] as $case) {
+    $directory = $dirtyScratch . '/recovery-' . $case;
+    mkdir($directory, 0700);
+    $payload = $directory . '/candidate';
+    file_put_contents($payload, json_encode($dirtyRecord, JSON_THROW_ON_ERROR));
+    chmod($payload, 0600);
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run($dirtyProbe . "\n" . $recoveryProbe . "\n"
+        . $recoveryDefinitions . "\n" . $recoveryBlock . "\nprintf 'RECOVERY_WINDOW_READY\\n'\n",
+        [$root, $case, $directory, $payload, $dirtyOutput, '1', PHP_BINARY], $root);
+    wprism_check($case === 'ready'
+        ? $status === 0 && $stdout === "RECOVERY_WINDOW_READY\nRECOVERED\nRESUMED\n" && $stderr === ''
+        : $status !== 0 && !str_contains($stdout, 'RECOVERY_WINDOW_READY'),
+        "$case validates the actual target-bound recovery window before removing its fault and continuing");
+    wprism_check_same(!in_array($case, ['stop-failed', 'stop-noop', 'foreign-container', 'hint-missing', 'hint-duplicate',
+        'hint-wrong-target', 'hint-wrong-id', 'import-failed'], true), str_contains($stdout, "RECOVERED\n"),
+        "$case reaches its intended side of actual host recovery, not an unrelated earlier failure");
+    if (!in_array($case, ['ready', 'start-failed', 'start-noop'], true)) {
+        $trace = is_file($directory . '/trace') ? (string) file_get_contents($directory . '/trace') : '';
+        wprism_check(!str_contains($trace, "DROP\n") && !str_contains($stdout, 'RESUMED'),
+            "$case cannot remove the hostile schema or reopen HTTP after incomplete recovery");
+    }
+    if ($case === 'ready' && $status !== 0) fwrite(STDERR, $stdout . $stderr);
 }
 
 // Execute the actual native_state shell function far enough to observe the
