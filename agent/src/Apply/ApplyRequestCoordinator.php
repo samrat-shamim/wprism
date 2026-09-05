@@ -605,9 +605,9 @@ final class ApplyRequestCoordinator {
      *     ever writes a plain scalar string, and overwriting a structured
      *     blob with one would corrupt every sub-key, including the
      *     authored carve-outs capture/apply already round-trip correctly.
-     *     Every sub_keys-bearing env option shipped today is required:false
-     *     (self-populated by its owning plugin) precisely because it was
-     *     never meant to be hand-provisioned this way.
+     *     OptionGrammar rejects required:true together with sub_keys at load:
+     *     the parent must be self-populated by its owning plugin precisely
+     *     because it can never be hand-provisioned safely this way.
      *   - an empty string — build_plan()'s env_missing bucket (above)
      *     treats an empty value as equivalent to absent, so accepting one
      *     here would let env-set report success while `wprism plan`

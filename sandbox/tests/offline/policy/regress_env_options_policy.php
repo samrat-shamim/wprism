@@ -135,6 +135,50 @@ try {
     check(false, 'a well-formed mix loads without error (threw: ' . $t->getMessage() . ')');
 }
 
+// A required env declaration promises that an operator can establish an
+// intended-value binding through `wprism env-set`. That command deliberately
+// rejects a sub_keys-bearing option because replacing a structured plugin blob
+// with one scalar would destroy its excluded siblings. The grammar must reject
+// the impossible combination before a manifest can publish an env_missing
+// checklist item that no supported provisioning path can ever clear.
+write_manifest($fixtureDir, 'structured-required', [
+    'name' => 'structured-required',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'options' => [
+        'plugin_blob' => [
+            'class' => 'env',
+            'required' => true,
+            'sub_keys' => ['site_token' => ['class' => 'env']],
+        ],
+    ],
+]);
+check_throws(
+    fn() => manifest_fixture_policy_load($fixtureDir, null, ['structured-required']),
+    'options.plugin_blob cannot declare required=true with sub_keys',
+    'a structured env parent cannot demand an unavailable whole-value provisioning path'
+);
+
+write_manifest($fixtureDir, 'structured-native', [
+    'name' => 'structured-native',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'options' => [
+        'plugin_blob' => [
+            'class' => 'env',
+            'required' => false,
+            'sub_keys' => ['site_token' => ['class' => 'env']],
+        ],
+    ],
+]);
+try {
+    $structuredNative = manifest_fixture_policy_load($fixtureDir, null, ['structured-native']);
+    check(
+        ($structuredNative->env_options()['plugin_blob']['required'] ?? null) === false,
+        'a plugin-populated structured env parent remains an optional environment observation'
+    );
+} catch (\Throwable $t) {
+    check(false, 'a plugin-populated structured env parent loads (threw: ' . $t->getMessage() . ')');
+}
+
 // ======================================================================
 echo "\n== env_options() — enumeration, merge, ksort ==\n";
 
