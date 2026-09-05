@@ -7,209 +7,7 @@ set -euo pipefail
 CONF2_PORT="${CONF2_PORT:-8807}"
 RANK_MATH_EXPECTED_VERSION="${RANK_MATH_EXPECTED_VERSION:-1.0.277.2}"
 
-observe_rank_math() { # <conf1|conf2>
-  local side="$1" repo file out
-  case "$side" in
-    conf1) repo="${CONF_REPO1:-siterepo/conf1}" ;;
-    conf2) repo="${CONF_REPO2:-siterepo/conf2}" ;;
-    *) fail "invalid Rank Math observation side: $side" ;;
-  esac
-  file="$repo/.tmp-rank-math-observe.php"
-  cat > "$file" <<'PHPEOF'
-<?php
-global $wpdb;
-$read = static function (callable $query, string $label) use ($wpdb) {
-    // wpdb reports a failed SELECT as null/[] and the next successful query
-    // clears last_error. Check each result at its own boundary and keep the
-    // driver payload out of the public conformance diagnostic.
-    $suppressed = $wpdb->suppress_errors(true);
-    $wpdb->last_error = '';
-    try {
-        $result = $query();
-        if ((string) $wpdb->last_error !== '') {
-            throw new RuntimeException('incomplete read');
-        }
-        return $result;
-    } catch (Throwable) {
-        throw new RuntimeException('Rank Math conformance observation could not read ' . $label);
-    } finally {
-        $wpdb->suppress_errors($suppressed);
-    }
-};
-$readRows = static function (string $sql, string $label, array $columns, bool $required = true) use ($wpdb, $read): array {
-    $rows = $read(static fn() => $wpdb->get_results($sql, ARRAY_A), $label);
-    if (!is_array($rows) || !array_is_list($rows) || ($required && $rows === [])) {
-        throw new RuntimeException('Rank Math conformance observation has an invalid row set for ' . $label);
-    }
-    foreach ($rows as $row) {
-        if (!is_array($row) || array_keys($row) !== $columns) {
-            throw new RuntimeException('Rank Math conformance observation has invalid columns for ' . $label);
-        }
-        foreach ($row as $key => $value) {
-            if (!is_string($key) || $key === '' || ($value !== null && !is_string($value))) {
-                throw new RuntimeException('Rank Math conformance observation has an invalid value for ' . $label);
-            }
-        }
-    }
-    return $rows;
-};
-$readRow = static function (string $sql, string $label, array $columns) use ($wpdb, $read): array {
-    $row = $read(static fn() => $wpdb->get_row($sql, ARRAY_A), $label);
-    if (!is_array($row) || array_keys($row) !== $columns) {
-        throw new RuntimeException('Rank Math conformance observation has an invalid row for ' . $label);
-    }
-    foreach ($row as $key => $value) {
-        if (!is_string($key) || $key === '' || ($value !== null && !is_string($value))) {
-            throw new RuntimeException('Rank Math conformance observation has an invalid value for ' . $label);
-        }
-    }
-    return $row;
-};
-$readList = static function (callable $query, string $label) use ($read): array {
-    $values = $read($query, $label);
-    if (!is_array($values) || !array_is_list($values) || $values === []
-        || array_filter($values, static fn($value): bool => !is_string($value)) !== []) {
-        throw new RuntimeException('Rank Math conformance observation has an invalid list for ' . $label);
-    }
-    return $values;
-};
-$readCount = static function (string $sql, string $label) use ($wpdb, $read): int {
-    $value = $read(static fn() => $wpdb->get_var($sql), $label);
-    if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
-        throw new RuntimeException('Rank Math conformance observation has an invalid count for ' . $label);
-    }
-    $count = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
-    if (!is_int($count)) {
-        throw new RuntimeException('Rank Math conformance observation count exceeds the PHP integer domain for ' . $label);
-    }
-    return $count;
-};
-$post = get_page_by_path('rank-math-article', OBJECT, 'post');
-$hub = get_page_by_path('rank-math-hub', OBJECT, 'page');
-$category = get_term_by('slug', 'rank-math-primary', 'category');
-$secondary = get_term_by('slug', 'rank-math-secondary', 'category');
-$tag = get_term_by('slug', 'rank-math-portable', 'post_tag');
-$attachment = get_page_by_path('wprism-rank-math-social', OBJECT, 'attachment');
-if (!$post instanceof WP_Post || !$hub instanceof WP_Post || !$attachment instanceof WP_Post
-    || !$category instanceof WP_Term || !$secondary instanceof WP_Term || !$tag instanceof WP_Term) {
-    throw new RuntimeException('Rank Math native content fixture is incomplete');
-}
-
-$redirections = $readRows(
-    "SELECT id,sources,url_to,header_code,hits,status,created,updated,last_accessed "
-        . "FROM {$wpdb->prefix}rank_math_redirections ORDER BY id",
-    'redirections',
-    ['id', 'sources', 'url_to', 'header_code', 'hits', 'status', 'created', 'updated', 'last_accessed']
-);
-$redirection = null;
-foreach ((array) $redirections as $candidate) {
-    $sources = maybe_unserialize($candidate['sources'] ?? '');
-    if (is_array($sources) && ($sources[0]['pattern'] ?? null) === 'rank-math-old') {
-        $candidate['sources_shape'] = $sources;
-        $redirection = $candidate;
-        break;
-    }
-}
-$links = $readRows($wpdb->prepare(
-    "SELECT url,post_id,target_post_id,type FROM {$wpdb->prefix}rank_math_internal_links "
-        . "WHERE post_id=%d ORDER BY type,url,target_post_id",
-    $post->ID
-), 'post links', ['url', 'post_id', 'target_post_id', 'type']);
-$postCounts = $readRow($wpdb->prepare(
-    "SELECT internal_link_count,external_link_count,incoming_link_count "
-        . "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
-    $post->ID
-), 'post link counts', ['internal_link_count', 'external_link_count', 'incoming_link_count']);
-$hubCounts = $readRow($wpdb->prepare(
-    "SELECT internal_link_count,external_link_count,incoming_link_count "
-        . "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
-    $hub->ID
-), 'hub link counts', ['internal_link_count', 'external_link_count', 'incoming_link_count']);
-$schema = [];
-foreach (['rank_math_internal_links', 'rank_math_internal_meta', 'rank_math_redirections', 'rank_math_redirections_cache'] as $suffix) {
-    $table = $wpdb->prefix . $suffix;
-    $found = $read(
-        static fn() => $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))),
-        'table presence ' . $suffix
-    );
-    if (!is_string($found) || !hash_equals($table, $found)) {
-        throw new RuntimeException('Rank Math conformance observation requires the exact table ' . $suffix);
-    }
-    $schema[$suffix] = [
-        'present' => true,
-        'columns' => $readList(static fn() => $wpdb->get_col("SHOW COLUMNS FROM `$table`"), 'columns ' . $suffix),
-    ];
-}
-$titles = (array) get_option('rank-math-options-titles', []);
-$general = (array) get_option('rank-math-options-general', []);
-$instant = (array) get_option('rank-math-options-instant-indexing', []);
-$sitemap = (array) get_option('rank-math-options-sitemap', []);
-echo wp_json_encode([
-    'version' => defined('RANK_MATH_VERSION') ? RANK_MATH_VERSION : null,
-    'ids' => [
-        'attachment' => $attachment->ID,
-        'category' => $category->term_id,
-        'hub' => $hub->ID,
-        'post' => $post->ID,
-        'secondary' => $secondary->term_id,
-        'tag' => $tag->term_id,
-    ],
-    'modules' => array_values((array) get_option('rank_math_modules', [])),
-    'setup' => [
-        'configured' => get_option('rank_math_is_configured', null),
-        'registration_skip' => get_option('rank_math_registration_skip', null),
-    ],
-    'options' => [
-        'breadcrumbs_home_label' => $general['breadcrumbs_home_label'] ?? null,
-        'plain_large_bytes' => strlen((string) ($general['wprism_plain_data']['large'] ?? '')),
-        'plain_nested' => $general['wprism_plain_data']['nested'] ?? null,
-        'homepage_image_id' => (int) ($titles['homepage_facebook_image_id'] ?? 0),
-        'local_seo_about_page' => (int) ($titles['local_seo_about_page'] ?? 0),
-        'local_seo_contact_page' => (int) ($titles['local_seo_contact_page'] ?? 0),
-        'logo_id' => (int) ($titles['knowledgegraph_logo_id'] ?? 0),
-        'open_graph_image_id' => (int) ($titles['open_graph_image_id'] ?? 0),
-    ],
-    'post' => [
-        'title' => get_post_meta($post->ID, 'rank_math_title', true),
-        'description' => get_post_meta($post->ID, 'rank_math_description', true),
-        'canonical' => get_post_meta($post->ID, 'rank_math_canonical_url', true),
-        'facebook_image_id' => (int) get_post_meta($post->ID, 'rank_math_facebook_image_id', true),
-        'primary_category' => (int) get_post_meta($post->ID, 'rank_math_primary_category', true),
-        'processed' => (bool) get_post_meta($post->ID, 'rank_math_internal_links_processed', true),
-    ],
-    'term' => [
-        'description' => get_term_meta($category->term_id, 'rank_math_description', true),
-        'facebook_image_id' => (int) get_term_meta($category->term_id, 'rank_math_facebook_image_id', true),
-        'title' => get_term_meta($category->term_id, 'rank_math_title', true),
-    ],
-    'redirection' => $redirection,
-    'redirection_count' => count((array) $redirections),
-    'redirection_cache_count' => $readCount(
-        "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_redirections_cache",
-        'redirection cache count'
-    ),
-    'links' => $links,
-    'post_counts' => $postCounts,
-    'hub_counts' => $hubCounts,
-    'schema' => $schema,
-    'target_owned' => [
-        'instant_key' => $instant['indexnow_api_key'] ?? null,
-        'indexnow_log' => get_option('rank_math_indexnow_log', null),
-        'sitemap_posts' => $sitemap['exclude_posts'] ?? null,
-        'notifications' => get_option('rank_math_notifications', null),
-        'neighbor' => get_option('wprism_rank_math_target_neighbor', null),
-    ],
-], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
-PHPEOF
-  if [ "$side" = conf1 ]; then
-    out=$(wp_conf1 eval-file /siterepo/.tmp-rank-math-observe.php)
-  else
-    out=$(wp_conf2 eval-file /siterepo/.tmp-rank-math-observe.php)
-  fi
-  rm -f "$file"
-  require_observed_nonempty "$side Rank Math observation" "$out"
-  printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }'
-}
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/native-observer.sh"
 
 # One exact, value-redacted database oracle for checkpoint recovery. It covers
 # plugin activation, every Rank Math option, authored and derived rows (including
@@ -318,8 +116,10 @@ rank_math_request() { # <path>
     "$RANK_MATH_HEADERS" | tail -1)
 }
 
-SOURCE=$(observe_rank_math conf1)
-TARGET=$(observe_rank_math conf2)
+SOURCE=$(observe_rank_math conf1 "${CONF_REPO1:-siterepo/conf1}" wp_conf1)
+TARGET=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)
+require_observed_nonempty 'Rank Math source native observation' "$SOURCE"
+require_observed_nonempty 'Rank Math target native observation' "$TARGET"
 jq -e --arg port "$CONF2_PORT" --arg version "$RANK_MATH_EXPECTED_VERSION" '
   .version == $version and
   (.setup.configured | tostring) == "1" and (.setup.registration_skip | tostring) == "1" and
@@ -460,7 +260,7 @@ rank_math_request '/rank-math-old'
   && [[ "$RANK_MATH_LOCATION" == "http://localhost:${CONF2_PORT}/rank-math-hub/?from=redirect"* ]] \
   || fail "Rank Math native redirect failed (status=$RANK_MATH_CODE location=${RANK_MATH_LOCATION:-<none>})"
 rm -f "$RANK_MATH_BODY" "$RANK_MATH_HEADERS"
-AFTER_TRAFFIC=$(observe_rank_math conf2)
+AFTER_TRAFFIC=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)
 [ "$(jq -r '.redirection.hits' <<<"$AFTER_TRAFFIC")" -gt "$HITS_BEFORE" ] \
   || fail 'Rank Math native redirect did not advance target-local traffic telemetry'
 wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rank-math-traffic >/dev/null
@@ -567,7 +367,7 @@ require_fixture_ids RANK_SCOPED_TARGET_POST
 [ "$(wp_conf2 post meta get "$RANK_SCOPED_TARGET_POST" rank_math_description)" = \
   'Scoped Rank Math description 東京 🚀 with exact recovery.' ] \
   || fail 'Rank Math scoped apply did not converge its one selected authored field'
-RANK_SCOPED_OBSERVED=$(observe_rank_math conf2)
+RANK_SCOPED_OBSERVED=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)
 jq -e '
   (.links | length) == 2 and
   (.post_counts.internal_link_count | tonumber) == 1 and
@@ -680,7 +480,7 @@ FAILURE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1
 require_wprism_answered 'Rank Math injected provider callback refusal' human "$FAILURE_OUT"
 [ "$FAILURE_RC" -ne 0 ] && grep -Fq "provider 'rank-math-state' capability 'rebuild_all_link_state' failed" <<<"$FAILURE_OUT" \
   || fail "Rank Math unreviewed callback did not refuse in its provider: $FAILURE_OUT"
-TARGET_POST=$(jq -r '.ids.post' <<<"$(observe_rank_math conf2)")
+TARGET_POST=$(jq -r '.ids.post' <<<"$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)")
 grep -Fq 'provider recovery proof' <<<"$(wp_conf2 post get "$TARGET_POST" --field=post_content)" \
   || fail 'Rank Math provider refusal lost post-commit authored state needed for retry'
 [ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FAIL_REV_BEFORE" ] \
@@ -704,9 +504,9 @@ pass 'unreviewed callback failure retains post-commit intent/retry authority and
 # derived link state or target credentials, moves until explicit authority.
 wp_conf1 post meta update "$SOURCE_POST" rank_math_title 'Repository competing Rank Math title 東京 🚀' >/dev/null
 commit_rank_math_source 'conformance: competing Rank Math metadata intent'
-TARGET_POST=$(jq -r '.ids.post' <<<"$(observe_rank_math conf2)")
+TARGET_POST=$(jq -r '.ids.post' <<<"$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)")
 wp_conf2 post meta update "$TARGET_POST" rank_math_title 'Target competing Rank Math title' >/dev/null
-CONFLICT_BEFORE=$(observe_rank_math conf2 | shasum -a 256 | awk '{print $1}')
+CONFLICT_BEFORE=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2 | shasum -a 256 | awk '{print $1}')
 capture_wprism_json_checked CONFLICT_PLAN 'Rank Math competing metadata plan' assert_wprism_json_required_environment \
   wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered 'Rank Math competing metadata plan' json "$CONFLICT_PLAN"
@@ -717,7 +517,7 @@ CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&
 require_wprism_answered 'Rank Math unforced competing metadata apply' human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi conflict <<<"$CONFLICT_OUT" \
   || fail "Rank Math unforced conflict did not refuse: $CONFLICT_OUT"
-[ "$(observe_rank_math conf2 | shasum -a 256 | awk '{print $1}')" = "$CONFLICT_BEFORE" ] \
+[ "$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2 | shasum -a 256 | awk '{print $1}')" = "$CONFLICT_BEFORE" ] \
   || fail 'Rank Math unforced conflict partially mutated authored, derived or target-owned state'
 capture_wprism_json_checked FORCED 'Rank Math forced metadata conflict' assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json
@@ -925,7 +725,7 @@ echo wp_json_encode(get_option("rank_math_notifications", null));
 require_observed_nonempty 'Rank Math native activation notification outcome' "$ACTIVATED_NOTIFICATION"
 jq -e 'type == "array" and length == 0' <<<"$ACTIVATED_NOTIFICATION" >/dev/null \
   || fail "Rank Math native activation did not advance its notification queue to empty: $ACTIVATED_NOTIFICATION"
-LIFECYCLE=$(observe_rank_math conf2)
+LIFECYCLE=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)
 jq -e '
   ([.schema[].present] | all) and (.links | length) == 2 and
   (.post_counts.internal_link_count | tonumber) == 1 and
@@ -982,7 +782,7 @@ for result in A B; do
   fi
 done
 rm -f "$CONCURRENT_A" "$CONCURRENT_B"
-TARGET_FINAL=$(observe_rank_math conf2)
+TARGET_FINAL=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)
 jq -e '
   .post.title == "Concurrent Rank Math intent 東京 🚀" and .post.processed == true and
   (.links | length) == 2 and .target_owned.instant_key == "target-indexnow-credential-must-survive" and
@@ -1109,7 +909,7 @@ capture_wprism_json_checked REINSTALL_APPLY 'Rank Math apply after exact reinsta
 require_wprism_answered 'Rank Math apply after exact reinstall' json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "Rank Math exact reinstall did not verify canonical state: $REINSTALL_APPLY"
-REINSTALLED=$(observe_rank_math conf2)
+REINSTALLED=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)
 jq -en --argjson before "$TARGET_FINAL" --argjson after "$REINSTALLED" '$after == $before' >/dev/null \
   || fail "Rank Math exact reinstall did not preserve the complete observed native state: $REINSTALLED"
 pass 'deactivate/retire, native uninstall residue, missing-code refusal and digest-bound reinstall preserve exact Rank Math behavior'

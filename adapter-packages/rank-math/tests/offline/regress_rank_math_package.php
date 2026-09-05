@@ -527,7 +527,7 @@ $nativeActivationNotification = strpos(
     $checkHarness,
     "require_observed_nonempty 'Rank Math native activation notification outcome'"
 );
-$concurrentFinal = strpos($checkHarness, 'TARGET_FINAL=$(observe_rank_math conf2)');
+$concurrentFinal = strpos($checkHarness, 'TARGET_FINAL=$(observe_rank_math conf2 "${CONF_REPO2:-siterepo/conf2}" wp_conf2)');
 $concurrentEmptyNotification = is_int($concurrentFinal)
     ? strpos($checkHarness, '.target_owned.notifications == []', $concurrentFinal)
     : false;

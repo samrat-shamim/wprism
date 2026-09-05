@@ -1,3 +1,5 @@
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/native-observer.sh"
+
 seed_rank_math_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
@@ -398,7 +400,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
 
   if [ "$RANK_MATH_VERSION" = 1.0.277 ]; then
     say 'in-place upgrade: seo-by-rank-math 1.0.277 -> 1.0.277.2 on populated source and target'
-    UPGRADE_TARGET_TRANSITION_BEFORE=$(observe_rank_math conf2)
+    UPGRADE_TARGET_TRANSITION_BEFORE=$(observe_rank_math conf2 "siterepo/${PAIR}2" wp2)
     require_observed_nonempty 'Rank Math pre-upgrade target transition baseline' "$UPGRADE_TARGET_TRANSITION_BEFORE"
     UPGRADE_ARTIFACT_1=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli1)
     UPGRADE_ARTIFACT_2=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli2)
@@ -490,8 +492,8 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     ' <<<"$UPGRADE_TARGET_MODULES" >/dev/null \
       || fail "Rank Math upgrade target modules are not registered and active: $UPGRADE_TARGET_MODULES"
     RANK_MATH_VERSION=1.0.277.2
-    UPGRADE_SOURCE_TRANSITION=$(observe_rank_math conf1)
-    UPGRADE_TARGET_TRANSITION=$(observe_rank_math conf2)
+    UPGRADE_SOURCE_TRANSITION=$(observe_rank_math conf1 "siterepo/${PAIR}1" wp1)
+    UPGRADE_TARGET_TRANSITION=$(observe_rank_math conf2 "siterepo/${PAIR}2" wp2)
     assert_rank_math_transition_content 'Rank Math 1.0.277 to 1.0.277.2 transition' \
       "$RANK_MATH_VERSION" "$UPGRADE_SOURCE_TRANSITION" "$UPGRADE_TARGET_TRANSITION_BEFORE" \
       "$UPGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON"
@@ -510,7 +512,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     pass 'Rank Math 1.0.277 -> 1.0.277.2 preserves native behavior, target identities, projections and byte identity'
 
     say 'in-range downgrade: seo-by-rank-math 1.0.277.2 -> 1.0.277.1 on populated source and target'
-    DOWNGRADE_TARGET_TRANSITION_BEFORE=$(observe_rank_math conf2)
+    DOWNGRADE_TARGET_TRANSITION_BEFORE=$(observe_rank_math conf2 "siterepo/${PAIR}2" wp2)
     require_observed_nonempty 'Rank Math pre-downgrade target transition baseline' "$DOWNGRADE_TARGET_TRANSITION_BEFORE"
     DOWNGRADE_ARTIFACT_1=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli1)
     DOWNGRADE_ARTIFACT_2=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli2)
@@ -583,8 +585,8 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
         --revision="$DOWNGRADE_REV" --json
     assert_wprism_apply_ready 'Rank Math version-matrix downgrade apply' "$RANK_MATH_BOUNDARY_APPLY_JSON"
     RANK_MATH_VERSION=1.0.277.1
-    DOWNGRADE_SOURCE_TRANSITION=$(observe_rank_math conf1)
-    DOWNGRADE_TARGET_TRANSITION=$(observe_rank_math conf2)
+    DOWNGRADE_SOURCE_TRANSITION=$(observe_rank_math conf1 "siterepo/${PAIR}1" wp1)
+    DOWNGRADE_TARGET_TRANSITION=$(observe_rank_math conf2 "siterepo/${PAIR}2" wp2)
     assert_rank_math_transition_content 'Rank Math 1.0.277.2 to 1.0.277.1 transition' \
       "$RANK_MATH_VERSION" "$DOWNGRADE_SOURCE_TRANSITION" "$DOWNGRADE_TARGET_TRANSITION_BEFORE" \
       "$DOWNGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON"

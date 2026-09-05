@@ -12,7 +12,7 @@ use WPrismTest\WpStore;
 $root = dirname(__DIR__, 4);
 $sourceRoot = $argv[1] ?? $root;
 $matrix = (string) file_get_contents($sourceRoot . '/adapter-packages/rank-math/tests/certify/version-matrix.sh');
-$check = (string) file_get_contents($sourceRoot . '/adapter-packages/rank-math/tests/conformance/check.sh');
+$check = (string) file_get_contents($sourceRoot . '/adapter-packages/rank-math/fixtures/native-observer.sh');
 
 $transitionStart = strpos($matrix, 'assert_rank_math_transition_content() {');
 $transitionEnd = $transitionStart === false ? false : strpos($matrix, 'rank_math_private_evidence() {', $transitionStart);
