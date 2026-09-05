@@ -215,13 +215,18 @@ $pruneWpdb = FakeWpdb::install()
         'id_kind' => 'thing',
         'local_id' => 7,
     ]])
+    ->setTableEngine('wp_wprism_map', 'InnoDB')
     ->seedTable('wp_options', [
         ['option_name' => 'plugin_9_settings'],
         ['option_name' => 'plugin_7_settings'],
     ])
+    ->setTableEngine('wp_options', 'InnoDB')
     ->seedTable('wp_things', [])
+    ->setTableEngine('wp_things', 'InnoDB')
     ->seedTable('wp_others', [])
+    ->setTableEngine('wp_others', 'InnoDB')
     ->seedTable('wp_joins', [])
+    ->setTableEngine('wp_joins', 'InnoDB')
     ->enableInformationSchema()
     ->acknowledgeNextQueryWithoutExecution('NOT EXISTS', 3);
 $pruner->prune_dead_map($rowTables, $canonical);
@@ -285,11 +290,14 @@ $lifecyclePruneWpdb = FakeWpdb::install()
         'id_kind' => 'thing',
         'local_id' => 7,
     ]])
+    ->setTableEngine('wp_wprism_map', 'InnoDB')
     ->seedTable('wp_options', [
         ['option_name' => 'plugin_9_settings'],
         ['option_name' => 'plugin_7_settings'],
     ])
+    ->setTableEngine('wp_options', 'InnoDB')
     ->seedTable('wp_things', [])
+    ->setTableEngine('wp_things', 'InnoDB')
     ->enableInformationSchema()
     ->acknowledgeNextQueryWithoutExecution('NOT EXISTS');
 $pruner->prune_option_name_ref_map(static fn(): array => $rowTables, $canonical);

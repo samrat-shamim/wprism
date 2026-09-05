@@ -361,6 +361,7 @@ $priorWpdb = $GLOBALS['wpdb'] ?? null;
 $producerDb = FakeWpdb::install();
 $producerDb
     ->seedTable('wp_wprism_kv', [])
+    ->setTableEngine('wp_wprism_kv', 'InnoDB')
     ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
     ->setUniqueKey('wp_wprism_kv', ['k'])
     ->enableInformationSchema();

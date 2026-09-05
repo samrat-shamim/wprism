@@ -37,6 +37,7 @@ function db_authority_fixture(): FakeWpdb {
     Db::forget_transaction_tracking();
     return FakeWpdb::install()
         ->seedTable('wp_wprism_kv', [])
+        ->setTableEngine('wp_wprism_kv', 'InnoDB')
         ->setUniqueKey('wp_wprism_kv', ['k'])
         ->enableInformationSchema();
 }
@@ -545,6 +546,7 @@ $antiJoinCondition = "k = 'stale' AND NOT EXISTS ("
     . 'WHERE src.`ID` = `wp_wprism_kv`.`v`)';
 $wpdb = db_authority_fixture()
     ->seedTable('wp_posts', [['ID' => 1]])
+    ->setTableEngine('wp_posts', 'InnoDB')
     ->acknowledgeNextQueryWithoutExecution('NOT EXISTS');
 $wpdb->resetLog();
 $antiJoinResult = Db::mutation(
@@ -564,7 +566,9 @@ wprism_check(
     'a declared correlated NOT EXISTS source crosses the profiled single-target DELETE boundary'
 );
 
-$wpdb = db_authority_fixture()->seedTable('wp_posts', [['ID' => 1]]);
+$wpdb = db_authority_fixture()
+    ->seedTable('wp_posts', [['ID' => 1]])
+    ->setTableEngine('wp_posts', 'InnoDB');
 $undeclaredAntiJoin = db_authority_failure(static fn() => Db::mutation(
     'DELETE FROM `wp_wprism_kv`',
     $antiJoinCondition,
@@ -578,7 +582,9 @@ wprism_check(
     'an undeclared anti-join source is refused before DML and its standalone transaction is settled'
 );
 
-$wpdb = db_authority_fixture()->seedTable('wp_posts', [['ID' => 1]]);
+$wpdb = db_authority_fixture()
+    ->seedTable('wp_posts', [['ID' => 1]])
+    ->setTableEngine('wp_posts', 'InnoDB');
 $multiTargetDelete = db_authority_failure(static fn() => Db::mutation(
     'DELETE target FROM `wp_wprism_kv` target '
         . 'JOIN `wp_posts` src ON src.`ID` = target.`v`',
@@ -894,7 +900,9 @@ foreach (['after_false', 'after_throw'] as $outcome) {
 // Error 1213 has already rolled back the complete InnoDB transaction when
 // wpdb reports it. Pin the snapshot, savepoint and lock effects together so
 // cleanup can prove inactivity without risking a second terminal statement.
-$wpdb = db_authority_fixture()->seedTable('wp_lock_probe', [['id' => 1]]);
+$wpdb = db_authority_fixture()
+    ->seedTable('wp_lock_probe', [['id' => 1]])
+    ->setTableEngine('wp_lock_probe', 'InnoDB');
 $contender = (new FakeWpdb())->setConnectionId(2)->shareDatabaseStateWith($wpdb);
 Db::start(
     'deadlock-abort start',
