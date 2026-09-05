@@ -68,14 +68,36 @@ promotion lease silently stops being a CAS.
 1. The upsert still **updates on conflict** (not just inserts): insert a row,
    re-insert the same key with a different value, `SELECT` it back and confirm
    the new value won.
-2. `SHOW WARNINGS` **immediately after each** such statement — captured
-   verbatim into `sandbox/tmp/`. A deprecation warning is a finding to record
-   in the widening commit's rationale, not a failure.
-3. `$wpdb->last_error` is empty after each (the agent's own error surface;
-   `Db::query()` is what would refuse).
+2. Retain the public command receipts and independently read back the owned
+   lease row after acquire, renewal and release. A native heartbeat first
+   changes the lease phase, so a renewal that merely leaves identical bytes
+   untouched cannot pass the conflict-update assertion, even within one second.
+3. The product command exits successfully with its expected envelope and no
+   PHP runtime diagnostic; its database failure boundary remains unchanged.
 4. Run the real promotion acquire→renew→release cycle, not a synthetic
    upsert, so `PromotionLease.php:385`'s `IF(...)`-wrapped `VALUES(v)` is
    exercised in its actual CAS position.
+
+### Measured diagnostic attribution correction (2026-09-05)
+
+The old matrix ran `SHOW WARNINGS` through a fresh root SQL client after the
+promotion command's WordPress process had exited. That cannot observe the
+promotion statement: [MySQL documents the diagnostic area as current-session
+state](https://dev.mysql.com/doc/refman/8.4/en/show-warnings.html).
+
+Read-only inspection of MySQL 8.4.11's current-session statement history showed
+`select @@version_comment limit 1`, then `select $$` with error 1064 before the
+requested command. This is the client's deliberate dollar-quote feature probe:
+[`server_supports_dollar_quote()` and its startup call](https://github.com/mysql/mysql-server/blob/mysql-8.4.11/client/mysql.cc#L1253)
+(`client/mysql.cc:1253-1256,1494`). It explains the recorded syntax error near
+`$$`; it is not a promotion-query warning or a reason to alter engine SQL.
+
+The matrix now records public lease receipts with their observed row effects
+in `promotion-lease-<engine>.json`. It makes **no per-statement SQL warning
+claim**. Any future warning/deprecation measurement must observe the original
+connection immediately after the original statement, without replacing stock
+wpdb or bypassing the engine's query-isolation boundary. Public PHP diagnostics
+remain failures, and the full host doctor capture is retained separately.
 
 ### Why no code change here
 
@@ -351,7 +373,7 @@ question is reachable — the WordPress containers simply cannot connect.
 
 | # | risk | code change now | live probe must produce |
 | --- | --- | --- | --- |
-| 1 | `VALUES(col)` × 6 sites | none | conflict-update still works + `SHOW WARNINGS` after each |
+| 1 | `VALUES(col)` × 6 sites | none | real lease conflict-update receipts match changed row readbacks; no statement-warning claim |
 | 2 | `JSON_UNQUOTE(JSON_EXTRACT(...))` over `LONGTEXT` × 6 statement groups | none | normal cycle green; planted non-JSON row's envelope, both engines |
 | 3 | `GET_LOCK` names 64 / 60 / 61 bytes | prefix-derived process-fence budget and typed unavailable result | actual product name round-trips; multi-lock holds; 65-char answer recorded |
 | 4 | `get_charset_collate()` → `VARCHAR(191)` keys | none | `SHOW CREATE TABLE` diff, both engines; identical recapture |

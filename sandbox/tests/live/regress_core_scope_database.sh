@@ -129,14 +129,11 @@ prepare_repo() {
 }
 
 wprism_json() { # <wp-runner> <label> <wprism arguments...>
-  local runner="$1" label="$2" output payload
+  local runner="$1" label="$2" payload
   shift 2
-  if ! output=$("$runner" wprism "$@" --format=json 2>&1); then
-    fail "$label failed: $output"
-  fi
-  payload=$(awk 'NF { line=$0 } END { print line }' <<<"$output")
+  capture_wprism_json_success payload "$label" "$runner" wprism "$@" --format=json
   jq -e 'type == "object"' <<<"$payload" >/dev/null \
-    || fail "$label did not return a JSON object: $output"
+    || fail "$label did not return a JSON object: $payload"
   printf '%s\n' "$payload"
 }
 
@@ -307,26 +304,76 @@ echo wp_json_encode([
   ARTIFACT_HASH=$(php -r 'echo hash("sha256", $argv[1]);' "core-scope-database-$cell_env")
   ACQUIRE=$(wprism_json wp1 "$cell_engine lease acquire" promotion-begin \
     --repo=/siterepo --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
-  jq -e --arg hash "$ARTIFACT_HASH" '.artifact_hash == $hash and (.expires_at | type) == "number"' \
+  jq -e --arg hash "$ARTIFACT_HASH" '
+    .owner == "core-scope-database" and .artifact_hash == $hash and .phase == "checkpoint" and
+    (.acquired_at | type) == "number" and (.expires_at | type) == "number" and
+    .expires_at > .acquired_at and .recovered == false
+  ' \
     <<<"$ACQUIRE" >/dev/null || fail "$cell_engine lease acquire returned an unexpected summary: $ACQUIRE"
+  capture_wprism_json_success ACQUIRED_ROW "$cell_engine acquired lease row" wp1 eval \
+    'echo wp_json_encode(["lease" => \WPrism\PromotionLease::current()]);'
+  jq -en --argjson receipt "$ACQUIRE" --argjson observed "$ACQUIRED_ROW" \
+    '$observed.lease == ($receipt | del(.recovered, .session_id))' >/dev/null \
+    || fail "$cell_engine acquire receipt did not match the persisted lease row: $ACQUIRED_ROW"
+
   # The second begin lands on the ON DUPLICATE KEY UPDATE branch — the upsert
-  # actually UPDATING on conflict, which is audit §1's first required
-  # assertion, reached through the CAS rather than beside it.
+  # must actually replace a different value, even when both calls land in the
+  # same second. A real heartbeat changes the phase; the public begin must
+  # replace that observed sentinel with checkpoint through its CAS.
+  capture_wprism_json_success BEFORE_RENEW "$cell_engine lease renewal premise" wp1 eval '
+$lease = \WPrism\PromotionLease::current();
+if (!is_array($lease) || ($lease["owner"] ?? null) !== "core-scope-database") {
+    throw new RuntimeException("database matrix has no exact owned lease to heartbeat");
+}
+\WPrism\PromotionLease::heartbeat($lease["owner"], $lease["artifact_hash"], "database-matrix-renewal-sentinel");
+echo wp_json_encode(["lease" => \WPrism\PromotionLease::current()]);
+'
+  jq -en --argjson before "$ACQUIRED_ROW" --argjson after "$BEFORE_RENEW" '
+    $after.lease.phase == "database-matrix-renewal-sentinel" and
+    $after.lease.owner == $before.lease.owner and
+    $after.lease.artifact_hash == $before.lease.artifact_hash and
+    $after.lease.expires_at >= $before.lease.expires_at
+  ' >/dev/null || fail "$cell_engine heartbeat did not establish a changed, still-owned lease: $BEFORE_RENEW"
   RENEW=$(wprism_json wp1 "$cell_engine lease renew" promotion-begin \
     --repo=/siterepo --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
-  jq -e --arg hash "$ARTIFACT_HASH" '.artifact_hash == $hash' <<<"$RENEW" >/dev/null \
+  jq -e --arg hash "$ARTIFACT_HASH" '
+    .owner == "core-scope-database" and .artifact_hash == $hash and
+    .phase == "checkpoint" and .recovered == false
+  ' <<<"$RENEW" >/dev/null \
     || fail "$cell_engine lease renew did not update on conflict: $RENEW"
   [ "$(jq -er '.expires_at' <<<"$RENEW")" -ge "$(jq -er '.expires_at' <<<"$ACQUIRE")" ] \
     || fail "$cell_engine lease renew moved the expiry backwards: $ACQUIRE -> $RENEW"
-  # Audit §1 assertion 2: the warnings the engine raised for that statement,
-  # captured verbatim. A VALUES(col) deprecation notice is a finding to record
-  # in the widening commit's rationale, not a failure.
-  sql "$cell_container" "$cell_client" "SHOW WARNINGS" > "$ARTIFACTS/warnings-$cell_env.txt" 2>&1 || true
+  capture_wprism_json_success RENEWED_ROW "$cell_engine renewed lease row" wp1 eval \
+    'echo wp_json_encode(["lease" => \WPrism\PromotionLease::current()]);'
+  jq -en --argjson receipt "$RENEW" --argjson before "$BEFORE_RENEW" --argjson observed "$RENEWED_ROW" '
+    $observed.lease == ($receipt | del(.recovered, .session_id)) and
+    $observed.lease != $before.lease
+  ' >/dev/null || fail "$cell_engine renewal receipt did not prove the changed persisted row: $RENEWED_ROW"
+
+  # SHOW WARNINGS belongs to the statement's own connection. A fresh mysql
+  # 8.4.11 client first executes `select $$` to detect dollar quoting
+  # (client/mysql.cc:1253-1256,1494), so the former root-client read attributed
+  # its 1064 feature-probe error to unrelated promotion SQL. Record product
+  # receipts plus row observations instead; no statement-warning claim is made.
   RELEASE=$(wprism_json wp1 "$cell_engine lease release" promotion-abort \
     --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
-  jq -e '.released == true' <<<"$RELEASE" >/dev/null \
+  jq -e --arg hash "$ARTIFACT_HASH" '
+    .released == true and .owner == "core-scope-database" and .artifact_hash == $hash
+  ' <<<"$RELEASE" >/dev/null \
     || fail "$cell_engine lease release did not release: $RELEASE"
-  pass "$cell_engine: the real lease acquires, updates on conflict, and releases (engine warnings in $ARTIFACTS/warnings-$cell_env.txt)"
+  capture_wprism_json_success RELEASED_ROW "$cell_engine released lease row" wp1 eval \
+    'echo wp_json_encode(["lease" => \WPrism\PromotionLease::current()]);'
+  jq -e '. == {lease:null}' <<<"$RELEASED_ROW" >/dev/null \
+    || fail "$cell_engine release receipt left a persisted lease row: $RELEASED_ROW"
+  (umask 077; jq -n --arg engine "$cell_engine" \
+    --argjson acquire "$ACQUIRE" --argjson acquired "$ACQUIRED_ROW" \
+    --argjson before "$BEFORE_RENEW" --argjson renew "$RENEW" --argjson renewed "$RENEWED_ROW" \
+    --argjson release "$RELEASE" --argjson released "$RELEASED_ROW" '
+      {engine:$engine,acquire:{receipt:$acquire,observed:$acquired.lease},
+       before_renew:$before.lease,renew:{receipt:$renew,observed:$renewed.lease},
+       release:{receipt:$release,observed:$released.lease}}
+    ' > "$ARTIFACTS/promotion-lease-$cell_env.json")
+  pass "$cell_engine: public lease acquire/update/release receipts match independently observed rows ($ARTIFACTS/promotion-lease-$cell_env.json)"
 
   # Audit §2's planted-garbage case, run IDENTICALLY on both engines so the two
   # refusal envelopes can be diffed byte for byte. MariaDB returns NULL from
@@ -338,13 +385,13 @@ echo wp_json_encode([
     --repo=/siterepo --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH" >/dev/null
   sql "$cell_container" "$cell_client" \
     "UPDATE wp_${PAIR}1.wp_wprism_kv SET v='not-json' WHERE k='promotion_lock'" >/dev/null
-  set +e
-  wp1 wprism promotion-begin --repo=/siterepo --promotion-owner=core-scope-database-other \
-    --artifact-hash="$ARTIFACT_HASH" --format=json > "$ARTIFACTS/planted-$cell_env.json" 2>&1
-  PLANTED_RC=$?
-  set -e
-  [ "$PLANTED_RC" -ne 0 ] \
-    || fail "$cell_engine: a second owner ACQUIRED the lease over an unparseable row — the CAS did not fail closed (see $ARTIFACTS/planted-$cell_env.json)"
+  capture_wprism_json_refusal PLANTED "$cell_engine planted non-JSON lease" \
+    wp1 wprism promotion-begin --repo=/siterepo --promotion-owner=core-scope-database-other \
+    --artifact-hash="$ARTIFACT_HASH" --format=json
+  (umask 077; printf '%s\n' "$PLANTED" > "$ARTIFACTS/planted-$cell_env.json")
+  jq -e '.format == "wprism-command-refusal/v1" and .ok == false and
+    .command == "promotion-begin" and .reason_code == "promotion_begin_failed"' <<<"$PLANTED" >/dev/null \
+    || fail "$cell_engine: the planted lease was not answered by the expected product refusal: $PLANTED"
   pass "$cell_engine: a planted non-JSON lease row fails closed; the envelope is recorded in $ARTIFACTS/planted-$cell_env.json"
   sql "$cell_container" "$cell_client" \
     "DELETE FROM wp_${PAIR}1.wp_wprism_kv WHERE k='promotion_lock'" >/dev/null
@@ -368,7 +415,8 @@ echo wp_json_encode([
   # The assertion that actually matters (audit §4's third): a real capture ->
   # apply -> recapture on this engine, producing byte-identical managed state.
   say "$cell_engine: real round trip, verified zero-write repeat, and doctor"
-  FACTS=$(wp1 eval 'echo wp_json_encode(\WPrism\PlatformCompatibility::current_facts());' | awk 'NF { line=$0 } END { print line }')
+  capture_wprism_json_success FACTS "$cell_engine platform facts" wp1 eval \
+    'echo wp_json_encode(\WPrism\PlatformCompatibility::current_facts());'
   jq -e --arg engine "$cell_engine" '
     .site_mode == "single-site" and .database.engine == $engine and
     .filesystem == {
@@ -392,13 +440,12 @@ echo wp_json_encode([
   jq -e '.counts.post == 1 and .notes == [] and .warnings == []' <<<"$CAPTURE" >/dev/null \
     || fail "$cell_engine source capture reported unexpected coverage: $CAPTURE"
   cp -R "$R1/state" "$R2/state"
-  FIRST=$(wprism_json wp2 "$cell_engine initial apply" apply --repo=/siterepo \
-    --default-author=admin --adopt-by-slug=terms)
-  assert_wprism_apply_ready "$cell_engine initial apply" "$FIRST"
+  capture_wprism_json_checked FIRST "$cell_engine initial apply" assert_wprism_apply_ready \
+    wp2 wprism apply --repo=/siterepo --default-author=admin --adopt-by-slug=terms --format=json
   jq -e '.plan.env_missing == 0 and .promotion_lock.released == true' \
     <<<"$FIRST" >/dev/null || fail "$cell_engine initial apply did not verify: $FIRST"
-  SECOND=$(wprism_json wp2 "$cell_engine idempotent apply" apply --repo=/siterepo \
-    --default-author=admin --adopt-by-slug=terms)
+  capture_wprism_json_checked SECOND "$cell_engine idempotent apply" assert_wprism_apply_ready \
+    wp2 wprism apply --repo=/siterepo --default-author=admin --adopt-by-slug=terms --format=json
   jq -e '.applied == 0 and .plan.env_missing == 0 and .warnings == [] and .canary == "clean" and .verification.result == "pass"' \
     <<<"$SECOND" >/dev/null || fail "$cell_engine repeat apply was not a verified zero-write result: $SECOND"
   wprism_json wp2 "$cell_engine target recapture" capture --repo=/siterepo --out=/siterepo/state-check >/dev/null
@@ -407,8 +454,11 @@ echo wp_json_encode([
       || fail "$cell_engine recapture changed managed state bytes in $state_file"
   done < <(cd "$R2/state" && find . -type f -print | LC_ALL=C sort)
 
-  DOCTOR_OUT=$(php ../cli/wprism doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1) \
-    || fail "$cell_engine host doctor refused: $DOCTOR_OUT"
+  DOCTOR_RC=0
+  DOCTOR_OUT=$(php ../cli/wprism doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1) || DOCTOR_RC=$?
+  (umask 077; printf '%s\n' "$DOCTOR_OUT" > "$ARTIFACTS/doctor-$cell_env.txt")
+  [ "$DOCTOR_RC" -eq 0 ] || fail "$cell_engine host doctor refused with exit $DOCTOR_RC: $DOCTOR_OUT"
+  assert_no_php_runtime_diagnostics "$cell_engine host doctor" "$DOCTOR_OUT"
   grep -q "\[PASS\] database ($cell_env ${DB_VERSION//./\\.})" <<<"$DOCTOR_OUT" \
     || fail "$cell_engine host doctor did not pass the database row: $DOCTOR_OUT"
   grep -q "\[PASS\] transactional database mutation ($cell_env)" <<<"$DOCTOR_OUT" \

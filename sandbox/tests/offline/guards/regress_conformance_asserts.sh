@@ -850,4 +850,200 @@ done
   || fail 'the intentional missing-binding product regression was silently provisioned'
 pass 'shared conformance, version, boundary, and database positive fixtures require explicit core intent without altering missing-binding negatives'
 
+# The engine matrix used a private last-line JSON wrapper after the shared
+# capture owner was hardened. Execute its actual apply and doctor blocks:
+# otherwise a clean serialized answer can hide a PHP warning in either stream.
+DATABASE_MATRIX_DRIVER=tests/live/regress_core_scope_database.sh
+DATABASE_MATRIX_JSON=$(sed -n '/^wprism_json() {/,/^}/p' "$DATABASE_MATRIX_DRIVER")
+DATABASE_MATRIX_FIRST=$(sed -n '/^  capture_wprism_json_checked FIRST /,/^  capture_wprism_json_checked SECOND /p' "$DATABASE_MATRIX_DRIVER" | sed '$d')
+DATABASE_MATRIX_SECOND=$(sed -n '/^  capture_wprism_json_checked SECOND /,/^  wprism_json wp2 .*target recapture/p' "$DATABASE_MATRIX_DRIVER" | sed '$d')
+DATABASE_MATRIX_DOCTOR=$(awk '
+  /^  DOCTOR_(RC=0|OUT=)/ { capture=1 }
+  capture && /^  pass .*real round trip/ { exit }
+  capture { print }
+' "$DATABASE_MATRIX_DRIVER")
+matrix_command_probe() { # <first|second|doctor> <mutation>
+  (
+    fail() { printf '%s\n' "$*" >&2; exit 1; }
+    . "$FRAGMENT"
+    eval "$DATABASE_MATRIX_JSON"
+    local phase="$1" mutation="$2" cell_engine=MySQL cell_env=mysql DB_VERSION=8.4.11
+    local PAIR=matrixfixture ENVS_FILE="$MATRIX_PROBE/matrix-envs.json"
+    local ARTIFACTS="$MATRIX_PROBE/matrix-$phase-$mutation"
+    mkdir -p "$ARTIFACTS"
+    matrix_diagnostic() {
+      case "$mutation" in
+        php-stderr) printf 'PHP Warning: matrix diagnostic sentinel in /fixture.php on line 12\n' >&2 ;;
+        php-stdout) printf 'PHP Notice: matrix diagnostic sentinel in /fixture.php on line 12\n' ;;
+        startup) printf 'Warning: PHP Startup: matrix diagnostic sentinel in Unknown on line 0\n' >&2 ;;
+        required-stderr) printf 'Warning: env_missing: matrix diagnostic sentinel is required\n' >&2 ;;
+      esac
+    }
+    wp2() {
+      [ "$1" = wprism ] && [ "$2" = apply ] || return 81
+      matrix_diagnostic
+      if [ "$mutation" = refusal ]; then
+        printf '%s\n' '{"format":"wprism-command-refusal/v1","ok":false,"reason_code":"matrix_refusal"}'
+        return 7
+      fi
+      local answer='{"applied":0,"plan":{"env_missing":0},"promotion_lock":{"released":true},"warnings":[],"canary":"clean","verification":{"result":"pass"}}'
+      if [ "$mutation" = verification ]; then
+        answer=$(jq -c '.verification.result="fail"' <<<"$answer")
+      fi
+      if [ "$mutation" = required-json ]; then
+        answer=$(jq -c '.warnings=["env_missing: matrix diagnostic sentinel is required"]' <<<"$answer")
+      fi
+      printf '%s\n' "$answer"
+    }
+    php() {
+      [ "$1" = ../cli/wprism ] && [ "$2" = doctor ] || return 82
+      matrix_diagnostic
+      printf '[PASS] database (mysql 8.4.11)\n[PASS] transactional database mutation (mysql)\n'
+      [ "$mutation" != refusal ] || return 7
+    }
+    case "$phase" in
+      first) eval "$DATABASE_MATRIX_FIRST" ;;
+      second) eval "$DATABASE_MATRIX_SECOND" ;;
+      doctor) eval "$DATABASE_MATRIX_DOCTOR" ;;
+      *) return 83 ;;
+    esac
+    printf 'MATRIX_READY\n'
+  ) 2>&1
+}
+for matrix_phase in first second doctor; do
+  MATRIX_READY_OUT=$(matrix_command_probe "$matrix_phase" ready)
+  [[ "$MATRIX_READY_OUT" == *MATRIX_READY* ]] \
+    || fail "the actual database $matrix_phase block rejected clean evidence: $MATRIX_READY_OUT"
+  for matrix_mutation in php-stderr php-stdout startup refusal; do
+    MATRIX_COMMAND_RC=0
+    MATRIX_COMMAND_OUT=$(matrix_command_probe "$matrix_phase" "$matrix_mutation") || MATRIX_COMMAND_RC=$?
+    [ "$MATRIX_COMMAND_RC" -ne 0 ] && [[ "$MATRIX_COMMAND_OUT" != *MATRIX_READY* ]] \
+      || fail "the actual database $matrix_phase block accepted $matrix_mutation: $MATRIX_COMMAND_OUT"
+    if [ "$matrix_mutation" != refusal ]; then
+      [[ "$MATRIX_COMMAND_OUT" == *'emitted a PHP runtime diagnostic'* ]] \
+        || fail "the actual database $matrix_phase block lost its diagnostic classification"
+      if [ "$matrix_phase" = doctor ]; then
+        grep -Fq 'matrix diagnostic sentinel' "$MATRIX_PROBE/matrix-doctor-$matrix_mutation/doctor-mysql.txt" \
+          || fail 'the database doctor gate did not retain its complete diagnostic stream'
+      else
+        [[ "$MATRIX_COMMAND_OUT" == *'matrix diagnostic sentinel'* ]] \
+          || fail 'the database JSON wrapper discarded the original diagnostic bytes'
+      fi
+    fi
+  done
+done
+for matrix_phase in first second; do
+  for matrix_mutation in verification required-stderr required-json; do
+    MATRIX_COMMAND_RC=0
+    MATRIX_COMMAND_OUT=$(matrix_command_probe "$matrix_phase" "$matrix_mutation") || MATRIX_COMMAND_RC=$?
+    [ "$MATRIX_COMMAND_RC" -ne 0 ] && [[ "$MATRIX_COMMAND_OUT" != *MATRIX_READY* ]] \
+      || fail "the actual database $matrix_phase block accepted $matrix_mutation"
+  done
+done
+pass 'the actual database apply/repeat/doctor blocks reject native diagnostics, full-stream required bindings, and failed transport before publishing readiness'
+
+DATABASE_MATRIX_LEASE=$(awk '
+  /^  ARTIFACT_HASH=/ { capture=1 }
+  capture && /^  pass .*lease/ { exit }
+  capture { print }
+' "$DATABASE_MATRIX_DRIVER")
+matrix_lease_probe() { # <mutation>
+  (
+    fail() { printf '%s\n' "$*" >&2; exit 1; }
+    . "$FRAGMENT"
+    eval "$DATABASE_MATRIX_JSON"
+    local mutation="$1" cell_engine=MySQL cell_env=mysql
+    local ARTIFACTS="$MATRIX_PROBE/lease-$mutation" ARTIFACT_HASH
+    mkdir -p "$ARTIFACTS"
+    wp1() {
+      local row receipt
+      if [ "$1" = eval ]; then
+        if [ "$mutation" = readback-diagnostic ]; then
+          printf 'PHP Warning: lease observation diagnostic in /fixture.php on line 12\n' >&2
+        fi
+        row=null
+        [ ! -f "$ARTIFACTS/fixture-row.json" ] || row=$(cat "$ARTIFACTS/fixture-row.json")
+        if [[ "$2" == *'::heartbeat('* ]] && [ "$mutation" != heartbeat-no-write ]; then
+          row=$(jq -c '.phase="database-matrix-renewal-sentinel"' <<<"$row")
+          printf '%s\n' "$row" >"$ARTIFACTS/fixture-row.json"
+        fi
+        jq -nc --argjson row "$row" '{lease:$row}'
+        return
+      fi
+      [ "$1" = wprism ] || return 84
+      case "$2" in
+        promotion-begin)
+          row=$(jq -nc --arg hash "$ARTIFACT_HASH" \
+            '{owner:"core-scope-database",artifact_hash:$hash,phase:"checkpoint",acquired_at:100,expires_at:400}')
+          if [ -f "$ARTIFACTS/fixture-row.json" ]; then
+            [ "$mutation" = renew-no-write ] || printf '%s\n' "$row" >"$ARTIFACTS/fixture-row.json"
+          else
+            [ "$mutation" = acquire-no-write ] || printf '%s\n' "$row" >"$ARTIFACTS/fixture-row.json"
+          fi
+          receipt=$(jq -c '. + {recovered:false,session_id:"ps-00000000000000000000000000000001"}' <<<"$row")
+          printf '%s\n' "$receipt"
+          ;;
+        promotion-abort)
+          if [ "$mutation" = release-refusal ]; then
+            printf '%s\n' '{"format":"wprism-command-refusal/v1","ok":false,"reason_code":"fixture_release"}'
+            return 7
+          fi
+          [ "$mutation" = release-no-write ] || rm -f "$ARTIFACTS/fixture-row.json"
+          jq -nc --arg hash "$ARTIFACT_HASH" '{owner:"core-scope-database",artifact_hash:$hash,released:true}'
+          ;;
+        *) return 85 ;;
+      esac
+    }
+    eval "$DATABASE_MATRIX_LEASE"
+    jq -e '.acquire.observed.phase == "checkpoint" and
+      .before_renew.phase == "database-matrix-renewal-sentinel" and
+      .renew.observed.phase == "checkpoint" and .release.observed == null' \
+      "$ARTIFACTS/promotion-lease-mysql.json" >/dev/null
+    printf 'LEASE_READY\n'
+  ) 2>&1
+}
+[ "$(matrix_lease_probe ready)" = LEASE_READY ] \
+  || fail 'the actual matrix lease probe rejected a matching acquire/change/renew/release cycle'
+for lease_mutation in acquire-no-write heartbeat-no-write renew-no-write release-no-write release-refusal readback-diagnostic; do
+  MATRIX_LEASE_RC=0
+  MATRIX_LEASE_OUT=$(matrix_lease_probe "$lease_mutation") || MATRIX_LEASE_RC=$?
+  [ "$MATRIX_LEASE_RC" -ne 0 ] && [[ "$MATRIX_LEASE_OUT" != *LEASE_READY* ]] \
+    || fail "the actual matrix lease probe accepted $lease_mutation: $MATRIX_LEASE_OUT"
+done
+! grep -Eq '^[[:space:]]*sql .*"SHOW WARNINGS"|engine warnings in' "$DATABASE_MATRIX_DRIVER" \
+  || fail 'the database matrix still attributes a fresh client session diagnostic to a prior product statement'
+pass 'the actual matrix lease cycle proves changed persisted state and rejects receipts without their row effects; it makes no cross-session warning claim'
+
+DATABASE_MATRIX_PLANTED=$(sed -n '/^  capture_wprism_json_refusal PLANTED/,/^  pass .*planted non-JSON/p' "$DATABASE_MATRIX_DRIVER" | sed '$d')
+matrix_planted_probe() { # <refusal|zero-exit|wrong-envelope|dead>
+  (
+    fail() { printf '%s\n' "$*" >&2; exit 1; }
+    . "$FRAGMENT"
+    local mutation="$1" cell_engine=MySQL cell_env=mysql ARTIFACT_HASH=fixture
+    local ARTIFACTS="$MATRIX_PROBE/planted-$mutation"
+    mkdir -p "$ARTIFACTS"
+    wp1() {
+      printf 'compose transport prelude\n' >&2
+      case "$mutation" in
+        dead) return 7 ;;
+        wrong-envelope) printf '{"released":true}\n'; return 7 ;;
+        *) printf '%s\n' '{"format":"wprism-command-refusal/v1","ok":false,"command":"promotion-begin","reason_code":"promotion_begin_failed"}' ;;
+      esac
+      [ "$mutation" = zero-exit ] || return 7
+    }
+    eval "$DATABASE_MATRIX_PLANTED"
+    jq -e '.reason_code == "promotion_begin_failed"' "$ARTIFACTS/planted-mysql.json" >/dev/null
+    printf 'REFUSAL_READY\n'
+  ) 2>&1
+}
+[ "$(matrix_planted_probe refusal)" = $'compose transport prelude\nREFUSAL_READY' ] \
+  || fail 'the actual planted-row block rejected its nonzero product refusal or discarded transport evidence'
+for planted_mutation in zero-exit wrong-envelope dead; do
+  PLANTED_PROBE_RC=0
+  PLANTED_PROBE_OUT=$(matrix_planted_probe "$planted_mutation") || PLANTED_PROBE_RC=$?
+  [ "$PLANTED_PROBE_RC" -ne 0 ] && [[ "$PLANTED_PROBE_OUT" != *REFUSAL_READY* ]] \
+    || fail "the actual planted-row block accepted $planted_mutation: $PLANTED_PROBE_OUT"
+done
+pass 'the actual planted-row block requires a nonzero product refusal and retains the complete transport prefix separately from its JSON'
+
 printf '\033[1;32m✔ REGRESS_CONFORMANCE_ASSERTS PASSED\033[0m\n'
