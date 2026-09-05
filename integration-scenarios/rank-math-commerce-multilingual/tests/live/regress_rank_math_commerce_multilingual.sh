@@ -13,6 +13,22 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 . conformance/asserts.sh
 
+assert_rmcombo_warning_free_capture() { # <what> <complete JSON capture stream>
+  local last
+  assert_wprism_json_required_environment "$1" "$2"
+  ! grep -Eq '(^|[[:space:]])Warning:' <<<"$2" \
+    || fail "$1 emitted a warning; the positive capture evidence is not clean"
+  last=$(awk 'NF { line=$0 } END { print line }' <<<"$2")
+  jq -e '.warnings == []' <<<"$last" >/dev/null \
+    || fail "$1 returned a nonempty or malformed warning inventory"
+}
+
+assert_rmcombo_default_apply_ready() { # <what> <complete JSON apply stream>
+  assert_wprism_apply_ready "$1" "$2"
+  ! grep -Fq 'option default_product_cat' <<<"$2" \
+    || fail "$1 did not settle the portable Woo default without an option warning"
+}
+
 for command in docker git jq mktemp php; do
   command -v "$command" >/dev/null 2>&1 || fail "$command required"
 done
@@ -190,6 +206,194 @@ active_plugin_order() { # <wp1|wp2>
   local side="$1"
   "$side" option get active_plugins --format=json \
     | jq -c 'map(split("/")[0])'
+}
+
+establish_woocommerce_default_category() { # <wp1|wp2> <source|target>
+  local side="$1" role="$2"
+  "$side" eval '
+global $wpdb;
+$role = (string) getenv("WPRISM_RMCOMBO_ROLE");
+if (!in_array($role, ["source", "target"], true)) {
+    throw new RuntimeException("unknown Woo default-category fixture role");
+}
+$positiveId = static function ($value, string $where): int {
+    if (is_int($value) && $value > 0) return $value;
+    if (is_string($value) && preg_match("/^[1-9][0-9]*$/D", $value) === 1) {
+        $id = (int) $value;
+        if ($id > 0 && (string) $id === $value) return $id;
+    }
+    throw new RuntimeException("$where is not an exact positive integer");
+};
+$installerDefault = $positiveId(get_option("default_product_cat", null), "Woo installer default");
+$name = $role === "source"
+    ? "Portable authored default category 東京"
+    : "Target stale matching default category";
+$created = wp_insert_term($name, "product_cat", ["slug"=>"rmcombo-default-product-category"]);
+if (is_wp_error($created)) throw new RuntimeException($created->get_error_message());
+$termId = $positiveId($created["term_id"] ?? null, "created default term id");
+$termTaxonomyId = $positiveId($created["term_taxonomy_id"] ?? null, "created default term-taxonomy id");
+$wpdb->last_error = "";
+$physical = $wpdb->get_row($wpdb->prepare(
+    "SELECT t.term_id,tt.term_taxonomy_id,tt.term_id AS taxonomy_term_id,tt.taxonomy " .
+    "FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id " .
+    "WHERE t.term_id=%d AND tt.term_taxonomy_id=%d",
+    $termId,
+    $termTaxonomyId
+), ARRAY_A);
+if ($wpdb->last_error !== "" || !is_array($physical)
+    || array_keys($physical) !== ["term_id", "term_taxonomy_id", "taxonomy_term_id", "taxonomy"]
+    || (int) $physical["term_id"] !== $termId
+    || (int) $physical["term_taxonomy_id"] !== $termTaxonomyId
+    || (int) $physical["taxonomy_term_id"] !== $termId
+    || $physical["taxonomy"] !== "product_cat"
+    || $termId !== $termTaxonomyId) {
+    throw new RuntimeException("authored Woo default does not occupy one coherent product_cat coordinate");
+}
+if ($role === "source") {
+    if ($installerDefault === $termId || !update_option("default_product_cat", $termId)) {
+        throw new RuntimeException("source Woo default was not explicitly changed from the installer choice");
+    }
+} elseif ((int) get_option("default_product_cat", 0) !== $installerDefault) {
+    throw new RuntimeException("target Woo installer default changed while creating its matching term");
+}
+$stored = $positiveId(get_option("default_product_cat", null), "stored Woo default");
+if (($role === "source" && $stored !== $termId)
+    || ($role === "target" && $stored !== $installerDefault)) {
+    throw new RuntimeException("Woo default-category fixture did not retain its exact role");
+}
+echo wp_json_encode([
+    "installer_default"=>$installerDefault,
+    "option"=>$stored,
+    "role"=>$role,
+    "slug"=>"rmcombo-default-product-category",
+    "taxonomy"=>$physical["taxonomy"],
+    "taxonomy_term_id"=>(int)$physical["taxonomy_term_id"],
+    "term_id"=>$termId,
+    "term_taxonomy_id"=>$termTaxonomyId,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');" | awk 'NF { line=$0 } END { print line }'
+}
+
+default_product_category_state() { # <wp1|wp2>
+  local side="$1"
+  "$side" eval '
+global $wpdb;
+$positiveId = static function ($value): int {
+    if (is_int($value) && $value > 0) return $value;
+    if (is_string($value) && preg_match("/^[1-9][0-9]*$/D", $value) === 1) {
+        $id = (int) $value;
+        if ($id > 0 && (string) $id === $value) return $id;
+    }
+    throw new RuntimeException("default_product_cat is not an exact positive integer");
+};
+$readRow = static function (string $sql, string $where) use ($wpdb): ?array {
+    $wpdb->last_error = "";
+    $row = $wpdb->get_row($sql, ARRAY_A);
+    if ($wpdb->last_error !== "" || ($row !== null && !is_array($row))) {
+        throw new RuntimeException("Woo default-category $where observation failed");
+    }
+    return $row;
+};
+$id = $positiveId(get_option("default_product_cat", null));
+$term = $readRow($wpdb->prepare(
+    "SELECT term_id,slug FROM {$wpdb->terms} WHERE term_id=%d",
+    $id
+), "term");
+$taxonomy = $readRow($wpdb->prepare(
+    "SELECT term_taxonomy_id,term_id,taxonomy FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id=%d",
+    $id
+), "term-taxonomy");
+if ($term !== null
+    && (array_keys($term) !== ["term_id", "slug"]
+        || $positiveId($term["term_id"] ?? null) !== $id
+        || !is_string($term["slug"] ?? null) || $term["slug"] === "")) {
+    throw new RuntimeException("Woo default-category term observation returned a malformed row");
+}
+if ($taxonomy !== null
+    && (array_keys($taxonomy) !== ["term_taxonomy_id", "term_id", "taxonomy"]
+        || $positiveId($taxonomy["term_taxonomy_id"] ?? null) !== $id
+        || $positiveId($taxonomy["term_id"] ?? null) < 1
+        || !is_string($taxonomy["taxonomy"] ?? null) || $taxonomy["taxonomy"] === "")) {
+    throw new RuntimeException("Woo default-category term-taxonomy observation returned a malformed row");
+}
+echo wp_json_encode([
+    "option"=>$id,
+    "term"=>$term === null ? null : ["term_id"=>(int)$term["term_id"],"slug"=>$term["slug"]],
+    "term_taxonomy"=>$taxonomy === null ? null : [
+        "term_taxonomy_id"=>(int)$taxonomy["term_taxonomy_id"],
+        "term_id"=>(int)$taxonomy["term_id"],
+        "taxonomy"=>$taxonomy["taxonomy"],
+    ],
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+' | awk 'NF { line=$0 } END { print line }'
+}
+
+default_product_category_identity() { # <wp1|wp2> <canonical uuid>
+  local side="$1" uuid="$2"
+  [[ "$uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+    || fail 'default product-category canonical identity is malformed'
+  "$side" eval '
+global $wpdb;
+$uuid = (string) getenv("WPRISM_RMCOMBO_UUID");
+$wpdb->last_error = "";
+$rows = $wpdb->get_results($wpdb->prepare(
+    "SELECT uuid,entity_type,id_kind,local_id FROM {$wpdb->prefix}wprism_map " .
+    "WHERE uuid=%s AND id_kind IN (%s,%s) ORDER BY id_kind",
+    $uuid,
+    "term",
+    "term_taxonomy"
+), ARRAY_A);
+if ($wpdb->last_error !== "" || !is_array($rows) || !array_is_list($rows)) {
+    throw new RuntimeException("Woo default-category identity observation failed");
+}
+foreach ($rows as &$row) $row["local_id"] = (int) $row["local_id"];
+unset($row);
+echo wp_json_encode($rows, JSON_UNESCAPED_SLASHES);
+' --exec="putenv('WPRISM_RMCOMBO_UUID=$uuid');" | awk 'NF { line=$0 } END { print line }'
+}
+
+identity_map_digest() { # <wp1|wp2>
+  local side="$1"
+  "$side" eval '
+global $wpdb;
+$wpdb->last_error = "";
+$rows = $wpdb->get_results(
+    "SELECT uuid,entity_type,id_kind,local_id FROM {$wpdb->prefix}wprism_map " .
+    "ORDER BY uuid,entity_type,id_kind,local_id",
+    ARRAY_A
+);
+if ($wpdb->last_error !== "" || !is_array($rows) || !array_is_list($rows)) {
+    throw new RuntimeException("identity-map digest observation failed");
+}
+$bytes = wp_json_encode($rows, JSON_UNESCAPED_SLASHES);
+if (!is_string($bytes)) throw new RuntimeException("identity-map digest encoding failed");
+echo wp_json_encode(["count"=>count($rows),"sha256"=>hash("sha256",$bytes)], JSON_UNESCAPED_SLASHES);
+' | awk 'NF { line=$0 } END { print line }'
+}
+
+canonical_capture_digest() { # <repository root>
+  php -r '
+$repository = $argv[1];
+$rows = [];
+foreach (["media", "state"] as $ownedRoot) {
+    $root = $repository . "/" . $ownedRoot;
+    if (!is_dir($root) || is_link($root)) {
+        if (file_exists($root) || is_link($root)) throw new RuntimeException("canonical capture root is unsafe");
+        continue;
+    }
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+    foreach ($iterator as $file) {
+        if ($file->isLink() || !$file->isFile()) throw new RuntimeException("canonical capture tree is unsafe");
+        $path = $file->getPathname();
+        $relative = $ownedRoot . "/" . substr($path, strlen($root) + 1);
+        $digest = hash_file("sha256", $path);
+        if (!is_string($digest)) throw new RuntimeException("canonical capture digest read failed");
+        $rows[$relative] = $digest;
+    }
+}
+ksort($rows, SORT_STRING);
+echo hash("sha256", json_encode($rows, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+' "$1"
 }
 
 native_state() { # <wp1|wp2>
@@ -505,8 +709,12 @@ bash bin/pair.sh repo-host "$PAIR" both >/dev/null
 for side in 1 2; do
   "wp$side" site empty --yes >/dev/null
 done
-wp1 db query 'ALTER TABLE wp_posts AUTO_INCREMENT=3100001; ALTER TABLE wp_terms AUTO_INCREMENT=3200001; ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=3300001;' >/dev/null
-wp2 db query 'ALTER TABLE wp_posts AUTO_INCREMENT=9100001; ALTER TABLE wp_terms AUTO_INCREMENT=9200001; ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=9300001;' >/dev/null
+# Woo's installer writes default_product_cat through a term-taxonomy id while
+# its admin/default-term readers use the same scalar as a term id. Keep only
+# that activation/default fixture on a coherent coordinate in each host; the
+# source and target bases still differ, so no local id can cross environments.
+wp1 db query 'ALTER TABLE wp_posts AUTO_INCREMENT=3100001; ALTER TABLE wp_terms AUTO_INCREMENT=3200001; ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=3200001;' >/dev/null
+wp2 db query 'ALTER TABLE wp_posts AUTO_INCREMENT=9100001; ALTER TABLE wp_terms AUTO_INCREMENT=9200001; ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=9200001;' >/dev/null
 
 install_stack 1 "$source_order"
 install_stack 2 "$target_order"
@@ -538,6 +746,28 @@ pass "exact active-plugin orders established: source=$source_order target=$targe
 
 for side in wp1 wp2; do
   "$side" eval 'WC_Install::create_terms();' >/dev/null
+done
+SOURCE_DEFAULT_FIXTURE=$(establish_woocommerce_default_category wp1 source)
+TARGET_DEFAULT_FIXTURE=$(establish_woocommerce_default_category wp2 target)
+require_observed_nonempty 'source authored Woo default-category fixture' "$SOURCE_DEFAULT_FIXTURE"
+require_observed_nonempty 'target matching Woo default-category fixture' "$TARGET_DEFAULT_FIXTURE"
+jq -en --argjson source "$SOURCE_DEFAULT_FIXTURE" --argjson target "$TARGET_DEFAULT_FIXTURE" '
+  ($source | keys) == ["installer_default","option","role","slug","taxonomy","taxonomy_term_id","term_id","term_taxonomy_id"] and
+  ($target | keys) == ["installer_default","option","role","slug","taxonomy","taxonomy_term_id","term_id","term_taxonomy_id"] and
+  $source.role == "source" and $target.role == "target" and
+  $source.slug == "rmcombo-default-product-category" and $target.slug == $source.slug and
+  $source.taxonomy == "product_cat" and $target.taxonomy == $source.taxonomy and
+  $source.term_id == $source.term_taxonomy_id and $source.taxonomy_term_id == $source.term_id and
+  $target.term_id == $target.term_taxonomy_id and $target.taxonomy_term_id == $target.term_id and
+  $source.term_id != $target.term_id and
+  $source.option == $source.term_id and $source.option != $source.installer_default and
+  $target.option == $target.installer_default and $target.option != $target.term_id
+' >/dev/null || fail "Woo default-category fixture is not an explicitly changed, cross-host portable coordinate: $SOURCE_DEFAULT_FIXTURE / $TARGET_DEFAULT_FIXTURE"
+# Keep every subsequent product/language category in the original adversarial
+# domain. Only the TT sequence moves: term ids remain at their host-local base.
+wp1 db query 'ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=3300001' >/dev/null
+wp2 db query 'ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=9300001' >/dev/null
+for side in wp1 wp2; do
   create_languages "$side"
 done
 configure_rank_math wp1 source
@@ -575,6 +805,12 @@ $categories = [
     "en"=>$createTerm("Portable Catalog English 東京", "rmcombo-catalog-en"),
     "de"=>$createTerm("Tragbarer Katalog Deutsch", "rmcombo-catalog-de"),
 ];
+$categoryTts = [];
+foreach ($categories as $language=>$id) {
+    $term = get_term($id, "product_cat");
+    if (!$term instanceof WP_Term) throw new RuntimeException("source product category readback failed");
+    $categoryTts[$language] = (int) $term->term_taxonomy_id;
+}
 foreach ($categories as $language=>$id) pll_set_term_language($id, $language);
 pll_save_term_translations($categories);
 
@@ -632,9 +868,15 @@ $redirection = RankMath\Redirections\Redirection::from([
 $redirectionId = $redirection->save();
 if (!is_int($redirectionId) || $redirectionId < 1) throw new RuntimeException("Rank Math redirection creation failed");
 if (function_exists("as_schedule_single_action")) as_schedule_single_action(time()+3600, "rmcombo_source_runtime");
-echo wp_json_encode(["book"=>(int)$book,"categories"=>$categories,"group"=>(int)$groupPosts[0],"products"=>$products,"redirection"=>$redirectionId]);
+echo wp_json_encode(["book"=>(int)$book,"categories"=>$categories,"category_tts"=>$categoryTts,"group"=>(int)$groupPosts[0],"products"=>$products,"redirection"=>$redirectionId]);
 ' | awk 'NF { line=$0 } END { print line }')
 require_observed_nonempty 'Rank Math combination source seed' "$SOURCE_SEED"
+jq -e '
+  .categories.en > 0 and .categories.de > 0 and
+  .category_tts.en > 0 and .category_tts.de > 0 and
+  .categories.en != .category_tts.en and .categories.de != .category_tts.de
+' <<<"$SOURCE_SEED" >/dev/null \
+  || fail "source custom product categories did not retain term/TT divergence: $SOURCE_SEED"
 SOURCE_NATIVE=$(native_state wp1)
 jq -e '
   .scheduler == [{action_id: .scheduler[0].action_id, hook:"rmcombo_source_runtime", status:"pending", group_slug:""}] and
@@ -654,6 +896,12 @@ $categories = [
     "en"=>$createTerm("Target Catalog EN", "rmcombo-catalog-en"),
     "de"=>$createTerm("Target Catalog DE", "rmcombo-catalog-de"),
 ];
+$categoryTts = [];
+foreach ($categories as $language=>$id) {
+    $term = get_term($id, "product_cat");
+    if (!$term instanceof WP_Term) throw new RuntimeException("target product category readback failed");
+    $categoryTts[$language] = (int) $term->term_taxonomy_id;
+}
 foreach ($categories as $language=>$id) pll_set_term_language($id, $language);
 pll_save_term_translations($categories);
 $group=["key"=>"group_rmcombo_product","title"=>"Target Product Fields","fields"=>[],"location"=>[[["param"=>"post_type","operator"=>"==","value"=>"product"]]],"active"=>true];
@@ -710,9 +958,19 @@ $wpdb->insert($wpdb->prefix."rank_math_internal_links",["url"=>"/target-stale-bo
 $wpdb->insert($wpdb->prefix."rank_math_internal_meta",["object_id"=>(int)$book,"internal_link_count"=>999,"external_link_count"=>999,"incoming_link_count"=>999]);
 $wpdb->insert($wpdb->prefix."rank_math_internal_meta",["object_id"=>$neighborId,"internal_link_count"=>0,"external_link_count"=>0,"incoming_link_count"=>999]);
 if (function_exists("as_schedule_single_action")) as_schedule_single_action(time()+7200,"rmcombo_target_runtime");
-echo wp_json_encode(["book"=>(int)$book,"categories"=>$categories,"group"=>(int)$groupPosts[0],"neighbor"=>(int)$neighborId,"products"=>$products,"redirection"=>$redirectionId]);
+echo wp_json_encode(["book"=>(int)$book,"categories"=>$categories,"category_tts"=>$categoryTts,"group"=>(int)$groupPosts[0],"neighbor"=>(int)$neighborId,"products"=>$products,"redirection"=>$redirectionId]);
 ' | awk 'NF { line=$0 } END { print line }')
 require_observed_nonempty 'Rank Math combination hostile target' "$TARGET_SEED"
+jq -en --argjson source "$SOURCE_SEED" --argjson target "$TARGET_SEED" '
+  $target.categories.en > 0 and $target.categories.de > 0 and
+  $target.category_tts.en > 0 and $target.category_tts.de > 0 and
+  $target.categories.en != $target.category_tts.en and
+  $target.categories.de != $target.category_tts.de and
+  $target.categories.en != $source.categories.en and
+  $target.categories.de != $source.categories.de and
+  $target.category_tts.en != $source.category_tts.en and
+  $target.category_tts.de != $source.category_tts.de
+' >/dev/null || fail "custom product categories lost their within-host and cross-host divergence: $SOURCE_SEED / $TARGET_SEED"
 HOSTILE_NATIVE=$(native_state wp2)
 jq -e '
   .neighbor == {acf:"target-only badge",id:.neighbor.id,price:"97",title:"target-only SEO"} and
@@ -748,8 +1006,124 @@ git -C "$R1" remote add origin "../origin-$PAIR.git"
 git -C "$R1" push -qu origin main
 establish_core_environment_bindings wp1 /siterepo admin@example.test \
   "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"
-wp1 wprism capture --repo=/siterepo >/dev/null
+capture_wprism_json_checked SOURCE_CAPTURE 'Rank Math combination source capture' assert_rmcombo_warning_free_capture \
+  wp1 wprism capture --repo=/siterepo --format=json
+jq -e '.warnings == []' <<<"$SOURCE_CAPTURE" >/dev/null \
+  || fail "source capture was not warning-free after authoring a coherent Woo default: $SOURCE_CAPTURE"
 wp1 wprism lint --repo=/siterepo >/dev/null
+
+shopt -s nullglob
+SOURCE_DEFAULT_TERM_FILES=("$R1"/state/terms/product_cat/*--rmcombo-default-product-category.json)
+shopt -u nullglob
+[ "${#SOURCE_DEFAULT_TERM_FILES[@]}" -eq 1 ] \
+  || fail 'source capture did not publish exactly one authored Woo default-category entity'
+SOURCE_DEFAULT_UUID=$(jq -er '
+  select(.taxonomy == "product_cat" and .slug == "rmcombo-default-product-category")
+  | .uuid | select(type == "string")
+' "${SOURCE_DEFAULT_TERM_FILES[0]}") \
+  || fail 'source Woo default category did not carry one canonical identity'
+SOURCE_DEFAULT_TOKEN="{{term:$SOURCE_DEFAULT_UUID}}"
+jq -e --arg token "$SOURCE_DEFAULT_TOKEN" '
+  .records.default_product_cat.state == "present" and
+  .records.default_product_cat.value == $token and
+  (.records.default_product_cat.autoload | type) == "string"
+' "$R1/state/options/core.json" >/dev/null \
+  || fail 'source capture did not bind default_product_cat to the exact portable category UUID'
+SOURCE_DEFAULT_NATIVE=$(default_product_category_state wp1)
+SOURCE_DEFAULT_IDENTITY=$(default_product_category_identity wp1 "$SOURCE_DEFAULT_UUID")
+jq -en --argjson fixture "$SOURCE_DEFAULT_FIXTURE" --argjson native "$SOURCE_DEFAULT_NATIVE" \
+  --argjson identity "$SOURCE_DEFAULT_IDENTITY" --arg uuid "$SOURCE_DEFAULT_UUID" '
+  $native == {
+    option:$fixture.term_id,
+    term:{term_id:$fixture.term_id,slug:"rmcombo-default-product-category"},
+    term_taxonomy:{term_taxonomy_id:$fixture.term_id,term_id:$fixture.term_id,taxonomy:"product_cat"}
+  } and
+  ($identity | length) == 2 and
+  ($identity | map(.id_kind)) == ["term","term_taxonomy"] and
+  all($identity[]; .uuid == $uuid and .entity_type == "term" and .local_id == $fixture.term_id)
+' >/dev/null || fail "source default UUID, native option and coherent physical tuple disagree: $SOURCE_DEFAULT_NATIVE / $SOURCE_DEFAULT_IDENTITY"
+
+say 'incoherent Woo default refuses public capture without publication or native/identity drift'
+SOURCE_DIVERGENT_DEFAULT=$(jq -er '.categories.en' <<<"$SOURCE_SEED")
+SOURCE_DIVERGENT_TT=$(jq -er '.category_tts.en' <<<"$SOURCE_SEED")
+SOURCE_AUTHORED_DEFAULT=$(jq -er '.term_id' <<<"$SOURCE_DEFAULT_FIXTURE")
+require_fixture_ids SOURCE_DIVERGENT_DEFAULT SOURCE_DIVERGENT_TT SOURCE_AUTHORED_DEFAULT
+[ "$SOURCE_DIVERGENT_DEFAULT" != "$SOURCE_DIVERGENT_TT" ] \
+  || fail 'negative Woo default fixture does not span divergent term and TT coordinates'
+wp1 eval '
+$expected = (int) getenv("WPRISM_RMCOMBO_EXPECTED_DEFAULT");
+$divergent = (int) getenv("WPRISM_RMCOMBO_DIVERGENT_DEFAULT");
+if ((int) get_option("default_product_cat", 0) !== $expected || $expected === $divergent
+    || !update_option("default_product_cat", $divergent)
+    || (int) get_option("default_product_cat", 0) !== $divergent) {
+    throw new RuntimeException("divergent Woo default negative fixture did not persist from the owned preimage");
+}
+' --exec="putenv('WPRISM_RMCOMBO_EXPECTED_DEFAULT=$SOURCE_AUTHORED_DEFAULT'); putenv('WPRISM_RMCOMBO_DIVERGENT_DEFAULT=$SOURCE_DIVERGENT_DEFAULT');" >/dev/null
+DEFAULT_REFUSAL_NATIVE_BEFORE=$(native_state wp1)
+DEFAULT_REFUSAL_OPTION_BEFORE=$(default_product_category_state wp1)
+DEFAULT_REFUSAL_IDENTITY_BEFORE=$(identity_map_digest wp1)
+DEFAULT_REFUSAL_STATE_BEFORE=$(canonical_capture_digest "$R1")
+jq -en --argjson observed "$DEFAULT_REFUSAL_OPTION_BEFORE" --argjson source "$SOURCE_SEED" '
+  $observed.option == $source.categories.en and
+  $observed.term == {term_id:$source.categories.en,slug:"rmcombo-catalog-en"} and
+  ($observed.term_taxonomy == null or
+    $observed.term_taxonomy.term_taxonomy_id != $source.category_tts.en or
+    $observed.term_taxonomy.term_id != $source.categories.en or
+    $observed.term_taxonomy.taxonomy != "product_cat")
+' >/dev/null || fail "negative Woo default did not expose the intended divergent native coordinate: $DEFAULT_REFUSAL_OPTION_BEFORE"
+DEFAULT_REFUSAL_RC=0
+DEFAULT_REFUSAL_STREAM=$(wp1 wprism capture --repo=/siterepo --format=json 2>&1) || DEFAULT_REFUSAL_RC=$?
+require_wprism_answered 'incoherent Woo default capture refusal' json "$DEFAULT_REFUSAL_STREAM"
+assert_no_php_runtime_diagnostics 'incoherent Woo default capture refusal' "$DEFAULT_REFUSAL_STREAM"
+[ "$DEFAULT_REFUSAL_RC" -ne 0 ] \
+  || fail "incoherent Woo default unexpectedly published: $DEFAULT_REFUSAL_STREAM"
+! grep -Fq 'Warning: option default_product_cat' <<<"$DEFAULT_REFUSAL_STREAM" \
+  || fail 'incoherent Woo default was downgraded to an exclusion warning'
+DEFAULT_REFUSAL_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$DEFAULT_REFUSAL_STREAM")
+jq -e '
+  .format == "wprism-command-refusal/v1" and
+  .reason_code == "reference_intersection_failed"
+' <<<"$DEFAULT_REFUSAL_JSON" >/dev/null \
+  || fail "incoherent Woo default did not return the exact public reference-intersection refusal: $DEFAULT_REFUSAL_STREAM"
+DEFAULT_REFUSAL_NATIVE_AFTER=$(native_state wp1)
+DEFAULT_REFUSAL_OPTION_AFTER=$(default_product_category_state wp1)
+DEFAULT_REFUSAL_IDENTITY_AFTER=$(identity_map_digest wp1)
+DEFAULT_REFUSAL_STATE_AFTER=$(canonical_capture_digest "$R1")
+jq -en --argjson before "$DEFAULT_REFUSAL_NATIVE_BEFORE" --argjson after "$DEFAULT_REFUSAL_NATIVE_AFTER" \
+  '$before == $after' >/dev/null \
+  || fail 'reference-intersection refusal changed source plugin-native state'
+jq -en --argjson before "$DEFAULT_REFUSAL_OPTION_BEFORE" --argjson after "$DEFAULT_REFUSAL_OPTION_AFTER" \
+  '$before == $after' >/dev/null \
+  || fail 'reference-intersection refusal changed the deliberately divergent native default'
+[ "$DEFAULT_REFUSAL_IDENTITY_AFTER" = "$DEFAULT_REFUSAL_IDENTITY_BEFORE" ] \
+  || fail 'reference-intersection refusal changed the source identity map'
+[ "$DEFAULT_REFUSAL_STATE_AFTER" = "$DEFAULT_REFUSAL_STATE_BEFORE" ] \
+  || fail 'reference-intersection refusal partially published canonical state'
+wp1 eval '
+$divergent = (int) getenv("WPRISM_RMCOMBO_DIVERGENT_DEFAULT");
+$restore = (int) getenv("WPRISM_RMCOMBO_RESTORE_DEFAULT");
+if ((int) get_option("default_product_cat", 0) !== $divergent || $divergent === $restore
+    || !update_option("default_product_cat", $restore)
+    || (int) get_option("default_product_cat", 0) !== $restore) {
+    throw new RuntimeException("owned Woo default negative fixture did not restore exactly");
+}
+' --exec="putenv('WPRISM_RMCOMBO_DIVERGENT_DEFAULT=$SOURCE_DIVERGENT_DEFAULT'); putenv('WPRISM_RMCOMBO_RESTORE_DEFAULT=$SOURCE_AUTHORED_DEFAULT');" >/dev/null
+SOURCE_DEFAULT_RESTORED=$(default_product_category_state wp1)
+[ "$SOURCE_DEFAULT_RESTORED" = "$SOURCE_DEFAULT_NATIVE" ] \
+  || fail "source Woo default did not return to its exact authored preimage: $SOURCE_DEFAULT_RESTORED"
+[ "$(identity_map_digest wp1)" = "$DEFAULT_REFUSAL_IDENTITY_BEFORE" ] \
+  || fail 'restoring the owned default changed an identity binding'
+capture_wprism_json_checked RESTORED_DEFAULT_CAPTURE 'Rank Math combination restored-default capture' assert_rmcombo_warning_free_capture \
+  wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-default-restored --format=json
+jq -e '.warnings == []' <<<"$RESTORED_DEFAULT_CAPTURE" >/dev/null \
+  || fail "restored Woo default did not recapture warning-free: $RESTORED_DEFAULT_CAPTURE"
+diff -r "$R1/state" "$R1/.tmp-rmcombo-default-restored" \
+  || fail 'restored Woo default did not recapture to the exact prior canonical tree'
+rm -rf "$R1/.tmp-rmcombo-default-restored"
+[ "$(identity_map_digest wp1)" = "$DEFAULT_REFUSAL_IDENTITY_BEFORE" ] \
+  || fail 'warning-free restored recapture changed an identity binding'
+pass 'one divergent custom category refuses exactly; the explicitly authored coherent default remains portable and warning-free'
+
 git -C "$R1" add -A
 git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test commit -qm 'capture: multilingual commerce SEO graph'
 git -C "$R1" push -q origin main
@@ -832,13 +1206,25 @@ jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$HOST_SETTLED_NATIVE"
   ($after | .redirection_cache = []) == ($before | .redirection_cache = []) and
   ($after.redirection_cache | length) == 0
 ' >/dev/null || fail "compatible host settlement crossed an unrelated plugin/content/runtime boundary: $HOST_SETTLED_NATIVE"
+HOST_SETTLED_DEFAULT=$(default_product_category_state wp2)
+jq -en --argjson fixture "$TARGET_DEFAULT_FIXTURE" --argjson observed "$HOST_SETTLED_DEFAULT" '
+  $observed.option == $fixture.installer_default and
+  $observed.option != $fixture.term_id and
+  $observed.term.term_id == $observed.option and
+  $observed.term_taxonomy == {
+    term_taxonomy_id:$observed.option,
+    term_id:$observed.option,
+    taxonomy:"product_cat"
+  }
+' >/dev/null || fail "host settlement changed or invalidated the target installer default before apply: $HOST_SETTLED_DEFAULT"
 pass 'host deploy refuses hostile schema, then checkpoint-settles legitimate lifecycle/schema drift without crossing combination boundaries'
 REVISION=$(git -C "$R2" rev-parse HEAD)
-capture_wprism_json_checked INITIAL 'Rank Math commerce/multilingual initial apply' assert_wprism_apply_ready \
+capture_wprism_json_checked INITIAL 'Rank Math commerce/multilingual initial apply' assert_rmcombo_default_apply_ready \
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
   --default-author=admin --revision="$REVISION" --format=json
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
+  all(.warnings[]?; contains("default_product_cat") | not) and
   any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
   any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true) and
   any(.actions[]?; .source == "provider:polylang-nav-menus/synchronize_runtime" and .verified == true)
@@ -850,6 +1236,24 @@ jq -e '
 
 TARGET=$(native_state wp2)
 require_observed_nonempty 'Rank Math combination converged target' "$TARGET"
+TARGET_DEFAULT_NATIVE=$(default_product_category_state wp2)
+TARGET_DEFAULT_IDENTITY=$(default_product_category_identity wp2 "$SOURCE_DEFAULT_UUID")
+jq -en --argjson source_fixture "$SOURCE_DEFAULT_FIXTURE" \
+  --argjson target_fixture "$TARGET_DEFAULT_FIXTURE" \
+  --argjson native "$TARGET_DEFAULT_NATIVE" --argjson identity "$TARGET_DEFAULT_IDENTITY" \
+  --arg uuid "$SOURCE_DEFAULT_UUID" '
+  $source_fixture.term_id != $target_fixture.term_id and
+  $target_fixture.option == $target_fixture.installer_default and
+  $target_fixture.installer_default != $target_fixture.term_id and
+  $native == {
+    option:$target_fixture.term_id,
+    term:{term_id:$target_fixture.term_id,slug:"rmcombo-default-product-category"},
+    term_taxonomy:{term_taxonomy_id:$target_fixture.term_id,term_id:$target_fixture.term_id,taxonomy:"product_cat"}
+  } and
+  ($identity | length) == 2 and
+  ($identity | map(.id_kind)) == ["term","term_taxonomy"] and
+  all($identity[]; .uuid == $uuid and .entity_type == "term" and .local_id == $target_fixture.term_id)
+' >/dev/null || fail "portable Woo default UUID did not resolve to the target matching native coordinate: $TARGET_DEFAULT_NATIVE / $TARGET_DEFAULT_IDENTITY"
 jq -en --argjson source "$SOURCE_SEED" --argjson hostile "$TARGET_SEED" \
   --argjson hostile_native "$HOSTILE_NATIVE" --argjson target "$TARGET" '
   ($target.products.en.id == $hostile.products.en) and
@@ -859,6 +1263,12 @@ jq -en --argjson source "$SOURCE_SEED" --argjson hostile "$TARGET_SEED" \
   ($target.book.id == $hostile.book) and ($target.book.id != $source.book) and
   ($target.categories.en == $hostile.categories.en) and
   ($target.categories.de == $hostile.categories.de) and
+  ($source.categories.en != $source.category_tts.en) and
+  ($source.categories.de != $source.category_tts.de) and
+  ($hostile.categories.en != $hostile.category_tts.en) and
+  ($hostile.categories.de != $hostile.category_tts.de) and
+  ($source.categories.en != $hostile.categories.en) and
+  ($source.category_tts.en != $hostile.category_tts.en) and
   ($target.products.en.language == "en") and ($target.products.de.language == "de") and
   ($target.category_languages.en == "en") and ($target.category_languages.de == "de") and
   ($target.translations.en == $target.products.en.id) and
@@ -974,7 +1384,9 @@ $product=get_page_by_path("rmcombo-product-en",OBJECT,"product");
 delete_post_meta($product->ID,"_rank_math_title");
 update_post_meta($product->ID,"rank_math_title","Portable Rank Math Commerce EN 東京 🚀");
 ' >/dev/null
-wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-collision-restored >/dev/null
+capture_wprism_json_checked COLLISION_RESTORED_CAPTURE \
+  'Rank Math combination collision-restored capture' assert_rmcombo_warning_free_capture \
+  wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-collision-restored --format=json
 diff -r "$R1/state" "$R1/.tmp-rmcombo-collision-restored" \
   || fail 'source did not return to its canonical state after removing the hostile ACF field'
 rm -rf "$R1/.tmp-rmcombo-collision-restored"
@@ -989,7 +1401,9 @@ if(!$post instanceof WP_Post) throw new RuntimeException("retry source product i
 $post->post_content .= "<p>provider failure retained combined retry authority <a href=\"https://retry.example.test/\">retry external</a></p>";
 wp_update_post($post);
 ' --exec="putenv('WPRISM_RMCOMBO_SOURCE_EN=$SOURCE_EN');" >/dev/null
-wp1 wprism capture --repo=/siterepo >/dev/null
+capture_wprism_json_checked RETRY_SOURCE_CAPTURE \
+  'Rank Math combination retry source capture' assert_rmcombo_warning_free_capture \
+  wp1 wprism capture --repo=/siterepo --format=json
 git -C "$R1" add -A
 git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test commit -qm 'capture: combined provider retry intent'
 git -C "$R1" push -q origin main
@@ -1013,7 +1427,7 @@ jq -en --argjson baseline "$TARGET_RUNTIME" --argjson failed "$FAILURE_NATIVE" '
   ([ $failed.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 0
 ' >/dev/null || fail "combined provider failure crossed a runtime boundary or fabricated derived success: $FAILURE_NATIVE"
 remove_hostile_provider
-capture_wprism_json_checked RETRY 'Rank Math combination provider retry' assert_wprism_apply_ready \
+capture_wprism_json_checked RETRY 'Rank Math combination provider retry' assert_rmcombo_default_apply_ready \
   wp2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
@@ -1041,11 +1455,13 @@ pass 'provider failure and retry preserve every Woo, Polylang, ACF, taxonomy, mo
 
 say 'combined recapture and repeated apply are exact no-ops'
 REVISION=$(git -C "$R2" rev-parse HEAD)
-capture_wprism_json_checked NOOP 'Rank Math combination no-op apply' assert_wprism_apply_ready \
+capture_wprism_json_checked NOOP 'Rank Math combination no-op apply' assert_rmcombo_default_apply_ready \
   wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REVISION" --format=json
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$NOOP" >/dev/null \
   || fail "combined no-op reran effects: $NOOP"
-wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final >/dev/null
+capture_wprism_json_checked TARGET_RECAPTURE 'Rank Math combination target recapture' \
+  assert_rmcombo_warning_free_capture \
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final --format=json
 FINAL_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-final" || true)
 rm -rf "$R2/.tmp-rmcombo-final"
 [ -z "$FINAL_DIFF" ] || fail "combined target recapture differs: $FINAL_DIFF"
@@ -1053,6 +1469,8 @@ TARGET_FINAL=$(native_state wp2)
 jq -en --argjson retried "$RETRY_NATIVE" --argjson final "$TARGET_FINAL" '
   $final == $retried and $final.products.en.processed == true and $final.products.de.processed == true
 ' >/dev/null || fail "combined final native/runtime state was not an exact no-op: $TARGET_FINAL"
+[ "$(default_product_category_state wp2)" = "$TARGET_DEFAULT_NATIVE" ] \
+  || fail 'combined retry/no-op path changed the applied portable Woo default category'
 product_response rmcombo-product-en >/dev/null
 product_response rmcombo-product-de >/dev/null
 pass "full source=$source_order target=$target_order path recaptures byte-identically and repeats with zero actions"
@@ -1062,7 +1480,9 @@ SOURCE_BOOK=$(jq -r '.book' <<<"$SOURCE_SEED")
 TARGET_BOOK=$(jq -r '.book.id' <<<"$TARGET_FINAL")
 require_fixture_ids SOURCE_BOOK TARGET_BOOK
 wp1 post delete "$SOURCE_BOOK" --force >/dev/null
-wp1 wprism capture --repo=/siterepo >/dev/null
+capture_wprism_json_checked DELETE_SOURCE_CAPTURE \
+  'Rank Math combination deletion source capture' assert_rmcombo_warning_free_capture \
+  wp1 wprism capture --repo=/siterepo --format=json
 git -C "$R1" add -A
 git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test \
   commit -qm 'capture: delete custom CPT with derived Rank Math links'

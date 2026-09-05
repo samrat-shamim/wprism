@@ -158,6 +158,33 @@ wprism_check_same(
 $livePath = $root . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/'
     . 'regress_rank_math_commerce_multilingual.sh';
 $live = is_file($livePath) ? (string) file_get_contents($livePath) : '';
+$scenarioAssertionsStart = strpos($live, 'assert_rmcombo_warning_free_capture() {');
+$scenarioAssertionsEnd = $scenarioAssertionsStart === false
+    ? false
+    : strpos($live, "\nfor command in docker", $scenarioAssertionsStart);
+$scenarioAssertionDefinitions = $scenarioAssertionsStart === false || $scenarioAssertionsEnd === false
+    ? ''
+    : substr($live, $scenarioAssertionsStart, $scenarioAssertionsEnd - $scenarioAssertionsStart);
+wprism_check($scenarioAssertionDefinitions !== '', 'the scenario-owned complete-stream assertions are extractable');
+foreach ([
+    ['SOURCE_CAPTURE', 'Rank Math combination source capture'],
+    ['RESTORED_DEFAULT_CAPTURE', 'Rank Math combination restored-default capture'],
+    ['COLLISION_RESTORED_CAPTURE', 'Rank Math combination collision-restored capture'],
+    ['RETRY_SOURCE_CAPTURE', 'Rank Math combination retry source capture'],
+    ['TARGET_RECAPTURE', 'Rank Math combination target recapture'],
+    ['DELETE_SOURCE_CAPTURE', 'Rank Math combination deletion source capture'],
+] as [$answer, $label]) {
+    $capture = "capture_wprism_json_checked $answer";
+    $position = strpos($live, $capture);
+    $window = $position === false ? '' : substr($live, $position, 320);
+    wprism_check(
+        $position !== false
+            && substr_count($live, $capture) === 1
+            && str_contains($window, "'$label'")
+            && str_contains($window, 'assert_rmcombo_warning_free_capture'),
+        "$answer retains complete-stream, warning-free positive capture evidence"
+    );
+}
 foreach ([
     'advanced-custom-fields 6.8.7',
     'polylang 3.8.6',
@@ -171,6 +198,10 @@ foreach ([
     'exact reciprocal hreflang, canonical and Open Graph state renders on both products',
     'native 302 routing consumes the target-bound URL',
     'provider failure retained combined retry authority',
+    'source capture was not warning-free after authoring a coherent Woo default',
+    'reference_intersection_failed',
+    'reference-intersection refusal partially published canonical state',
+    'portable Woo default UUID did not resolve to the target matching native coordinate',
     'direct deletion remains refusal-only across the combined adapter boundary',
     'deletion_writer_exclusion_required',
     'combined direct deletion refusal changed native or target-runtime state',
@@ -519,6 +550,422 @@ foreach ([
     );
 }
 
+// Execute the actual activation/default chronology. The fd8 fixture split
+// term and TT counters before Woo activation; a text pin could prove the new
+// numbers while missing an accidental reorder that recreates the same defect.
+$defaultSetupStart = strpos($live, "# Woo's installer writes default_product_cat");
+$defaultSetupEndToken = "wp2 db query 'ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=9300001' >/dev/null";
+$defaultSetupEnd = $defaultSetupStart === false ? false : strpos($live, $defaultSetupEndToken, $defaultSetupStart);
+$defaultSetupBlock = $defaultSetupStart === false || $defaultSetupEnd === false
+    ? ''
+    : substr($live, $defaultSetupStart, $defaultSetupEnd + strlen($defaultSetupEndToken) - $defaultSetupStart);
+wprism_check($defaultSetupBlock !== '', 'the actual Woo activation/default chronology is extractable');
+$sourceDefaultFixture = [
+    'installer_default' => 3200001,
+    'option' => 3200007,
+    'role' => 'source',
+    'slug' => 'rmcombo-default-product-category',
+    'taxonomy' => 'product_cat',
+    'taxonomy_term_id' => 3200007,
+    'term_id' => 3200007,
+    'term_taxonomy_id' => 3200007,
+];
+$targetDefaultFixture = [
+    'installer_default' => 9200001,
+    'option' => 9200001,
+    'role' => 'target',
+    'slug' => 'rmcombo-default-product-category',
+    'taxonomy' => 'product_cat',
+    'taxonomy_term_id' => 9200007,
+    'term_id' => 9200007,
+    'term_taxonomy_id' => 9200007,
+];
+$defaultSetupProbe = <<<'SH'
+set -euo pipefail
+TRACE_PATH="$1" SOURCE_FIXTURE="$2" TARGET_FIXTURE="$3"
+source_order=forward target_order=reverse
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+pass() { :; }
+require_observed_nonempty() { [ -n "$2" ] || fail "$1 is empty"; }
+wp1() {
+  if [ "$1" = db ] && [ "$2" = query ]; then
+    case "$3" in
+      'ALTER TABLE wp_posts AUTO_INCREMENT=3100001; ALTER TABLE wp_terms AUTO_INCREMENT=3200001; ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=3200001;') printf 'SOURCE_INITIAL\n' >>"$TRACE_PATH" ;;
+      'ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=3300001') printf 'SOURCE_DIVERGE\n' >>"$TRACE_PATH" ;;
+      *) return 81 ;;
+    esac
+    return 0
+  fi
+  [ "$1" = eval ] && [ "$2" = 'WC_Install::create_terms();' ] || return 82
+  printf 'SOURCE_NATIVE_TERMS\n' >>"$TRACE_PATH"
+}
+wp2() {
+  if [ "$1" = db ] && [ "$2" = query ]; then
+    case "$3" in
+      'ALTER TABLE wp_posts AUTO_INCREMENT=9100001; ALTER TABLE wp_terms AUTO_INCREMENT=9200001; ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=9200001;') printf 'TARGET_INITIAL\n' >>"$TRACE_PATH" ;;
+      'ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=9300001') printf 'TARGET_DIVERGE\n' >>"$TRACE_PATH" ;;
+      *) return 83 ;;
+    esac
+    return 0
+  fi
+  [ "$1" = eval ] && [ "$2" = 'WC_Install::create_terms();' ] || return 84
+  printf 'TARGET_NATIVE_TERMS\n' >>"$TRACE_PATH"
+}
+install_stack() { printf 'INSTALL_%s_%s\n' "$1" "$2" >>"$TRACE_PATH"; }
+persist_active_plugin_order() { printf 'ORDER_%s_%s\n' "$1" "$2" >>"$TRACE_PATH"; }
+install_custom_post_type() { printf 'CPT_%s\n' "$1" >>"$TRACE_PATH"; }
+active_plugin_order() {
+  if [ "$1" = wp1 ]; then
+    printf '%s\n' '["polylang","advanced-custom-fields","seo-by-rank-math","woocommerce"]'
+  else
+    printf '%s\n' '["polylang","woocommerce","seo-by-rank-math","advanced-custom-fields"]'
+  fi
+}
+establish_woocommerce_default_category() {
+  printf 'DEFAULT_%s_%s\n' "$1" "$2" >>"$TRACE_PATH"
+  if [ "$2" = source ]; then printf '%s\n' "$SOURCE_FIXTURE"; else printf '%s\n' "$TARGET_FIXTURE"; fi
+}
+SH;
+$setupCases = [
+    'ready' => [$defaultSetupBlock, $sourceDefaultFixture, $targetDefaultFixture, true],
+    'old preactivation split' => [
+        str_replace(
+            'wp_term_taxonomy AUTO_INCREMENT=3200001;',
+            'wp_term_taxonomy AUTO_INCREMENT=3300001;',
+            $defaultSetupBlock
+        ),
+        $sourceDefaultFixture,
+        $targetDefaultFixture,
+        false,
+    ],
+    'source unchanged installer default' => [
+        $defaultSetupBlock,
+        array_replace($sourceDefaultFixture, ['option' => 3200001]),
+        $targetDefaultFixture,
+        false,
+    ],
+    'source coordinate mismatch' => [
+        $defaultSetupBlock,
+        array_replace($sourceDefaultFixture, ['term_taxonomy_id' => 3300001]),
+        $targetDefaultFixture,
+        false,
+    ],
+    'target already selected candidate' => [
+        $defaultSetupBlock,
+        $sourceDefaultFixture,
+        array_replace($targetDefaultFixture, ['option' => 9200007]),
+        false,
+    ],
+    'cross-host aligned local id' => [
+        $defaultSetupBlock,
+        $sourceDefaultFixture,
+        array_replace($targetDefaultFixture, [
+            'taxonomy_term_id' => 3200007,
+            'term_id' => 3200007,
+            'term_taxonomy_id' => 3200007,
+        ]),
+        false,
+    ],
+];
+foreach ($setupCases as $case => [$block, $sourceFixture, $targetFixture, $accept]) {
+    $trace = tempnam(sys_get_temp_dir(), 'wprism-rmcombo-default-setup-');
+    if (!is_string($trace)) {
+        throw new RuntimeException('could not allocate Woo default setup trace');
+    }
+    file_put_contents($trace, '');
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+        $defaultSetupProbe . "\n" . $block . "\nprintf 'SETUP_READY\\n'\n",
+        [
+            $trace,
+            json_encode($sourceFixture, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            json_encode($targetFixture, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+        ],
+        $root
+    );
+    $traceBytes = (string) file_get_contents($trace);
+    unlink($trace);
+    $expectedTrace = "SOURCE_INITIAL\nTARGET_INITIAL\nINSTALL_1_forward\nINSTALL_2_reverse\n"
+        . "ORDER_1_forward\nORDER_2_reverse\nCPT_1\nCPT_2\nSOURCE_NATIVE_TERMS\nTARGET_NATIVE_TERMS\n"
+        . "DEFAULT_wp1_source\nDEFAULT_wp2_target\nSOURCE_DIVERGE\nTARGET_DIVERGE\n";
+    wprism_check(
+        $accept
+            ? $status === 0 && $stdout === "SETUP_READY\n" && $stderr === '' && $traceBytes === $expectedTrace
+            : $status !== 0 && !str_contains($stdout, 'SETUP_READY'),
+        "actual Woo default setup classifies $case and preserves activation-before-divergence ordering"
+    );
+}
+
+// Capture the exact PHP submitted by the new physical/native default oracle,
+// then execute it against controlled responses. A database error or malformed
+// row must not become a stable null witness, while a real divergent value must
+// remain observable for the negative capture nonmutation proof.
+$defaultOracleStart = strpos($live, 'default_product_category_state() {');
+$defaultOracleEnd = $defaultOracleStart === false
+    ? false
+    : strpos($live, "\ndefault_product_category_identity() {", $defaultOracleStart);
+$defaultOracleDefinition = $defaultOracleStart === false || $defaultOracleEnd === false
+    ? ''
+    : substr($live, $defaultOracleStart, $defaultOracleEnd - $defaultOracleStart);
+$defaultOracleCapture = <<<'SH'
+set -euo pipefail
+wp1() {
+  [ "$#" -eq 2 ] && [ "$1" = eval ] || return 81
+  php -r 'printf("%s\n", base64_encode($argv[1]));' "$2"
+}
+SH;
+[$defaultOracleStatus, $defaultOracleStdout, $defaultOracleStderr] = WPrismTest\ShellProbe::run(
+    $defaultOracleCapture . "\n" . $defaultOracleDefinition . "\ndefault_product_category_state wp1\n",
+    [],
+    $root
+);
+$submittedDefaultOracle = base64_decode(trim($defaultOracleStdout), true);
+$submittedDefaultOracle = is_string($submittedDefaultOracle) ? $submittedDefaultOracle : '';
+wprism_check(
+    $defaultOracleDefinition !== ''
+        && $defaultOracleStatus === 0
+        && $defaultOracleStderr === ''
+        && $submittedDefaultOracle !== '',
+    'the actual native default-category shell oracle submits one inspectable checked PHP program'
+);
+$runDefaultOracle = static function (string $case) use ($submittedDefaultOracle): array {
+    WPrismTest\WpStore::instance()->reset();
+    WPrismTest\WpStore::instance()->options['default_product_cat'] = $case === 'bad-option' ? '041' : '41';
+    $wpdb = new class($case) {
+        public string $terms = 'wp_terms';
+        public string $term_taxonomy = 'wp_term_taxonomy';
+        public string $last_error = '';
+
+        /** @var list<string> */
+        public array $queries = [];
+
+        public function __construct(private readonly string $case) {}
+
+        public function prepare(string $sql, mixed ...$values): string {
+            if (count($values) !== 1 || !str_contains($sql, '%d')) {
+                throw new RuntimeException('default-category oracle received malformed bindings');
+            }
+            return preg_replace('/%d/', (string) (int) $values[0], $sql, 1) ?? '';
+        }
+
+        public function get_row(string $sql, string $output): mixed {
+            if ($output !== ARRAY_A) {
+                throw new RuntimeException('default-category oracle did not request ARRAY_A');
+            }
+            $this->last_error = '';
+            $this->queries[] = $sql;
+            $kind = str_contains($sql, 'FROM wp_term_taxonomy') ? 'taxonomy' : 'term';
+            if ($this->case === "$kind-error") {
+                $this->last_error = 'fixture database error';
+                return null;
+            }
+            if ($this->case === "$kind-malformed") {
+                return false;
+            }
+            if ($this->case === "$kind-partial") {
+                return $kind === 'term' ? ['term_id' => '41'] : ['term_taxonomy_id' => '41'];
+            }
+            if ($this->case === "$kind-wrong-id") {
+                return $kind === 'term'
+                    ? ['term_id' => '42', 'slug' => 'rmcombo-default-product-category']
+                    : ['term_taxonomy_id' => '42', 'term_id' => '41', 'taxonomy' => 'product_cat'];
+            }
+            if ($kind === 'taxonomy' && $this->case === 'divergent') {
+                return null;
+            }
+            return $kind === 'term'
+                ? ['term_id' => '41', 'slug' => 'rmcombo-default-product-category']
+                : ['term_taxonomy_id' => '41', 'term_id' => '41', 'taxonomy' => 'product_cat'];
+        }
+    };
+    $GLOBALS['wpdb'] = $wpdb;
+    ob_start();
+    try {
+        eval($submittedDefaultOracle);
+        $bytes = (string) ob_get_clean();
+        return ['exception' => null, 'output' => json_decode($bytes, true, 512, JSON_THROW_ON_ERROR), 'queries' => $wpdb->queries];
+    } catch (Throwable $failure) {
+        ob_end_clean();
+        return ['exception' => $failure, 'output' => null, 'queries' => $wpdb->queries];
+    }
+};
+$healthyDefaultOracle = $runDefaultOracle('healthy');
+wprism_check(
+    $healthyDefaultOracle['exception'] === null
+        && $healthyDefaultOracle['output'] === [
+            'option' => 41,
+            'term' => ['term_id' => 41, 'slug' => 'rmcombo-default-product-category'],
+            'term_taxonomy' => ['term_taxonomy_id' => 41, 'term_id' => 41, 'taxonomy' => 'product_cat'],
+        ]
+        && count($healthyDefaultOracle['queries']) === 2,
+    'the actual native default oracle proves one option across both physical product_cat coordinates'
+);
+$divergentDefaultOracle = $runDefaultOracle('divergent');
+wprism_check(
+    $divergentDefaultOracle['exception'] === null
+        && ($divergentDefaultOracle['output']['option'] ?? null) === 41
+        && ($divergentDefaultOracle['output']['term']['term_id'] ?? null) === 41
+        && array_key_exists('term_taxonomy', $divergentDefaultOracle['output'])
+        && $divergentDefaultOracle['output']['term_taxonomy'] === null,
+    'the native oracle preserves the deliberately divergent option preimage instead of inventing coherence'
+);
+foreach ([
+    'term-error', 'taxonomy-error', 'term-malformed', 'taxonomy-malformed',
+    'term-partial', 'taxonomy-partial', 'term-wrong-id', 'taxonomy-wrong-id', 'bad-option',
+] as $case) {
+    $failedDefaultOracle = $runDefaultOracle($case);
+    wprism_check(
+        $failedDefaultOracle['exception'] instanceof RuntimeException
+            && $failedDefaultOracle['output'] === null,
+        "$case cannot become an empty or zero positive Woo default-category witness"
+    );
+}
+
+// Execute the complete public negative window, including the engine envelope,
+// native/identity/tree nonmutation, exact restore and warning-free recapture.
+// Mutations target each acceptance seam so this is evidence for the command
+// path rather than a collection of nearby strings.
+$intersectionStart = strpos(
+    $live,
+    "say 'incoherent Woo default refuses public capture without publication or native/identity drift'"
+);
+$intersectionEndToken = "pass 'one divergent custom category refuses exactly; the explicitly authored coherent default remains portable and warning-free'";
+$intersectionEnd = $intersectionStart === false ? false : strpos($live, $intersectionEndToken, $intersectionStart);
+$intersectionBlock = $intersectionStart === false || $intersectionEnd === false
+    ? ''
+    : substr($live, $intersectionStart, $intersectionEnd + strlen($intersectionEndToken) - $intersectionStart);
+wprism_check($intersectionBlock !== '', 'the complete public Woo reference-intersection refusal window is extractable');
+$intersectionProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_CASE="$2" R1="$3"
+SOURCE_SEED='{"categories":{"en":3200101},"category_tts":{"en":3300101}}'
+SOURCE_DEFAULT_FIXTURE='{"installer_default":3200001,"option":3200007,"role":"source","slug":"rmcombo-default-product-category","taxonomy":"product_cat","taxonomy_term_id":3200007,"term_id":3200007,"term_taxonomy_id":3200007}'
+SOURCE_DEFAULT_NATIVE='{"option":3200007,"term":{"term_id":3200007,"slug":"rmcombo-default-product-category"},"term_taxonomy":{"term_taxonomy_id":3200007,"term_id":3200007,"taxonomy":"product_cat"}}'
+PHASE_FILE="$R1/phase" NATIVE_COUNT="$R1/native-count" OPTION_COUNT="$R1/option-count" IDENTITY_COUNT="$R1/identity-count"
+printf 'good\n' >"$PHASE_FILE"
+printf '0\n' >"$NATIVE_COUNT"
+printf '0\n' >"$OPTION_COUNT"
+printf '0\n' >"$IDENTITY_COUNT"
+mkdir -p "$R1/state"
+printf 'canonical\n' >"$R1/state/entity"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+say() { :; }
+pass() { :; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+wp1() {
+  if [ "$1" = eval ]; then
+    if grep -Fq 'negative fixture did not persist' <<<"$2"; then
+      printf 'bad\n' >"$PHASE_FILE"
+      return 0
+    fi
+    if grep -Fq 'negative fixture did not restore exactly' <<<"$2"; then
+      [ "$PROBE_CASE" != restore-failure ] || return 73
+      printf 'good\n' >"$PHASE_FILE"
+      return 0
+    fi
+    return 74
+  fi
+  [ "$1" = wprism ] && [ "$2" = capture ] || return 75
+  case " $* " in
+    *' --out=/siterepo/.tmp-rmcombo-default-restored '*)
+      mkdir -p "$R1/.tmp-rmcombo-default-restored"
+      cp -R "$R1/state/." "$R1/.tmp-rmcombo-default-restored/"
+      if [ "$PROBE_CASE" = restored-tree-drift ]; then printf 'drift\n' >>"$R1/.tmp-rmcombo-default-restored/entity"; fi
+      if [ "$PROBE_CASE" = restored-stderr-warning ]; then
+        printf 'Warning: fixture restored-default capture warning\n' >&2
+      fi
+      if [ "$PROBE_CASE" = restored-warning ]; then
+        printf '%s\n' '{"warnings":["fixture capture warning"]}'
+      else
+        printf '%s\n' '{"warnings":[]}'
+      fi
+      return 0
+      ;;
+  esac
+  if [ "$PROBE_CASE" = publication-drift ]; then printf 'drift\n' >>"$R1/state/entity"; fi
+  if [ "$PROBE_CASE" = success ]; then
+    printf '%s\n' '{"warnings":[]}'
+    return 0
+  fi
+  if [ "$PROBE_CASE" = php-diagnostic ]; then
+    printf 'PHP Warning: fixture diagnostic in /fixture.php on line 1\n' >&2
+  fi
+  if [ "$PROBE_CASE" = downgraded-warning ]; then
+    printf 'Warning: option default_product_cat: unmanaged term id 3200101 — key skipped\n' >&2
+  fi
+  if [ "$PROBE_CASE" = wrong-reason ]; then
+    printf '%s\n' '{"format":"wprism-command-refusal/v1","reason_code":"fixture_refusal"}'
+  else
+    printf '%s\n' '{"format":"wprism-command-refusal/v1","reason_code":"reference_intersection_failed"}'
+  fi
+  return 1
+}
+native_state() {
+  count=$(cat "$NATIVE_COUNT"); count=$((count + 1)); printf '%s\n' "$count" >"$NATIVE_COUNT"
+  if [ "$PROBE_CASE" = native-drift ] && [ "$count" -eq 2 ]; then
+    printf '%s\n' '{"native":"changed"}'
+  else
+    printf '%s\n' '{"native":"stable"}'
+  fi
+}
+default_product_category_state() {
+  count=$(cat "$OPTION_COUNT"); count=$((count + 1)); printf '%s\n' "$count" >"$OPTION_COUNT"
+  if [ "$count" -ge 3 ] || [ "$(cat "$PHASE_FILE")" = good ]; then
+    printf '%s\n' "$SOURCE_DEFAULT_NATIVE"
+  elif [ "$PROBE_CASE" = option-drift ] && [ "$count" -eq 2 ]; then
+    printf '%s\n' '{"option":3200102,"term":null,"term_taxonomy":null}'
+  else
+    printf '%s\n' '{"option":3200101,"term":{"term_id":3200101,"slug":"rmcombo-catalog-en"},"term_taxonomy":null}'
+  fi
+}
+identity_map_digest() {
+  count=$(cat "$IDENTITY_COUNT"); count=$((count + 1)); printf '%s\n' "$count" >"$IDENTITY_COUNT"
+  if [ "$PROBE_CASE" = identity-drift ] && [ "$count" -eq 2 ]; then
+    printf '%s\n' '{"count":3,"sha256":"changed"}'
+  else
+    printf '%s\n' '{"count":2,"sha256":"stable"}'
+  fi
+}
+canonical_capture_digest() { shasum -a 256 "$1/state/entity" | awk '{print $1}'; }
+SH;
+foreach ([
+    'ready', 'success', 'wrong-reason', 'php-diagnostic', 'downgraded-warning', 'publication-drift',
+    'native-drift', 'option-drift', 'identity-drift', 'restore-failure',
+    'restored-warning', 'restored-stderr-warning', 'restored-tree-drift',
+] as $case) {
+    $scratch = sys_get_temp_dir() . '/wprism-rmcombo-intersection-' . bin2hex(random_bytes(8));
+    if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
+        throw new RuntimeException('could not allocate Woo intersection probe scratch');
+    }
+    try {
+        [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+            $intersectionProbe . "\n" . $scenarioAssertionDefinitions . "\n"
+                . $intersectionBlock . "\nprintf 'INTERSECTION_READY\\n'\n",
+            [$root, $case, $scratch],
+            $root
+        );
+        wprism_check(
+            $case === 'ready'
+                ? $status === 0 && $stdout === "INTERSECTION_READY\n" && $stderr === ''
+                : $status !== 0 && !str_contains($stdout, 'INTERSECTION_READY'),
+            "actual public Woo intersection window classifies $case before accepting portable evidence"
+        );
+    } finally {
+        $remove = static function (string $path) use (&$remove): void {
+            if (is_link($path) || is_file($path)) {
+                @unlink($path);
+                return;
+            }
+            foreach (scandir($path) ?: [] as $name) {
+                if ($name !== '.' && $name !== '..') {
+                    $remove($path . '/' . $name);
+                }
+            }
+            @rmdir($path);
+        };
+        $remove($scratch);
+    }
+}
+
 $configureDefinition = strpos($live, 'configure_rank_math() {');
 $nativeModuleDisable = strpos($live, 'RankMath\\Helper::update_modules(array_fill_keys($stored, "off"));');
 $nativeModuleEnable = strpos($live, 'RankMath\\Helper::update_modules(array_fill_keys($desired, "on"));');
@@ -644,7 +1091,7 @@ $targetBinding = strpos($live, <<<'SH'
 establish_core_environment_bindings wp2 /siterepo admin@example.test \
   "http://${PAIR}2.invalid" "http://${PAIR}2.invalid"
 SH);
-$firstCapture = strpos($live, 'wp1 wprism capture --repo=/siterepo >/dev/null');
+$firstCapture = strpos($live, "capture_wprism_json_checked SOURCE_CAPTURE 'Rank Math combination source capture'");
 $targetClone = strpos($live, 'git clone -q "$ORIGIN" "$R2"');
 $firstDeploy = strpos($live, 'DIRTY_DEPLOY=$(host_wprism_combo wp2 deploy');
 wprism_check(
@@ -663,13 +1110,28 @@ wprism_check(
     'each complete plugin-order leg provisions the exact headless core intent after seed/clone and before capture/deploy'
 );
 foreach ([
-    ['INITIAL', 'Rank Math commerce/multilingual initial apply', 'TARGET=$(native_state wp2)'],
-    ['RETRY', 'Rank Math combination provider retry', 'RETRY_NATIVE=$(native_state wp2)'],
-    ['NOOP', 'Rank Math combination no-op apply', 'wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final'],
-] as [$answer, $label, $observation]) {
+    [
+        'INITIAL',
+        'Rank Math commerce/multilingual initial apply',
+        'assert_rmcombo_default_apply_ready',
+        'TARGET=$(native_state wp2)',
+    ],
+    [
+        'RETRY',
+        'Rank Math combination provider retry',
+        'assert_rmcombo_default_apply_ready',
+        'RETRY_NATIVE=$(native_state wp2)',
+    ],
+    [
+        'NOOP',
+        'Rank Math combination no-op apply',
+        'assert_rmcombo_default_apply_ready',
+        'wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final',
+    ],
+] as [$answer, $label, $callback, $observation]) {
     $checkedCapture = strpos(
         $live,
-        "capture_wprism_json_checked $answer '$label' assert_wprism_apply_ready "
+        "capture_wprism_json_checked $answer '$label' $callback "
     );
     // Keep the old shape executable as a counterfactual: this regression must
     // demonstrate why publishing the last JSON line before readiness was wrong.
@@ -693,7 +1155,9 @@ foreach ([
         $captureStart,
         $receipt - $captureStart
     );
-    foreach (['ready', 'missing', 'missing-stderr', 'refusal', 'diagnostic', 'startup', 'parse'] as $case) {
+    $applyCases = ['ready', 'missing', 'missing-stderr', 'refusal', 'diagnostic', 'startup', 'parse'];
+    $applyCases[] = 'default-warning';
+    foreach ($applyCases as $case) {
         $script = <<<'SH'
 set -euo pipefail
 fail() { printf '%s\n' "$*" >&2; exit 1; }
@@ -719,6 +1183,9 @@ wp2() {
   if [ "$PROBE_CASE" = missing-stderr ]; then
     printf 'Warning: env_missing: option home is required\n' >&2
   fi
+  if [ "$PROBE_CASE" = default-warning ]; then
+    printf 'Warning: option default_product_cat: unmanaged term id 41 — key skipped\n' >&2
+  fi
   if [ "$PROBE_CASE" = missing ]; then
     printf '%s\n' '{"canary":"clean","verification":{"result":"pass"},"warnings":["env_missing: option home is required"]}'
   else
@@ -728,7 +1195,8 @@ wp2() {
 PROBE_CASE="$2"
 SH;
         $process = proc_open(
-            ['bash', '-c', $script . "\n" . $block . "\nprintf 'APPLY_READY\\n'\n", 'combo-apply-probe',
+            ['bash', '-c', $script . "\n" . $scenarioAssertionDefinitions . "\n" . $block
+                . "\nprintf 'APPLY_READY\\n'\n", 'combo-apply-probe',
                 $root . '/sandbox/conformance/asserts.sh', $case],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
@@ -756,6 +1224,8 @@ SH;
                 'diagnostic', 'startup', 'parse' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
                     && str_contains($stderr, 'fixture diagnostic')
                     && str_contains($stderr, 'emitted a PHP runtime diagnostic'),
+                'default-warning' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
+                    && str_contains($stderr, 'did not settle the portable Woo default'),
             },
             "$answer actual live command block preserves the $case evidence domain"
         );
@@ -833,6 +1303,18 @@ wprism_check(
         && str_contains($sshDeletion, 'export WPRISM_SSH_ADOPT_EXTENSION=')
         && str_contains($sshDeletion, 'exec bash "$ROOT/sandbox/tests/live/regress_ssh_adopt.sh"'),
     'the extension remains WP-CLI eval-safe when sourced and delegates direct execution to the shared SSH product gate'
+);
+$sshWooInstall = strpos($sshDeletion, 'wprism_ssh_install_certified_plugin "$adapter" "$expected_version"');
+$sshWooTerms = strpos($sshDeletion, 'WC_Install::create_terms();');
+$sshBaselineCapture = strpos($sshDeletion, 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH"');
+wprism_check(
+    !str_contains($sshDeletion, 'AUTO_INCREMENT')
+        && $sshWooInstall !== false
+        && $sshWooTerms !== false
+        && $sshBaselineCapture !== false
+        && $sshWooInstall < $sshWooTerms
+        && $sshWooTerms < $sshBaselineCapture,
+    'the SSH extension keeps Woo native fresh-install coordinates intact and lets public capture enforce the intersection'
 );
 $sshExtensionHelper = (string) file_get_contents($root . '/sandbox/tests/lib/ssh_adopt_extension.sh');
 wprism_check(
