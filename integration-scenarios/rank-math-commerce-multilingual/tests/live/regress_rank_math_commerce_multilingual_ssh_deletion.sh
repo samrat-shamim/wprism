@@ -413,7 +413,10 @@ PHP
   plan_json="$(jq -ce -s 'select(length == 1 and (.[0] | type == "object")) | .[0]' \
     "$plan_stdout" 2>>"$plan_stderr")" \
     || fail "the combined deletion plan did not return one JSON object; inspect its private capture"
-  assert_wprism_required_environment 'combined deletion plan' json "$plan_json" 2>>"$plan_stderr"
+  # The canonical object above cannot leak parser input here. Keep the
+  # value-free failure category and its EXIT cleanup report on public stderr;
+  # redirecting this function also redirects its process-ending trap.
+  assert_wprism_required_environment 'combined deletion plan' json "$plan_json"
   jq -e --arg uuid "$post_uuid" '
     ([.delete[]? | select(
       .uuid == $uuid and .type == "post" and .deletion_type == "post"
@@ -484,7 +487,7 @@ PHP
   converged_plan="$(jq -ce -s 'select(length == 1 and (.[0] | type == "object")) | .[0]' \
     "$converged_stdout" 2>>"$converged_stderr")" \
     || fail "the combined deletion follow-up plan did not return one JSON object; inspect its private capture"
-  assert_wprism_required_environment 'combined deletion follow-up plan' json "$converged_plan" 2>>"$converged_stderr"
+  assert_wprism_required_environment 'combined deletion follow-up plan' json "$converged_plan"
   jq -e '
     .create == [] and .update == [] and .adopt == []
     and .drift == [] and .conflict == []

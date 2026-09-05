@@ -612,7 +612,7 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 . "$1/sandbox/conformance/asserts.sh"
 umask 000
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/wprism-rmcombo-ssh-oracle.XXXXXX")
-trap 'rm -rf -- "$TMP"' EXIT
+trap 'code=$?; if [ "$code" -ne 0 ]; then printf "SSH_CLEANUP_READY\n" >&2; fi; rm -rf -- "$TMP"' EXIT
 DIAG_DIR="$TMP"
 post_uuid=12345678-1234-1234-1234-123456789abc
 WPRISM=fixture_host
@@ -676,7 +676,7 @@ foreach ($sshPlanCases as $phase => [$startToken, $endToken, $plan]) {
         "the SSH $phase plan has an executable command-to-acceptance block");
     $plan['env_missing'] = [['name' => 'fixture_optional', 'required' => false]];
     $plan['warnings'] = ['native action fired: fixture (verified)'];
-    foreach (['ready', 'required-row', 'required-warning', 'missing-env', 'malformed-env', 'provider-problem', 'php-stderr', 'php-stdout', 'php-startup-stdout', 'php-parse-stdout', 'malformed-stdout', 'malformed-plan-value', 'refusal'] as $mutation) {
+    foreach (['ready', 'required-row', 'required-warning', 'missing-warnings', 'malformed-warnings', 'nonstring-warning', 'missing-env', 'malformed-env', 'provider-problem', 'php-stderr', 'php-stdout', 'php-startup-stdout', 'php-parse-stdout', 'malformed-stdout', 'malformed-plan-value', 'refusal'] as $mutation) {
         $candidate = $plan;
         switch ($mutation) {
             case 'required-row':
@@ -684,6 +684,15 @@ foreach ($sshPlanCases as $phase => [$startToken, $endToken, $plan]) {
                 break;
             case 'required-warning':
                 $candidate['warnings'][] = 'env_missing: option home is required';
+                break;
+            case 'missing-warnings':
+                unset($candidate['warnings']);
+                break;
+            case 'malformed-warnings':
+                $candidate['warnings'] = 'private-operator-value';
+                break;
+            case 'nonstring-warning':
+                $candidate['warnings'][] = ['private-operator-value'];
                 break;
             case 'missing-env':
                 unset($candidate['env_missing']);
@@ -722,8 +731,11 @@ foreach ($sshPlanCases as $phase => [$startToken, $endToken, $plan]) {
         wprism_check(
             $mutation === 'ready'
                 ? $status === 0 && $stdout === "SSH_READY\n" && $stderr === ''
-                : $status !== 0 && !str_contains($stdout, 'SSH_READY') && !str_contains($stdout . $stderr, 'private-operator-value'),
-            "the actual SSH $phase plan block classifies $mutation without treating optional rows as missing authority"
+                : $status !== 0 && !str_contains($stdout, 'SSH_READY')
+                    && str_contains($stderr, 'combined')
+                    && str_contains($stderr, "SSH_CLEANUP_READY\n")
+                    && !str_contains($stdout . $stderr, 'private-operator-value'),
+            "the actual SSH $phase plan block classifies $mutation with a public failure category and cleanup but no private values"
         );
     }
 }
