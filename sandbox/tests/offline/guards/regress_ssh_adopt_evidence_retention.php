@@ -11,12 +11,13 @@ declare(strict_types=1);
  * inside a secret-bearing scratch tree that the EXIT trap always deleted. This
  * check proves the repair keeps a separate private, bounded evidence directory
  * while still destroying SSH keys, environment config, and DB credentials on
- * every exit. It reads source only: no Docker, SSH host, WordPress, or live
- * target.
+ * every exit. The exact diagnostic command/acceptance blocks also execute
+ * with controlled transports: no Docker, SSH host, WordPress, or live target.
  */
 
 $root = dirname(__DIR__, 4);
-$harnessPath = $root . '/sandbox/tests/live/regress_ssh_adopt.sh';
+require_once $root . '/sandbox/tests/lib/ShellProbe.php';
+$harnessPath = ($argv[1] ?? $root) . '/sandbox/tests/live/regress_ssh_adopt.sh';
 $harness = file_get_contents($harnessPath);
 if ($harness === false) {
     fwrite(STDERR, "FAIL: could not read SSH-adoption harness: $harnessPath\n");
@@ -125,6 +126,12 @@ $diagnosticAssignments = [
     'SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"',
     'SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"',
     'SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"',
+    'SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT="$DIAG_DIR/scoped-promote-refusal-baseline.stdout"',
+    'SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR="$DIAG_DIR/scoped-promote-refusal-baseline.stderr"',
+    'SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT="$DIAG_DIR/scoped-promote-refusal-baseline.exit"',
+    'SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT="$DIAG_DIR/scoped-promote-refusal-diagnostic.stdout"',
+    'SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR="$DIAG_DIR/scoped-promote-refusal-diagnostic.stderr"',
+    'SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT="$DIAG_DIR/scoped-promote-refusal-diagnostic.exit"',
     'SCOPED_SUCCESS_PROMOTE_STDOUT="$DIAG_DIR/scoped-success-promote.stdout"',
     'SCOPED_SUCCESS_PROMOTE_STDERR="$DIAG_DIR/scoped-success-promote.stderr"',
     'SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"',
@@ -141,10 +148,10 @@ $check(
         static fn(bool $ok, string $assignment): bool => $ok && str_contains($harness, $assignment),
         true
     )
-        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT"; do')
+        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR" "$SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT"; do')
         && str_contains($harness, '( umask 077; : >"$diagnostic_file" )')
         && str_contains($harness, 'chmod 0600 "$diagnostic_file"'),
-    'only the bounded mutation-readiness, plan, promote, and authority-status streams and numeric exits are precreated mode 0600'
+    'only the bounded mutation-readiness, plan, promote, refusal-diagnostic, and authority-status streams and numeric exits are precreated mode 0600'
 );
 preg_match_all('/\$DIAG_DIR\/([A-Za-z0-9._-]+)/', $harness, $diagnosticNames);
 $actualDiagnosticNames = array_values(array_unique($diagnosticNames[1] ?? []));
@@ -159,6 +166,12 @@ $expectedDiagnosticNames = [
     'scoped-plan.exit',
     'scoped-plan.stderr',
     'scoped-plan.stdout',
+    'scoped-promote-refusal-baseline.exit',
+    'scoped-promote-refusal-baseline.stderr',
+    'scoped-promote-refusal-baseline.stdout',
+    'scoped-promote-refusal-diagnostic.exit',
+    'scoped-promote-refusal-diagnostic.stderr',
+    'scoped-promote-refusal-diagnostic.stdout',
     'scoped-promote.exit',
     'scoped-promote.stderr',
     'scoped-promote.stdout',
@@ -172,6 +185,37 @@ $expectedDiagnosticNames = [
 $check(
     $actualDiagnosticNames === $expectedDiagnosticNames,
     'the diagnostic directory receives no key, config, credential, or unrelated evidence file'
+);
+
+$readerFunctionStart = strpos($harness, 'private_refusal_diagnostic() { #');
+$readerFunctionEnd = strpos($harness, 'assert_ssh_fixture_positive_diagnostics() {', is_int($readerFunctionStart) ? $readerFunctionStart : 0);
+$check(
+    is_int($readerFunctionStart) && is_int($readerFunctionEnd) && $readerFunctionStart < $readerFunctionEnd,
+    'the shared harness defines one bounded private-refusal diagnostic reader'
+);
+if (is_int($readerFunctionStart) && is_int($readerFunctionEnd) && $readerFunctionStart < $readerFunctionEnd) {
+    $readerFunction = substr($harness, $readerFunctionStart, $readerFunctionEnd - $readerFunctionStart);
+    $check(
+        str_contains($readerFunction, 'case "$mode" in snapshot|capture)')
+            && str_contains($readerFunction, 'PrivateRefusalReceipt::diagnosticSnapshot')
+            && str_contains($readerFunction, 'PrivateRefusalReceipt::diagnosticNewRecords')
+            && str_contains($readerFunction, "| base64 | tr -d '\\r\\n'")
+            && str_contains($readerFunction, 'ssh_fixture "php -r')
+            && !str_contains($readerFunction, 'wp_ssh_fixture')
+            && !preg_match('/\b(?:find|cat)\b/', $readerFunction),
+        'the target-uid reader reuses the bounded no-WordPress helper and transports only a base64 filename baseline'
+    );
+}
+$fixtureUploadStart = strpos($harness, 'scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php');
+$fixtureUploadEnd = strpos($harness, 'cat >"$TMP/envs.json"', is_int($fixtureUploadStart) ? $fixtureUploadStart : 0);
+$check(
+    is_int($fixtureUploadStart) && is_int($fixtureUploadEnd) && $fixtureUploadStart < $fixtureUploadEnd
+        && str_contains(
+            substr($harness, $fixtureUploadStart, $fixtureUploadEnd - $fixtureUploadStart),
+            'sandbox/tests/lib/PrivateRefusalReceipt.php'
+        )
+        && str_contains($harness, "ssh_fixture 'chmod 600 /home/wprism/recovery-fixture/PrivateRefusalReceipt.php'"),
+    'the tracked shared reader is uploaded once and remains private to the target CLI identity'
 );
 
 $failureScopeMint = '"$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-failure-scope.json"';
@@ -251,16 +295,148 @@ $statusCapture = <<<'SH'
 ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"
 SH;
 $statusExit = 'printf \'%s\\n\' "$AUTHORITY_STATUS_CODE" >"$AUTHORITY_STATUS_EXIT"';
-$promoteAt = strpos($faultCapture, $promoteRedirect);
-$promoteExitAt = strpos($faultCapture, $promoteExit);
-$statusAt = strpos($faultCapture, $statusCapture);
-$statusExitAt = strpos($faultCapture, $statusExit);
+$refusalBaselineAt = strpos($harness, 'if private_refusal_diagnostic snapshot promotion-begin-scoped');
+$refusalBaselineExitAt = strpos($harness, 'printf \'%s\\n\' "$SCOPED_PROMOTE_REFUSAL_BASELINE_CODE" >"$SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT"');
+$refusalDiagnosticAt = strpos($harness, 'if private_refusal_diagnostic capture promotion-begin-scoped "$(<"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT")"');
+$refusalDiagnosticExitAt = strpos($harness, 'printf \'%s\\n\' "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE" >"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT"');
+$promoteGlobalAt = strpos($harness, $promoteRedirect, is_int($refusalBaselineAt) ? $refusalBaselineAt : 0);
+$promoteExitGlobalAt = strpos($harness, $promoteExit, is_int($promoteGlobalAt) ? $promoteGlobalAt : 0);
+$statusGlobalAt = strpos($harness, $statusCapture, is_int($refusalDiagnosticAt) ? $refusalDiagnosticAt : 0);
+$statusExitGlobalAt = strpos($harness, $statusExit, is_int($statusGlobalAt) ? $statusGlobalAt : 0);
 $check(
-    is_int($promoteAt) && is_int($promoteExitAt) && is_int($statusAt) && is_int($statusExitAt)
-        && $promoteAt < $promoteExitAt && $promoteExitAt < $statusAt && $statusAt < $statusExitAt
+    is_int($refusalBaselineAt) && is_int($refusalBaselineExitAt)
+        && is_int($promoteGlobalAt) && is_int($promoteExitGlobalAt)
+        && is_int($refusalDiagnosticAt) && is_int($refusalDiagnosticExitAt)
+        && is_int($statusGlobalAt) && is_int($statusExitGlobalAt)
+        && $refusalBaselineAt < $refusalBaselineExitAt && $refusalBaselineExitAt < $promoteGlobalAt
+        && $promoteGlobalAt < $promoteExitGlobalAt && $promoteExitGlobalAt < $refusalDiagnosticAt
+        && $refusalDiagnosticAt < $refusalDiagnosticExitAt && $refusalDiagnosticExitAt < $statusGlobalAt
+        && $statusGlobalAt < $statusExitGlobalAt
         && !str_contains($faultCapture, 'rollback-control.php status --root=/home/wprism/site/.wprism/control'),
-    'controlled promote streams and immediate raw authority-status streams/exits are captured in order without decorated recovery probes'
+    'the exact command baseline and unverified new-record diagnostic are captured around promote before authority status or teardown'
 );
+$diagnosticCapture = is_int($refusalBaselineAt) && is_int($statusGlobalAt) && $refusalBaselineAt < $statusGlobalAt
+    ? substr($harness, $refusalBaselineAt, $statusGlobalAt - $refusalBaselineAt)
+    : '';
+$check(
+    str_contains($diagnosticCapture, '[ "$SCOPED_PROMOTE_REFUSAL_BASELINE_CODE" -eq 0 ]')
+        && str_contains($diagnosticCapture, '[ "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE" -eq 0 ]')
+        && str_contains($diagnosticCapture, '.purpose == "diagnostic_only" and .verified == false')
+        && str_contains($diagnosticCapture, '.new_records == (.records | length)')
+        && !str_contains($diagnosticCapture, 'PrivateRefusalReceipt::verify')
+        && !str_contains($diagnosticCapture, 'reason_code')
+        && !str_contains($diagnosticCapture, 'throwable')
+        && !str_contains($diagnosticCapture, '@base64d'),
+    'only the unverified diagnostic envelope is validated; raw records are never classified as expected-cause evidence'
+);
+
+// Drive the actual baseline/promote/delta block. A malformed baseline must
+// stop BEFORE promote; a later receipt failure must not publish acceptance.
+$diagnosticBlockEnd = strpos($harness, '# Capture only the raw signed authority status', (int) $refusalBaselineAt);
+$diagnosticBlock = substr($harness, (int) $refusalBaselineAt, (int) $diagnosticBlockEnd - (int) $refusalBaselineAt);
+$streamCheckStart = strpos($harness, 'assert_ssh_fixture_positive_diagnostics() {');
+$streamCheckEnd = strpos($harness, 'target_ledger_value() {', (int) $streamCheckStart);
+$streamCheck = substr($harness, (int) $streamCheckStart, (int) $streamCheckEnd - (int) $streamCheckStart);
+$probeSetup = <<<'SH'
+set -euo pipefail
+fail() { printf 'DIAGNOSTIC_REFUSED:%s\n' "$1" >&2; exit 1; }
+. "$1/sandbox/conformance/asserts.sh"
+baseline_answer="$2" delta_answer="$3" mutation="$4"
+DIAG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/wprism-ssh-diagnostic-probe.XXXXXX")
+TMP="$DIAG_DIR"
+cleanup() {
+  [ ! -e "$DIAG_DIR/promoted" ] || printf 'PROMOTE_CALLED\n'
+  rm -rf -- "$DIAG_DIR"
+}
+trap cleanup EXIT
+private_refusal_diagnostic() {
+  local boundary="$1" answer
+  if [ "$boundary" = snapshot ]; then answer="$baseline_answer"; else answer="$delta_answer"; fi
+  case "$mutation" in
+    "$boundary-empty") return 0 ;;
+    "$boundary-malformed") printf 'invalid-json'; return 0 ;;
+    "$boundary-php-stdout") printf 'PHP Warning: private-diagnostic-canary in /fixture.php on line 1\n' ;;
+    "$boundary-php-stderr") printf 'PHP Warning: private-diagnostic-canary in /fixture.php on line 1\n' >&2 ;;
+    "$boundary-env-stderr") printf 'env_missing: private-diagnostic-canary\n' >&2 ;;
+    "$boundary-multiple") printf '%s\n' "$answer" ;;
+  esac
+  printf '%s\n' "$answer"
+  [ "$mutation" != "$boundary-nonzero" ] || return 29
+}
+fixture_promote() {
+  : >"$DIAG_DIR/promoted"
+  printf 'private-diagnostic-canary\n'
+  return 23
+}
+WPRISM=fixture_promote
+SH;
+$probeSetup .= "\n" . implode("\n", $diagnosticAssignments) . "\n";
+$diagnosticRecord = [
+    'bytes' => 25, 'contents_base64' => base64_encode('private-diagnostic-canary'),
+    'name' => '20260905-120000-promotion-begin-scoped-' . str_repeat('a', 24) . '.json',
+    'sha256' => hash('sha256', 'private-diagnostic-canary'),
+];
+$diagnosticEnvelope = [
+    'command' => 'promotion-begin-scoped', 'format' => 'wprism-private-refusal-diagnostic/v1',
+    'new_records' => 1, 'purpose' => 'diagnostic_only', 'records' => [$diagnosticRecord], 'verified' => false,
+];
+$runDiagnostic = static function (string $baseline, array $envelope, string $mutation) use (
+    $root, $probeSetup, $streamCheck, $diagnosticBlock
+): array {
+    return \WPrismTest\ShellProbe::run($probeSetup . $streamCheck . $diagnosticBlock . "\nprintf 'DIAGNOSTIC_READY\\n'\n",
+        [$root, $baseline, json_encode($envelope, JSON_THROW_ON_ERROR), $mutation], $root);
+};
+$fourRecords = array_map(static fn(int $index): array => array_replace($diagnosticRecord, [
+    'name' => '20260905-120000-promotion-begin-scoped-' . str_repeat((string) $index, 24) . '.json',
+]), range(1, 4));
+foreach ([[], [$diagnosticRecord], $fourRecords] as $records) {
+    $envelope = array_replace($diagnosticEnvelope, ['new_records' => count($records), 'records' => $records]);
+    [$status, $stdout, $stderr] = $runDiagnostic('[]', $envelope, 'ready');
+    $check($status === 0 && $stderr === '' && $stdout === "DIAGNOSTIC_READY\nPROMOTE_CALLED\n",
+        'the real private diagnostic block admits a complete bounded ' . count($records) . '-record observation');
+}
+foreach (['snapshot', 'capture'] as $boundary) {
+    foreach (['empty', 'malformed', 'php-stdout', 'php-stderr', 'env-stderr', 'multiple', 'nonzero'] as $mutation) {
+        [$status, $stdout, $stderr] = $runDiagnostic('[]', $diagnosticEnvelope, "$boundary-$mutation");
+        $check($status !== 0 && !str_contains($stdout, 'DIAGNOSTIC_READY')
+            && str_contains($stdout, 'PROMOTE_CALLED') === ($boundary === 'capture')
+            && !str_contains($stdout . $stderr, 'private-diagnostic-canary'),
+            "actual $boundary diagnostic rejects $mutation at its own boundary without exposing private streams");
+    }
+}
+foreach (['{}', '[123]', '["unrelated"]', '[ ]', json_encode(array_fill(0, 2, $diagnosticRecord['name'])),
+    json_encode(array_fill(0, 4097, $diagnosticRecord['name']))] as $baseline) {
+    [$status, $stdout, $stderr] = $runDiagnostic($baseline, $diagnosticEnvelope, 'ready');
+    $check($status !== 0 && !str_contains($stdout, 'PROMOTE_CALLED')
+        && !str_contains($stdout . $stderr, 'private-diagnostic-canary'),
+        'the actual baseline acceptance rejects a noncanonical or out-of-domain roster before promote');
+}
+foreach ([
+    ['verified' => true], ['purpose' => 'expected_cause'], ['new_records' => 2], ['records' => (object) []],
+    ['new_records' => 5, 'records' => array_fill(0, 5, $diagnosticRecord)],
+    ['new_records' => 2, 'records' => array_fill(0, 2, $diagnosticRecord)],
+    ['records' => [array_replace($diagnosticRecord, ['bytes' => 1.5])]],
+    ['records' => [array_replace($diagnosticRecord, ['bytes' => 262145])]],
+    ['records' => [array_replace($diagnosticRecord, ['name' => '../private-diagnostic-canary'])]],
+] as $override) {
+    [$status, $stdout, $stderr] = $runDiagnostic('[]', array_replace($diagnosticEnvelope, $override), 'ready');
+    $check($status !== 0 && !str_contains($stdout, 'DIAGNOSTIC_READY') && str_contains($stdout, 'PROMOTE_CALLED')
+        && !str_contains($stdout . $stderr, 'private-diagnostic-canary'),
+        'the actual delta acceptance rejects an invalid diagnostic-only envelope without exposing its payload');
+}
+foreach ([
+    [['snapshot', 'promotion-begin-scoped'], true], [['capture', 'promotion-begin-scoped', '[]'], true],
+    [['capture', 'promotion-begin-scoped'], false], [['capture', 'promotion-begin-scoped', ''], false],
+    [['snapshot', 'promotion-begin-scoped', '[]'], false], [['unknown', 'promotion-begin-scoped'], false],
+    [['snapshot', '../private-diagnostic-canary'], false], [[], false],
+] as [$arguments, $accepted]) {
+    [$status, $stdout, $stderr] = \WPrismTest\ShellProbe::run(
+        "set -euo pipefail\nfail() { printf 'REFUSED\\n' >&2; exit 1; }\nssh_fixture() { printf 'SSH_REACHED\\n'; }\n"
+            . $readerFunction . "\nprivate_refusal_diagnostic " . implode(' ', array_map('escapeshellarg', $arguments)), [], $root);
+    $check(($status === 0 && $stdout === "SSH_REACHED\n" && $stderr === '') === $accepted
+        && ($accepted || !str_contains($stdout, 'SSH_REACHED')),
+        'the actual remote-reader wrapper requires an explicit well-formed mode, command, and capture baseline');
+}
 $check(
     !str_contains($harness, 'FAILURE_OUT')
         && str_contains($harness, 'grep -q \'scoped promote phase: promotion-begin-scoped\' "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR"')
@@ -308,7 +484,7 @@ $check(
         && !str_contains($successCapture, '$TMP/scoped-apply-success.err'),
     'the committed scoped-promote retry retains private stdout, stderr, and exit before parsing its receipt directly from stdout'
 );
-foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_REFRESH_STDOUT', 'SCOPED_REFRESH_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR', 'DATABASE_MUTATION_STDOUT', 'DATABASE_MUTATION_STDERR'] as $diagnosticVariable) {
+foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_REFRESH_STDOUT', 'SCOPED_REFRESH_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT', 'SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR', 'SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT', 'SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR', 'DATABASE_MUTATION_STDOUT', 'DATABASE_MUTATION_STDERR'] as $diagnosticVariable) {
     $check(
         preg_match('/(?:\\bcat\\b|\\becho\\b|\\bprintf\\b)[^\\n]*\\$' . $diagnosticVariable . '\\b/', $harness) !== 1,
         "$diagnosticVariable is never printed or catted into terminal/CI output"

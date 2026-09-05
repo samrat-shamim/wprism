@@ -55,6 +55,12 @@ SCOPED_REFRESH_EXIT=""
 SCOPED_PROMOTE_STDOUT=""
 SCOPED_PROMOTE_STDERR=""
 SCOPED_PROMOTE_EXIT=""
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT=""
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR=""
+SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT=""
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT=""
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR=""
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT=""
 SCOPED_SUCCESS_PROMOTE_STDOUT=""
 SCOPED_SUCCESS_PROMOTE_STDERR=""
 SCOPED_SUCCESS_PROMOTE_EXIT=""
@@ -145,7 +151,7 @@ cleanup() {
   fi
 
   # A green body is not a green live proof until the label-verified fixture
-  # cleanup succeeds. Only then may the narrow, non-secret diagnostic record
+  # cleanup succeeds. Only then may the bounded private diagnostic record
   # be discarded and the final PASS be published.
   if [ "$BODY_COMPLETE" -eq 1 ] && [ "$incoming" -eq 0 ] && [ "$cleanup_failed" -eq 0 ]; then
     if [ -n "$DIAG_DIR" ]; then
@@ -253,6 +259,12 @@ SCOPED_REFRESH_EXIT="$DIAG_DIR/scoped-refresh.exit"
 SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
 SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
 SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT="$DIAG_DIR/scoped-promote-refusal-baseline.stdout"
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR="$DIAG_DIR/scoped-promote-refusal-baseline.stderr"
+SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT="$DIAG_DIR/scoped-promote-refusal-baseline.exit"
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT="$DIAG_DIR/scoped-promote-refusal-diagnostic.stdout"
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR="$DIAG_DIR/scoped-promote-refusal-diagnostic.stderr"
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT="$DIAG_DIR/scoped-promote-refusal-diagnostic.exit"
 SCOPED_SUCCESS_PROMOTE_STDOUT="$DIAG_DIR/scoped-success-promote.stdout"
 SCOPED_SUCCESS_PROMOTE_STDERR="$DIAG_DIR/scoped-success-promote.stderr"
 SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"
@@ -262,7 +274,7 @@ AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
 DATABASE_MUTATION_STDOUT="$DIAG_DIR/database-mutation.stdout"
 DATABASE_MUTATION_STDERR="$DIAG_DIR/database-mutation.stderr"
 DATABASE_MUTATION_EXIT="$DIAG_DIR/database-mutation.exit"
-for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT"; do
+for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR" "$SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
@@ -278,6 +290,30 @@ wp_ssh_fixture() {
     command+=" '$argument'"
   done
   ssh_fixture "$command"
+}
+
+private_refusal_diagnostic() { # <snapshot|capture> <command> [canonical baseline JSON]
+  [ "$#" -ge 2 ] || fail 'private refusal diagnostic requires an explicit mode and command'
+  local mode="$1" command="$2" baseline baseline_encoded code
+  case "$mode" in snapshot|capture) ;; *) fail 'private refusal diagnostic mode is unknown' ;; esac
+  if [ "$mode" = snapshot ]; then
+    [ "$#" -eq 2 ] || fail 'private refusal diagnostic snapshot takes no baseline'
+  else
+    [ "$#" -eq 3 ] && [ -n "$3" ] || fail 'private refusal diagnostic capture requires its explicit baseline'
+  fi
+  [[ "$command" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail 'private refusal diagnostic command is invalid'
+  baseline="${3-[]}"  # Filenames only; raw refusal bytes are never passed in argv.
+  baseline_encoded="$(printf '%s' "$baseline" | base64 | tr -d '\r\n')" \
+    || fail 'private refusal diagnostic could not encode its baseline'
+  code='require "/home/wprism/recovery-fixture/PrivateRefusalReceipt.php";
+$dir="/home/wprism/site/.wprism/refusals";
+$baseline=base64_decode($argv[3],true);
+if (!is_string($baseline)) throw new RuntimeException("private diagnostic baseline is not base64");
+echo $argv[1] === "snapshot"
+  ? \WPrismTest\PrivateRefusalReceipt::diagnosticSnapshot($dir,$argv[2])
+  : \WPrismTest\PrivateRefusalReceipt::diagnosticNewRecords($dir,$baseline,$argv[2]);'
+  # No WordPress bootstrap while reading private evidence as the target uid.
+  ssh_fixture "php -r '$code' '$mode' '$command' '$baseline_encoded'"
 }
 
 # These private files can contain operator material. Reject diagnostics by
@@ -415,11 +451,12 @@ openssl rand 32 >"$TMP/checkpoint.key"
 chmod 0600 "$TMP/checkpoint.key"
 jq -n --arg host "$DB" '{host:$host,port:3306,database:"wordpress",user:"wordpress",password:"wordpress-pass",admin_user:"root",admin_password:"root-pass",code_pointer:"/home/wprism/recovery-fixture/code-pointer",effect_target:"/home/wprism/recovery-fixture/effect-target"}' >"$TMP/checkpoint-db.json"
 ssh_fixture 'mkdir -p /home/wprism/recovery-fixture /home/wprism/recovery-fixture/checkpoint && chmod 700 /home/wprism/recovery-fixture /home/wprism/recovery-fixture/checkpoint && printf "adopt-code\\n" > /home/wprism/recovery-fixture/code-pointer && printf "adopt-effect\\n" > /home/wprism/recovery-fixture/effect-target'
-scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/ssh-rollback-checkpoint-provider.php sandbox/tests/fixtures/code-release-provider.php \
+scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/ssh-rollback-checkpoint-provider.php sandbox/tests/fixtures/code-release-provider.php sandbox/tests/lib/PrivateRefusalReceipt.php \
   wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
 scp -F "$TMP/ssh_config" "$TMP/checkpoint.key" "$TMP/checkpoint-db.json" \
   wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
 ssh_fixture 'chmod 700 /home/wprism/recovery-fixture/*.php'
+ssh_fixture 'chmod 600 /home/wprism/recovery-fixture/PrivateRefusalReceipt.php'
 ssh_fixture 'chmod 600 /home/wprism/recovery-fixture/checkpoint.key /home/wprism/recovery-fixture/checkpoint-db.json'
 
 cat >"$TMP/envs.json" <<EOF
@@ -733,18 +770,70 @@ printf '%s\n' "$SCOPED_PLAN_CODE" >"$SCOPED_PLAN_EXIT"
 [ "$SCOPED_PLAN_CODE" -eq 0 ] \
   || fail "pre-promote scoped target plan did not complete"
 
+# Snapshot only promotion-begin-scoped filenames immediately before this
+# invocation. If it refuses before the deliberate Apply fault, preserve its
+# bounded new raw record in the private diagnostic directory; this is an
+# unverified debugging artifact, never the expected-cause receipt used by a
+# capability claim.
+if private_refusal_diagnostic snapshot promotion-begin-scoped >"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" 2>"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR"; then
+  SCOPED_PROMOTE_REFUSAL_BASELINE_CODE=0
+else
+  SCOPED_PROMOTE_REFUSAL_BASELINE_CODE=$?
+fi
+printf '%s\n' "$SCOPED_PROMOTE_REFUSAL_BASELINE_CODE" >"$SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT"
+[ "$SCOPED_PROMOTE_REFUSAL_BASELINE_CODE" -eq 0 ] \
+  || fail "could not snapshot the scoped-promotion private diagnostic boundary"
+assert_ssh_fixture_positive_diagnostics 'scoped-promotion private diagnostic baseline' \
+  "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR"
+jq -se 'length == 1 and (.[0] | type == "array" and length <= 4096 and . == unique and all(.[];
+    type == "string" and test("^[0-9]{8}-[0-9]{6}-promotion-begin-scoped-[a-f0-9]{24}\\.json$")))' \
+  "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" >/dev/null 2>>"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR" \
+  || fail "scoped-promotion private diagnostic baseline was not one bounded filename list"
+[ "$(<"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT")" = "$(jq -c . "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" 2>>"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR")" ] \
+  || fail "scoped-promotion private diagnostic baseline was not canonical"
+
 if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-failure-scope.json" >"$SCOPED_PROMOTE_STDOUT" 2>"$SCOPED_PROMOTE_STDERR"; then
   FAILURE_CODE=0
 else
   FAILURE_CODE=$?
 fi
 printf '%s\n' "$FAILURE_CODE" >"$SCOPED_PROMOTE_EXIT"
+if private_refusal_diagnostic capture promotion-begin-scoped "$(<"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT")" >"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" 2>"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR"; then
+  SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE=0
+else
+  SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE=$?
+fi
+printf '%s\n' "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE" >"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT"
+[ "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE" -eq 0 ] \
+  || fail "could not retain the scoped-promotion private diagnostic record"
+assert_ssh_fixture_positive_diagnostics 'scoped-promotion private diagnostic delta' \
+  "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR"
+# Validate only the diagnostic transport envelope. Its raw records remain
+# unclassified and cannot satisfy the exact expected-cause evidence contract.
+jq -se 'length == 1 and (.[0] |
+  type == "object" and
+  keys == ["command","format","new_records","purpose","records","verified"]
+  and .command == "promotion-begin-scoped"
+  and .format == "wprism-private-refusal-diagnostic/v1"
+  and .purpose == "diagnostic_only" and .verified == false
+  and (.records | type) == "array" and (.records | length) <= 4
+  and (.new_records | type) == "number" and .new_records == (.records | length)
+  and (.records | map(.name) | unique | length) == .new_records
+  and all(.records[];
+    keys == ["bytes","contents_base64","name","sha256"]
+    and (.bytes | type) == "number" and .bytes >= 1 and .bytes <= 262144 and .bytes == (.bytes | floor)
+    and (.contents_base64 | type) == "string" and (.contents_base64 | length) <= 349528
+    and (.name | type) == "string" and (.name | test("^[0-9]{8}-[0-9]{6}-promotion-begin-scoped-[a-f0-9]{24}\\.json$"))
+    and (.sha256 | type) == "string" and (.sha256 | test("^[a-f0-9]{64}$")))
+  )
+' "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" >/dev/null 2>>"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR" \
+  || fail "scoped-promotion private diagnostic transport was incomplete"
 # Capture only the raw signed authority status before removing the injected
 # fault. The decorated `status` action probes recovery providers and therefore
 # is not observation-only. The separate diagnostic directory deliberately
-# contains only these bounded plan/promote/authority observations, never the
-# SSH config, keys, or DB credentials from TMP. Its contents are private and
-# must not be printed into CI output.
+# contains these bounded observations and raw refusal records, not copies of
+# TMP's credential/config files. Raw causes can contain operator material;
+# every retained stream is private and must never be printed publicly.
 if ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"; then
   AUTHORITY_STATUS_CODE=0
 else

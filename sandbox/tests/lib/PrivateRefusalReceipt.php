@@ -20,11 +20,69 @@ final class PrivateRefusalReceipt {
     // loud evidence failure, never permission to prune operator records.
     private const DIRECTORY_ENTRY_LIMIT = 4096;
     private const BASELINE_LIMIT = 1048576;
+    private const DIAGNOSTIC_RECORD_LIMIT = 4;
+    private const DIAGNOSTIC_BYTES_LIMIT = 1048576;
 
     /** @param array<string,mixed> $profile */
     public static function snapshot(string $directory, array $profile): string {
         self::checkProfile($profile);
-        return json_encode(self::inventory($directory, $profile['command']), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        return self::diagnosticSnapshot($directory, $profile['command']);
+    }
+
+    /**
+     * Snapshot command-scoped filenames without declaring an expected cause.
+     *
+     * This is only a freshness baseline for a later diagnostic capture. It is
+     * deliberately separate from verify(), which is the sole exact-cause
+     * evidence path.
+     */
+    public static function diagnosticSnapshot(string $directory, string $command): string {
+        self::checkCommand($command);
+        return json_encode(self::inventory($directory, $command), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Retain bounded new records for private diagnosis without verifying them.
+     *
+     * The returned bytes can contain operator material and belong only in a
+     * mode-0600 diagnostic sink. A distinct format plus explicit false marker
+     * prevents this capture from masquerading as verify()'s expected-cause
+     * receipt.
+     */
+    public static function diagnosticNewRecords(string $directory, string $baselineJson, string $command): string {
+        self::checkCommand($command);
+        $baseline = self::baseline($baselineJson, $command);
+        $current = self::inventory($directory, $command);
+        if (array_diff($baseline, $current) !== []) {
+            self::fail('the invocation removed prior refusal evidence');
+        }
+        $new = array_values(array_diff($current, $baseline));
+        if (count($new) > self::DIAGNOSTIC_RECORD_LIMIT) {
+            self::fail('the invocation exceeded the private diagnostic record boundary');
+        }
+        $records = [];
+        $totalBytes = 0;
+        foreach ($new as $name) {
+            $bytes = self::read($directory . '/' . $name);
+            $totalBytes += strlen($bytes);
+            if ($totalBytes > self::DIAGNOSTIC_BYTES_LIMIT) {
+                self::fail('the invocation exceeded the private diagnostic byte boundary');
+            }
+            $records[] = [
+                'bytes' => strlen($bytes),
+                'contents_base64' => base64_encode($bytes),
+                'name' => $name,
+                'sha256' => hash('sha256', $bytes),
+            ];
+        }
+        return json_encode([
+            'command' => $command,
+            'format' => 'wprism-private-refusal-diagnostic/v1',
+            'new_records' => count($records),
+            'purpose' => 'diagnostic_only',
+            'records' => $records,
+            'verified' => false,
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
     /** @param array<string,mixed> $profile */
@@ -109,13 +167,13 @@ final class PrivateRefusalReceipt {
     private static function checkProfile(array $profile): void {
         if (!self::exactKeys($profile, ['command', 'nodes', 'reason_code'])
             || !is_string($profile['command'])
-            || preg_match('/\A[a-z][a-z0-9-]{0,63}\z/', $profile['command']) !== 1
             || !is_string($profile['reason_code'])
             || preg_match('/\A[a-z][a-z0-9_]{0,127}\z/', $profile['reason_code']) !== 1
             || !is_array($profile['nodes']) || !array_is_list($profile['nodes'])
             || count($profile['nodes']) < 1 || count($profile['nodes']) > self::NODE_LIMIT) {
             self::fail('verification profile is not one closed bounded declaration');
         }
+        self::checkCommand($profile['command']);
         foreach ($profile['nodes'] as $index => $node) {
             if (!is_array($node)
                 || !self::exactKeys($node, ['class', 'message', 'parent_index', 'relation'])
@@ -129,6 +187,12 @@ final class PrivateRefusalReceipt {
                         || !in_array($node['relation'], ['previous', 'private_evidence'], true))) {
                 self::fail('verification profile does not declare an exact bounded cause tree');
             }
+        }
+    }
+
+    private static function checkCommand(string $command): void {
+        if (preg_match('/\A[a-z][a-z0-9-]{0,63}\z/', $command) !== 1) {
+            self::fail('command is not one bounded canonical name');
         }
     }
 
@@ -204,6 +268,9 @@ final class PrivateRefusalReceipt {
         }
         if (!is_array($baseline) || !array_is_list($baseline) || count($baseline) > self::DIRECTORY_ENTRY_LIMIT) {
             self::fail('baseline is not one bounded JSON list');
+        }
+        if (json_encode($baseline, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) !== $encoded) {
+            self::fail('baseline is not canonical JSON');
         }
         foreach ($baseline as $name) {
             if (!is_string($name) || !self::validName($name, $command)) {

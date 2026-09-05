@@ -69,6 +69,11 @@ $write($directory . '/' . $old, $record);
 $write($directory . '/' . $other, $record);
 $baseline = PrivateRefusalReceipt::snapshot($directory, $profile);
 wprism_check_same(json_encode([$old]), $baseline, 'inventory scopes exact command filenames rather than timestamps or record contents');
+wprism_check_same(
+    $baseline,
+    PrivateRefusalReceipt::diagnosticSnapshot($directory, 'apply'),
+    'a diagnostic freshness baseline needs only the exact command and does not invent an expected cause'
+);
 $refuses(fn() => PrivateRefusalReceipt::verify($directory, $baseline, $profile), 'stale matching evidence without an append');
 $write($directory . '/' . $new, $record);
 $receipt = PrivateRefusalReceipt::verify($directory, $baseline, $profile);
@@ -79,6 +84,59 @@ wprism_check_same(json_encode([
     'node_message_sha256' => [hash('sha256', 'public boundary'), hash('sha256', 'private cause receipt canary')],
     'verified' => true,
 ], JSON_UNESCAPED_SLASHES), $receipt, 'one fresh engine-emitted exact private graph yields only a digest receipt');
+$recordBytes = json_encode($record, JSON_THROW_ON_ERROR);
+$diagnostic = json_decode(
+    PrivateRefusalReceipt::diagnosticNewRecords($directory, $baseline, 'apply'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+wprism_check_same([
+    'command' => 'apply',
+    'format' => 'wprism-private-refusal-diagnostic/v1',
+    'new_records' => 1,
+    'purpose' => 'diagnostic_only',
+    'records' => [[
+        'bytes' => strlen($recordBytes),
+        'contents_base64' => base64_encode($recordBytes),
+        'name' => $new,
+        'sha256' => hash('sha256', $recordBytes),
+    ]],
+    'verified' => false,
+], $diagnostic, 'diagnostic retention preserves bounded raw bytes while explicitly making no expected-cause claim');
+$afterDiagnostic = PrivateRefusalReceipt::diagnosticSnapshot($directory, 'apply');
+$emptyDiagnostic = json_decode(
+    PrivateRefusalReceipt::diagnosticNewRecords($directory, $afterDiagnostic, 'apply'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+wprism_check_same(0, $emptyDiagnostic['new_records'] ?? null, 'a successful command can append no matching diagnostic record');
+$overflowNames = [];
+for ($index = 3; $index < 8; $index++) {
+    $overflowName = '20260905-09000' . $index . '-apply-' . str_repeat((string) $index, 24) . '.json';
+    $overflowNames[] = $overflowName;
+    $write($directory . '/' . $overflowName, $record);
+}
+$refuses(
+    fn() => PrivateRefusalReceipt::diagnosticNewRecords($directory, $afterDiagnostic, 'apply'),
+    'more than four new diagnostic records'
+);
+foreach ($overflowNames as $overflowName) {
+    unlink($directory . '/' . $overflowName);
+}
+foreach (array_slice($overflowNames, 0, 4) as $overflowName) {
+    $write($directory . '/' . $overflowName, str_pad($recordBytes, 262144));
+}
+$maximumDiagnostic = json_decode(PrivateRefusalReceipt::diagnosticNewRecords($directory, $afterDiagnostic, 'apply'),
+    true, flags: JSON_THROW_ON_ERROR);
+wprism_check_same(4, $maximumDiagnostic['new_records'], 'four exact-bound records fit the diagnostic count frontier');
+wprism_check_same(1048576, array_sum(array_column($maximumDiagnostic['records'], 'bytes')),
+    'the diagnostic reader preserves the complete one-MiB raw-byte frontier');
+$write($directory . '/' . $overflowNames[0], str_pad($recordBytes, 262145));
+$refuses(fn() => PrivateRefusalReceipt::diagnosticNewRecords($directory, $afterDiagnostic, 'apply'),
+    'a diagnostic record one byte beyond the per-record boundary');
+foreach (array_slice($overflowNames, 0, 4) as $overflowName) {
+    unlink($directory . '/' . $overflowName);
+}
 $write($directory . '/' . $extra, $record);
 $refuses(fn() => PrivateRefusalReceipt::verify($directory, $baseline, $profile), 'two new records');
 unlink($directory . '/' . $extra);
@@ -138,6 +196,18 @@ foreach (['', '{}{}', str_repeat('[', 33) . '0' . str_repeat(']', 33)] as $inval
     $write($directory . '/' . $new, $invalidBytes);
     $refuses(fn() => PrivateRefusalReceipt::verify($directory, $baseline, $profile), 'invalid or over-depth record JSON');
 }
+$malformed = '{private diagnostic payload';
+$write($directory . '/' . $new, $malformed);
+$malformedDiagnostic = json_decode(
+    PrivateRefusalReceipt::diagnosticNewRecords($directory, $baseline, 'apply'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+wprism_check_same(
+    base64_encode($malformed),
+    $malformedDiagnostic['records'][0]['contents_base64'] ?? null,
+    'diagnostic retention preserves a malformed record for private diagnosis without accepting it as evidence'
+);
 $encoded = json_encode($record, JSON_THROW_ON_ERROR);
 $write($directory . '/' . $new, str_pad($encoded, 262144));
 wprism_check(PrivateRefusalReceipt::verify($directory, $baseline, $profile) === $receipt, 'the exact v2 record byte limit remains readable');
@@ -164,7 +234,12 @@ foreach ([
     str_repeat(' ', 1048577), '{}',
 ] as $invalidBaseline) {
     $refuses(fn() => PrivateRefusalReceipt::verify($directory, $invalidBaseline, $profile), 'an unbounded or noncanonical baseline');
+    $refuses(
+        fn() => PrivateRefusalReceipt::diagnosticNewRecords($directory, $invalidBaseline, 'apply'),
+        'an unbounded or noncanonical diagnostic baseline'
+    );
 }
+$refuses(fn() => PrivateRefusalReceipt::diagnosticSnapshot($directory, '../apply'), 'a noncanonical diagnostic command');
 $badProfile = $profile;
 $badProfile['infer_cause'] = true;
 $refuses(fn() => PrivateRefusalReceipt::snapshot($directory, $badProfile), 'an undeclared profile field');
@@ -250,6 +325,16 @@ foreach (['inode', 'grow'] as $mutation) {
     PrivateReceiptChangingStream::$read = false;
     $refuses(fn() => PrivateRefusalReceipt::verify('private-receipt-test://fixture/refusals', '[]', $profile),
         'the record changed at the matched ' . $mutation . ' boundary');
+    PrivateReceiptChangingStream::$opened = false;
+    PrivateReceiptChangingStream::$read = false;
+    $refuses(
+        fn() => PrivateRefusalReceipt::diagnosticNewRecords(
+            'private-receipt-test://fixture/refusals',
+            '[]',
+            'apply'
+        ),
+        'the diagnostic record changed at the matched ' . $mutation . ' boundary'
+    );
 }
 stream_wrapper_unregister('private-receipt-test');
 
