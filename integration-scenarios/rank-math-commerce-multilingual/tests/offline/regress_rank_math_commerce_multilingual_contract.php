@@ -342,7 +342,7 @@ foreach ([
         $captureStart,
         $ready + strlen("assert_wprism_apply_ready '$label' \"\$$answer\"") - $captureStart
     );
-    foreach (['ready', 'missing', 'refusal', 'diagnostic'] as $case) {
+    foreach (['ready', 'missing', 'refusal', 'diagnostic', 'startup', 'parse'] as $case) {
         $script = <<<'SH'
 set -euo pipefail
 fail() { printf '%s\n' "$*" >&2; exit 1; }
@@ -358,6 +358,12 @@ wp2() {
   fi
   if [ "$PROBE_CASE" = diagnostic ]; then
     printf 'PHP Warning: fixture diagnostic in /fixture.php on line 1\n' >&2
+  fi
+  if [ "$PROBE_CASE" = startup ]; then
+    printf 'PHP Warning: PHP Startup: fixture diagnostic in Unknown on line 0\n' >&2
+  fi
+  if [ "$PROBE_CASE" = parse ]; then
+    printf 'PHP Parse error: fixture diagnostic\n' >&2
   fi
   if [ "$PROBE_CASE" = missing ]; then
     printf '%s\n' '{"canary":"clean","verification":{"result":"pass"},"warnings":["env_missing: option home is required"]}'
@@ -393,7 +399,9 @@ SH;
                     && str_contains($stderr, 'did not prove all required environment bindings'),
                 'refusal' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
                     && str_contains($stderr, 'fixture_refusal') && str_contains($stderr, 'failed with exit 7'),
-                'diagnostic' => $accepted && str_contains($stderr, 'PHP Warning: fixture diagnostic'),
+                'diagnostic', 'startup', 'parse' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
+                    && str_contains($stderr, 'fixture diagnostic')
+                    && str_contains($stderr, 'emitted a PHP runtime diagnostic'),
             },
             "$answer actual live command block preserves the $case evidence domain"
         );
@@ -706,7 +714,7 @@ foreach ($sshHumanCases as $phase => [$startToken, $endToken, $receipt]) {
     $block = $start === false || $end === false ? '' : substr($sshDeletion, $start, $end - $start);
     wprism_check($block !== '', "the SSH $phase has an executable complete-stream acceptance block");
     $success = "Success: applied 1 entities (canary clean) — plan was: {\"env_missing\":1}\n" . $receipt;
-    foreach (['ready', 'required-stderr', 'required-stdout', 'php-stderr', 'php-stdout', 'missing-receipt', 'refusal'] as $mutation) {
+    foreach (['ready', 'required-stderr', 'required-stdout', 'php-stderr', 'php-stdout', 'php-startup', 'php-parse', 'missing-receipt', 'refusal'] as $mutation) {
         $answer = $success;
         $diagnostic = 'Warning: provider capability fired: fixture (verified)';
         switch ($mutation) {
@@ -721,6 +729,12 @@ foreach ($sshHumanCases as $phase => [$startToken, $endToken, $receipt]) {
                 break;
             case 'php-stdout':
                 $answer = "PHP Notice: private-operator-value in /fixture.php on line 12\n" . $answer;
+                break;
+            case 'php-startup':
+                $diagnostic = 'PHP Warning: PHP Startup: Unable to load dynamic library private-operator-value in Unknown on line 0';
+                break;
+            case 'php-parse':
+                $diagnostic = 'PHP Parse error: private-operator-value';
                 break;
             case 'missing-receipt':
                 $answer = 'Success: applied 1 entities (canary clean)';

@@ -277,13 +277,14 @@ wp_ssh_fixture() {
 # category without echoing the matching line; normal action receipts remain
 # admissible. Serialized scoped Apply warnings are checked separately below.
 assert_ssh_fixture_positive_diagnostics() { # <label> <stdout/stderr file>...
-  local label="$1" diagnostic_file
+  local label="$1" diagnostic_file diagnostic_out
   shift
   [ "$#" -gt 0 ] || fail "$label has no diagnostic capture"
   for diagnostic_file in "$@"; do
     [ -f "$diagnostic_file" ] && [ ! -L "$diagnostic_file" ] && [ -r "$diagnostic_file" ] \
       || fail "$label has an unreadable diagnostic capture"
-    if grep -Eq '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated|Fatal error): .* in .*[.]php on line [0-9]+' "$diagnostic_file"; then
+    diagnostic_out=$(cat "$diagnostic_file") || fail "$label could not read its diagnostic capture"
+    if has_php_runtime_diagnostics "$diagnostic_out"; then
       fail "$label emitted a PHP runtime diagnostic; inspect its private capture"
     fi
     if grep -Eq '(^|[[:space:]])env_missing:' "$diagnostic_file"; then

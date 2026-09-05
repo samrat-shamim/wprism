@@ -235,12 +235,29 @@ require_wprism_answered() { # require_wprism_answered <what> <human|json> <captu
   esac
 }
 
+# A native warning can precede an otherwise valid JSON success with exit zero.
+# Inspect the complete captured stream before publishing a positive answer;
+# Startup failures can name Unknown on line 0, and parse failures need not
+# print a filename at all. PHP-prefixed severities therefore need no location;
+# bare display_errors severities still require a location frame to distinguish
+# them from WP-CLI action receipts. The predicate never prints private bytes.
+has_php_runtime_diagnostics() { # <captured output>
+  grep -Eq '(^|[[:space:]])PHP (Warning|Notice|Deprecated|Fatal error|Parse error|Startup|Strict Standards|Recoverable fatal error):|(^|[[:space:]])(Warning|Notice|Deprecated|Fatal error|Parse error|Strict Standards|Recoverable fatal error): .* in .*( on line [0-9]+|:[0-9]+)' <<<"$1"
+}
+
+assert_no_php_runtime_diagnostics() { # <label> <captured output>
+  if has_php_runtime_diagnostics "$2"; then
+    fail "$1 emitted a PHP runtime diagnostic; inspect its captured output"
+  fi
+}
+
 # Execute one machine-output WPrism command without letting `set -e`, a command
 # substitution, or `tail` discard its refusal envelope. The command's complete
 # capture is retained through exit classification; only a successful
 # command publishes its last JSON line into the caller-named variable. Prefix
-# diagnostics remain visible on stderr so the outer warning gate can still see
-# them. Internal locals reserve __wprism_capture_*; rejecting that prefix keeps
+# diagnostics remain visible on stderr; PHP runtime diagnostics also refuse a
+# zero-exit answer before publication. Internal locals reserve
+# __wprism_capture_*; rejecting that prefix keeps
 # every other valid caller variable safe from Bash's dynamic local scope.
 capture_wprism_json_success() { # <OUT_VAR> <what> <command> [args...]
   local __wprism_capture_out_var="$1" __wprism_capture_what="$2"
@@ -259,6 +276,7 @@ capture_wprism_json_success() { # <OUT_VAR> <what> <command> [args...]
     printf '%s\n' "$__wprism_capture_last" >&2
     fail "$__wprism_capture_what failed with exit $__wprism_capture_rc"
   fi
+  assert_no_php_runtime_diagnostics "$__wprism_capture_what" "$__wprism_capture_stream"
   printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
 }
 
@@ -308,6 +326,7 @@ assert_wprism_required_environment() { # <what> <human|json> <captured output>
 
 assert_wprism_apply_ready() { # <what> <JSON apply capture>
   local last
+  assert_no_php_runtime_diagnostics "$1" "$2"
   assert_wprism_required_environment "$1" json "$2"
   last=$(awk 'NF { line=$0 } END { print line }' <<<"$2")
   jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$last" >/dev/null \

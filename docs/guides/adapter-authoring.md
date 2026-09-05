@@ -1987,7 +1987,12 @@ library.
    Immediately after each positive matrix apply writes `VMATRIX_APPLY_LOG`,
    call `assert_version_matrix_apply_ready` before another command can reuse
    that log. For a separately captured JSON apply, call
-   `assert_wprism_apply_ready <label> "$APPLY_JSON"`. These checks reject
+   `capture_wprism_json_success` to execute it, followed by
+   `assert_wprism_apply_ready <label> "$APPLY_JSON"`. The capture helper retains
+   refusal envelopes and diagnostic bytes, but rejects a zero-exit answer
+   carrying a PHP runtime diagnostic, including startup warnings and parse
+   errors, before publishing the JSON value. Printing that diagnostic and then
+   returning PASS is not positive evidence. These checks reject
    missing **required** bindings and failed canonical verification; the human
    matrix path retains the engine's post-verification clean-canary result.
    Do not require the aggregate `plan.env_missing` count to be zero across

@@ -372,14 +372,30 @@ expect_infrastructure 'compose container-creation chatter' human "$COMPOSE_DEATH
 expect_infrastructure 'an empty capture' human ''
 pass "require_wprism_answered accepts every shape a live wprism answer takes (json: object OR array; human: wp-cli/wprism/PHP framing) and only fires on a capture with no answer in it"
 
-capture_probe() { # <success|refusal|dead>
+capture_probe() { # <success|Warning|Notice|Deprecated|display-warning|startup|parse|refusal|dead>
   (
     fail() { printf '%s\n' "$*"; exit 1; }
     . "$FRAGMENT"
     fake_wprism() {
       case "$1" in
         success)
-          printf 'compose prelude\nPHP Warning: capture diagnostic canary\n{"canary":"clean"}\n'
+          printf 'compose prelude\nWarning: provider capability fired: fixture rebuild (verified)\n{"canary":"clean"}\n'
+          ;;
+        Warning|Notice|Deprecated|display-warning)
+          if [ "$1" = display-warning ]; then
+            printf 'Warning: capture diagnostic canary in /fixture.php on line 12\n' >&2
+          else
+            printf 'PHP %s: capture diagnostic canary in /fixture.php on line 12\n' "$1" >&2
+          fi
+          printf '{"canary":"clean"}\n'
+          ;;
+        startup)
+          printf 'PHP Warning: PHP Startup: capture diagnostic canary in Unknown on line 0\n' >&2
+          printf '{"canary":"clean"}\n'
+          ;;
+        parse)
+          printf 'PHP Parse error: capture diagnostic canary\n' >&2
+          printf '{"canary":"clean"}\n'
           ;;
         refusal)
           printf '{"format":"wprism-command-refusal/v1","ok":false,"command":"apply"}\n'
@@ -397,8 +413,33 @@ capture_probe() { # <success|refusal|dead>
   ) 2>&1
 }
 CAPTURE_SUCCESS=$(capture_probe success)
-[ "$CAPTURE_SUCCESS" = $'compose prelude\nPHP Warning: capture diagnostic canary\nRESULT={"canary":"clean"}' ] \
-  || fail "capture_wprism_json_success did not publish the exact final envelope while preserving prefix diagnostics: $CAPTURE_SUCCESS"
+[ "$CAPTURE_SUCCESS" = $'compose prelude\nWarning: provider capability fired: fixture rebuild (verified)\nRESULT={"canary":"clean"}' ] \
+  || fail "capture_wprism_json_success did not publish the exact final envelope while preserving transport/action receipts: $CAPTURE_SUCCESS"
+for diagnostic in Warning Notice Deprecated display-warning startup parse; do
+  CAPTURE_DIAGNOSTIC=$(capture_probe "$diagnostic") && CAPTURE_DIAGNOSTIC_RC=0 || CAPTURE_DIAGNOSTIC_RC=$?
+  [ "$CAPTURE_DIAGNOSTIC_RC" -ne 0 ] \
+    && grep -Fq 'capture diagnostic canary' <<<"$CAPTURE_DIAGNOSTIC" \
+    && grep -Fq 'unit WPrism apply emitted a PHP runtime diagnostic;' <<<"$CAPTURE_DIAGNOSTIC" \
+    && ! grep -q '^RESULT=' <<<"$CAPTURE_DIAGNOSTIC" \
+    || fail "positive JSON capture hid or accepted a zero-exit $diagnostic: $CAPTURE_DIAGNOSTIC"
+done
+grep -Eq '^[[:space:]]+has_php_runtime_diagnostics assert_no_php_runtime_diagnostics[[:space:]]' conformance/run.sh \
+  || fail 'conformance does not export the positive JSON capture diagnostic dependency to child hooks'
+REAL_STARTUP_RC=0
+REAL_STARTUP_OUT=$(
+  exec 2>&1
+  fail() { printf '%s\n' "$*"; exit 1; }
+  . "$FRAGMENT"
+  RESULT=unset
+  capture_wprism_json_success RESULT 'real PHP startup probe' \
+    php -n -d display_errors=stderr -d log_errors=0 \
+    -d "extension=$MATRIX_PROBE/intentionally-absent-extension.so" -r 'echo "{}\n";'
+  printf 'RESULT=%s\n' "$RESULT"
+) || REAL_STARTUP_RC=$?
+[ "$REAL_STARTUP_RC" -ne 0 ] \
+  && grep -Fq 'real PHP startup probe emitted a PHP runtime diagnostic;' <<<"$REAL_STARTUP_OUT" \
+  && ! grep -q '^RESULT=' <<<"$REAL_STARTUP_OUT" \
+  || fail "the actual zero-exit PHP startup warning was accepted: $REAL_STARTUP_OUT"
 CAPTURE_REFUSAL=$(capture_probe refusal) && CAPTURE_REFUSAL_RC=0 || CAPTURE_REFUSAL_RC=$?
 [ "$CAPTURE_REFUSAL_RC" -ne 0 ] \
   && grep -Fq '"format":"wprism-command-refusal/v1"' <<<"$CAPTURE_REFUSAL" \
@@ -417,7 +458,7 @@ refusal_capture_probe() { # <refusal|success|dead>
     fake_wprism() {
       case "$1" in
         refusal)
-          printf 'compose prelude\nPHP Warning: refusal capture diagnostic canary\n{"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}\n'
+          printf 'compose prelude\nPHP Warning: refusal capture diagnostic canary in /fixture.php on line 12\n{"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}\n'
           return 7
           ;;
         success)
@@ -435,7 +476,7 @@ refusal_capture_probe() { # <refusal|success|dead>
   ) 2>&1
 }
 REFUSAL_CAPTURE=$(refusal_capture_probe refusal)
-[ "$REFUSAL_CAPTURE" = $'compose prelude\nPHP Warning: refusal capture diagnostic canary\nRESULT={"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}' ] \
+[ "$REFUSAL_CAPTURE" = $'compose prelude\nPHP Warning: refusal capture diagnostic canary in /fixture.php on line 12\nRESULT={"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}' ] \
   || fail "capture_wprism_json_refusal did not publish the exact refusal envelope while preserving prefix diagnostics: $REFUSAL_CAPTURE"
 REFUSAL_SUCCESS=$(refusal_capture_probe success) && REFUSAL_SUCCESS_RC=0 || REFUSAL_SUCCESS_RC=$?
 [ "$REFUSAL_SUCCESS_RC" -ne 0 ] \
@@ -631,6 +672,10 @@ apply_ready_probe() {
 READY_APPLY='{"plan":{"env_missing":1},"canary":"clean","verification":{"result":"pass"},"warnings":["adopted env term 1 as fixture-id (terms/fixture.json)","provider capability fired: fixture@1.0.0 rebuild (0.1s, verified)","native action fired: rewrite.flush (verified)"]}'
 [ "$(apply_ready_probe "$READY_APPLY")" = APPLY_READY ] \
   || fail 'apply readiness rejected optional env rows or normal lifecycle receipts'
+READY_DIAGNOSTIC_RC=0
+READY_DIAGNOSTIC_OUT=$(apply_ready_probe $'PHP Warning: PHP Startup: fixture in Unknown on line 0\n'"$READY_APPLY") || READY_DIAGNOSTIC_RC=$?
+[ "$READY_DIAGNOSTIC_RC" -ne 0 ] && [[ "$READY_DIAGNOSTIC_OUT" != *APPLY_READY* ]] \
+  || fail 'direct apply readiness discarded a startup diagnostic before its JSON answer'
 for mutation in \
   '.warnings += ["env_missing: option admin_email is required"]' \
   '.canary="dirty"' '.verification.result="fail"' 'del(.verification)' \

@@ -13,10 +13,9 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 assert_no_php_diagnostics() { # <label> <log>
-  local label="$1" log="$2"
-  if grep -Eq '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated): .* in .*[.]php on line [0-9]+' "$log"; then
-    fail "$label emitted a PHP runtime diagnostic: $(grep -Em1 '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated): .* in .*[.]php on line [0-9]+' "$log")"
-  fi
+  local label="$1" log="$2" out
+  out=$(cat "$log") || fail "$label has no readable evidence log"
+  assert_no_php_runtime_diagnostics "$label" "$out"
 }
 
 # The conformance seeds/postdeploy hooks this harness sources call the shared

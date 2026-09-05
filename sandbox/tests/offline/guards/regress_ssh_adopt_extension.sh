@@ -752,6 +752,8 @@ case_ssh_scoped_success() {
       canary) answer=$(jq -c '.scoped_apply.canary="dirty"' <<<"$answer") ;;
       no-apply) answer=$(jq -c 'del(.scoped_apply)' <<<"$answer") ;;
       php-stderr) printf 'PHP Warning: private-operator-value in /fixture.php on line 12\n' >&2 ;;
+      php-startup) printf 'PHP Warning: PHP Startup: Unable to load dynamic library private-operator-value in Unknown on line 0\n' >&2 ;;
+      php-parse) printf 'PHP Parse error: private-operator-value\n' >&2 ;;
       required-stderr) printf 'Warning: env_missing: private-operator-value\n' >&2 ;;
       php-stdout) printf 'PHP Notice: private-operator-value in /fixture.php on line 12\n' ;;
     esac
@@ -761,7 +763,7 @@ case_ssh_scoped_success() {
   eval "$SSH_SCOPED_SUCCESS_BLOCK"
 }
 case_ssh_scoped_success normal
-for scoped_case in required verification canary no-apply php-stderr required-stderr php-stdout exit-failure; do
+for scoped_case in required verification canary no-apply php-stderr php-startup php-parse required-stderr php-stdout exit-failure; do
   scoped_status=0
   scoped_output=$(case_ssh_scoped_success "$scoped_case" 2>&1) || scoped_status=$?
   [ "$scoped_status" -ne 0 ] || fail "the actual scoped success block accepted $scoped_case"
