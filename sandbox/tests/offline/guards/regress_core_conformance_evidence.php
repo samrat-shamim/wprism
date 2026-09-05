@@ -103,6 +103,20 @@ if (($argv[1] ?? '') === '--widget-eval') {
 }
 
 $source = (string) file_get_contents($root . '/sandbox/conformance/checks/core.sh');
+// Stable fixture neighbors include the former bare `>/dev/null` command too;
+// extracting only new capture-variable names would skip the prior defect.
+$commandAfter = static function (string $before, string $after) use ($source): string {
+    $start = strpos($source, $before);
+    if ($start === false) {
+        throw new RuntimeException('missing core fixture command predecessor');
+    }
+    $start += strlen($before);
+    $end = strpos($source, $after, $start);
+    if ($end === false) {
+        throw new RuntimeException('missing core fixture command successor');
+    }
+    return substr($source, $start, $end - $start);
+};
 $start = strpos($source, 'core_private_refusal_evidence() {');
 $end = strpos($source, '# issue #3210: absence alone', (int) $start);
 wprism_check(is_int($start) && is_int($end), 'core owns one explicit receipt/native/refusal evidence block');
@@ -196,6 +210,12 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-evidence.XXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
 ln -s "$root" "$scratch/source root"
 PAIR_SOURCE_ROOT="$scratch/source root" COMPOSE=fixture_compose
+fixture_observation_diagnostic() {
+  case "$mutation" in
+    "$1-php-stdout") printf 'PHP Warning: fixture observation in /fixture.php on line 1\n' ;;
+    "$1-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
+  esac
+}
 fixture_compose() {
   local expected=(run --rm -T --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro"
     --volume "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-private-refusal-evidence.php:/wprism-test/core-private-refusal-evidence.php:ro"
@@ -204,13 +224,21 @@ fixture_compose() {
   for word in "${expected[@]}"; do [ "${1:-}" = "$word" ] || return 94; shift; done
   [ "${3:-}" = /siterepo/.wprism/refusals ] || return 95
   [ "$mutation" != missing-mount ] || return 96
+  local boundary="private-$1"
+  if [ "$1" = verify ] && [ "$mutation" = empty-baseline ]; then [ "${5:-}" = '[]' ] || return 98; fi
+  fixture_observation_diagnostic "$boundary"
   "$php" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-private-refusal-evidence.php" \
-    "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php" "$1" "$2" "$scratch/refusals" "$4" "${@:5}"
+    "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php" "$1" "$2" "$scratch/refusals" "$4" "${@:5}" || return $?
+  [ "$mutation" != "$boundary-nonzero" ] || return 7
 }
 wp_conf2() {
   if [ "$1" = eval ]; then
+    local boundary=native-before
+    [ ! -f "$scratch/applied" ] || boundary=native-after
+    fixture_observation_diagnostic "$boundary"
     [ "$mutation" != empty-native ] || return 0
     if [ "$mutation" = native-change ] && [ -f "$scratch/applied" ]; then printf '{"posts":"after"}\n'; else printf '{"posts":"before"}\n'; fi
+    [ "$mutation" != "$boundary-nonzero" ] || return 7
     return 0
   fi
   [ "$1 $2" = 'wprism apply' ] || return 97
@@ -237,18 +265,24 @@ preg_match_all('/^core_assert_deletion_exclusion (plain|forced-comments|forced-c
 wprism_check(count($calls) === 5, 'all five direct-deletion acceptance sites use the exact fresh refusal evidence owner');
 foreach ($calls as $index => $call) {
     $name = $call[1];
-    $mutations = ['ready', 'zero-exit', 'wrong-envelope', 'php-stdout', 'php-stderr', 'private-leak',
+    $mutations = ['ready', 'empty-baseline', 'zero-exit', 'wrong-envelope', 'php-stdout', 'php-stderr', 'private-leak',
         'stale', 'unrelated', 'incomplete', 'extra', 'missing-mount', 'native-change', 'empty-native'];
+    foreach (['native-before', 'native-after', 'private-snapshot', 'private-verify'] as $boundary) {
+        foreach (['php-stdout', 'php-stderr', 'nonzero'] as $failure) {
+            $mutations[] = "$boundary-$failure";
+        }
+    }
     if ($name === 'forced-conflicts') {
         $mutations[] = 'missing-forced';
     }
     foreach ($mutations as $mutation) {
         [$status, $stdout, $stderr] = ShellProbe::run($setup . "\n" . $helpers . "\n" . $call[0] . "\nprintf 'CORE_READY\\n'\n",
             [$root, PHP_BINARY, $self, $name, $contexts[$name], $records[$name], $answers[$name], $mutation], $root);
-        if ($mutation === 'ready' && $status !== 0) {
+        $positive = in_array($mutation, ['ready', 'empty-baseline'], true);
+        if ($positive && $status !== 0) {
             fwrite(STDERR, $stderr);
         }
-        wprism_check($mutation === 'ready'
+        wprism_check($positive
             ? $status === 0 && str_contains($stdout, 'CORE_READY')
             : $status !== 0 && ($stdout . $stderr) !== '' && !str_contains($stdout, 'CORE_READY')
                 && !str_contains($stdout . $stderr, 'private-core-fixture-value')
@@ -281,7 +315,21 @@ trap 'rm -rf -- "$CONF_REPO1"' EXIT
 mkdir "$CONF_REPO1/state"
 printf '%s' '{"widget_block":{"21":{"content":"authored image"},"_multiwidget":1},"sidebars_widgets":{"sidebar-1":["block-21"],"wp_inactive_widgets":[],"array_version":3}}' >"$CONF_REPO1/options"
 wp_conf1() {
-  if [ "$1" = eval ]; then "$php" "$self" --widget-eval "$CONF_REPO1/options" "$2" "$mutation"; return; fi
+  if [ "$1" = eval ]; then
+    local boundary=widget-before
+    case "$2" in
+      *'unset($widgets[99])'*) boundary=widget-after ;;
+      *'$widgets[99] = '*) boundary=widget-install ;;
+      *'Attachment retired in source intent'*) boundary=widget-retire ;;
+    esac
+    case "$mutation" in
+      "$boundary-php-stdout") printf 'PHP Warning: fixture observation in /fixture.php on line 1\n' ;;
+      "$boundary-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
+    esac
+    "$php" "$self" --widget-eval "$CONF_REPO1/options" "$2" "$mutation" || return $?
+    [ "$mutation" != "$boundary-nonzero" ] || return 7
+    return 0
+  fi
   [ "$1 $2" = 'wprism capture' ] || return 96
   local warning='unreferenced wp_inactive_widgets entries are target-owned; parked widget content will not propagate'
   if jq -e '.widget_block | has("99")' "$CONF_REPO1/options" >/dev/null; then
@@ -296,10 +344,24 @@ wp_conf1() {
   fi
 }
 SH;
-foreach (['ready', 'wrong-warning', 'php', 'nonzero', 'captured', 'missing-tree', 'cleanup-change', 'residual-warning'] as $mutation) {
+$widgetMutations = ['ready', 'wrong-warning', 'php', 'nonzero', 'captured', 'missing-tree', 'cleanup-change', 'residual-warning'];
+foreach (['widget-before', 'widget-install', 'widget-after'] as $boundary) {
+    foreach (['php-stdout', 'php-stderr', 'nonzero'] as $failure) {
+        $widgetMutations[] = "$boundary-$failure";
+    }
+}
+foreach ($widgetMutations as $mutation) {
     [$status, $stdout] = ShellProbe::run($widgetSetup . "\n" . $parkedBlock . "\nprintf 'WIDGET_READY\\n'\n", [$root, PHP_BINARY, $self, $mutation], $root);
     wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'WIDGET_READY')
         : $status !== 0 && !str_contains($stdout, 'WIDGET_READY'), "actual parked-widget warning/cleanup block rejects $mutation counterfactual correctly");
+}
+$attachmentBlock = $commandAfter("# refusal rather than the intended tombstone expected-base conflict.\n", 'wp_conf1 post delete "$ATT1"');
+$attachmentSetup = str_replace('authored image', '<!-- wp:image {} -->authored image', $widgetSetup);
+foreach (['ready', 'widget-retire-php-stdout', 'widget-retire-php-stderr', 'widget-retire-nonzero'] as $mutation) {
+    [$status, $stdout] = ShellProbe::run($attachmentSetup . "\n" . $attachmentBlock . "\nprintf 'ATTACHMENT_READY\\n'\n",
+        [$root, PHP_BINARY, $self, $mutation], $root);
+    wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'ATTACHMENT_READY')
+        : $status !== 0 && !str_contains($stdout, 'ATTACHMENT_READY'), "actual attachment-widget retirement classifies $mutation before accepting its native write");
 }
 
 $seed = (string) file_get_contents($root . '/sandbox/conformance/seeds/core.sh');
@@ -307,12 +369,31 @@ wprism_check(!str_contains($seed, "'wp_inactive_widgets'=>['block-99']")
     && !str_contains($seed, 'Parked source-only widget'), 'positive source seed contains no deliberate parked-widget warning fixture');
 $deletionRegion = substr($source, (int) $end);
 wprism_check(!str_contains($deletionRegion, 'format=json >/dev/null')
+    && !str_contains($deletionRegion, 'wp_conf1 wprism capture --repo=/siterepo >/dev/null')
     && !str_contains($deletionRegion, 'partial delete failure rolls the transaction back')
     && !str_contains($deletionRegion, 'wprism_delete_block'),
     'pending tombstones never reach an ordinary positive apply or claim an unexecuted post-FK rollback');
 preg_match_all('/^capture_wprism_json_checked [^\n]+\\\\\n[^\n]+/m', $deletionRegion, $planCaptures);
-wprism_check(count($planCaptures[0]) === 10, 'all deletion-region positive capture/plan commands check the complete stream before JSON publication');
-foreach ($planCaptures[0] as $index => $capture) {
+$sourceCapturePredecessors = [
+    'LOCAL_DELETE_CAPTURE' => 'wp_conf1 post delete "$HELLO1" --force >/dev/null',
+    'BRANCH_EDIT_CAPTURE' => 'wp_conf1 post update "$ATT1" --post_title=\'Conformance Logo Branch Edit\' >/dev/null',
+    'BRANCH_DELETE_CAPTURE' => 'wp_conf1 post delete "$ATT1" --force >/dev/null',
+    'CHILD_DELETE_CAPTURE' => 'wp_conf1 post delete "$CHILD1" --force >/dev/null',
+];
+$captureCases = [];
+foreach ($planCaptures[0] as $capture) {
+    foreach (array_keys($sourceCapturePredecessors) as $variable) {
+        if (str_starts_with($capture, "capture_wprism_json_checked $variable ")) {
+            continue 2;
+        }
+    }
+    $captureCases[] = $capture;
+}
+foreach ($sourceCapturePredecessors as $predecessor) {
+    $captureCases[] = $commandAfter($predecessor . "\n", "\ngit -C ");
+}
+wprism_check(count($captureCases) === 14, 'exactly 14 actual deletion-region source-capture/target-plan command boundaries are exercised');
+foreach ($captureCases as $index => $capture) {
     foreach (['ready', 'php-stdout', 'php-stderr', 'required-stdout', 'required-stderr', 'nonzero'] as $mutation) {
         $script = <<<'SH'
 set -euo pipefail
@@ -343,26 +424,42 @@ wprism_check($fresh['bucket'] === 'delete_conflict'
     && str_contains($source, 'all(.delete_conflict[]; .reason == "target entity exists but has no last-synced base")'),
     'clearing ledger history does not reinterpret a UUID-bearing native post as an already-deleted entity');
 
-$freshBlock = ShellProbe::captureBlock($source, 'FRESH_PLAN', 'pass "unmapped existing target entities');
+$freshBlock = ShellProbe::captureBlock($source, 'FRESH_NATIVE_BEFORE', 'pass "unmapped existing target entities');
 $freshSetup = <<<'SH'
 set -euo pipefail
 root="$1" fixture_answer="$2" mutation="$3"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 . "$root/sandbox/conformance/asserts.sh"
-TOMBSTONES=1 FRESH_NATIVE_BEFORE='{"posts":"retained","map":[],"state":[]}'
+TOMBSTONES=1 FRESH_NATIVE_EXPECTED='{"posts":"retained","map":[],"state":[]}'
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-fresh.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
 wp_conf2() {
   [ "$1 $2" = 'wprism plan' ] || return 96
+  touch "$scratch/planned"
   [ "$mutation" != php ] || printf 'PHP Warning: fixture in /fixture.php on line 1\n' >&2
   [ "$mutation" != required ] || printf 'Warning: env_missing: fixture\n' >&2
   printf '%s\n' "$fixture_answer"
   [ "$mutation" != nonzero ] || return 7
 }
 core_deletion_native_state() {
+  local boundary=native-before
+  [ ! -f "$scratch/planned" ] || boundary=native-after
+  case "$mutation" in
+    "$boundary-php-stdout") printf 'PHP Warning: fixture observation in /fixture.php on line 1\n' ;;
+    "$boundary-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
+  esac
   [ "$mutation" != empty-native ] || return 0
-  if [ "$mutation" = native-change ]; then printf '{"posts":"changed"}\n'; else printf '%s\n' "$FRESH_NATIVE_BEFORE"; fi
+  if [ "$mutation" = native-change ] && [ -f "$scratch/planned" ]; then printf '{"posts":"changed"}\n'; else printf '%s\n' "$FRESH_NATIVE_EXPECTED"; fi
+  [ "$mutation" != "$boundary-nonzero" ] || return 7
 }
 SH;
-foreach (['ready', 'old-deleted', 'wrong-reason', 'wrong-count', 'php', 'required', 'nonzero', 'native-change', 'empty-native'] as $mutation) {
+$freshMutations = ['ready', 'old-deleted', 'wrong-reason', 'wrong-count', 'php', 'required', 'nonzero', 'native-change', 'empty-native'];
+foreach (['native-before', 'native-after'] as $boundary) {
+    foreach (['php-stdout', 'php-stderr', 'nonzero'] as $failure) {
+        $freshMutations[] = "$boundary-$failure";
+    }
+}
+foreach ($freshMutations as $mutation) {
     $answer = ['warnings' => [], 'deleted' => [], 'delete' => [], 'delete_conflict' => [$fresh['row']]];
     if ($mutation === 'old-deleted') {
         $answer['deleted'] = $answer['delete_conflict'];

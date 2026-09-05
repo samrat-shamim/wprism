@@ -382,12 +382,13 @@ pass "wp wprism pending remains empty post-apply -- empty, auto-registered widge
 # The positive seed has no unreferenced parked widget. Exercise its deliberate
 # exclusion warning in one named negative window, then restore the exact native
 # preimage before any ordinary capture; repeated warnings are not green.
-PARKED_BEFORE=$(wp_conf1 eval 'echo wp_json_encode([get_option("widget_block"), get_option("sidebars_widgets")]);')
+capture_wprism_json_success PARKED_BEFORE 'core parked-widget native baseline' \
+  wp_conf1 eval 'echo wp_json_encode([get_option("widget_block"), get_option("sidebars_widgets")]);'
 require_observed_nonempty 'core parked-widget native baseline' "$PARKED_BEFORE"
 jq -e '.[0] | has("99") | not' <<<"$PARKED_BEFORE" >/dev/null \
   && jq -e '.[1].wp_inactive_widgets == []' <<<"$PARKED_BEFORE" >/dev/null \
   || fail 'core parked-widget negative fixture was already present in the positive seed'
-wp_conf1 eval '
+capture_wprism_json_success PARKED_INSTALLED 'core parked-widget fixture installation' wp_conf1 eval '
 $widgets = get_option("widget_block"); $sidebars = get_option("sidebars_widgets");
 $widgets[99] = ["content" => "<!-- wp:paragraph --><p>Parked source-only widget</p><!-- /wp:paragraph -->"];
 $sidebars["wp_inactive_widgets"] = ["block-99"];
@@ -395,7 +396,10 @@ update_option("widget_block", $widgets); update_option("sidebars_widgets", $side
 if (get_option("widget_block") !== $widgets || get_option("sidebars_widgets") !== $sidebars) {
     throw new RuntimeException("core parked-widget negative fixture did not persist");
 }
-' >/dev/null
+echo wp_json_encode(["verified" => true]);
+'
+jq -e '. == {verified:true}' <<<"$PARKED_INSTALLED" >/dev/null \
+  || fail 'core parked-widget installation did not verify its native write'
 capture_wprism_json_checked PARKED_CAPTURE 'core explicitly excluded parked-widget capture' assert_wprism_json_required_environment \
   wp_conf1 wprism capture --repo=/siterepo --format=json
 jq -e '.warnings == ["unreferenced wp_inactive_widgets entries are target-owned; parked widget content will not propagate"]' \
@@ -404,7 +408,7 @@ PARKED_SCAN_RC=0
 rg -Fq 'Parked source-only widget' "$CONF_REPO1/state" || PARKED_SCAN_RC=$?
 [ "$PARKED_SCAN_RC" -eq 1 ] \
   || fail 'parked-widget exclusion did not prove a readable canonical tree without its private fixture content'
-PARKED_AFTER=$(wp_conf1 eval '
+capture_wprism_json_success PARKED_AFTER 'core parked-widget native readback' wp_conf1 eval '
 $widgets = get_option("widget_block"); $sidebars = get_option("sidebars_widgets");
 if (($widgets[99] ?? null) !== ["content" => "<!-- wp:paragraph --><p>Parked source-only widget</p><!-- /wp:paragraph -->"]
     || ($sidebars["wp_inactive_widgets"] ?? null) !== ["block-99"]) {
@@ -413,7 +417,7 @@ if (($widgets[99] ?? null) !== ["content" => "<!-- wp:paragraph --><p>Parked sou
 unset($widgets[99]); $sidebars["wp_inactive_widgets"] = [];
 update_option("widget_block", $widgets); update_option("sidebars_widgets", $sidebars);
 echo wp_json_encode([get_option("widget_block"), get_option("sidebars_widgets")]);
-')
+'
 require_observed_nonempty 'core parked-widget native readback' "$PARKED_AFTER"
 jq -en --argjson before "$PARKED_BEFORE" --argjson after "$PARKED_AFTER" '$before == $after' >/dev/null \
   || fail 'core parked-widget negative cleanup changed another native widget or sidebar value'
@@ -960,10 +964,10 @@ core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
     forced-conflicts) reason=apply_forced_override_failed; nodes=2 ;;
     *) fail 'unknown core direct-deletion refusal profile' ;;
   esac
-  before=$(core_deletion_native_state)
+  capture_wprism_json_success before 'core direct-deletion native and ledger baseline' core_deletion_native_state
   require_observed_nonempty "core direct-deletion native and ledger baseline" "$before"
-  baseline=$(core_private_refusal_evidence snapshot "$profile" /siterepo/.wprism/refusals "$context") \
-    || fail 'core direct-deletion private baseline failed'
+  capture_wprism_json_success baseline 'core direct-deletion private baseline' \
+    core_private_refusal_evidence snapshot "$profile" /siterepo/.wprism/refusals "$context"
   require_observed_nonempty 'core direct-deletion private baseline' "$baseline"
   output=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json "$@" 2>&1) || rc=$?
   assert_no_php_runtime_diagnostics 'core direct-deletion refusal' "$output"
@@ -986,15 +990,15 @@ core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
         .required_flags == ["--with-deletes","--force-theirs"] and .supplied_flags == .required_flags)
     ' <<<"$answer" >/dev/null || fail 'core refused conflict authorization was hidden or claimed to have committed'
   fi
-  receipt=$(core_private_refusal_evidence verify "$profile" /siterepo/.wprism/refusals "$context" "$baseline") \
-    || fail 'core direct-deletion refusal did not retain its one exact fresh private cause graph'
+  capture_wprism_json_success receipt 'core direct-deletion exact fresh private cause graph' \
+    core_private_refusal_evidence verify "$profile" /siterepo/.wprism/refusals "$context" "$baseline"
   jq -e --argjson nodes "$nodes" '
     .command == "apply" and .format == "wprism-private-refusal-check/v1" and
     .new_records == 1 and .verified == true and
     (.node_message_sha256 | type == "array" and length == $nodes) and
     all(.node_message_sha256[]; type == "string" and test("^[a-f0-9]{64}$"))
   ' <<<"$receipt" >/dev/null || fail 'core direct-deletion private receipt is malformed'
-  after=$(core_deletion_native_state)
+  capture_wprism_json_success after 'core direct-deletion native and ledger readback' core_deletion_native_state
   require_observed_nonempty "core direct-deletion native and ledger readback" "$after"
   jq -en --argjson before "$before" --argjson after "$after" '$before == $after' >/dev/null \
     || fail 'direct core deletion changed target posts, revisions, comments, relationships, options or identity/base/recovery ledgers'
@@ -1088,7 +1092,8 @@ wp_conf2 post update "$HELLO2" --post_content='target-only deletion conflict' >/
 HELLO_COMMENT=$(wp_conf2 comment create --comment_post_ID="$HELLO2" --comment_content='runtime conflict guard' --comment_author='Runtime Visitor' --porcelain)
 require_fixture_ids HELLO_COMMENT
 wp_conf1 post delete "$HELLO1" --force >/dev/null
-wp_conf1 wprism capture --repo=/siterepo >/dev/null
+capture_wprism_json_checked LOCAL_DELETE_CAPTURE 'conf1 local-conflict deletion capture' assert_wprism_json_required_environment \
+  wp_conf1 wprism capture --repo=/siterepo --format=json
 git -C "$CONF_REPO1" add -A
 git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: delete against target local edit'
 git -C "$CONF_REPO1" push -q origin main
@@ -1245,7 +1250,8 @@ require_fixture_values ATT_UUID
 ATT1=$(wp_conf1 post list --post_type=attachment --name=conformance-logo --field=ID | tr -d '[:space:]')
 require_fixture_ids ATT1
 wp_conf1 post update "$ATT1" --post_title='Conformance Logo Branch Edit' >/dev/null
-wp_conf1 wprism capture --repo=/siterepo >/dev/null
+capture_wprism_json_checked BRANCH_EDIT_CAPTURE 'conf1 branch attachment edit capture' assert_wprism_json_required_environment \
+  wp_conf1 wprism capture --repo=/siterepo --format=json
 git -C "$CONF_REPO1" add -A
 git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: branch edits attachment'
 git -C "$CONF_REPO1" push -q origin main
@@ -1253,7 +1259,7 @@ git -C "$CONF_REPO1" push -q origin main
 # source deletion. WordPress does not repair widget block content when an
 # attachment is removed; leaving the image would test dangling-reference
 # refusal rather than the intended tombstone expected-base conflict.
-wp_conf1 eval '
+capture_wprism_json_success ATTACHMENT_WIDGET_UPDATE 'core source attachment widget retirement' wp_conf1 eval '
 $widgets = get_option("widget_block");
 if (!is_array($widgets) || !isset($widgets[21]["content"]) || !str_contains($widgets[21]["content"], "<!-- wp:image ")) {
     throw new RuntimeException("core attachment fixture lost its exact authored image widget");
@@ -1263,9 +1269,13 @@ update_option("widget_block", $widgets);
 if (get_option("widget_block") !== $widgets) {
     throw new RuntimeException("core attachment fixture widget update did not persist");
 }
-' >/dev/null
+echo wp_json_encode(["verified" => true]);
+'
+jq -e '. == {verified:true}' <<<"$ATTACHMENT_WIDGET_UPDATE" >/dev/null \
+  || fail 'core attachment fixture did not verify its authored widget retirement'
 wp_conf1 post delete "$ATT1" --force >/dev/null
-wp_conf1 wprism capture --repo=/siterepo >/dev/null
+capture_wprism_json_checked BRANCH_DELETE_CAPTURE 'conf1 branch attachment deletion capture' assert_wprism_json_required_environment \
+  wp_conf1 wprism capture --repo=/siterepo --format=json
 git -C "$CONF_REPO1" add -A
 git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: delete branch-edited attachment'
 git -C "$CONF_REPO1" push -q origin main
@@ -1290,7 +1300,8 @@ require_fixture_values CHILD_UUID
 CHILD1=$(wp_conf1 eval "echo \\WPrism\\Ledger::id_for('$CHILD_UUID', \\WPrism\\Ledger::KIND_POST);")
 require_fixture_ids CHILD1
 wp_conf1 post delete "$CHILD1" --force >/dev/null
-wp_conf1 wprism capture --repo=/siterepo >/dev/null
+capture_wprism_json_checked CHILD_DELETE_CAPTURE 'conf1 child-page deletion capture' assert_wprism_json_required_environment \
+  wp_conf1 wprism capture --repo=/siterepo --format=json
 git -C "$CONF_REPO1" add -A
 git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: missing deletion guard table'
 git -C "$CONF_REPO1" push -q origin main
@@ -1319,7 +1330,7 @@ pass "missing reverse-reference guard infrastructure fails closed"
 TOMBSTONES=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' | wc -l | tr -d '[:space:]')
 require_observed_nonempty "repository tombstone count before fresh-target plan" "$TOMBSTONES"
 wp_conf2 db query 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' >/dev/null
-FRESH_NATIVE_BEFORE=$(core_deletion_native_state)
+capture_wprism_json_success FRESH_NATIVE_BEFORE 'core unmapped target native and ledger baseline' core_deletion_native_state
 require_observed_nonempty "core unmapped target native and ledger baseline" "$FRESH_NATIVE_BEFORE"
 capture_wprism_json_checked FRESH_PLAN 'conf2 unmapped existing-target plan' assert_wprism_json_required_environment \
   wp_conf2 wprism plan --repo=/siterepo --format=json
@@ -1329,7 +1340,7 @@ jq -e --argjson count "$TOMBSTONES" '
   (.delete_conflict | length) == $count and
   all(.delete_conflict[]; .reason == "target entity exists but has no last-synced base")
 ' <<<"$FRESH_PLAN" >/dev/null || fail 'unmapped existing target entities lost their missing-base deletion conflicts'
-FRESH_NATIVE_AFTER=$(core_deletion_native_state)
+capture_wprism_json_success FRESH_NATIVE_AFTER 'core unmapped target native and ledger readback' core_deletion_native_state
 require_observed_nonempty "core unmapped target native and ledger readback" "$FRESH_NATIVE_AFTER"
 [ "$FRESH_NATIVE_BEFORE" = "$FRESH_NATIVE_AFTER" ] || fail 'fresh-target plan persisted identity or native-state changes'
 pass "unmapped existing target entities remain deletion conflicts, with no inferred absence or native/ledger mutation"
