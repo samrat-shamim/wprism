@@ -4922,6 +4922,7 @@ class FakeWpdb {
         if ($this->acceptKeyword('INDEX') || $this->acceptKeyword('INDEXES') || $this->acceptKeyword('KEYS')) {
             $this->expectKeyword('FROM');
             $table = $this->parseTableRef();
+            $where = $this->acceptKeyword('WHERE') ? $this->parseCondition() : null;
             $this->expectEnd();
             $name = $this->requireTable($table);
             // A RECORDED index inventory answers; an absent one declines.
@@ -4938,7 +4939,17 @@ class FakeWpdb {
                     . ' from a wprism-adapter-probe/v1 recording'
                 );
             }
-            return ['kind' => 'rows', 'rows' => $this->indexes[$name]];
+            $rows = $this->indexes[$name];
+            if ($where !== null) {
+                // DeleteGuardReferenceScanner requests PRIMARY metadata via
+                // SHOW KEYS ... WHERE. Filter the recorded inventory through
+                // the existing predicate evaluator; never infer it from rows
+                // or bypass the interception/error/transport pipeline.
+                $columns = array_values(array_unique(array_merge([], ...array_map('array_keys', $rows))));
+                $context = ['table' => $name, 'alias' => null, 'columns' => $columns];
+                $rows = array_values(array_filter($rows, fn(array $row): bool => $this->evalCondition($where, $row, $context)));
+            }
+            return ['kind' => 'rows', 'rows' => $rows];
         }
         throw $this->unsupported('SHOW variant');
     }

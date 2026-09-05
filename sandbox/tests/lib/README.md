@@ -35,6 +35,9 @@ generated derivatives are deliberately preserved: the core deletion manifest
 does not grant filesystem deletion authority. Its native row observer and
 actual shell acceptance are covered by `regress-core-ssh-deletion-contract`;
 this offline contract is not a substitute for the separately allocated live run.
+Its forced-FK control captures complete transport and the shared bounded private
+diagnostic delta before applying public assertions, then separately verifies
+the exact cause graph against the checked page/post/comment identities.
 
 `PrivateRefusalReceipt::snapshot($directory, $profile)` returns the canonical
 command-scoped filename baseline; call it immediately before the expected

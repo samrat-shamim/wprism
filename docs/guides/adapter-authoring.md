@@ -1446,6 +1446,13 @@ plugin faithfully.
    its transport-detail renderer sends the refusal to stderr and may append
    the private-evidence hint after it. Test the complete phase/envelope trace
    through the real renderer instead of assuming that the last line is JSON.
+   Explicit force flags may add a typed override envelope and an outer private
+   warning node before the original cause. Derive that graph through actual
+   preparation/reporting, and bind its native identities to checked fixture
+   context; the override category alone is not evidence of the inner blocker.
+   Before any assertion can trigger disposable-target teardown, retain the
+   shared reader's bounded diagnostic delta in a private sink. Its explicit
+   `verified:false` marker must never satisfy the separate exact-cause check.
    Do not clear prior evidence or select by timestamp/mtime: both
    can make a failed invocation appear proved by a stale record. The private
    sentence is deliberately absent from host output; grepping that stream for

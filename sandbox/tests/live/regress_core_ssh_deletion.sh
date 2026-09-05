@@ -5,11 +5,9 @@ set -euo pipefail
 # The shared parent owns the disposable SSH host, authority and final cleanup.
 # This extension owns only its native witnesses and private command captures.
 
-core_ssh_capture() { # <OUT> <unique-label> <json|apply|refusal|human> <command> [args...]
-  local core_out="$1" core_label="$2" core_mode="$3" core_code=0 core_json=''
-  shift 3
-  [[ "$core_out" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$core_out" != core_* ]] \
-    || fail 'core SSH capture has an invalid output binding'
+core_ssh_record() { # <unique-label> <command> [args...]
+  local core_label="$1" core_code=0
+  shift
   [[ "$core_label" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail 'core SSH capture label is malformed'
   local core_stdout="$DIAG_DIR/core-delete-$core_label.stdout"
   local core_stderr="$DIAG_DIR/core-delete-$core_label.stderr"
@@ -24,6 +22,18 @@ core_ssh_capture() { # <OUT> <unique-label> <json|apply|refusal|human> <command>
   # a command diagnostic instead of remaining the visible resource owner.
   ( "$@" ) >"$core_stdout" 2>"$core_stderr" || core_code=$?
   printf '%s\n' "$core_code" >"$core_exit"
+}
+
+core_ssh_accept() { # <OUT> <unique-label> <json|apply|refusal|human>
+  local core_out="$1" core_label="$2" core_mode="$3" core_code core_json=''
+  [[ "$core_out" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$core_out" != core_* ]] \
+    || fail 'core SSH capture has an invalid output binding'
+  [[ "$core_label" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail 'core SSH capture label is malformed'
+  local core_stdout="$DIAG_DIR/core-delete-$core_label.stdout"
+  local core_stderr="$DIAG_DIR/core-delete-$core_label.stderr"
+  core_code=$(<"$DIAG_DIR/core-delete-$core_label.exit")
+  [[ "$core_code" =~ ^(0|[1-9][0-9]{0,2})$ ]] && [ "$core_code" -le 255 ] \
+    || fail 'core SSH capture lost its exact transport exit'
   # Check both COMPLETE streams before selecting any JSON. A zero-exit PHP
   # startup warning or stderr-only env_missing must not become a clean Apply.
   assert_ssh_fixture_positive_diagnostics "core deletion $core_label" "$core_stdout" "$core_stderr"
@@ -51,8 +61,9 @@ core_ssh_capture() { # <OUT> <unique-label> <json|apply|refusal|human> <command>
         || fail 'core deletion did not retain exactly one committed signed host receipt'
     elif [ "$core_mode" = refusal ]; then
       jq -e '.format == "wprism-command-refusal/v1" and .ok == false
-        and .command == "apply" and .error == "apply_failed" and .reason_code == "apply_failed"
-        and .details_redacted == true and .message == "apply refused at an unclassified safety gate"' \
+        and .command == "apply" and .error == "apply_forced_override_failed" and .reason_code == "apply_forced_override_failed"
+        and (has("details_redacted") | not)
+        and .message == "apply failed after explicit plan conflict overrides were authorized"' \
         <<<"$core_json" >/dev/null 2>>"$core_stderr" \
         || fail 'core FK preflight returned the wrong public refusal category'
       ! grep -Fq 'promote complete:' "$core_stdout" \
@@ -60,6 +71,16 @@ core_ssh_capture() { # <OUT> <unique-label> <json|apply|refusal|human> <command>
     fi
   fi
   printf -v "$core_out" '%s' "$core_json"
+}
+
+core_ssh_capture() { # <OUT> <unique-label> <json|apply|refusal|human> <command> [args...]
+  local core_binding="$1" core_capture_label="$2" core_capture_mode="$3"
+  shift 3
+  [[ "$core_binding" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$core_binding" != core_* ]] \
+    || fail 'core SSH capture has an invalid output binding'
+  case "$core_capture_mode" in json|apply|refusal|human) ;; *) fail 'core SSH capture mode is unknown' ;; esac
+  core_ssh_record "$core_capture_label" "$@"
+  core_ssh_accept "$core_binding" "$core_capture_label" "$core_capture_mode"
 }
 
 core_ssh_native() { # <seed|drift|observe|installForeignKey|removeForeignKey> [context JSON]
@@ -73,19 +94,50 @@ core_ssh_native() { # <seed|drift|observe|installForeignKey|removeForeignKey> [c
     echo json_encode(\$result ?? ['complete'=>true],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);"
 }
 
-core_ssh_private_refusal() { # <snapshot|verify> [canonical baseline JSON]
-  local mode="$1" baseline code
+core_ssh_private_refusal() { # <snapshot|verify> <context JSON> [canonical baseline JSON]
+  [ "$#" -ge 2 ] || fail 'core private receipt requires its explicit context'
+  local mode="$1" baseline context_encoded code
   case "$mode" in snapshot|verify) ;; *) fail 'core private receipt mode is unknown' ;; esac
-  baseline="$(printf '%s' "${2:-[]}" | base64 | tr -d '\r\n')"
+  if [ "$mode" = snapshot ]; then
+    [ "$#" -eq 2 ] || fail 'core private receipt snapshot takes no baseline'
+  else
+    [ "$#" -eq 3 ] && [ -n "$3" ] || fail 'core private receipt verify requires its explicit baseline'
+  fi
+  baseline="$(printf '%s' "${3-[]}" | base64 | tr -d '\r\n')"
+  context_encoded="$(printf '%s' "$2" | base64 | tr -d '\r\n')"
   code='require "/home/wprism/recovery-fixture/PrivateRefusalReceipt.php";
 require "/home/wprism/recovery-fixture/core-ssh-deletion.php";
-$profile=\WPrismTest\CoreSshDeletionFixture::refusalProfile();
+$context=json_decode(base64_decode($argv[3],true),true,32,JSON_THROW_ON_ERROR);
+$profile=\WPrismTest\CoreSshDeletionFixture::refusalProfile($context);
 $dir="/home/wprism/site/.wprism/refusals";
 echo $argv[1] === "snapshot"
   ? \WPrismTest\PrivateRefusalReceipt::snapshot($dir,$profile)
   : \WPrismTest\PrivateRefusalReceipt::verify($dir,base64_decode($argv[2],true),$profile);'
   # No WordPress bootstrap while reading private evidence as the target uid.
-  ssh_fixture "php -r '$code' '$mode' '$baseline'"
+  ssh_fixture "php -r '$code' '$mode' '$baseline' '$context_encoded'"
+}
+
+core_ssh_assert_fk_refusal() { # <context JSON> <public refusal JSON>
+  local identity post_uuid
+  post_uuid=$(jq -er '.uuids[1] | select(type == "string" and test("^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"))' <<<"$1") \
+    || fail 'core FK refusal has no explicit conflict identity'
+  # Hash the UUID bytes, not jq's trailing newline, exactly as ApplyPlanner.
+  identity=$(printf '%s' "$post_uuid" | shasum -a 256 | awk '{print $1}')
+  jq -e --arg identity "$identity" '
+    . == {
+      format:"wprism-command-refusal/v1",ok:false,command:"apply",
+      error:"apply_forced_override_failed",reason_code:"apply_forced_override_failed",
+      message:"apply failed after explicit plan conflict overrides were authorized",
+      remediation:"inspect private operator evidence and apply recovery state; reconcile the failed gate before another attempt and do not assume the authorized override committed",
+      forced_overrides:[{
+        format:"wprism-forced-plan-override/v1",plan_bucket:"delete_conflict",
+        entity_identity_sha256:$identity,conflict_kind:"tombstone_conflict",
+        reason_code:"target_changed_since_delete_base",choice:"apply_repository",
+        effect:"delete_target_authored_state",required_flags:["--with-deletes","--force-theirs"],
+        supplied_flags:["--with-deletes","--force-theirs"],status:"authorized"
+      }]
+    }
+  ' <<<"$2" >/dev/null 2>&1 || fail 'core FK refusal did not name exactly the authorized local-post deletion conflict'
 }
 
 core_ssh_assert_preimage() { # <context JSON> <observed JSON>
@@ -181,7 +233,7 @@ core_ssh_assert_terminal() { # <committed|rolled_back> <unique-label>
 
 wprism_ssh_adopt_extension() {
   local context ignored before after plan result page_uuid post_uuid attachment_uuid
-  local baseline receipt fk_before fk_after converged retry_state
+  local baseline receipt fk_before fk_after converged retry_state diagnostic
 
   say 'prepare exact core-only code and bounded native deletion witnesses'
   core_ssh_capture ignored enrollment human wprism_ssh_enroll_full_recovery core-delete
@@ -230,13 +282,22 @@ wprism_ssh_adopt_extension() {
   core_ssh_capture fk_before fk-preimage json core_ssh_native observe "$context"
   # snapshot is a list, not a command answer; keep its raw bytes and transport
   # status private, then select that one canonical list explicitly.
-  core_ssh_capture ignored refusal-baseline human core_ssh_private_refusal snapshot
+  core_ssh_capture ignored refusal-baseline human core_ssh_private_refusal snapshot "$context"
   baseline="$(jq -ce -s 'select(length == 1 and (.[0] | type == "array")) | .[0]' \
     "$DIAG_DIR/core-delete-refusal-baseline.stdout" 2>>"$DIAG_DIR/core-delete-refusal-baseline.stderr")" \
     || fail 'core FK preflight could not retain its exact refusal baseline'
-  core_ssh_capture result fk-refusal refusal "$WPRISM" --envs-file="$TMP/envs.json" promote target \
+  core_ssh_record fk-refusal "$WPRISM" --envs-file="$TMP/envs.json" promote target \
     --with-deletes --force-theirs --force-delete-referenced --default-author=admin --format=json
-  core_ssh_capture receipt fk-private-receipt json core_ssh_private_refusal verify "$baseline"
+  # 6a8d stopped on the public wrapper before preserving the inner graph, then
+  # the parent destroyed the SSH host. Retain bounded unverified diagnostics
+  # before any acceptance can exit; only the separate verifier proves cause.
+  core_ssh_capture diagnostic fk-private-diagnostic json private_refusal_diagnostic capture apply "$baseline"
+  jq -e '.format == "wprism-private-refusal-diagnostic/v1" and .command == "apply"
+    and .purpose == "diagnostic_only" and .verified == false' <<<"$diagnostic" >/dev/null 2>&1 \
+    || fail 'core FK refusal diagnostic did not retain its explicitly unverified boundary'
+  core_ssh_accept result fk-refusal refusal
+  core_ssh_assert_fk_refusal "$context" "$result"
+  core_ssh_capture receipt fk-private-receipt json core_ssh_private_refusal verify "$context" "$baseline"
   jq -e '.format == "wprism-private-refusal-check/v1" and .command == "apply" and .new_records == 1 and .verified == true' \
     <<<"$receipt" >/dev/null 2>&1 || fail 'core FK preflight did not prove its exact fresh private cause'
   core_ssh_capture fk_after fk-postimage json core_ssh_native observe "$context"

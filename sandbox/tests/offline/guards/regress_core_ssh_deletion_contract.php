@@ -12,8 +12,67 @@ use WPrismTest\CoreSshDeletionFixture as Fixture;
 use WPrismTest\FakeWpdb;
 use WPrismTest\ShellProbe;
 use WPrismTest\WpStore;
+use WPrismTest\CoreSshRefusalProduct;
+
+final class CoreSshRefusalHalt extends RuntimeException {}
+final class WP_CLI {
+    public static array $lines = [];
+    public static function add_command(string $name, string $class): void {}
+    public static function line(string $line): void { self::$lines[] = $line; }
+    public static function halt(int $status): never { throw new CoreSshRefusalHalt((string) $status); }
+}
 
 $root = dirname(__DIR__, 4);
+require_once __DIR__ . '/../../lib/agent_version.php';
+wprism_test_define_agent_versions();
+require_once $root . '/agent/src/Apply/ApplyRequestCoordinator.php';
+require_once $root . '/agent/src/Command/Cli.php';
+require_once __DIR__ . '/../../fixtures/core-ssh-refusal-product.php';
+if (($argv[1] ?? '') === '--fk-emit') {
+    [$repo, $contextJson, $mode] = array_slice($argv, 2);
+    $producerContext = json_decode($contextJson, true, 32, JSON_THROW_ON_ERROR);
+    if ($mode === 'wrong-comment') $producerContext['comment'] = 42;
+    if ($mode === 'wrong-page') $producerContext['uuids'][0] = '44444444-4444-4444-8444-444444444444';
+    $product = CoreSshRefusalProduct::produce($root, $producerContext);
+    $failure = $mode === 'wrong-cause'
+        ? CoreSshRefusalProduct::wrap(new RuntimeException('private-core-fk-canary'), $product['warnings'], $product['evidence'])
+        : $product['failure'];
+    try {
+        (new ReflectionMethod(WPrism\Cli::class, 'halt_json_failure'))->invoke(null, $failure,
+            $mode === 'stale' ? ['format' => 'json'] : ['format' => 'json', 'repo' => $repo], 'apply');
+    } catch (CoreSshRefusalHalt $halt) {
+        if ($halt->getMessage() !== '1') throw $halt;
+    }
+    $new = array_values(array_filter(glob($repo . '/.wprism/refusals/*-apply-*.json') ?: [],
+        static fn(string $path): bool => !str_contains($path, '20000101-000000-')));
+    if (in_array($mode, ['extra-record', 'incomplete-record', 'missing-previous'], true)) {
+        if (count($new) !== 1) throw new LogicException('private record mutation requires exactly one fresh CLI record');
+        if ($mode === 'extra-record') {
+            $extra = $repo . '/.wprism/refusals/20990101-000000-apply-' . str_repeat('f', 24) . '.json';
+            copy($new[0], $extra);
+            chmod($extra, 0600);
+        } else {
+            $record = json_decode(file_get_contents($new[0]), true, 32, JSON_THROW_ON_ERROR);
+            if ($mode === 'incomplete-record') $record['traversal']['record_complete'] = false;
+            else array_pop($record['throwable']);
+            file_put_contents($new[0], json_encode($record, JSON_THROW_ON_ERROR));
+        }
+    }
+    $answer = json_decode(WP_CLI::$lines[0], true, 32, JSON_THROW_ON_ERROR);
+    if ($mode === 'wrong-public') $answer['reason_code'] = 'apply_failed';
+    if ($mode === 'wrong-identity') $answer['forced_overrides'][0]['entity_identity_sha256'] = str_repeat('f', 64);
+    if ($mode === 'incomplete-override') $answer['forced_overrides'][0]['status'] = 'incomplete';
+    if ($mode === 'extra-override') $answer['forced_overrides'][] = $answer['forced_overrides'][0];
+    if ($mode === 'unredacted') $answer['private_cause'] = $failure->getMessage();
+    if ($mode === 'stdout-warning') echo "PHP Warning: private-core-fk-canary in Unknown on line 0\n";
+    if ($mode === 'stderr-warning') fwrite(STDERR, "PHP Warning: private-core-fk-canary in Unknown on line 0\n");
+    echo "promote phase: compile\npromote profile: automatic verified rollback\npromote phase: apply\n";
+    if ($mode !== 'empty-answer') echo json_encode($answer, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    if ($mode === 'extra-answer') echo "{}\n";
+    if ($mode === 'success-claim') echo "promote complete: verified committed receipt; traffic exclusion released\n";
+    fwrite(STDERR, "wprism: promote: apply failed; entering signed verified rollback\n");
+    exit($mode === 'zero-exit' ? 0 : 1);
+}
 if (($argv[1] ?? null) === '--metadata') {
     $fixtureSource = file_get_contents($argv[2] . '/sandbox/tests/fixtures/core-ssh-deletion.php');
     $start = strpos($fixtureSource, '$metadata = wp_generate_attachment_metadata(');
@@ -192,8 +251,8 @@ wprism_check($code !== 0 && $out === '' && str_contains($err, 'requires an expli
 // and complete JSON still remain a healthy control.
 $apply = ['warnings' => [], 'canary' => 'clean', 'verification' => ['result' => 'pass']];
 $refusal = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
-    'error' => 'apply_failed', 'reason_code' => 'apply_failed', 'details_redacted' => true,
-    'message' => 'apply refused at an unclassified safety gate'];
+    'error' => 'apply_forced_override_failed', 'reason_code' => 'apply_forced_override_failed',
+    'message' => 'apply failed after explicit plan conflict overrides were authorized'];
 $host = "promote phase: compile\npromote profile: automatic verified rollback\npromote phase: apply\n";
 $terminal = "\npromote complete: verified committed receipt; traffic exclusion released\n";
 $captureCases = [
@@ -214,7 +273,7 @@ $captureCases = [
     'expected public FK refusal' => ['refusal', $host . $encode($refusal), 'wprism: promote: apply failed; entering signed verified rollback', 1, true],
     'zero exit with expected refusal' => ['refusal', $host . $encode($refusal), '', 0, false],
     'wrong refusal category' => ['refusal', $host . $encode(array_replace($refusal, ['reason_code' => 'other_failed'])), '', 1, false],
-    'unredacted expected refusal' => ['refusal', $host . $encode(array_replace($refusal, ['details_redacted' => false])), '', 1, false],
+    'altered redaction contract' => ['refusal', $host . $encode(array_replace($refusal, ['details_redacted' => true])), '', 1, false],
     'expected refusal with successful host claim' => ['refusal', $host . $encode($refusal) . $terminal, '', 1, false],
 ];
 foreach ($captureCases as $label => [$mode, $stdout, $stderr, $exit, $ok]) {
@@ -495,7 +554,7 @@ foreach ([
 
 // The exact private FK profile comes from the engine transaction boundary,
 // not a test-assumed SQL error or a matching public catch-all alone.
-require_once $root . '/agent/wprism.php';
+require_once $root . '/agent/src/Apply/ApplyRequestCoordinator.php';
 $db = FakeWpdb::install()->enableInformationSchema();
 $db->seedTable('wp_posts', [['ID' => 12]])->setColumns('wp_posts', ['ID' => 'bigint unsigned'])->setTableEngine('wp_posts', 'InnoDB');
 $profile = new \WPrism\NativeDatabaseProfile([], ['wp_posts']);
@@ -510,13 +569,100 @@ try {
 } catch (Throwable $caught) {
     $failure = $caught;
 }
-$expected = Fixture::refusalProfile();
+$expected = Fixture::refusalProfile($context);
 wprism_check($failure instanceof RuntimeException && $failure->getPrevious() === null
-    && get_class($failure) === $expected['nodes'][0]['class']
-    && $failure->getMessage() === $expected['nodes'][0]['message'], 'actual CASCADE mutation preflight emits the exact declared private root without a hidden cause chain');
+    && get_class($failure) === $expected['nodes'][1]['class']
+    && $failure->getMessage() === $expected['nodes'][1]['message'], 'actual CASCADE mutation preflight emits the declared private leaf; forced preparation owns its wrapper');
 wprism_check_same([['ID' => 12]], $db->rows('wp_posts'), 'actual FK preflight leaves the native parent untouched');
 wprism_check($db->activeTransactionIsolation() === null
     && array_filter($db->queries(), static fn(string $sql): bool => preg_match('/\A(?:INSERT|UPDATE|DELETE)\b/i', $sql) === 1) === [], 'actual FK preflight settles without authored DML, not a partial-delete rollback');
+
+$healthy = CoreSshRefusalProduct::produce($root, $context, false);
+wprism_check($healthy['failure'] === null && $healthy['db']->activeTransactionIsolation() === null,
+    'real force preparation and non-escaping mutation admission have a settled healthy control');
+$product = CoreSshRefusalProduct::produce($root, $context);
+$graph = WPrism\PrivateRefusalEvidence::graph($product['failure']);
+$nodes = array_map(static fn(array $node): array => array_intersect_key($node,
+    array_flip(['parent_index', 'relation', 'class', 'message'])), $graph['throwable']);
+wprism_check_same($expected['nodes'], $nodes,
+    'shipped tombstones, comment scanning, conflict classification, preparation, FK admission and reporting produce the declared complete cause graph');
+wprism_check($product['prepared']->executeDeletes && count($product['prepared']->deleteWork) === 3
+    && count($product['warnings']) === 2 && count($product['evidence']) === 1,
+    'actual preparation retains three intents, the page guard and exactly one authorized local-post conflict');
+wprism_check_same($context['uuids'][0], $product['plan']['delete'][0]['uuid'], 'the actual guarded page is the first clean deletion intent');
+wprism_check_same(['comments.comment_ID=' . $context['comment']], $product['plan']['delete'][0]['guard_refs'][0]['rows'],
+    'the warning uses a real native comment identity from the shared SQL interpreter');
+wprism_check_same($context['uuids'][1], $product['plan']['delete_conflict'][0]['uuid'], 'the actual conflict belongs only to the locally edited post');
+wprism_check($product['db']->activeTransactionIsolation() === null
+    && array_filter($product['db']->queries(), static fn(string $sql): bool => preg_match('/\A(?:INSERT|UPDATE|DELETE)\b/i', $sql) === 1) === [],
+    'wrapped FK admission still performs no authored DML and leaves no transaction open');
+$seedRecord = ['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'apply',
+    'reason_code' => 'apply_forced_override_failed', ...$graph];
+$fkSource = file_get_contents($metadataSourceRoot . '/sandbox/tests/live/regress_core_ssh_deletion.sh');
+$fkStart = strpos($fkSource, '  core_ssh_capture ignored refusal-baseline human');
+$fkEnd = strpos($fkSource, '  core_ssh_capture fk_after fk-postimage json', $fkStart ?: 0);
+if ($fkStart === false || $fkEnd === false
+    || preg_match('/^private_refusal_diagnostic\(\).*?^}/ms', $parent, $diagnosticHelper) !== 1) {
+    throw new LogicException('the real core FK command block or shared diagnostic transport is unavailable');
+}
+$fkBlock = substr($fkSource, $fkStart, $fkEnd - $fkStart);
+$fkSetup = str_replace('. "$ROOT/sandbox/tests/live/regress_core_ssh_deletion.sh"',
+    '. ' . escapeshellarg($metadataSourceRoot . '/sandbox/tests/live/regress_core_ssh_deletion.sh'), $setup);
+$fkSetup .= "\n" . $diagnosticHelper[0] . "\n" . <<<'SH'
+context="$2" fixture_mode="$3" php="$4" self="$5" seed_record="$6" fixture_source="$7"
+case_root=$(mktemp -d "${TMPDIR:-/tmp}/core-fk-case.XXXXXX")
+mkdir -p "$case_root/repo/.wprism/refusals" "$case_root/fixture"
+chmod 0700 "$case_root/repo/.wprism/refusals"
+printf '{}\n' >"$case_root/repo/site.wprism.json"
+ln -s "$ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php" "$case_root/fixture/PrivateRefusalReceipt.php"
+ln -s "$fixture_source/sandbox/tests/fixtures/core-ssh-deletion.php" "$case_root/fixture/core-ssh-deletion.php"
+"$php" -r '$p=$argv[1]."/20000101-000000-apply-".str_repeat("a",24).".json"; file_put_contents($p,$argv[2]); chmod($p,0600);' \
+  "$case_root/repo/.wprism/refusals" "$seed_record"
+trap 'if [ -f "$case_root/attempted" ]; then printf "HOST_ATTEMPTED\n"; fi
+  if [ -f "$DIAG_DIR/core-delete-fk-private-diagnostic.stdout" ]; then
+    printf "DIAGNOSTIC_RETAINED\n"
+    jq -e ".verified == false and .purpose == \"diagnostic_only\"" "$DIAG_DIR/core-delete-fk-private-diagnostic.stdout" >/dev/null 2>&1 && printf "DIAGNOSTIC_UNVERIFIED\n"
+  fi
+  "$php" -r '\''foreach(glob($argv[1]."/*") as $p) if ((fileperms($p)&0777)!==0600) exit(1);'\'' "$DIAG_DIR" && printf "CAPTURES_PRIVATE\n"
+  rm -rf -- "$DIAG_DIR" "$case_root"' EXIT
+TMP="$DIAG_DIR" WPRISM=fixture_promote
+fixture_promote() {
+  [ "$*" = "--envs-file=$TMP/envs.json promote target --with-deletes --force-theirs --force-delete-referenced --default-author=admin --format=json" ] \
+    || return 81
+  : >"$case_root/attempted"
+  "$php" "$self" --fk-emit "$case_root/repo" "$context" "$fixture_mode"
+}
+ssh_fixture() {
+  [ "$#" -eq 1 ] && [[ "$1" == "php -r "* ]] || return 82
+  local command="$1"
+  case "$fixture_mode" in
+    snapshot-nonzero) [[ "$command" != *" 'snapshot' "* ]] || return 7 ;;
+    snapshot-warning) [[ "$command" != *" 'snapshot' "* ]] || printf 'PHP Warning: private-core-fk-canary in Unknown on line 0\n' >&2 ;;
+    verify-nonzero) [[ "$command" != *" 'verify' "* ]] || return 7 ;;
+    verify-warning) [[ "$command" != *" 'verify' "* ]] || printf 'PHP Warning: private-core-fk-canary in Unknown on line 0\n' >&2 ;;
+  esac
+  command="${command//\/home\/wprism\/recovery-fixture/$case_root/fixture}"
+  command="${command//\/home\/wprism\/site/$case_root/repo}"
+  bash -c "$command"
+}
+SH;
+foreach (['ready', 'wrong-cause', 'wrong-comment', 'wrong-page', 'stale', 'extra-record', 'incomplete-record', 'missing-previous',
+    'wrong-public', 'wrong-identity', 'incomplete-override', 'extra-override', 'unredacted',
+    'stdout-warning', 'stderr-warning', 'empty-answer', 'extra-answer', 'success-claim', 'zero-exit',
+    'snapshot-nonzero', 'snapshot-warning', 'verify-nonzero', 'verify-warning'] as $mode) {
+    [$code, $out, $err] = ShellProbe::run($fkSetup . "\n" . $fkBlock . "\nprintf 'FK_VERIFIED\\n'\n",
+        [$root, $encode($context), $mode, PHP_BINARY, __FILE__, $encode($seedRecord), $metadataSourceRoot], $root);
+    $ready = $mode === 'ready';
+    if ($ready) wprism_check_same('', $err, 'the actual forced FK producer has a diagnostic-free healthy evidence path');
+    wprism_check($ready ? $code === 0 && str_contains($out, 'FK_VERIFIED') : $code !== 0 && !str_contains($out, 'FK_VERIFIED'),
+        "$mode accepts only the complete fresh cause and exact authorized conflict through the real FK command block");
+    $attempted = !str_starts_with($mode, 'snapshot-');
+    wprism_check_same($attempted, str_contains($out, 'HOST_ATTEMPTED'), "$mode executes promote only after its checked private baseline");
+    wprism_check_same($attempted, str_contains($out, 'DIAGNOSTIC_RETAINED'), "$mode retains private diagnostics before a public assertion can stop teardown-bound evidence");
+    wprism_check_same($attempted, str_contains($out, 'DIAGNOSTIC_UNVERIFIED'), "$mode never upgrades diagnostic retention into verified cause evidence");
+    wprism_check(str_contains($out, 'CAPTURES_PRIVATE') && !str_contains($out . $err, 'private-core-fk-canary')
+        && !str_contains($out . $err, $context['uuids'][0]), "$mode keeps complete captured streams and native cause identities private");
+}
 
 WpStore::reset();
 wprism_check_summary('core signed SSH deletion evidence contract');

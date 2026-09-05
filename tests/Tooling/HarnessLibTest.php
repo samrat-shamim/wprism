@@ -417,7 +417,29 @@ final class HarnessLibTest extends TestCase
             'column length' => ["SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' AND COLUMN_NAME = 'option_name'"],
             'trigger count' => ["SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_TABLE = 'wp_options'"],
             'trigger privileges' => ['SELECT scope_type, table_name FROM information_schema.USER_PRIVILEGES WHERE direct_trigger_grants = 1'],
+            'primary keys' => ["SHOW KEYS FROM `wp_options` WHERE Key_name = 'PRIMARY'"],
         ];
+    }
+
+    public function testShowIndexFiltersOnlyRecordedMetadata(): void
+    {
+        $db = FakeWpdb::install()->seedTable('wp_comments', []);
+        $primary = ['Key_name' => 'PRIMARY', 'Column_name' => 'comment_ID', 'Seq_in_index' => 1];
+        $secondary = ['Key_name' => 'comment_post_ID', 'Column_name' => 'comment_post_ID', 'Seq_in_index' => 1];
+        $db->setIndexes('wp_comments', [$primary, $secondary]);
+        foreach (['KEYS', 'INDEX', 'INDEXES'] as $variant) {
+            self::assertSame([array_replace($primary, ['Seq_in_index' => '1'])],
+                $db->get_results("SHOW $variant FROM `wp_comments` WHERE Key_name = 'PRIMARY'", ARRAY_A));
+            self::assertSame([array_replace($secondary, ['Seq_in_index' => '1'])],
+                $db->get_results("SHOW $variant FROM `wp_comments` WHERE Key_name <> 'PRIMARY' AND Seq_in_index = 1", ARRAY_A));
+            self::assertSame([], $db->get_results("SHOW $variant FROM `wp_comments` WHERE Key_name = 'absent'", ARRAY_A));
+        }
+        $db->setIndexes('wp_comments', []);
+        self::assertSame([], $db->get_results("SHOW KEYS FROM `wp_comments` WHERE Key_name = 'PRIMARY'", ARRAY_A));
+        $db->seedTable('wp_posts', [['ID' => 1]])->setPrimaryKey('wp_posts', 'ID');
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('without a recorded index fixture');
+        $db->get_results("SHOW KEYS FROM `wp_posts` WHERE Key_name = 'PRIMARY'", ARRAY_A);
     }
 
     #[DataProvider('metadataProjectionQueries')]
@@ -426,6 +448,7 @@ final class HarnessLibTest extends TestCase
         $db = FakeWpdb::install()->enableInformationSchema()
             ->seedTable('wp_options', [])
             ->setColumns('wp_options', ['option_name' => 'varchar(191)'])
+            ->setIndexes('wp_options', [['Key_name' => 'PRIMARY', 'Column_name' => 'option_id', 'Seq_in_index' => 1]])
             ->setTableEngine('wp_options', 'InnoDB');
         $observed = [];
         $db->onQuery(static function (string $query, string $method) use (&$observed): null {
@@ -458,6 +481,7 @@ final class HarnessLibTest extends TestCase
     {
         $db = FakeWpdb::install()->enableInformationSchema()
             ->seedTable('wp_options', [])
+            ->setIndexes('wp_options', [['Key_name' => 'PRIMARY', 'Column_name' => 'option_id', 'Seq_in_index' => 1]])
             ->setColumns('wp_options', ['option_name' => 'varchar(191)']);
         $driverReads = 0;
         $db->onQuery(static function () use (&$driverReads): null {

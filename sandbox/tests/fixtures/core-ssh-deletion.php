@@ -211,12 +211,30 @@ final class CoreSshDeletionFixture {
     }
 
     /** @return array<string,mixed> */
-    public static function refusalProfile(): array {
-        return ['command' => 'apply', 'reason_code' => 'apply_failed', 'nodes' => [[
+    public static function refusalProfile(array $context): array {
+        self::context($context);
+        if (count($context['uuids']) !== 3) {
+            self::fail('foreign-key refusal context requires all three deletion identities');
+        }
+        $cause = 'wprism: apply transaction start mutation scope refused — a foreign-key referential action escapes the declared mutation tables';
+        // ApplyPreparationCoordinator preserves both explicit force decisions
+        // before transaction admission. The coordinator wraps the FK cause
+        // without publishing these native identities in its typed envelope.
+        $operator = 'Warning: FORCED delete of guarded post ' . $context['uuids'][0]
+            . ': 1 rows in comments will be orphaned; comments is not a declared authored-snapshot table '
+            . 'and must be resolved through its owning content workflow. Surviving rows: comments.comment_ID=' . $context['comment']
+            . "\nWarning: FORCED deletion conflict " . $context['uuids'][1]
+            . " (target entity changed locally since the tombstone base)\n" . $cause;
+        return ['command' => 'apply', 'reason_code' => 'apply_forced_override_failed', 'nodes' => [[
             'parent_index' => null,
             'relation' => 'root',
+            'class' => 'WPrism\\CommandRefusalException',
+            'message' => $operator,
+        ], [
+            'parent_index' => 0,
+            'relation' => 'previous',
             'class' => 'RuntimeException',
-            'message' => 'wprism: apply transaction start mutation scope refused — a foreign-key referential action escapes the declared mutation tables',
+            'message' => $cause,
         ]]];
     }
 
