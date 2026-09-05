@@ -1201,7 +1201,7 @@ $cleanDeployBlock = $hostDeploy === false || $cleanDeployEnd === false
 wprism_check($cleanDeployBlock !== '', 'the complete clean host-settlement acceptance block is extractable');
 $cleanDeployProbe = <<<'SH'
 set -euo pipefail
-ROOT="$1" PROBE_CASE="$2" R2="$3"
+ROOT="$1" PROBE_CASE="$2" R2="$3" PAIR=rmcomboclean
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'HOST_SETTLEMENT_ACCEPTED\n'; }
 . "$ROOT/sandbox/conformance/asserts.sh"
@@ -1226,6 +1226,14 @@ host_wprism_combo() {
   done
 }
 wp2() {
+  if [ "$*" = 'plugin get seo-by-rank-math --fields=name,status,version --format=json' ]; then
+    printf '%s\n' '{"name":"seo-by-rank-math","status":"active","version":"1.0.277.2"}'
+    return 0
+  fi
+  if [ "$#" -eq 2 ] && [ "$1" = eval ]; then
+    printf '%s\n' '{"table":"wp_rank_math_redirections_cache","present":true}'
+    return 0
+  fi
   if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = is-active ] \
     && [ "$3" = seo-by-rank-math ]; then
     return 0
@@ -1250,7 +1258,7 @@ if (!mkdir($cleanDeployScratch, 0700)) {
 }
 foreach (['ready', 'php-stdout', 'php-stderr', 'startup-stdout', 'startup-stderr', 'parse-stdout', 'parse-stderr'] as $case) {
     [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
-        $cleanDeployProbe . "\n" . $cleanDeployBlock . "\nprintf 'HOST_SETTLEMENT_READY\\n'\n",
+        $cleanDeployProbe . "\n" . $scenarioAssertionDefinitions . "\n" . $cleanDeployBlock . "\nprintf 'HOST_SETTLEMENT_READY\\n'\n",
         [$root, $case, $cleanDeployScratch],
         $root
     );
@@ -1268,6 +1276,112 @@ foreach (['ready', 'php-stdout', 'php-stderr', 'startup-stdout', 'startup-stderr
     );
 }
 rmdir($cleanDeployScratch);
+
+// Execute the real drift-to-settlement window, including its preimage. The
+// earlier clean-deploy probe began after the nonexistent is-inactive call and
+// therefore could not detect the live 65d92 failure. Only native transport is
+// simulated; the table observation runs its actual PHP against shared SQL.
+$hostPremiseSource = isset($argv[1]) ? file_get_contents($argv[1]
+    . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh') : $live;
+$hostPremiseStart = strrpos($hostPremiseSource, 'wp2 plugin deactivate seo-by-rank-math');
+$hostPremiseEnd = $hostPremiseStart === false ? false : strpos($hostPremiseSource,
+    '[ ! -e "$R2/.wprism/control/provider-settlement-intent.json" ]', $hostPremiseStart);
+$hostDefinitionsStart = strpos($hostPremiseSource, 'assert_rmcombo_warning_free_capture() {');
+$hostDefinitionsEnd = $hostDefinitionsStart === false ? false : strpos($hostPremiseSource, "\nfor command in docker", $hostDefinitionsStart);
+if ($hostPremiseStart === false || $hostPremiseEnd === false || $hostDefinitionsStart === false || $hostDefinitionsEnd === false) {
+    throw new LogicException('the complete real host lifecycle/schema premise is unavailable');
+}
+$hostPremiseBlock = substr($hostPremiseSource, $hostPremiseStart, $hostPremiseEnd - $hostPremiseStart);
+$hostDefinitions = substr($hostPremiseSource, $hostDefinitionsStart, $hostDefinitionsEnd - $hostDefinitionsStart);
+$hostPremiseProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_CASE="$2" PROBE_PHASE="$3" PHP="$4" PAIR=rmcomboprobe
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+probe_scratch=$(mktemp -d "${TMPDIR:-/tmp}/rmcombo-host-premise.XXXXXX")
+trap '[ ! -f "$probe_scratch/deployed" ] || printf "DEPLOYED\n"; rm -rf -- "$probe_scratch"' EXIT
+host_wprism_combo() {
+  [ "$*" = 'wp2 deploy' ] || return 81
+  : >"$probe_scratch/deployed"
+  local phase
+  for phase in compile lifecycle-status schema-status promotion-begin checkpoint \
+    provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle \
+    lifecycle-settle provider-settlement-complete; do printf 'deploy phase: %s\n' "$phase"; done
+}
+wp1() { return 82; }
+wp2() {
+  local phase=before fault=ready status=inactive
+  if [ -f "$probe_scratch/deployed" ]; then phase=after; status=active; fi
+  [ "$phase" != "$PROBE_PHASE" ] || fault="$PROBE_CASE"
+  case "$*" in
+    'plugin deactivate seo-by-rank-math'|'db query DROP TABLE wp_rank_math_redirections_cache') return 0 ;;
+    'plugin is-inactive seo-by-rank-math') printf 'Error: is-inactive is not a registered subcommand\n' >&2; return 1 ;;
+    'plugin is-active seo-by-rank-math') [ "$phase" = after ]; return ;;
+    "db query SHOW TABLES LIKE 'wp_rank_math_redirections_cache' --skip-column-names")
+      [ "$phase" != after ] || printf 'wp_rank_math_redirections_cache\n'; return 0 ;;
+    'plugin get seo-by-rank-math --fields=name,status,version --format=json')
+      local version=1.0.277.2 name=seo-by-rank-math
+      case "$fault" in
+        owned-compose) printf ' Container wprism-rmcomboprobe-cli2-run-aabbcc Created \n' >&2 ;;
+        wrong-site-chatter) printf ' Container wprism-rmcomboprobe-cli1-run-aabbcc Created \n' >&2 ;;
+        wrong-pair-chatter) printf ' Container wprism-rmcomboforeign-cli2-run-aabbcc Created \n' >&2 ;;
+        plugin-nonzero) return 7 ;;
+        plugin-empty) return 0 ;;
+        plugin-wrong-status) if [ "$status" = active ]; then status=inactive; else status=active; fi ;;
+        plugin-wrong-version) version=1.0.276 ;;
+        plugin-wrong-name) name=wrong-plugin ;;
+        plugin-stdout) printf 'PHP Warning: private-host-premise-canary in Unknown on line 0\n' ;;
+        plugin-stderr) printf 'PHP Warning: private-host-premise-canary in Unknown on line 0\n' >&2 ;;
+        plugin-extra) printf '{}\n' ;;
+      esac
+      jq -nc --arg name "$name" --arg status "$status" --arg version "$version" '{name:$name,status:$status,version:$version}'
+      ;;
+    *)
+      [ "$#" -eq 2 ] && [ "$1" = eval ] || return 83
+      case "$fault" in
+        table-nonzero) return 7 ;;
+        table-empty) return 0 ;;
+        table-stdout) printf 'PHP Warning: private-host-premise-canary in Unknown on line 0\n' ;;
+        table-stderr) printf 'PHP Warning: private-host-premise-canary in Unknown on line 0\n' >&2 ;;
+        table-extra) printf '{}\n' ;;
+      esac
+      "$PHP" -r '
+require $argv[1]."/sandbox/tests/lib/FakeWpdb.php";
+$fault=$argv[2]; $present=$argv[4]==="after";
+$wpdb=\WPrismTest\FakeWpdb::install($fault==="table-wrong-prefix" ? "foreign_" : "wp_");
+$initialSuppression=!$present; $wpdb->suppress_errors($initialSuppression);
+if ($fault==="table-wrong-state") $present=!$present;
+if ($present) $wpdb->seedTable($wpdb->prefix."rank_math_redirections_cache",[]);
+// A wildcard near-match must not turn an absent exact table into presence.
+$wpdb->seedTable("wpXrankYmathZredirectionsWcache",[]);
+if ($fault==="table-read-error") $wpdb->failNextQuery("private-host-premise-canary","SHOW TABLES LIKE");
+ob_start();
+try {
+    eval($argv[3]); $answer=ob_get_clean();
+    if (count($wpdb->queries())!==1 || $wpdb->suppress_errors($initialSuppression)!==$initialSuppression) exit(84);
+    echo $answer;
+} catch (Throwable $failure) {
+    ob_end_clean(); fwrite(STDERR,"private-host-premise-canary\n"); exit(7);
+}' "$ROOT" "$fault" "$2" "$phase"
+      ;;
+  esac
+}
+SH;
+foreach (['before', 'after'] as $phase) {
+    foreach (['ready', 'owned-compose', 'wrong-site-chatter', 'wrong-pair-chatter', 'plugin-nonzero', 'plugin-empty', 'plugin-wrong-status', 'plugin-wrong-version',
+        'plugin-wrong-name', 'plugin-stdout', 'plugin-stderr', 'plugin-extra', 'table-nonzero', 'table-empty',
+        'table-stdout', 'table-stderr', 'table-extra', 'table-wrong-state', 'table-read-error', 'table-wrong-prefix'] as $case) {
+        [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run($hostPremiseProbe . "\n" . $hostDefinitions . "\n"
+            . $hostPremiseBlock . "\nprintf 'HOST_PREMISE_ACCEPTED\\n'\n", [$root, $case, $phase, PHP_BINARY], $root);
+        $ready = in_array($case, ['ready', 'owned-compose'], true);
+        wprism_check($ready ? $status === 0 && str_contains($stdout, 'HOST_PREMISE_ACCEPTED')
+                && ($case === 'owned-compose' ? trim($stderr) === 'Container wprism-rmcomboprobe-cli2-run-aabbcc Created' : $stderr === '')
+            : $status !== 0 && !str_contains($stdout, 'HOST_PREMISE_ACCEPTED'),
+            "$phase $case requires checked exact native status and table presence through the real host window");
+        wprism_check_same($ready || $phase === 'after', str_contains($stdout, 'DEPLOYED'),
+            "$phase $case cannot reach host deploy without its complete inactive/absent preimage");
+    }
+}
 $sourceBinding = strpos($live, <<<'SH'
 establish_core_environment_bindings wp1 /siterepo admin@example.test \
   "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"

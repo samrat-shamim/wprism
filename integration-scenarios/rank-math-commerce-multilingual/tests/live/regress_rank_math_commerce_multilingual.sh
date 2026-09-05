@@ -35,6 +35,48 @@ capture_rmcombo_native_json() { # <what> <command> [args...]
   printf '%s\n' "$answer"
 }
 
+assert_rmcombo_host_native_json() { # shared capture callback; bindings live only within its synchronous caller
+  jq -Rse --arg pair "$rmcombo_host_pair" --arg service "$rmcombo_host_service" '
+    split("\n") | map(select(length > 0))
+    | map(select(test("^ ?Container wprism-" + $pair + "-" + $service + "-run-[a-f0-9]+ (Creating|Created) *$") | not))
+    | length == 1 and (.[0] | fromjson | type == "object")
+  ' <<<"$2" >/dev/null 2>&1 || fail "$1 did not return one exact native JSON object at the bound site"
+}
+
+assert_rmcombo_host_rank_math_state() { # <wp1|wp2> <pair> <active|inactive> <present|absent>
+  [ "$#" -eq 4 ] || fail 'Rank Math host premise requires explicit site, pair, status and table presence'
+  local side="$1" rmcombo_host_pair="$2" status="$3" presence="$4" plugin table rmcombo_host_service
+  case "$side" in wp1) rmcombo_host_service=cli1 ;; wp2) rmcombo_host_service=cli2 ;; *) fail 'Rank Math host premise has an unknown site' ;; esac
+  [[ "$rmcombo_host_pair" =~ ^[a-z][a-z0-9]{2,23}$ ]] || fail 'Rank Math host premise has an invalid pair'
+  case "$status:$presence" in active:present|inactive:absent) ;; *) fail 'Rank Math host premise has an unknown lifecycle/schema state' ;; esac
+  # 65d92 stopped at nonexistent `plugin is-inactive`. Inactivity and absence
+  # require positive observations, not the failure status or empty output of
+  # an unsupported command / failed SHOW read. Keep both complete transports.
+  capture_wprism_json_checked plugin 'Rank Math host plugin status' assert_rmcombo_host_native_json \
+    "$side" plugin get seo-by-rank-math --fields=name,status,version --format=json
+  jq -e --arg status "$status" \
+    '. == {name:"seo-by-rank-math",status:$status,version:"1.0.277.2"}' \
+    <<<"$plugin" >/dev/null 2>&1 || fail 'Rank Math host plugin is not the exact expected release and status'
+  capture_wprism_json_checked table 'Rank Math host derived-table presence' assert_rmcombo_host_native_json "$side" eval '
+global $wpdb;
+$table = $wpdb->prefix . "rank_math_redirections_cache";
+$suppressed = $wpdb->suppress_errors(true);
+$wpdb->last_error = "";
+try {
+    $found = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $wpdb->esc_like($table)));
+    if ((string) $wpdb->last_error !== "" || ($found !== null && $found !== $table)) {
+        throw new RuntimeException("Rank Math host table-presence read is incomplete");
+    }
+    echo json_encode(["table" => $table, "present" => $found !== null], JSON_THROW_ON_ERROR);
+} finally {
+    $wpdb->suppress_errors($suppressed);
+}
+'
+  jq -e --arg presence "$presence" \
+    '. == {table:"wp_rank_math_redirections_cache",present:($presence == "present")}' \
+    <<<"$table" >/dev/null 2>&1 || fail 'Rank Math host derived table is not in the exact expected state'
+}
+
 for command in docker git jq mktemp php; do
   command -v "$command" >/dev/null 2>&1 || fail "$command required"
 done
@@ -1189,20 +1231,14 @@ wp2 db query 'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile
 # available as an exact isolation oracle after activation recreates the table.
 wp2 plugin deactivate seo-by-rank-math >/dev/null
 wp2 db query 'DROP TABLE wp_rank_math_redirections_cache' >/dev/null
-wp2 plugin is-inactive seo-by-rank-math >/dev/null \
-  || fail 'Rank Math combination lifecycle drift premise is not inactive'
-[ "$(wp2 db query "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" --skip-column-names | tr -d '[:space:]')" = '' ] \
-  || fail 'Rank Math combination schema drift premise retained the derived cache table'
+assert_rmcombo_host_rank_math_state wp2 "$PAIR" inactive absent
 CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy 2>&1) \
   || fail "clean Rank Math combination host deploy failed: $CLEAN_DEPLOY"
 assert_no_php_runtime_diagnostics 'clean Rank Math combination host deploy' "$CLEAN_DEPLOY"
 CLEAN_DEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$CLEAN_DEPLOY" | paste -sd ' ' -)
 [ "$CLEAN_DEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle lifecycle-settle provider-settlement-complete' ] \
   || fail "compatible host deploy skipped or reordered checkpointed lifecycle/schema settlement: $CLEAN_DEPLOY"
-wp2 plugin is-active seo-by-rank-math >/dev/null \
-  || fail 'compatible host deploy did not reactivate Rank Math'
-[ "$(wp2 db query "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" --skip-column-names | tr -d '[:space:]')" = 'wp_rank_math_redirections_cache' ] \
-  || fail 'compatible host deploy did not restore the missing Rank Math schema'
+assert_rmcombo_host_rank_math_state wp2 "$PAIR" active present
 [ ! -e "$R2/.wprism/control/provider-settlement-intent.json" ] \
   || fail 'successful compatible host deploy retained provider settlement debt'
 HOST_SETTLED_ORDER=$(active_plugin_order wp2)
