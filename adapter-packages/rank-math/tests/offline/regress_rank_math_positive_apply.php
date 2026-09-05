@@ -32,8 +32,37 @@ ShellProbe::positiveApply($root, ShellProbe::captureBlock($source, 'RANK_SCOPED_
     $scoped, 'Rank Math scoped Apply');
 $replay = array_replace($answer, ['format' => 'wprism-scoped-apply-result/v1', 'replayed' => true,
     'applied' => 0, 'actions' => [], 'verification' => null]);
-ShellProbe::positiveApply($root, ShellProbe::captureBlock($source, 'RANK_SCOPED_REPLAY', 'rm -f "$RANK_SCOPE_PATH"'),
-    $replay, 'Rank Math terminal replay', '', true);
+$replayBlock = ShellProbe::captureBlock($source, 'RANK_SCOPED_REPLAY', 'rm -f "$RANK_SCOPE_PATH"');
+ShellProbe::positiveApply($root, $replayBlock, $replay, 'Rank Math terminal replay', '', true);
+// jq treats absent verification as null and absent/null actions as length zero;
+// a terminal receipt must prove the engine's explicit null and empty-list shape.
+$replayScript = <<<'SH'
+set -euo pipefail
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$1/sandbox/conformance/asserts.sh"
+fixture_answer="$2"
+wp_conf2() { printf '%s\n' "$fixture_answer"; }
+SH;
+foreach (['ready', 'missing-actions', 'null-actions', 'object-actions', 'string-actions',
+    'missing-verification', 'false-verification'] as $mutation) {
+    $candidate = $replay;
+    if ($mutation === 'missing-actions') {
+        unset($candidate['actions']);
+    } elseif ($mutation === 'missing-verification') {
+        unset($candidate['verification']);
+    } elseif ($mutation === 'false-verification') {
+        $candidate['verification'] = false;
+    } elseif ($mutation !== 'ready') {
+        $candidate['actions'] = match ($mutation) {
+            'null-actions' => null, 'object-actions' => new stdClass(), 'string-actions' => '',
+        };
+    }
+    [$status, $stdout] = ShellProbe::run($replayScript . "\n" . $replayBlock . "\nprintf 'REPLAY_READY\\n'\n",
+        [$root, json_encode($candidate, JSON_THROW_ON_ERROR)], $root);
+    wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'REPLAY_READY')
+        : $status !== 0 && !str_contains($stdout, 'REPLAY_READY'),
+        'Rank Math actual terminal receipt requires explicit field shapes: ' . $mutation);
+}
 
 $matrix = (string) file_get_contents($sourceRoot . '/adapter-packages/rank-math/tests/certify/version-matrix.sh');
 $driver = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');

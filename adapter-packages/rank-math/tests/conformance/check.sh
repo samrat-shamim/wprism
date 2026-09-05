@@ -507,7 +507,8 @@ capture_wprism_json_checked RANK_SCOPED_REPLAY 'Rank Math scoped terminal replay
 require_wprism_answered 'Rank Math scoped terminal replay' json "$RANK_SCOPED_REPLAY"
 jq -e '
   .format == "wprism-scoped-apply-result/v1" and .replayed == true and .canary == "clean" and
-  .applied == 0 and (.actions | length) == 0 and .verification == null
+  .applied == 0 and (.actions | type) == "array" and (.actions | length) == 0 and
+  has("verification") and .verification == null
 ' <<<"$RANK_SCOPED_REPLAY" >/dev/null \
   || fail "Rank Math scoped terminal replay repeated work: $RANK_SCOPED_REPLAY"
 rm -f "$RANK_SCOPE_PATH"
