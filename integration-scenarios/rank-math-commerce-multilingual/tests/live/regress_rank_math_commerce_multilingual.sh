@@ -178,8 +178,78 @@ wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$ROOT/sandbox/pair.yml" "$P
 host_wprism_combo() { # <wp1|wp2> <verb> [args...]
   local side="$1"
   shift
-  wprism_host_call "$ROOT/cli/wprism" "$WPRISM_HOST_REGISTRY" "wprism-$PAIR" \
-    "${PAIR}${side#wp}" "$@"
+  if [ "$1" != deploy ]; then
+    wprism_host_call "$ROOT/cli/wprism" "$WPRISM_HOST_REGISTRY" "wprism-$PAIR" \
+      "${PAIR}${side#wp}" "$@"
+    return
+  fi
+  # 88868ee1 lost the clean retry's private lifecycle cause when owned pair
+  # teardown removed its site repository. Preserve the shared reader's bounded
+  # diagnostic delta BEFORE returning to any caller assertion; it is not an
+  # exact-cause receipt. The separate private sink survives disposable cleanup.
+  local diagnostic file baseline status=0 diagnostic_status=0
+  mkdir -p "$ROOT/sandbox/tmp" || fail 'could not prepare combined deploy diagnostic parent'
+  diagnostic=$(umask 077; mktemp -d "$ROOT/sandbox/tmp/wprism-rmcombo-deploy.${PAIR}.XXXXXX") \
+    || fail 'could not allocate private combined deploy diagnostics'
+  for file in baseline.stdout baseline.stderr baseline.exit deploy.stdout deploy.stderr deploy.exit private.stdout private.stderr private.exit; do
+    (umask 077; : >"$diagnostic/$file") || fail 'could not allocate private combined deploy capture'
+  done
+  (rmcombo_deploy_private "$side" snapshot) >"$diagnostic/baseline.stdout" 2>"$diagnostic/baseline.stderr" \
+    || diagnostic_status=$?
+  printf '%s\n' "$diagnostic_status" >"$diagnostic/baseline.exit"
+  if [ "$diagnostic_status" -ne 0 ]; then
+    fail "combined deploy private baseline failed; private diagnostics: $diagnostic"
+  fi
+  rmcombo_deploy_private_accept "$side" "$diagnostic/baseline"
+  baseline=$(cat "$diagnostic/baseline.stdout") || fail 'could not read combined deploy private baseline'
+  (wprism_host_call "$ROOT/cli/wprism" "$WPRISM_HOST_REGISTRY" "wprism-$PAIR" \
+    "${PAIR}${side#wp}" "$@") >"$diagnostic/deploy.stdout" 2>"$diagnostic/deploy.stderr" || status=$?
+  printf '%s\n' "$status" >"$diagnostic/deploy.exit"
+  (rmcombo_deploy_private "$side" capture "$baseline") >"$diagnostic/private.stdout" 2>"$diagnostic/private.stderr" \
+    || diagnostic_status=$?
+  printf '%s\n' "$diagnostic_status" >"$diagnostic/private.exit"
+  [ "$diagnostic_status" -eq 0 ] \
+    || fail "combined deploy private capture failed; private diagnostics: $diagnostic"
+  rmcombo_deploy_private_accept "$side" "$diagnostic/private"
+  # Never print private refusal bytes. The original public host transports
+  # still reach the caller's complete-stream assertions without filtering.
+  cat "$diagnostic/deploy.stdout" || fail 'could not read captured combined host stdout'
+  cat "$diagnostic/deploy.stderr" >&2 || fail 'could not read captured combined host stderr'
+  printf 'combined deploy private diagnostics (unverified): %s\n' "$diagnostic" >&2
+  return "$status"
+}
+
+rmcombo_deploy_private() { # <wp1|wp2> <snapshot|capture> [canonical baseline object]
+  local side="$1" mode="$2" service
+  case "$side" in wp1) service=cli1 ;; wp2) service=cli2 ;; *) fail 'unknown combined diagnostic site' ;; esac
+  case "$mode:$#" in snapshot:2|capture:3) ;; *) fail 'unknown combined diagnostic operation' ;; esac
+  "${COMPOSE[@]}" run --rm -T \
+    --volume "$ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+    --entrypoint php "$service" -r '
+require "/wprism-test/PrivateRefusalReceipt.php";
+$commands = ["lifecycle-status", "schema-status", "promotion-begin", "checkpoint", "provider-settlement-begin",
+    "lifecycle-retire", "lifecycle-activate", "schema-settle", "lifecycle-settle", "provider-settlement-complete"];
+$baseline = json_decode($argv[2], true, 16, JSON_THROW_ON_ERROR);
+if ($argv[1] === "capture" && (!is_array($baseline) || array_keys($baseline) !== $commands)) {
+    throw new RuntimeException("combined deploy diagnostic baseline is not its exact command inventory");
+}
+$result = [];
+foreach ($commands as $command) {
+    $result[$command] = $argv[1] === "snapshot"
+        ? \WPrismTest\PrivateRefusalReceipt::diagnosticSnapshot("/siterepo/.wprism/refusals", $command)
+        : \WPrismTest\PrivateRefusalReceipt::diagnosticNewRecords("/siterepo/.wprism/refusals", $baseline[$command], $command);
+}
+echo json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+' "$mode" "${3-null}"
+}
+
+rmcombo_deploy_private_accept() { # <wp1|wp2> <owned capture stem>
+  local side="$1" stem="$2" stdout stderr rmcombo_host_pair="$PAIR" rmcombo_host_service
+  case "$side" in wp1) rmcombo_host_service=cli1 ;; wp2) rmcombo_host_service=cli2 ;; *) fail 'unknown combined diagnostic site' ;; esac
+  stdout=$(cat "$stem.stdout") && stderr=$(cat "$stem.stderr") \
+    || fail 'could not read combined deploy private transport'
+  assert_no_php_runtime_diagnostics 'combined deploy private transport' "$stdout"$'\n'"$stderr"
+  assert_rmcombo_host_native_json 'combined deploy private transport' "$stdout"$'\n'"$stderr"
 }
 WP_CLI_MEMORY_LIMIT=512M
 wp_side() { # <side> <wp args...>
@@ -1350,7 +1420,7 @@ wp2 plugin deactivate seo-by-rank-math >/dev/null
 wp2 db query 'DROP TABLE wp_rank_math_redirections_cache' >/dev/null
 assert_rmcombo_host_rank_math_state wp2 "$PAIR" inactive absent
 CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy 2>&1) \
-  || fail "clean Rank Math combination host deploy failed: $CLEAN_DEPLOY"
+  || fail "clean Rank Math combination host deploy failed; private captures: $ROOT/sandbox/tmp/wprism-rmcombo-deploy.$PAIR.*"
 assert_no_php_runtime_diagnostics 'clean Rank Math combination host deploy' "$CLEAN_DEPLOY"
 CLEAN_DEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$CLEAN_DEPLOY" | paste -sd ' ' -)
 [ "$CLEAN_DEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle lifecycle-settle provider-settlement-complete' ] \

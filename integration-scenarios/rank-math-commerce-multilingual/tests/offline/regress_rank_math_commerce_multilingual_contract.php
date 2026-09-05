@@ -1339,6 +1339,146 @@ wprism_check(
     'both pairwise-opposed orders retain Polylang native precedence and reverse every other participant'
 );
 $hostDeploy = strpos($live, 'CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy');
+
+// Replay the actual host transport AND its caller, not a fabricated diagnostic
+// answer. The native command is a double; Cli's real repository witness and
+// Kernel recorder publish private graphs, then the actual mounted reader runs.
+$diagnosticSource = isset($argv[1]) ? (string) file_get_contents($argv[1]
+    . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh') : $live;
+$diagnosticStart = strpos($diagnosticSource, 'host_wprism_combo() {');
+$diagnosticEnd = strpos($diagnosticSource, 'WP_CLI_MEMORY_LIMIT=512M', $diagnosticStart ?: 0);
+if ($diagnosticStart === false || $diagnosticEnd === false) {
+    throw new LogicException('the real combined host transport is unavailable');
+}
+$diagnosticDefinitions = substr($diagnosticSource, $diagnosticStart, $diagnosticEnd - $diagnosticStart);
+$diagnosticCaller = WPrismTest\ShellProbe::captureBlock($diagnosticSource, 'CLEAN_DEPLOY', 'CLEAN_DEPLOY_PHASES=');
+$diagnosticScratch = sys_get_temp_dir() . '/wprism-rmcombo-host-diagnostic-' . bin2hex(random_bytes(8));
+mkdir($diagnosticScratch, 0700);
+$diagnosticProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_CASE="$2" PROBE_SITE="$3" PHP="$4" PAIR="$5" WPRISM_HOST_REGISTRY=fixture-registry
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+COMPOSE=(diagnostic_compose)
+diagnostic_compose() {
+  [ "$#" -eq 12 ] && [ "$1 $2 $3 $4" = 'run --rm -T --volume' ] \
+    && [ "$5" = "$ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" ] \
+    && [ "$6 $7 $8 $9" = '--entrypoint php cli2 -r' ] || return 81
+  local mode="${11}" fault=ready
+  printf '%s\n' "$mode" >>"$PROBE_SITE/trace"
+  case "$PROBE_CASE:$mode" in baseline-*:snapshot|capture-*:capture) fault="${PROBE_CASE#*-}" ;; esac
+  [ "$fault" != nonzero ] || return 7
+  [ "$fault" != warning ] || printf 'PHP Warning: private-transport-canary in Unknown on line 0\n' >&2
+  [ "$fault" != extra ] || printf '{}\n'
+  printf ' Container wprism-%s-cli2-run-aabbcc Created \n' "$PAIR" >&2
+  "$PHP" -r '
+$program = str_replace(["/wprism-test/PrivateRefusalReceipt.php", "/siterepo/.wprism/refusals"],
+    [$argv[1]."/sandbox/tests/lib/PrivateRefusalReceipt.php", $argv[2]."/.wprism/refusals"], $argv[3]);
+$argv = [$argv[0], $argv[4], $argv[5]];
+eval($program);
+' "$ROOT" "$PROBE_SITE" "${10}" "$mode" "${12}"
+}
+wprism_host_call() {
+  [ "$#" -eq 5 ] && [ "$1" = "$ROOT/cli/wprism" ] && [ "$2" = fixture-registry ] \
+    && [ "$3" = "wprism-$PAIR" ] && [ "$4" = "${PAIR}2" ] && [ "$5" = deploy ] || return 82
+  printf 'deploy\n' >>"$PROBE_SITE/trace"
+  # Host-created readable fixtures must not inherit the diagnostic's 077 mask.
+  : >"$PROBE_SITE/host-file"
+  if [ "$PROBE_CASE" != ready ]; then
+    "$PHP" -r '
+class WP_CLI { public static function add_command($name, $class): void {} }
+require $argv[1]."/agent/src/Command/Cli.php";
+$witness = (new ReflectionMethod(\WPrism\Cli::class, "refusal_evidence_repository"))->invoke(null, $argv[2], "lifecycle-status");
+if (!is_array($witness)) exit(83);
+$count = $argv[3] === "too-many" ? 5 : 1;
+for ($i=0; $i<$count; ++$i) {
+    \WPrism\PrivateRefusalEvidence::record($argv[2], $witness,
+        new \WPrism\PrivateEvidenceException("public lifecycle boundary", new RuntimeException("private-retry-cause-canary")),
+        "lifecycle-status", "lifecycle_status_failed");
+}
+if ($argv[3] === "record-mode") {
+    foreach (glob($argv[2]."/.wprism/refusals/*") ?: [] as $path) chmod($path, 0644);
+}
+' "$ROOT" "$PROBE_SITE" "$PROBE_CASE" || return "$?"
+  fi
+  printf 'deploy phase: compile\ndeploy phase: lifecycle-status\n'
+  printf 'public lifecycle transport\n' >&2
+  if [ "$PROBE_CASE" = warning ]; then printf 'PHP Warning: private-host-canary in Unknown on line 0\n' >&2; fi
+  case "$PROBE_CASE" in refused|too-many|record-mode) return 7 ;; esac
+}
+SH;
+$diagnosticCommands = ['lifecycle-status', 'schema-status', 'promotion-begin', 'checkpoint', 'provider-settlement-begin',
+    'lifecycle-retire', 'lifecycle-activate', 'schema-settle', 'lifecycle-settle', 'provider-settlement-complete'];
+foreach (['ready', 'refused', 'warning', 'baseline-nonzero', 'baseline-warning', 'baseline-extra',
+    'capture-nonzero', 'capture-warning', 'capture-extra', 'too-many', 'record-mode'] as $case) {
+    $directory = $diagnosticScratch . '/' . $case;
+    mkdir($directory, 0700);
+    file_put_contents($directory . '/site.wprism.json', "{}\n");
+    $pair = 'rmdiag' . bin2hex(random_bytes(5));
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run($diagnosticProbe . "\n"
+        . $scenarioAssertionDefinitions . "\n" . $diagnosticDefinitions . "\n" . $diagnosticCaller
+        . "\nprintf 'DIAGNOSTIC_CALLER_ACCEPTED\\n'\n", [$root, $case, $directory, PHP_BINARY, $pair], $root);
+    $sinks = glob($root . '/sandbox/tmp/wprism-rmcombo-deploy.' . $pair . '.*') ?: [];
+    $sink = count($sinks) === 1 ? $sinks[0] : '';
+    $files = $sink !== '' ? glob($sink . '/*') ?: [] : [];
+    wprism_check(($case === 'ready' ? $status === 0 && str_contains($stdout, 'DIAGNOSTIC_CALLER_ACCEPTED')
+            : $status !== 0 && !str_contains($stdout, 'DIAGNOSTIC_CALLER_ACCEPTED'))
+        && !str_contains($stdout . $stderr, 'private-retry-cause-canary')
+        && !str_contains($stdout . $stderr, 'private-host-canary')
+        && !str_contains($stdout . $stderr, 'private-transport-canary'),
+        "actual host transport/caller $case refuses diagnostic failures without publishing private material");
+    wprism_check(count($files) === 9 && (fileperms($sink) & 0777) === 0700
+        && count(array_filter($files, static fn(string $file): bool => !is_link($file) && is_file($file) && (fileperms($file) & 0777) === 0600)) === 9,
+        "$case retains all complete private transports/statuses outside disposable site ownership");
+    $invoked = !str_starts_with($case, 'baseline-');
+    $trace = is_file($directory . '/trace') ? trim((string) file_get_contents($directory . '/trace')) : '';
+    wprism_check_same($invoked ? "snapshot\ndeploy\ncapture" : 'snapshot', $trace,
+        "$case retains private evidence before caller acceptance and never deploys after a broken baseline");
+    if ($sink !== '') {
+        wprism_check_same($case === 'baseline-nonzero' ? "7\n" : "0\n", file_get_contents($sink . '/baseline.exit'),
+            "$case retains the exact baseline transport status before validating its answer");
+        if ($invoked) {
+            $readerStatus = $case === 'capture-nonzero' ? 7 : (in_array($case, ['too-many', 'record-mode'], true) ? 255 : 0);
+            wprism_check_same($readerStatus . "\n", file_get_contents($sink . '/private.exit'),
+                "$case retains the exact private-reader transport status before validating its answer");
+        }
+        if (in_array($case, ['baseline-warning', 'capture-warning'], true)) {
+            $stem = str_starts_with($case, 'baseline-') ? 'baseline' : 'private';
+            wprism_check(str_contains((string) file_get_contents($sink . '/' . $stem . '.stderr'), 'private-transport-canary'),
+                "$case keeps the whole native reader diagnostic privately before rejecting it");
+        }
+    }
+    if ($invoked && $sink !== '') {
+        wprism_check_same(in_array($case, ['refused', 'too-many', 'record-mode'], true) ? "7\n" : "0\n",
+            file_get_contents($sink . '/deploy.exit'), "$case preserves the exact host transport status");
+        wprism_check((fileperms($directory . '/host-file') & 0044) === 0044,
+            "$case diagnostic allocation does not change host publication readability");
+    }
+    if (in_array($case, ['ready', 'refused', 'warning'], true) && $sink !== '') {
+        $captured = json_decode((string) file_get_contents($sink . '/private.stdout'), true, flags: JSON_THROW_ON_ERROR);
+        wprism_check_same($diagnosticCommands, array_keys($captured), "$case captures the complete fixed host phase inventory");
+        $receipt = json_decode($captured['lifecycle-status'], true, flags: JSON_THROW_ON_ERROR);
+        wprism_check(($receipt['verified'] ?? null) === false && ($receipt['purpose'] ?? null) === 'diagnostic_only'
+            && ($receipt['new_records'] ?? null) === ($case === 'ready' ? 0 : 1),
+            "$case shared bounded retention never claims exact-cause verification");
+        if ($case !== 'ready') {
+            $record = $receipt['records'][0] ?? [];
+            $bytes = base64_decode($record['contents_base64'] ?? '', true);
+            wprism_check(is_string($bytes) && hash('sha256', $bytes) === ($record['sha256'] ?? null)
+                && strlen($bytes) === ($record['bytes'] ?? null) && str_contains($bytes, 'private-retry-cause-canary'),
+                "$case keeps byte-exact real engine private evidence before teardown");
+        }
+    }
+    foreach ($files as $file) unlink($file);
+    if ($sink !== '') rmdir($sink);
+    foreach (glob($directory . '/.wprism/refusals/*') ?: [] as $file) unlink($file);
+    if (is_dir($directory . '/.wprism/refusals')) rmdir($directory . '/.wprism/refusals');
+    if (is_dir($directory . '/.wprism')) rmdir($directory . '/.wprism');
+    foreach (glob($directory . '/*') ?: [] as $file) unlink($file);
+    rmdir($directory);
+}
+rmdir($diagnosticScratch);
+
 $settledOrderReadback = strpos($live, 'HOST_SETTLED_ORDER=$(active_plugin_order wp2)');
 $initialApply = strpos($live, 'capture_wprism_json_checked INITIAL');
 wprism_check(
