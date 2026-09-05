@@ -64,8 +64,8 @@ wprism_ssh_install_certified_plugin() { # <artifact-slug> <version>
 }
 
 wprism_ssh_stage_code_inventory() { # <active-plugin-directory>...
-  [ "$#" -ge 1 ] && [ "$#" -le 16 ] \
-    || fail 'SSH code inventory requires 1..16 active plugin directories'
+  [ "$#" -le 16 ] \
+    || fail 'SSH code inventory accepts at most 16 active plugin directories'
   local plugin requested_json active_json joined=''
   local seen=' '
   for plugin in "$@"; do
@@ -77,7 +77,7 @@ wprism_ssh_stage_code_inventory() { # <active-plugin-directory>...
     seen+="$plugin "
     joined="${joined:+$joined }$plugin"
   done
-  requested_json="$(printf '%s\n' "$@" | jq -Rsc 'split("\n")[:-1] | sort')" \
+  requested_json="$(jq -nc --args '$ARGS.positional | sort' -- "$@")" \
     || fail 'SSH code inventory could not encode its requested plugin set'
   active_json="$(ssh_fixture 'cd /var/www/html && wp option get active_plugins --format=json')" \
     || fail 'SSH code inventory could not observe the active plugin set'
@@ -147,12 +147,12 @@ wprism_ssh_stage_code_inventory() { # <active-plugin-directory>...
   " || fail 'SSH code inventory could not stage the exact active plugin/theme roots'
 }
 
-wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
+wprism_ssh_stage_generation_releases() { # <desired-count: 1|2|3>
   [ "$#" -eq 1 ] || fail 'SSH release staging requires one desired-generation count'
-  local desired_count="$1" authority generation next_generation retry_generation=''
+  local desired_count="$1" authority generation next_generation retry_generation offset
   case "$desired_count" in
-    1|2) ;;
-    *) fail "SSH release staging desired count '$desired_count' must be 1 or 2" ;;
+    1|2|3) ;;
+    *) fail "SSH release staging desired count '$desired_count' must be 1, 2 or 3" ;;
   esac
   authority="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control')" \
     || fail 'SSH release staging could not read signed generation authority'
@@ -161,10 +161,9 @@ wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
   [[ "$generation" =~ ^(0|[1-9][0-9]{0,17})$ ]] \
     || fail "SSH release staging generation '$generation' is not a bounded canonical integer"
   generation=$((10#$generation))
-  [ "$generation" -le 9223372036854775805 ] \
+  [ "$generation" -le $((9223372036854775807 - desired_count)) ] \
     || fail 'SSH release staging generation cannot be incremented safely'
   next_generation=$((generation + 1))
-  [ "$desired_count" -eq 1 ] || retry_generation=$((generation + 2))
 
   ssh_fixture "
     set -eu
@@ -190,7 +189,8 @@ wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
     test \"\$(cat /home/wprism/code-current)\" = release-prior
     test \"\$(stat -c '%a' /home/wprism/code-current)\" = 600
   " || fail 'SSH release staging could not publish prior/desired immutable generations'
-  if [ "$desired_count" -eq 2 ]; then
+  for ((offset = 2; offset <= desired_count; offset++)); do
+    retry_generation=$((generation + offset))
     ssh_fixture "
       set -eu
       test ! -e /home/wprism/code-releases/release-desired-$retry_generation
@@ -199,7 +199,7 @@ wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
       cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$retry_generation/wp-content
       test -d /home/wprism/code-releases/release-desired-$retry_generation/wp-content
     " || fail 'SSH release staging could not publish the retry immutable generation'
-  fi
+  done
 }
 
 wprism_ssh_publish_post_tombstone() { # <post-type> <ascii-post-slug>
@@ -331,9 +331,11 @@ if (!@unlink($match['path'])) {
 echo $uuid;
 PHP
   )
-  scp -F "$TMP/ssh_config" "$fixture" \
-    wprism-adopt-fixture:/home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php >/dev/null \
-    || fail 'SSH tombstone fixture upload failed'
+  if ! scp -F "$TMP/ssh_config" "$fixture" \
+      wprism-adopt-fixture:/home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php >/dev/null; then
+    rm -f -- "$fixture" || fail 'SSH tombstone local fixture cleanup failed after upload refusal'
+    fail 'SSH tombstone fixture upload failed'
+  fi
   if uuid="$(ssh_fixture "cd /var/www/html && WPRISM_TOMBSTONE_POST_TYPE='$post_type' WPRISM_TOMBSTONE_POST_SLUG='$post_slug' wp eval-file /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php")"; then
     publish_status=0
   else
@@ -344,6 +346,10 @@ PHP
   else
     cleanup_status=$?
   fi
+  # This helper is intentionally reusable for separate captured identities.
+  # Retaining its owned local executable made the second tombstone refuse
+  # before reaching the engine; pre-existing local collisions remain untouched.
+  rm -f -- "$fixture" || fail 'SSH tombstone local fixture cleanup failed'
   if [ "$publish_status" -ne 0 ]; then
     [ "$cleanup_status" -eq 0 ] \
       || fail "engine tombstone publication and fixture cleanup failed for post:$post_type/$post_slug"
@@ -356,6 +362,7 @@ PHP
 }
 
 wprism_ssh_enroll_full_recovery() { # <state-namespace>
+  [ "$#" -eq 1 ] || fail 'full-recovery enrollment requires one state namespace'
   local state_namespace="$1"
   local upload_key="$TMP/${state_namespace}-upload.key"
   local updated_registry="$TMP/envs.full-recovery.json"
@@ -363,14 +370,20 @@ wprism_ssh_enroll_full_recovery() { # <state-namespace>
   [[ "$state_namespace" =~ ^[a-z][a-z0-9-]{0,31}$ ]] \
     || fail "full-recovery state namespace '$state_namespace' is malformed"
 
-  ( umask 077; openssl rand 32 >"$upload_key" )
-  chmod 0600 "$upload_key"
+  [ ! -e "$upload_key" ] && [ ! -L "$upload_key" ] \
+    || fail 'full-recovery upload key path already exists'
+  # Callers retain a nonzero status, so their OR-list disables Bash errexit
+  # inside this function. Each owned setup boundary must refuse explicitly.
+  ( umask 077; set -o noclobber; openssl rand 32 >"$upload_key" ) \
+    || fail 'full-recovery upload key allocation failed'
+  chmod 0600 "$upload_key" || fail 'full-recovery upload key mode failed'
   scp -F "$TMP/ssh_config" \
     "$ROOT/sandbox/tests/fixtures/upload-provider.php" \
     "$ROOT/sandbox/tests/fixtures/effect-provider.php" \
     "$ROOT/sandbox/tests/fixtures/plan-bound-code-release-provider.php" \
     "$upload_key" \
-    wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
+    wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null \
+    || fail 'full-recovery provider transport failed'
   ssh_fixture "
     set -eu
     chmod 700 /home/wprism/recovery-fixture/upload-provider.php
@@ -379,8 +392,10 @@ wprism_ssh_enroll_full_recovery() { # <state-namespace>
     chmod 600 /home/wprism/recovery-fixture/${state_namespace}-upload.key
     mkdir -p /home/wprism/recovery-fixture/${state_namespace}-offload
     chmod 700 /home/wprism/recovery-fixture/${state_namespace}-offload
-  "
-  jq --arg namespace "$state_namespace" '
+  " || fail 'full-recovery target provider boundary could not be prepared'
+  [ ! -e "$updated_registry" ] && [ ! -L "$updated_registry" ] \
+    || fail 'full-recovery registry staging path already exists'
+  ( umask 077; set -o noclobber; jq --arg namespace "$state_namespace" '
     .envs.target.rollback_recovery.upload_provider = [
       "/usr/local/bin/php",
       "/home/wprism/recovery-fixture/upload-provider.php",
@@ -403,8 +418,9 @@ wprism_ssh_enroll_full_recovery() { # <state-namespace>
       "/home/wprism/code-releases",
       "/home/wprism/code-current"
     ]
-  ' "$TMP/envs.json" >"$updated_registry"
-  mv "$updated_registry" "$TMP/envs.json"
+  ' "$TMP/envs.json" >"$updated_registry" ) \
+    || fail 'full-recovery registry could not be staged privately'
+  mv "$updated_registry" "$TMP/envs.json" || fail 'full-recovery registry publication failed'
   "$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null \
     || fail "full-recovery provider enrollment failed for '$state_namespace'"
 }

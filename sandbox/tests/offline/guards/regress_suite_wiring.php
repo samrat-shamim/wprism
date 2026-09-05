@@ -130,6 +130,7 @@ const WIRING_SHAPE_EXCEPTIONS = [
     // live targets with an explicit pair plus a WPRISM_EXPECTED_SOURCE_SHA
     // candidate gate, all passed as environment.
     'regress-database-boundary-live',
+    'regress-core-ssh-deletion',
     'regress-env-set',
     'regress-scope-chain-stability',
     'regress-scoped-apply-live',

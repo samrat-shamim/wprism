@@ -8,7 +8,8 @@
 #
 # Run only from a clean standalone candidate clone, with explicitly allocated
 # resources. Adapter capsules and participant-declared integration scenarios
-# may reuse this exact host/provider setup by setting WPRISM_SSH_ADOPT_EXTENSION
+# and the explicitly named core deletion suite may reuse this exact setup by
+# setting WPRISM_SSH_ADOPT_EXTENSION
 # to one tracked tests/live/*.sh file that defines wprism_ssh_adopt_extension().
 # The extension runs after the shared scoped rollback proof and before
 # label-verified cleanup; it is not a product hook.
@@ -869,8 +870,8 @@ if [ -n "$EXTENSION" ]; then
   EXTENSION_REAL="$(php -r '$p=realpath($argv[1]); if(!is_string($p)||$p==="")exit(1); echo $p;' "$EXTENSION")" \
     || fail "WPRISM_SSH_ADOPT_EXTENSION does not resolve to a tracked live script"
   case "$EXTENSION_REAL" in
-    "$ROOT"/adapter-packages/*/tests/live/*.sh|"$ROOT"/integration-scenarios/*/tests/live/*.sh) ;;
-    *) fail "WPRISM_SSH_ADOPT_EXTENSION must stay under an adapter or integration-scenario tests/live directory" ;;
+    "$ROOT"/adapter-packages/*/tests/live/*.sh|"$ROOT"/integration-scenarios/*/tests/live/*.sh|"$ROOT"/sandbox/tests/live/regress_core_ssh_deletion.sh) ;;
+    *) fail "WPRISM_SSH_ADOPT_EXTENSION must name a capsule/scenario live script or the exact shared core deletion suite" ;;
   esac
   [ -f "$EXTENSION_REAL" ] && [ ! -L "$EXTENSION_REAL" ] && [ -r "$EXTENSION_REAL" ] \
     || fail "WPRISM_SSH_ADOPT_EXTENSION must be a readable, non-symlink regular file"

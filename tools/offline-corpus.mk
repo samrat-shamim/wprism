@@ -120,6 +120,7 @@ regress-offline-corpus: code-half-unit \
 	regress-control-plane-seams \
 	regress-convergence-verifier \
 	regress-core-rewrite-native-action \
+	regress-core-ssh-deletion-contract \
 	regress-coverage-offline \
 	regress-cross-manifest-guards \
 	regress-cross-root-replay \

@@ -2715,6 +2715,10 @@ regress-ssh-adopt-evidence-retention:
 regress-ssh-adopt-extension:
 	bash sandbox/tests/offline/guards/regress_ssh_adopt_extension.sh
 
+.PHONY: regress-core-ssh-deletion-contract
+regress-core-ssh-deletion-contract:
+	php sandbox/tests/offline/guards/regress_core_ssh_deletion_contract.php
+
 # issue #3344: host/agent scope transport boundary — canonical compact request
 # forwarding, refusal before target contact, and ordinary unscoped passthrough.
 regress-scope-wire:
@@ -2771,6 +2775,13 @@ regress-ssh-adopt:
 	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
 	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
 	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_ssh_adopt.sh
+
+.PHONY: regress-core-ssh-deletion
+regress-core-ssh-deletion:
+	@test -n "$(ADOPT_FIXTURE)" || { echo 'ADOPT_FIXTURE is required; choose an unused lowercase fixture name' >&2; exit 2; }
+	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
+	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
+	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_core_ssh_deletion.sh
 
 certify-ssh-adoption-roundtrip:
 	bash sandbox/tests/certify/certify_ssh_adoption_roundtrip.sh
@@ -2875,6 +2886,7 @@ regress-live-list:
 	@echo "  regress-snapshot-meta                     pair w1a"
 	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
 	@echo "  regress-ssh-adopt                         explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/WPRISM_EXPECTED_SOURCE_SHA standalone SSH scoped-promotion path"
+	@echo "  regress-core-ssh-deletion                 explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/WPRISM_EXPECTED_SOURCE_SHA signed core deletion, FK refusal and retry"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"

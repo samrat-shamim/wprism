@@ -19,6 +19,23 @@ not standalone suites.
 | `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
 | `pair_live_ownership.sh` | the direct-live evidence state machine: exact-worktree mounts, engine/root-bound pair leases, partial-up teardown, exact site/scratch removal, checked release, and the sole post-cleanup PASS |
 
+`ssh_adopt_extension.sh` admits an exact empty active-plugin roster for core
+evidence, never an omitted observation. Its immutable release helper stages
+exactly one, two or three consecutive desired generations; every generation
+must exist before its own signed provider claim. Tombstone publication is
+reusable for separate identities and removes its owned local/remote executable
+after each attempt without replacing an occupied destination. Full-recovery
+registry replacement retains a `0600` owner-local allocation mask.
+
+`sandbox/tests/live/regress_core_ssh_deletion.sh` is the one explicitly admitted
+shared extension. It proves signed page/post/attachment deletion, native
+revision cascades, runtime-comment preservation, exact CASCADE metadata
+preflight refusal and fixed-point retry. Attachment upload originals and
+generated derivatives are deliberately preserved: the core deletion manifest
+does not grant filesystem deletion authority. Its native row observer and
+actual shell acceptance are covered by `regress-core-ssh-deletion-contract`;
+this offline contract is not a substitute for the separately allocated live run.
+
 `PrivateRefusalReceipt::snapshot($directory, $profile)` returns the canonical
 command-scoped filename baseline; call it immediately before the expected
 refusal. `verify($directory, $baseline, $profile)` requires exactly one new

@@ -58,7 +58,7 @@ prepare_remote() { # <case-label>
   export FAKE_ACTIVE_JSON='["alpha/alpha.php"]'
   export FAKE_STYLESHEET='theme-a' FAKE_TEMPLATE='theme-a'
   export FAKE_AUTHORITY_GENERATION='7'
-  unset FAKE_SSH_MODE FAKE_CP_MODE WPRISM_ESCAPE_THEME \
+  unset FAKE_SSH_MODE FAKE_CP_MODE WPRISM_ESCAPE_THEME FAKE_CLEANUP_FAILURE FAKE_SCP_FAILURE \
     WPRISM_TEST_TOMBSTONE_COLLISION 2>/dev/null || true
 
   mkdir -p "$REMOTE/var/www/html/wp-content/plugins/alpha" \
@@ -126,6 +126,7 @@ ssh_fixture() { # deterministic replacement for the live harness transport
       ;;
     'rm -f /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php')
       printf 'CLEANUP\n' >>"$SSH_LOG"
+      [ "${FAKE_CLEANUP_FAILURE:-}" != 1 ] || return 93
       rm -f -- "$REMOTE/home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php"
       return 0
       ;;
@@ -143,6 +144,7 @@ ssh_fixture() { # deterministic replacement for the live harness transport
 
 scp() { # the helper's upload surface; ordinary copy only for the PHP fixture
   printf 'SCP\n' >>"$SSH_LOG"
+  [ "${FAKE_SCP_FAILURE:-}" != 1 ] || return 94
   if [ "${FAKE_SSH_MODE:-}" = tombstone ]; then
     [ "$#" -eq 4 ] || return 92
     /bin/cp "$3" \
@@ -252,6 +254,25 @@ case_inventory_shared_theme
     -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')" -eq 1 ] \
   || fail 'one stylesheet/template identity did not stage exactly one theme root'
 pass 'a shared stylesheet/template identity is counted once'
+
+prepare_remote inventory-core-empty
+FAKE_ACTIVE_JSON='[]'
+wprism_ssh_stage_code_inventory
+[ "$(find "$REMOTE/home/wprism/site/code/wp-content/plugins" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')" -eq 0 ] \
+  || fail 'the core-only inventory staged a plugin root'
+[ -f "$REMOTE/home/wprism/site/code/wp-content/themes/theme-a/style.css" ] \
+  || fail 'the core-only inventory omitted its active theme'
+pass 'an exact empty active-plugin roster stages zero plugin roots and its real active theme'
+
+case_inventory_unexpected_active() {
+  prepare_remote inventory-core-unexpected
+  wprism_ssh_stage_code_inventory
+}
+expect_refusal 'core inventory with an unexpected active plugin' \
+  'SSH code inventory arguments do not equal the exact active plugin-directory set' \
+  case_inventory_unexpected_active
+[ ! -e "$SCRATCH/inventory-core-unexpected/remote/home/wprism/site/code" ] \
+  || fail 'an unexpected active plugin reached code staging'
 
 case_bad_theme() { # <label> <theme>
   prepare_remote "$1"
@@ -437,6 +458,38 @@ expect_refusal 'computed retry-generation collision after absence observation' \
   || fail 'retry-generation collision was overwritten'
 pass 'generation roots and pointer files use exclusive publication at every observed-absent boundary'
 
+prepare_remote generation-three
+mkdir -p "$REMOTE/home/wprism/site/code/wp-content/themes/theme-a"
+printf 'immutable theme\n' >"$REMOTE/home/wprism/site/code/wp-content/themes/theme-a/style.css"
+wprism_ssh_stage_generation_releases 3
+for generation in 8 9 10; do
+  cmp "$REMOTE/home/wprism/site/code/wp-content/themes/theme-a/style.css" \
+    "$REMOTE/home/wprism/code-releases/release-desired-$generation/wp-content/themes/theme-a/style.css" \
+    || fail 'three-generation release staging did not preserve exact immutable code bytes'
+done
+case_generation_third_collision() {
+  prepare_remote generation-third-collision
+  mkdir -p "$REMOTE/home/wprism/site/code/wp-content"
+  install_generation_mkdir_collision "$REMOTE/home/wprism/code-releases/release-desired-10"
+  wprism_ssh_stage_generation_releases 3
+}
+expect_refusal 'third desired-generation collision' \
+  'SSH release staging could not publish the retry immutable generation' case_generation_third_collision
+[ "$(cat "$SCRATCH/generation-third-collision/remote/home/wprism/code-releases/release-desired-10/sentinel")" = occupied-after-check ] \
+  || fail 'third desired-generation staging replaced a collision'
+[ ! -e "$SCRATCH/generation-third-collision/remote/home/wprism/code-releases/release-desired-10/wp-content" ] \
+  || fail 'third desired-generation staging entered the occupied directory'
+case_generation_third_overflow() {
+  prepare_remote generation-third-overflow
+  FAKE_AUTHORITY_GENERATION='9223372036854775805'
+  wprism_ssh_stage_generation_releases 3
+}
+expect_refusal 'three-generation authority overflow' \
+  'is not a bounded canonical integer' case_generation_third_overflow
+! grep -q '^REMOTE$' "$SCRATCH/generation-third-overflow/ssh.log" \
+  || fail 'three-generation overflow reached filesystem mutation'
+pass 'three intended attempts receive consecutive immutable code releases with exclusive third-generation publication'
+
 TOMBSTONE_RUNNER="$SCRATCH/tombstone-runner.php"
 cat >"$TOMBSTONE_RUNNER" <<'PHP'
 <?php
@@ -570,6 +623,8 @@ cleanup_line="$(grep -n '^CLEANUP$' "$TOMBSTONE_LOG" | cut -d: -f1)"
 [ -f "$SCRATCH/tombstone-destination-collision/remote/home/wprism/site/state/posts/post/12345678-1234-1234-1234-123456789abc--collision-proof.md" ] \
   || fail 'tombstone destination collision retired the live source'
 pass 'destination collision preserves both sides and failed publication still removes its remote executable'
+[ ! -e "$SCRATCH/tombstone-destination-collision/local/wprism-ssh-publish-post-tombstone.php" ] \
+  || fail 'refused publication retained its owned local executable'
 
 case_tombstone_success() {
   prepare_tombstone_post tombstone-success
@@ -591,6 +646,48 @@ TOMBSTONE_SUCCESS_ROOT="$SCRATCH/tombstone-success/remote/home/wprism"
 [ ! -e "$TOMBSTONE_SUCCESS_ROOT/recovery-fixture/wprism-ssh-publish-post-tombstone.php" ] \
   || fail 'successful tombstone publication left its remote executable installed'
 pass 'successful tombstone publication atomically links each destination before removing its source name'
+[ ! -e "$SCRATCH/tombstone-success/local/wprism-ssh-publish-post-tombstone.php" ] \
+  || fail 'successful publication retained its owned local executable'
+
+prepare_tombstone_post tombstone-repeated
+wprism_ssh_publish_post_tombstone post "$WPRISM_TEST_TOMBSTONE_SLUG" >/dev/null
+WPRISM_TEST_TOMBSTONE_UUID='12345678-1234-1234-1234-123456789abd'
+WPRISM_TEST_TOMBSTONE_SLUG='second-proof'
+printf 'second captured post\n' \
+  >"$REMOTE/home/wprism/site/state/posts/post/$WPRISM_TEST_TOMBSTONE_UUID--$WPRISM_TEST_TOMBSTONE_SLUG.md"
+[ "$(wprism_ssh_publish_post_tombstone post "$WPRISM_TEST_TOMBSTONE_SLUG")" = "$WPRISM_TEST_TOMBSTONE_UUID" ] \
+  || fail 'the second independent tombstone could not reuse its helper'
+[ "$(find "$REMOTE/home/wprism/site/state/deletions" -name '*.json' -print | wc -l | tr -d ' ')" -eq 2 ] \
+  || fail 'repeated tombstones did not retain two independent engine records'
+pass 'repeated engine tombstone publications release their owned local and remote executables'
+
+case_tombstone_local_collision() {
+  prepare_tombstone_post tombstone-local-collision
+  printf 'not owned\n' >"$TMP/wprism-ssh-publish-post-tombstone.php"
+  wprism_ssh_publish_post_tombstone post "$WPRISM_TEST_TOMBSTONE_SLUG"
+}
+expect_refusal 'pre-existing local tombstone executable' \
+  'SSH tombstone fixture path already exists' case_tombstone_local_collision
+[ "$(cat "$SCRATCH/tombstone-local-collision/local/wprism-ssh-publish-post-tombstone.php")" = 'not owned' ] \
+  || fail 'the helper removed an unowned local collision'
+
+case_tombstone_transport_failure() {
+  prepare_tombstone_post "tombstone-$1-failure"
+  case "$1" in
+    upload) FAKE_SCP_FAILURE=1 ;;
+    cleanup) FAKE_CLEANUP_FAILURE=1 ;;
+  esac
+  wprism_ssh_publish_post_tombstone post "$WPRISM_TEST_TOMBSTONE_SLUG"
+}
+expect_refusal 'tombstone upload failure' 'SSH tombstone fixture upload failed' \
+  case_tombstone_transport_failure upload
+expect_refusal 'tombstone remote cleanup failure' 'SSH tombstone fixture cleanup failed' \
+  case_tombstone_transport_failure cleanup
+for label in upload cleanup; do
+  [ ! -e "$SCRATCH/tombstone-$label-failure/local/wprism-ssh-publish-post-tombstone.php" ] \
+    || fail "$label failure retained the helper-owned local executable"
+done
+pass 'transport failures release only owned local scratch and never turn failed remote cleanup green'
 
 case_tombstone_final_race_collision() {
   prepare_tombstone_post tombstone-final-race-collision
@@ -632,6 +729,55 @@ TOMBSTONE_PRESENT_RACE_ROOT="$SCRATCH/tombstone-present-race-collision/remote/ho
 [ ! -e "$TOMBSTONE_PRESENT_RACE_ROOT/recovery-fixture/wprism-ssh-publish-post-tombstone.php" ] \
   || fail 'retirement-race refusal left its remote executable installed'
 pass 'tombstone publication and source retirement are no-replace at both post-observation races'
+
+case_full_recovery_registry() {
+  (
+    prepare_remote "full-recovery-$1"
+    umask 022
+    printf '{"envs":{"target":{"rollback_recovery":{}}}}\n' >"$TMP/envs.json"
+    chmod 0600 "$TMP/envs.json"
+    WPRISM=fake_full_recovery_adopt
+    fake_full_recovery_adopt() {
+      [ "$*" = "--envs-file=$TMP/envs.json adopt target" ] || exit 97
+      "$PHP_BIN" -r 'exit((fileperms($argv[1]) & 0777) === 0600 ? 0 : 1);' "$TMP/envs.json" \
+        || fail 'provider enrollment consumed a nonprivate registry'
+      printf 'ADOPT\n' >>"$SSH_LOG"
+    }
+    scp() {
+      [ "${full_recovery_transport_failure:-}" != 1 ] || return 93
+      shift 2
+      while [ "$#" -gt 1 ]; do
+        /bin/cp "$1" "$REMOTE/home/wprism/recovery-fixture/"
+        shift
+      done
+    }
+    if [ "$1" = collision ]; then
+      printf 'not owned\n' >"$TMP/envs.full-recovery.json"
+    elif [ "$1" = transport ]; then
+      full_recovery_transport_failure=1
+    fi
+    # The real positive capture collects status in an OR-list. Exercise that
+    # exact errexit-disabled function context, not just its top-level form.
+    wprism_ssh_enroll_full_recovery core-delete || fail 'full-recovery helper returned a failed status'
+    [ "$(umask)" = 0022 ] || fail 'full-recovery enrollment changed its caller umask'
+    "$PHP_BIN" -r 'foreach (array_slice($argv,1) as $p) { if ((fileperms($p) & 0777) !== 0600) exit(1); }' \
+      "$TMP/envs.json" "$TMP/core-delete-upload.key" \
+      "$REMOTE/home/wprism/recovery-fixture/core-delete-upload.key" \
+      || fail 'full-recovery enrollment weakened a private registry/key mode'
+  )
+}
+case_full_recovery_registry normal
+expect_refusal 'occupied full-recovery registry staging leaf' \
+  'full-recovery registry staging path already exists' case_full_recovery_registry collision
+expect_refusal 'full-recovery provider transport under captured status' \
+  'full-recovery provider transport failed' case_full_recovery_registry transport
+! grep -q '^ADOPT$' "$SCRATCH/full-recovery-transport/ssh.log" \
+  || fail 'failed provider transport reached registry enrollment'
+[ "$(cat "$SCRATCH/full-recovery-collision/local/envs.full-recovery.json")" = 'not owned' ] \
+  || fail 'full-recovery enrollment replaced an unowned staging leaf'
+! grep -q '^ADOPT$' "$SCRATCH/full-recovery-collision/ssh.log" \
+  || fail 'occupied registry staging leaf reached enrollment'
+pass 'full-recovery registry publication retains 0600 without leaking its private mask into the caller'
 
 # Execute the driver's own POSIX SSH argv boundary, provisioning transition,
 # and scoped success block. A copied readiness predicate would remain green
