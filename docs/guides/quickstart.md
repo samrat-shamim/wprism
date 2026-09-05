@@ -174,9 +174,12 @@ SSH or authorized local adoption creates it, while Docker control-plane setup
 or the site's bind mount must create it before init. Init binds that exact directory before
 reading or writing repository children and refuses if its identity changes.
 The SSH account must be able to
-write WordPress's actual `WPMU_PLUGIN_DIR` (discovered through the target's own
-`wp eval`, never guessed from `wp_path`) and the environment's configured
-`repo_path`.
+write WordPress's verified control-plane directory and the environment's
+configured `repo_path`. Initial SSH/local adoption discovers the standard
+`wp-content/mu-plugins` layout through an isolated WordPress bootstrap; custom
+content/MU roots and `SUNRISE` are unsupported. An absent repository is admitted
+only after proving there is no prior WPrism control or recovery authority, not
+as an exemption from the managed-site recovery fence.
 
 The full prerequisite and safety contract is
 [docs/adoption.md](../adoption.md); this guide is the narrative around it.

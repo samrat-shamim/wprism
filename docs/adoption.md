@@ -22,9 +22,20 @@ The target needs PHP 8+ with Sodium and `fsync()`, a working `wp` command,
 `tar`, and a WordPress install. It does **not**
 need Git. The SSH account must be able to write:
 
-- WordPress's actual `WPMU_PLUGIN_DIR` (discovered with `wp eval`, never
-  guessed from `wp_path`);
+- WordPress's verified control-plane directory; initial adoption discovers
+  the standard `wp-content/mu-plugins` layout through an isolated WordPress
+  bootstrap, never by trusting a configured path alone;
 - the environment's configured `repo_path`.
+
+An absent `repo_path` is not clear recovery state. Initial adoption must prove
+that the repository, prior agent/loader, durable control, and transaction
+authority are all absent, with ordinary accessible ancestors. It repeats that
+proof before staging and rechecks the publication boundary under the agent
+generation writer lock. A lost repository beside an existing WPrism control
+plane remains a recovery refusal; do not create an empty replacement to bypass
+it. Initial SSH and local discovery require the standard content/MU layout and
+refuse an explicit `WPMU_PLUGIN_DIR`, relocated `WP_CONTENT_DIR`, or `SUNRISE`.
+The existing-repository SSH update path retains its normal recovery preflight.
 
 Configure the target in `site.wprism.json` or the machine-local,
 gitignored `.wprism-envs.json`:
@@ -136,13 +147,14 @@ cli/wprism adopt production
 
 Adoption performs these operations:
 
-1. negotiates explicit transport authority; for local targets, proves a
-   normalized, disjoint, ordinary, writable filesystem topology and a wholly
-   absent prior WPrism agent/loader/adapter-library/rollback authority without
-   writes;
-2. verifies reachability and installed WordPress; local adoption discovers the
-   standard `WPMU_PLUGIN_DIR` through a plugin-free control bootstrap, while
-   SSH preserves its existing target-discovered path contract;
+1. negotiates explicit transport authority and checks external recovery debt;
+   a genuinely absent repository requires positive initial-bootstrap authority
+   rather than an exception to the recovery fence. Local targets additionally
+   retain their initial-only eligibility requirement;
+2. verifies reachability and installed WordPress; initial adoption discovers
+   the standard `WPMU_PLUGIN_DIR` through a plugin-free control bootstrap and
+   proves a normalized, disjoint, ordinary, writable filesystem topology.
+   Existing-repository SSH updates retain their target-discovered path contract;
 3. assembles `adapter-packages/*/package/` and `platform/adapter-library/`
    into staging's `agent/adapter-library/`, then sends one archive containing
    exactly the assembled `agent/` and public recovery-runtime trees;

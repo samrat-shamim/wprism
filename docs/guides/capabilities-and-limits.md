@@ -821,7 +821,7 @@ WPrism's boundaries fall into three kinds.
 **Structural.** Multisite is refused before policy load or mutation. The
 control plane accepts only the standard `wp-content/mu-plugins` layout with no
 explicit `WPMU_PLUGIN_DIR` and no `SUNRISE`; other configurations fail during
-compile, before any checkpoint or target write. Bedrock and custom content
+initial adoption or compile, before any checkpoint or target write. Bedrock and custom content
 roots need an explicit layout contract, not path guessing.
 
 **Version-bound.** The WordPress, PHP, and database windows are one
