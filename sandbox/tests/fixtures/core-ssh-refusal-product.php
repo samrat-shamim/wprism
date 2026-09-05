@@ -9,6 +9,7 @@ use WPrism\ApplyPreparationRequest;
 use WPrism\ApplyRequestCoordinator;
 use WPrism\ApplyServiceCallbacks;
 use WPrism\ApplyServices;
+use WPrism\ArtifactPolicyIdentity;
 use WPrism\Canon;
 use WPrism\CompiledRepository;
 use WPrism\Db;
@@ -87,7 +88,8 @@ final class CoreSshRefusalProduct {
             static fn(array $guard, string $uuid, bool $forUpdate): array =>
                 $scanner->count($guard, $uuid, array_fill_keys($context['uuids'], true), $deletions, forUpdate: $forUpdate),
             static fn(string $table): bool => false, str_repeat('d', 64));
-        $compiled = CompiledRepository::create(['tree' => [], 'deletions' => $deletions]);
+        $compiled = CompiledRepository::create(['tree' => [], 'deletions' => $deletions,
+            'revision_hash' => str_repeat('e', 64), 'manifest_hash' => ArtifactPolicyIdentity::manifest_hash($policy)]);
         $unused = static function (): never { throw new \LogicException('mutation callback reached by refusal-only fixture'); };
         $services = new ApplyServices($policy, $compiled, new ApplyServiceCallbacks(
             taxonomyOwnership: static fn(): array => [], renewPromotionLock: static function (string $phase): void {},
@@ -117,7 +119,7 @@ final class CoreSshRefusalProduct {
         } catch (\Throwable $failure) {
             $leaf = $failure;
         }
-        return ['db' => $db, 'plan' => $plan, 'prepared' => $prepared, 'warnings' => $warnings,
+        return ['db' => $db, 'plan' => $plan, 'compiled' => $compiled, 'prepared' => $prepared, 'warnings' => $warnings,
             'evidence' => $evidence, 'leaf' => $leaf,
             'failure' => $leaf === null ? null : self::wrap($leaf, $warnings, $evidence)];
     }
@@ -128,5 +130,22 @@ final class CoreSshRefusalProduct {
         (new \ReflectionProperty($coordinator, 'forcedOverrideEvidence'))->setValue($coordinator, $evidence);
         return (new \ReflectionMethod(ApplyRequestCoordinator::class, 'failure_with_forced_warnings'))
             ->invoke(null, $leaf, $coordinator);
+    }
+
+    /** Project the real success-summary block; this is not a signed COMMIT fixture. */
+    public static function successSummary(string $root, array $product): array {
+        $source = file_get_contents($root . '/agent/src/Apply/ApplyRequestCoordinator.php');
+        $start = strrpos($source, "\n        \$summary = [");
+        $end = $start === false ? false : strpos($source, "\n        if (\$scoped) {", $start);
+        if ($start === false || $end === false) throw new \LogicException('the real Apply success summary is unavailable');
+        $coordinator = (new \ReflectionClass(ApplyRequestCoordinator::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty($coordinator, 'warnings'))->setValue($coordinator, $product['warnings']);
+        (new \ReflectionProperty($coordinator, 'tokens'))->setValue($coordinator, new \WPrism\Tokens());
+        $summary = \Closure::bind(eval('return function(array $product): array {
+            $compiled=$product["compiled"]; $plan=$product["plan"]; $work=$product["prepared"]->work;
+            $deleteWork=$product["prepared"]->deleteWork; $executeDeletes=$product["prepared"]->executeDeletes;
+            $verification=["result"=>"pass"];
+            ' . substr($source, $start, $end - $start) . "\n return \$summary; };"), $coordinator, ApplyRequestCoordinator::class);
+        return $summary($product);
     }
 }

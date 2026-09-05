@@ -193,17 +193,15 @@ core_ssh_assert_plan() { # <context JSON> <plan JSON>
 }
 
 core_ssh_assert_forced() { # <context JSON> <Apply JSON>
-  local post_uuid
-  post_uuid="$(jq -er '.uuids[1]' <<<"$1")" || fail 'core forced-override identity is absent'
-  jq -e --argjson c "$1" \
-    --arg identity "$(printf '%s' "$post_uuid" | shasum -a 256 | awk '{print $1}')" '
-    any(.warnings[]; contains("FORCED delete") and contains($c.uuids[0]) and contains("comments"))
-    and any(.warnings[]; contains("FORCED deletion conflict " + $c.uuids[1]))
-    and any(.forced_overrides[]; .format == "wprism-forced-plan-override/v1"
-      and .plan_bucket == "delete_conflict" and .entity_identity_sha256 == $identity
-      and .reason_code == "target_changed_since_delete_base" and .status == "authorized"
-      and .required_flags == ["--with-deletes","--force-theirs"]
-      and .supplied_flags == ["--with-deletes","--force-theirs"])
+  # spec/repo-format.md:3484 reserves structured forced_overrides for failed
+  # Apply. Success reports its original plan counts and named force warnings;
+  # 8242 received that exact producer but expected a fabricated extra field.
+  jq -e --argjson c "$1" '
+    .applied == 3 and .plan.delete == 2 and .plan.delete_conflict == 1
+    and (.warnings | map(select(startswith("FORCED delete of guarded ")))
+      | length == 1 and (.[0] | contains($c.uuids[0]) and contains("comments")))
+    and (.warnings | map(select(startswith("FORCED deletion conflict ")))
+      == ["FORCED deletion conflict " + $c.uuids[1] + " (target entity changed locally since the tombstone base)"])
   ' <<<"$2" >/dev/null 2>&1 || fail 'core deletion did not name the page guard and exact authorized local-edit override'
 }
 

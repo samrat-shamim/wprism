@@ -442,14 +442,14 @@ $plan = ['warnings' => [], 'code_mismatch' => [], 'provider_problems' => [], 'en
     ],
     'delete_conflict' => [['uuid' => $context['uuids'][1], 'conflict_view' => ['reason_code' => 'target_changed_since_delete_base']]],
 ];
-$forced = ['warnings' => ['FORCED delete of guarded post ' . $context['uuids'][0] . ': wp_comments',
-    'FORCED deletion conflict ' . $context['uuids'][1]], 'forced_overrides' => [[
-        'format' => 'wprism-forced-plan-override/v1', 'plan_bucket' => 'delete_conflict',
-        'entity_identity_sha256' => hash('sha256', $context['uuids'][1]),
-        'reason_code' => 'target_changed_since_delete_base', 'status' => 'authorized',
-        'required_flags' => ['--with-deletes', '--force-theirs'],
-        'supplied_flags' => ['--with-deletes', '--force-theirs'],
-    ]]];
+$successProduct = CoreSshRefusalProduct::produce($root, $context, false);
+$forced = CoreSshRefusalProduct::successSummary($root, $successProduct);
+wprism_check(!array_key_exists('forced_overrides', $forced) && $forced['applied'] === 3
+    && $forced['plan']['delete'] === 2 && $forced['plan']['delete_conflict'] === 1,
+    'actual Apply success producer retains named warnings and plan counts, not the failure-only override list');
+$positiveSource = file_get_contents($metadataSourceRoot . '/sandbox/tests/live/regress_core_ssh_deletion.sh');
+$positiveSetup = str_replace('. "$ROOT/sandbox/tests/live/regress_core_ssh_deletion.sh"',
+    '. ' . escapeshellarg($metadataSourceRoot . '/sandbox/tests/live/regress_core_ssh_deletion.sh'), $setup);
 $fixed = ['warnings' => [], 'env_missing' => [], 'deleted' => array_map(static fn(string $uuid): array => ['uuid' => $uuid], $context['uuids'])];
 foreach (['create', 'update', 'adopt', 'drift', 'conflict', 'delete', 'delete_conflict', 'code_mismatch', 'code_drift', 'selected_actions', 'provider_problems'] as $bucket) {
     $fixed[$bucket] = [];
@@ -467,7 +467,7 @@ $machineCases[] = ['plan', $changed, false, 'different local-edit premise'];
 $changed = $plan;
 $changed['delete'][] = ['uuid' => 'unexpected'];
 $machineCases[] = ['plan', $changed, false, 'extra deletion intent'];
-foreach (['warnings', 'forced_overrides'] as $field) {
+foreach (['warnings', 'plan'] as $field) {
     $changed = $forced;
     $changed[$field] = [];
     $machineCases[] = ['forced', $changed, false, 'missing forced evidence ' . $field];
@@ -475,10 +475,20 @@ foreach (['warnings', 'forced_overrides'] as $field) {
 $changed = $forced;
 $changed['warnings'][0] = 'FORCED delete of guarded post ' . $context['uuids'][1] . ': wp_comments';
 $machineCases[] = ['forced', $changed, false, 'wrong identity guard override'];
-foreach (['entity_identity_sha256' => str_repeat('b', 64), 'status' => 'incomplete', 'supplied_flags' => ['--force-theirs']] as $field => $value) {
+foreach (['applied' => 2, 'delete' => 3, 'delete_conflict' => 0] as $field => $value) {
     $changed = $forced;
-    $changed['forced_overrides'][0][$field] = $value;
-    $machineCases[] = ['forced', $changed, false, 'incorrect forced authority ' . $field];
+    if ($field === 'applied') $changed[$field] = $value;
+    else $changed['plan'][$field] = $value;
+    $machineCases[] = ['forced', $changed, false, 'incorrect actual applied/plan count ' . $field];
+}
+$legacy = ['warnings' => $forced['warnings'], 'forced_overrides' => $successProduct['evidence']];
+$machineCases[] = ['forced', $legacy, false, 'fabricated success with only failure-shaped override evidence'];
+foreach (['different reason', 'wrong conflict identity', 'extra guard', 'extra conflict'] as $change) {
+    $changed = $forced;
+    if ($change === 'different reason') $changed['warnings'][1] = str_replace('target entity changed locally', 'different reason', $changed['warnings'][1]);
+    elseif ($change === 'wrong conflict identity') $changed['warnings'][1] = str_replace($context['uuids'][1], $context['uuids'][0], $changed['warnings'][1]);
+    else $changed['warnings'][] = $changed['warnings'][$change === 'extra guard' ? 0 : 1];
+    $machineCases[] = ['forced', $changed, false, $change];
 }
 foreach (array_keys($fixed) as $field) {
     $changed = $fixed;
@@ -491,17 +501,17 @@ foreach (array_keys($fixed) as $field) {
     $machineCases[] = ['fixed_point', $changed, false, 'nonconverged bucket ' . $field];
 }
 foreach ($machineCases as [$which, $answer, $ok, $label]) {
-    [$code, $out] = ShellProbe::run($setup . 'core_ssh_assert_' . $which . ' "$2" "$3"' . "\nprintf 'ACCEPTED\\n'\n", [$root, $encode($context), $encode($answer)], $root);
+    [$code, $out] = ShellProbe::run(($which === 'forced' ? $positiveSetup : $setup) . 'core_ssh_assert_' . $which . ' "$2" "$3"' . "\nprintf 'ACCEPTED\\n'\n", [$root, $encode($context), $encode($answer)], $root);
     wprism_check($ok ? $code === 0 && str_contains($out, 'ACCEPTED') : $code !== 0 && !str_contains($out, 'ACCEPTED'), 'actual machine oracle: ' . $label);
 }
 
 foreach (['success', 'retry'] as $attempt) {
-    $start = strpos($source, '  core_ssh_capture result ' . $attempt . ' apply ');
-    $end = strpos($source, '  core_ssh_assert_terminal committed ' . $attempt, $start ?: 0);
+    $start = strpos($positiveSource, '  core_ssh_capture result ' . $attempt . ' apply ');
+    $end = strpos($positiveSource, '  core_ssh_assert_terminal committed ' . $attempt, $start ?: 0);
     if ($start === false || $end === false) {
         throw new RuntimeException('actual signed core Apply block is missing');
     }
-    $block = substr($source, $start, $end - $start);
+    $block = substr($positiveSource, $start, $end - $start);
     $healthy = array_replace($apply, $forced);
     foreach ([
         ['healthy', $healthy, '', 0, true],
@@ -511,7 +521,7 @@ foreach (['success', 'retry'] as $attempt) {
         ['native startup diagnostic', $healthy, 'PHP Warning: private-capture-canary in Unknown on line 0', 0, false],
         ['nonzero despite success answer', $healthy, '', 7, false],
     ] as [$label, $answer, $stderr, $exit, $ok]) {
-        $script = $setup . <<<'SH'
+        $script = $positiveSetup . <<<'SH'
 context="$2" fixture_stdout="$3" fixture_stderr="$4" fixture_exit="$5" attempt="$6"
 TMP="$DIAG_DIR" WPRISM=fixture_promote
 fixture_promote() {
