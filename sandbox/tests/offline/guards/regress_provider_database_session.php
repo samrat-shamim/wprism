@@ -93,8 +93,12 @@ function invoke_legacy_named_mutex_probe(
 
 function provider_database_session_fixture(): FakeWpdb {
     Db::forget_transaction_tracking();
+    // Row existence is not transactional storage evidence. The exact
+    // metadata dispatcher now reports only an explicitly declared engine;
+    // positive profile fixtures must establish that premise themselves.
     return FakeWpdb::install()
         ->seedTable('wp_wprism_provider_state', [])
+        ->setTableEngine('wp_wprism_provider_state', 'InnoDB')
         ->enableInformationSchema();
 }
 
@@ -1496,6 +1500,11 @@ wprism_check(
 );
 
 $wpdb = provider_database_session_fixture()->setTableEngine('wp_wprism_provider_state', 'MyISAM');
+$schemaCallbackCalls = 0;
+$schemaCallback = static function (array $presence) use (&$schemaCallbackCalls): array {
+    $schemaCallbackCalls++;
+    return $presence;
+};
 $schemaNonTransactional = provider_database_session_failure(
     static fn(): mixed => ProviderSdkContractProbe::run(
         ['table:wprism_provider_state'],
@@ -1503,15 +1512,59 @@ $schemaNonTransactional = provider_database_session_failure(
         static fn(): mixed => ProviderSdk::database_schema_snapshot(
             'provider nontransactional schema fixture',
             ['wp_wprism_provider_state'],
-            static fn(array $presence): array => $presence
+            $schemaCallback
         )
     )
 );
 wprism_check(
     $schemaNonTransactional instanceof RuntimeException
         && str_contains($schemaNonTransactional->getMessage(), 'InnoDB required')
+        && $schemaCallbackCalls === 0
         && $wpdb->activeTransactionIsolation() === null,
     'a present non-InnoDB table cannot back a consistent provider schema projection'
+);
+
+$wpdb = FakeWpdb::install()->seedTable('wp_wprism_provider_state', [])->enableInformationSchema();
+$unknownEngineCallbackCalls = 0;
+$unknownEngineCallback = static function () use (&$unknownEngineCallbackCalls): null {
+    $unknownEngineCallbackCalls++;
+    return null;
+};
+$unknownEngine = provider_database_session_failure(
+    static fn(): mixed => ProviderDatabaseSession::read_only_snapshot(
+        'provider unknown engine fixture',
+        provider_database_read_profile(),
+        $unknownEngineCallback
+    )
+);
+wprism_check(
+    $unknownEngine instanceof RuntimeException
+        && str_contains($unknownEngine->getMessage(), 'unknown engine: wp_wprism_provider_state (engine: NULL/unknown)')
+        && $unknownEngineCallbackCalls === 0
+        && $wpdb->activeTransactionIsolation() === null,
+    'row existence without a declared engine still refuses before the provider callback'
+);
+
+$wpdb = provider_database_session_fixture();
+ProviderDatabaseSession::read_only_snapshot(
+    'provider explicit engine fixture',
+    provider_database_read_profile(),
+    $unknownEngineCallback
+);
+$knownEngineProjection = ProviderSdkContractProbe::run(
+    ['table:wprism_provider_state'],
+    [],
+    static fn(): mixed => ProviderSdk::database_schema_snapshot(
+        'provider explicit schema engine fixture',
+        ['wp_wprism_provider_state'],
+        $schemaCallback
+    )
+);
+wprism_check(
+    $unknownEngineCallbackCalls === 1 && $schemaCallbackCalls === 1
+        && $knownEngineProjection === ['wp_wprism_provider_state' => true]
+        && $wpdb->activeTransactionIsolation() === null,
+    'the same callback spies run once after the owned table explicitly proves InnoDB'
 );
 
 $wpdb = provider_database_session_fixture();
@@ -1737,7 +1790,8 @@ $wpdb = provider_database_session_fixture()
     ->seedTable('wp_wprism_provider_archive', [
         ['provider_key' => 'old-one', 'provider_value' => 'one'],
         ['provider_key' => 'old-two', 'provider_value' => 'two'],
-    ]);
+    ])
+    ->setTableEngine('wp_wprism_provider_archive', 'InnoDB');
 $typedDeleteResult = ProviderSdkContractProbe::run(
     [],
     ['table:wprism_provider_archive', 'table:wprism_provider_state'],
@@ -1917,6 +1971,8 @@ $callbackCalls = 0;
 $wpdb = provider_database_session_fixture()
     ->seedTable('wp_wprism_provider_child', [])
     ->seedTable('wp_wprism_provider_grandchild', [])
+    ->setTableEngine('wp_wprism_provider_child', 'InnoDB')
+    ->setTableEngine('wp_wprism_provider_grandchild', 'InnoDB')
     ->addForeignKey(
         'fk_provider_child_state',
         'wp_wprism_provider_child',
