@@ -114,9 +114,9 @@
  * subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain unsupported.
  * Aggregate expressions are evaluated only over an opted-in bounded result
  * set, never over an unbounded synthetic stream.
- * Positional ORDER BY resolves the actual SELECT projection (including `*`)
- * on one non-aggregate table. Joins/aggregates without explicit projection
- * ordering facts still refuse; no statement-specific answer is synthesized.
+ * Positional ORDER BY resolves a SELECT column projection (including `*`)
+ * on one non-aggregate table. Computed projections and joins/aggregates still
+ * refuse; no expression-collation or statement-specific answer is synthesized.
  *
  * Schema-qualified row inventories (information_schema.COLUMNS /
  * .STATISTICS) remain unsupported -- parseTableRef() refuses the `db.table`
@@ -3777,7 +3777,7 @@ class FakeWpdb {
         if ($unsupported) {
             throw $this->unsupported('positional ORDER BY requires a single non-aggregate table');
         }
-        $expressions = [];
+        $columns = [];
         foreach ($items as $item) {
             if ($item['type'] === 'star') {
                 if ($item['qualifier'] !== null && !in_array($item['qualifier'], [
@@ -3786,18 +3786,21 @@ class FakeWpdb {
                     throw $this->unsupported('positional ORDER BY cannot resolve a foreign star projection');
                 }
                 foreach ($ctx['columns'] as $column) {
-                    $expressions[] = ['k' => 'col', 'q' => null, 'name' => $column, 'label' => $column];
+                    $columns[] = ['k' => 'col', 'q' => null, 'name' => $column, 'label' => $column];
                 }
             } else {
-                $expressions[] = $item['expr'];
+                if ($item['expr']['k'] !== 'col') {
+                    throw $this->unsupported('positional ORDER BY requires a column projection');
+                }
+                $columns[] = $item['expr'];
             }
         }
         foreach ($order as &$term) {
             if (!isset($term['ordinal'])) continue;
-            if (!isset($expressions[$term['ordinal'] - 1])) {
+            if (!isset($columns[$term['ordinal'] - 1])) {
                 throw $this->unsupported('ORDER BY position is outside the SELECT projection');
             }
-            $term['expression'] = $expressions[$term['ordinal'] - 1];
+            $term['column'] = $columns[$term['ordinal'] - 1];
         }
         unset($term);
         return $order;
@@ -4613,12 +4616,8 @@ class FakeWpdb {
     private function sortRows(array $rows, array $order, array $ctx): array {
         usort($rows, function (array $a, array $b) use ($order, $ctx): int {
             foreach ($order as $term) {
-                $left = isset($term['expression'])
-                    ? $this->evalOperand($term['expression'], $a, $ctx)
-                    : $this->evalColumn($term['column'], $a, $ctx['columns'] === null ? null : $ctx);
-                $right = isset($term['expression'])
-                    ? $this->evalOperand($term['expression'], $b, $ctx)
-                    : $this->evalColumn($term['column'], $b, $ctx['columns'] === null ? null : $ctx);
+                $left = $this->evalColumn($term['column'], $a, $ctx['columns'] === null ? null : $ctx);
+                $right = $this->evalColumn($term['column'], $b, $ctx['columns'] === null ? null : $ctx);
                 if ($left === null && $right === null) {
                     continue;
                 }

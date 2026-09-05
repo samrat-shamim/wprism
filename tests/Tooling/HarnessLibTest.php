@@ -275,7 +275,6 @@ final class HarnessLibTest extends TestCase
             $db->get_results('SELECT score AS measure,id FROM wp_probe ORDER BY 1 DESC,2 ASC LIMIT 2', ARRAY_A)
         );
         self::assertSame(['3', '1', '2'], $db->get_col('SELECT id,label FROM wp_probe ORDER BY 2'));
-        self::assertSame(['2', '1', '3'], $db->get_col('SELECT id,LENGTH(label) AS width FROM wp_probe ORDER BY 2,1 DESC'));
         self::assertSame(['9', '5'], $db->get_col('SELECT DISTINCT score FROM wp_probe ORDER BY 1 DESC'));
         $db->seedTable('wp_probe', []);
         self::assertSame([], $db->get_results('SELECT * FROM wp_probe ORDER BY 1', ARRAY_A));
@@ -302,6 +301,9 @@ final class HarnessLibTest extends TestCase
             ['SELECT * FROM wp_probe ORDER BY 2'],
             ['SELECT foreign_table.* FROM wp_probe ORDER BY 1'],
             ['SELECT id FROM wp_probe ORDER BY BINARY 1'],
+            ['SELECT BINARY id FROM wp_probe ORDER BY 1'],
+            ['SELECT LENGTH(id) AS width FROM wp_probe ORDER BY 1'],
+            ['SELECT id,1 AS constant FROM wp_probe ORDER BY 1'],
             ['SELECT COUNT(*) FROM wp_probe ORDER BY 1'],
             ['SELECT 1 ORDER BY 1'],
             ['SELECT p.id FROM wp_probe p LEFT JOIN wp_lookup l ON p.id = l.id ORDER BY 1'],
