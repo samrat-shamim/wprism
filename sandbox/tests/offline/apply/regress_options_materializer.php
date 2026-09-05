@@ -246,11 +246,14 @@ $check(
 $applyOptionsParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_options'))->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionsParams)
-        === ['document', 'withDeletes', 'warnings', 'classificationDocument']
+        === ['document', 'withDeletes', 'warnings', 'classificationDocument', 'workAuthority']
         && $applyOptionsParams[2]->isPassedByReference()
         && $applyOptionsParams[3]->isOptional()
-        && (string) $applyOptionsParams[3]->getType() === '?array',
-    'apply_options() takes warnings by reference and an optional immutable classification-document input'
+        && (string) $applyOptionsParams[3]->getType() === '?array'
+        && $applyOptionsParams[4]->isOptional()
+        && $applyOptionsParams[4]->getDefaultValue() === null
+        && (string) $applyOptionsParams[4]->getType() === '?WPrism\\DatabaseWorkAuthority',
+    'apply_options() takes shared warnings, immutable classification and optional engine work authority'
 );
 $applyOptionSubKeysParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_option_sub_keys'))->getParameters();
 $check(

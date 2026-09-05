@@ -815,8 +815,14 @@ reuse its declaration to mint a profile.
 One native database callback is limited to 1,024 statements, 16 MiB of total
 rendered SQL, and 1 MiB per statement. Engine transaction controls do not
 consume that callback budget. Capture partitions its separately bounded core
-entity/option/chunk work inside the same snapshot, using an opaque authority
-returned only to the transaction owner. Providers do not receive that authority
+entity/option/chunk work inside the same snapshot. Authored Apply uses the same
+engine machinery per adoption, entity phase, option record, widget allocation,
+and regeneration-context record inside its one transaction. An options document
+is a carrier, not one callback: its records retain independent budgets. Shared
+admission, final certification, COMMIT and recovery keep their aggregate limits;
+work partitioning grants no extra table, transport or transaction authority.
+The opaque partition authority is returned only to the transaction owner.
+Providers do not receive that authority
 and must not use the engine's work-partition APIs. Calling or reentering a core
 helper from native code does not replenish the callback's quota; an oversized
 operation needs a genuinely bounded semantic design, not a counter reset.

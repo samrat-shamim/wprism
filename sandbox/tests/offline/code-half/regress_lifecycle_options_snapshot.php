@@ -3157,7 +3157,7 @@ $check(
     is_string($normalizedAuthoredExecutorSource)
         && str_contains(
             $normalizedAuthoredExecutorSource,
-            '$this->optionsMaterializer->apply_options( $document, $withDeletes, $warnings, $classificationDocument );'
+            '$this->optionsMaterializer->apply_options( $document, $withDeletes, $warnings, $classificationDocument, $workAuthority );'
         )
         && str_contains(
             $normalizedAuthoredExecutorSource,

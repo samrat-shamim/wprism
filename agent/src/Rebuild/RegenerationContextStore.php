@@ -1,6 +1,9 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
 }
@@ -67,186 +70,197 @@ final class RegenerationContextStore {
     public function capture_reparents(
         array $work,
         array $tree,
-        bool $persistGenericDebt = true
+        bool $persistGenericDebt = true,
+        ?DatabaseWorkAuthority $workAuthority = null
     ): array {
         global $wpdb;
         $out = [];
         foreach ($work as $entry) {
-            $uuid = (string) ($entry['uuid'] ?? '');
-            $entity = $tree[$uuid] ?? null;
-            if ($uuid === '' || ($entity['type'] ?? '') !== 'post') {
-                continue;
-            }
-            $front = (array) ($entity['data'] ?? []);
-            $postType = (string) ($front['type'] ?? '');
-            if ($postType === '' || !$this->has_consumer('reparents', $postType)) {
-                continue;
-            }
-            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
-            if ($id === null && isset($entry['env_id'])) {
-                $adoptId = (int) $entry['env_id'];
-                if ($adoptId > 0) {
-                    $mappedUuid = Ledger::uuid_for($adoptId, Ledger::KIND_POST);
-                    if ($mappedUuid !== null && $mappedUuid !== $uuid) {
-                        throw new \RuntimeException(
-                            "wprism: cannot capture reparent context for adopted post $adoptId ($uuid): "
-                            . "the local id is already mapped to canonical post $mappedUuid"
-                        );
-                    }
-                    $id = $adoptId;
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($entry, $tree, $persistGenericDebt, $wpdb, &$out): void {
+                $uuid = (string) ($entry['uuid'] ?? '');
+                $entity = $tree[$uuid] ?? null;
+                if ($uuid === '' || ($entity['type'] ?? '') !== 'post') {
+                    return;
                 }
-            }
-            if ($id === null) {
-                continue;
-            }
-            $row = $this->checked_get_row($wpdb->prepare(
-                "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
-                $id
-            ), "reparent source post $id");
-            if (!is_array($row) || (string) ($row['post_type'] ?? '') !== $postType) {
-                continue;
-            }
-            $oldParentId = (int) ($row['post_parent'] ?? 0);
-            if ($oldParentId <= 0) {
-                continue;
-            }
+                $front = (array) ($entity['data'] ?? []);
+                $postType = (string) ($front['type'] ?? '');
+                if ($postType === '' || !$this->has_consumer('reparents', $postType)) {
+                    return;
+                }
+                $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+                if ($id === null && isset($entry['env_id'])) {
+                    $adoptId = (int) $entry['env_id'];
+                    if ($adoptId > 0) {
+                        $mappedUuid = Ledger::uuid_for($adoptId, Ledger::KIND_POST);
+                        if ($mappedUuid !== null && $mappedUuid !== $uuid) {
+                            throw new \RuntimeException(
+                                "wprism: cannot capture reparent context for adopted post $adoptId ($uuid): "
+                                . "the local id is already mapped to canonical post $mappedUuid"
+                            );
+                        }
+                        $id = $adoptId;
+                    }
+                }
+                if ($id === null) {
+                    return;
+                }
+                $row = $this->checked_get_row($wpdb->prepare(
+                    "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
+                    $id
+                ), "reparent source post $id");
+                if (!is_array($row) || (string) ($row['post_type'] ?? '') !== $postType) {
+                    return;
+                }
+                $oldParentId = (int) ($row['post_parent'] ?? 0);
+                if ($oldParentId <= 0) {
+                    return;
+                }
 
-            $parentToken = (string) ($front['parent'] ?? '');
-            $newParentId = 0;
-            $newParentKnown = $parentToken === '';
-            if ($parentToken !== ''
-                && preg_match('/^\{\{post:([0-9a-f-]{36})\}\}$/', $parentToken, $match)) {
-                $newParentId = (int) (Ledger::id_for($match[1], Ledger::KIND_POST) ?? 0);
-                $newParentKnown = $newParentId > 0;
-            }
-            $oldParentUuid = Ledger::uuid_for($oldParentId, Ledger::KIND_POST);
-            $sameParent = $newParentId === $oldParentId
-                || (!$newParentKnown && $oldParentUuid !== null
-                    && $parentToken === '{{post:' . $oldParentUuid . '}}');
-            if ($sameParent) {
-                continue;
-            }
+                $parentToken = (string) ($front['parent'] ?? '');
+                $newParentId = 0;
+                $newParentKnown = $parentToken === '';
+                if ($parentToken !== ''
+                    && preg_match('/^\{\{post:([0-9a-f-]{36})\}\}$/', $parentToken, $match)) {
+                    $newParentId = (int) (Ledger::id_for($match[1], Ledger::KIND_POST) ?? 0);
+                    $newParentKnown = $newParentId > 0;
+                }
+                $oldParentUuid = Ledger::uuid_for($oldParentId, Ledger::KIND_POST);
+                $sameParent = $newParentId === $oldParentId
+                    || (!$newParentKnown && $oldParentUuid !== null
+                        && $parentToken === '{{post:' . $oldParentUuid . '}}');
+                if ($sameParent) {
+                    return;
+                }
 
-            $context = [
-                'kind' => 'reparent',
-                'uuid' => $uuid,
-                'id' => (int) $id,
-                'post_type' => $postType,
-                'parent_id' => $oldParentId,
-                'old_parent_id' => $oldParentId,
-                'new_parent_id' => $newParentId,
-                'child_ids' => [],
-            ];
-            $stored = $persistGenericDebt
-                ? Ledger::kv_get(self::REPARENT_PREFIX . $uuid)
-                : null;
-            $previous = is_string($stored) ? json_decode($stored, true) : null;
-            if (is_array($previous)
-                && ($previous['kind'] ?? '') === 'reparent'
-                && (string) ($previous['uuid'] ?? $uuid) === $uuid) {
-                $context = RegenerationContext::merge($previous, $context);
-            } else {
-                $context['root_ids'] = array_values(RegenerationContext::root_ids($context));
-                sort($context['root_ids'], SORT_NUMERIC);
-            }
-            if ($persistGenericDebt) {
-                Ledger::kv_set(self::REPARENT_PREFIX . $uuid, json_encode($context));
-            }
-            $out[] = $context;
+                $context = [
+                    'kind' => 'reparent',
+                    'uuid' => $uuid,
+                    'id' => (int) $id,
+                    'post_type' => $postType,
+                    'parent_id' => $oldParentId,
+                    'old_parent_id' => $oldParentId,
+                    'new_parent_id' => $newParentId,
+                    'child_ids' => [],
+                ];
+                $stored = $persistGenericDebt
+                    ? Ledger::kv_get(self::REPARENT_PREFIX . $uuid)
+                    : null;
+                $previous = is_string($stored) ? json_decode($stored, true) : null;
+                if (is_array($previous)
+                    && ($previous['kind'] ?? '') === 'reparent'
+                    && (string) ($previous['uuid'] ?? $uuid) === $uuid) {
+                    $context = RegenerationContext::merge($previous, $context);
+                } else {
+                    $context['root_ids'] = array_values(RegenerationContext::root_ids($context));
+                    sort($context['root_ids'], SORT_NUMERIC);
+                }
+                if ($persistGenericDebt) {
+                    Ledger::kv_set(self::REPARENT_PREFIX . $uuid, json_encode($context));
+                }
+                $out[] = $context;
+            });
         }
         return $out;
     }
 
     /** @return list<array<string,mixed>> */
-    public function capture_deletions(array $deleteWork, bool $persistGenericDebt = true): array {
+    public function capture_deletions(
+        array $deleteWork,
+        bool $persistGenericDebt = true,
+        ?DatabaseWorkAuthority $workAuthority = null
+    ): array {
         global $wpdb;
         $out = [];
         $explicitIds = [];
         foreach ($deleteWork as $entry) {
-            if (($entry['type'] ?? '') !== 'post') {
-                continue;
-            }
-            $entryId = Ledger::id_for((string) ($entry['uuid'] ?? ''), Ledger::KIND_POST);
-            if ($entryId !== null) {
-                $explicitIds[(int) $entryId] = true;
-            }
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($entry, &$explicitIds): void {
+                if (($entry['type'] ?? '') !== 'post') {
+                    return;
+                }
+                $entryId = Ledger::id_for((string) ($entry['uuid'] ?? ''), Ledger::KIND_POST);
+                if ($entryId !== null) {
+                    $explicitIds[(int) $entryId] = true;
+                }
+            });
         }
         foreach ($deleteWork as $entry) {
-            if (($entry['type'] ?? '') !== 'post') {
-                continue;
-            }
-            $uuid = (string) ($entry['uuid'] ?? '');
-            if ($uuid === '') {
-                continue;
-            }
-            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
-            if ($id === null) {
-                if (!$persistGenericDebt) {
-                    continue;
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($entry, $persistGenericDebt, $explicitIds, $wpdb, &$out): void {
+                if (($entry['type'] ?? '') !== 'post') {
+                    return;
                 }
-                $stored = Ledger::kv_get(self::DELETE_PREFIX . $uuid);
-                $decoded = is_string($stored) ? json_decode($stored, true) : null;
-                $replayed = $this->replayable_delete($uuid, $decoded);
-                if ($replayed !== null) {
-                    $out[] = $replayed;
-                } elseif ($stored !== null) {
-                    Ledger::kv_delete(self::DELETE_PREFIX . $uuid);
+                $uuid = (string) ($entry['uuid'] ?? '');
+                if ($uuid === '') {
+                    return;
                 }
-                continue;
-            }
-            $row = $this->checked_get_row($wpdb->prepare(
-                "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
-                $id
-            ), "delete source post $id");
-            if ($row === null) {
-                if (!$persistGenericDebt) {
-                    continue;
+                $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+                if ($id === null) {
+                    if (!$persistGenericDebt) {
+                        return;
+                    }
+                    $stored = Ledger::kv_get(self::DELETE_PREFIX . $uuid);
+                    $decoded = is_string($stored) ? json_decode($stored, true) : null;
+                    $replayed = $this->replayable_delete($uuid, $decoded);
+                    if ($replayed !== null) {
+                        $out[] = $replayed;
+                    } elseif ($stored !== null) {
+                        Ledger::kv_delete(self::DELETE_PREFIX . $uuid);
+                    }
+                    return;
                 }
-                $stored = Ledger::kv_get(self::DELETE_PREFIX . $uuid);
-                $decoded = is_string($stored) ? json_decode($stored, true) : null;
-                $replayed = $this->replayable_delete($uuid, $decoded);
-                if ($replayed !== null) {
-                    $out[] = $replayed;
-                } elseif ($stored !== null) {
-                    Ledger::kv_delete(self::DELETE_PREFIX . $uuid);
+                $row = $this->checked_get_row($wpdb->prepare(
+                    "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
+                    $id
+                ), "delete source post $id");
+                if ($row === null) {
+                    if (!$persistGenericDebt) {
+                        return;
+                    }
+                    $stored = Ledger::kv_get(self::DELETE_PREFIX . $uuid);
+                    $decoded = is_string($stored) ? json_decode($stored, true) : null;
+                    $replayed = $this->replayable_delete($uuid, $decoded);
+                    if ($replayed !== null) {
+                        $out[] = $replayed;
+                    } elseif ($stored !== null) {
+                        Ledger::kv_delete(self::DELETE_PREFIX . $uuid);
+                    }
+                    return;
                 }
-                continue;
-            }
-            $postType = (string) ($row['post_type'] ?? '');
-            if ($postType === '' || !$this->has_consumer('deletions', $postType)) {
-                if ($persistGenericDebt) {
-                    Ledger::kv_delete(self::DELETE_PREFIX . $uuid);
+                $postType = (string) ($row['post_type'] ?? '');
+                if ($postType === '' || !$this->has_consumer('deletions', $postType)) {
+                    if ($persistGenericDebt) {
+                        Ledger::kv_delete(self::DELETE_PREFIX . $uuid);
+                    }
+                    return;
                 }
-                continue;
-            }
-            $parentId = (int) ($row['post_parent'] ?? 0);
-            $childIds = [];
-            foreach ($this->policy->child_post_types($postType) as $childPostType) {
-                foreach ($this->checked_get_col($wpdb->prepare(
-                    "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = %s ORDER BY ID ASC",
-                    $id,
-                    $childPostType
-                ), "delete child inventory for post $id (type $childPostType)") as $childId) {
-                    $childId = (int) $childId;
-                    if ($childId > 0 && isset($explicitIds[$childId])) {
-                        $childIds[$childId] = $childId;
+                $parentId = (int) ($row['post_parent'] ?? 0);
+                $childIds = [];
+                foreach ($this->policy->child_post_types($postType) as $childPostType) {
+                    foreach ($this->checked_get_col($wpdb->prepare(
+                        "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = %s ORDER BY ID ASC",
+                        $id,
+                        $childPostType
+                    ), "delete child inventory for post $id (type $childPostType)") as $childId) {
+                        $childId = (int) $childId;
+                        if ($childId > 0 && isset($explicitIds[$childId])) {
+                            $childIds[$childId] = $childId;
+                        }
                     }
                 }
-            }
-            $childIds = array_values($childIds);
-            sort($childIds, SORT_NUMERIC);
-            $context = [
-                'kind' => 'delete',
-                'uuid' => $uuid,
-                'id' => (int) $id,
-                'post_type' => $postType,
-                'parent_id' => $parentId,
-                'child_ids' => $childIds,
-            ];
-            if ($persistGenericDebt) {
-                Ledger::kv_set(self::DELETE_PREFIX . $uuid, json_encode($context));
-            }
-            $out[] = $context;
+                $childIds = array_values($childIds);
+                sort($childIds, SORT_NUMERIC);
+                $context = [
+                    'kind' => 'delete',
+                    'uuid' => $uuid,
+                    'id' => (int) $id,
+                    'post_type' => $postType,
+                    'parent_id' => $parentId,
+                    'child_ids' => $childIds,
+                ];
+                if ($persistGenericDebt) {
+                    Ledger::kv_set(self::DELETE_PREFIX . $uuid, json_encode($context));
+                }
+                $out[] = $context;
+            });
         }
         return $out;
     }

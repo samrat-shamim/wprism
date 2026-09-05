@@ -1382,6 +1382,10 @@ regress-attachment-materializer:
 regress-full-apply-attachment-recovery:
 	php sandbox/tests/offline/apply/regress_full_apply_attachment_recovery.php
 
+.PHONY: regress-authored-work-units
+regress-authored-work-units:
+	php sandbox/tests/offline/apply/regress_authored_work_units.php
+
 # issue #3347 slice 10: ensure_post_row() moved from Apply.php into a new
 # PostMaterializer.php (the "posts" entity materializer target seam),
 # constructed from (Tokens) -- no Policy, matching AttachmentMaterializer's

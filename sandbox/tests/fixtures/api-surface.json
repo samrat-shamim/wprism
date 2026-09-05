@@ -29601,6 +29601,14 @@
                             "name": "classificationDocument",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
@@ -65203,6 +65211,14 @@
                             "name": "persistGenericDebt",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -65235,6 +65251,14 @@
                             "has_default": true,
                             "name": "persistGenericDebt",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],
@@ -72343,6 +72367,14 @@
                             "has_default": false,
                             "name": "tree",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],
