@@ -35,9 +35,12 @@ namespace WPrism {
     require_once __DIR__ . '/../../lib/check.php';
     require_once __DIR__ . '/../../lib/wp_stubs.php';
     require_once __DIR__ . '/../../lib/FakeWpdb.php';
-    require_once __DIR__ . '/../../../../agent/src/Promotion/CodeBaselineAcceptance.php';
-    require_once __DIR__ . '/../../../../agent/src/Promotion/CodeBaselineCapture.php';
-    require_once __DIR__ . '/../../../../agent/src/Promotion/CodeBaselinePublication.php';
+    // Select one complete runtime tree for counterfactual execution; mixing
+    // two physical dependency roots would redeclare the same Kernel classes.
+    $runtimeRoot = $argv[1] ?? dirname(__DIR__, 4);
+    require_once $runtimeRoot . '/agent/src/Promotion/CodeBaselineAcceptance.php';
+    require_once $runtimeRoot . '/agent/src/Promotion/CodeBaselineCapture.php';
+    require_once $runtimeRoot . '/agent/src/Promotion/CodeBaselinePublication.php';
 
     $pluginSlug = 'wprism-baseline-' . getmypid();
     $plugin = $pluginSlug . '/plugin.php';
@@ -321,6 +324,69 @@ namespace WPrism {
     ));
     wprism_check_same(1, count($snapshotReads), 'all unlocked lifecycle options come from one bounded SQL statement');
 
+    // WP 7.1's actual deactivate_plugins() (plugin.php:758-850, function SHA256
+    // 26c64db62537462b421897f26e91c8af10d2d1ea2d87064d2703667336284061)
+    // leaves [1,2] / [0,2] after first/middle removal. Native isolated execution
+    // and the combined 5142fef1 private refusal identify this storage postimage.
+    // Reproduce those raw bytes here; do not repair them through update_option.
+    $roster = [$plugin, $pluginSlug . '/second.php', $pluginSlug . '/third.php'];
+    $compileLifecycle = static fn(array $active): CompiledRepository => CompiledRepository::create([
+        'tree' => ['options/core' => ['data' => OptionState::document([
+            'active_plugins' => OptionState::present($active, 'yes'),
+            'stylesheet' => OptionState::present($theme, 'yes'),
+            'template' => OptionState::present($theme, 'yes'),
+        ])]],
+    ]);
+    foreach (['first', 'middle', 'last', 'all', 'dense', 'ordered-sparse'] as $case) {
+        $active = $roster;
+        if ($case === 'first') unset($active[0]);
+        if ($case === 'middle') unset($active[1]);
+        if ($case === 'last') unset($active[2]);
+        if ($case === 'all') $active = [];
+        if ($case === 'ordered-sparse') $active = [9 => $roster[2], 2 => $roster[0], PHP_INT_MAX => $roster[1]];
+        $raw = serialize($active);
+        $wpdb = $environment(activeRaw: $raw, receipt: 'retire-on-success');
+        foreach (array_slice($roster, 1) as $nativePlugin) {
+            file_put_contents(rtrim(WP_PLUGIN_DIR, '/\\') . '/' . $nativePlugin,
+                "<?php\n/*\nPlugin Name: Native Lifecycle Fixture\nVersion: 1.7.2\n*/\n");
+        }
+        $nativeDesired = [...$desired, 'active_plugins' => array_values($active)];
+        $beforeRows = $wpdb->rows('wp_options');
+        $observed = null;
+        $readFailure = $failure(static function () use ($nativeDesired, &$observed): void {
+            $observed = CodeLifecycleObservation::read_unlocked($nativeDesired, null);
+        });
+        wprism_check($readFailure === null, "$case native deactivation storage is accepted without changing the WordPress row");
+        if ($readFailure !== null) continue;
+        wprism_check_same(array_values($active), $observed['active_plugins'], "$case observation preserves native iteration order, not numeric-key order");
+        $status = LifecyclePlanner::deployment_status($policy, $compileLifecycle(array_values($active)));
+        wprism_check_same(false, $status['required'], "$case exact native lifecycle does not invent activation work");
+        wprism_check_same([], $status['warnings'], "$case lifecycle status is warning-free");
+        wprism_check_same($beforeRows, $wpdb->rows('wp_options'), "$case advisory observation never reindexes native storage");
+        if (in_array($case, ['first', 'middle', 'last', 'all'], true)) {
+            $pending = LifecyclePlanner::deployment_status($policy, $compileLifecycle($roster));
+            wprism_check($pending['required'] && in_array('inactive_in_environment', $pending['reasons'], true),
+                "$case the public lifecycle planner identifies legitimate pending activation instead of malformed evidence");
+            $unsettled = $failure(static fn() => CodeBaselinePublication::publish_terminal([...$desired, 'active_plugins' => $roster], null));
+            wprism_check($unsettled instanceof \RuntimeException, "$case unsettled lifecycle still cannot publish a baseline");
+            wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), "$case activation refusal creates no baseline authority");
+        }
+        $published = $failure(static fn() => CodeBaselinePublication::publish_terminal($nativeDesired, $status['code_boundary_sha256']));
+        wprism_check($published === null, "$case the same native shape passes the real locked terminal writer");
+        $publishedBytes = $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY);
+        $publishedBaseline = $publishedBytes === null ? [] : json_decode($publishedBytes, true, flags: JSON_THROW_ON_ERROR);
+        wprism_check_same(array_fill_keys(array_values($active), '1.7.2'), $publishedBaseline['plugins'] ?? null,
+            "$case terminal authority contains only the observed ordered plugin identities");
+        wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), "$case terminal publication removes only its stale receipt");
+        wprism_check_same($beforeRows, $wpdb->rows('wp_options'), "$case locked observation/publication preserves every raw lifecycle byte");
+    }
+    // Canonical desired artifacts remain lists; only native storage positions
+    // are projected away. Non-native keys and malformed payloads still refuse.
+    $environment();
+    wprism_check($failure(static fn() => CodeLifecycleObservation::read_unlocked(
+        [...$desired, 'active_plugins' => [4 => $plugin]], null
+    )) instanceof \RuntimeException, 'sparse canonical desired lifecycle declarations remain invalid');
+
     // First capture publishes the exact baseline and deletes a stale receipt.
     $wpdb = $environment(receipt: '{"stale":true}');
     $wpdb->resetLog();
@@ -432,9 +498,23 @@ namespace WPrism {
         serialize([$plugin, $plugin]) => 'duplicate active plugin identities',
         serialize(['../escape/plugin.php']) => 'unsafe active plugin identities',
         serialize([$plugin]) . "\n" => 'noncanonical trailing option bytes',
+        serialize(['plugin' => $plugin]) => 'associative plugin storage keys',
+        serialize(['01' => $plugin]) => 'noncanonical numeric-string plugin storage keys',
+        serialize([-1 => $plugin]) => 'negative plugin storage positions',
+        serialize([2 => $plugin, 8 => $plugin]) => 'duplicate sparse plugin identities',
+        serialize([2 => '../escape/plugin.php']) => 'unsafe sparse plugin identities',
+        serialize([2 => 17]) => 'non-string sparse plugin identities',
+        serialize([2 => [$plugin]]) => 'nested sparse plugin values',
+        serialize(array_combine(range(0, 8192, 2), array_map(static fn(int $i): string => "fixture$i/plugin.php", range(0, 4096)))) => 'oversized sparse plugin inventories',
     ] as $raw => $label) {
-        $environment(activeRaw: $raw);
+        $wpdb = $environment(activeRaw: $raw, receipt: 'keep-invalid-roster');
+        $beforeRows = $wpdb->rows('wp_options');
         wprism_check($failure(static fn() => CodeLifecycleObservation::read_unlocked($desired, null)) instanceof \RuntimeException, "$label are refused");
+        wprism_check($failure(static fn() => CodeBaselinePublication::publish_terminal($desired, null)) instanceof \RuntimeException,
+            "$label also refuse the real locked writer");
+        wprism_check_same($beforeRows, $wpdb->rows('wp_options'), "$label leave raw lifecycle rows unchanged");
+        wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), "$label publish no baseline");
+        wprism_check_same('keep-invalid-roster', $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), "$label preserve prior receipt bytes");
     }
 
     $environment(withTemplate: false);
@@ -465,6 +545,9 @@ namespace WPrism {
     ProcessFence::release();
     Db::forget_transaction_tracking();
     @unlink($pluginPath);
+    foreach (array_slice($roster, 1) as $nativePlugin) {
+        @unlink(rtrim(WP_PLUGIN_DIR, '/\\') . '/' . $nativePlugin);
+    }
     @rmdir(dirname($pluginPath));
     @unlink($themePath);
     @rmdir(dirname($themePath));

@@ -1414,6 +1414,15 @@ plugin faithfully.
    and inactive reinstall leave it untouched before reactivation reproduces —
    and the following apply preserves — the plugin's native outcome.
 
+   Keep native storage shape distinct from canonical artifact grammar.
+   WordPress's [deactivate_plugins()](https://developer.wordpress.org/reference/functions/deactivate_plugins/)
+   removes numeric slots without reindexing `active_plugins`; deactivating the
+   first or middle plugin therefore leaves a legitimate sparse array. Exercise
+   that raw postimage through host lifecycle preflight and the locked baseline
+   writer. Do not reindex the fixture's option to make the engine accept it.
+   The native observation boundary projects plugin iteration order without
+   changing stored bytes; desired artifact rosters remain canonical lists.
+
    Establish local-identity divergence explicitly for every mapped table. Two
    fresh plugin tables commonly allocate primary key `1` on both sites, so
    equal ids prove no rebinding at all and prior scratch history can make a

@@ -211,9 +211,14 @@ final class CodeLifecycleObservation {
             throw new \RuntimeException('wprism: active_plugins option is malformed or oversized');
         }
         $decoded = PlainData::decode_serialized($raw, 'active_plugins option');
+        // WordPress 7.1 deactivate_plugins() unsets the retired numeric slot
+        // and persists the remaining keys (wp-admin/includes/plugin.php:758-850).
+        // Live 5142fef1 exposed this legitimate sparse postimage at preflight.
+        // Keys are storage positions, not plugin identities: preserve iteration
+        // order in the observed list below without rewriting the native row.
         if (!is_array($decoded)
-            || !array_is_list($decoded)
-            || count($decoded) > self::MAX_ACTIVE_PLUGINS) {
+            || count($decoded) > self::MAX_ACTIVE_PLUGINS
+            || array_filter(array_keys($decoded), static fn($key): bool => !is_int($key) || $key < 0) !== []) {
             throw new \RuntimeException('wprism: active_plugins option is malformed or oversized');
         }
         $active = [];
