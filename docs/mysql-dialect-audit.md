@@ -184,17 +184,21 @@ belongs in the widening commit with the measured error quoted beside it.
 
 ### Exact SQL and names
 
-| path:line | name expression | length |
+| owner | name expression | ASCII bytes |
 | --- | --- | --- |
-| `agent/src/Kernel/ProcessFence.php:85` | `'wprism:' . substr(hash('sha256', $dbname . '|' . $prefix), 0, 59)` | **63** |
-| `agent/src/Init/InitConfirmation.php:904` | `'wprism-init:' . substr(hash('sha256', $prefix . "\0" . $repo), 0, 48)` | **57** |
+| `agent/src/Kernel/ProcessFence.php::name()` | `NAME_PREFIX` plus SHA-256 hex truncated to `64 - strlen(NAME_PREFIX)` | **64** (`7 + 57`) |
+| `agent/src/Init/InitConfirmation.php::acquire_init_lease()` | `'wprism-init:'` plus 48 SHA-256 hex characters | **60** (`12 + 48`) |
+| `adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php::acquire_provider_mutex()` | `'wprism:woocommerce:scheduler:'` plus 32 SHA-256 hex characters | **61** (`29 + 32`) |
 
-(Both computed, not estimated: `4 + 59 = 63`, `9 + 48 = 57`.)
+The original audit retained pre-branding arithmetic beside branded source:
+the process fence actually emitted **66**, not 63, bytes (`7 + 59`). MySQL
+rejected that exact product name during the Code Snippets conformance capture.
+The init and WooCommerce names fit without changing their identity inputs.
 
-Statements: `SELECT GET_LOCK(%s, 0)` (`ProcessFence.php:41`,
-`InitConfirmation.php:905`), `SELECT IS_USED_LOCK(%s)`
-(`ProcessFence.php:60`), `SELECT RELEASE_LOCK(%s)` (`ProcessFence.php:78`,
-`InitConfirmation.php:919`).
+Statements are `SELECT GET_LOCK(%s, 0)`, `SELECT IS_USED_LOCK(%s)`, and
+`SELECT RELEASE_LOCK(%s)`. The kernel process fence is shared by capture and
+promotion; init and the WooCommerce provider own separate connection-scoped
+locks that can overlap it.
 
 ### MySQL 8.4 behaviour [wp-knowledge]
 
@@ -204,41 +208,54 @@ Statements: `SELECT GET_LOCK(%s, 0)` (`ProcessFence.php:41`,
   (before 5.7, `GET_LOCK` released the session's previous lock). MariaDB
   10.0.2+ behaves the same way.
 
-So both names fit — 63 is inside 64 by exactly one character, and 57 has
-comfortable room. But 63 is **one edit away** from breaking: bumping the
-`substr` length by one, or lengthening the `'wprism:'` prefix, produces a name
-that works on MariaDB and errors on MySQL. Nothing in the tree asserts that
-bound today.
+The process fence now derives its suffix budget from the prefix, and its
+offline regression passes the actual product-derived name through a
+64-byte-limited acquisition, continuity check, and release. A synthetic
+63-character SQL probe cannot establish that product invariant.
 
 `ProcessFence` also depends on the multi-lock semantics: `isContinuous()`
-(`:51-63`) re-checks `CONNECTION_ID()` and `IS_USED_LOCK(name)` and treats a
+re-checks `CONNECTION_ID()` and `IS_USED_LOCK(name)` and treats a
 connection change as a continuity break. It never assumes it is the session's
 only lock — but `InitConfirmation` holds its own `wprism-init:` lock on the same
 connection at overlapping times, which would be a real bug on a pre-5.7-style
 "one lock per session" server. Both claimed/probed engines are past that.
 
+Only an exact `GET_LOCK` result of `0` means contention; `1` means acquired.
+NULL, driver errors, thrown transport failures, or malformed connection/lock
+results produce `process_fence_unavailable`, with driver text excluded from
+public output. Capture preserves that reason instead of rewriting every
+fence failure to `capture_target_writer_active`. The existing contention and
+lost-continuity messages remain unchanged.
+
 ### What the live probe must assert
 
-1. On `wprism-shared-mysql`: `SELECT GET_LOCK(REPEAT('x',63),0)` returns `1`,
-   `IS_USED_LOCK(REPEAT('x',63))` returns the current `CONNECTION_ID()`, a
-   *second* `GET_LOCK(REPEAT('y',63),0)` in the same session also returns `1`
-   (multi-lock), and `RELEASE_LOCK(REPEAT('x',63))` returns `1` while `y`
-   stays held.
+1. On each claimed engine, derive `ProcessFence::name()` from the installed
+   candidate and prove its length is at most 64. Acquire and verify that exact
+   name, acquire a distinct bounded name on the same connection, and release
+   the first while proving the second remains held.
 2. `SELECT GET_LOCK(REPEAT('x',65),0)` — record the exact error, so the
    64-char bound is measured on this server rather than assumed.
 3. A real `wprism init` and a real promotion on the MySQL pair, confirming
    `ProcessFence::assertHeld()` never raises *"promotion process fence is not
    continuously held by this database connection"* across a normal lifecycle.
 
-### Recommended follow-up (NOT in this stream)
+### Offline evidence and generation-fenced cutover
 
-A small offline pin asserting both name expressions stay ≤ 64 characters —
-computed the way the code computes them, not hard-coded. It belongs in
-`sandbox/tests/offline/kernel/` or `offline/policy/` with its own Makefile
-target and count bump, because its subject is **shipped source invariants**,
-not the test estate; folding it into `offline/guards/`'s harness suite would
-blur the guards rule (`tools/suite-layout.review.md:67-71`). Filed as a
-separate item.
+`sandbox/tests/offline/cli/regress_typed_refusal_envelopes.php` exercises the
+real fence name, acquisition/continuity transport failures, and the unchanged
+contention versus unavailable JSON envelopes. The capture-owned
+`sandbox/tests/offline/capture/regress_capture_atomicity.php` verifies that the
+publication workflow preserves the unavailable result and claims no lock.
+
+The corrected 64-byte name and the prior 66-byte name are different advisory
+locks on a server that accepts both. They must not authorize concurrent old
+and new command processes. Supported updates already prevent this: the
+installed MU loader holds the stable directory generation fence for the full
+WP-CLI process lifetime, while adoption takes its exclusive side before
+replacing agent bytes. Use that update path, not an in-place file copy around
+the loader; legacy pre-fence loaders retain the explicit quiescence
+attestation described in [adoption](adoption.md). No dual-name lock, fallback,
+or mixed-generation compatibility path is introduced.
 
 ---
 
@@ -336,12 +353,13 @@ question is reachable — the WordPress containers simply cannot connect.
 | --- | --- | --- | --- |
 | 1 | `VALUES(col)` × 6 sites | none | conflict-update still works + `SHOW WARNINGS` after each |
 | 2 | `JSON_UNQUOTE(JSON_EXTRACT(...))` over `LONGTEXT` × 6 statement groups | none | normal cycle green; planted non-JSON row's envelope, both engines |
-| 3 | `GET_LOCK` names 63 / 57 chars | none | 63-char name round-trips; multi-lock holds; 65-char error recorded |
+| 3 | `GET_LOCK` names 64 / 60 / 61 bytes | prefix-derived process-fence budget and typed unavailable result | actual product name round-trips; multi-lock holds; 65-char answer recorded |
 | 4 | `get_charset_collate()` → `VARCHAR(191)` keys | none | `SHOW CREATE TABLE` diff, both engines; identical recapture |
 | 5 | `caching_sha2_password` | none | `wp db check` from a throwaway pair — run before everything else |
 
-Nothing here justifies moving a byte of `agent/`'s SQL. What did move is the
-platform contract itself: the database axis is now an engine-keyed map
+The exact product-name failure justifies the bounded §3 correction; the other
+SQL findings still require their named live evidence. The platform contract's
+database axis is an engine-keyed map
 (`agent/src/Policy/PlatformCompatibility.php`'s `valid_database_axis()` /
 `engines_label()`) that claims MySQL `[8.4.0, 8.5.0)` beside MariaDB
 `[11.0.0, 12.0.0)`. Before that widening a MySQL pair refused

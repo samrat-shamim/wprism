@@ -200,6 +200,7 @@ namespace {
     final class ScopedPromotionTargetFakeWpdb {
         public string $prefix = 'wp_';
         public string $dbname = 'wprism_scoped_promotion_target_test';
+        public string $last_error = '';
         public string|false|null $wprismKvEngine = 'InnoDB';
         private int $connection = 4401;
         private bool $fenceHeld = false;

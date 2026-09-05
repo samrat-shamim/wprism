@@ -10,6 +10,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
+
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
@@ -502,6 +504,32 @@ assert_capture_atomicity(
     'live target-writer contention has the stable capture_target_writer_active reason code'
 );
 assert_capture_atomicity($wpdb->fenceHolder === null, 'a refused busy-fence acquisition leaves no process-fence residue');
+
+// Capture must not overwrite the engine's transport verdict with a claim
+// about another writer. Use the shared wpdb failure seam rather than adding
+// yet another meaning for failure to this suite's older transaction fixture.
+$captureDatabase = $wpdb;
+foreach (['private database transport error', ''] as $driverError) {
+    $wpdb = (new \WPrismTest\FakeWpdb())->failNextQuery($driverError, 'SELECT GET_LOCK(');
+    $unavailableCapture = null;
+    try {
+        $captureFence->invoke(null);
+    } catch (Throwable $failure) {
+        $unavailableCapture = $failure;
+    }
+    assert_capture_atomicity(
+        $unavailableCapture instanceof CommandRefusalException
+            && ($unavailableCapture->payload()['error'] ?? null) === 'process_fence_unavailable'
+            && !str_contains($unavailableCapture->getMessage(), 'another live target process'),
+        'capture preserves the database-unavailable refusal for failed or NULL advisory-lock transport'
+    );
+    assert_capture_atomicity(
+        $wpdb->get_var($wpdb->prepare('SELECT IS_USED_LOCK(%s)', ProcessFence::name())) === null,
+        'failed capture fence transport neither claims nor retains a target lock'
+    );
+    ProcessFence::release();
+}
+$wpdb = $captureDatabase;
 
 $wpdb->kv['promotion_lock'] = '{"retained":"opaque"}';
 $ownsCaptureFence = $captureFence->invoke(null);

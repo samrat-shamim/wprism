@@ -28,6 +28,7 @@ final class Ledger {
 final class FakePromotionWpdb {
     public string $prefix = 'wp_wprism_';
     public string $dbname = 'wprism_unit';
+    public string $last_error = '';
     /** @var list<list<mixed>> */
     public array $preparedCalls = [];
     public bool $fenceHeld = false;

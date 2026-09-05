@@ -1055,6 +1055,13 @@ final class CapturePublicationWorkflow {
         try {
             ProcessFence::acquire();
         } catch (\Throwable $failure) {
+            // Only GET_LOCK's definite contention result identifies another
+            // writer. Database failure retains the engine's unavailable
+            // refusal instead of telling an idle target to wait indefinitely.
+            if (!$failure instanceof CommandRefusalException
+                || $failure->reasonCode !== 'process_fence_held') {
+                throw $failure;
+            }
             throw self::targetWriterRefusal(
                 'wprism: capture refused because another live target process owns the target-writer fence',
                 $failure
