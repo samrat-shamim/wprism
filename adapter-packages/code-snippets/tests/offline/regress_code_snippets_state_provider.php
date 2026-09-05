@@ -7,7 +7,9 @@ namespace {
     require_once $repoRoot . '/sandbox/tests/lib/FakeWpdb.php';
 
     define('FS_CHMOD_FILE', 0644);
-    $scratch = sys_get_temp_dir() . '/wprism_code_snippets_provider_' . bin2hex(random_bytes(8));
+    $scratch = ($argv[1] ?? null) === '--bounded-literal-reconcile' && isset($argv[2])
+        ? $argv[2]
+        : sys_get_temp_dir() . '/wprism_code_snippets_provider_' . bin2hex(random_bytes(8));
     if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
         throw new \RuntimeException("could not create $scratch");
     }
@@ -311,6 +313,39 @@ namespace {
         JSON_THROW_ON_ERROR
     );
     $provider = new \WPrism\Providers\CodeSnippetsState($manifest['providers'][0]);
+    $operation = [
+        'authority_hash' => str_repeat('a', 64),
+        'lease_session_id' => 'fixture-session',
+        'operation_id' => 'fixture-operation',
+        'input_hash' => str_repeat('b', 64),
+        'effect_hash' => str_repeat('c', 64),
+    ];
+
+    if (($argv[1] ?? null) === '--bounded-literal-reconcile') {
+        try {
+            $provider->invoke_scoped('rebuild_snippet_state', [], $operation);
+            $hash = \Code_Snippets\Snippet_Files::get_hashed_table_name('wp_snippets');
+            $index = \Code_Snippets\Snippet_Files::get_base_dir($hash, 'php') . '/index.php';
+            file_put_contents($index, '<?php return [' . str_repeat('null,', 2000000) . '];');
+            $indexHash = hash_file('sha256', $index);
+            $rebuildCount = $GLOBALS['cs_rebuild_count'];
+            try {
+                $provider->reconcile_scoped('rebuild_snippet_state', [], $operation);
+                $result = ['accepted' => true];
+            } catch (\RuntimeException $failure) {
+                $result = ['accepted' => false, 'message' => $failure->getMessage()];
+            }
+            echo json_encode($result + [
+                'index_unchanged' => hash_file('sha256', $index) === $indexHash,
+                'native_rebuilds_unchanged' => $GLOBALS['cs_rebuild_count'] === $rebuildCount,
+                'peak_memory_bytes' => memory_get_peak_usage(true),
+            ], JSON_THROW_ON_ERROR);
+        } finally {
+            (new \Code_Snippets\WordPress_File_System_Adapter())->delete(WP_CONTENT_DIR, true);
+        }
+        exit(0);
+    }
+
     $capabilities = $provider->capabilities();
     wprism_check_same(
         [
@@ -330,13 +365,6 @@ namespace {
         'provider publishes one bounded site-scoped idempotent cache/flat-file repair contract'
     );
 
-    $operation = [
-        'authority_hash' => str_repeat('a', 64),
-        'lease_session_id' => 'fixture-session',
-        'operation_id' => 'fixture-operation',
-        'input_hash' => str_repeat('b', 64),
-        'effect_hash' => str_repeat('c', 64),
-    ];
     $hash = \Code_Snippets\Snippet_Files::get_hashed_table_name('wp_snippets');
     $directory = \Code_Snippets\Snippet_Files::get_base_dir($hash);
     mkdir($directory . '/php', 0700, true);
@@ -509,6 +537,33 @@ namespace {
     }
     wprism_check($residueRefused, 'single-site provider refuses residual network identity state instead of touching it');
     $GLOBALS['cs_network_residue'] = false;
+
+    // The PHP literal node bound must reach the recovery caller, not merely
+    // the reader's unit test: the old eager tokenizer fatals on this 10 MB
+    // index before reconcile_scoped() can report its postcondition refusal.
+    $process = proc_open(
+        [PHP_BINARY, '-d', 'memory_limit=128M', __FILE__, '--bounded-literal-reconcile', $scratch . '/memory-child'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes
+    );
+    if (!is_resource($process)) {
+        throw new \RuntimeException('could not start constrained-memory provider reconciliation');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exit = proc_close($process);
+    $result = json_decode((string) $stdout, true);
+    wprism_check(
+        $exit === 0 && $stderr === '' && is_array($result)
+            && ($result['accepted'] ?? null) === false
+            && str_contains((string) ($result['message'] ?? ''), 'PHP literal data exceeds its node bound')
+            && ($result['index_unchanged'] ?? null) === true
+            && ($result['native_rebuilds_unchanged'] ?? null) === true,
+        'scoped recovery refuses a 10 MB token-dense index under 128 MiB without fatal output, rewriting, or rebuilding'
+    );
 
     $remove = new \Code_Snippets\WordPress_File_System_Adapter();
     $remove->delete(WP_CONTENT_DIR, true);

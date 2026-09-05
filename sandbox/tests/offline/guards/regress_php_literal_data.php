@@ -13,6 +13,18 @@ require_once __DIR__ . '/../../lib/check.php';
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/PhpLiteralData.php';
 
+if (($argv[1] ?? null) === '--bounded-child') {
+    $path = (string) ($argv[2] ?? '');
+    try {
+        $value = \WPrism\PhpLiteralData::read($path, (string) hash_file('sha256', $path));
+        $result = ['accepted' => true, 'sha256' => hash('sha256', serialize($value))];
+    } catch (RuntimeException $failure) {
+        $result = ['accepted' => false, 'message' => $failure->getMessage()];
+    }
+    echo json_encode($result + ['peak_memory_bytes' => memory_get_peak_usage(true)], JSON_THROW_ON_ERROR);
+    exit(0);
+}
+
 $scratch = sys_get_temp_dir() . '/wprism-php-literal-' . bin2hex(random_bytes(8));
 if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
     throw new RuntimeException('could not create PHP literal fixture root');
@@ -30,6 +42,24 @@ function php_literal_fixture(string $scratch, string $name, string $source): str
 /** @return mixed */
 function php_literal_read(string $path): mixed {
     return \WPrism\PhpLiteralData::read($path, hash_file('sha256', $path));
+}
+
+/** @return array{exit:int,stdout:string,stderr:string} */
+function php_literal_bounded_process(string $path): array {
+    $process = proc_open(
+        [PHP_BINARY, '-d', 'memory_limit=128M', __FILE__, '--bounded-child', $path],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes
+    );
+    if (!is_resource($process)) {
+        throw new RuntimeException('could not start constrained-memory literal reader');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    return ['exit' => proc_close($process), 'stdout' => (string) $stdout, 'stderr' => (string) $stderr];
 }
 
 try {
@@ -57,6 +87,30 @@ try {
     );
 
     foreach ([
+        'integer-spellings.php' => [
+            '<?PHP return [0, 0_1, 01_2, 0xF_f, 0b10_10, 0o17, 1_2_3, -17, ' . PHP_INT_MAX . '];',
+            [0, 1, 10, 255, 10, 15, 123, -17, PHP_INT_MAX],
+        ],
+        'block-close-tag.php' => ["<?php /* ?> inert */ return ['?>']; /* ?> */", ['?>']],
+        'trivia-guard.php' => [
+            "<?php IF /* ?> */ ( ! DeFiNeD ( 'ABSPATH' ) ) { # line\n RETURN ; } return ARRAY(TrUe, FaLsE, NuLl,);",
+            [true, false, null],
+        ],
+        'line-comment.php' => ["<?php // first\r# second\nreturn []; // eof", []],
+        'close-tag.php' => ['<?php return [];?>', []],
+        'close-tag-lf.php' => ["<?php return [];?>\n", []],
+        'close-tag-cr.php' => ["<?php return [];?>\r", []],
+        'close-tag-crlf.php' => ["<?php return [];?>\r\n", []],
+        'comment-close-tag.php' => ["<?php return []; // ?>\n", []],
+    ] as $name => [$source, $expected]) {
+        wprism_check_same(
+            $expected,
+            php_literal_read(php_literal_fixture($scratch, $name, $source)),
+            "streaming tokens preserve the accepted closed grammar for $name"
+        );
+    }
+
+    foreach ([
         'call.php' => "<?php return ['value' => strlen('x')];\n",
         'concat.php' => "<?php return ['a' . 'b'];\n",
         'double.php' => "<?php return [\"a\\qb\"];\n",
@@ -68,6 +122,23 @@ try {
         'trailing.php' => "<?php return []; file_put_contents('/tmp/never', 'x');\n",
         'interpolation.php' => "<?php return [\"{$rows[12]['scope']}\"];\n",
         'widened-preamble.php' => "<?php if (!defined('ABSPATH')) { file_put_contents('/tmp/never', 'x'); return; } return [];\n",
+        'line-comment-tail.php' => '<?php return []; // ?>not-php',
+        'hash-comment-tail.php' => '<?php return []; # ?>not-php',
+        'line-comment-reopen.php' => '<?php return []; // ?><?php return [];',
+        'hash-comment-reopen.php' => '<?php return []; # ?><?php return [];',
+        'attribute.php' => '<?php return []; #[not_a_comment]',
+        'close-space.php' => '<?php return [];?> ',
+        'close-second-newline.php' => "<?php return [];?>\n\n",
+        'leading-outside-space.php' => ' <?php return [];',
+        'opening-without-space.php' => '<?php/*comment*/return [];',
+        'opening-vertical-tab.php' => "<?php\vreturn [];",
+        'overflow.php' => '<?php return 9223372036854775808;',
+        'negative-overflow.php' => '<?php return -9223372036854775808;',
+        'hex-overflow.php' => '<?php return 0x8000000000000000;',
+        'integer-separator.php' => '<?php return 1__2;',
+        'integer-prefix-separator.php' => '<?php return 0x_FF;',
+        'invalid-octal.php' => '<?php return 08;',
+        'exponent.php' => '<?php return 1e2;',
     ] as $name => $source) {
         $path = php_literal_fixture($scratch, $name, $source);
         wprism_check_throws(
@@ -150,6 +221,47 @@ try {
         'a literal array beyond the exact node budget is refused',
         'node bound'
     );
+
+    // The prior eager tokenizer fatals even with 512 MiB for this 10 MB
+    // source. The same product reader must instead reach its node verdict
+    // under 128 MiB, before scanning or allocating the unneeded token tail.
+    $dense = php_literal_fixture(
+        $scratch,
+        'dense.php',
+        '<?php return [' . str_repeat('null,', 2000000) . '];'
+    );
+    $denseProcess = php_literal_bounded_process($dense);
+    $denseResult = json_decode($denseProcess['stdout'], true);
+    wprism_check(
+        $denseProcess['exit'] === 0 && $denseProcess['stderr'] === ''
+            && is_array($denseResult) && ($denseResult['accepted'] ?? null) === false
+            && str_contains((string) ($denseResult['message'] ?? ''), 'node bound'),
+        'a 10 MB token-dense literal produces a bounded node refusal under 128 MiB without fatal output'
+    );
+
+    $largeString = str_repeat("\\'?>/*#[]null,", 500000);
+    foreach ([
+        'large-string.php' => ['<?php return ' . var_export($largeString, true) . ';', $largeString],
+        'large-block-comment.php' => [
+            '<?php /*' . str_repeat('?> null, [] ', 750000) . '*/ return true;',
+            true,
+        ],
+        'large-line-comments.php' => [
+            '<?php ' . str_repeat("// null, []\n# [null,]\n", 400000) . 'return false;',
+            false,
+        ],
+    ] as $name => [$source, $expected]) {
+        $large = php_literal_fixture($scratch, $name, $source);
+        $largeProcess = php_literal_bounded_process($large);
+        $largeResult = json_decode($largeProcess['stdout'], true);
+        wprism_check(
+            $largeProcess['exit'] === 0 && $largeProcess['stderr'] === ''
+                && is_array($largeResult) && ($largeResult['accepted'] ?? null) === true
+                && ($largeResult['sha256'] ?? null) === hash('sha256', serialize($expected)),
+            "inert $name retains exact value semantics under the same constrained memory budget"
+        );
+    }
+    unset($largeString, $source, $expected);
 
     $tooLarge = php_literal_fixture(
         $scratch,
