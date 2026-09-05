@@ -118,13 +118,14 @@ $current = (string) file_get_contents(__DIR__ . '/../certify/version-matrix.sh')
 $selectedRoot = $argv[1] ?? $root;
 $selected = (string) file_get_contents($selectedRoot . '/adapter-packages/rank-math/tests/certify/version-matrix.sh');
 $definitions = '';
-foreach (['rank_math_private_evidence', 'rank_math_assert_inactive_release', 'assert_rank_math_below_range_refusal'] as $name) {
+foreach (['rank_math_private_evidence', 'rank_math_assert_release', 'assert_rank_math_below_range_refusal'] as $name) {
     if (preg_match('/^' . $name . '\(\).*?^}/ms', $current, $match) !== 1) {
         throw new LogicException('the actual range evidence helper is unavailable');
     }
     $definitions .= $match[0] . "\n";
 }
-$start = strpos($selected, "\nrank_math_assert_inactive_release ");
+$start = strpos($selected, "\nrank_math_assert_release ");
+if ($start === false) $start = strpos($selected, "\nrank_math_assert_inactive_release ");
 if ($start === false) $start = strpos($selected, "\nINSTALLED_OOR=");
 $end = $start === false ? false : strpos($selected, "\n}", $start);
 if ($start === false || $end === false) throw new LogicException('the actual negative matrix command block is unavailable');

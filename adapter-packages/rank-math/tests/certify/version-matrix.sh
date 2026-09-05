@@ -257,20 +257,41 @@ rank_math_private_evidence() { # <cli1|cli2> <snapshot|verify> <profile> <direct
 
 # A failed status command is not evidence of inactivity. WP-CLI's documented
 # plugin-get JSON exposes name/status/version together; require that complete
-# source-site observation before and after the negative host deployment.
-rank_math_assert_inactive_release() { # <label> <WP command> <pair>
-  [ "$#" -eq 3 ] || fail 'Rank Math inactive-release observation requires a label, WP command and pair'
-  local label="$1" wp_command="$2" pair="$3" out
-  [[ "$pair" =~ ^[a-z0-9][a-z0-9-]*$ ]] && command -v "$wp_command" >/dev/null \
-    || fail 'Rank Math inactive-release observation has invalid site bindings'
+# explicitly bound site observation for both negative and transition controls.
+rank_math_assert_release() { # <label> <wp1|wp2> <pair> <active|inactive> <version>
+  [ "$#" -eq 5 ] || fail 'Rank Math release observation requires explicit label, site, pair, status and version'
+  local label="$1" wp_command="$2" pair="$3" status="$4" version="$5" service out
+  case "$wp_command" in wp1) service=cli1 ;; wp2) service=cli2 ;; *) fail 'Rank Math release observation has an unknown site' ;; esac
+  case "$status" in active|inactive) ;; *) fail 'Rank Math release observation has an unknown status' ;; esac
+  [[ "$pair" =~ ^[a-z0-9][a-z0-9-]*$ && "$version" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] \
+    && command -v "$wp_command" >/dev/null || fail 'Rank Math release observation has invalid bindings'
   out=$("$wp_command" plugin get seo-by-rank-math --fields=name,status,version --format=json 2>&1) \
-    || fail "$label inactive-release observation failed"
-  jq -Rse --arg pair "$pair" '
+    || fail "$label release observation failed"
+  jq -Rse --arg pair "$pair" --arg service "$service" --arg status "$status" --arg version "$version" '
     split("\n") | map(select(length > 0))
-    | map(select(test("^ ?Container wprism-" + $pair + "-cli1-run-[a-f0-9]+ (Creating|Created) *$") | not))
-    | length == 1 and (.[0] | fromjson == {name:"seo-by-rank-math",status:"inactive",version:"1.0.276"})
+    | map(select(test("^ ?Container wprism-" + $pair + "-" + $service + "-run-[a-f0-9]+ (Creating|Created) *$") | not))
+    | length == 1 and (.[0] | fromjson == {name:"seo-by-rank-math",status:$status,version:$version})
   ' <<<"$out" >/dev/null 2>&1 \
-    || fail 'Rank Math below-range plugin is not one checked inactive 1.0.276 release'
+    || fail "$label is not one checked plugin release at the bound site"
+}
+
+rank_math_install_active_release() { # <label> <wp1|wp2> <pair> <artifact> <from-version> <to-version>
+  [ "$#" -eq 6 ] || fail 'Rank Math transition install requires all six explicit bindings'
+  local label="$1" wp_command="$2" pair="$3" artifact="$4" previous="$5" version="$6" out
+  [ -n "$artifact" ] && [ "$previous" != "$version" ] && [[ "$version" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] \
+    || fail 'Rank Math transition install has no distinct well-formed artifact transition'
+  rank_math_assert_release "$label preimage" "$wp_command" "$pair" active "$previous"
+  # 9005 completed the matrix but --force --activate emitted four already-
+  # active warnings. The native installer overwrites bytes; these checked
+  # active pre/post witnesses prove no extra activation command is needed.
+  out=$("$wp_command" plugin install "$artifact" --force 2>&1) || fail "$label native install failed"
+  assert_no_php_runtime_diagnostics "$label native install" "$out"
+  if grep -Eq '(^|[[:space:]])(Warning|Error|Notice|Deprecated|Fatal error):' <<<"$out"; then
+    fail "$label native install emitted a diagnostic"
+  fi
+  [ "$(grep -Fxc 'Success: Installed 1 of 1 plugins.' <<<"$out")" -eq 1 ] \
+    || fail "$label native install did not return exactly one successful install receipt"
+  rank_math_assert_release "$label postimage" "$wp_command" "$pair" active "$version"
 }
 
 # DeployCommand prints two successful phase receipts, then its failed
@@ -463,9 +484,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     require_observed_nonempty 'Rank Math pre-upgrade target transition baseline' "$UPGRADE_TARGET_TRANSITION_BEFORE"
     UPGRADE_ARTIFACT_1=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli1)
     UPGRADE_ARTIFACT_2=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli2)
-    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
-    [ "$(wp1 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
-      || fail 'Rank Math source upgrade did not install exact 1.0.277.2'
+    rank_math_install_active_release 'Rank Math source upgrade' wp1 "$PAIR" "$UPGRADE_ARTIFACT_1" 1.0.277 1.0.277.2
     UPGRADE_SOURCE_BASELINE_BEFORE=$(wp1 eval "echo \\WPrism\\Ledger::kv_get('code_versions');" | tail -1)
     UPGRADE_SOURCE_STATE_BEFORE=$(rank_math_native_state_hash wp1)
     UPGRADE_SOURCE_REFUSE_RC=0
@@ -512,9 +531,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     "${GIT1[@]}" push -q origin main
 
     git -C "siterepo/${PAIR}2" pull -q origin main
-    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
-    [ "$(wp2 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
-      || fail 'Rank Math target upgrade did not install exact 1.0.277.2'
+    rank_math_install_active_release 'Rank Math target upgrade' wp2 "$PAIR" "$UPGRADE_ARTIFACT_2" 1.0.277 1.0.277.2
     UPGRADE_TARGET_BASELINE_BEFORE=$(wp2 eval "echo \\WPrism\\Ledger::kv_get('code_versions');" | tail -1)
     UPGRADE_TARGET_STATE_BEFORE=$(rank_math_native_state_hash wp2)
     UPGRADE_TARGET_REFUSE_RC=0
@@ -575,11 +592,8 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     require_observed_nonempty 'Rank Math pre-downgrade target transition baseline' "$DOWNGRADE_TARGET_TRANSITION_BEFORE"
     DOWNGRADE_ARTIFACT_1=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli1)
     DOWNGRADE_ARTIFACT_2=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli2)
-    wp1 plugin install "$DOWNGRADE_ARTIFACT_1" --force --activate >/dev/null
-    wp2 plugin install "$DOWNGRADE_ARTIFACT_2" --force --activate >/dev/null
-    [ "$(wp1 plugin get seo-by-rank-math --field=version)" = 1.0.277.1 ] \
-      && [ "$(wp2 plugin get seo-by-rank-math --field=version)" = 1.0.277.1 ] \
-      || fail 'Rank Math in-range downgrade did not install exact 1.0.277.1 on both environments'
+    rank_math_install_active_release 'Rank Math source downgrade' wp1 "$PAIR" "$DOWNGRADE_ARTIFACT_1" 1.0.277.2 1.0.277.1
+    rank_math_install_active_release 'Rank Math target downgrade' wp2 "$PAIR" "$DOWNGRADE_ARTIFACT_2" 1.0.277.2 1.0.277.1
 
     DOWNGRADE_BEFORE=$(rank_math_native_state_hash wp2)
     require_observed_nonempty 'Rank Math downgrade target baseline' "$DOWNGRADE_BEFORE"
@@ -695,7 +709,7 @@ wp1 plugin deactivate seo-by-rank-math >/dev/null
 wp1 plugin delete seo-by-rank-math >/dev/null
 RANK_MATH_OUT_OF_RANGE=$(fetch_artifact seo-by-rank-math 1.0.276 cli1)
 wp1 plugin install "$RANK_MATH_OUT_OF_RANGE" >/dev/null
-rank_math_assert_inactive_release 'Rank Math below-range preimage' wp1 "$PAIR"
+rank_math_assert_release 'Rank Math below-range preimage' wp1 "$PAIR" inactive 1.0.276
 NEGATIVE_BEFORE=$(rank_math_native_state_hash wp1) \
   || fail 'Rank Math outside-range native baseline could not be observed'
 [[ "$NEGATIVE_BEFORE" =~ ^[a-f0-9]{64}$ ]] || fail 'Rank Math outside-range native baseline is malformed'
@@ -709,7 +723,7 @@ NEGATIVE_PRIVATE_RECEIPT=$(rank_math_private_evidence cli1 verify below-range /s
   || fail 'Rank Math below-range deploy did not retain its exact fresh source private cause'
 [[ "$NEGATIVE_PRIVATE_RECEIPT" == '{"command":"lifecycle-status","format":"wprism-rank-math-private-refusal-check/v1","new_records":1,"root_message_sha256":"b9083ba18936bad11ff693f9bbd03f5f4a394d05557a947ee6af38a959829f7d","verified":true}' ]] \
   || fail 'Rank Math below-range private evidence receipt is malformed'
-rank_math_assert_inactive_release 'Rank Math below-range postimage' wp1 "$PAIR"
+rank_math_assert_release 'Rank Math below-range postimage' wp1 "$PAIR" inactive 1.0.276
 NEGATIVE_AFTER=$(rank_math_native_state_hash wp1) \
   || fail 'Rank Math outside-range native postimage could not be observed'
 [ "$NEGATIVE_AFTER" = "$NEGATIVE_BEFORE" ] \
