@@ -113,6 +113,80 @@ SH;
 $setup .= "\n" . $match[0] . "\n";
 $encode = static fn(mixed $value): string => json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
+// Use the host's real reduction of native warnings, then execute the actual
+// core baseline command/acceptance block. The old Apply-shaped assertion
+// rejects the healthy producer receipt and accepts a native warnings array.
+require_once $root . '/cli/src/Command/CaptureCommand.php';
+$hostReceipt = new ReflectionMethod(WPrism\Orchestrator\CaptureCommand::class, 'receipt');
+$summary = ['counts' => ['post' => 6, 'options' => 1], 'media' => 1,
+    'notes' => [], 'warnings' => [], 'revision_hash' => str_repeat('a', 64)];
+$branch = 'fixture/private-baseline-canary';
+$baseline = $hostReceipt->invoke(null, 'target', $branch, $summary);
+$warningBaseline = $hostReceipt->invoke(null, 'target', $branch,
+    array_replace($summary, ['warnings' => ['env_missing: private-baseline-canary']]));
+$baselineSource = file_get_contents($metadataSourceRoot . '/sandbox/tests/live/regress_core_ssh_deletion.sh');
+$baselineStart = strpos($baselineSource, '  core_ssh_capture result baseline-capture json');
+$baselineEnd = $baselineStart === false ? false
+    : strpos($baselineSource, '  core_ssh_capture ignored baseline-commit human', $baselineStart);
+if ($baselineStart === false || $baselineEnd === false) {
+    throw new LogicException('the real core host baseline command/acceptance is unavailable');
+}
+$baselineBlock = substr($baselineSource, $baselineStart, $baselineEnd - $baselineStart);
+$baselineProbe = $setup . <<<'SH'
+TMP="$DIAG_DIR" WPRISM=fixture_host_capture TARGET_REPOSITORY_BRANCH="$5"
+fixture_stdout="$2" fixture_stderr="$3" fixture_exit="$4"
+fixture_host_capture() {
+  [ "$#" -eq 5 ] && [ "$1" = "--envs-file=$TMP/envs.json" ] \
+    && [ "$2" = capture ] && [ "$3" = target ] \
+    && [ "$4" = "--target-branch=$TARGET_REPOSITORY_BRANCH" ] && [ "$5" = --format=json ] \
+    || return 81
+  printf '%s' "$fixture_stdout"
+  printf '%s' "$fixture_stderr" >&2
+  return "$fixture_exit"
+}
+trap 'test "$(cat "$DIAG_DIR/core-delete-baseline-capture.exit")" = "$fixture_exit" && printf "BASELINE_EXIT_RETAINED\n"; rm -rf -- "$DIAG_DIR"' EXIT
+SH;
+foreach ([
+    'real host receipt' => [$encode($baseline), '', 0, true],
+    'real host warning count' => [$encode($warningBaseline), '', 0, false],
+    'native Apply envelope' => [$encode(['warnings' => []]), '', 0, false],
+    'different environment' => [$encode(array_replace($baseline, ['environment' => 'source'])), '', 0, false],
+    'different branch' => [$encode(array_replace($baseline, ['branch' => 'unbound/private-baseline-canary'])), '', 0, false],
+    'missing warning count' => [$encode(array_replace($baseline,
+        ['capture' => array_diff_key($baseline['capture'], ['warnings_count' => true])])), '', 0, false],
+    'empty success' => ['', '', 0, false],
+    'multiple receipts' => [$encode($baseline) . "\n" . $encode($baseline), '', 0, false],
+    'malformed output' => ['private-baseline-canary', '', 0, false],
+    'stdout diagnostic' => ['PHP Warning: private-baseline-canary in Unknown on line 0' . "\n" . $encode($baseline), '', 0, false],
+    'stderr diagnostic' => [$encode($baseline), 'PHP Warning: private-baseline-canary in Unknown on line 0', 0, false],
+    'nonzero host status' => [$encode($baseline), '', 7, false],
+] as $label => [$stdout, $stderr, $exit, $ok]) {
+    [$code, $out, $err] = ShellProbe::run($baselineProbe . "\n" . $baselineBlock
+        . "\nprintf 'BASELINE_READY\\n'\n", [$root, $stdout, $stderr, (string) $exit, $branch], $root);
+    wprism_check($ok ? $code === 0 && str_contains($out, 'BASELINE_READY') && $err === ''
+        : $code !== 0 && !str_contains($out, 'BASELINE_READY'), "$label gates the actual core baseline before commit");
+    wprism_check(str_contains($out, 'BASELINE_EXIT_RETAINED'), "$label retains the exact host command exit before cleanup");
+    wprism_check(!str_contains($out . $err, 'private-baseline-canary'), "$label retains private capture bytes without public leakage");
+}
+foreach ([
+    'explicit target binding' => ['target', $branch, $encode($baseline), true],
+    'explicit other environment' => ['staging', $branch, $encode($hostReceipt->invoke(null, 'staging', $branch, $summary)), true],
+    'empty environment binding' => ['', $branch, $encode(array_replace($baseline, ['environment' => ''])), false],
+    'empty branch binding' => ['target', '', $encode(array_replace($baseline, ['branch' => ''])), false],
+    'direct multiple receipts' => ['target', $branch, $encode($baseline) . "\n" . $encode($baseline), false],
+] as $label => [$environment, $expectedBranch, $receipt, $ok]) {
+    [$code, $out, $err] = ShellProbe::run($setup . <<<'SH'
+assert_wprism_host_capture_ready 'host baseline' "$2" "$3" "$4"
+printf 'BOUND_READY\n'
+SH, [$root, $environment, $expectedBranch, $receipt], $root);
+    wprism_check($ok ? $code === 0 && $out === "BOUND_READY\n" && $err === '' : $code !== 0 && $out === '',
+        "$label uses explicit host receipt context without ambient defaults");
+    wprism_check(!str_contains($out . $err, 'private-baseline-canary'), "$label rejects privately");
+}
+[$code, $out, $err] = ShellProbe::run($setup . "\nassert_wprism_host_capture_ready 'host baseline' target\n", [$root], $root);
+wprism_check($code !== 0 && $out === '' && str_contains($err, 'requires an explicit label'),
+    'missing host receipt arguments fail by the shared contract, not an unbound variable');
+
 // Execute the live owner's real whole-stream capture/acceptance. An expected
 // refusal must not be substituted for successful Apply; normal host receipts
 // and complete JSON still remain a healthy control.

@@ -108,8 +108,8 @@
             "origin": "copied",
             "source": "sandbox/conformance/asserts.sh",
             "role": "premise assertions every seed/postdeploy hook calls before its engine assertion",
-            "bytes": 21316,
-            "sha256": "74b94523c7f997e3a940d900ea9161ddb0a47a20e2034a6f7a160eb4e959a9a5"
+            "bytes": 23436,
+            "sha256": "2d2c33632df1f23b594e7750fdf8b852f2d587aae512e5b465548bc0599de4c1"
         },
         {
             "path": "skeleton/example-adapter.php",

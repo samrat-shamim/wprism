@@ -337,30 +337,8 @@ PHP
     'combined SSH code/state baseline capture' \
     "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" \
     --format=json
-  # CaptureCommand::receipt reduces native warnings to warnings_count; clean
-  # host streams alone therefore cannot prove this authored baseline is green.
-  # Keep rejected receipt values and jq diagnostics in its private capture.
-  jq -e --arg branch "$TARGET_REPOSITORY_BRANCH" '
-    def nonnegative_integer: type == "number" and . >= 0 and . == floor;
-    type == "object"
-    and keys == ["branch","capture","environment","format","next_action","receipt_sha256"]
-    and .format == "wprism-capture-result/v1"
-    and .environment == "target"
-    and .branch == $branch
-    and .next_action == "review_and_commit"
-    and (.receipt_sha256 | type == "string" and test("^sha256:[a-f0-9]{64}$"))
-    and (.capture | type == "object"
-      and keys == ["counts","media_count","notes_count","state_revision","warnings_count"])
-    and (.capture.counts | type == "object" and length > 0 and length <= 128
-      and all(to_entries[];
-        (.key | test("^[a-z][a-z0-9_.-]{0,63}$")) and (.value | nonnegative_integer)))
-    and (.capture.media_count | nonnegative_integer)
-    and (.capture.notes_count | nonnegative_integer and . <= 10000)
-    and (.capture.state_revision | type == "string" and test("^[a-f0-9]{64}$"))
-    and .capture.warnings_count == 0
-  ' <<<"$baseline_capture_json" >/dev/null \
-    2>>"$DIAG_DIR/rank-math-commerce-multilingual-baseline-capture/stderr" \
-    || fail 'the combined code/state baseline did not return a warning-free bound capture receipt; inspect its private capture'
+  assert_wprism_host_capture_ready 'the combined code/state baseline' target \
+    "$TARGET_REPOSITORY_BRANCH" "$baseline_capture_json"
   printf '%s\n' "$baseline_capture_json" >"$TMP/rm-combo-baseline-capture.json"
   ssh_fixture '
     set -eu

@@ -203,7 +203,7 @@ wprism_ssh_adopt_extension() {
   core_ssh_capture context seed json core_ssh_native seed
   core_ssh_capture result baseline-capture json "$WPRISM" --envs-file="$TMP/envs.json" \
     capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json
-  assert_wprism_required_environment 'core baseline capture' json "$result"
+  assert_wprism_host_capture_ready 'core baseline capture' target "$TARGET_REPOSITORY_BRANCH" "$result"
   core_ssh_capture ignored baseline-commit human ssh_fixture \
     'set -eu; git -C /home/wprism/site add -A; git -C /home/wprism/site commit -m "Core signed deletion baseline" >/dev/null; test -z "$(git -C /home/wprism/site status --porcelain)"'
   core_ssh_capture ignored release-inventory human wprism_ssh_stage_generation_releases 3

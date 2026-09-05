@@ -346,6 +346,41 @@ assert_wprism_json_required_environment() { # <what> <JSON capture>
   assert_wprism_required_environment "$1" json "$2"
 }
 
+# CaptureCommand::receipt publishes native warnings as a count, not Apply's
+# root warnings array. Reusing Apply's environment assertion rejected a clean
+# signed-core baseline at 40ea0cae; the four-plugin SSH owner already checked
+# the correct host contract. Both owners now share its exact shape/context and
+# zero-warning gate. Complete private streams and exit status remain the
+# caller's responsibility; this is not cryptographic receipt verification.
+assert_wprism_host_capture_ready() { # <what> <environment> <branch> <complete JSON capture>
+  [ "$#" -eq 4 ] \
+    || fail 'assert_wprism_host_capture_ready requires an explicit label, environment, branch and capture'
+  local what="$1" environment="$2" branch="$3" out="$4"
+  [ -n "$environment" ] && [ -n "$branch" ] \
+    || fail 'assert_wprism_host_capture_ready requires nonempty environment and branch bindings'
+  jq -e -s --arg environment "$environment" --arg branch "$branch" '
+    def nonnegative_integer: type == "number" and . >= 0 and . == floor;
+    length == 1 and (.[0] |
+      type == "object"
+      and keys == ["branch","capture","environment","format","next_action","receipt_sha256"]
+      and .format == "wprism-capture-result/v1"
+      and .environment == $environment
+      and .branch == $branch
+      and .next_action == "review_and_commit"
+      and (.receipt_sha256 | type == "string" and test("^sha256:[a-f0-9]{64}$"))
+      and (.capture | type == "object"
+        and keys == ["counts","media_count","notes_count","state_revision","warnings_count"])
+      and (.capture.counts | type == "object" and length > 0 and length <= 128
+        and all(to_entries[];
+          (.key | test("^[a-z][a-z0-9_.-]{0,63}$")) and (.value | nonnegative_integer)))
+      and (.capture.media_count | nonnegative_integer)
+      and (.capture.notes_count | nonnegative_integer and . <= 10000)
+      and (.capture.state_revision | type == "string" and test("^[a-f0-9]{64}$"))
+      and .capture.warnings_count == 0)
+  ' <<<"$out" >/dev/null 2>&1 \
+    || fail "$what did not return a warning-free bound capture receipt; inspect its private capture"
+}
+
 assert_wprism_apply_ready() { # <what> <JSON apply capture>
   local last
   assert_no_php_runtime_diagnostics "$1" "$2"
