@@ -1095,103 +1095,54 @@ SELECT
 }
 
 woocommerce_deletion_owner_agreements() {
-  wp1 eval '
-$themes = array_values(array_unique([get_stylesheet(), get_template()]));
-sort($themes, SORT_STRING);
-$contentRoot = realpath(WP_CONTENT_DIR);
-if (!is_string($contentRoot) || $contentRoot === "") {
-    throw new RuntimeException("WPRA-019 theme identity cannot resolve WP_CONTENT_DIR");
-}
-$owners = [];
-foreach ($themes as $theme) {
-    if (!is_string($theme) || preg_match("/^[A-Za-z0-9._-]{1,128}$/D", $theme) !== 1) {
-        throw new RuntimeException("WPRA-019 theme owner is malformed");
-    }
-    $canonicalRoot = "themes/" . $theme;
-    $root = WP_CONTENT_DIR . "/" . $canonicalRoot;
-    $resolved = realpath($root);
-    if (!is_string($resolved) || $resolved !== $contentRoot . "/" . $canonicalRoot || is_link($root)) {
-        throw new RuntimeException("WPRA-019 theme owner escapes its canonical root");
-    }
-    $files = [];
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
-    foreach ($iterator as $entry) {
-        if (!$entry instanceof SplFileInfo) {
-            throw new RuntimeException("WPRA-019 theme entry is uninspectable");
-        }
-        $path = $entry->getPathname();
-        $stat = lstat($path);
-        $kind = is_array($stat) ? (((int) $stat["mode"]) & 0170000) : 0;
-        if ($kind === 0040000) { continue; }
-        if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-            throw new RuntimeException("WPRA-019 theme tree contains a nonregular entry");
-        }
-        $relative = str_replace("\\", "/", substr($path, strlen($root) + 1));
-        $files[] = ["path" => $relative, "sha256" => hash_file("sha256", $path)];
-    }
-    usort($files, static fn(array $left, array $right): int => strcmp($left["path"], $right["path"]));
-    $payload = [
-        "files" => $files,
-        "format" => "wprism-executable-tree/v1",
-        "root" => $canonicalRoot,
-    ];
-    $owners[] = [
-        "owner" => "theme:" . $theme,
-        "code_identity" => [
-            "format" => "wprism-executable-tree/v1",
-            "root" => $canonicalRoot,
-            "sha256" => hash("sha256", \WPrism\Canon::encode($payload)),
-        ],
-        "rationale" => "Exact active theme code reviewed: it persists no Woo product or variation reverse-reference identity.",
-    ];
-}
-$plugin = "woocommerce/woocommerce.php";
-$canonicalRoot = "plugins/woocommerce";
-$root = WP_PLUGIN_DIR . "/woocommerce";
-$resolved = realpath($root);
-if (!is_string($resolved) || $resolved !== $contentRoot . "/" . $canonicalRoot
-    || is_link($root) || !is_file(WP_PLUGIN_DIR . "/" . $plugin)) {
-    throw new RuntimeException("WPRA-019 WooCommerce owner escapes its canonical plugin root");
-}
-$files = [];
-$iterator = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-    RecursiveIteratorIterator::SELF_FIRST
-);
-foreach ($iterator as $entry) {
-    if (!$entry instanceof SplFileInfo) {
-        throw new RuntimeException("WPRA-019 WooCommerce entry is uninspectable");
-    }
-    $path = $entry->getPathname();
-    $stat = lstat($path);
-    $kind = is_array($stat) ? (((int) $stat["mode"]) & 0170000) : 0;
-    if ($kind === 0040000) { continue; }
-    if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-        throw new RuntimeException("WPRA-019 WooCommerce tree contains a nonregular entry");
-    }
-    $relative = str_replace("\\", "/", substr($path, strlen($root) + 1));
-    $files[] = ["path" => $relative, "sha256" => hash_file("sha256", $path)];
-}
-usort($files, static fn(array $left, array $right): int => strcmp($left["path"], $right["path"]));
-$payload = [
-    "files" => $files,
-    "format" => "wprism-executable-tree/v1",
-    "root" => $canonicalRoot,
-];
-$owners[] = [
-    "owner" => "plugin:" . $plugin,
-    "code_identity" => [
-        "format" => "wprism-executable-tree/v1",
-        "root" => $canonicalRoot,
-        "sha256" => hash("sha256", \WPrism\Canon::encode($payload)),
-    ],
-    "rationale" => "Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.",
-];
-echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-'
+  local active_themes observation owner_row stylesheet template theme
+  local executable_owners='[]'
+  stylesheet="$(wp1 option get stylesheet)" \
+    || fail "WooCommerce $WOO_VERSION could not observe its active stylesheet"
+  template="$(wp1 option get template)" \
+    || fail "WooCommerce $WOO_VERSION could not observe its active template"
+  active_themes="$(printf '%s\n' "$stylesheet" "$template" | LC_ALL=C sort -u)" \
+    || fail "WooCommerce $WOO_VERSION could not order its active theme roster"
+  [ -n "$active_themes" ] \
+    || fail "WooCommerce $WOO_VERSION observed an empty active theme roster"
+  while IFS= read -r theme; do
+    [[ "$theme" =~ ^[A-Za-z0-9._-]{1,128}$ ]] && [ "$theme" != '.' ] && [ "$theme" != '..' ] \
+      || fail "WooCommerce $WOO_VERSION observed a malformed active theme owner"
+    observation="$(wp1 wprism executable-owner-observe "--owner=theme:$theme")" \
+      || fail "WooCommerce $WOO_VERSION could not observe exact theme:$theme code"
+    owner_row="$(jq -ce --arg owner "theme:$theme" --arg root "themes/$theme" \
+      --arg rationale 'Exact active theme code reviewed: it persists no Woo product or variation reverse-reference identity.' '
+        if keys == ["code_identity", "owner"]
+          and .owner == $owner
+          and .code_identity.format == "wprism-executable-tree/v1"
+          and .code_identity.root == $root
+          and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+        then . + {rationale: $rationale}
+        else error("noncanonical executable owner observation")
+        end
+      ' <<<"$observation")" \
+      || fail "WooCommerce $WOO_VERSION received malformed theme:$theme code identity"
+    executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+      || fail "WooCommerce $WOO_VERSION could not assemble theme:$theme agreement"
+  done <<<"$active_themes"
+
+  observation="$(wp1 wprism executable-owner-observe '--owner=plugin:woocommerce/woocommerce.php')" \
+    || fail "WooCommerce $WOO_VERSION could not observe exact WooCommerce code"
+  owner_row="$(jq -ce --arg rationale \
+    'Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.' '
+      if keys == ["code_identity", "owner"]
+        and .owner == "plugin:woocommerce/woocommerce.php"
+        and .code_identity.format == "wprism-executable-tree/v1"
+        and .code_identity.root == "plugins/woocommerce"
+        and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+      then . + {rationale: $rationale}
+      else error("noncanonical executable owner observation")
+      end
+    ' <<<"$observation")" \
+    || fail "WooCommerce $WOO_VERSION received malformed WooCommerce code identity"
+  executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+    || fail "WooCommerce $WOO_VERSION could not assemble its WooCommerce agreement"
+  printf '%s\n' "$executable_owners"
 }
 
 VMATRIX_PLUGIN_SLUG=woocommerce

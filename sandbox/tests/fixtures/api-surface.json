@@ -1,5 +1,5 @@
 {
-    "class_count": 473,
+    "class_count": 477,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -7696,6 +7696,103 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\BoundedChildProcess": {
+            "abstract": false,
+            "constants": {
+                "MAX_TIMEOUT_SECONDS": {
+                    "value_repr": 900
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_process_profile": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture_until": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "commandLine",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "phpBinary",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "input",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "deadlineNanoseconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stdoutLimit",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stderrLimit",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "cwd",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "launcher",
+                            "type": "?Closure",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\CacheInvalidationTransaction": {
             "abstract": false,
             "constants": [],
@@ -11036,6 +11133,31 @@
                     "visibility": "public"
                 },
                 "env_set": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "executable_owner_observe": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -16538,6 +16660,40 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assert_session_intact": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_transport_intact": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "begin": {
                     "abstract": false,
                     "final": false,
@@ -16552,6 +16708,23 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "bind_session_state": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -20493,6 +20666,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "observe_owner": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "transaction_read_tables": {
                     "abstract": false,
                     "final": false,
@@ -20508,6 +20698,55 @@
                     ],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\ExecutableTreeIdentity": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-executable-tree/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "observe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contentRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "absoluteRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonicalRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -20585,6 +20824,77 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\FilesystemTreeSnapshot": {
+            "abstract": false,
+            "constants": {
+                "MAX_TREE_BYTES": {
+                    "value_repr": 1073741824
+                },
+                "MAX_TREE_DEPTH": {
+                    "value_repr": 128
+                },
+                "MAX_TREE_ENTRIES": {
+                    "value_repr": 100000
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "observe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contentRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "absoluteRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonicalRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "containmentLabel",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -23879,16 +24189,26 @@
                 },
                 "ROWS": {
                     "value_repr": {
+                        "adapter-packages/acf/package/runtime/interpreters/acf.php": {
+                            "findings": [
+                                "raw-database-transport"
+                            ],
+                            "migration": "manifest provider plus ProviderSdk checked reads",
+                            "sha256": "bb59d5ce09030a0cbcbaaabfe3630bd2cd1f56823e9a4bd9817ee5849496ef85"
+                        },
                         "adapter-packages/elementor/package/runtime/providers/elementor-css.php": {
                             "findings": [
+                                "direct-include",
+                                "raw-database-transport",
                                 "wp-cli-child-process"
                             ],
-                            "migration": "manifest-provider-fresh-process/v1",
+                            "migration": "manifest-provider-fresh-process/v1 plus ProviderSdk checked reads",
                             "sha256": "ede9dc943b95bbd03c1313d7cf251654d0abdf57c6bd3b422f730a6640dcd788"
                         },
                         "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php": {
                             "findings": [
-                                "raw-database-mutation",
+                                "direct-include",
+                                "raw-database-transport",
                                 "wp-cli-child-process"
                             ],
                             "migration": "manifest-provider-fresh-process/v1 plus capability-scoped typed DML",
@@ -23896,14 +24216,22 @@
                         },
                         "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php": {
                             "findings": [
+                                "direct-include",
                                 "wp-cli-child-process"
                             ],
                             "migration": "manifest-provider-fresh-process/v1",
                             "sha256": "af578dfc9a6b39b67af664c2980f00bd305cb7c127cc325c56e671dc693ad6dc"
                         },
+                        "adapter-packages/redirection/package/runtime/providers/redirection-state.php": {
+                            "findings": [
+                                "raw-database-transport"
+                            ],
+                            "migration": "ProviderSdk checked reads under a manifest-declared database profile",
+                            "sha256": "02b3e6bd93267bb3f3e20ece8bbf181cca0ba918f58b17397b15548fc01765ed"
+                        },
                         "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php": {
                             "findings": [
-                                "raw-database-mutation",
+                                "raw-database-transport",
                                 "transaction-control"
                             ],
                             "migration": "entity-scoped manifest provider plus ProviderDatabaseSession",
@@ -23911,14 +24239,17 @@
                         },
                         "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php": {
                             "findings": [
+                                "direct-include",
                                 "direct-self-include",
+                                "raw-database-transport",
                                 "wp-cli-child-process"
                             ],
-                            "migration": "engine-owned digest-bound executable probe process",
+                            "migration": "engine-owned digest-bound executable probe process plus ProviderSdk checked reads",
                             "sha256": "1d6688c0b3d8b1e3ca6654372d7b0b40dfac13a0f8dcd87933d29bc80219b1dc"
                         },
                         "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php": {
                             "findings": [
+                                "direct-include",
                                 "direct-self-include",
                                 "wp-cli-child-process"
                             ],
@@ -23927,14 +24258,16 @@
                         },
                         "adapter-packages/woocommerce/package/runtime/providers/woocommerce-lifecycle-migrations.php": {
                             "findings": [
+                                "direct-include",
+                                "raw-database-transport",
                                 "wp-cli-child-process"
                             ],
-                            "migration": "manifest-provider-fresh-process/v1",
+                            "migration": "manifest-provider-fresh-process/v1 plus ProviderSdk checked reads",
                             "sha256": "d27316478d5a7d2ed58efb5a1006c8f899d27ae97f95136f39f59252cb5eb5a1"
                         },
                         "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php": {
                             "findings": [
-                                "raw-database-mutation",
+                                "raw-database-transport",
                                 "transaction-control"
                             ],
                             "migration": "capability-scoped ProviderDatabaseSession and typed DML",
@@ -23942,7 +24275,7 @@
                         },
                         "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php": {
                             "findings": [
-                                "raw-database-mutation",
+                                "raw-database-transport",
                                 "transaction-control"
                             ],
                             "migration": "ProviderDatabaseSession plus an engine-owned named mutex",
@@ -23950,9 +24283,11 @@
                         },
                         "adapter-packages/yoast/package/runtime/providers/yoast-index.php": {
                             "findings": [
+                                "direct-include",
+                                "raw-database-transport",
                                 "wp-cli-child-process"
                             ],
-                            "migration": "manifest-provider-fresh-process/v1",
+                            "migration": "manifest-provider-fresh-process/v1 plus ProviderSdk checked reads",
                             "sha256": "f69d754f39ab8b14a6d38e159e1f46bea7ed11da8acfb27dedc3110b88fb9417"
                         }
                     }
@@ -50820,6 +51155,43 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\PhpLiteralData": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedSha256",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\PinResolver": {
             "abstract": false,
             "constants": [],
@@ -58103,6 +58475,64 @@
                     "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
+                },
+                "filesystem_tree_snapshot": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "containmentRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "absoluteRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonicalRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "php_literal_data": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedSha256",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -58263,7 +58693,7 @@
                     "value_repr": 2
                 },
                 "QUERIES_PER_SURFACE_PER_PASS": {
-                    "value_repr": 1
+                    "value_repr": 4
                 }
             },
             "final": true,

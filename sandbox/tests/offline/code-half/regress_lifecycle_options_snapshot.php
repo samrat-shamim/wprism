@@ -128,6 +128,16 @@ final class LifecycleOptionsFakeWpdb {
     public mixed $afterOptionMutation = null;
     private bool $strictTransport = false;
     private bool $suppressErrors = false;
+    /** @var array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    private array $databaseSessionState = [
+        'database' => 'wordpress',
+        'sql_mode' => '',
+        'character_set_client' => 'utf8mb4',
+        'character_set_connection' => 'utf8mb4',
+        'character_set_results' => 'utf8mb4',
+        'collation_connection' => 'utf8mb4_unicode_ci',
+        'character_set_client_max_bytes' => 4,
+    ];
     private ?int $warningCode = null;
     /** @var array<string,true> */
     private array $savepoints = [];
@@ -165,6 +175,10 @@ final class LifecycleOptionsFakeWpdb {
             return preg_replace('/%d/', (string) ($args[0] ?? 0), (string) $query, 1);
         }
         return ['sql' => (string) $query, 'args' => $args];
+    }
+
+    public function esc_like(string $text): string {
+        return addcslashes($text, '_%\\');
     }
 
     public function query($sql) {
@@ -364,6 +378,16 @@ final class LifecycleOptionsFakeWpdb {
     }
 
     public function wprism_test_strict_transport(): bool { return $this->strictTransport; }
+
+    /** @return array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    public function wprism_test_database_session_state(): array {
+        return $this->databaseSessionState;
+    }
+
+    /** @param array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} $state */
+    public function wprism_test_restore_database_session_state(array $state): void {
+        $this->databaseSessionState = $state;
+    }
 
     public function suppress_errors(?bool $suppress = null): bool {
         $previous = $this->suppressErrors;
@@ -743,6 +767,13 @@ final class LifecycleOptionsFakeWpdb {
         if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode') {
             return '';
         }
+        if ($sql === 'SELECT @@SESSION.character_set_client AS character_set_client') {
+            return 'utf8mb4';
+        }
+        if ($sql === 'SELECT MAXLEN FROM information_schema.CHARACTER_SETS '
+            . 'WHERE CHARACTER_SET_NAME = @@SESSION.character_set_client') {
+            return '4';
+        }
         if ($sql === 'SELECT CURRENT_USER()') {
             return 'wordpress@localhost';
         }
@@ -791,6 +822,7 @@ final class LifecycleOptionsFakeWpdb {
                 && preg_match("/SHOW TABLES LIKE '((?:\\\\.|''|[^'])*)'/", $sql, $match) === 1) {
                 $table = stripslashes(str_replace("''", "'", $match[1]));
             }
+            $table = strtr($table, ['\\_' => '_', '\\%' => '%', '\\\\' => '\\']);
             return isset($this->existingTables[$table])
                 ? $table
                 : null;

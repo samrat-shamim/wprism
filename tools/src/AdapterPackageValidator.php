@@ -105,6 +105,7 @@ final class AdapterPackageValidator
         'exec',
         'passthru',
         'pcntl_exec',
+        'pcntl_fork',
         'popen',
         'proc_open',
         'shell_exec',
@@ -112,7 +113,17 @@ final class AdapterPackageValidator
     ];
 
     /** @var list<string> */
-    private const RAW_WPDB_MUTATION_METHODS = ['delete', 'insert', 'query', 'replace', 'update'];
+    private const WPDB_NON_TRANSPORT_METHODS = [
+        'esc_like',
+        'get_blog_prefix',
+        'prepare',
+    ];
+
+    /** @var list<string> */
+    private const RAW_DATABASE_CLASSES = ['mysqli', 'mysqli_stmt', 'pdo', 'wpdb'];
+
+    /** @var list<string> */
+    private const WP_CLI_PROCESS_METHODS = ['launch', 'launch_self', 'run_command', 'runcommand'];
 
     /** @return array{format:string,symbols:list<string>} */
     public static function runtimeSdk(): array
@@ -817,9 +828,10 @@ final class AdapterPackageValidator
     private static function legacyRuntimeDebtRows(string $slug): array
     {
         $allowed = [
+            'direct-include',
             'direct-process',
             'direct-self-include',
-            'raw-database-mutation',
+            'raw-database-transport',
             'transaction-control',
             'wp-cli-child-process',
         ];
@@ -879,44 +891,118 @@ final class AdapterPackageValidator
     {
         $tokens = token_get_all($source);
         $findings = [];
+        $lastLine = 1;
+        $namespace = '';
+        $namespaceStatement = null;
+        $namespaceDepth = 0;
+        $depth = 0;
+        $imports = ['class' => [], 'function' => []];
         foreach ($tokens as $offset => $token) {
             if (!is_array($token)) {
+                if ($token === '{') {
+                    $depth++;
+                } elseif ($token === '}') {
+                    $depth--;
+                    if ($depth < $namespaceDepth) {
+                        $namespace = '';
+                        $namespaceDepth = 0;
+                        $imports = ['class' => [], 'function' => []];
+                    }
+                }
+                if ($namespaceStatement !== null && in_array($token, [';', '{'], true)) {
+                    $namespace = strtolower($namespaceStatement);
+                    $namespaceStatement = null;
+                    $namespaceDepth = $depth;
+                    $imports = ['class' => [], 'function' => []];
+                }
+                if ($token === '`') {
+                    $findings['direct-process'] ??= $lastLine;
+                }
                 continue;
             }
             [$kind, $bytes, $line] = $token;
+            $lastLine = $line;
+            if (in_array($kind, [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true)) {
+                $depth++;
+            }
+            if ($kind === T_NAMESPACE) {
+                $namespaceStatement = '';
+                continue;
+            }
+            if ($namespaceStatement !== null) {
+                if (in_array($kind, [T_STRING, T_NAME_QUALIFIED], true)) {
+                    $namespaceStatement .= $bytes;
+                }
+                continue;
+            }
+
+            // Trait composition and closure captures are not namespace imports.
+            if ($kind === T_USE && $depth === $namespaceDepth) {
+                $statement = self::runtimeImportStatementAt($tokens, $offset);
+                if ($statement !== null) {
+                    foreach (self::runtimeImports($statement) as $import) {
+                        $symbol = strtolower(ltrim($import['symbol'], '\\'));
+                        $imports[$import['kind']][strtolower($import['alias'])] = $symbol;
+                        if ($import['kind'] === 'class'
+                            && in_array($symbol, self::RAW_DATABASE_CLASSES, true)) {
+                            $findings['raw-database-transport'] ??= $line;
+                        }
+                        if ($import['kind'] === 'class' && $symbol === 'wp_cli') {
+                            $findings['direct-process'] ??= $line;
+                        }
+                        if ($import['kind'] === 'function'
+                            && in_array($symbol, self::RUNTIME_PROCESS_FUNCTIONS, true)) {
+                            $findings['direct-process'] ??= $line;
+                        }
+                        if ($import['kind'] === 'function' && str_starts_with($symbol, 'mysqli_')) {
+                            $findings['raw-database-transport'] ??= $line;
+                        }
+                    }
+                }
+            }
 
             if (in_array($kind, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
                 $name = strtolower(ltrim($bytes, '\\'));
-                $leaf = strrchr($name, '\\');
-                $leaf = $leaf === false ? $name : substr($leaf, 1);
-                if (in_array($leaf, self::RUNTIME_PROCESS_FUNCTIONS, true)
+                // Bare functions can fall back to PHP globals; classes cannot.
+                // Compare complete symbols so Vendor\PDO is not native PDO.
+                $function = $kind === T_STRING ? ($imports['function'][$name] ?? $name) : $name;
+                $class = $kind === T_NAME_FULLY_QUALIFIED
+                    ? $name
+                    : ($imports['class'][$name] ?? ($namespace === '' ? $name : $namespace . '\\' . $name));
+                if (in_array($function, self::RUNTIME_PROCESS_FUNCTIONS, true)
                     && self::isDirectFunctionCall($tokens, $offset)) {
                     $findings['direct-process'] ??= $line;
                 }
-                if (strcasecmp($leaf, 'WpCliChildProcess') === 0) {
+                if (str_starts_with($function, 'mysqli_') && self::isDirectFunctionCall($tokens, $offset)) {
+                    $findings['raw-database-transport'] ??= $line;
+                }
+                if (in_array($class, self::RAW_DATABASE_CLASSES, true)
+                    && self::isRawDatabaseClassUse($tokens, $offset)) {
+                    $findings['raw-database-transport'] ??= $line;
+                }
+                if ($class === 'wp_cli' && self::isWpCliProcessUse($tokens, $offset)) {
+                    $findings['direct-process'] ??= $line;
+                }
+                if ($class === 'wprism\\wpclichildprocess') {
                     $findings['wp-cli-child-process'] ??= $line;
                 }
             }
 
-            if ($kind === T_VARIABLE && $bytes === '$wpdb') {
-                $operator = self::nextSignificantToken($tokens, $offset + 1);
-                $method = $operator === null
-                    ? null
-                    : self::nextSignificantToken($tokens, $operator['offset'] + 1);
-                if ($operator !== null
-                    && is_array($operator['token'])
-                    && $operator['token'][0] === T_OBJECT_OPERATOR
-                    && $method !== null
-                    && is_array($method['token'])
-                    && $method['token'][0] === T_STRING
-                    && in_array(strtolower($method['token'][1]), self::RAW_WPDB_MUTATION_METHODS, true)) {
-                    $findings['raw-database-mutation'] ??= $line;
+            if ($kind === T_VARIABLE) {
+                $access = self::wpdbMemberAccessAt($tokens, $offset);
+                if ($access !== null
+                    && ($access['member'] === 'dbh'
+                        || ($access['call']
+                            && !in_array($access['member'], self::WPDB_NON_TRANSPORT_METHODS, true)))) {
+                    $findings['raw-database-transport'] ??= $line;
                 }
             }
 
-            if (in_array($kind, [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)
-                && self::includeTargetsCurrentFile($tokens, $offset)) {
-                $findings['direct-self-include'] ??= $line;
+            if (in_array($kind, [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)) {
+                $finding = self::includeTargetsCurrentFile($tokens, $offset)
+                    ? 'direct-self-include'
+                    : 'direct-include';
+                $findings[$finding] ??= $line;
             }
 
             if (!in_array($kind, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
@@ -930,16 +1016,13 @@ final class AdapterPackageValidator
                     $findings['wp-cli-child-process'] ??= $line;
                 }
             }
-            if (preg_match(
-                '/\\$wpdb\s*->\s*(?:delete|insert|query|replace|update)\s*\(/i',
-                $fragment
-            ) === 1
+            if (self::fragmentHasRawWpdbTransport($fragment)
                 || preg_match(
                     '/(?:\A|[\'\"])\s*(?:DELETE\s+FROM|INSERT(?:\s+IGNORE)?\s+INTO|REPLACE\s+INTO|'
                         . 'TRUNCATE(?:\s+TABLE)?|UPDATE\s+[`A-Za-z_$])/i',
                     $fragment
                 ) === 1) {
-                $findings['raw-database-mutation'] ??= $line;
+                $findings['raw-database-transport'] ??= $line;
             }
             if (self::fragmentHasTransactionControl($fragment)) {
                 $findings['transaction-control'] ??= $line;
@@ -956,15 +1039,25 @@ final class AdapterPackageValidator
 
     private static function fragmentHasTransactionControl(string $fragment): bool
     {
+        $xid = "(?:'(?:[^'\r\n]|'')*'|\"(?:[^\"\r\n]|\"\")*\"|0x[0-9a-f]+)";
         $control = '(?:'
             . 'SET\s+(?:SESSION\s+)?TRANSACTION\b[^\'"\r\n;]*'
+            . '|SET\s+(?:(?:SESSION|LOCAL)\s+|@@(?:SESSION\.|LOCAL\.)?)?AUTOCOMMIT\s*=\s*(?:0|1|ON|OFF)'
             . '|START\s+TRANSACTION\b[^\'"\r\n;]*'
+            . '|BEGIN(?:\s+WORK)?'
+            . '|(?:RELEASE\s+)?SAVEPOINT\s+[`A-Za-z0-9_$]+'
+            . '|ROLLBACK(?:\s+WORK)?\s+TO(?:\s+SAVEPOINT)?\s+[`A-Za-z0-9_$]+'
+            . '|LOCK\s+TABLES\b[^\'"\r\n;]*|UNLOCK\s+TABLES'
+            . '|XA\s+(?:START|BEGIN|END|PREPARE|COMMIT|ROLLBACK)\s+' . $xid
+                . '(?:\s*,\s*' . $xid . '(?:\s*,\s*\d+)?)?'
+                . '(?:\s+(?:JOIN|RESUME|SUSPEND(?:\s+FOR\s+MIGRATE)?|ONE\s+PHASE))?'
+            . '|XA\s+RECOVER(?:\s+CONVERT\s+XID)?'
             . '|COMMIT(?:\s+WORK)?(?:\s+AND\s+(?:NO\s+)?CHAIN)?(?:\s+(?:NO\s+)?RELEASE)?'
             . '|ROLLBACK(?:\s+WORK)?(?:\s+AND\s+(?:NO\s+)?CHAIN)?(?:\s+(?:NO\s+)?RELEASE)?'
             . '|SELECT\s+(?:GET_LOCK|RELEASE_LOCK)\s*\([^\'"\r\n;]*\)'
             . ')';
-        return preg_match('/\A\s*' . $control . '\s*\z/i', $fragment) === 1
-            || preg_match('/[\'\"]\s*' . $control . '\s*[\'\"]/i', $fragment) === 1;
+        return preg_match('/\A\s*' . $control . '\s*;?\s*\z/i', $fragment) === 1
+            || preg_match('/[\'\"]\s*' . $control . '\s*;?\s*[\'\"]/i', $fragment) === 1;
     }
 
     /** @param list<array{0:int,1:string,2:int}|string> $tokens */
@@ -981,6 +1074,270 @@ final class AdapterPackageValidator
         $token = $tokens[$previous];
         return !is_array($token)
             || !in_array($token[0], [T_DOUBLE_COLON, T_FUNCTION, T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isRawDatabaseClassUse(array $tokens, int $offset): bool
+    {
+        $previous = self::previousSignificantOffset($tokens, $offset - 1);
+        if ($previous !== null
+            && is_array($tokens[$previous])
+            && in_array($tokens[$previous][0], [T_EXTENDS, T_NEW], true)) {
+            return true;
+        }
+        $cursor = self::afterGroupingParentheses($tokens, $offset + 1, self::groupingParenthesesBefore($tokens, $offset));
+        $operator = self::nextSignificantToken($tokens, $cursor);
+        $member = $operator === null ? null : self::nextSignificantToken($tokens, $operator['offset'] + 1);
+        $open = $member === null ? null : self::nextSignificantToken($tokens, $member['offset'] + 1);
+        return $operator !== null && is_array($operator['token'])
+            && $operator['token'][0] === T_DOUBLE_COLON
+            && $member !== null && is_array($member['token'])
+            && $member['token'][0] === T_STRING
+            && $open !== null && $open['token'] === '(';
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isWpCliProcessUse(array $tokens, int $offset): bool
+    {
+        $wrappers = self::groupingParenthesesBefore($tokens, $offset);
+        $cursor = self::afterGroupingParentheses($tokens, $offset + 1, $wrappers);
+        $operator = self::nextSignificantToken($tokens, $cursor);
+        $method = $operator === null
+            ? null
+            : self::nextSignificantToken($tokens, $operator['offset'] + 1);
+        $open = $method === null
+            ? null
+            : self::nextSignificantToken($tokens, $method['offset'] + 1);
+        if ($operator === null
+            || !is_array($operator['token'])
+            || $operator['token'][0] !== T_DOUBLE_COLON
+            || $method === null
+            || !is_array($method['token'])
+            || $method['token'][0] !== T_STRING
+            || $open === null
+            || $open['token'] !== '(') {
+            return false;
+        }
+        if (in_array(strtolower($method['token'][1]), self::WP_CLI_PROCESS_METHODS, true)) {
+            return true;
+        }
+        if (strtolower($method['token'][1]) !== 'get_runner') {
+            return false;
+        }
+        $close = self::matchingPhpDelimiter($tokens, $open['offset'], '(', ')');
+        if ($close === null) {
+            return false;
+        }
+        $runnerOperator = self::nextSignificantToken(
+            $tokens,
+            self::afterGroupingParentheses($tokens, $close + 1, $wrappers)
+        );
+        $runnerMethod = $runnerOperator === null
+            ? null
+            : self::nextSignificantToken($tokens, $runnerOperator['offset'] + 1);
+        $runnerOpen = $runnerMethod === null
+            ? null
+            : self::nextSignificantToken($tokens, $runnerMethod['offset'] + 1);
+        return $runnerOperator !== null
+            && is_array($runnerOperator['token'])
+            && in_array($runnerOperator['token'][0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)
+            && $runnerMethod !== null
+            && is_array($runnerMethod['token'])
+            && $runnerMethod['token'][0] === T_STRING
+            && in_array(strtolower($runnerMethod['token'][1]), self::WP_CLI_PROCESS_METHODS, true)
+            && $runnerOpen !== null
+            && $runnerOpen['token'] === '(';
+    }
+
+    /**
+     * @param list<array{0:int,1:string,2:int}|string> $tokens
+     * @return array{member:string,call:bool}|null
+     */
+    private static function wpdbMemberAccessAt(array $tokens, int $offset): ?array
+    {
+        $token = $tokens[$offset] ?? null;
+        if (!is_array($token) || $token[0] !== T_VARIABLE) {
+            return null;
+        }
+        $wrappers = self::groupingParenthesesBefore($tokens, $offset);
+        $cursor = $offset + 1;
+        if ($token[1] === '$GLOBALS') {
+            $open = self::nextSignificantToken($tokens, $cursor);
+            $key = $open === null ? null : self::nextSignificantToken($tokens, $open['offset'] + 1);
+            $close = $key === null ? null : self::nextSignificantToken($tokens, $key['offset'] + 1);
+            if ($open === null || $open['token'] !== '['
+                || $key === null || !is_array($key['token'])
+                || $key['token'][0] !== T_CONSTANT_ENCAPSED_STRING
+                || self::decodePhpStringLiteral($key['token'][1]) !== 'wpdb'
+                || $close === null || $close['token'] !== ']') {
+                return null;
+            }
+            $cursor = $close['offset'] + 1;
+        } elseif ($token[1] !== '$wpdb') {
+            return null;
+        }
+
+        for ($depth = 0; $depth < $wrappers; $depth++) {
+            $close = self::nextSignificantToken($tokens, $cursor);
+            if ($close === null || $close['token'] !== ')') {
+                return null;
+            }
+            $cursor = $close['offset'] + 1;
+        }
+
+        $operator = self::nextSignificantToken($tokens, $cursor);
+        $member = $operator === null
+            ? null
+            : self::nextSignificantToken($tokens, $operator['offset'] + 1);
+        if ($operator === null || !is_array($operator['token'])
+            || !in_array($operator['token'][0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)
+            || $member === null || !is_array($member['token'])
+            || $member['token'][0] !== T_STRING) {
+            return null;
+        }
+        $next = self::nextSignificantToken($tokens, $member['offset'] + 1);
+        return [
+            'member' => strtolower($member['token'][1]),
+            'call' => $next !== null && $next['token'] === '(',
+        ];
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function groupingParenthesesBefore(array $tokens, int $offset): int
+    {
+        $count = 0;
+        $cursor = self::previousSignificantOffset($tokens, $offset - 1);
+        while ($cursor !== null && $tokens[$cursor] === '(') {
+            $before = self::previousSignificantOffset($tokens, $cursor - 1);
+            if ($before !== null) {
+                $token = $tokens[$before];
+                if ((is_array($token) && in_array($token[0], [
+                    T_ARRAY,
+                    T_CATCH,
+                    T_EMPTY,
+                    T_EVAL,
+                    T_FOR,
+                    T_FOREACH,
+                    T_IF,
+                    T_ISSET,
+                    T_NAME_FULLY_QUALIFIED,
+                    T_NAME_QUALIFIED,
+                    T_STRING,
+                    T_SWITCH,
+                    T_VARIABLE,
+                    T_WHILE,
+                ], true)) || in_array($token, [')', ']'], true)) {
+                    break;
+                }
+            }
+            $count++;
+            $cursor = $before;
+        }
+        return $count;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function afterGroupingParentheses(array $tokens, int $cursor, int $limit): int
+    {
+        for ($depth = 0; $depth < $limit; $depth++) {
+            $next = self::nextSignificantToken($tokens, $cursor);
+            if ($next === null || $next['token'] !== ')') {
+                break;
+            }
+            $cursor = $next['offset'] + 1;
+        }
+        return $cursor;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function runtimeImportStatementAt(array $tokens, int $offset): ?string
+    {
+        $statement = '';
+        for ($cursor = $offset + 1, $count = count($tokens); $cursor < $count; $cursor++) {
+            $token = $tokens[$cursor];
+            if ($token === '(') {
+                return null;
+            }
+            if ($token === ';') {
+                return trim($statement);
+            }
+            if (is_array($token)) {
+                $statement .= in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)
+                    ? ' '
+                    : $token[1];
+            } else {
+                $statement .= $token;
+            }
+        }
+        return null;
+    }
+
+    /** @return list<array{kind:'class'|'function',symbol:string,alias:string}> */
+    private static function runtimeImports(string $statement): array
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($statement));
+        if (!is_string($normalized) || $normalized === '') {
+            return [];
+        }
+        $kind = 'class';
+        if (preg_match('/^(function|const)\s+(.+)$/Di', $normalized, $match) === 1) {
+            if (strtolower($match[1]) === 'const') {
+                return [];
+            }
+            $kind = 'function';
+            $normalized = $match[2];
+        }
+
+        $imports = [];
+        foreach (self::splitRuntimeImports($normalized) as $part) {
+            $import = $kind === 'function'
+                ? self::exactFunctionImport('function ' . $part)
+                : self::exactClassImport($part);
+            if ($import !== null) {
+                $imports[] = ['kind' => $kind, ...$import];
+            }
+        }
+        return $imports;
+    }
+
+    /** @return list<string> */
+    private static function splitRuntimeImports(string $statement): array
+    {
+        $parts = [];
+        $start = 0;
+        $depth = 0;
+        for ($offset = 0, $length = strlen($statement); $offset < $length; $offset++) {
+            if ($statement[$offset] === '{') {
+                $depth++;
+            } elseif ($statement[$offset] === '}') {
+                $depth--;
+            } elseif ($statement[$offset] === ',' && $depth === 0) {
+                $parts[] = trim(substr($statement, $start, $offset - $start));
+                $start = $offset + 1;
+            }
+        }
+        $parts[] = trim(substr($statement, $start));
+        return array_values(array_filter($parts, static fn(string $part): bool => $part !== ''));
+    }
+
+    private static function fragmentHasRawWpdbTransport(string $fragment): bool
+    {
+        // Encoded child source shares the same receiver parser as live PHP;
+        // a regex-only twin missed parenthesized and nullsafe receivers.
+        $tokens = token_get_all('<?php ' . $fragment);
+        foreach ($tokens as $offset => $token) {
+            if (!is_array($token) || $token[0] !== T_VARIABLE) {
+                continue;
+            }
+            $access = self::wpdbMemberAccessAt($tokens, $offset);
+            if ($access !== null
+                && ($access['member'] === 'dbh'
+                    || ($access['call']
+                        && !in_array($access['member'], self::WPDB_NON_TRANSPORT_METHODS, true)))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param list<array{0:int,1:string,2:int}|string> $tokens */
@@ -1239,6 +1596,36 @@ final class AdapterPackageValidator
         if (preg_match(
             '/^([A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*)'
                 . '(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/D',
+            $normalized,
+            $match
+        ) !== 1) {
+            return null;
+        }
+        $alias = $match[2] ?? '';
+        if ($alias === '') {
+            $separator = strrpos($match[1], '\\');
+            $alias = $separator === false ? $match[1] : substr($match[1], $separator + 1);
+        }
+        return [
+            'alias' => $alias,
+            'symbol' => $match[1],
+        ];
+    }
+
+    /** @return array{alias:string,symbol:string}|null */
+    private static function exactFunctionImport(string $statement): ?array
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($statement));
+        if (!is_string($normalized)) {
+            return null;
+        }
+        if (preg_match('/^function\s+(.+)$/Di', $normalized, $function) !== 1) {
+            return null;
+        }
+        $normalized = 'function ' . ltrim($function[1], '\\');
+        if (preg_match(
+            '/^function\s+([A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*)'
+                . '(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/Di',
             $normalized,
             $match
         ) !== 1) {

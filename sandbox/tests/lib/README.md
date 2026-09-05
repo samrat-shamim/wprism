@@ -15,6 +15,7 @@ not standalone suites.
 | `frozen_policy.php` | `\WPrismTest\FrozenPolicy` — the `wprism-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
 | `ConformanceVector.php` | `\WPrismTest\ConformanceVector` — the `wprism-conformance-vector/v1` grammar and its offline replay driver |
 | `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
+| `pair_live_ownership.sh` | the direct-live evidence state machine: exact-worktree mounts, engine/root-bound pair leases, partial-up teardown, exact site/scratch removal, checked release, and the sole post-cleanup PASS |
 
 `FrozenPolicy` exists because the frozen wire stopped taking a snapshot's word
 for provenance. A suite that only wants a `Policy` object used to hand
@@ -319,6 +320,15 @@ model (the join forms above, real collations, storage engines) — and that
 assertion probably belongs in the live certification instead.
 
 ## Migrating the existing suites
+
+Existing semantic doubles that still model unsupported joins/collations can
+use `CheckedReadTransportDouble` while preserving their row model. It
+delegates strict-mode and session-state authority to `FakeWpdb`; every
+overridden SQL entrypoint must first pass its SQL through
+`$this->checkedReadQuery()`. The shared dispatcher invokes the installed
+engine `all`/`query` gates directly, even if the capsule has no global
+`apply_filters()` or uses a bespoke hook fake. It does not bypass the product
+boundary or certify the row model. New suites still start with `FakeWpdb`.
 
 **Only when the suite is already being edited for another reason.** These files
 are the offline corpus that IS the merge gate; a mass rewrite would churn

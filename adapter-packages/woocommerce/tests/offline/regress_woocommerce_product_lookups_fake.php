@@ -249,6 +249,7 @@ namespace Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories {
 }
 
 namespace {
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/CheckedReadTransportDouble.php';
     if (!defined('WPRISM_SPEC_VERSION')) {
         define('WPRISM_SPEC_VERSION', 2);
     }
@@ -263,6 +264,7 @@ namespace {
     }
 
     final class FakeWpdb {
+        use \WPrismTest\CheckedReadTransportDouble;
         /**
          * wc_product_meta_lookup's real column types, verbatim from
          * WooCommerce 11.0.x (class-wc-install.php:1977): every column but
@@ -372,6 +374,7 @@ namespace {
         }
 
         public function query(string $query): int|false {
+            $query = $this->checkedReadQuery($query);
             global $fakeMeta, $fakeMetaLookup, $fakeAttrLookup;
             $command = strtoupper(trim($query));
             if ($command === 'START TRANSACTION') {
@@ -443,6 +446,7 @@ namespace {
         }
 
         public function get_row(string $query, $output = null): ?array {
+            $query = $this->checkedReadQuery($query);
             global $fakeMetaLookup;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
@@ -461,6 +465,7 @@ namespace {
          * validates each candidate with the public Woo product object.
          */
         public function get_col(string $query): array {
+            $query = $this->checkedReadQuery($query);
             global $fakeGroupedChildren, $fakeProducts;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
@@ -527,6 +532,7 @@ namespace {
         }
 
         public function get_results(string $query, $output = null): array {
+            $query = $this->checkedReadQuery($query);
             global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows,
                 $fakeProducts, $fakePostTypeOverrides, $fakeVisibilityRelationships, $fakeVisibilityTerms,
                 $fakeVisibilityQueries, $fakeVisibilityChildFlood, $fakeGroupedChildren;
@@ -898,6 +904,7 @@ namespace {
         }
 
         public function get_var(string $query): mixed {
+            $query = $this->checkedReadQuery($query);
             global $fakeMetaLookup, $fakeAttrLookup, $fakeProducts;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';

@@ -6,6 +6,7 @@ if (!defined('ARRAY_A')) {
 }
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/CheckedReadTransportDouble.php';
 require $root . '/agent/src/Adapter/ManifestProviderRuntime.php';
 require $root . '/agent/src/Adapter/ProviderSdk.php';
 require_once $root . '/agent/src/Adapter/Providers.php';
@@ -22,6 +23,7 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 };
 
 final class WooDeletionCleanupWpdb {
+    use \WPrismTest\CheckedReadTransportDouble;
     public string $prefix = 'wp_';
     public string $last_error = '';
     public bool $inTransaction = false;
@@ -47,6 +49,7 @@ final class WooDeletionCleanupWpdb {
     }
 
     public function get_var(string $sql): mixed {
+        $sql = $this->checkedReadQuery($sql);
         if ($sql === 'SELECT @@in_transaction') {
             return $this->inTransaction ? '1' : '0';
         }
@@ -56,6 +59,7 @@ final class WooDeletionCleanupWpdb {
 
     /** @return list<array<string,mixed>> */
     public function get_results(string $sql, mixed $format): array|false {
+        $sql = $this->checkedReadQuery($sql);
         if (str_contains($sql, 'FROM `wp_wc_product_meta_lookup`')) {
             $ids = $this->numericIn($sql);
             $rows = [];
@@ -112,6 +116,7 @@ final class WooDeletionCleanupWpdb {
     }
 
     public function query(string $sql): int|false {
+        $sql = $this->checkedReadQuery($sql);
         if ($sql === 'START TRANSACTION') {
             if ($this->inTransaction) {
                 $this->last_error = 'nested transaction';

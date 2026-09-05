@@ -1021,6 +1021,14 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 $woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
+$woocommerceOwnerObserverHarness = '';
+if (preg_match(
+    '/woocommerce_deletion_owner_agreements\(\) \{(?<body>.*?)\n\}\n\nVMATRIX_PLUGIN_SLUG/s',
+    $woocommerceMatrixHarness,
+    $woocommerceOwnerObserverMatch
+) === 1) {
+    $woocommerceOwnerObserverHarness = $woocommerceOwnerObserverMatch['body'];
+}
 $matrixHarness .= "\n" . $woocommerceMatrixHarness;
 $woocommerceScopedDeletionHarnessPath = dirname(__DIR__) . '/live/regress_woocommerce_scoped_deletion.sh';
 $woocommerceScopedDeletionHarness = (string) file_get_contents($woocommerceScopedDeletionHarnessPath);
@@ -1723,7 +1731,7 @@ woo_plugin_identity
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle"
 woo_identity
-PLUGIN_TREE=$(woo_plugin_tree_hash)
+PLUGIN_TREE=$(woo_observed_plugin_sha)
 require_observed_nonempty 'WooCommerce 11.0.1 plugin tree fingerprint' "$PLUGIN_TREE"
 pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enabled'
 
@@ -2555,9 +2563,9 @@ foreach ([
         "candidate-bound WooCommerce scoped-deletion live proof pins $scopedDeletionWitness");
 }
 woo_ok(
-    substr_count($woocommerceScopedDeletionHarness, 'wp eval-file /home/wprism/recovery-fixture/') === 2
+    substr_count($woocommerceScopedDeletionHarness, 'wp eval-file /home/wprism/recovery-fixture/') === 1
         && !str_contains($woocommerceScopedDeletionHarness, 'declare(strict_types=1);'),
-    'WP-CLI eval-file deletion fixtures omit the declaration that its eval wrapper cannot execute'
+    'the remaining WP-CLI eval-file deletion fixture omits the declaration that its eval wrapper cannot execute'
 );
 $failurePromotion = strpos(
     $woocommerceScopedDeletionHarness,
@@ -2594,11 +2602,13 @@ woo_ok(
             '{"selector": "post:product", "owners": $deletion_owner_agreements}')
         && str_contains($woocommerceMatrixHarness,
             '{"selector": "post:product_variation", "owners": $deletion_owner_agreements}')
-        && str_contains($woocommerceMatrixHarness, '"format" => "wprism-executable-tree/v1"')
-        && str_contains($woocommerceMatrixHarness, '"owner" => "plugin:" . $plugin')
-        && str_contains($woocommerceMatrixHarness, '"root" => $canonicalRoot')
+        && substr_count($woocommerceOwnerObserverHarness, 'wprism executable-owner-observe') === 2
+        && str_contains($woocommerceOwnerObserverHarness, '.owner == "plugin:woocommerce/woocommerce.php"')
+        && str_contains($woocommerceOwnerObserverHarness, '.code_identity.root == "plugins/woocommerce"')
+        && !str_contains($woocommerceOwnerObserverHarness, 'RecursiveIteratorIterator')
+        && !str_contains($woocommerceOwnerObserverHarness, 'hash_file("sha256"')
         && !str_contains($woocommerceMatrixHarness, '"theme:twentytwentyfive"'),
-    'matrix writes duplicate-resistant v2 exact observed plugin and theme tree identities instead of a permissive filename agreement'
+    'matrix writes duplicate-resistant v2 identities from the bounded product observer instead of hashing executable trees itself'
 );
 woo_ok(str_contains($woocommerceMatrixHarness, 'version_matrix_preflight()')
     && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA')

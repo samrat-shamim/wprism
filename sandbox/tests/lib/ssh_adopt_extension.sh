@@ -94,27 +94,56 @@ wprism_ssh_stage_code_inventory() { # <active-plugin-directory>...
 
   ssh_fixture "
     set -eu
-    test ! -e /home/wprism/site/code
-    test ! -L /home/wprism/site/code
-    mkdir -p /home/wprism/site/code/wp-content/plugins /home/wprism/site/code/wp-content/themes
+    plugin_source_root=\$(cd -P /var/www/html/wp-content/plugins && pwd -P)
+    theme_source_root=\$(cd -P /var/www/html/wp-content/themes && pwd -P)
+    test \"\$plugin_source_root\" = /var/www/html/wp-content/plugins
+    test \"\$theme_source_root\" = /var/www/html/wp-content/themes
     for plugin in $joined; do
-      test -d \"/var/www/html/wp-content/plugins/\$plugin\"
-      test ! -L \"/var/www/html/wp-content/plugins/\$plugin\"
-      cp -a \"/var/www/html/wp-content/plugins/\$plugin\" /home/wprism/site/code/wp-content/plugins/
+      plugin_source=\$(cd -P \"\$plugin_source_root/\$plugin\" && pwd -P)
+      test \"\$plugin_source\" = \"\$plugin_source_root/\$plugin\"
+      test ! -L \"\$plugin_source\"
     done
     stylesheet=\$(cd /var/www/html && wp option get stylesheet)
     template=\$(cd /var/www/html && wp option get template)
+    expected_theme_count=1
+    test \"\$stylesheet\" = \"\$template\" || expected_theme_count=2
     for theme in \"\$stylesheet\" \"\$template\"; do
       case \"\$theme\" in
-        ''|*[!A-Za-z0-9._-]*) exit 41 ;;
+        ''|.|..|*[!A-Za-z0-9._-]*) exit 41 ;;
       esac
-      test -d \"/var/www/html/wp-content/themes/\$theme\"
-      test ! -L \"/var/www/html/wp-content/themes/\$theme\"
-      if [ ! -e \"/home/wprism/site/code/wp-content/themes/\$theme\" ]; then
-        cp -a \"/var/www/html/wp-content/themes/\$theme\" /home/wprism/site/code/wp-content/themes/
-      fi
+      theme_source=\$(cd -P \"\$theme_source_root/\$theme\" && pwd -P)
+      test \"\$theme_source\" = \"\$theme_source_root/\$theme\"
+      test ! -L \"\$theme_source\"
     done
-    test \"\$(find /home/wprism/site/code/wp-content/plugins -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')\" -eq $#
+    test ! -e /home/wprism/site/code
+    test ! -L /home/wprism/site/code
+    mkdir -p /home/wprism/site/code/wp-content/plugins /home/wprism/site/code/wp-content/themes
+    plugin_destination_root=\$(cd -P /home/wprism/site/code/wp-content/plugins && pwd -P)
+    theme_destination_root=\$(cd -P /home/wprism/site/code/wp-content/themes && pwd -P)
+    test \"\$plugin_destination_root\" = /home/wprism/site/code/wp-content/plugins
+    test \"\$theme_destination_root\" = /home/wprism/site/code/wp-content/themes
+    for plugin in $joined; do
+      plugin_source=\$(cd -P \"\$plugin_source_root/\$plugin\" && pwd -P)
+      test \"\$plugin_source\" = \"\$plugin_source_root/\$plugin\"
+      test ! -L \"\$plugin_source\"
+      cp -a \"\$plugin_source\" \"\$plugin_destination_root/\"
+      plugin_destination=\$(cd -P \"\$plugin_destination_root/\$plugin\" && pwd -P)
+      test \"\$plugin_destination\" = \"\$plugin_destination_root/\$plugin\"
+      test ! -L \"\$plugin_destination\"
+    done
+    for theme in \"\$stylesheet\" \"\$template\"; do
+      theme_source=\$(cd -P \"\$theme_source_root/\$theme\" && pwd -P)
+      test \"\$theme_source\" = \"\$theme_source_root/\$theme\"
+      test ! -L \"\$theme_source\"
+      if [ ! -e \"\$theme_destination_root/\$theme\" ] && [ ! -L \"\$theme_destination_root/\$theme\" ]; then
+        cp -a \"\$theme_source\" \"\$theme_destination_root/\"
+      fi
+      theme_destination=\$(cd -P \"\$theme_destination_root/\$theme\" && pwd -P)
+      test \"\$theme_destination\" = \"\$theme_destination_root/\$theme\"
+      test ! -L \"\$theme_destination\"
+    done
+    test \"\$(find \"\$plugin_destination_root\" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')\" -eq $#
+    test \"\$(find \"\$theme_destination_root\" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')\" -eq \"\$expected_theme_count\"
   " || fail 'SSH code inventory could not stage the exact active plugin/theme roots'
 }
 
@@ -145,12 +174,19 @@ wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
     test ! -L /home/wprism/code-releases
     test ! -e /home/wprism/code-current
     test ! -L /home/wprism/code-current
-    mkdir -p /home/wprism/code-releases/release-prior
-    mkdir -p /home/wprism/code-releases/release-desired-$next_generation
+    mkdir /home/wprism/code-releases
+    mkdir /home/wprism/code-releases/release-prior
+    mkdir /home/wprism/code-releases/release-desired-$next_generation
     cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-prior/wp-content
     cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$next_generation/wp-content
-    printf '%s\\n' release-prior > /home/wprism/code-current
-    chmod 600 /home/wprism/code-current
+    current_pending=/home/wprism/code-releases/.code-current.pending
+    printf '%s\\n' release-prior > \"\$current_pending\"
+    chmod 600 \"\$current_pending\"
+    if ! ln \"\$current_pending\" /home/wprism/code-current; then
+      rm -f \"\$current_pending\"
+      exit 42
+    fi
+    rm -f \"\$current_pending\"
     test \"\$(cat /home/wprism/code-current)\" = release-prior
     test \"\$(stat -c '%a' /home/wprism/code-current)\" = 600
   " || fail 'SSH release staging could not publish prior/desired immutable generations'
@@ -158,7 +194,8 @@ wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
     ssh_fixture "
       set -eu
       test ! -e /home/wprism/code-releases/release-desired-$retry_generation
-      mkdir -p /home/wprism/code-releases/release-desired-$retry_generation
+      test ! -L /home/wprism/code-releases/release-desired-$retry_generation
+      mkdir /home/wprism/code-releases/release-desired-$retry_generation
       cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$retry_generation/wp-content
       test -d /home/wprism/code-releases/release-desired-$retry_generation/wp-content
     " || fail 'SSH release staging could not publish the retry immutable generation'
@@ -167,7 +204,7 @@ wprism_ssh_stage_generation_releases() { # <desired-count: 1|2>
 
 wprism_ssh_publish_post_tombstone() { # <post-type> <ascii-post-slug>
   [ "$#" -eq 2 ] || fail 'SSH tombstone publication requires a post type and captured slug'
-  local post_type="$1" post_slug="$2" fixture uuid
+  local post_type="$1" post_slug="$2" fixture uuid publish_status=0 cleanup_status=0
   [[ "$post_type" =~ ^[a-z0-9][a-z0-9_-]{0,19}$ ]] \
     || fail "SSH tombstone post type '$post_type' is malformed"
   [[ "$post_slug" =~ ^[a-z0-9][a-z0-9-]{0,199}$ ]] \
@@ -276,14 +313,20 @@ if (!chmod($pending, 0644)) {
     @unlink($pending);
     throw new RuntimeException('SSH tombstone pending file mode could not be fixed');
 }
-if (!rename($pending, $final)) {
+if (!@link($pending, $final)) {
     @unlink($pending);
-    throw new RuntimeException('SSH tombstone could not be published atomically');
+    throw new RuntimeException('SSH tombstone could not be published without replacement');
 }
-// Publish first: interruption before this move leaves a loud live/deletion
-// conflict rather than a silent authoring-side disappearance.
-if (!rename($match['path'], $present)) {
-    throw new RuntimeException('SSH tombstone source could not be retired after publication');
+if (!@unlink($pending)) {
+    throw new RuntimeException('SSH tombstone pending file could not be removed after publication');
+}
+// Publish first: interruption before source retirement leaves a loud
+// live/deletion conflict rather than a silent authoring-side disappearance.
+if (!@link($match['path'], $present)) {
+    throw new RuntimeException('SSH tombstone source could not be retired without replacement');
+}
+if (!@unlink($match['path'])) {
+    throw new RuntimeException('SSH tombstone source could not be removed after retirement');
 }
 echo $uuid;
 PHP
@@ -291,10 +334,22 @@ PHP
   scp -F "$TMP/ssh_config" "$fixture" \
     wprism-adopt-fixture:/home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php >/dev/null \
     || fail 'SSH tombstone fixture upload failed'
-  uuid="$(ssh_fixture "cd /var/www/html && WPRISM_TOMBSTONE_POST_TYPE='$post_type' WPRISM_TOMBSTONE_POST_SLUG='$post_slug' wp eval-file /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php")" \
-    || fail "engine tombstone publication failed for post:$post_type/$post_slug"
-  ssh_fixture 'rm -f /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php' \
-    || fail 'SSH tombstone fixture cleanup failed'
+  if uuid="$(ssh_fixture "cd /var/www/html && WPRISM_TOMBSTONE_POST_TYPE='$post_type' WPRISM_TOMBSTONE_POST_SLUG='$post_slug' wp eval-file /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php")"; then
+    publish_status=0
+  else
+    publish_status=$?
+  fi
+  if ssh_fixture 'rm -f /home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php'; then
+    cleanup_status=0
+  else
+    cleanup_status=$?
+  fi
+  if [ "$publish_status" -ne 0 ]; then
+    [ "$cleanup_status" -eq 0 ] \
+      || fail "engine tombstone publication and fixture cleanup failed for post:$post_type/$post_slug"
+    fail "engine tombstone publication failed for post:$post_type/$post_slug"
+  fi
+  [ "$cleanup_status" -eq 0 ] || fail 'SSH tombstone fixture cleanup failed'
   [[ "$uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
     || fail "engine tombstone publication returned malformed UUID '$uuid'"
   printf '%s\n' "$uuid"

@@ -482,4 +482,83 @@ wprism_check(
     'WooCommerce is live and populated, remains outside the core deletion, and the signed path reaches a no-action fixed point'
 );
 
+foreach ([
+    'PAIR="${RANK_MATH_COMBO_PAIR:-}"',
+    'PORT1_RAW="${RANK_MATH_COMBO_PORT1:-}"',
+    'PORT2_RAW="${RANK_MATH_COMBO_PORT2:-}"',
+    'EXPECTED_SHA="${RANK_MATH_COMBO_EXPECTED_SOURCE_SHA:-}"',
+    'PORT1 % 2 == 0 && PORT2 == PORT1 + 1',
+    'export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"',
+    "WPRISM_DB_ENGINE='mariadb' WPRISM_DB_HOST='wprism-shared-db'",
+    '. tests/lib/pair_live_ownership.sh',
+    'pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2"',
+    'TMP_ROOT="$PAIR_LIVE_OWNERSHIP_TMP_ROOT"',
+    'WPRISM_HOST_REGISTRY="$TMP_ROOT/host-envs.json"',
+    'private Rank Math combination host registry mode is not 0600',
+    'pair_live_ownership_mode_of "$WPRISM_HOST_REGISTRY"',
+    'pair_live_ownership_acquire mariadb',
+    'pair_live_ownership_up --artifacts --headless',
+    'pair_live_ownership_reset',
+    "pair_live_ownership_complete '✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED'",
+] as $ownershipWitness) {
+    wprism_check(str_contains($live, $ownershipWitness),
+        "the Docker combination owns its disposable boundary: $ownershipWitness");
+}
+wprism_check(
+    !str_contains($live, 'RANK_MATH_COMBO_PAIR:-rmcombo')
+        && !str_contains($live, 'RANK_MATH_COMBO_EXPECTED_SOURCE_SHA:-${WPRISM_EXPECTED_SOURCE_SHA')
+        && !str_contains($live, 'destroy "$PAIR" >/dev/null 2>&1 || true')
+        && !str_contains($live, 'left up for inspection after failure')
+        && !str_contains($live, 'cleanup() {')
+        && !str_contains($live, "stat -f '%Lp' \"\$TMP_ROOT\" 2>/dev/null || stat -c")
+        && substr_count($live, '✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED') === 1,
+    'the Docker combination has no default allocation, suppressed teardown, failure leak, or early PASS route'
+);
+$ownershipPrepare = strpos($live, 'pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2"');
+$leaseAcquire = strpos($live, 'pair_live_ownership_acquire mariadb');
+$firstUp = strpos($live, 'pair_live_ownership_up --artifacts --headless', $leaseAcquire === false ? 0 : $leaseAcquire);
+$firstLeg = strpos($live, 'run_leg forward reverse');
+$ownedReset = strpos($live, 'pair_live_ownership_reset');
+$secondUp = $ownedReset === false ? false : strpos($live, 'pair_live_ownership_up --artifacts --headless', $ownedReset);
+$secondLeg = strpos($live, 'run_leg reverse forward');
+$complete = strpos($live, "pair_live_ownership_complete '✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED'");
+wprism_check(
+    $ownershipPrepare !== false
+        && $leaseAcquire !== false
+        && $firstUp !== false
+        && $firstLeg !== false
+        && $ownedReset !== false
+        && $secondUp !== false
+        && $secondLeg !== false
+        && $complete !== false
+        && $ownershipPrepare < $leaseAcquire
+        && $leaseAcquire < $firstUp
+        && $firstUp < $firstLeg
+        && $firstLeg < $ownedReset
+        && $ownedReset < $secondUp
+        && $secondUp < $secondLeg
+        && $secondLeg < $complete
+        && substr_count($live, 'pair_live_ownership_reset') === 1,
+    'the first order starts only after generic lease publication and the sole reset occurs between its two owned legs'
+);
+$ownershipHelper = (string) file_get_contents($root . '/sandbox/tests/lib/pair_live_ownership.sh');
+wprism_check(
+    str_contains($ownershipHelper, 'pair_live_ownership_remove_pair_roots')
+        && str_contains($ownershipHelper, 'pair_live_ownership_remove_scratch')
+        && str_contains($ownershipHelper, 'lease-batch-release')
+        && str_contains($ownershipHelper, 'PAIR_LIVE_OWNERSHIP_BODY_COMPLETE=1'),
+    'partial-up cleanup and sole PASS are delegated to the behaviorally tested shared ownership state machine'
+);
+$makefile = (string) file_get_contents($root . '/Makefile');
+wprism_check(
+    str_contains($makefile, "regress-rank-math-commerce-multilingual:\n")
+        && str_contains($makefile, '@test -n "$(RANK_MATH_COMBO_PAIR)"')
+        && str_contains($makefile, '@test -n "$(RANK_MATH_COMBO_PORT1)"')
+        && str_contains($makefile, '@test -n "$(RANK_MATH_COMBO_PORT2)"')
+        && str_contains($makefile, '@test -n "$(RANK_MATH_COMBO_EXPECTED_SOURCE_SHA)"')
+        && str_contains($makefile,
+            'RANK_MATH_COMBO_EXPECTED_SOURCE_SHA="$(RANK_MATH_COMBO_EXPECTED_SOURCE_SHA)" bash integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh'),
+    'the Make entrypoint requires and forwards the exact scenario allocation instead of reviving defaults'
+);
+
 wprism_check_summary('regress_rank_math_commerce_multilingual_contract');

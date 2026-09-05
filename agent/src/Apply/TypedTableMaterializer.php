@@ -408,7 +408,10 @@ final class TypedTableMaterializer {
             $table = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['table']);
             $column = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['column'] ?? 'id');
             $prefixed = $wpdb->prefix . $table;
-            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+            if ($wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($prefixed)
+            ))) {
                 Db::mutation(
                     "DELETE FROM `$prefixed`",
                     $wpdb->prepare("`$column` = %d", $localId),

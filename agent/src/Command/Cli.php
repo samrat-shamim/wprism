@@ -30,7 +30,7 @@ require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 use WP_CLI;
 
 /**
- * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|code-baseline-accept|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
+ * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|code-baseline-accept|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|executable-owner-observe|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'wprism-command-refusal/v1';
@@ -3795,6 +3795,51 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         WP_CLI::line(rtrim(Canon::encode($pin)));
+    }
+
+    /**
+     * Observe the bounded executable-tree identity for one exact live owner.
+     *
+     * This emits an inert authoring fact. It neither discovers which owners a
+     * deletion policy needs nor records an agreement, rationale, declaration,
+     * or authorization. Those remain separate reviewed policy inputs.
+     *
+     * ## OPTIONS
+     * --owner=<owner> : Exact plugin:, theme:, mu-plugin:, or dropin: owner.
+     *
+     * @subcommand executable-owner-observe
+     */
+    public function executable_owner_observe($args, $assoc) {
+        // Plugin bootstrap may have buffered provenance before this read-only
+        // command runs. Suspend first even for malformed invocations so an
+        // authoring observation cannot publish unrelated journal state.
+        if (!class_exists(Journal::class, false)) {
+            require_once __DIR__ . '/../Repository/Journal.php';
+        }
+        Journal::suspend_for_observation();
+        $observation = [];
+        try {
+            if ($args !== [] || array_diff(array_keys($assoc), ['owner']) !== []) {
+                throw new \RuntimeException(
+                    'wprism: executable-owner-observe accepts only --owner=<canonical-owner>'
+                );
+            }
+            $owner = $assoc['owner'] ?? null;
+            if (!is_string($owner) || $owner === '') {
+                throw new \RuntimeException(
+                    'wprism: executable-owner-observe requires --owner=<canonical-owner>'
+                );
+            }
+            // Lazy but explicit: partial WP-CLI harnesses that never call this
+            // authoring verb need not load the transaction-bound delete graph.
+            if (!class_exists(ExecutableOwnerBoundary::class, false)) {
+                require_once __DIR__ . '/../Delete/ExecutableOwnerBoundary.php';
+            }
+            $observation = ExecutableOwnerBoundary::observe_owner($owner);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        WP_CLI::line(rtrim(Canon::encode($observation)));
     }
 
     /**

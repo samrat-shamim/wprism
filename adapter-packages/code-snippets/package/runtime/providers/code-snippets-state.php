@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism\Providers;
 
 use WPrism\ManifestProviderRuntime;
+use WPrism\ProviderSdk;
 
 /**
  * Code Snippets 3.9.5/3.9.6 cache and optional flat-file repair.
@@ -117,18 +118,17 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
 
     /** @return list<array{id:int,name:string,description:string,code:string,tags:string,scope:string,priority:int,active:int}> */
     private function database_rows(): array {
-        global $wpdb;
         $table = $this->table_name();
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results(
-            "SELECT id, name, description, code, tags, scope, priority, active FROM `$table` ORDER BY id",
-            ARRAY_A
-        );
-        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException(
+        $rows = ProviderSdk::database_read_snapshot(
+            'Code Snippets table verification',
+            [$table],
+            static fn(): array => ProviderSdk::checked_get_results(
+                "SELECT id, name, description, code, tags, scope, priority, active FROM `$table` ORDER BY id",
+                'Code Snippets table verification',
+                null,
                 "wprism: Code Snippets verification query failed against $table"
-            );
-        }
+            )
+        );
         return array_map(static fn(array $row): array => [
             'id' => (int) $row['id'],
             'name' => (string) $row['name'],
@@ -194,7 +194,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
             );
         }
         clearstatcache(true, $directory);
-        if (file_exists($directory)) {
+        if (file_exists($directory) || is_link($directory)) {
             throw new \RuntimeException(
                 'wprism: Code Snippets stale site-table flat-file projection survived deletion'
             );
@@ -244,25 +244,15 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
                 'wprism: Code Snippets flat-file table projection is not a real directory'
             );
         }
-        $tree = [];
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS)
+        $root = rtrim(\Code_Snippets\Snippet_Files::get_base_dir(), '/');
+        $snapshot = ProviderSdk::filesystem_tree_snapshot(
+            $root,
+            $directory,
+            basename($directory)
         );
-        foreach ($iterator as $file) {
-            if ($file->isLink() || !$file->isFile()) {
-                throw new \RuntimeException(
-                    'wprism: Code Snippets flat-file projection contains a non-regular entry'
-                );
-            }
-            $path = $file->getPathname();
-            $relative = substr($path, strlen($directory) + 1);
-            $hash = hash_file('sha256', $path);
-            if (!is_string($hash)) {
-                throw new \RuntimeException(
-                    'wprism: Code Snippets could not hash a flat-file projection entry'
-                );
-            }
-            $tree[$relative] = $hash;
+        $tree = [];
+        foreach ($snapshot['files'] as $file) {
+            $tree[$file['path']] = $file['sha256'];
         }
         ksort($tree, SORT_STRING);
         return $tree;
@@ -303,7 +293,13 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
                     "wprism: Code Snippets flat-file projection is missing $indexRelative"
                 );
             }
-            $actualRows = require $indexPath;
+            $indexHash = $tree[$indexRelative] ?? null;
+            if (!is_string($indexHash)) {
+                throw new \RuntimeException(
+                    "wprism: Code Snippets flat-file projection is missing $indexRelative"
+                );
+            }
+            $actualRows = ProviderSdk::php_literal_data($indexPath, $indexHash);
             if (!is_array($actualRows)) {
                 throw new \RuntimeException(
                     "wprism: Code Snippets flat-file index $indexRelative did not return rows"
@@ -311,18 +307,36 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
             }
             $normalized = [];
             foreach ($actualRows as $id => $row) {
-                if (!is_array($row)) {
+                if (!is_int($id) || $id < 1) {
+                    throw new \RuntimeException(
+                        "wprism: Code Snippets flat-file index $indexRelative contains a noncanonical row identifier"
+                    );
+                }
+                if (!is_array($row)
+                    || !array_key_exists('id', $row)
+                    || !array_key_exists('code', $row)
+                    || !array_key_exists('scope', $row)
+                    || !array_key_exists('priority', $row)
+                    || !array_key_exists('condition_id', $row)
+                    || !array_key_exists('active', $row)
+                    || !is_int($row['id'])
+                    || !is_string($row['code'])
+                    || !is_string($row['scope'])
+                    || !is_int($row['priority'])
+                    || !is_int($row['condition_id'])
+                    || !is_bool($row['active'])
+                    || $row['id'] !== $id) {
                     throw new \RuntimeException(
                         "wprism: Code Snippets flat-file index $indexRelative contains a malformed row"
                     );
                 }
-                $normalized[(int) $id] = [
-                    'id' => (int) ($row['id'] ?? 0),
-                    'code' => (string) ($row['code'] ?? ''),
-                    'scope' => (string) ($row['scope'] ?? ''),
-                    'priority' => (int) ($row['priority'] ?? 0),
-                    'condition_id' => (int) ($row['condition_id'] ?? 0),
-                    'active' => (int) (bool) ($row['active'] ?? false),
+                $normalized[$id] = [
+                    'id' => $row['id'],
+                    'code' => $row['code'],
+                    'scope' => $row['scope'],
+                    'priority' => $row['priority'],
+                    'condition_id' => $row['condition_id'],
+                    'active' => (int) $row['active'],
                 ];
             }
             ksort($normalized, SORT_NUMERIC);
@@ -331,7 +345,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
                     "wprism: Code Snippets flat-file index $indexRelative disagrees with the plugin API"
                 );
             }
-            $expectedFiles[$indexRelative] = $tree[$indexRelative] ?? '';
+            $expectedFiles[$indexRelative] = $indexHash;
         }
         ksort($expectedFiles, SORT_STRING);
         if ($tree !== $expectedFiles) {

@@ -75,6 +75,9 @@
     "DatabaseTransactionOutcomeException",
     "ExactOptionReader",
     "ExactOptionWriter",
+    "ExecutableTreeIdentity",
+    "FilesystemTreeSnapshot",
+    "PhpLiteralData",
     "WordPressOptionValueCodec",
     "ManifestExecutableLoader",
     "NativeDatabaseProfile",
@@ -140,9 +143,10 @@
             ]
           }
         ],
-  "file_count": 57,
+  "file_count": 61,
         "files": [
           "ActionTriggerMatcher.php",
+          "BoundedChildProcess.php",
           "Canary.php",
           "Canon.php",
           "CheckpointRecoveryIntent.php",
@@ -158,6 +162,8 @@
     "DurableFilesystem.php",
     "ExactOptionReader.php",
     "ExactOptionWriter.php",
+    "ExecutableTreeIdentity.php",
+    "FilesystemTreeSnapshot.php",
     "IdentityTokenCodec.php",
     "JsonRefs.php",
     "LockedOptionRows.php",
@@ -170,6 +176,7 @@
           "OrderPreserved.php",
           "PathSafety.php",
           "PersonalData.php",
+          "PhpLiteralData.php",
           "PlainData.php",
           "PostPasswordBinding.php",
           "PrivateEvidenceException.php",

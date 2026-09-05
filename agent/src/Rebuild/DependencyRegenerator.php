@@ -532,7 +532,7 @@ final class DependencyRegenerator {
         $col = preg_replace('/[^A-Za-z0-9_]/', '', (string) $verify['column']);
         $prefixed = $wpdb->prefix . $table;
         if (!$this->contextStore->checked_get_var(
-            $wpdb->prepare('SHOW TABLES LIKE %s', $prefixed),
+            $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($prefixed)),
             "verify table $table"
         )) {
             return false;

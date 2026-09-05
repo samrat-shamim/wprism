@@ -393,6 +393,20 @@ declaration requires its own source audit of reverse references, hook effects,
 and exact executable identities, and it changes the adapter's fleet-visible
 digest.
 
+Generate each reviewed identity through the target's bounded engine observer,
+not a package-local filesystem walker:
+
+```sh
+wp wprism executable-owner-observe --owner=plugin:woocommerce/woocommerce.php
+wp wprism executable-owner-observe --owner=theme:storefront
+```
+
+The command returns only canonical `{owner, code_identity}` JSON for that one
+caller-selected owner. It cannot enumerate required owners, add a rationale,
+write site policy, satisfy an adapter declaration, or grant deletion authority.
+The author must still derive the complete active roster, review every tree,
+and construct the closed v2 agreement explicitly.
+
 Direct `wp wprism apply --with-deletes` cannot mint the signed external-writer
 exclusion required for destructive work. It is a refusal-only test surface:
 assert `deletion_writer_exclusion_required` and byte-for-byte target
@@ -749,6 +763,19 @@ nests a transaction or reuses a writable/narrower profile. Keep column and
 index expectations in the adapter—the engine owns topology consistency, not a
 third party's schema semantics.
 
+Do not spell an exact presence probe as raw `SHOW TABLES LIKE '$table'` (or
+`SHOW TABLE STATUS LIKE '$table'`): `_` and `%` are LIKE wildcards. Bind
+`$wpdb->esc_like($table)` through `%s`; the profile gate decodes only that
+exact wpdb spelling back to a physical identifier. The closed SHOW grammar
+admits only the reviewed table-presence and table-metadata forms (`CREATE
+TABLE`, `COLUMNS`, `FULL COLUMNS`, `INDEX`, and the primary-key `KEYS` probe).
+A database operand in `SHOW ... FROM database` is never table authority. The
+engine also proves a byte-safe `character_set_client` from the server's
+`CHARACTER_SETS.MAXLEN` metadata (single-byte sets plus the exact UTF-8
+families) and a compatible `sql_mode` before every profile, including a
+zero-table profile, so provider code must not issue `SET` or try to establish
+its own lexer premises.
+
 Provider DML follows the same rule. Wrap one atomic native operation in
 `ProviderSdk::database_write_contract_transaction($context, $write,
 $classifyPhysicalPostimage)`. The engine derives the complete read/write
@@ -778,7 +805,7 @@ parse transport, or issue transaction-control SQL.
 
 `adapter-package-validate` is a static regression guard for that boundary in
 package runtime PHP. It refuses known direct process, transaction, raw-DML and
-self-include spellings, but it is not a hostile-PHP sandbox; digest review and
+include spellings, but it is not a hostile-PHP sandbox; digest review and
 trusted package provenance are the executable trust boundary. A small
 path-and-SHA-pinned registry lets unchanged shipped legacy adapters keep
 running until their owner is recertified. The sole runtime exception is also
@@ -820,6 +847,17 @@ option with `ProviderSdk::checked_durable_option()`, which performs an exact,
 bounded size/hash preflight, rejects duplicate and collation-alias rows, and
 decodes serialized plain data without constructing classes. Put related table
 reads inside one SDK-managed consistent snapshot.
+
+For generated files, use `ProviderSdk::filesystem_tree_snapshot()` for a
+confined, entry/depth/byte-bounded observation with full second-pass byte
+verification. Parse a digest-witnessed PHP return-literal through
+`ProviderSdk::php_literal_data()`; never include a target-generated index
+to inspect it. A plugin's public reconstruction/deletion API remains plugin
+semantics, covered by its declared irreversible filesystem effect and exact
+postcondition tests. The observer is not a mutation lock or a rollback
+promise. A future generic filesystem mutation API needs declarative path
+authority and engine-discoverable durable recovery, not just an opaque
+`provider_resource` token.
 
 A fresh-process package test must cover more than the happy child exit. Exercise
 distinct mutation and observer process identities, idempotent replay, exact

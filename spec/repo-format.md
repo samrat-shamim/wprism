@@ -1170,7 +1170,7 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-19 documents, 1,355 lines, 61,401 bytes — the same entries, the same profile, addressed as 19 roots
+19 documents, 1,356 lines, 61,469 bytes — the same entries, the same profile, addressed as 19 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness

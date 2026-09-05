@@ -37,6 +37,7 @@
             "exact-artifact-version-matrix",
             "regress-rank-math-provider",
             "regress-rank-math-commerce-multilingual",
+            "regress-rank-math-commerce-multilingual-ssh-deletion",
             "regress-rank-math-yoast-incompatibility"
         ]
     },

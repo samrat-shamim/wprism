@@ -114,6 +114,16 @@ final class LockingFakeWpdb {
         return $this->inner->wprism_test_strict_transport();
     }
 
+    /** @return array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    public function wprism_test_database_session_state(): array {
+        return $this->inner->wprism_test_database_session_state();
+    }
+
+    /** @param array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} $state */
+    public function wprism_test_restore_database_session_state(array $state): void {
+        $this->inner->wprism_test_restore_database_session_state($state);
+    }
+
     protected function process_fields(string $table, array $data, mixed $format): array|false {
         $invoke = \Closure::bind(
             function (string $target, array $fields, mixed $formats): array|false {

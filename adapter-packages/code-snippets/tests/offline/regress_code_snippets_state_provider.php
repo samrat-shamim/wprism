@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace {
     $repoRoot = dirname(__DIR__, 4);
     require_once $repoRoot . '/sandbox/tests/lib/check.php';
+    require_once $repoRoot . '/sandbox/tests/lib/FakeWpdb.php';
 
-    define('ARRAY_A', 'ARRAY_A');
     define('FS_CHMOD_FILE', 0644);
     $scratch = sys_get_temp_dir() . '/wprism_code_snippets_provider_' . bin2hex(random_bytes(8));
     if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
@@ -41,12 +41,16 @@ namespace {
         return md5('provider-fixture:' . $value);
     }
 
-    final class CodeSnippetsWpdb {
-        public string $last_error = '';
-        public bool $fail_reads = false;
+    function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+        $gate = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter'][$hook] ?? null)
+            : null;
+        return is_object($gate) && method_exists($gate, 'apply_filters')
+            ? $gate->apply_filters($value, [$value, ...$args])
+            : $value;
+    }
 
-        /** @var list<array<string,mixed>> */
-        public array $rows = [
+    $GLOBALS['cs_rows'] = [
             [
                 'id' => '12', 'name' => 'Portable content', 'description' => 'UTF-8 東京 🚀',
                 'code' => '<strong>portable</strong>', 'tags' => 'wprism, html', 'scope' => 'content',
@@ -65,17 +69,9 @@ namespace {
             ],
         ];
 
-        public function get_results(string $sql, string $mode): array|false {
-            if ($this->fail_reads) {
-                $this->last_error = 'fixture schema mismatch details must not escape';
-                return false;
-            }
-            $this->last_error = '';
-            return $this->rows;
-        }
-    }
-
-    $GLOBALS['wpdb'] = new CodeSnippetsWpdb();
+    $GLOBALS['wpdb'] = (new \WPrismTest\FakeWpdb())
+        ->seedTable('wp_snippets', $GLOBALS['cs_rows'])
+        ->setTableEngine('wp_snippets', 'InnoDB');
 }
 
 namespace WPrism {
@@ -83,6 +79,14 @@ namespace WPrism {
 
     final class Providers {
         public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
+
+        public static function bound_manifest_runtime_contract(
+            ManifestProviderRuntime $provider,
+            string $capability
+        ): array {
+            return $provider->capabilities()[$capability];
+        }
+
     }
 }
 
@@ -109,7 +113,7 @@ namespace Code_Snippets {
         }
         $GLOBALS['cs_api_cache'] = array_map(
             static fn(array $row): Snippet => new Snippet($row),
-            $GLOBALS['wpdb']->rows
+            $GLOBALS['cs_rows']
         );
         return $GLOBALS['cs_api_cache'];
     }
@@ -204,6 +208,9 @@ namespace Code_Snippets {
 
     final class WordPress_File_System_Adapter {
         public function delete(string $path, bool $recursive = false): bool {
+            if (array_key_exists('cs_delete_result', $GLOBALS)) {
+                return $GLOBALS['cs_delete_result'];
+            }
             if (is_link($path) || is_file($path)) {
                 return unlink($path);
             }
@@ -245,6 +252,7 @@ namespace Code_Snippets {
         }
 
         public function create_all_flat_files(array $settings): void {
+            $GLOBALS['cs_rebuild_count'] = ($GLOBALS['cs_rebuild_count'] ?? 0) + 1;
             $enabled = !empty($settings['general']['enable_flat_files']);
             $root = self::get_base_dir();
             if (!is_dir($root) && !mkdir($root, 0700, true) && !is_dir($root)) {
@@ -283,7 +291,8 @@ namespace Code_Snippets {
                 ksort($rows, SORT_NUMERIC);
                 file_put_contents(
                     self::get_base_dir($table, $type) . '/index.php',
-                    "<?php\nreturn " . var_export($rows, true) . ";\n"
+                    "<?php\n\nif ( ! defined( 'ABSPATH' ) ) { return; }\n\nreturn "
+                        . var_export($rows, true) . ";\n"
                 );
             }
         }
@@ -292,6 +301,7 @@ namespace Code_Snippets {
 
 namespace {
     require_once $repoRoot . '/agent/src/Adapter/ManifestProviderRuntime.php';
+    require_once $repoRoot . '/agent/src/Adapter/ProviderSdk.php';
     require_once dirname(__DIR__, 2) . '/package/runtime/providers/code-snippets-state.php';
 
     $manifest = json_decode(
@@ -305,7 +315,7 @@ namespace {
     wprism_check_same(
         [
             'args' => [],
-            'reads' => ['table:snippets', 'option:code_snippets_settings'],
+            'reads' => ['table:snippets', 'option:code_snippets_settings', 'option:active_shared_network_snippets'],
             'writes' => ['entity:code-snippets-cache', 'entity:code-snippets-flat-files'],
             'scope' => 'site',
             'idempotent' => true,
@@ -339,6 +349,27 @@ namespace {
         'condition_id' => 0, 'priority' => 1, 'active' => 1,
     ])];
 
+    foreach ([false, true] as $deleteResult) {
+        $GLOBALS['cs_delete_result'] = $deleteResult;
+        $refused = false;
+        try {
+            $provider->invoke_scoped('rebuild_snippet_state', [], $operation);
+        } catch (\RuntimeException $failure) {
+            $refused = str_contains(
+                $failure->getMessage(),
+                $deleteResult ? 'survived deletion' : 'could not remove'
+            );
+        }
+        wprism_check(
+            $refused && ($GLOBALS['cs_rebuild_count'] ?? 0) === 0
+                && is_file($directory . '/php/999.php'),
+            $deleteResult
+                ? 'a false-success native delete refuses before rebuilding the retained projection'
+                : 'a failed native delete refuses before rebuilding or reporting success'
+        );
+    }
+    unset($GLOBALS['cs_delete_result']);
+
     $receipt = $provider->invoke_scoped('rebuild_snippet_state', [], $operation);
     wprism_check(($receipt['verified'] ?? false) === true, 'provider reports success only after its verified postcondition');
     wprism_check_same(3, $receipt['after']['row_count'] ?? null, 'provider receipt counts the exact DB/API row set');
@@ -360,6 +391,47 @@ namespace {
             && !str_contains($published, 'portable</strong>'),
         'provider receipt contains counts and hashes without executable or authored plaintext'
     );
+
+    $indexPath = $directory . '/php/index.php';
+    $indexBytes = (string) file_get_contents($indexPath);
+    $indexSideEffect = WP_CONTENT_DIR . '/index-side-effect';
+    file_put_contents(
+        $indexPath,
+        '<?php file_put_contents(' . var_export($indexSideEffect, true) . ", 'executed'); return [];\n"
+    );
+    $indexRefused = false;
+    try {
+        $provider->reconcile_scoped('rebuild_snippet_state', [], $operation);
+    } catch (\RuntimeException $failure) {
+        $indexRefused = str_contains($failure->getMessage(), 'PHP literal data');
+    }
+    wprism_check(
+        $indexRefused && !file_exists($indexSideEffect),
+        'provider verification parses a target-generated index as data and never executes hostile PHP'
+    );
+    file_put_contents($indexPath, $indexBytes);
+
+    $indexRows = \WPrism\PhpLiteralData::read($indexPath, hash_file('sha256', $indexPath));
+    $collisionSentinel = WP_CONTENT_DIR . '/collision-side-effect';
+    $collidingRow = $indexRows[13];
+    $collidingRow['code'] = 'file_put_contents(' . var_export($collisionSentinel, true) . ", 'executed');";
+    $collidingRows = ['13evil' => $collidingRow] + $indexRows;
+    file_put_contents(
+        $indexPath,
+        "<?php\n\nif ( ! defined( 'ABSPATH' ) ) { return; }\n\nreturn "
+            . var_export($collidingRows, true) . ";\n"
+    );
+    $collisionRefused = false;
+    try {
+        $provider->reconcile_scoped('rebuild_snippet_state', [], $operation);
+    } catch (\RuntimeException $failure) {
+        $collisionRefused = str_contains($failure->getMessage(), 'noncanonical row identifier');
+    }
+    wprism_check(
+        $collisionRefused && !file_exists($collisionSentinel),
+        'provider verification refuses a string-key row that would collide under integer coercion'
+    );
+    file_put_contents($indexPath, $indexBytes);
 
     $firstAfter = $receipt['after'];
     $again = $provider->invoke_scoped('rebuild_snippet_state', [], $operation);
@@ -414,7 +486,10 @@ namespace {
     // Schema/read failure happens in the before observation, before purge.
     mkdir($directory, 0700, true);
     file_put_contents($directory . '/stale-before-schema-refusal', 'preserve');
-    $GLOBALS['wpdb']->fail_reads = true;
+    $GLOBALS['wpdb']->failNextQuery(
+        'fixture schema mismatch details must not escape',
+        'SELECT id, name, description, code, tags, scope, priority, active'
+    );
     $schemaRefused = false;
     try {
         $provider->invoke('rebuild_snippet_state', []);
@@ -425,8 +500,6 @@ namespace {
         $schemaRefused && is_file($directory . '/stale-before-schema-refusal'),
         'database/schema read failure refuses before any flat-file mutation and redacts DB detail'
     );
-    $GLOBALS['wpdb']->fail_reads = false;
-
     $GLOBALS['cs_network_residue'] = [];
     $residueRefused = false;
     try {

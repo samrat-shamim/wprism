@@ -250,4 +250,74 @@ foreach ($orderSetters as $orderSetter) {
         'each exact active-plugin order is persisted before either order is observed');
 }
 
+foreach ([
+    'PAIR="${RANK_MATH_YOAST_PAIR:-}"',
+    'PORT1_RAW="${RANK_MATH_YOAST_PORT1:-}"',
+    'PORT2_RAW="${RANK_MATH_YOAST_PORT2:-}"',
+    'EXPECTED_SHA="${RANK_MATH_YOAST_EXPECTED_SOURCE_SHA:-}"',
+    'PORT1 % 2 == 0 && PORT2 == PORT1 + 1',
+    'export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"',
+    "WPRISM_DB_ENGINE='mariadb' WPRISM_DB_HOST='wprism-shared-db'",
+    '. tests/lib/pair_live_ownership.sh',
+    'pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2"',
+    'TMP_ROOT="$PAIR_LIVE_OWNERSHIP_TMP_ROOT"',
+    'WPRISM_HOST_REGISTRY="$TMP_ROOT/host-envs.json"',
+    'private Rank Math/Yoast host registry mode is not 0600',
+    'pair_live_ownership_mode_of "$WPRISM_HOST_REGISTRY"',
+    'pair_live_ownership_acquire mariadb',
+    'pair_live_ownership_up --artifacts --headless',
+    'pair_live_ownership_repo_host both',
+    'pair_live_ownership_complete',
+] as $ownershipWitness) {
+    wprism_check(str_contains($live, $ownershipWitness),
+        "the incompatibility gate owns its disposable boundary: $ownershipWitness");
+}
+wprism_check(
+    !str_contains($live, 'RANK_MATH_YOAST_PAIR:-rmyoast')
+        && !str_contains($live, 'RANK_MATH_YOAST_EXPECTED_SOURCE_SHA:-${WPRISM_EXPECTED_SOURCE_SHA')
+        && !str_contains($live, 'bash bin/pair.sh reset "$PAIR"')
+        && !str_contains($live, 'destroy "$PAIR" >/dev/null 2>&1 || true')
+        && !str_contains($live, 'left up for inspection after failure')
+        && !str_contains($live, 'cleanup() {')
+        && !str_contains($live, "stat -f '%Lp' \"\$TMP_ROOT\" 2>/dev/null || stat -c")
+        && substr_count(
+            $live,
+            'PASS: Rank Math/Yoast incompatibility is deterministic before mutation in both orders'
+        ) === 1,
+    'the one-leg refusal gate has no reset, default allocation, failure leak, suppressed teardown, or early PASS route'
+);
+$ownershipPrepare = strpos($live, 'pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2"');
+$leaseAcquire = strpos($live, 'pair_live_ownership_acquire mariadb');
+$pairUp = strpos($live, 'pair_live_ownership_up --artifacts --headless', $leaseAcquire === false ? 0 : $leaseAcquire);
+$firstInstall = strpos($live, 'install_exact 1 seo-by-rank-math 1.0.277.2');
+wprism_check(
+    $ownershipPrepare !== false
+        && $leaseAcquire !== false
+        && $pairUp !== false
+        && $firstInstall !== false
+        && $ownershipPrepare < $leaseAcquire
+        && $leaseAcquire < $pairUp
+        && $pairUp < $firstInstall,
+    'the incompatibility proof starts its sole pair only after generic lease publication and ownership marking'
+);
+$ownershipHelper = (string) file_get_contents($root . '/sandbox/tests/lib/pair_live_ownership.sh');
+wprism_check(
+    str_contains($ownershipHelper, 'pair_live_ownership_remove_pair_roots')
+        && str_contains($ownershipHelper, 'pair_live_ownership_remove_scratch')
+        && str_contains($ownershipHelper, 'lease-batch-release')
+        && str_contains($ownershipHelper, 'PAIR_LIVE_OWNERSHIP_BODY_COMPLETE=1'),
+    'partial-up cleanup and sole PASS are delegated to the behaviorally tested shared ownership state machine'
+);
+$makefile = (string) file_get_contents($root . '/Makefile');
+wprism_check(
+    str_contains($makefile, "regress-rank-math-yoast-incompatibility:\n")
+        && str_contains($makefile, '@test -n "$(RANK_MATH_YOAST_PAIR)"')
+        && str_contains($makefile, '@test -n "$(RANK_MATH_YOAST_PORT1)"')
+        && str_contains($makefile, '@test -n "$(RANK_MATH_YOAST_PORT2)"')
+        && str_contains($makefile, '@test -n "$(RANK_MATH_YOAST_EXPECTED_SOURCE_SHA)"')
+        && str_contains($makefile,
+            'RANK_MATH_YOAST_EXPECTED_SOURCE_SHA="$(RANK_MATH_YOAST_EXPECTED_SOURCE_SHA)" bash integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh'),
+    'the Make entrypoint requires and forwards the exact incompatibility allocation instead of reviving defaults'
+);
+
 wprism_check_summary('regress_rank_math_yoast_incompatibility');

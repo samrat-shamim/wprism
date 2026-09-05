@@ -166,6 +166,25 @@ final class CheckedReadFakeWpdb {
     public string $errorOnRead = '';
     /** @var list<string> */
     public array $sqlSeen = [];
+    private bool $strictTransport = false;
+
+    public static function install(): self {
+        $database = new self();
+        $GLOBALS['wpdb'] = $database;
+        return $database;
+    }
+
+    private function filterQuery(string $sql): string {
+        $query = $GLOBALS['wp_filter']['query'] ?? null;
+        if (is_object($query) && method_exists($query, 'apply_filters')) {
+            $filtered = $query->apply_filters($sql, [$sql]);
+            if (!is_string($filtered)) {
+                throw new RuntimeException('checked-read fake received malformed filtered SQL');
+            }
+            return $filtered;
+        }
+        return $sql;
+    }
 
     private function ran(string $sql): void {
         $this->sqlSeen[] = $sql;
@@ -175,24 +194,68 @@ final class CheckedReadFakeWpdb {
     }
 
     public function get_var(string $sql): mixed {
+        $sql = $this->filterQuery($sql);
+        if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode') {
+            return '';
+        }
+        if ($sql === 'SELECT @@SESSION.character_set_client AS character_set_client') {
+            return 'utf8mb4';
+        }
+        if ($sql === 'SELECT MAXLEN FROM information_schema.CHARACTER_SETS '
+            . 'WHERE CHARACTER_SET_NAME = @@SESSION.character_set_client') {
+            return '4';
+        }
         $this->ran($sql);
         return $this->varReturn;
     }
 
     public function get_col(string $sql): mixed {
+        $sql = $this->filterQuery($sql);
         $this->ran($sql);
         return $this->colReturn;
     }
 
     public function get_row(string $sql, mixed $output = null): mixed {
+        $sql = $this->filterQuery($sql);
         $this->ran($sql);
         return $this->rowReturn;
     }
 
     public function get_results(string $sql, mixed $output = null): mixed {
+        $sql = $this->filterQuery($sql);
         $this->ran($sql);
         return $this->resultsReturn;
     }
+
+    public function remove_placeholder_escape(string $sql): string {
+        return $sql;
+    }
+
+    public function wprism_test_set_strict_transport(bool $enabled): bool {
+        $previous = $this->strictTransport;
+        $this->strictTransport = $enabled;
+        return $previous;
+    }
+
+    public function wprism_test_strict_transport(): bool {
+        return $this->strictTransport;
+    }
+
+    /** @return array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    public function wprism_test_database_session_state(): array {
+        return [
+            'database' => 'wordpress',
+            'sql_mode' => '',
+            'character_set_client' => 'utf8mb4',
+            'character_set_connection' => 'utf8mb4',
+            'character_set_results' => 'utf8mb4',
+            'collation_connection' => 'utf8mb4_unicode_ci',
+            'character_set_client_max_bytes' => 4,
+        ];
+    }
+
+    /** @param array<string,mixed> $state */
+    public function wprism_test_restore_database_session_state(array $state): void {}
 }
 
 $GLOBALS['wprism_native_cache'] = [];
@@ -709,7 +772,7 @@ echo "\n== provider checked reads: the read twin of Db, same message hygiene (is
 // message must never echo — the read twin of Db's operation-level context rule.
 $secretSql = "SELECT option_value FROM wp_options WHERE option_name='wprism_secret_CHECKED_READ_SECRET'";
 $readContext = 'probe cache group lookup';
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 
 $readFake->varReturn = '42';
 $check(\WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === '42',
@@ -732,7 +795,7 @@ $check(\WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readF
 
 // last_error is cleared before the read: a stale error from a prior query does
 // not doom a clean one (the same posture Db's mutations take).
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->last_error = 'stale DRIVER_SECRET from an earlier query';
 $readFake->varReturn = 'ok';
 $check(\WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === 'ok',
@@ -756,30 +819,30 @@ $checkedReadThrows = static function (callable $body, string $label) use ($check
 
 // A driver error is a failure even when the value itself looks fine — and
 // neither the SQL nor the driver text may appear in the message.
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->varReturn = '42';
 $readFake->errorOnRead = 'MySQL error near DRIVER_SECRET';
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
     'a non-empty last_error throws even behind a plausible value, and the message carries neither the SQL nor the driver text');
 
 // Each read's own failure shape throws, and each redacts identically.
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->varReturn = false;
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
     'checked_get_var throws on a false return (the wpdb failure sentinel), naming only the context');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->colReturn = false;
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake),
     'checked_get_col throws on a non-array return');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->rowReturn = 'not-an-array';
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake),
     'checked_get_row throws on a non-array, non-null return');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->resultsReturn = null;
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
     'checked_get_results throws on a non-array return');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->resultsReturn = ['aliased' => ['id' => '1']];
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
     'checked_get_results throws on an associative outer result instead of silently reindexing it');
@@ -1907,8 +1970,8 @@ $check($shippedShapePlan['watched'] === ['option:probe_setting']
 
 // The measured cost, as a number rather than an impression: one checked read
 // per watched surface per pass, two passes per invoke.
-$check($shippedShapePlan['queries_per_invoke'] === 2,
-    'the declared cost of the check is 2 queries per invoke for this capability (1 watched surface x 2 passes)');
+$check($shippedShapePlan['queries_per_invoke'] === 8,
+    'the declared cost is 8 server queries: one target read plus three exact session proofs per pass');
 
 // Counted by the reader's own statement rather than by the log length, so the
 // number is the ENGINE's added cost and stays that even when the drive also
@@ -1921,8 +1984,9 @@ $wpdb->resetLog();
 $reset();
 $observedReceipt = \WPrism\Providers::invoke($provider, $action, $declaration, []);
 $measuredQueries = $observationQueries();
-$check($measuredQueries === 2 && count($wpdb->queries()) === 2,
-    "and the MEASURED cost matches it: $measuredQueries added queries across one invoke, and nothing else ran, so a future regression in the reader's query count is visible here rather than on a customer's target");
+$sessionProofQueries = $wpdb->wprism_test_database_session_observation_count();
+$check($measuredQueries === 2 && count($wpdb->queries()) === 2 && $sessionProofQueries === 6,
+    "and the measured cost matches: $measuredQueries target reads plus $sessionProofQueries direct session proofs");
 
 // The shipped library's shape: every declared surface is one this engine has no
 // reader for, so the observation is silent — observe() returns before it

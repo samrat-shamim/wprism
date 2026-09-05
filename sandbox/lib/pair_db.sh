@@ -120,6 +120,49 @@ SQL
   fi
 }
 
+pair_db_assert_pair_schemas_absent() { # pair_db_assert_pair_schemas_absent <pair-name...>
+  local name schema_names='' sql_names='' output count_line count found
+  [ "$#" -gt 0 ] || fail "pair database absence census needs at least one pair name"
+
+  # Names reach SQL only after the same bare-identifier grammar used by
+  # pair_identity_validate_name(). Keep the transport helper independently
+  # closed: a future caller cannot turn the census into an identifier/string
+  # escape merely by skipping pair.sh's orchestration layer.
+  for name in "$@"; do
+    [[ "$name" =~ ^[a-z][a-z0-9]*$ ]] \
+      || fail "pair database absence census received unsafe pair name '$name'"
+    case "$name" in
+      db|sandbox) fail "pair database absence census received reserved pair name '$name'" ;;
+    esac
+    [ -z "$sql_names" ] || sql_names+=','
+    sql_names+="'wp_${name}1','wp_${name}2'"
+    schema_names+="wp_${name}1 wp_${name}2 "
+  done
+
+  # The count marker makes an empty result an observed fact rather than an
+  # empty stdout assumption. pair_db_sql's argv stays byte-identical; headers
+  # do not match either private marker and are therefore harmless on both
+  # MariaDB and MySQL clients.
+  output="$(pair_db_sql <<SQL
+SELECT CONCAT('__WPRISM_PAIR_SCHEMA_COUNT__:', COUNT(*)) AS wprism_pair_schema_count
+FROM INFORMATION_SCHEMA.SCHEMATA
+WHERE SCHEMA_NAME IN (${sql_names});
+SELECT CONCAT('__WPRISM_PAIR_SCHEMA_FOUND__:', SCHEMA_NAME) AS wprism_pair_schema_found
+FROM INFORMATION_SCHEMA.SCHEMATA
+WHERE SCHEMA_NAME IN (${sql_names})
+ORDER BY SCHEMA_NAME;
+SQL
+)" || fail "could not census pair database schemas at the lease boundary"
+
+  count_line="$(printf '%s\n' "$output" | grep -E '^__WPRISM_PAIR_SCHEMA_COUNT__:[0-9]+$' || true)"
+  [ "$(printf '%s\n' "$count_line" | awk 'NF { count++ } END { print count + 0 }')" -eq 1 ] \
+    || fail "pair database absence census returned no unique count witness"
+  count="${count_line#__WPRISM_PAIR_SCHEMA_COUNT__:}"
+  found="$(printf '%s\n' "$output" | sed -n 's/^__WPRISM_PAIR_SCHEMA_FOUND__://p')"
+  [ "$count" -eq 0 ] && [ -z "$found" ] \
+    || fail "pair database schema already exists (${found:-$schema_names}); pair namespace is not empty"
+}
+
 pair_db_create() { # pair_db_create <name>
   local name="$1"
   pair_db_sql <<SQL

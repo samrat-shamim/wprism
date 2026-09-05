@@ -46,7 +46,8 @@
     "deletion": [
       "adapter-packages/rank-math/package/disposition.json",
       "adapter-packages/rank-math/tests/offline/regress_rank_math_package.php",
-      "adapter-packages/rank-math/tests/conformance/check.sh"
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh"
     ],
     "failure-recovery": [
       "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",

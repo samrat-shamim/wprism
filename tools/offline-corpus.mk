@@ -17,7 +17,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 339 offline suites green"
+	@echo "regress-offline-all: 343 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-action-provider-grammar \
@@ -160,6 +160,7 @@ regress-offline-corpus: code-half-unit \
 	regress-environment-materializer-recovery \
 	regress-environment-materializer-ssh \
 	regress-exact-option-resolver \
+	regress-executable-tree-identity \
 	regress-explain-export-premise \
 	regress-explain-registry \
 	regress-export-manifest-roundtrip \
@@ -191,6 +192,7 @@ regress-offline-corpus: code-half-unit \
 	regress-lint-trust-tier-gate \
 	regress-lint-type-exemptions \
 	regress-live-exit-code-contract \
+	regress-live-pair-ownership \
 	regress-local-bootstrap \
 	regress-local-verified-rollback \
 	regress-manifest-dispositions \
@@ -226,6 +228,7 @@ regress-offline-corpus: code-half-unit \
 	regress-path-safety \
 	regress-pending-command \
 	regress-pending-queue-ownership \
+	regress-php-literal-data \
 	regress-pin-resolver \
 	regress-plan-category-summary \
 	regress-plan-contract-trust \
@@ -320,6 +323,7 @@ regress-offline-corpus: code-half-unit \
 	regress-spec-v3-dry-run \
 	regress-spec-window \
 	regress-ssh-adopt-evidence-retention \
+	regress-ssh-adopt-extension \
 	regress-ssh-rollback-certification \
 	regress-state-handoff-verifier \
 	regress-status-command \
@@ -359,4 +363,4 @@ regress-offline-corpus: code-half-unit \
 	regress-wp-cli-child-process \
 	regress-wpforms-lite-adapter \
 	regress-wpforms-lite-term-deletion
-	@echo "regress-offline-corpus: 339 offline suites green"
+	@echo "regress-offline-corpus: 343 offline suites green"

@@ -475,7 +475,10 @@ final class IdentityBackup {
         ];
         foreach (Snapshot::row_tables($policy) as $table => $_declaration) {
             $physical = $wpdb->prefix . $table;
-            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $physical));
+            $found = $wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($physical)
+            ));
             if (is_string($found) && hash_equals($physical, $found)) {
                 $reads[] = $physical;
             }

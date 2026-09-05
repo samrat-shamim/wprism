@@ -12,12 +12,18 @@
 #      NEXT still returns the sequence's configured START value.
 #   4. A schema-qualified stored function whose name is otherwise a SQL grammar
 #      word is rejected before its observable named-lock side effect executes.
+#   5. A multibyte client character set that can reinterpret 0x5c is refused
+#      before even a zero-table provider callback receives control.
+#   6. LIKE presence probes require wpdb::esc_like()'s exact spelling, and SHOW
+#      database operands cannot borrow physical-table profile authority.
 #
 # This live, per-mechanism suite owns its one pair from creation through
 # destruction and is intentionally outside regress-offline-all. Invoke it only
 # from a clean committed candidate:
 #
-#   WPRISM_EXPECTED_SOURCE_SHA="$(git rev-parse HEAD)" \
+#   DATABASE_BOUNDARY_PAIR=<unique-name> DATABASE_BOUNDARY_PORT1=<even-port> \
+#     DATABASE_BOUNDARY_PORT2=<successor> \
+#     WPRISM_EXPECTED_SOURCE_SHA="$(git rev-parse HEAD)" \
 #     make regress-database-boundary-live
 set -euo pipefail
 
@@ -29,30 +35,34 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 note() { printf '\033[1;33mnote: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
-PAIR="${DATABASE_BOUNDARY_PAIR:-dbbound${BASHPID}}"
-DEFAULT_PORT1=$((20000 + (BASHPID % 20000) * 2))
-PORT1="${DATABASE_BOUNDARY_PORT1:-$DEFAULT_PORT1}"
-PORT2="${DATABASE_BOUNDARY_PORT2:-$((DEFAULT_PORT1 + 1))}"
+PAIR="${DATABASE_BOUNDARY_PAIR:-}"
+PORT1_RAW="${DATABASE_BOUNDARY_PORT1:-}"
+PORT2_RAW="${DATABASE_BOUNDARY_PORT2:-}"
 EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:-}"
-SOURCE_SHA="$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}')" \
+SOURCE_SHA="$(git -C "$REPO_ROOT" --no-optional-locks rev-parse --verify 'HEAD^{commit}')" \
   || fail 'database-boundary evidence has no resolvable Git HEAD'
 
-[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
-  || fail "DATABASE_BOUNDARY_PAIR must be a lowercase pair identifier, got '$PAIR'"
-[ "${#PAIR}" -le 24 ] \
-  || fail 'DATABASE_BOUNDARY_PAIR must be at most 24 characters for schema and lock identities'
-[[ "$PORT1" =~ ^[0-9]+$ && "$PORT2" =~ ^[0-9]+$ ]] \
-  || fail 'database-boundary ports must be decimal integers'
-PORT1=$((10#$PORT1)); PORT2=$((10#$PORT2))
+[[ "$PAIR" =~ ^[a-z][a-z0-9]{2,23}$ ]] \
+  || fail 'DATABASE_BOUNDARY_PAIR is required and must be a unique lowercase 3..24 character pair name'
+case "$PAIR" in
+  db|sandbox) fail "DATABASE_BOUNDARY_PAIR '$PAIR' is reserved by the shared sandbox" ;;
+esac
+[[ "$PORT1_RAW" =~ ^[0-9]+$ && "$PORT2_RAW" =~ ^[0-9]+$ ]] \
+  || fail 'DATABASE_BOUNDARY_PORT1 and DATABASE_BOUNDARY_PORT2 are required decimal ports'
+PORT1=$((10#$PORT1_RAW)); PORT2=$((10#$PORT2_RAW))
 (( PORT1 >= 8900 && PORT1 <= 65534 && PORT1 % 2 == 0 && PORT2 == PORT1 + 1 )) \
   || fail 'DATABASE_BOUNDARY_PORT1 must be even and >=8900; PORT2 must be its successor'
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
   || fail 'WPRISM_EXPECTED_SOURCE_SHA must be the exact lowercase 40-character candidate SHA'
 [ "$EXPECTED_SHA" = "$SOURCE_SHA" ] \
   || fail "WPRISM_EXPECTED_SOURCE_SHA=$EXPECTED_SHA does not equal checkout HEAD=$SOURCE_SHA"
-[ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ] \
+SOURCE_STATUS="$(git -C "$REPO_ROOT" --no-optional-locks status --porcelain=v1 --untracked-files=all)" \
+  || fail 'could not inspect database-boundary evidence source cleanliness'
+[ -z "$SOURCE_STATUS" ] \
   || fail "database-boundary evidence requires a clean checkout at $SOURCE_SHA"
-command -v docker >/dev/null || fail 'docker is required'
+for command in docker git jq mktemp php; do
+  command -v "$command" >/dev/null 2>&1 || fail "$command is required"
+done
 
 # WPRISM_SOURCE_ROOT is load-bearing in a linked worktree: pair.sh otherwise
 # resolves the canonical checkout through Git's common directory. Binding it
@@ -61,30 +71,23 @@ command -v docker >/dev/null || fail 'docker is required'
 export WPRISM_SOURCE_ROOT="$REPO_ROOT"
 export WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"
 export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_CODEBIND_PLUGIN='' WPRISM_DB_ENGINE='mariadb' WPRISM_DB_HOST='wprism-shared-db'
+# shellcheck source=../lib/pair_live_ownership.sh
+. "$REPO_ROOT/sandbox/tests/lib/pair_live_ownership.sh"
+pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" \
+  'database-boundary evidence' 'wprism-database-boundary'
 
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
-TMP_ROOT=''
+TMP_ROOT="$PAIR_LIVE_OWNERSHIP_TMP_ROOT"
 CURRENT_DB_ENGINE=''
 CURRENT_DB_CONTAINER=''
 CURRENT_DB_CLIENT=''
 CURRENT_DB_NAME=''
-PAIR_OWNED=0
-SITE_ROOTS_OWNED=0
 ACTIVE_PID=''
 ACTIVE_RELEASE=''
 ACTIVE_LOG=''
-MYSQL_SERVER_WAS_RUNNING=0
-MYSQL_SERVER_PREEXISTED=0
-MYSQL_SERVER_CLEANUP_COMPLETE=0
-
-if docker inspect wprism-shared-mysql >/dev/null 2>&1; then
-  MYSQL_SERVER_PREEXISTED=1
-  if [ "$(docker inspect -f '{{.State.Running}}' wprism-shared-mysql 2>/dev/null || true)" = true ]; then
-    MYSQL_SERVER_WAS_RUNNING=1
-  fi
-fi
 
 compose() { docker compose -p "wprism-$PAIR" -f pair.yml "$@"; }
 wp1() { compose run --rm -T cli1 wp "$@"; }
@@ -100,29 +103,6 @@ db_query() {
 
 db_script() {
   db_root -D "$CURRENT_DB_NAME"
-}
-
-remove_owned_path() {
-  local owned="$1"
-  case "$owned" in
-    "siterepo/${PAIR}1"|"siterepo/${PAIR}2"|"siterepo/origin-${PAIR}.git") ;;
-    *) fail "refusing to remove an unowned sandbox path: $owned" ;;
-  esac
-  [ ! -e "$owned" ] || find "$owned" -depth -delete
-}
-
-mysql_has_pair_consumers() {
-  local container env
-  while IFS= read -r container; do
-    [ -n "$container" ] || continue
-    [ "$(docker inspect -f '{{.Name}}' "$container" 2>/dev/null || true)" != '/wprism-shared-mysql' ] \
-      || continue
-    env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" 2>/dev/null || true)"
-    if grep -Fxq 'WORDPRESS_DB_HOST=wprism-shared-mysql' <<<"$env"; then
-      return 0
-    fi
-  done < <(docker ps -aq --filter network=wprism-shared 2>/dev/null || true)
-  return 1
 }
 
 settle_active_probe() {
@@ -144,67 +124,9 @@ settle_active_probe() {
   return "$status"
 }
 
-destroy_owned_pair() {
-  local status=0
-  if [ "$PAIR_OWNED" -eq 1 ]; then
-    WPRISM_DB_ENGINE="$CURRENT_DB_ENGINE" bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 \
-      || status=$?
-    [ "$status" -eq 0 ] || return "$status"
-    PAIR_OWNED=0
-  fi
-  if [ "$SITE_ROOTS_OWNED" -eq 1 ]; then
-    remove_owned_path "$R1"
-    remove_owned_path "$R2"
-    remove_owned_path "$ORIGIN"
-    SITE_ROOTS_OWNED=0
-  fi
-  return "$status"
-}
-
-cleanup_mysql_server() {
-  [ "$MYSQL_SERVER_CLEANUP_COMPLETE" -eq 0 ] || return 0
-  [ "$MYSQL_SERVER_WAS_RUNNING" -eq 0 ] || return 0
-  if mysql_has_pair_consumers; then
-    note 'leaving script-started MySQL server up because another pair is attached to it'
-    return 0
-  fi
-  if [ "$MYSQL_SERVER_PREEXISTED" -eq 1 ]; then
-    # Restore a pre-existing stopped server without deleting its shared data.
-    docker compose -p wprism-db-mysql -f db.mysql.yml stop >/dev/null 2>&1 \
-      || return $?
-    return 0
-  fi
-  docker compose -p wprism-db-mysql -f db.mysql.yml down -v >/dev/null 2>&1 \
-    || return $?
-}
-
-cleanup() {
-  local status=$? step_status=0
-  trap - EXIT INT TERM
-  set +e
+pair_live_ownership_before_teardown() {
   settle_active_probe
-  step_status=$?
-  [ "$status" -ne 0 ] || status="$step_status"
-  destroy_owned_pair
-  step_status=$?
-  [ "$status" -ne 0 ] || status="$step_status"
-  cleanup_mysql_server
-  step_status=$?
-  [ "$status" -ne 0 ] || status="$step_status"
-  if [ -n "$TMP_ROOT" ]; then
-    rm -rf -- "$TMP_ROOT"
-    step_status=$?
-    [ "$status" -ne 0 ] || status="$step_status"
-    if [ -e "$TMP_ROOT" ] || [ -L "$TMP_ROOT" ]; then
-      [ "$status" -ne 0 ] || status=1
-    fi
-  fi
-  exit "$status"
 }
-trap cleanup EXIT
-trap 'exit 130' INT TERM
-
-TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/wprism-database-boundary.${PAIR}.XXXXXX")"
 
 wait_for_probe() {
   local label="$1" ready="$2"
@@ -414,6 +336,7 @@ if (!in_array($mode, ['control', 'guard'], true)
     || !str_starts_with($release, '/siterepo/')) {
     throw new RuntimeException('invalid live schema-keyword fixture arguments');
 }
+
 $query = "SELECT `$schema`.WHERE()";
 
 if ($mode === 'control') {
@@ -459,6 +382,104 @@ while (!is_file($release)) {
 }
 
 echo $mode . "-complete\n";
+PHP
+}
+
+write_session_grammar_probe() {
+  cat > "$R1/.wprism-database-boundary-session-grammar.php" <<'PHP'
+<?php
+
+use WPrism\DatabaseQueryIsolation;
+use WPrism\DatabaseQueryIsolationViolationException;
+use WPrism\NativeDatabaseProfile;
+use WPrism\ProviderDatabaseSession;
+
+global $wpdb;
+$callbackCalls = 0;
+$wpdb->last_error = '';
+$wpdb->query('SET SESSION character_set_client = gbk');
+if (trim((string) $wpdb->last_error) !== '') {
+    throw new RuntimeException('could not establish the unsafe client-character-set premise');
+}
+$characterSetFailure = null;
+try {
+    ProviderDatabaseSession::read_only_snapshot(
+        'live unsafe character-set premise',
+        NativeDatabaseProfile::read_only([]),
+        static function () use (&$callbackCalls): void {
+            $callbackCalls++;
+        }
+    );
+} catch (Throwable $failure) {
+    $characterSetFailure = $failure;
+}
+$wpdb->last_error = '';
+$wpdb->query('SET SESSION character_set_client = utf8mb4');
+if (trim((string) $wpdb->last_error) !== '') {
+    throw new RuntimeException('could not restore the reviewed client character set');
+}
+$characterSetRefused = false;
+for ($cursor = $characterSetFailure; $cursor !== null; $cursor = $cursor->getPrevious()) {
+    if ($cursor instanceof DatabaseQueryIsolationViolationException
+        && str_contains($cursor->getMessage(), 'character-set premise is incompatible')) {
+        $characterSetRefused = true;
+        break;
+    }
+}
+if (!$characterSetRefused || $callbackCalls !== 0 || DatabaseQueryIsolation::is_active()) {
+    throw new RuntimeException('unsafe client character set reached a provider callback or unsettled boundary');
+}
+echo "unsafe-character-set-refused\n";
+
+$table = (string) $wpdb->options;
+$database = (string) ($wpdb->dbname ?? '');
+if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1
+    || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $database) !== 1) {
+    throw new RuntimeException('invalid live SHOW grammar fixture identity');
+}
+$unsafeShows = [
+    "SHOW TABLES LIKE '$table'",
+    "SHOW TABLE STATUS LIKE '$table'",
+    "SHOW TABLES FROM `$database`",
+    "SHOW TRIGGERS FROM `$database`",
+    "SHOW OPEN TABLES FROM `$database`",
+];
+foreach ($unsafeShows as $offset => $sql) {
+    $failure = null;
+    try {
+        ProviderDatabaseSession::read_only_snapshot(
+            'live unsafe SHOW grammar',
+            NativeDatabaseProfile::read_only([$table]),
+            static fn(): mixed => $wpdb->get_results($sql)
+        );
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    $refused = false;
+    for ($cursor = $failure; $cursor !== null; $cursor = $cursor->getPrevious()) {
+        if ($cursor instanceof DatabaseQueryIsolationViolationException) {
+            $refused = true;
+            break;
+        }
+    }
+    if (!$refused || DatabaseQueryIsolation::is_active()) {
+        throw new RuntimeException('unsafe SHOW case ' . ($offset + 1) . ' crossed or unsettled the profile');
+    }
+}
+echo "unsafe-show-forms-refused\n";
+
+$exact = ProviderDatabaseSession::read_only_snapshot(
+    'live exact LIKE presence',
+    NativeDatabaseProfile::read_only([$table]),
+    static fn(): mixed => $wpdb->get_var($wpdb->prepare(
+        'SHOW TABLES LIKE %s',
+        $wpdb->esc_like($table)
+    ))
+);
+if ($exact !== $table || DatabaseQueryIsolation::is_active()) {
+    throw new RuntimeException('escaped exact LIKE presence did not resolve through a settled profile');
+}
+echo "exact-like-presence-passed\n";
 PHP
 }
 
@@ -638,21 +659,30 @@ prove_mariadb_sequences() {
   pass 'MariaDB refused NEXT/PREVIOUS through the real session path without moving the sequence'
 }
 
+prove_session_grammar() {
+  local output
+  say "$CURRENT_DB_ENGINE: session lexer premises and exact SHOW grammar"
+  write_session_grammar_probe
+  output="$(compose run --rm -T \
+    cli1 wp eval-file /siterepo/.wprism-database-boundary-session-grammar.php 2>&1)" \
+    || fail "$CURRENT_DB_ENGINE session/SHOW product probe failed: $output"
+  grep -Fxq 'unsafe-character-set-refused' <<<"$output" \
+    || fail "$CURRENT_DB_ENGINE did not publish the unsafe-character-set refusal marker: $output"
+  grep -Fxq 'unsafe-show-forms-refused' <<<"$output" \
+    || fail "$CURRENT_DB_ENGINE did not publish the closed SHOW-grammar refusal marker: $output"
+  grep -Fxq 'exact-like-presence-passed' <<<"$output" \
+    || fail "$CURRENT_DB_ENGINE did not publish the exact LIKE control marker: $output"
+  pass "$CURRENT_DB_ENGINE bound its byte lexer and SHOW authority to exact live session evidence"
+}
+
 start_pair() {
-  local engine="$1" container="$2" client="$3" expected_label="$4" actual_label
+  local engine="$1" client="$2" expected_label="$3" actual_label
   CURRENT_DB_ENGINE="$engine"
-  CURRENT_DB_CONTAINER="$container"
   CURRENT_DB_CLIENT="$client"
   CURRENT_DB_NAME="wp_${PAIR}1"
-  export WPRISM_DB_ENGINE="$engine"
-
-  [ -z "$(docker ps -aq --filter "label=com.docker.compose.project=wprism-$PAIR")" ] \
-    || fail "refusing to reuse pre-existing Compose project wprism-$PAIR"
-  [ ! -e "$R1" ] && [ ! -e "$R2" ] && [ ! -e "$ORIGIN" ] \
-    || fail "refusing to reuse pre-existing site-repository paths for pair $PAIR"
-  SITE_ROOTS_OWNED=1
-  PAIR_OWNED=1
-  bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
+  pair_live_ownership_acquire "$engine"
+  CURRENT_DB_CONTAINER="$PAIR_LIVE_OWNERSHIP_CONTAINER"
+  pair_live_ownership_up --headless
   chmod 0777 "$R1"
   wp1 db query 'SELECT 1' >/dev/null \
     || fail "$CURRENT_DB_ENGINE pair did not complete a real WordPress database round trip"
@@ -663,28 +693,33 @@ start_pair() {
 }
 
 finish_pair() {
-  destroy_owned_pair || fail "$CURRENT_DB_ENGINE pair cleanup failed"
-  pass "$CURRENT_DB_ENGINE pair, databases, containers, volumes, and site roots were removed"
+  pair_live_ownership_finish_leg
+  pass "$CURRENT_DB_ENGINE pair, databases, containers, volumes, site roots, and engine-bound lease were removed"
 }
 
 say 'pair-budget and exact-source preflight'
 WPRISM_DB_ENGINE=mariadb bash bin/pair.sh list
 pass "live evidence is bound to clean source $SOURCE_SHA"
 
-start_pair mariadb wprism-shared-db mariadb MariaDB
+start_pair mariadb mariadb MariaDB
 prove_metadata_lock
 prove_view_preflight
 prove_schema_keyword_function
 prove_mariadb_sequences
+prove_session_grammar
 finish_pair
 
-start_pair mysql wprism-shared-mysql mysql MySQL
+start_pair mysql mysql MySQL
 prove_metadata_lock
 prove_view_preflight
 prove_schema_keyword_function
+prove_session_grammar
 finish_pair
 
-cleanup_mysql_server || fail 'script-owned MySQL server cleanup failed'
-MYSQL_SERVER_CLEANUP_COMPLETE=1
+# The MySQL container is shared infrastructure, not this script's resource.
+# Stopping it after a point-in-time consumer scan races another worktree's pair
+# admission. Pair destruction above removes only this script's schemas/network;
+# leave the shared service lifecycle to pair.sh's cross-worktree owner.
+note 'leaving the shared MySQL service lifecycle unchanged after pair cleanup'
 
-printf '\n\033[1;32m\u2714 REGRESS_DATABASE_BOUNDARY_LIVE PASSED\033[0m\n'
+pair_live_ownership_complete '✔ REGRESS_DATABASE_BOUNDARY_LIVE PASSED'

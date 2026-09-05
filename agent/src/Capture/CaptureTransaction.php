@@ -401,7 +401,10 @@ final class CaptureTransaction {
     /** Match Snapshot's optional-table behavior without authorizing an alias. */
     private static function declared_table_exists(string $table): bool {
         global $wpdb;
-        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        $found = $wpdb->get_var($wpdb->prepare(
+            'SHOW TABLES LIKE %s',
+            $wpdb->esc_like($table)
+        ));
         return is_string($found) && hash_equals($table, $found);
     }
 

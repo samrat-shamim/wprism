@@ -195,6 +195,9 @@ class FakeWpdb {
     public string $last_error = '';
     private int $driverErrno = 0;
     private bool $strictTransport = false;
+    /** One-shot failure for the direct, hook-free session-state observer. */
+    private ?string $databaseSessionObservationFailure = null;
+    private int $databaseSessionObservationCount = 0;
     public string $last_query = '';
     public int $insert_id = 0;
     public int $num_rows = 0;
@@ -367,6 +370,16 @@ class FakeWpdb {
     private string $autocommit = '1';
     /** Exact comma-separated @@SESSION.sql_mode value. */
     private string $sqlMode = '';
+    /** Exact @@SESSION.character_set_client value. */
+    private string $characterSetClient = 'utf8mb4';
+    /** Exact @@SESSION.character_set_connection value. */
+    private string $characterSetConnection = 'utf8mb4';
+    /** Exact @@SESSION.character_set_results value. */
+    private string $characterSetResults = 'utf8mb4';
+    /** Exact @@SESSION.collation_connection value. */
+    private string $collationConnection = 'utf8mb4_unicode_ci';
+    /** INFORMATION_SCHEMA.CHARACTER_SETS.MAXLEN for that exact value. */
+    private int $characterSetClientMaxBytes = 4;
     /** Session default applied only when a terminal control omits modifiers. */
     private string $completionType = 'NO_CHAIN';
     /** One-shot isolation consumed by the next START TRANSACTION. */
@@ -657,6 +670,44 @@ class FakeWpdb {
         return $this;
     }
 
+    public function setSessionCharacterSetClient(string $characterSet, int $maxBytes): self {
+        $this->characterSetClient = $characterSet;
+        $this->characterSetClientMaxBytes = $maxBytes;
+        return $this;
+    }
+
+    public function failNextDatabaseSessionObservation(string $message): self {
+        $this->databaseSessionObservationFailure = $message;
+        return $this;
+    }
+
+    /** Model stock wpdb::select(), which bypasses wpdb's query hook. */
+    public function select(string $database, mixed $dbh = null): bool {
+        $this->dbname = $database;
+        return true;
+    }
+
+    /** Model stock wpdb::set_sql_mode(), which writes through mysqli directly. */
+    public function set_sql_mode(array $modes = []): void {
+        $this->sqlMode = implode(',', $modes);
+    }
+
+    /** Model stock wpdb::set_charset(), including its session-wide charset effects. */
+    public function set_charset(mixed $dbh, ?string $charset = null, ?string $collate = null): void {
+        $charset ??= 'utf8mb4';
+        $this->characterSetClient = $charset;
+        $this->characterSetConnection = $charset;
+        $this->characterSetResults = $charset;
+        $this->collationConnection = $collate !== null && $collate !== ''
+            ? $collate
+            : $charset . '_unicode_ci';
+        $this->characterSetClientMaxBytes = match ($charset) {
+            'utf8mb4' => 4,
+            'utf8', 'utf8mb3' => 3,
+            default => 1,
+        };
+    }
+
     /** Model MySQL/MariaDB completion_type without changing its default. */
     public function setCompletionType(string $type): self {
         $type = strtoupper(trim($type));
@@ -941,6 +992,7 @@ class FakeWpdb {
     public function resetLog(): self {
         $this->queryLog = [];
         $this->ddlLog = [];
+        $this->databaseSessionObservationCount = 0;
         return $this;
     }
 
@@ -1152,6 +1204,40 @@ class FakeWpdb {
         return $this->strictTransport;
     }
 
+    /** @return array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    public function wprism_test_database_session_state(): array {
+        $this->databaseSessionObservationCount++;
+        if ($this->databaseSessionObservationFailure !== null) {
+            $message = $this->databaseSessionObservationFailure;
+            $this->databaseSessionObservationFailure = null;
+            throw new \RuntimeException($message);
+        }
+        return [
+            'database' => $this->dbname,
+            'sql_mode' => $this->sqlMode,
+            'character_set_client' => $this->characterSetClient,
+            'character_set_connection' => $this->characterSetConnection,
+            'character_set_results' => $this->characterSetResults,
+            'collation_connection' => $this->collationConnection,
+            'character_set_client_max_bytes' => $this->characterSetClientMaxBytes,
+        ];
+    }
+
+    public function wprism_test_database_session_observation_count(): int {
+        return $this->databaseSessionObservationCount;
+    }
+
+    /** @param array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} $state */
+    public function wprism_test_restore_database_session_state(array $state): void {
+        $this->dbname = $state['database'];
+        $this->sqlMode = $state['sql_mode'];
+        $this->characterSetClient = $state['character_set_client'];
+        $this->characterSetConnection = $state['character_set_connection'];
+        $this->characterSetResults = $state['character_set_results'];
+        $this->collationConnection = $state['collation_connection'];
+        $this->characterSetClientMaxBytes = $state['character_set_client_max_bytes'];
+    }
+
     /**
      * Execute a statement. Returns rows affected for DML, row count for
      * SELECT, true for transaction/DDL statements, false on an injected
@@ -1175,7 +1261,9 @@ class FakeWpdb {
      * TYPES note), or null -- for no rows, a NULL column, or a failure.
      */
     public function get_var(string $query, int $x = 0, int $y = 0): ?string {
-        if ($this->informationSchemaEnabled && str_contains(strtolower($query), 'information_schema.')) {
+        if ($this->informationSchemaEnabled
+            && str_contains(strtolower($query), 'information_schema.')
+            && !str_contains(strtolower($query), 'information_schema.character_sets')) {
             $lower = strtolower($query);
             if (str_contains($lower, 'information_schema.tables')) {
                 $rows = $this->informationSchemaRows($query, 'tables');
@@ -1776,25 +1864,36 @@ class FakeWpdb {
     }
 
     /**
-     * Shared entry point for every statement-executing read/write method.
-     * Returns null when the statement was vetoed by a failure seam; callers
-     * translate that null into their own wpdb-shaped failure value.
-     *
-     * @return null|array{kind:string,rows?:list<array<string,mixed>>,affected?:int}
+     * Dispatch only the canonical receiver's engine-installed query gates.
+     * Semantic wrappers share this transport topology without sharing rows.
      */
-    private function run(string $method, string $query): ?array {
+    public static function filterEngineQuery(object $database, string $query): string {
         $gate = is_array($GLOBALS['wp_filter'] ?? null)
             ? ($GLOBALS['wp_filter']['query'] ?? null)
             : null;
-        if (($GLOBALS['wpdb'] ?? null) === $this
+        if (($GLOBALS['wpdb'] ?? null) === $database
             && is_object($gate)
             && method_exists($gate, 'hook_name')
-            && function_exists('apply_filters')) {
-            $query = apply_filters('query', $query);
+            && method_exists($gate, 'apply_filters')) {
+            // Some capsule fixtures have no global apply_filters(), or a
+            // WP_Hook-only double. Dispatch the installed engine gates in
+            // WordPress order so neither can silently skip a query permit.
+            $all = $GLOBALS['wp_filter']['all'] ?? null;
+            if (is_object($all) && method_exists($all, 'do_all_hook')) {
+                $arguments = ['query', $query];
+                $all->do_all_hook($arguments);
+            }
+            $query = $gate->apply_filters($query, [$query]);
             if (!is_string($query)) {
                 throw new \LogicException('FakeWpdb: query filter returned malformed SQL');
             }
         }
+        return $query;
+    }
+
+    /** @return null|array{kind:string,rows?:list<array<string,mixed>>,affected?:int} */
+    private function run(string $method, string $query): ?array {
+        $query = self::filterEngineQuery($this, $query);
         $sql = $this->remove_placeholder_escape($query);
         $this->flush();
         if (strcasecmp(rtrim(trim($sql), "; \t\n\r"), 'SHOW WARNINGS') !== 0) {
@@ -2371,6 +2470,23 @@ class FakeWpdb {
         }
         if (strcasecmp($trimmed, 'SELECT @@SESSION.sql_mode AS sql_mode') === 0) {
             return ['kind' => 'rows', 'rows' => [['sql_mode' => $this->sqlMode]]];
+        }
+        if (strcasecmp(
+            $trimmed,
+            'SELECT @@SESSION.character_set_client AS character_set_client'
+        ) === 0) {
+            return ['kind' => 'rows', 'rows' => [[
+                'character_set_client' => $this->characterSetClient,
+            ]]];
+        }
+        if (strcasecmp(
+            $trimmed,
+            'SELECT MAXLEN FROM information_schema.CHARACTER_SETS '
+                . 'WHERE CHARACTER_SET_NAME = @@SESSION.character_set_client'
+        ) === 0) {
+            return ['kind' => 'rows', 'rows' => [[
+                'MAXLEN' => (string) $this->characterSetClientMaxBytes,
+            ]]];
         }
         if (strcasecmp($trimmed, 'SELECT DATABASE()') === 0) {
             return ['kind' => 'rows', 'rows' => [['DATABASE()' => $this->dbname]]];

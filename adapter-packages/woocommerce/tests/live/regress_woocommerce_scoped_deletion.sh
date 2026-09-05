@@ -20,6 +20,7 @@ wprism_ssh_adopt_extension() {
   local woo_suffix="${woo_version//./}"
   local woo_sku="WPRISM-SSH-DELETE-${woo_suffix}"
   local woo_pin executable_owners product_id product_uuid
+  local active_themes observation owner_row stylesheet template theme
   local scope_hash plan_json full_plan_json scoped_code
   local lookup_before failed_code failed_product failed_lookup retry_code
   local status_json stock_topology success_product success_lookup converged_plan
@@ -103,105 +104,52 @@ wprism_ssh_adopt_extension() {
   wprism_ssh_stage_generation_releases 2
   pass "WooCommerce code inventory and consecutive failure/retry generations are exact and target-credential-free"
 
-  cat >"$TMP/woocommerce-owner-agreements.php" <<'PHP'
-<?php
+  stylesheet="$(ssh_fixture 'cd /var/www/html && wp option get stylesheet')" \
+    || fail "WooCommerce scoped-deletion extension could not observe its active stylesheet"
+  template="$(ssh_fixture 'cd /var/www/html && wp option get template')" \
+    || fail "WooCommerce scoped-deletion extension could not observe its active template"
+  active_themes="$(printf '%s\n' "$stylesheet" "$template" | LC_ALL=C sort -u)" \
+    || fail "WooCommerce scoped-deletion extension could not order the active theme roster"
+  [ -n "$active_themes" ] \
+    || fail "WooCommerce scoped-deletion extension observed an empty active theme roster"
+  executable_owners='[]'
+  while IFS= read -r theme; do
+    [[ "$theme" =~ ^[A-Za-z0-9._-]{1,128}$ ]] && [ "$theme" != '.' ] && [ "$theme" != '..' ] \
+      || fail "WooCommerce scoped-deletion extension observed a malformed active theme owner"
+    observation="$(ssh_fixture "cd /var/www/html && wp wprism executable-owner-observe --owner='theme:$theme'")" \
+      || fail "WooCommerce scoped-deletion extension could not observe exact theme:$theme code"
+    owner_row="$(jq -ce --arg owner "theme:$theme" --arg root "themes/$theme" \
+      --arg rationale 'Exact active theme code reviewed: it persists no Woo product reverse-reference identity.' '
+        if keys == ["code_identity", "owner"]
+          and .owner == $owner
+          and .code_identity.format == "wprism-executable-tree/v1"
+          and .code_identity.root == $root
+          and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+        then . + {rationale: $rationale}
+        else error("noncanonical executable owner observation")
+        end
+      ' <<<"$observation")" \
+      || fail "WooCommerce scoped-deletion extension received malformed theme:$theme code identity"
+    executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+      || fail "WooCommerce scoped-deletion extension could not assemble theme:$theme agreement"
+  done <<<"$active_themes"
 
-$themes = array_values(array_unique([get_stylesheet(), get_template()]));
-sort($themes, SORT_STRING);
-$contentRoot = realpath(WP_CONTENT_DIR);
-if (!is_string($contentRoot) || $contentRoot === '') {
-    throw new RuntimeException('WooCommerce deletion agreement cannot resolve WP_CONTENT_DIR');
-}
-$owners = [];
-foreach ($themes as $theme) {
-    if (!is_string($theme) || preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $theme) !== 1) {
-        throw new RuntimeException('WooCommerce deletion agreement found a malformed theme owner');
-    }
-    $canonicalRoot = 'themes/' . $theme;
-    $root = WP_CONTENT_DIR . '/' . $canonicalRoot;
-    $resolved = realpath($root);
-    if (!is_string($resolved) || $resolved !== $contentRoot . '/' . $canonicalRoot || is_link($root)) {
-        throw new RuntimeException('WooCommerce deletion agreement found an unsafe theme root');
-    }
-    $files = [];
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
-    foreach ($iterator as $entry) {
-        if (!$entry instanceof SplFileInfo) {
-            throw new RuntimeException('WooCommerce deletion agreement found an uninspectable theme entry');
-        }
-        $path = $entry->getPathname();
-        $stat = lstat($path);
-        $kind = is_array($stat) ? (((int) $stat['mode']) & 0170000) : 0;
-        if ($kind === 0040000) {
-            continue;
-        }
-        if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-            throw new RuntimeException('WooCommerce deletion agreement found a nonregular theme entry');
-        }
-        $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));
-        $files[] = ['path' => $relative, 'sha256' => hash_file('sha256', $path)];
-    }
-    usort($files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
-    $payload = ['files' => $files, 'format' => 'wprism-executable-tree/v1', 'root' => $canonicalRoot];
-    $owners[] = [
-        'owner' => 'theme:' . $theme,
-        'code_identity' => [
-            'format' => 'wprism-executable-tree/v1',
-            'root' => $canonicalRoot,
-            'sha256' => hash('sha256', \WPrism\Canon::encode($payload)),
-        ],
-        'rationale' => 'Exact active theme code reviewed: it persists no Woo product reverse-reference identity.',
-    ];
-}
-$plugin = 'woocommerce/woocommerce.php';
-$canonicalRoot = 'plugins/woocommerce';
-$root = WP_PLUGIN_DIR . '/woocommerce';
-$resolved = realpath($root);
-if (!is_string($resolved) || $resolved !== $contentRoot . '/' . $canonicalRoot
-    || is_link($root) || !is_file(WP_PLUGIN_DIR . '/' . $plugin)) {
-    throw new RuntimeException('WooCommerce deletion agreement found an unsafe plugin root');
-}
-$files = [];
-$iterator = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-    RecursiveIteratorIterator::SELF_FIRST
-);
-foreach ($iterator as $entry) {
-    if (!$entry instanceof SplFileInfo) {
-        throw new RuntimeException('WooCommerce deletion agreement found an uninspectable plugin entry');
-    }
-    $path = $entry->getPathname();
-    $stat = lstat($path);
-    $kind = is_array($stat) ? (((int) $stat['mode']) & 0170000) : 0;
-    if ($kind === 0040000) {
-        continue;
-    }
-    if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-        throw new RuntimeException('WooCommerce deletion agreement found a nonregular plugin entry');
-    }
-    $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));
-    $files[] = ['path' => $relative, 'sha256' => hash_file('sha256', $path)];
-}
-usort($files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
-$payload = ['files' => $files, 'format' => 'wprism-executable-tree/v1', 'root' => $canonicalRoot];
-$owners[] = [
-    'owner' => 'plugin:' . $plugin,
-    'code_identity' => [
-        'format' => 'wprism-executable-tree/v1',
-        'root' => $canonicalRoot,
-        'sha256' => hash('sha256', \WPrism\Canon::encode($payload)),
-    ],
-    'rationale' => 'Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.',
-];
-echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-PHP
-  scp -F "$TMP/ssh_config" "$TMP/woocommerce-owner-agreements.php" \
-    wprism-adopt-fixture:/home/wprism/recovery-fixture/woocommerce-owner-agreements.php >/dev/null
-  executable_owners="$(ssh_fixture 'cd /var/www/html && wp eval-file /home/wprism/recovery-fixture/woocommerce-owner-agreements.php')"
-  ssh_fixture 'rm -f /home/wprism/recovery-fixture/woocommerce-owner-agreements.php'
+  observation="$(ssh_fixture "cd /var/www/html && wp wprism executable-owner-observe --owner='plugin:woocommerce/woocommerce.php'")" \
+    || fail "WooCommerce scoped-deletion extension could not observe exact WooCommerce code"
+  owner_row="$(jq -ce --arg rationale \
+    'Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.' '
+      if keys == ["code_identity", "owner"]
+        and .owner == "plugin:woocommerce/woocommerce.php"
+        and .code_identity.format == "wprism-executable-tree/v1"
+        and .code_identity.root == "plugins/woocommerce"
+        and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+      then . + {rationale: $rationale}
+      else error("noncanonical executable owner observation")
+      end
+    ' <<<"$observation")" \
+    || fail "WooCommerce scoped-deletion extension received malformed WooCommerce code identity"
+  executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+    || fail "WooCommerce scoped-deletion extension could not assemble its WooCommerce agreement"
   jq -e '
     (map(select(.owner == "plugin:woocommerce/woocommerce.php")) | length) == 1
     and (map(select(.owner | startswith("theme:"))) | length) >= 1

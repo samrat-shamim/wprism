@@ -75,10 +75,19 @@ final class SnapshotPrunerFakeWpdb {
         foreach ($args as $arg) {
             $replacement = is_int($arg)
                 ? (string) $arg
-                : "'" . str_replace("'", "''", (string) $arg) . "'";
-            $sql = (string) preg_replace('/%[ds]/', $replacement, $sql, 1);
+                : "'" . addslashes((string) $arg) . "'";
+            $sql = (string) preg_replace_callback(
+                '/%[ds]/',
+                static fn(): string => $replacement,
+                $sql,
+                1
+            );
         }
         return $sql;
+    }
+
+    public function esc_like(string $text): string {
+        return addcslashes($text, '_%\\');
     }
 
     public function get_results(string $sql, string $output): array|false {
@@ -96,8 +105,11 @@ final class SnapshotPrunerFakeWpdb {
     public function get_var(string $sql): mixed {
         $this->reads[] = $sql;
         if (str_starts_with($sql, 'SHOW TABLES LIKE')) {
+            preg_match("/^SHOW TABLES LIKE '((?:\\\\.|[^'])*)'$/D", $sql, $match);
+            $probed = stripslashes((string) ($match[1] ?? ''));
+            $probed = strtr($probed, ['\\_' => '_', '\\%' => '%', '\\\\' => '\\']);
             foreach ($this->missingTables as $missingTable) {
-                if (str_contains($sql, "'$missingTable'")) {
+                if ($probed === $missingTable) {
                     return null;
                 }
             }

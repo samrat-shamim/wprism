@@ -275,6 +275,11 @@ final class DatabaseQueryIsolation {
             $verb,
             $lexed['call_adjacency']
         );
+        if ($verb === 'SHOW'
+            && in_array(strtoupper($tokens[1] ?? ''), ['TABLES', 'TABLE'], true)
+            && self::table_presence_identifier($sql) === null) {
+            self::violation('wprism: provider checked table-presence read requires exact LIKE evidence');
+        }
     }
 
     /**
@@ -370,8 +375,9 @@ final class DatabaseQueryIsolation {
      * Prove the string-literal rules used by the closed SQL lexer.
      *
      * The provider cannot issue SET through the profiled gate. Establishing
-     * this premise immediately before its callback therefore makes backslash
-     * and double-quote handling deterministic for every admitted statement.
+     * these premises immediately before its callback therefore makes
+     * backslash, quote and byte-boundary handling deterministic for every
+     * admitted statement.
      */
     public static function assert_profile_sql_mode(string $context): void {
         self::assert_active($context . ' SQL-mode premise');
@@ -379,31 +385,14 @@ final class DatabaseQueryIsolation {
             self::violation('wprism: native database SQL-mode premise crossed an invalid boundary state');
         }
 
-        global $wpdb;
-        $sql = 'SELECT @@SESSION.sql_mode AS sql_mode';
-        self::permit_once($sql, $context . ' SQL-mode premise');
-        if (property_exists($wpdb, 'last_error')) {
-            $wpdb->last_error = '';
-        }
-        $mode = null;
-        $failure = null;
         try {
-            $mode = $wpdb->get_var($sql);
-        } catch (\Throwable $caught) {
-            $failure = $caught;
-        }
-        try {
-            self::assert_permit_consumed($context . ' SQL-mode premise');
+            $session = DatabaseTransportBoundary::bind_session_state(
+                $context . ' session-state premise'
+            );
         } catch (\Throwable) {
-            self::violation('wprism: native database SQL-mode premise did not cross the exact query transport');
+            self::violation('wprism: native database session-state premise could not be bound');
         }
-        if ($failure !== null
-            || !is_string($mode)
-            || strlen($mode) > 4096
-            || preg_match('/[\x00-\x1f\x7f]/', $mode) === 1
-            || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            self::violation('wprism: native database SQL-mode premise could not be proven');
-        }
+        $mode = $session['sql_mode'];
 
         $tokens = $mode === '' ? [] : explode(',', strtoupper($mode));
         foreach ($tokens as $token) {
@@ -424,6 +413,20 @@ final class DatabaseQueryIsolation {
             'POSTGRESQL',
         ]) !== []) {
             self::violation('wprism: native database SQL-mode premise is incompatible with the closed SQL grammar');
+        }
+
+        // The lexer is byte-oriented and treats 0x5c as an escape byte.
+        // Server-reported single-byte sets are safe by construction, as are
+        // the exact UTF-8 families whose continuation bytes cannot be 0x5c.
+        // Refuse every other multibyte encoding: 0x5c may instead be a trail
+        // byte, making PHP and MariaDB/MySQL end a quoted token differently.
+        $characterSet = $session['character_set_client'];
+        $maxBytes = $session['character_set_client_max_bytes'];
+        $utf8Widths = ['utf8' => 3, 'utf8mb3' => 3, 'utf8mb4' => 4];
+        if ($maxBytes !== 1 && ($utf8Widths[$characterSet] ?? null) !== $maxBytes) {
+            self::violation(
+                'wprism: native database character-set premise is incompatible with the closed SQL grammar'
+            );
         }
     }
 
@@ -459,6 +462,17 @@ final class DatabaseQueryIsolation {
     /** Called only by the installed query gate. */
     public static function authorize_query(string $sql): void {
         self::assert_active('database query authorization');
+        if ($sql !== 'SHOW WARNINGS') {
+            try {
+                DatabaseTransportBoundary::assert_session_intact(
+                    'database query authorization transport boundary'
+                );
+            } catch (\Throwable) {
+                self::violation(
+                    'wprism: database session state changed inside the authored transaction'
+                );
+            }
+        }
         if (self::$permittedQuery !== null) {
             if (!hash_equals(self::$permittedQuery, $sql)) {
                 $pending = self::$permittedContext ?? 'unknown database control';
@@ -723,14 +737,6 @@ final class DatabaseQueryIsolation {
 
     /** @return array{reads:list<string>,writes:list<string>} */
     private static function profiled_query_tables(string $sql, string $structure): array {
-        if (preg_match(
-            "/^SHOW\\s+TABLE\\s+STATUS\\s+LIKE\\s+'([A-Za-z0-9_]{1,64})'\\s*$/Di",
-            trim($sql),
-            $match
-        ) === 1) {
-            return ['reads' => [$match[1]], 'writes' => []];
-        }
-
         $lexed = self::sql_tokens($sql);
         $tokens = $lexed['tokens'];
         if ($tokens === []) {
@@ -744,11 +750,11 @@ final class DatabaseQueryIsolation {
         if ($mutationTable !== null) {
             $writes[] = $mutationTable;
         } elseif ($verb === 'SHOW') {
-            $from = self::keyword_offset($tokens, 'FROM');
-            if ($from === null) {
-                self::violation('wprism: an unscoped SHOW is outside the native database profile grammar');
-            }
-            $reads[] = self::table_token($tokens, $from + 1);
+            // Only reviewed table-metadata forms reach this branch. Exact
+            // LIKE presence probes returned above; treating arbitrary SHOW
+            // ... FROM operands as tables would confuse database names with
+            // physical-table authority.
+            return ['reads' => [self::profiled_show_table($tokens)], 'writes' => []];
         } elseif ($verb === 'DESCRIBE' || $verb === 'DESC') {
             $reads[] = self::table_token($tokens, 1);
         } elseif ($verb !== 'SELECT' && $verb !== 'EXPLAIN') {
@@ -785,8 +791,8 @@ final class DatabaseQueryIsolation {
      * Recognize the exact physical-name probes admitted by a presence scope.
      * ProviderSdk's legacy topology snapshot uses
      * wpdb::esc_like(), whose `%s` rendering carries each underscore as the
-     * three SQL source bytes `\\_`; existing reviewed providers also use the
-     * conservative unescaped spelling. Both decode only to a safe identifier.
+     * three SQL source bytes `\\_`. Raw underscore is a LIKE wildcard, not
+     * exact physical-table evidence, and therefore has no presence authority.
      */
     private static function table_presence_identifier(string $sql): ?string {
         $trimmed = trim($sql);
@@ -798,14 +804,18 @@ final class DatabaseQueryIsolation {
                 return $exact[1];
             }
         }
-        if (preg_match("/^SHOW\\s+TABLES\\s+LIKE\\s+'([^']{1,256})'\\s*$/Di", $trimmed, $match) !== 1) {
+        if (preg_match(
+            "/^SHOW\\s+(?:TABLES|TABLE\\s+STATUS)\\s+LIKE\\s+'([^']{1,256})'\\s*$/Di",
+            $trimmed,
+            $match
+        ) !== 1) {
             return null;
         }
         $encoded = $match[1];
         $decoded = '';
         for ($offset = 0, $length = strlen($encoded); $offset < $length;) {
             $byte = $encoded[$offset];
-            if (ctype_alnum($byte) || $byte === '_') {
+            if (ctype_alnum($byte)) {
                 $decoded .= $byte;
                 $offset++;
                 continue;
@@ -896,6 +906,9 @@ final class DatabaseQueryIsolation {
         if ($depth !== 0) {
             self::violation('wprism: database SQL has unbalanced parentheses');
         }
+        if ($verb === 'SHOW') {
+            self::assert_closed_show_grammar($tokens);
+        }
         foreach ($upper as $offset => $token) {
             if (in_array($token, ['NEXT', 'PREVIOUS'], true)
                 && ($upper[$offset + 1] ?? null) === 'VALUE'
@@ -950,6 +963,73 @@ final class DatabaseQueryIsolation {
                 }
             }
         }
+    }
+
+    /** @param list<string> $tokens */
+    private static function assert_closed_show_grammar(array $tokens): void {
+        $upper = array_map('strtoupper', $tokens);
+        $count = count($tokens);
+        $valid = ($count === 4
+                && $upper[1] === 'TABLES'
+                && $upper[2] === 'LIKE'
+                && $tokens[3] === "''")
+            || ($count === 5
+                && $upper[1] === 'TABLE'
+                && $upper[2] === 'STATUS'
+                && $upper[3] === 'LIKE'
+                && $tokens[4] === "''")
+            || ($count === 4
+                && $upper[1] === 'CREATE'
+                && $upper[2] === 'TABLE'
+                && self::is_table_token($tokens, 3))
+            || ($count === 4
+                && in_array($upper[1], ['COLUMNS', 'INDEX'], true)
+                && $upper[2] === 'FROM'
+                && self::is_table_token($tokens, 3))
+            || ($count === 5
+                && $upper[1] === 'FULL'
+                && $upper[2] === 'COLUMNS'
+                && $upper[3] === 'FROM'
+                && self::is_table_token($tokens, 4))
+            || ($count === 8
+                && $upper[1] === 'KEYS'
+                && $upper[2] === 'FROM'
+                && self::is_table_token($tokens, 3)
+                && $upper[4] === 'WHERE'
+                && $upper[5] === 'KEY_NAME'
+                && $tokens[6] === '='
+                && $tokens[7] === "''");
+        if (!$valid) {
+            self::violation('wprism: a SHOW form is outside the closed native database profile grammar');
+        }
+    }
+
+    /** @param list<string> $tokens */
+    private static function profiled_show_table(array $tokens): string {
+        self::assert_closed_show_grammar($tokens);
+        $upper = array_map('strtoupper', $tokens);
+        if (($upper[1] ?? '') === 'FULL') {
+            return self::table_token($tokens, 4);
+        }
+        if (in_array($upper[1] ?? '', ['COLUMNS', 'INDEX', 'KEYS'], true)) {
+            return self::table_token($tokens, 3);
+        }
+        if (($upper[1] ?? '') === 'CREATE') {
+            return self::table_token($tokens, 3);
+        }
+        self::violation('wprism: a table-presence SHOW did not carry exact LIKE evidence');
+    }
+
+    /** @param list<string> $tokens */
+    private static function is_table_token(array $tokens, int $offset): bool {
+        $table = $tokens[$offset] ?? null;
+        if (is_string($table)
+            && str_starts_with($table, self::QUOTED_IDENTIFIER_TOKEN_PREFIX)) {
+            $table = substr($table, strlen(self::QUOTED_IDENTIFIER_TOKEN_PREFIX));
+        }
+        return is_string($table)
+            && preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) === 1
+            && ($tokens[$offset + 1] ?? null) !== '.';
     }
 
     /**

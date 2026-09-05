@@ -131,41 +131,6 @@ function check(bool $condition, string $message): void {
     }
 }
 
-/** @return array{format:string,root:string,sha256:string} */
-function woo_fixture_code_identity(string $absoluteRoot, string $canonicalRoot): array {
-    $files = [];
-    if (is_file($absoluteRoot)) {
-        $files[] = [
-            'path' => basename($canonicalRoot),
-            'sha256' => hash_file('sha256', $absoluteRoot),
-        ];
-    } else {
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($absoluteRoot, FilesystemIterator::SKIP_DOTS)
-        );
-        foreach ($iterator as $entry) {
-            if (!$entry instanceof SplFileInfo || !$entry->isFile() || $entry->isLink()) {
-                continue;
-            }
-            $files[] = [
-                'path' => str_replace('\\', '/', substr($entry->getPathname(), strlen($absoluteRoot) + 1)),
-                'sha256' => hash_file('sha256', $entry->getPathname()),
-            ];
-        }
-    }
-    usort($files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
-    $payload = [
-        'files' => $files,
-        'format' => 'wprism-executable-tree/v1',
-        'root' => $canonicalRoot,
-    ];
-    return [
-        'format' => 'wprism-executable-tree/v1',
-        'root' => $canonicalRoot,
-        'sha256' => hash('sha256', \WPrism\Canon::encode($payload)),
-    ];
-}
-
 /** @return array<string,mixed> */
 function woo_writer_witness(): array {
     return [
@@ -365,6 +330,9 @@ final class WooDeletionFakeWpdb extends \WPrismTest\FakeWpdb {
 
     public function get_var(string $sql, int $x = 0, int $y = 0): ?string {
         if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode'
+            || $sql === 'SELECT @@SESSION.character_set_client AS character_set_client'
+            || $sql === 'SELECT MAXLEN FROM information_schema.CHARACTER_SETS '
+                . 'WHERE CHARACTER_SET_NAME = @@SESSION.character_set_client'
             || $sql === 'SELECT CURRENT_USER()'
             || $sql === 'SELECT VERSION()'
             || $sql === 'SELECT DATABASE()'
@@ -786,14 +754,12 @@ $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $adapterLibrary = new ReflectionProperty(Policy::class, 'adapterLibrary');
 $adapterLibrary->setValue($policy, \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 $policy->manifests = [$fixtureManifest];
-$fixtureThemeIdentity = woo_fixture_code_identity(
-    WP_CONTENT_DIR . '/themes/twentytwentyfive',
-    'themes/twentytwentyfive'
-);
-$fixturePluginIdentity = woo_fixture_code_identity(
-    WP_PLUGIN_DIR . '/woocommerce',
-    'plugins/woocommerce'
-);
+$fixtureThemeIdentity = \WPrism\ExecutableOwnerBoundary::observe_owner(
+    'theme:twentytwentyfive'
+)['code_identity'];
+$fixturePluginIdentity = \WPrism\ExecutableOwnerBoundary::observe_owner(
+    'plugin:woocommerce/woocommerce.php'
+)['code_identity'];
 foreach (['post:product', 'post:product_variation'] as $selector) {
     $policy->manifests[0]['deletions'][$selector]['executable_owner_identities'] = [
         'plugin:woocommerce/woocommerce.php' => [$fixturePluginIdentity],
@@ -1746,10 +1712,9 @@ try {
 check($modifiedDeclaredPluginRefused,
     'a same-name and same-version modified adapter-declared plugin tree refuses before deletion');
 
-$modifiedPluginIdentity = woo_fixture_code_identity(
-    WP_PLUGIN_DIR . '/woocommerce',
-    'plugins/woocommerce'
-);
+$modifiedPluginIdentity = \WPrism\ExecutableOwnerBoundary::observe_owner(
+    'plugin:woocommerce/woocommerce.php'
+)['code_identity'];
 foreach ($policy->site['policy']['deletion_owner_agreements']['selectors'] as &$selectorAgreement) {
     foreach ($selectorAgreement['owners'] as &$ownerAgreement) {
         if (($ownerAgreement['owner'] ?? null) === 'plugin:woocommerce/woocommerce.php') {
@@ -1799,71 +1764,6 @@ file_put_contents(WPMU_PLUGIN_DIR . '/wprism-loader-dependency.inc', "<?php // d
 check($trustedLoaderDependencyRefused,
     'the implicitly trusted WPrism MU loader cannot bypass a changed executable dependency in its bound root');
 
-// Empty directories do not enter the identity payload, but they must still
-// consume a finite traversal budget. Pin both the recursion-depth and shared
-// entry-count refusals without manufacturing a 100k-entry test tree.
-$ownerBoundaryReflection = new ReflectionClass(\WPrism\ExecutableOwnerBoundary::class);
-$treeIdentityMethod = $ownerBoundaryReflection->getMethod('tree_identity');
-$deepThemeRoot = WP_CONTENT_DIR . '/themes/deep-owner-fixture';
-mkdir($deepThemeRoot, 0777, true);
-$deepCursor = $deepThemeRoot;
-for ($depth = 0; $depth < 130; $depth++) {
-    $deepCursor .= '/d';
-    mkdir($deepCursor);
-}
-$deepTreeRefused = false;
-try {
-    $treeIdentityMethod->invoke(null, $deepThemeRoot, 'themes/deep-owner-fixture');
-} catch (RuntimeException $failure) {
-    $deepTreeRefused = $failure->getMessage()
-        === 'wprism: executable owner tree exceeds its depth bound';
-}
-check($deepTreeRefused,
-    'executable-owner identity refuses an excessive empty-directory depth before unbounded traversal');
-
-$entryThemeRoot = WP_CONTENT_DIR . '/themes/entry-owner-fixture';
-mkdir($entryThemeRoot, 0777, true);
-file_put_contents($entryThemeRoot . '/functions.php', "<?php // entry-bound fixture\n");
-$walkTreeMethod = $ownerBoundaryReflection->getMethod('walk_tree');
-$entryRows = [];
-$entryBytes = 0;
-$entryCount = (int) $ownerBoundaryReflection->getConstant('MAX_TREE_ENTRIES');
-$entryTreeRefused = false;
-try {
-    $walkTreeMethod->invokeArgs(null, [
-        $entryThemeRoot,
-        '',
-        &$entryRows,
-        &$entryBytes,
-        &$entryCount,
-        0,
-    ]);
-} catch (RuntimeException $failure) {
-    $entryTreeRefused = $failure->getMessage()
-        === 'wprism: executable owner tree exceeds its entry bound';
-}
-check($entryTreeRefused && $entryRows === [] && $entryBytes === 0,
-    'every traversed executable-owner entry, including directories, shares one finite budget');
-$ownerBoundarySource = (string) file_get_contents(
-    $root . '/agent/src/Delete/ExecutableOwnerBoundary.php'
-);
-$phpFilesStart = strpos($ownerBoundarySource, 'private static function php_files(');
-$phpFilesEnd = $phpFilesStart === false
-    ? false
-    : strpos($ownerBoundarySource, 'private static function assert_plugin_owner(', $phpFilesStart);
-$phpFilesSource = $phpFilesStart !== false && $phpFilesEnd !== false
-    ? substr($ownerBoundarySource, $phpFilesStart, $phpFilesEnd - $phpFilesStart)
-    : '';
-$muBudgetCheck = strpos($phpFilesSource, 'self::consume_tree_entry($entries);');
-$muPhpFilter = strpos($phpFilesSource, "str_ends_with(strtolower(\$entry), '.php')");
-check(str_contains($phpFilesSource, '@opendir($root)')
-    && str_contains($phpFilesSource, 'readdir($handle)')
-    && !str_contains($phpFilesSource, 'scandir(')
-    && $muBudgetCheck !== false
-    && $muPhpFilter !== false
-    && $muBudgetCheck < $muPhpFilter,
-    'MU owner discovery streams entries and charges non-PHP names before roster filtering');
-
 $fakeWpdb->activationOptions['active_plugins'] = serialize([
     'woocommerce/woocommerce.php',
     'acme-extension/acme.php',
@@ -1881,10 +1781,9 @@ check($foreignPluginRefused,
 $pluginAgreementPolicy = clone $policy;
 $pluginAgreementPolicy->site['policy']['deletion_owner_agreements']['selectors'][0]['owners'][] = [
     'owner' => 'plugin:acme-extension/acme.php',
-    'code_identity' => woo_fixture_code_identity(
-        WP_PLUGIN_DIR . '/acme-extension',
-        'plugins/acme-extension'
-    ),
+    'code_identity' => \WPrism\ExecutableOwnerBoundary::observe_owner(
+        'plugin:acme-extension/acme.php'
+    )['code_identity'],
     'rationale' => 'A site file may not grant plugin deletion authority.',
 ];
 $pluginAgreementRefused = false;

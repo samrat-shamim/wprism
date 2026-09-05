@@ -3266,21 +3266,20 @@ namespace {
     $lastLockedTable = null;
     $blockedDdl = [];
     $GLOBALS['wpdb']->onQuery(static function (string $sql, string $method) use (
-        $primary,
         $ddlConnection,
         &$lastLockedTable,
         &$blockedDdl
     ): null {
         if ($lastLockedTable !== null) {
-            $GLOBALS['wpdb'] = $ddlConnection;
+            // A concurrent session does not replace the primary request's
+            // canonical wpdb object. Doing that models an in-process takeover,
+            // which the checked-read transport correctly poisons.
             try {
                 $ddlConnection->query("ALTER TABLE `$lastLockedTable` ADD COLUMN hostile int");
             } catch (RuntimeException $failure) {
                 if (str_contains($failure->getMessage(), 'metadata lock wait timeout')) {
                     $blockedDdl[$lastLockedTable] = true;
                 }
-            } finally {
-                $GLOBALS['wpdb'] = $primary;
             }
             $lastLockedTable = null;
         }

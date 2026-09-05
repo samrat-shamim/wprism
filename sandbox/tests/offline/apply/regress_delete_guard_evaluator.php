@@ -103,6 +103,16 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public string $protectedTransactionPassword = 'old-password';
     public string $protectedConnectionId = '7001';
     public string $protectedUuid = '019200cc-0000-7000-8000-0000000000c7';
+    /** @var array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    private array $databaseSessionState = [
+        'database' => 'wordpress',
+        'sql_mode' => '',
+        'character_set_client' => 'utf8mb4',
+        'character_set_connection' => 'utf8mb4',
+        'character_set_results' => 'utf8mb4',
+        'collation_connection' => 'utf8mb4_unicode_ci',
+        'character_set_client_max_bytes' => 4,
+    ];
 
     /** @param list<array<string,mixed>> $indexRows */
     public function __construct(
@@ -321,6 +331,16 @@ final class DeleteGuardEvaluatorFakeWpdb {
         return $previous;
     }
 
+    /** @return array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    public function wprism_test_database_session_state(): array {
+        return $this->databaseSessionState;
+    }
+
+    /** @param array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} $state */
+    public function wprism_test_restore_database_session_state(array $state): void {
+        $this->databaseSessionState = $state;
+    }
+
     public function get_var(string $sql): int|string|null|false {
         $sql = $this->filterQuery($sql);
         $this->queries[] = $sql;
@@ -335,6 +355,13 @@ final class DeleteGuardEvaluatorFakeWpdb {
         }
         if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode') {
             return '';
+        }
+        if ($sql === 'SELECT @@SESSION.character_set_client AS character_set_client') {
+            return 'utf8mb4';
+        }
+        if ($sql === 'SELECT MAXLEN FROM information_schema.CHARACTER_SETS '
+            . 'WHERE CHARACTER_SET_NAME = @@SESSION.character_set_client') {
+            return '4';
         }
         if (str_contains($sql, 'information_schema.TRIGGERS')) {
             $count = 0;

@@ -238,6 +238,7 @@ $expectedOptions = [
         'classic-editor-replace' => 'authored',
     ],
     'code-snippets' => [
+        'active_shared_network_snippets' => 'env',
         'code_snippets_settings' => 'env',
         'code_snippets_version' => 'runtime',
     ],

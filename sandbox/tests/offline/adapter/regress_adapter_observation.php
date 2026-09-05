@@ -86,6 +86,10 @@ namespace {
         /** @var list<string> */
         public array $queries = [];
 
+        public function esc_like(string $value): string {
+            return addcslashes($value, '_%\\');
+        }
+
         public function prepare(string $query, mixed ...$args): string {
             foreach ($args as $arg) {
                 if (is_array($arg)) {

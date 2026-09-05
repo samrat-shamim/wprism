@@ -4,7 +4,9 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/ExactOptionReader.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
+require_once __DIR__ . '/../Kernel/FilesystemTreeSnapshot.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
+require_once __DIR__ . '/../Kernel/PhpLiteralData.php';
 require_once __DIR__ . '/../Policy/LegacyRuntimeExecutionDebt.php';
 if (!class_exists(ManifestProviderRuntime::class, false)) {
     require_once __DIR__ . '/ManifestProviderRuntime.php';
@@ -52,14 +54,49 @@ final class ProviderSdk {
     public const DATABASE_POSTIMAGE_NOT_APPLIED = 'not_applied';
     public const DATABASE_POSTIMAGE_UNKNOWN = 'unknown';
 
+    /**
+     * Observe one exact confined generated-file tree through the shared
+     * bounded/race-checked engine walker.
+     *
+     * @return array{
+     *   root:string,
+     *   directories:list<string>,
+     *   files:list<array{path:string,bytes:int,mtime:int,sha256:string}>
+     * }
+     */
+    public static function filesystem_tree_snapshot(
+        string $containmentRoot,
+        string $absoluteRoot,
+        string $canonicalRoot
+    ): array {
+        return FilesystemTreeSnapshot::observe(
+            $containmentRoot,
+            $absoluteRoot,
+            $canonicalRoot,
+            'provider filesystem',
+            'provider filesystem containment root'
+        );
+    }
+
+    /** Read a digest-witnessed PHP return-literal without executing target bytes. */
+    public static function php_literal_data(string $path, string $expectedSha256): mixed {
+        return PhpLiteralData::read($path, $expectedSha256);
+    }
+
     public static function checked_get_var(string $sql, string $context, $wpdb = null): mixed {
-        if (!self::permits_legacy_named_mutex_statement($sql)) {
+        $legacyPermit = self::permits_legacy_named_mutex_statement($sql);
+        if (!$legacyPermit) {
             DatabaseQueryIsolation::assert_provider_read_statement($sql);
         }
         $wpdb ??= $GLOBALS['wpdb'];
         try {
             $wpdb->last_error = '';
-            $value = $wpdb->get_var($sql);
+            $value = self::checked_read_transport(
+                $sql,
+                $context,
+                $wpdb,
+                static fn(): mixed => $wpdb->get_var($sql)
+            );
         } catch (\Throwable $failure) {
             throw self::checked_read_failure($context, null, $failure);
         }
@@ -75,7 +112,12 @@ final class ProviderSdk {
         $wpdb ??= $GLOBALS['wpdb'];
         try {
             $wpdb->last_error = '';
-            $rows = $wpdb->get_col($sql);
+            $rows = self::checked_read_transport(
+                $sql,
+                $context,
+                $wpdb,
+                static fn(): mixed => $wpdb->get_col($sql)
+            );
         } catch (\Throwable $failure) {
             throw self::checked_read_failure($context, null, $failure);
         }
@@ -91,7 +133,12 @@ final class ProviderSdk {
         $wpdb ??= $GLOBALS['wpdb'];
         try {
             $wpdb->last_error = '';
-            $row = $wpdb->get_row($sql, ARRAY_A);
+            $row = self::checked_read_transport(
+                $sql,
+                $context,
+                $wpdb,
+                static fn(): mixed => $wpdb->get_row($sql, ARRAY_A)
+            );
         } catch (\Throwable $failure) {
             throw self::checked_read_failure($context, null, $failure);
         }
@@ -112,7 +159,12 @@ final class ProviderSdk {
         $wpdb ??= $GLOBALS['wpdb'];
         try {
             $wpdb->last_error = '';
-            $rows = $wpdb->get_results($sql, ARRAY_A);
+            $rows = self::checked_read_transport(
+                $sql,
+                $context,
+                $wpdb,
+                static fn(): mixed => $wpdb->get_results($sql, ARRAY_A)
+            );
         } catch (\Throwable $failure) {
             throw self::checked_read_failure($context, $failureMessage, $failure);
         }
@@ -378,6 +430,78 @@ final class ProviderSdk {
             0,
             $previous
         );
+    }
+
+    /**
+     * Give legacy standalone checked reads the same parser/session premises as
+     * a profiled provider callback. The exact permit proves that the selected
+     * wpdb object crossed the engine-owned query gate; a caller-supplied second
+     * database object can neither borrow the global session proof nor bypass
+     * WordPress's transport.
+     *
+     * @template T
+     * @param callable():T $operation
+     * @return T
+     */
+    private static function checked_read_transport(
+        string $sql,
+        string $context,
+        mixed $wpdb,
+        callable $operation
+    ): mixed {
+        if (!is_object($wpdb) || ($GLOBALS['wpdb'] ?? null) !== $wpdb) {
+            throw new DatabaseQueryIsolationViolationException(
+                'wprism: provider checked read requires the exact WordPress database object'
+            );
+        }
+        if (DatabaseQueryIsolation::is_active()) {
+            return $operation();
+        }
+
+        DatabaseQueryIsolation::begin($context . ' checked-read boundary');
+        $result = null;
+        $failure = null;
+        try {
+            DatabaseQueryIsolation::assert_profile_sql_mode($context . ' checked-read');
+            DatabaseQueryIsolation::permit_once($sql, $context . ' checked-read transport');
+            $result = $operation();
+            DatabaseQueryIsolation::assert_permit_consumed($context . ' checked-read transport');
+        } catch (\Throwable $caught) {
+            $failure = $caught;
+        }
+
+        try {
+            DatabaseQueryIsolation::finish();
+        } catch (\Throwable $finishFailure) {
+            // A getter implemented outside stock wpdb can mutate session state
+            // after consuming the permit. Quarantine it, restore the bound
+            // state, and only then release the hooks; ordinary stock wpdb
+            // reaches this path only if its native session actually drifted.
+            try {
+                DatabaseQueryIsolation::violation(
+                    'wprism: provider checked read changed its database session state'
+                );
+            } catch (DatabaseQueryIsolationViolationException) {
+                // violation() exists to poison before throwing.
+            }
+            try {
+                DatabaseQueryIsolation::prepare_cleanup($context . ' checked-read cleanup');
+                DatabaseQueryIsolation::finish();
+            } catch (\Throwable $cleanupFailure) {
+                throw new DatabaseQueryIsolationViolationException(
+                    'wprism: provider checked read could not restore its database boundary',
+                    0,
+                    $failure ?? $cleanupFailure
+                );
+            }
+            if ($failure === null) {
+                $failure = $finishFailure;
+            }
+        }
+        if ($failure !== null) {
+            throw $failure;
+        }
+        return $result;
     }
 
     /** @param list<string> $tables @return array<string,bool> */

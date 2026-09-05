@@ -91,7 +91,7 @@ source "lib/pair_db.sh"
 # shellcheck source=../lib/pair_compose.sh
 source "lib/pair_compose.sh"
 
-[ -r "lib/pair_lease.sh" ] || fail "pair lease library is missing: lib/pair_lease.sh (parallel evidence lanes cannot reserve names/ports safely)"
+[ -r "lib/pair_lease.sh" ] || fail "pair lease library is missing: lib/pair_lease.sh (parallel evidence lanes cannot reserve complete pair namespaces safely)"
 # shellcheck source=../lib/pair_lease.sh
 source "lib/pair_lease.sh"
 
@@ -806,6 +806,19 @@ cmd_reset() {
   echo "  probe against the databases just dropped here (issue #3412)."
 }
 
+cmd_repo_host() {
+  local name="${1:?usage: pair.sh repo-host <name> [1|2|both]}" lease_locked=0
+  validate_name "$name"
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
+  pair_siterepo_host "$@"
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
+}
+
 cmd_stop() {
   # Release-without-destroy: a stopped pair frees ALL of its RAM and CPU
   # (idle Apache+MariaDB churn is real — measured ~10-15MiB + fractional
@@ -973,6 +986,9 @@ cmd_lease_batch_acquire() {
   reserve_pair_budget ""
   [ $(( ${#requests[@]} / 3 )) -le "$PAIR_BUDGET_AVAILABLE" ] \
     || fail "pair lease batch requests $((${#requests[@]} / 3)) slots but only $PAIR_BUDGET_AVAILABLE are available"
+  # pair_lease_acquire_batch keeps every namespace fact in this one locked
+  # transaction: Compose/name/ports/roots/install markers, then the exact
+  # persistent database schemas, then lock-serialized atomic-file publication.
   pair_lease_acquire_batch "$token" "$owner_pid" "$owner_start" "${requests[@]}"
   disarm_budget_up_cleanup
 }
@@ -1094,7 +1110,7 @@ USAGE
 case "${1:-}" in
   up)      shift; cmd_up "$@" ;;
   reset)   shift; cmd_reset "$@" ;;
-  repo-host) shift; pair_siterepo_host "$@" ;;
+  repo-host) shift; cmd_repo_host "$@" ;;
   stop)    shift; cmd_stop "$@" ;;
   start)   shift; cmd_start "$@" ;;
   destroy) shift; cmd_destroy "$@" ;;

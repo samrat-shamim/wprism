@@ -501,7 +501,10 @@ final class Snapshot {
             }
             $prefixed = $wpdb->prefix . $table;
             $pk = preg_replace('/[^A-Za-z0-9_]/', '', (string) $decl['pk']);
-            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+            if (!$wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($prefixed)
+            ))) {
                 continue;
             }
             foreach (Ledger::all_map() as $map) {
@@ -530,7 +533,10 @@ final class Snapshot {
             }
             $prefixed = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $table);
             $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
-            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+            if (!$wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($prefixed)
+            ))) {
                 continue;
             }
             $missing = $wpdb->get_var($wpdb->prepare(
@@ -847,7 +853,10 @@ final class Snapshot {
                 continue;
             }
             $prefixed = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $table);
-            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed));
+            $exists = $wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($prefixed)
+            ));
             self::checkpoint_observation_read($observationReadCheckpoint);
             if (!$exists) {
                 continue;

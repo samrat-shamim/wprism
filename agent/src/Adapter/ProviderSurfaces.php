@@ -59,11 +59,11 @@ require_once __DIR__ . '/ProviderSdk.php';
  */
 final class ProviderSurfaces {
     /**
-     * One checked read per observable surface per pass — the number the
-     * suite pins, so the cost of this check is a recorded fact rather than an
-     * impression.
+     * One target read plus bind, immediate pre-transport, and terminal session
+     * observations per observable surface per pass. The suite pins the full
+     * server-query cost, including direct mysqli proofs absent from wpdb logs.
      */
-    public const QUERIES_PER_SURFACE_PER_PASS = 1;
+    public const QUERIES_PER_SURFACE_PER_PASS = 4;
 
     /** Two passes: one before the provider call, one after. */
     public const PASSES_PER_INVOKE = 2;

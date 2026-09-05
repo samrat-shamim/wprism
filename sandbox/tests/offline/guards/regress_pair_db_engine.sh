@@ -66,10 +66,40 @@ cat > "$FAKE_BIN/docker" <<FAKE_DOCKER
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "\$*" >> "$DOCKER_LOG"
-# Admin SQL is the only invocation this suite lets succeed; anything else is a
-# sentinel so an unexpected escape to a real daemon is loud, not skipped.
+# Running the copied launcher from a real throwaway worktree deliberately
+# activates its shared budget/lease boundary before stop. Supply exact empty
+# Compose state and finite host capacity so this fixture reaches the engine
+# propagation call it owns, while every unrecognized Docker call still fails.
+if [ "\$*" = "compose ls --format json" ]; then
+  printf '[]\n'
+  exit 0
+fi
+if [ "\$*" = "info -f {{.NCPU}}" ]; then
+  printf '8\n'
+  exit 0
+fi
+if [ "\$*" = "info -f {{.MemTotal}}" ]; then
+  printf '17179869184\n'
+  exit 0
+fi
+# Beyond those exact budget probes, admin SQL is the only invocation this
+# suite lets succeed; anything else is a sentinel so an unexpected escape to
+# a real daemon is loud, not skipped.
 if [ "\${1:-}" = exec ]; then
-  cat >> "$SQL_LOG" 2>/dev/null || true
+  sql="\$(cat 2>/dev/null || true)"
+  printf '%s\n' "\$sql" >> "$SQL_LOG"
+  if grep -Fq '__WPRISM_PAIR_SCHEMA_COUNT__' <<<"\$sql"; then
+    [ "\${WPRISM_PAIR_TEST_SCHEMA_NO_WITNESS:-0}" = 0 ] || exit 0
+    rows="\${WPRISM_PAIR_TEST_SCHEMA_ROWS:-}"
+    count="\$(printf '%s\n' "\$rows" | awk 'NF { count++ } END { print count + 0 }')"
+    printf 'wprism_pair_schema_count\n__WPRISM_PAIR_SCHEMA_COUNT__:%s\n' "\$count"
+    if [ "\$count" -gt 0 ]; then
+      printf 'wprism_pair_schema_found\n'
+      while IFS= read -r schema; do
+        [ -n "\$schema" ] && printf '__WPRISM_PAIR_SCHEMA_FOUND__:%s\n' "\$schema"
+      done <<<"\$rows"
+    fi
+  fi
   exit 0
 fi
 printf 'FAKE-DOCKER-SENTINEL: %s\n' "\$*" >&2
@@ -129,6 +159,43 @@ if grep -Fq 'GRANT TRIGGER ON ' "$SQL_LOG"; then
   fail "a narrower exact TRIGGER row would shadow ordinary wildcard privileges on MariaDB: $(cat "$SQL_LOG")"
 fi
 pass "each concrete schema receives normal WordPress authority and directly observable TRIGGER authority in one row"
+
+say "lease admission proves both exact pair schemas absent through the selected engine"
+: > "$SQL_LOG"
+unset WPRISM_PAIR_TEST_SCHEMA_ROWS
+pair_db_assert_pair_schemas_absent leaseprobe
+grep -Fq "WHERE SCHEMA_NAME IN ('wp_leaseprobe1','wp_leaseprobe2');" "$SQL_LOG" \
+  || fail "database absence census did not query both exact schemas: $(cat "$SQL_LOG")"
+if grep -Fq "wp_leaseprobe%" "$SQL_LOG"; then
+  fail "database absence census widened exact pair authority to a pattern: $(cat "$SQL_LOG")"
+fi
+pass "an empty information-schema census admits only the two exact schema names"
+
+for orphan in wp_leaseprobe1 wp_leaseprobe2; do
+  export WPRISM_PAIR_TEST_SCHEMA_ROWS="$orphan"
+  err="$TMP/schema-$orphan.txt"
+  if (pair_db_assert_pair_schemas_absent leaseprobe) > /dev/null 2>"$err"; then
+    fail "database absence census admitted orphan schema $orphan"
+  fi
+  grep -Fq "pair database schema already exists ($orphan); pair namespace is not empty" "$err" \
+    || fail "orphan schema $orphan produced the wrong refusal: $(cat "$err")"
+done
+unset WPRISM_PAIR_TEST_SCHEMA_ROWS
+pass "either side's orphan schema refuses before a lease can own its destructive cleanup"
+
+say "database census requires an explicit, unique empty-result witness"
+err="$TMP/schema-census-transport.txt"
+if (WPRISM_PAIR_TEST_SCHEMA_NO_WITNESS=1 pair_db_assert_pair_schemas_absent leaseprobe) > /dev/null 2>"$err"; then
+  fail "database absence census treated missing output as an empty namespace"
+fi
+grep -Fq 'pair database absence census returned no unique count witness' "$err" \
+  || fail "missing census witness produced the wrong refusal: $(cat "$err")"
+if (pair_db_assert_pair_schemas_absent 'lease-probe') > /dev/null 2>"$err"; then
+  fail "database absence census accepted an unsafe pair name"
+fi
+grep -Fq "pair database absence census received unsafe pair name 'lease-probe'" "$err" \
+  || fail "unsafe schema-census name produced the wrong refusal: $(cat "$err")"
+pass "missing census output refuses, and the DB transport independently retains the pair-name grammar"
 
 say "every database-creating command establishes the shared principal before its first grant"
 for creator in cmd_up cmd_reset; do
@@ -224,27 +291,32 @@ say "a non-up subcommand on the mysql lane still writes the mysql server into .e
 # the invoked path, not the link target) gives the run a real lib/ and a
 # throwaway .env, so this suite never touches the worktree's own sandbox/.env.
 SUBCMD_ROOT="$TMP/subcmd"
-mkdir -p "$SUBCMD_ROOT/sandbox/bin"
+mkdir -p "$SUBCMD_ROOT/sandbox/bin" \
+  "$SUBCMD_ROOT/agent" "$SUBCMD_ROOT/adapter-packages" "$SUBCMD_ROOT/platform"
+SUBCMD_ROOT="$(cd "$SUBCMD_ROOT" && pwd -P)"
+git -C "$SUBCMD_ROOT" init -q
 ln -s "$PAIR_SH" "$SUBCMD_ROOT/sandbox/bin/pair.sh"
 ln -s "$ROOT/sandbox/lib" "$SUBCMD_ROOT/sandbox/lib"
 : > "$DOCKER_LOG"
-# PAIR_SOURCE_ROOT short-circuits pair_identity_source_root()'s git resolution
-# (pair_compose.sh:34-40); the fake docker makes the compose call itself fail,
-# which is fine -- .env is written before that call.
+# The throwaway repository keeps this copied-launcher fixture inside the same
+# physical-worktree contract that pair_identity_export_source_mounts() now
+# revalidates. The fake docker makes the compose call itself fail, which is
+# fine -- .env is written before that call.
+stop_output="$TMP/stop-mysql.txt"
 if (
-  export PAIR_SOURCE_ROOT="$TMP/fake-source-root" WPRISM_DB_ENGINE=mysql
+  export PAIR_SOURCE_ROOT="$SUBCMD_ROOT" WPRISM_DB_ENGINE=mysql
   bash "$SUBCMD_ROOT/sandbox/bin/pair.sh" stop probe
-) >/dev/null 2>&1; then
+) >"$stop_output" 2>&1; then
   fail "the fake docker should have made 'pair.sh stop' fail; it did not run compose at all"
 fi
 grep -Fq 'compose -p wprism-probe -f pair.yml stop' "$DOCKER_LOG" \
-  || fail "pair.sh stop did not reach its compose call: $(cat "$DOCKER_LOG")"
+  || fail "pair.sh stop did not reach its compose call: $(cat "$DOCKER_LOG"); output: $(cat "$stop_output")"
 grep -Fqx 'WPRISM_DB_HOST=wprism-shared-mysql' "$SUBCMD_ROOT/sandbox/.env" \
   || fail "stop on the mysql lane wrote the wrong engine into .env: $(cat "$SUBCMD_ROOT/sandbox/.env")"
 # And the default engine's non-up subcommands still write the pre-lane value.
 : > "$DOCKER_LOG"
 (
-  export PAIR_SOURCE_ROOT="$TMP/fake-source-root"
+  export PAIR_SOURCE_ROOT="$SUBCMD_ROOT"
   unset WPRISM_DB_ENGINE
   bash "$SUBCMD_ROOT/sandbox/bin/pair.sh" stop probe
 ) >/dev/null 2>&1 || true
@@ -279,25 +351,25 @@ say "pair_compose_configure persists WPRISM_DB_HOST into sandbox/.env for subpro
 source "$IDENTITY_LIB"
 # shellcheck source=../../../lib/pair_compose.sh
 source "$COMPOSE_LIB"
-ENV_CWD="$TMP/envcwd"
+ENV_CWD="$SUBCMD_ROOT/envcwd"
 mkdir -p "$ENV_CWD"
 (
   cd "$ENV_CWD"
-  PAIR_SOURCE_ROOT="$TMP/fake-source-root"
+  PAIR_SOURCE_ROOT="$SUBCMD_ROOT"
   unset WPRISM_DB_HOST
   pair_compose_configure probe
 )
 grep -Fqx 'WPRISM_DB_HOST=wprism-shared-db' "$ENV_CWD/.env" \
   || fail ".env must carry the defaulted WPRISM_DB_HOST; got: $(cat "$ENV_CWD/.env")"
-grep -Fqx "WPRISM_AGENT_SRC=$TMP/fake-source-root/agent" "$ENV_CWD/.env" \
+grep -Fqx "WPRISM_AGENT_SRC=$SUBCMD_ROOT/agent" "$ENV_CWD/.env" \
   || fail ".env lost WPRISM_AGENT_SRC: $(cat "$ENV_CWD/.env")"
-grep -Fqx "WPRISM_ADAPTER_PACKAGES_SRC=$TMP/fake-source-root/adapter-packages" "$ENV_CWD/.env" \
+grep -Fqx "WPRISM_ADAPTER_PACKAGES_SRC=$SUBCMD_ROOT/adapter-packages" "$ENV_CWD/.env" \
   || fail ".env lost WPRISM_ADAPTER_PACKAGES_SRC: $(cat "$ENV_CWD/.env")"
-grep -Fqx "WPRISM_PLATFORM_SRC=$TMP/fake-source-root/platform" "$ENV_CWD/.env" \
+grep -Fqx "WPRISM_PLATFORM_SRC=$SUBCMD_ROOT/platform" "$ENV_CWD/.env" \
   || fail ".env lost WPRISM_PLATFORM_SRC: $(cat "$ENV_CWD/.env")"
 (
   cd "$ENV_CWD"
-  PAIR_SOURCE_ROOT="$TMP/fake-source-root"
+  PAIR_SOURCE_ROOT="$SUBCMD_ROOT"
   export WPRISM_DB_HOST=wprism-shared-mysql
   pair_compose_configure probe
 )

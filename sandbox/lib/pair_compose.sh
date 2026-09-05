@@ -142,6 +142,32 @@ pair_compose_all_pairs() { # pair_compose_all_pairs — one live/stopped pair na
   '
 }
 
+pair_compose_project_resources() { # pair_compose_project_resources <name> — raw exact-label census
+  local name="$1" label containers volumes networks value
+  pair_identity_validate_name "$name"
+  label="com.docker.compose.project=wprism-${name}"
+
+  # `docker compose ls` is a convenience projection, not an ownership
+  # boundary: an interrupted `down` can leave only a labeled volume/network,
+  # at which point the project disappears from that projection while its
+  # persistent bytes remain. Query every Docker resource class directly by
+  # Compose's exact project label and check every command independently.
+  containers="$(docker ps -aq --filter "label=$label" 2>/dev/null)" || return 1
+  volumes="$(docker volume ls -q --filter "label=$label" 2>/dev/null)" || return 1
+  networks="$(docker network ls -q --filter "label=$label" 2>/dev/null)" || return 1
+  for value in $containers; do printf 'container\t%s\n' "$value"; done
+  for value in $volumes; do printf 'volume\t%s\n' "$value"; done
+  for value in $networks; do printf 'network\t%s\n' "$value"; done
+}
+
+pair_compose_assert_project_resources_absent() { # pair_compose_assert_project_resources_absent <name>
+  local name="$1" resources
+  resources="$(pair_compose_project_resources "$name")" \
+    || fail "could not census raw Docker resources for pair '$name'; refusing without exact project-label evidence"
+  [ -z "$resources" ] \
+    || fail "pair '$name' has existing raw Docker resources labeled com.docker.compose.project=wprism-${name}: $(printf '%s' "$resources" | tr '\n' ' ')"
+}
+
 pair_compose_pair_bound_ports() { # pair_compose_pair_bound_ports <name> — persisted host ports, including stopped containers
   local name="$1" container containers observed port ports=''
   containers="$(docker ps -a \

@@ -99,10 +99,18 @@ namespace {
             return ['sql' => $sql, 'args' => $args];
         }
 
+        public function esc_like(string $text): string {
+            return addcslashes($text, '_%\\');
+        }
+
         public function get_var($query) {
             [$sql, $args] = $this->unwrap($query);
             if (str_contains($sql, 'SHOW TABLES LIKE')) {
-                $table = $this->strip((string) ($args[0] ?? ''));
+                $physical = strtr(
+                    (string) ($args[0] ?? ''),
+                    ['\\_' => '_', '\\%' => '%', '\\\\' => '\\']
+                );
+                $table = $this->strip($physical);
                 return isset($this->tables[$table]) ? $this->prefix . $table : null;
             }
             if (preg_match('/^SELECT `([^`]+)` FROM `([^`]+)` WHERE `\1` = %d LIMIT 1$/', $sql, $match)) {

@@ -37,8 +37,19 @@ pair_identity_source_root() {
 # sandbox/.env is only a subprocess fallback: another pair lifecycle command
 # can rewrite that shared file while a parallel evidence lane is still active.
 pair_identity_export_source_mounts() {
-  local root="${PAIR_SOURCE_ROOT:-}"
-  if [ -z "$root" ]; then
+  local root requested="${WPRISM_SOURCE_ROOT:-}"
+  if [ -n "$requested" ]; then
+    # PAIR_SOURCE_ROOT is a process-local cache for direct Compose callers,
+    # not authority over a newly explicit selection. A long-lived harness can
+    # legitimately select a second worktree between legs; re-resolve the
+    # explicit path so stale exported mount variables cannot win that change.
+    root="$(pair_identity_source_root)" || return 1
+  elif [ -n "${PAIR_SOURCE_ROOT:-}" ]; then
+    # A cached selection still crosses the same physical-worktree boundary as
+    # a fresh WPRISM_SOURCE_ROOT. Revalidate it rather than trusting a path an
+    # inherited shell could have poisoned before this library was sourced.
+    root="$(WPRISM_SOURCE_ROOT="$PAIR_SOURCE_ROOT" pair_identity_source_root)" || return 1
+  else
     root="$(pair_identity_source_root)" || return 1
   fi
   PAIR_SOURCE_ROOT="$root"

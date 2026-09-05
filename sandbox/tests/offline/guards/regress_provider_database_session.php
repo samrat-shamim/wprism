@@ -418,6 +418,11 @@ $unsafeCheckedReads = [
     'EXPLAIN wp_wprism_provider_state',
     'SELECT NEXT VALUE FOR wp_wprism_private_sequence',
     'SELECT PREVIOUS VALUE FOR wp_wprism_private_sequence',
+    "SHOW TABLES LIKE 'wp_wprism_provider_state'",
+    "SHOW TABLE STATUS LIKE 'wp_wprism_provider_state'",
+    'SHOW TABLES FROM wp_wprism_provider_state',
+    'SHOW TRIGGERS FROM wp_wprism_provider_state',
+    'SHOW OPEN TABLES FROM wp_wprism_provider_state',
 ];
 foreach ($unsafeCheckedReads as $offset => $sql) {
     $wpdb = FakeWpdb::install()->seedTable('wp_wprism_provider_state', [[
@@ -444,11 +449,12 @@ foreach ($unsafeCheckedReads as $offset => $sql) {
 $acceptedCheckedReadGrammar = [
     'SELECT provider_key FROM wp_wprism_provider_state',
     "SELECT '-- ; # /* value */' AS literal_value",
-    "SHOW TABLES LIKE 'wp_wprism_provider_state'",
+    "SHOW TABLES LIKE 'wp\\\\_wprism\\\\_provider\\\\_state'",
     'SHOW CREATE TABLE `wp_wprism_provider_state`',
-    "SHOW TABLE STATUS LIKE 'wp_wprism_provider_state'",
+    "SHOW TABLE STATUS LIKE 'wp\\\\_wprism\\\\_provider\\\\_state'",
     'SHOW FULL COLUMNS FROM `wp_wprism_provider_state`',
     'SHOW INDEX FROM `wp_wprism_provider_state`',
+    "SHOW KEYS FROM `wp_wprism_provider_state` WHERE Key_name = 'PRIMARY'",
     'DESCRIBE `wp_wprism_provider_state`',
     'EXPLAIN SELECT provider_key FROM wp_wprism_provider_state',
     'SELECT DATABASE(), COUNT(*) FROM wp_wprism_provider_state',
@@ -505,7 +511,10 @@ $legacyMutexResults = invoke_legacy_named_mutex_probe(
 );
 wprism_check(
     array_map('strval', $legacyMutexResults) === ['1', '1']
-        && $wpdb->queries() === [$legacyMutexAcquire, $legacyMutexRelease],
+        && array_values(array_filter(
+            $wpdb->queries(),
+            static fn(string $sql): bool => $sql === $legacyMutexAcquire || $sql === $legacyMutexRelease
+        )) === [$legacyMutexAcquire, $legacyMutexRelease],
     'only the exact loader identity and capability admit the frozen get-var named-mutex pair'
 );
 
@@ -638,7 +647,10 @@ wprism_check(
     $nestedLegacyMutex[0] instanceof RuntimeException
         && str_contains($nestedLegacyMutex[0]->getMessage(), 'cannot re-enter')
         && (string) $nestedLegacyMutex[1] === '1'
-        && $nestedLegacyMutex[2] === [$legacyMutexAcquire],
+        && array_values(array_filter(
+            $nestedLegacyMutex[2],
+            static fn(string $sql): bool => $sql === $legacyMutexAcquire
+        )) === [$legacyMutexAcquire],
     'nested provider dispatch is refused without clearing the outer exact legacy authority'
 );
 
@@ -793,6 +805,78 @@ wprism_check_same(
     'the read-only session leaves no transaction open'
 );
 
+$profiledStatement = 'SELECT provider_key FROM wp_wprism_provider_state LIMIT 1';
+$wpdb = provider_database_session_fixture();
+$baselineSession = $wpdb->wprism_test_database_session_state();
+$wpdb->resetLog();
+$sqlModeDrift = provider_database_session_failure(
+    static fn(): mixed => ProviderDatabaseSession::read_only_snapshot(
+        'provider mutable SQL-mode fixture',
+        provider_database_read_profile(),
+        static function () use ($wpdb, $profiledStatement): mixed {
+            $wpdb->set_sql_mode(['NO_BACKSLASH_ESCAPES']);
+            return $wpdb->query($profiledStatement);
+        }
+    )
+);
+wprism_check(
+    $sqlModeDrift instanceof DatabaseQueryIsolationViolationException
+        && !in_array($profiledStatement, $wpdb->queries(), true)
+        && $wpdb->wprism_test_database_session_state() === $baselineSession
+        && $wpdb->activeTransactionIsolation() === null,
+    'stock wpdb SQL-mode mutation is refused before the next profiled transport and cleanup restores the exact session'
+);
+
+$wpdb = provider_database_session_fixture();
+$baselineSession = $wpdb->wprism_test_database_session_state();
+$charsetDrift = provider_database_session_failure(
+    static fn(): mixed => ProviderDatabaseSession::read_only_snapshot(
+        'provider mutable charset fixture',
+        provider_database_read_profile(),
+        static function () use ($wpdb): string {
+            $wpdb->set_charset(null, 'latin1', 'latin1_swedish_ci');
+            return 'no provider query after mutation';
+        }
+    )
+);
+$charsetDriftCause = $charsetDrift;
+$charsetDriftIsolationCause = false;
+for ($depth = 0; $depth < 16 && $charsetDriftCause instanceof Throwable; $depth++) {
+    if ($charsetDriftCause instanceof DatabaseQueryIsolationViolationException) {
+        $charsetDriftIsolationCause = true;
+        break;
+    }
+    $charsetDriftCause = $charsetDriftCause->getPrevious();
+}
+wprism_check(
+    $charsetDrift instanceof DatabaseTransactionOutcomeException
+        && $charsetDriftIsolationCause
+        && $wpdb->wprism_test_database_session_state() === $baselineSession
+        && $wpdb->activeTransactionIsolation() === null,
+    'zero-query stock wpdb charset mutation is caught by continuity settlement and cleanup restores every bound charset field'
+);
+
+$wpdb = provider_database_session_fixture();
+$baselineSession = $wpdb->wprism_test_database_session_state();
+$wpdb->resetLog();
+$schemaDrift = provider_database_session_failure(
+    static fn(): mixed => ProviderDatabaseSession::read_only_snapshot(
+        'provider selected-schema fixture',
+        provider_database_read_profile(),
+        static function () use ($wpdb, $profiledStatement): mixed {
+            $wpdb->select('wordpress_shadow');
+            return $wpdb->query($profiledStatement);
+        }
+    )
+);
+wprism_check(
+    $schemaDrift instanceof DatabaseQueryIsolationViolationException
+        && !in_array($profiledStatement, $wpdb->queries(), true)
+        && $wpdb->wprism_test_database_session_state() === $baselineSession
+        && $wpdb->activeTransactionIsolation() === null,
+    'stock wpdb schema selection cannot redirect an unqualified profiled query and cleanup reselects the exact database'
+);
+
 foreach (['NO_BACKSLASH_ESCAPES', 'ANSI_QUOTES', 'IGNORE_SPACE', 'STRICT_TRANS_TABLES, NO_ZERO_DATE'] as $mode) {
     $callbackCalls = 0;
     $wpdb = provider_database_session_fixture()->setSessionSqlMode($mode);
@@ -813,7 +897,6 @@ foreach (['NO_BACKSLASH_ESCAPES', 'ANSI_QUOTES', 'IGNORE_SPACE', 'STRICT_TRANS_T
             && str_contains($modeFailure->getMessage(), 'SQL-mode premise')
             && !str_contains($modeFailure->getMessage(), $mode)
             && $callbackCalls === 0
-            && in_array('SELECT @@SESSION.sql_mode AS sql_mode', $wpdb->queries(), true)
             && count(array_filter(
                 $wpdb->queries(),
                 static fn(string $sql): bool => stripos($sql, 'information_schema') !== false
@@ -825,9 +908,83 @@ foreach (['NO_BACKSLASH_ESCAPES', 'ANSI_QUOTES', 'IGNORE_SPACE', 'STRICT_TRANS_T
     );
 }
 
+foreach (['gbk', 'big5', 'sjis'] as $characterSet) {
+    $callbackCalls = 0;
+    $wpdb = provider_database_session_fixture()
+        ->setSessionCharacterSetClient($characterSet, 2);
+    $characterSetFailure = provider_database_session_failure(
+        static function () use (&$callbackCalls): mixed {
+            return ProviderDatabaseSession::read_only_snapshot(
+                'provider character-set premise',
+                NativeDatabaseProfile::read_only([]),
+                static function () use (&$callbackCalls): null {
+                    $callbackCalls++;
+                    return null;
+                }
+            );
+        }
+    );
+    wprism_check(
+        $characterSetFailure instanceof DatabaseQueryIsolationViolationException
+            && str_contains($characterSetFailure->getMessage(), 'character-set premise')
+            && !str_contains($characterSetFailure->getMessage(), $characterSet)
+            && $callbackCalls === 0
+            && count(array_filter(
+                $wpdb->queries(),
+                static fn(string $sql): bool => stripos($sql, 'information_schema') !== false
+            )) === 0
+            && $wpdb->activeTransactionIsolation() === null,
+        "multibyte client character set '$characterSet' is refused after only its width proof and before table metadata or provider code"
+    );
+}
+
+foreach (['latin2', 'cp1251'] as $characterSet) {
+    $callbackCalls = 0;
+    $wpdb = provider_database_session_fixture()
+        ->setSessionCharacterSetClient($characterSet, 1);
+    $result = ProviderDatabaseSession::read_only_snapshot(
+        'provider single-byte character-set premise',
+        NativeDatabaseProfile::read_only([]),
+        static function () use (&$callbackCalls, $characterSet): string {
+            $callbackCalls++;
+            return $characterSet;
+        }
+    );
+    wprism_check(
+        $result === $characterSet
+            && $callbackCalls === 1
+            && $wpdb->activeTransactionIsolation() === null,
+        "byte-safe single-byte client character set '$characterSet' retains profiled provider compatibility"
+    );
+}
+
 $callbackCalls = 0;
 $wpdb = provider_database_session_fixture()
-    ->failNextQuery('fixture SQL-mode value secret', '@@SESSION.sql_mode');
+    ->failNextDatabaseSessionObservation('fixture character-set width secret');
+$characterSetWidthFailure = provider_database_session_failure(
+    static function () use (&$callbackCalls): mixed {
+        return ProviderDatabaseSession::read_only_snapshot(
+            'failed provider character-set width premise',
+            NativeDatabaseProfile::read_only([]),
+            static function () use (&$callbackCalls): null {
+                $callbackCalls++;
+                return null;
+            }
+        );
+    }
+);
+wprism_check(
+    $characterSetWidthFailure instanceof DatabaseQueryIsolationViolationException
+        && str_contains($characterSetWidthFailure->getMessage(), 'session-state premise')
+        && !str_contains($characterSetWidthFailure->getMessage(), 'fixture character-set width secret')
+        && $callbackCalls === 0
+        && $wpdb->activeTransactionIsolation() === null,
+    'an unreadable character-set width premise refuses value-free before provider code'
+);
+
+$callbackCalls = 0;
+$wpdb = provider_database_session_fixture()
+    ->failNextDatabaseSessionObservation('fixture SQL-mode value secret');
 $modeReadFailure = provider_database_session_failure(
     static function () use (&$callbackCalls): mixed {
         return ProviderDatabaseSession::read_only_snapshot(
@@ -2082,6 +2239,26 @@ $profileGrammarRefusals = [
         'write' => false,
         'sql' => 'EXPLAIN ANALYZE SELECT * FROM wp_wprism_provider_state',
     ],
+    'unescaped SHOW TABLES wildcard presence' => [
+        'write' => false,
+        'sql' => "SHOW TABLES LIKE 'wp_wprism_provider_state'",
+    ],
+    'unescaped SHOW TABLE STATUS wildcard presence' => [
+        'write' => false,
+        'sql' => "SHOW TABLE STATUS LIKE 'wp_wprism_provider_state'",
+    ],
+    'SHOW TABLES database operand' => [
+        'write' => false,
+        'sql' => 'SHOW TABLES FROM wp_wprism_provider_state',
+    ],
+    'SHOW TRIGGERS database operand' => [
+        'write' => false,
+        'sql' => 'SHOW TRIGGERS FROM wp_wprism_provider_state',
+    ],
+    'SHOW OPEN TABLES database operand' => [
+        'write' => false,
+        'sql' => 'SHOW OPEN TABLES FROM wp_wprism_provider_state',
+    ],
 ];
 foreach ($profileGrammarRefusals as $label => $case) {
     $wpdb = provider_database_session_fixture()->seedTable('wp_wprism_undeclared', []);
@@ -2960,11 +3137,15 @@ $optionCodecSource = file_get_contents(__DIR__ . '/../../../../agent/src/Kernel/
 $databaseBoundaryLiveSource = file_get_contents(
     __DIR__ . '/../../live/regress_database_boundary_live.sh'
 );
-$databaseBoundaryCleanupTrap = is_string($databaseBoundaryLiveSource)
-    ? strpos($databaseBoundaryLiveSource, 'trap cleanup EXIT')
+$livePairOwnershipSource = file_get_contents(__DIR__ . '/../../lib/pair_live_ownership.sh');
+$databaseBoundaryPass = is_string($databaseBoundaryLiveSource)
+    ? strpos($databaseBoundaryLiveSource, 'REGRESS_DATABASE_BOUNDARY_LIVE PASSED')
     : false;
-$databaseBoundaryScratchAllocation = is_string($databaseBoundaryLiveSource)
-    ? strpos($databaseBoundaryLiveSource, 'TMP_ROOT="$(mktemp -d ')
+$databaseBoundaryMaria = is_string($databaseBoundaryLiveSource)
+    ? strpos($databaseBoundaryLiveSource, 'start_pair mariadb mariadb MariaDB')
+    : false;
+$databaseBoundaryMysql = is_string($databaseBoundaryLiveSource)
+    ? strpos($databaseBoundaryLiveSource, 'start_pair mysql mysql MySQL')
     : false;
 wprism_check(
     is_string($providerSource)
@@ -2992,21 +3173,35 @@ wprism_check(
         && substr_count(
             $databaseBoundaryLiveSource,
             'cat > "$R1/.wprism-database-boundary-'
-        ) === 4
+        ) === 5
         && preg_match(
             '/declare\s*\(\s*strict_types\s*=\s*1\s*\)\s*;/',
             $databaseBoundaryLiveSource
         ) === 0
         && substr_count($databaseBoundaryLiveSource, 'READS SQL DATA') === 2
         && !str_contains($databaseBoundaryLiveSource, 'CONTAINS SQL')
-        && $databaseBoundaryCleanupTrap !== false
-        && $databaseBoundaryScratchAllocation !== false
-        && $databaseBoundaryCleanupTrap < $databaseBoundaryScratchAllocation
-        && str_contains(
-            $databaseBoundaryLiveSource,
-            'if [ -e "$TMP_ROOT" ] || [ -L "$TMP_ROOT" ]; then'
-        ),
-    'all four database-boundary fixtures stay WP-CLI-safe, cross-dialect function premises are admissible, and scratch is allocated only behind verified cleanup'
+        && str_contains($databaseBoundaryLiveSource, 'PAIR="${DATABASE_BOUNDARY_PAIR:-}"')
+        && str_contains($databaseBoundaryLiveSource, 'PORT1_RAW="${DATABASE_BOUNDARY_PORT1:-}"')
+        && str_contains($databaseBoundaryLiveSource, 'PORT2_RAW="${DATABASE_BOUNDARY_PORT2:-}"')
+        && str_contains($databaseBoundaryLiveSource, '. "$REPO_ROOT/sandbox/tests/lib/pair_live_ownership.sh"')
+        && str_contains($databaseBoundaryLiveSource, 'pair_live_ownership_acquire "$engine"')
+        && str_contains($databaseBoundaryLiveSource, 'pair_live_ownership_finish_leg')
+        && !str_contains($databaseBoundaryLiveSource, 'cleanup() {')
+        && is_string($livePairOwnershipSource)
+        && str_contains($livePairOwnershipSource, 'pair_live_ownership_remove_pair_roots')
+        && str_contains($livePairOwnershipSource, 'pair_live_ownership_remove_scratch')
+        && str_contains($livePairOwnershipSource, 'lease-batch-release')
+        && $databaseBoundaryPass !== false
+        && $databaseBoundaryMaria !== false
+        && $databaseBoundaryMysql !== false
+        && $databaseBoundaryMaria < $databaseBoundaryMysql
+        && $databaseBoundaryMysql < $databaseBoundaryPass
+        && str_contains($databaseBoundaryLiveSource, 'unsafe-character-set-refused')
+        && str_contains($databaseBoundaryLiveSource, 'unsafe-show-forms-refused')
+        && str_contains($databaseBoundaryLiveSource, 'exact-like-presence-passed')
+        && !str_contains($databaseBoundaryLiveSource, 'db.mysql.yml down -v')
+        && str_contains($databaseBoundaryLiveSource, "pair_live_ownership_complete '✔ REGRESS_DATABASE_BOUNDARY_LIVE PASSED'"),
+    'all five database-boundary fixtures stay WP-CLI-safe, prove lexer/SHOW premises, and use fresh engine-bound leases with verified cleanup before reuse/PASS'
 );
 
 $wpdb = exact_option_writer_fixture([[

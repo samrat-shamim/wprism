@@ -73,25 +73,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-woo_plugin_tree_hash() {
-  wp1 eval '
-    $root = WP_PLUGIN_DIR . "/woocommerce";
-    if (!is_dir($root)) { throw new RuntimeException("WooCommerce plugin tree is absent"); }
-    $rows = [];
-    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
-    foreach ($files as $file) {
-      if (!$file->isFile()) { continue; }
-      $path = $file->getPathname();
-      $rows[] = [
-        "path" => substr($path, strlen($root) + 1),
-        "bytes" => $file->getSize(),
-        "sha256" => hash_file("sha256", $path),
-      ];
-    }
-    usort($rows, static fn(array $a, array $b): int => $a["path"] <=> $b["path"]);
-    if ($rows === []) { throw new RuntimeException("WooCommerce plugin tree is empty"); }
-    echo hash("sha256", wp_json_encode($rows, JSON_UNESCAPED_SLASHES));
-  ' | awk 'NF { line=$0 } END { print line }'
+woo_observed_plugin_sha() {
+  local observation
+  observation="$(wp1 wprism executable-owner-observe '--owner=plugin:woocommerce/woocommerce.php')" \
+    || fail 'WooCommerce plugin tree could not be observed through the engine boundary'
+  jq -er '
+    if keys == ["code_identity", "owner"]
+      and .owner == "plugin:woocommerce/woocommerce.php"
+      and (.code_identity | keys == ["format", "root", "sha256"])
+      and .code_identity.format == "wprism-executable-tree/v1"
+      and .code_identity.root == "plugins/woocommerce"
+      and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+    then .code_identity.sha256
+    else error("noncanonical WooCommerce executable-owner observation")
+    end
+  ' <<<"$observation"
 }
 
 woo_plugin_identity() {
@@ -225,7 +221,7 @@ assert_command_refuses() { # <capture|plan|deploy|apply> <storage> <tree> <git> 
     (.remediation | contains("single-site"))
   ' >/dev/null || fail "WooCommerce multisite $command did not return the exact typed refusal: $answer"
   woo_identity
-  [ "$(woo_plugin_tree_hash)" = "$tree" ] || fail "WooCommerce multisite $command changed the plugin tree"
+  [ "$(woo_observed_plugin_sha)" = "$tree" ] || fail "WooCommerce multisite $command changed the plugin tree"
   [ "$(woo_storage_fingerprint)" = "$storage" ] || fail "WooCommerce multisite $command mutated authored or runtime state"
   [ "$(shasum -a 256 "$REPO/site.wprism.json" | awk '{print $1}')" = "$site_sha" ] \
     || fail "WooCommerce multisite $command mutated site.wprism.json"
@@ -245,7 +241,7 @@ woo_plugin_identity
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle"
 woo_identity
-PLUGIN_TREE=$(woo_plugin_tree_hash)
+PLUGIN_TREE=$(woo_observed_plugin_sha)
 require_observed_nonempty 'WooCommerce 11.0.1 plugin tree fingerprint' "$PLUGIN_TREE"
 pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enabled'
 
@@ -275,7 +271,7 @@ wp1 core multisite-convert --title='WPrism WooCommerce 11.0.1 Multisite Refusal'
 [ "$(wp1 eval 'echo is_multisite() ? "yes" : "no";' | tail -1)" = yes ] \
   || fail 'WordPress did not report multisite after conversion'
 woo_identity
-PLUGIN_TREE_AFTER_CONVERSION=$(woo_plugin_tree_hash)
+PLUGIN_TREE_AFTER_CONVERSION=$(woo_observed_plugin_sha)
 [ "$PLUGIN_TREE_AFTER_CONVERSION" = "$PLUGIN_TREE" ] \
   || fail 'multisite conversion changed the exact WooCommerce plugin tree'
 FINGERPRINT=$(woo_storage_fingerprint)

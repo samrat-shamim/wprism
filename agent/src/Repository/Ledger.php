@@ -583,7 +583,7 @@ final class Ledger {
             $table = preg_replace('/[^A-Za-z0-9_]/', '', $decl['table']);
             $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
             if (!self::checked_get_var(
-                $wpdb->prepare('SHOW TABLES LIKE %s', $p . $table),
+                $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($p . $table)),
                 'typed identity table lookup'
             )) {
                 continue; // plugin's table not present on this environment — nothing to reconcile
@@ -658,7 +658,7 @@ final class Ledger {
                 );
             }
             if (!self::checked_get_var(
-                $wpdb->prepare('SHOW TABLES LIKE %s', $p . $table),
+                $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($p . $table)),
                 'composite typed identity table lookup'
             )) {
                 continue;

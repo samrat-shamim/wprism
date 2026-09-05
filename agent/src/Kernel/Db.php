@@ -932,22 +932,25 @@ final class Db {
             $authority = self::transaction_authority($context . ' mutation-scope authority');
             $readTables = $profile->read_tables();
             $writeTables = $profile->write_tables();
+            $continuity = static function () use ($authority, $context): void {
+                $current = self::transaction_authority(
+                    $context . ' mutation-scope continuity'
+                );
+                if (!$authority->equals($current)) {
+                    throw new DatabaseTransactionOutcomeException(
+                        $context . ' changed database session authority during mutation-scope proof'
+                    );
+                }
+            };
+            // Even a zero-table profile can issue literals and built-in calls.
+            // Prove the byte lexer's session premises before binding every
+            // profile, then tie both proofs to this transaction generation.
+            DatabaseQueryIsolation::assert_profile_sql_mode($context . ' mutation-scope');
+            $continuity();
             if ($readTables !== [] || $writeTables !== []) {
                 // DatabaseLockBoundary prepares account/schema identifiers.
-                // Prove the lexer premise before any of those rendered string
-                // literals cross wpdb, then keep every metadata read tied to
-                // the exact transaction generation established above.
-                DatabaseQueryIsolation::assert_profile_sql_mode($context . ' mutation-scope');
-                $continuity = static function () use ($authority, $context): void {
-                    $current = self::transaction_authority(
-                        $context . ' mutation-scope continuity'
-                    );
-                    if (!$authority->equals($current)) {
-                        throw new DatabaseTransactionOutcomeException(
-                            $context . ' changed database session authority during mutation-scope proof'
-                        );
-                    }
-                };
+                // Keep every metadata read tied to the exact transaction
+                // generation established and proven above.
                 if ($readTables !== []) {
                     DatabaseLockBoundary::assert_innodb_tables(
                         $readTables,

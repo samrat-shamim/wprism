@@ -155,8 +155,7 @@ final class ProviderDatabaseSession {
     }
 
     private static function settle_no_write_failure(\Throwable $failure, string $context): void {
-        if ($failure instanceof DatabaseQueryIsolationViolationException
-            || $failure->getPrevious() instanceof DatabaseQueryIsolationViolationException) {
+        if (self::caused_by_query_isolation_violation($failure)) {
             // ProviderSdk retains its value-free checked-read diagnostic and
             // chains the query gate as the private cause. Treat that exact
             // engine cause like a direct gate violation so rollback enters
@@ -193,6 +192,20 @@ final class ProviderDatabaseSession {
             return;
         }
         Db::forget_transaction_tracking();
+    }
+
+    /** Engine transport wrappers may add more than one value-free outcome layer. */
+    private static function caused_by_query_isolation_violation(\Throwable $failure): bool {
+        for ($depth = 0; $depth < 16; $depth++) {
+            if ($failure instanceof DatabaseQueryIsolationViolationException) {
+                return true;
+            }
+            $failure = $failure->getPrevious();
+            if (!$failure instanceof \Throwable) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static function rollback_write_failure(\Throwable $failure, string $context): void {

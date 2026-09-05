@@ -209,14 +209,14 @@ echo "\n== the measured baseline: every shipped adapter across two maximal compa
 
 $rankWorldFixture = edc_derived_fixture($rankWorldPolicy);
 $yoastWorldFixture = edc_derived_fixture($yoastWorldPolicy);
-wprism_check_same(641, count($rankWorldFixture), 'the Rank Math world fixture contains every database surface its valid policy declares');
-wprism_check_same(629, count($yoastWorldFixture), 'the Yoast world fixture contains every database surface its valid policy declares');
+wprism_check_same(642, count($rankWorldFixture), 'the Rank Math world fixture contains every database surface its valid policy declares');
+wprism_check_same(630, count($yoastWorldFixture), 'the Yoast world fixture contains every database surface its valid policy declares');
 
 $rankWorldBaseline = EffectDeclarationCoverage::from_facts($rankWorldPolicy, ['rows' => $rankWorldFixture]);
 $yoastWorldBaseline = EffectDeclarationCoverage::from_facts($yoastWorldPolicy, ['rows' => $yoastWorldFixture]);
 foreach ([
-    'Rank Math world' => [$rankWorldBaseline, 400, 116, 3126],
-    'Yoast world' => [$yoastWorldBaseline, 393, 111, 3596],
+    'Rank Math world' => [$rankWorldBaseline, 400, 116, 3132],
+    'Yoast world' => [$yoastWorldBaseline, 393, 111, 3603],
 ] as $label => [$report, $declared, $observable, $scored]) {
     wprism_check_same(EffectDeclarationCoverage::FORMAT, $report['format'], "$label names the versioned report format");
     wprism_check_same(17, $report['totals']['adapters'], "$label reports each pinned adapter, scorable or not");
@@ -422,6 +422,22 @@ wprism_check(
 
 $GLOBALS['wpdb'] = null;
 wprism_check_same('unusable', Journal::table_state($GLOBALS['wpdb']), 'no usable $wpdb probes as unusable');
+$legacyWpdbShape = new class {
+    public string $prefix = 'wp_';
+
+    public function prepare(string $query, mixed ...$args): string {
+        return $query;
+    }
+
+    public function get_var(string $query): mixed {
+        throw new RuntimeException('an unusable database shape must not be queried');
+    }
+};
+wprism_check_same(
+    'unusable',
+    Journal::table_state($legacyWpdbShape),
+    'a database object without the required LIKE escaper is unusable instead of fatalling after preflight'
+);
 wprism_check_refuses(
     static fn() => EffectDeclarationCoverage::report(['core']),
     'effect_coverage_journal_absent',

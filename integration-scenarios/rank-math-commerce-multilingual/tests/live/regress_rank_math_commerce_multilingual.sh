@@ -13,29 +13,61 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 . conformance/asserts.sh
 
-PAIR="${RANK_MATH_COMBO_PAIR:-rmcombo}"
-PORT1="${RANK_MATH_COMBO_PORT1:-9040}"
-PORT2="${RANK_MATH_COMBO_PORT2:-9041}"
-EXPECTED_SHA="${RANK_MATH_COMBO_EXPECTED_SOURCE_SHA:-${WPRISM_EXPECTED_SOURCE_SHA:-}}"
-HEAD="$(git -C "$ROOT" rev-parse HEAD)"
-[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid Rank Math combination pair '$PAIR'"
-[[ "$PORT1" =~ ^[0-9]{4,5}$ && "$PORT2" =~ ^[0-9]{4,5}$ && "$PORT1" != "$PORT2" ]] \
-  || fail 'invalid Rank Math combination ports'
-[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'Rank Math combination evidence requires a candidate SHA'
-[ "$EXPECTED_SHA" = "$HEAD" ] || fail "candidate SHA $EXPECTED_SHA does not equal checkout HEAD $HEAD"
-[ -z "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ] \
-  || fail 'Rank Math combination evidence requires a clean candidate checkout'
-command -v jq >/dev/null || fail 'jq required'
+for command in docker git jq mktemp php; do
+  command -v "$command" >/dev/null 2>&1 || fail "$command required"
+done
 
-export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" WPRISM_PAIR="$PAIR"
-. lib/pair_identity.sh
-pair_identity_export_source_mounts \
-  || fail 'Rank Math combination could not pin candidate mounts in the caller environment'
+PAIR="${RANK_MATH_COMBO_PAIR:-}"
+PORT1_RAW="${RANK_MATH_COMBO_PORT1:-}"
+PORT2_RAW="${RANK_MATH_COMBO_PORT2:-}"
+EXPECTED_SHA="${RANK_MATH_COMBO_EXPECTED_SOURCE_SHA:-}"
+HEAD="$(git -C "$ROOT" --no-optional-locks rev-parse --verify 'HEAD^{commit}')" \
+  || fail 'Rank Math combination evidence has no resolvable Git HEAD'
+[[ "$PAIR" =~ ^[a-z][a-z0-9]{2,23}$ ]] \
+  || fail 'RANK_MATH_COMBO_PAIR is required and must be a unique lowercase 3..24 character pair name'
+case "$PAIR" in
+  db|sandbox) fail "Rank Math combination pair '$PAIR' is reserved by the shared sandbox" ;;
+esac
+[[ "$PORT1_RAW" =~ ^[0-9]+$ && "$PORT2_RAW" =~ ^[0-9]+$ ]] \
+  || fail 'RANK_MATH_COMBO_PORT1 and RANK_MATH_COMBO_PORT2 are required decimal ports'
+PORT1=$((10#$PORT1_RAW))
+PORT2=$((10#$PORT2_RAW))
+(( PORT1 >= 8900 && PORT1 <= 65534 && PORT1 % 2 == 0 && PORT2 == PORT1 + 1 )) \
+  || fail 'RANK_MATH_COMBO_PORT1 must be even and >=8900; RANK_MATH_COMBO_PORT2 must be its successor'
+[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail 'RANK_MATH_COMBO_EXPECTED_SOURCE_SHA must be the exact lowercase 40-character candidate SHA'
+[ "$EXPECTED_SHA" = "$HEAD" ] || fail "candidate SHA $EXPECTED_SHA does not equal checkout HEAD $HEAD"
+SOURCE_STATUS="$(git -C "$ROOT" --no-optional-locks status --porcelain=v1 --untracked-files=all)" \
+  || fail 'could not inspect Rank Math combination source cleanliness'
+[ -z "$SOURCE_STATUS" ] || fail 'Rank Math combination evidence requires a clean candidate checkout'
+docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
+
+export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_CODEBIND_PLUGIN='' WPRISM_DB_ENGINE='mariadb' WPRISM_DB_HOST='wprism-shared-db'
+. tests/lib/pair_live_ownership.sh
+pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" \
+  'Rank Math combination' 'wprism-rmcombo'
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
 . lib/host_orchestrator.sh
-WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-rmcombo-host.${PAIR}.XXXXXX")
-wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$PAIR"
+R1="siterepo/${PAIR}1"
+R2="siterepo/${PAIR}2"
+ORIGIN="siterepo/origin-$PAIR.git"
+SCENARIO="$ROOT/integration-scenarios/rank-math-commerce-multilingual/scenario.json"
+TMP_ROOT="$PAIR_LIVE_OWNERSHIP_TMP_ROOT"
+WPRISM_HOST_REGISTRY=''
+WPRISM_HOST_REGISTRY="$TMP_ROOT/host-envs.json"
+for path in "$WPRISM_HOST_REGISTRY"; do
+  [ ! -e "$path" ] && [ ! -L "$path" ] \
+    || fail "chosen Rank Math combination scratch target already exists: $path"
+done
+wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$ROOT/sandbox/pair.yml" "$PAIR"
+[ "$(pair_live_ownership_mode_of "$TMP_ROOT")" = 700 ] \
+  || fail 'private Rank Math combination scratch mode is not 0700'
+[ "$(pair_live_ownership_mode_of "$WPRISM_HOST_REGISTRY")" = 600 ] \
+  || fail 'private Rank Math combination host registry mode is not 0600'
+
 host_wprism_combo() { # <wp1|wp2> <verb> [args...]
   local side="$1"
   shift
@@ -50,26 +82,11 @@ wp_side() { # <side> <wp args...>
 }
 wp1() { wp_side 1 "$@"; }
 wp2() { wp_side 2 "$@"; }
-R1="siterepo/${PAIR}1"
-R2="siterepo/${PAIR}2"
-ORIGIN="siterepo/origin-$PAIR.git"
-SCENARIO="$ROOT/integration-scenarios/rank-math-commerce-multilingual/scenario.json"
 . bin/fetch-artifact.sh
 WPRISM_ARTIFACT_PARTICIPANTS="$(artifact_library_scenario_participants "$SCENARIO")" \
   || fail 'Rank Math combination participant record is malformed'
 export WPRISM_ARTIFACT_PARTICIPANTS
 validate_artifact_library || fail 'Rank Math combination artifact library validation failed'
-
-GREEN=0
-cleanup() {
-  rm -f -- "$WPRISM_HOST_REGISTRY"
-  if [ "$GREEN" = 1 ]; then
-    bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
-  else
-    printf '(pair %s left up for inspection after failure)\n' "$PAIR" >&2
-  fi
-}
-trap cleanup EXIT
 
 install_exact() { # <side> <slug> <version>
   local side="$1" slug="$2" version="$3" artifact actual
@@ -453,8 +470,6 @@ persist_active_plugin_order() { # <side> <forward|reverse>
 run_leg() { # <source order> <target order>
 local source_order="$1" target_order="$2" expected_source expected_target
 say "fresh exact four-plugin pair: source=$source_order target=$target_order"
-bash bin/pair.sh reset "$PAIR"
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --artifacts --headless
 bash bin/pair.sh repo-host "$PAIR" both >/dev/null
 for side in 1 2; do
   "wp$side" site empty --yes >/dev/null
@@ -1011,8 +1026,21 @@ wp2 post get "$TARGET_BOOK" --field=ID >/dev/null \
 pass 'both direct deletion forms refuse before combined portable, derived, or target-runtime mutation; signed promotion is exercised by the SSH scenario extension'
 }
 
+# The generic lease is the sole fresh-namespace authority: under the shared
+# lock it proves Compose/name/ports/roots/install markers plus both persistent
+# schemas absent, then binds that complete fact to this exact process. Arm
+# cleanup only after publication and hold the token through both legs.
+pair_live_ownership_acquire mariadb
+say "bring up caller-allocated Rank Math combination pair at candidate $HEAD"
+pair_live_ownership_up --artifacts --headless
 run_leg forward reverse
+
+# The reverse-order leg reuses only the pair this process already created.
+# Reset stays here, between completed legs, and is never an ownership shortcut.
+[ "$PAIR_LIVE_OWNERSHIP_LEASE_ACTIVE" -eq 1 ] \
+  || fail 'Rank Math combination lost pair ownership before its second leg'
+pair_live_ownership_reset
+pair_live_ownership_up --artifacts --headless
 run_leg reverse forward
 
-GREEN=1
-printf '\n\033[1;32m✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED\033[0m\n'
+pair_live_ownership_complete '✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED'

@@ -12,29 +12,61 @@ pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 . conformance/asserts.sh
 
-PAIR="${RANK_MATH_YOAST_PAIR:-rmyoast}"
-PORT1="${RANK_MATH_YOAST_PORT1:-9050}"
-PORT2="${RANK_MATH_YOAST_PORT2:-9051}"
-EXPECTED_SHA="${RANK_MATH_YOAST_EXPECTED_SOURCE_SHA:-${WPRISM_EXPECTED_SOURCE_SHA:-}}"
-HEAD="$(git -C "$ROOT" rev-parse HEAD)"
-[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid Rank Math/Yoast pair '$PAIR'"
-[[ "$PORT1" =~ ^[0-9]{4,5}$ && "$PORT2" =~ ^[0-9]{4,5}$ && "$PORT1" != "$PORT2" ]] \
-  || fail 'invalid Rank Math/Yoast ports'
-[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'Rank Math/Yoast evidence requires a candidate SHA'
-[ "$EXPECTED_SHA" = "$HEAD" ] || fail "candidate SHA $EXPECTED_SHA does not equal checkout HEAD $HEAD"
-[ -z "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ] \
-  || fail 'Rank Math/Yoast evidence requires a clean candidate checkout'
-command -v jq >/dev/null || fail 'jq required'
+for command in docker git jq mktemp php; do
+  command -v "$command" >/dev/null 2>&1 || fail "$command required"
+done
 
-export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" WPRISM_PAIR="$PAIR"
-. lib/pair_identity.sh
-pair_identity_export_source_mounts \
-  || fail 'Rank Math/Yoast evidence could not pin candidate mounts in the caller environment'
+PAIR="${RANK_MATH_YOAST_PAIR:-}"
+PORT1_RAW="${RANK_MATH_YOAST_PORT1:-}"
+PORT2_RAW="${RANK_MATH_YOAST_PORT2:-}"
+EXPECTED_SHA="${RANK_MATH_YOAST_EXPECTED_SOURCE_SHA:-}"
+HEAD="$(git -C "$ROOT" --no-optional-locks rev-parse --verify 'HEAD^{commit}')" \
+  || fail 'Rank Math/Yoast evidence has no resolvable Git HEAD'
+[[ "$PAIR" =~ ^[a-z][a-z0-9]{2,23}$ ]] \
+  || fail 'RANK_MATH_YOAST_PAIR is required and must be a unique lowercase 3..24 character pair name'
+case "$PAIR" in
+  db|sandbox) fail "Rank Math/Yoast pair '$PAIR' is reserved by the shared sandbox" ;;
+esac
+[[ "$PORT1_RAW" =~ ^[0-9]+$ && "$PORT2_RAW" =~ ^[0-9]+$ ]] \
+  || fail 'RANK_MATH_YOAST_PORT1 and RANK_MATH_YOAST_PORT2 are required decimal ports'
+PORT1=$((10#$PORT1_RAW))
+PORT2=$((10#$PORT2_RAW))
+(( PORT1 >= 8900 && PORT1 <= 65534 && PORT1 % 2 == 0 && PORT2 == PORT1 + 1 )) \
+  || fail 'RANK_MATH_YOAST_PORT1 must be even and >=8900; RANK_MATH_YOAST_PORT2 must be its successor'
+[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail 'RANK_MATH_YOAST_EXPECTED_SOURCE_SHA must be the exact lowercase 40-character candidate SHA'
+[ "$EXPECTED_SHA" = "$HEAD" ] || fail "candidate SHA $EXPECTED_SHA does not equal checkout HEAD $HEAD"
+SOURCE_STATUS="$(git -C "$ROOT" --no-optional-locks status --porcelain=v1 --untracked-files=all)" \
+  || fail 'could not inspect Rank Math/Yoast source cleanliness'
+[ -z "$SOURCE_STATUS" ] || fail 'Rank Math/Yoast evidence requires a clean candidate checkout'
+docker info >/dev/null 2>&1 || fail 'Docker daemon is unavailable'
+
+export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_CODEBIND_PLUGIN='' WPRISM_DB_ENGINE='mariadb' WPRISM_DB_HOST='wprism-shared-db'
+. tests/lib/pair_live_ownership.sh
+pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" \
+  'Rank Math/Yoast evidence' 'wprism-rmyoast'
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
 . lib/host_orchestrator.sh
-WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-rmyoast-host.${PAIR}.XXXXXX")
-wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$PAIR"
+R1="siterepo/${PAIR}1"
+R2="siterepo/${PAIR}2"
+ORIGIN="siterepo/origin-$PAIR.git"
+SCENARIO="$ROOT/integration-scenarios/rank-math-yoast-incompatibility/scenario.json"
+TMP_ROOT="$PAIR_LIVE_OWNERSHIP_TMP_ROOT"
+WPRISM_HOST_REGISTRY=''
+WPRISM_HOST_REGISTRY="$TMP_ROOT/host-envs.json"
+for path in "$WPRISM_HOST_REGISTRY"; do
+  [ ! -e "$path" ] && [ ! -L "$path" ] \
+    || fail "chosen Rank Math/Yoast scratch target already exists: $path"
+done
+wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$ROOT/sandbox/pair.yml" "$PAIR"
+[ "$(pair_live_ownership_mode_of "$TMP_ROOT")" = 700 ] \
+  || fail 'private Rank Math/Yoast scratch mode is not 0700'
+[ "$(pair_live_ownership_mode_of "$WPRISM_HOST_REGISTRY")" = 600 ] \
+  || fail 'private Rank Math/Yoast host registry mode is not 0600'
+
 host_deploy() { # <side>
   local side="$1"
   wprism_host_call "$ROOT/cli/wprism" "$WPRISM_HOST_REGISTRY" "wprism-$PAIR" \
@@ -55,9 +87,6 @@ private_evidence() { # <side> <snapshot|verify> <args...>
   "${COMPOSE[@]}" run --rm -T --entrypoint php "cli$side" \
     /siterepo/.tmp-rank-math-yoast-private-refusal.php "$@"
 }
-R1="siterepo/${PAIR}1"
-R2="siterepo/${PAIR}2"
-SCENARIO="$ROOT/integration-scenarios/rank-math-yoast-incompatibility/scenario.json"
 . bin/fetch-artifact.sh
 WPRISM_ARTIFACT_PARTICIPANTS="$(artifact_library_scenario_participants "$SCENARIO")" \
   || fail 'Rank Math/Yoast participant record is malformed'
@@ -67,16 +96,6 @@ artifact_library_jq -e '.plugins["seo-by-rank-math"]["1.0.277.2"] and .plugins["
   || fail 'exact Rank Math 1.0.277.2 and Yoast 28.3 artifacts are absent'
 
 EXPECTED_REFUSAL="wprism: manifest 'rank-math' for plugin 'seo-by-rank-math/rank-math.php' declares plugin 'wordpress-seo/wp-seo.php' incompatible, and pinned manifest(s) {'yoast'} claim that plugin — incompatible plugin adapters cannot share one policy; pin only one"
-GREEN=0
-cleanup() {
-  rm -f -- "$WPRISM_HOST_REGISTRY"
-  if [ "$GREEN" = 1 ]; then
-    bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
-  else
-    printf '(pair %s left up for inspection after failure)\n' "$PAIR" >&2
-  fi
-}
-trap cleanup EXIT
 
 install_exact() { # <side> <slug> <version>
   local side="$1" slug="$2" version="$3" artifact actual
@@ -190,9 +209,13 @@ assert_refusal() { # <side> <repo> <capture|deploy> <expected-runtime-json>
 }
 
 say "fresh exact Rank Math/Yoast refusal pair at candidate $HEAD"
-bash bin/pair.sh reset "$PAIR"
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --artifacts --headless
-bash bin/pair.sh repo-host "$PAIR" both >/dev/null
+# Successful lease publication is the only transition that grants this script
+# destructive cleanup authority. It closes name/port/Compose/root/marker and
+# persistent-schema races under the shared lock, then remains live until the
+# final verified destroy and database census.
+pair_live_ownership_acquire mariadb
+pair_live_ownership_up --artifacts --headless
+pair_live_ownership_repo_host both >/dev/null
 
 # Side 1 proves core,rank-math,yoast; side 2 proves core,yoast,rank-math.
 install_exact 1 seo-by-rank-math 1.0.277.2
@@ -235,5 +258,5 @@ for operation in capture deploy; do
 done
 pass 'no lease, apply session, or provider intent survived'
 
-GREEN=1
-printf '\nPASS: Rank Math/Yoast incompatibility is deterministic before mutation in both orders\n'
+pair_live_ownership_complete \
+  'PASS: Rank Math/Yoast incompatibility is deterministic before mutation in both orders'
