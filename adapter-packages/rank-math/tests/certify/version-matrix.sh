@@ -49,33 +49,84 @@ rank_math_native_state_hash() { # <wp1|wp2>
   local side="$1"
   "$side" eval '
 global $wpdb;
+// wpdb read failures look like absent tables or empty row sets; its next read
+// clears last_error. A zero-write witness must checkpoint each read before
+// another statement, and never turn a failed encoding into hash("").
+$read = static function (callable $query, string $label) use ($wpdb) {
+    $suppressed = $wpdb->suppress_errors(true);
+    $wpdb->last_error = "";
+    try {
+        $result = $query();
+        if ((string) $wpdb->last_error !== "") {
+            throw new RuntimeException("incomplete read");
+        }
+        return $result;
+    } catch (Throwable) {
+        throw new RuntimeException("Rank Math native observation could not read " . $label);
+    } finally {
+        $wpdb->suppress_errors($suppressed);
+    }
+};
+$readRows = static function (string $sql, string $label, array $columns = []) use ($wpdb, $read): array {
+    $rows = $read(static fn() => $wpdb->get_results($sql, ARRAY_A), $label);
+    if (!is_array($rows) || !array_is_list($rows)) {
+        throw new RuntimeException("Rank Math native observation has an invalid row set for " . $label);
+    }
+    foreach ($rows as $row) {
+        if (!is_array($row) || $row === [] || array_is_list($row)) {
+            throw new RuntimeException("Rank Math native observation has an invalid row for " . $label);
+        }
+        $columns = $columns === [] ? array_keys($row) : $columns;
+        if (array_keys($row) !== $columns) {
+            throw new RuntimeException("Rank Math native observation has inconsistent columns for " . $label);
+        }
+        foreach ($row as $key => $value) {
+            if (!is_string($key) || $key === "" || ($value !== null && !is_string($value))) {
+                throw new RuntimeException("Rank Math native observation has an invalid column value for " . $label);
+            }
+        }
+    }
+    return $rows;
+};
 $tables = [];
 foreach (["rank_math_internal_links", "rank_math_internal_meta", "rank_math_redirections", "rank_math_redirections_cache"] as $suffix) {
     $table = $wpdb->prefix . $suffix;
-    $tables[$suffix] = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) === $table
-        ? $wpdb->get_results("SELECT * FROM `$table` ORDER BY 1", ARRAY_A)
-        : null;
+    $found = $read(static fn() => $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $wpdb->esc_like($table))),
+        "table presence " . $suffix);
+    if ($found !== null && (!is_string($found) || !hash_equals($table, $found))) {
+        throw new RuntimeException("Rank Math native observation has an unexpected table-presence answer");
+    }
+    $tables[$suffix] = $found === null ? null : $readRows("SELECT * FROM `$table` ORDER BY 1", $suffix);
+}
+$active = $read(static fn() => get_option("active_plugins", []), "active plugins");
+if (!is_array($active) || !array_is_list($active)
+    || array_filter($active, static fn($plugin): bool => !is_string($plugin)) !== []) {
+    throw new RuntimeException("Rank Math native observation has an invalid active-plugin inventory");
 }
 $payload = [
-    "active" => array_values((array) get_option("active_plugins", [])),
-    "options" => $wpdb->get_results(
+    "active" => $active,
+    "options" => $readRows(
         "SELECT option_name,option_value,autoload FROM {$wpdb->options} " .
         "WHERE option_name LIKE '\''rank\\_math%'\'' ESCAPE '\''\\\\'\'' ORDER BY option_name",
-        ARRAY_A
+        "options", ["option_name", "option_value", "autoload"]
     ),
-    "postmeta" => $wpdb->get_results(
+    "postmeta" => $readRows(
         "SELECT post_id,meta_key,meta_value FROM {$wpdb->postmeta} " .
         "WHERE meta_key LIKE '\''rank\\_math%'\'' ESCAPE '\''\\\\'\'' ORDER BY post_id,meta_key,meta_id",
-        ARRAY_A
+        "postmeta", ["post_id", "meta_key", "meta_value"]
     ),
     "tables" => $tables,
-    "termmeta" => $wpdb->get_results(
+    "termmeta" => $readRows(
         "SELECT term_id,meta_key,meta_value FROM {$wpdb->termmeta} " .
         "WHERE meta_key LIKE '\''rank\\_math%'\'' ESCAPE '\''\\\\'\'' ORDER BY term_id,meta_key,meta_id",
-        ARRAY_A
+        "termmeta", ["term_id", "meta_key", "meta_value"]
     ),
 ];
-echo hash("sha256", wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+$json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+if (!is_string($json) || $json === "") {
+    throw new RuntimeException("Rank Math native observation could not encode its complete payload");
+}
+echo hash("sha256", $json);
 '
 }
 

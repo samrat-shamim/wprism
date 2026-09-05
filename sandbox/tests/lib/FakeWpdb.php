@@ -76,7 +76,7 @@
  *   SELECT [DISTINCT] <items> [FROM <table> [[AS] alias]
  *            [LEFT [OUTER] JOIN <table> [[AS] alias] ON <a>.<col> = <b>.<col>]]
  *          [INNER|LEFT [OUTER]] JOIN <table> [[AS] alias] ON <cond>
- *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
+ *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols|positions> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
  *            | OCTET_LENGTH(col) | SHA2(<operand>, 256) | LEFT(<operand>, <length>)
@@ -86,7 +86,7 @@
  *     cond:  AND / OR / parentheses over
  *            <operand> = != <> < <= > >= <operand>
  *            <operand> [NOT] IN (<values>)
- *            <operand> [NOT] LIKE <string>
+ *            <operand> [NOT] LIKE <string> [ESCAPE <ASCII character or empty string>]
  *            <operand> IS [NOT] NULL
  *     operand: column | literal | BINARY <operand> | LENGTH(<operand>)
  *              | OCTET_LENGTH(<operand>) | LEFT(<operand>, <count>)
@@ -114,6 +114,9 @@
  * subqueries, UNION, RIGHT/CROSS JOIN, and HAVING remain unsupported.
  * Aggregate expressions are evaluated only over an opted-in bounded result
  * set, never over an unbounded synthetic stream.
+ * Positional ORDER BY resolves the actual SELECT projection (including `*`)
+ * on one non-aggregate table. Joins/aggregates without explicit projection
+ * ordering facts still refuse; no statement-specific answer is synthesized.
  *
  * Schema-qualified row inventories (information_schema.COLUMNS /
  * .STATISTICS) remain unsupported -- parseTableRef() refuses the `db.table`
@@ -3371,7 +3374,7 @@ class FakeWpdb {
         if ($this->keyword() === 'HAVING') {
             throw $this->unsupported('HAVING');
         }
-        $order = $this->parseOrderBy();
+        $order = $this->parseOrderBy(true);
         [$limit, $offset] = $this->parseLimit();
         if ($this->acceptKeyword('FOR')) {
             $this->expectKeyword('UPDATE');
@@ -3379,6 +3382,9 @@ class FakeWpdb {
         $this->expectEnd();
 
         if ($table === null) {
+            if (array_filter($order, static fn(array $term): bool => isset($term['ordinal'])) !== []) {
+                throw $this->unsupported('positional ORDER BY requires a single non-aggregate table');
+            }
             // SELECT 1, SELECT GET_LOCK(...), SELECT RELEASE_LOCK(...)
             $row = [];
             foreach ($items as $index => $item) {
@@ -3477,6 +3483,7 @@ class FakeWpdb {
                 || $item['type'] === 'count'
                 || ($item['type'] === 'expr' && $this->containsAggregate($item['expr']));
         }
+        $order = $this->resolveOrderOrdinals($order, $items, $ctx, $aggregate || $join !== null || $joins !== []);
         if ($join !== null && $aggregate) {
             throw $this->unsupported('COUNT(*)/GROUP BY over a LEFT JOIN');
         }
@@ -3731,8 +3738,8 @@ class FakeWpdb {
         return [$out, $ctx];
     }
 
-    /** @return list<array{column:array,dir:int}> */
-    private function parseOrderBy(): array {
+    /** @return list<array{column:?array,dir:int,binary:bool,ordinal:?int}> */
+    private function parseOrderBy(bool $allowOrdinals = false): array {
         if (!$this->acceptKeyword('ORDER')) {
             return [];
         }
@@ -3740,15 +3747,59 @@ class FakeWpdb {
         $order = [];
         do {
             $binary = $this->acceptKeyword('BINARY');
-            $column = $this->parseColumnRef();
+            $ordinal = null;
+            $column = null;
+            if ($this->peek()['t'] === 'num') {
+                $ordinal = $this->peek()['v'];
+                if (!$allowOrdinals || $binary || !is_int($ordinal) || $ordinal < 1) {
+                    throw $this->unsupported('ORDER BY position must be a positive SELECT-column integer');
+                }
+                $this->tp++;
+            } else {
+                $column = $this->parseColumnRef();
+            }
             $dir = 1;
             if ($this->acceptKeyword('DESC')) {
                 $dir = -1;
             } else {
                 $this->acceptKeyword('ASC');
             }
-            $order[] = ['column' => $column, 'dir' => $dir, 'binary' => $binary];
+            $order[] = ['column' => $column, 'dir' => $dir, 'binary' => $binary, 'ordinal' => $ordinal];
         } while ($this->acceptOp(','));
+        return $order;
+    }
+
+    /** Resolve SELECT positions before sorting/limiting, even with no rows. */
+    private function resolveOrderOrdinals(array $order, array $items, array $ctx, bool $unsupported): array {
+        if (array_filter($order, static fn(array $term): bool => isset($term['ordinal'])) === []) {
+            return $order;
+        }
+        if ($unsupported) {
+            throw $this->unsupported('positional ORDER BY requires a single non-aggregate table');
+        }
+        $expressions = [];
+        foreach ($items as $item) {
+            if ($item['type'] === 'star') {
+                if ($item['qualifier'] !== null && !in_array($item['qualifier'], [
+                    $ctx['table'], $ctx['alias'], substr($ctx['table'], strlen($this->prefix)),
+                ], true)) {
+                    throw $this->unsupported('positional ORDER BY cannot resolve a foreign star projection');
+                }
+                foreach ($ctx['columns'] as $column) {
+                    $expressions[] = ['k' => 'col', 'q' => null, 'name' => $column, 'label' => $column];
+                }
+            } else {
+                $expressions[] = $item['expr'];
+            }
+        }
+        foreach ($order as &$term) {
+            if (!isset($term['ordinal'])) continue;
+            if (!isset($expressions[$term['ordinal'] - 1])) {
+                throw $this->unsupported('ORDER BY position is outside the SELECT projection');
+            }
+            $term['expression'] = $expressions[$term['ordinal'] - 1];
+        }
+        unset($term);
         return $order;
     }
 
@@ -3938,7 +3989,18 @@ class FakeWpdb {
             return ['k' => 'in', 'not' => $negate, 'l' => $left, 'values' => $values];
         }
         if ($this->acceptKeyword('LIKE')) {
-            return ['k' => 'like', 'not' => $negate, 'l' => $left, 'r' => $this->parseOperand()];
+            $right = $this->parseOperand();
+            $escape = '\\';
+            if ($this->acceptKeyword('ESCAPE')) {
+                $token = $this->peek();
+                if ($token['t'] !== 'str' || strlen($token['v']) > 1
+                    || ($token['v'] !== '' && ord($token['v']) > 127)) {
+                    throw $this->unsupported('LIKE ESCAPE requires an empty or one-character ASCII literal');
+                }
+                $escape = $token['v'];
+                $this->tp++;
+            }
+            return ['k' => 'like', 'not' => $negate, 'l' => $left, 'r' => $right, 'escape' => $escape];
         }
         if ($negate) {
             throw $this->unsupported('NOT without IN/LIKE');
@@ -4026,7 +4088,8 @@ class FakeWpdb {
                 }
                 $matches = self::likeMatches(
                     (string) $this->evalOperand($node['r'], $row, $ctx),
-                    (string) $left
+                    (string) $left,
+                    $node['escape']
                 );
                 return $node['not'] ? !$matches : $matches;
             case 'cmp':
@@ -4405,12 +4468,12 @@ class FakeWpdb {
      * the value a keyspace or transient-prefix assertion runs against. /s is
      * kept so `%` and `_` still span newlines, as MySQL's do.
      */
-    private static function likePattern(string $pattern, bool $utf8): string {
+    private static function likePattern(string $pattern, bool $utf8, string $escape = '\\'): string {
         $regex = '';
         $length = strlen($pattern);
         for ($i = 0; $i < $length; $i++) {
             $c = $pattern[$i];
-            if ($c === '\\' && $i + 1 < $length) {
+            if ($c === $escape && $i + 1 < $length) {
                 $regex .= preg_quote($pattern[$i + 1], '~');
                 $i++;
                 continue;
@@ -4436,9 +4499,9 @@ class FakeWpdb {
      * an empty //u pattern is the warning-free way to test that, and the
      * byte-wise fallback is what MySQL does for a binary column anyway.
      */
-    private static function likeMatches(string $pattern, string $subject): bool {
+    private static function likeMatches(string $pattern, string $subject, string $escape = '\\'): bool {
         $utf8 = preg_match('//u', $pattern) === 1 && preg_match('//u', $subject) === 1;
-        return preg_match(self::likePattern($pattern, $utf8), $subject) === 1;
+        return preg_match(self::likePattern($pattern, $utf8, $escape), $subject) === 1;
     }
 
     // ------------------------------------------------- projection/sorting
@@ -4550,8 +4613,12 @@ class FakeWpdb {
     private function sortRows(array $rows, array $order, array $ctx): array {
         usort($rows, function (array $a, array $b) use ($order, $ctx): int {
             foreach ($order as $term) {
-                $left = $this->evalColumn($term['column'], $a, $ctx['columns'] === null ? null : $ctx);
-                $right = $this->evalColumn($term['column'], $b, $ctx['columns'] === null ? null : $ctx);
+                $left = isset($term['expression'])
+                    ? $this->evalOperand($term['expression'], $a, $ctx)
+                    : $this->evalColumn($term['column'], $a, $ctx['columns'] === null ? null : $ctx);
+                $right = isset($term['expression'])
+                    ? $this->evalOperand($term['expression'], $b, $ctx)
+                    : $this->evalColumn($term['column'], $b, $ctx['columns'] === null ? null : $ctx);
                 if ($left === null && $right === null) {
                     continue;
                 }

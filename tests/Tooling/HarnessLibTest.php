@@ -258,6 +258,58 @@ final class HarnessLibTest extends TestCase
         );
     }
 
+    public function testSelectOrderPositionsResolveProjectionBeforeLimiting(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_probe', [
+            ['id' => 2, 'score' => 5, 'label' => 'Zulu'],
+            ['id' => 3, 'score' => 9, 'label' => 'Alpha'],
+            ['id' => 1, 'score' => 5, 'label' => 'Beta'],
+        ])->setColumns('wp_probe', ['label' => 'text', 'id' => 'bigint', 'score' => 'int']);
+
+        // SELECT * follows recorded column order, not the first fixture row
+        // or an assumption that position 1 means the primary key.
+        self::assertSame(['Alpha', 'Beta', 'Zulu'], $db->get_col('SELECT * FROM wp_probe ORDER BY 1'));
+        self::assertSame(
+            [['measure' => '9', 'id' => '3'], ['measure' => '5', 'id' => '1']],
+            $db->get_results('SELECT score AS measure,id FROM wp_probe ORDER BY 1 DESC,2 ASC LIMIT 2', ARRAY_A)
+        );
+        self::assertSame(['3', '1', '2'], $db->get_col('SELECT id,label FROM wp_probe ORDER BY 2'));
+        self::assertSame(['2', '1', '3'], $db->get_col('SELECT id,LENGTH(label) AS width FROM wp_probe ORDER BY 2,1 DESC'));
+        self::assertSame(['9', '5'], $db->get_col('SELECT DISTINCT score FROM wp_probe ORDER BY 1 DESC'));
+        $db->seedTable('wp_probe', []);
+        self::assertSame([], $db->get_results('SELECT * FROM wp_probe ORDER BY 1', ARRAY_A));
+    }
+
+    #[DataProvider('unsupportedOrderPositionProvider')]
+    public function testOrderPositionsRefuseUnmodeledOrInvalidScopes(string $sql): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_probe', [])->setColumns('wp_probe', ['id' => 'int']);
+        $db->seedTable('wp_lookup', [])->setColumns('wp_lookup', ['id' => 'int']);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('FakeWpdb: unsupported SQL');
+        $db->query($sql);
+    }
+
+    public static function unsupportedOrderPositionProvider(): array
+    {
+        return [
+            ['SELECT id FROM wp_probe ORDER BY 0'],
+            ['SELECT id FROM wp_probe ORDER BY -1'],
+            ['SELECT id FROM wp_probe ORDER BY 1.0'],
+            ['SELECT id FROM wp_probe ORDER BY 2'],
+            ['SELECT * FROM wp_probe ORDER BY 2'],
+            ['SELECT foreign_table.* FROM wp_probe ORDER BY 1'],
+            ['SELECT id FROM wp_probe ORDER BY BINARY 1'],
+            ['SELECT COUNT(*) FROM wp_probe ORDER BY 1'],
+            ['SELECT 1 ORDER BY 1'],
+            ['SELECT p.id FROM wp_probe p LEFT JOIN wp_lookup l ON p.id = l.id ORDER BY 1'],
+            ['UPDATE wp_probe SET id = 2 ORDER BY 1'],
+            ['DELETE FROM wp_probe ORDER BY 1'],
+        ];
+    }
+
     public function testSelectCountAggregatesMatchedRows(): void
     {
         $db = $this->seededDb();
@@ -867,6 +919,48 @@ final class HarnessLibTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage("table 'wp_options' was never seeded");
         $db->get_var('SELECT option_value FROM wp_options WHERE option_id = 1');
+    }
+
+    public function testLikeExplicitEscapeUsesTheDeclaredCharacter(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_kv', [
+            ['k' => 'a', 'v' => 'rank_math%'],
+            ['k' => 'b', 'v' => 'rankXmath%'],
+            ['k' => 'c', 'v' => 'rank\\math%'],
+            ['k' => 'd', 'v' => 'rank_math9'],
+            ['k' => 'e', 'v' => 'rank!math%'],
+        ]);
+        self::assertSame(['a'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank!_math!%', '!'
+        )));
+        self::assertSame(['a'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank\\_math\\%', '\\'
+        )));
+        self::assertSame(['c'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank\\math%', ''
+        )));
+        self::assertSame(['e'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank!!math!%', '!'
+        )));
+        self::assertSame(['b', 'c', 'd', 'e'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v NOT LIKE %s ESCAPE %s ORDER BY k', 'rank!_math!%', '!'
+        )));
+    }
+
+    #[DataProvider('unsupportedLikeEscapeProvider')]
+    public function testLikeEscapeRefusesUnsupportedLiteralsEvenWithoutRows(string $escape): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_kv', [])->setColumns('wp_kv', ['v' => 'text']);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('LIKE ESCAPE requires');
+        $db->get_results("SELECT v FROM wp_kv WHERE v LIKE '%' ESCAPE " . $escape, ARRAY_A);
+    }
+
+    public static function unsupportedLikeEscapeProvider(): array
+    {
+        return [["'ab'"], ["'é'"], ['v'], ['NULL'], ['1']];
     }
 
     /**
