@@ -368,6 +368,7 @@ require_once "$root/agent/src/Repository/RepositoryCompiler.php";
 require_once "$root/agent/src/Delete/Deletion.php";
 require_once "$root/agent/src/Publication/Publish.php";
 require_once "$root/agent/src/Capture/Capture.php";
+require_once "$root/agent/src/Capture/RefreshExport.php";
 require_once "$root/sandbox/tests/lib/wp_stubs.php";
 require_once "$root/sandbox/tests/lib/FakeWpdb.php";
 
@@ -1188,6 +1189,396 @@ assert_capture_atomicity(
         static fn(string $sql): bool => preg_match('/^(?:CREATE|ALTER) TABLE\b/i', $sql) === 1
     ) === [],
     'transactional capture performs no implicit-commit schema DDL'
+);
+
+// A 600-option core-only candidate already exceeds the native callback quota.
+// Exercise the real candidate reader, not a manually partitioned SQL loop:
+// only CaptureTransaction's exact authority may partition these semantic items.
+if (!function_exists('get_taxonomies')) {
+    function get_taxonomies(array $args = [], string $output = 'names'): array {
+        return [];
+    }
+}
+if (!function_exists('parse_blocks')) {
+    function parse_blocks(string $content): array {
+        // WordPress invokes block_parser_class from this native entry. The
+        // callback amplification below measures that exact engine callsite.
+        if (isset($GLOBALS['capture_work_parser_callback'])) {
+            ($GLOBALS['capture_work_parser_callback'])($content);
+        }
+        return [];
+    }
+}
+
+/** @return array{0:FakeWpdb,1:Policy,2:WPrism\CaptureCandidateBuilder} */
+function capture_work_fixture(int $options = 0): array {
+    $db = capture_atomicity_database()->enableFullApplySqlExtensions();
+    $policy = new Policy();
+    $policy->site = ['policy' => ['post_types' => [], 'taxonomies' => [], 'options' => []]];
+    $rows = [];
+    for ($index = 0; $index < $options; $index++) {
+        $name = 'bounded_capture_' . $index;
+        $policy->site['policy']['options'][$name] = ['class' => 'authored', 'autoload' => 'yes'];
+        $rows[] = ['option_id' => $index + 1, 'option_name' => $name, 'option_value' => 'bounded value', 'autoload' => 'yes'];
+    }
+    $db->seedTable('wp_options', $rows);
+    return [$db, $policy, new WPrism\CaptureCandidateBuilder(
+        '/unused/capture-work-fixture',
+        $policy,
+        ['home' => 'https://fixture.test', 'uploads' => 'https://fixture.test/uploads']
+    )];
+}
+
+function capture_work_failure(callable $callback): ?Throwable {
+    try {
+        $callback();
+        return null;
+    } catch (Throwable $failure) {
+        return $failure;
+    }
+}
+
+foreach (['ordinary', 'strict', 'options-only', 'refresh-export'] as $mode) {
+    [$wpdb, $workPolicy, $builder] = capture_work_fixture(600);
+    $buildCandidate = static function (WPrism\DatabaseWorkAuthority $authority) use ($mode, $builder): array {
+        return $mode === 'options-only'
+            ? $builder->buildOptionsOnly(false, workAuthority: $authority)
+            : $builder->build(false, strictReadOnly: $mode !== 'ordinary', workAuthority: $authority);
+    };
+    if ($mode === 'refresh-export') {
+        $refreshBoundary = new ReflectionMethod(WPrism\RefreshExport::class, 'in_read_only_snapshot');
+        $largeCandidate = $refreshBoundary->invoke(
+            null,
+            CaptureTransaction::database_profile($workPolicy, readOnly: true),
+            $buildCandidate
+        );
+    } else {
+        $largeCandidate = CaptureTransaction::run(
+            $workPolicy,
+            $buildCandidate,
+            optionsOnly: $mode === 'options-only',
+            readOnly: $mode === 'strict'
+        );
+    }
+    $document = $mode === 'options-only'
+        ? $largeCandidate
+        : WPrism\Canon::decode($largeCandidate['entities'][0]['content']);
+    $records = WPrism\OptionState::records($document);
+    $counts = capture_atomicity_transaction_counts($wpdb);
+    assert_capture_atomicity(
+        count($records) === 600
+            && ($records['bounded_capture_599']['value'] ?? null) === 'bounded value'
+            && count($wpdb->queries()) > 1024,
+        "$mode capture admits 600 bounded options across more than 1,024 real guarded queries"
+    );
+    assert_capture_atomicity(
+        $counts === ['starts' => 1, 'commits' => $mode === 'refresh-export' ? 0 : 1, 'rollbacks' => $mode === 'refresh-export' ? 1 : 0]
+            && $wpdb->activeTransactionIsolation() === null,
+        "$mode candidate retains one exact snapshot and its original terminal control"
+    );
+}
+
+[$wpdb, $workPolicy] = capture_work_fixture();
+$publishHashes = new ReflectionMethod(CapturePublicationWorkflow::class, 'recordCapturedStateHashes');
+$entities = [];
+for ($index = 0; $index < 1200; $index++) {
+    $entities[] = ['uuid' => 'work-' . $index, 'type' => 'post', 'content' => 'bounded post ' . $index];
+}
+CaptureTransaction::run($workPolicy, static function (WPrism\DatabaseWorkAuthority $authority) use ($entities, $publishHashes): void {
+    $publishHashes->invoke(null, $entities, $authority);
+});
+assert_capture_atomicity(
+    count($wpdb->rows('wp_wprism_state')) === 1200
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 1, 'rollbacks' => 0],
+    'the actual captured-hash publication owner commits 1,200 finite units without splitting its transaction'
+);
+
+$statement = 'SELECT option_name FROM wp_options LIMIT 1';
+foreach ([[2, 600], [1, 1025]] as [$postCount, $parserStatements]) {
+    [$wpdb, $workPolicy, $builder] = capture_work_fixture();
+    $workPolicy->manifests = [[
+        'name' => 'bounded-widget-fixture',
+        'block_attrs' => ['core/legacy-widget' => [['path' => 'id', 'codec' => 'bounded-widget']]],
+        'widgets' => ['text' => []],
+    ]];
+    $posts = [];
+    $postUuids = [];
+    for ($index = 1; $index <= $postCount; $index++) {
+        $posts[] = (object) ['ID' => $index, 'post_type' => 'post', 'post_content' => 'bounded blocks'];
+        $postUuids[$index] = 'bounded-post-' . $index;
+    }
+    $parserCalls = 0;
+    $GLOBALS['capture_work_parser_callback'] = static function () use ($wpdb, $statement, $parserStatements, &$parserCalls): void {
+        $parserCalls++;
+        for ($index = 0; $index < $parserStatements; $index++) {
+            $wpdb->query($statement);
+        }
+    };
+    $widgetScan = new ReflectionMethod(WPrism\CaptureCandidateBuilder::class, 'portableWidgetReferenceScan');
+    try {
+        $widgetParserFailure = capture_work_failure(static fn() => CaptureTransaction::run(
+            $workPolicy,
+            static fn(WPrism\DatabaseWorkAuthority $authority): array => $widgetScan->invoke(
+                $builder, $posts, $postUuids, null, $authority
+            )
+        ));
+    } finally {
+        unset($GLOBALS['capture_work_parser_callback']);
+    }
+    assert_capture_atomicity(
+        $parserCalls === $postCount
+            && count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement))
+                === ($postCount === 2 ? 1200 : 1024)
+            && ($postCount === 2
+                ? $widgetParserFailure === null
+                : $widgetParserFailure instanceof WPrism\DatabaseQueryIsolationViolationException
+                    && str_contains($widgetParserFailure->getMessage(), 'statement-count boundary'))
+            && capture_atomicity_transaction_counts($wpdb) === [
+                'starts' => 1, 'commits' => $postCount === 2 ? 1 : 0, 'rollbacks' => $postCount === 2 ? 0 : 1,
+            ],
+        "$postCount-post portable widget scan charges the actual native parser per discovered post with an unchanged 1,024-statement frontier"
+    );
+}
+
+[$wpdb, $workPolicy] = capture_work_fixture();
+$refreshBoundary = new ReflectionMethod(WPrism\RefreshExport::class, 'in_read_only_snapshot');
+$refreshQuotaFailure = capture_work_failure(static fn() => $refreshBoundary->invoke(
+    null,
+    CaptureTransaction::database_profile($workPolicy, readOnly: true),
+    static fn(WPrism\DatabaseWorkAuthority $authority): mixed => WPrism\DatabaseQueryIsolation::work_unit(
+        $authority,
+        static function () use ($wpdb, $statement): array {
+            for ($index = 0; $index < 1025; $index++) {
+                $wpdb->query($statement);
+            }
+            return [];
+        }
+    )
+));
+assert_capture_atomicity(
+    $refreshQuotaFailure instanceof WPrism\DatabaseQueryIsolationViolationException
+        && str_contains($refreshQuotaFailure->getMessage(), 'statement-count boundary')
+        && $wpdb->activeTransactionIsolation() === null
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 0, 'rollbacks' => 1],
+    'read-only export settles a poisoned work unit through the exact rollback permit and retains the original refusal'
+);
+
+foreach ([1024, 1025] as $requested) {
+    [$wpdb, $workPolicy] = capture_work_fixture();
+    $failure = capture_work_failure(static fn() => CaptureTransaction::run(
+        $workPolicy,
+        static fn(WPrism\DatabaseWorkAuthority $authority): mixed => WPrism\DatabaseQueryIsolation::work_unit(
+            $authority,
+            static function () use ($wpdb, $statement, $requested): void {
+                for ($index = 0; $index < $requested; $index++) {
+                    $wpdb->query($statement);
+                }
+            }
+        )
+    ));
+    $count = count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement));
+    assert_capture_atomicity(
+        $count === 1024 && ($requested === 1024
+            ? $failure === null
+            : $failure instanceof WPrism\DatabaseQueryIsolationViolationException
+                && str_contains($failure->getMessage(), 'statement-count boundary'))
+            && $wpdb->activeTransactionIsolation() === null,
+        "one core unit preserves the exact $requested-statement acceptance/refusal frontier before transport"
+    );
+}
+
+[$wpdb, $workPolicy] = capture_work_fixture();
+CaptureTransaction::run($workPolicy, static function (WPrism\DatabaseWorkAuthority $authority) use ($wpdb, $statement): void {
+    foreach ([0, 1] as $_unit) {
+        WPrism\DatabaseQueryIsolation::work_unit($authority, static function () use ($wpdb, $statement): void {
+            for ($index = 0; $index < 1024; $index++) {
+                $wpdb->query($statement);
+            }
+        });
+    }
+});
+assert_capture_atomicity(
+    count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement)) === 2048
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 1, 'rollbacks' => 0],
+    'two sequential authorized units each reach 1,024 statements without spending each other or splitting the snapshot'
+);
+
+foreach (['nested', 'unpartitioned'] as $mode) {
+    [$wpdb, $workPolicy] = capture_work_fixture();
+    $failure = capture_work_failure(static fn() => CaptureTransaction::run(
+        $workPolicy,
+        static function (WPrism\DatabaseWorkAuthority $authority) use ($wpdb, $statement, $mode): void {
+            $work = static function () use ($authority, $wpdb, $statement, $mode): void {
+                for ($index = 0; $index < 1025; $index++) {
+                    if ($mode === 'nested') {
+                        WPrism\DatabaseQueryIsolation::work_unit($authority, static fn() => $wpdb->query($statement));
+                    } else {
+                        if ($index === 600) {
+                            WPrism\DatabaseQueryIsolation::work_unit($authority, static fn() => $wpdb->query('SELECT 1'));
+                        }
+                        $wpdb->query($statement);
+                    }
+                }
+            };
+            if ($mode === 'nested') {
+                WPrism\DatabaseQueryIsolation::work_unit($authority, $work);
+            } else {
+                $work();
+            }
+        }
+    ));
+    assert_capture_atomicity(
+        $failure instanceof WPrism\DatabaseQueryIsolationViolationException
+            && str_contains($failure->getMessage(), 'statement-count boundary')
+            && count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement)) === 1024
+            && capture_atomicity_transaction_counts($wpdb)['rollbacks'] === 1,
+        "$mode work cannot refresh its enclosing finite budget through a nested or intervening unit"
+    );
+}
+
+[$wpdb, $workPolicy] = capture_work_fixture(600);
+$reentrantFailure = capture_work_failure(static fn() => CaptureTransaction::run(
+    $workPolicy,
+    static function (WPrism\DatabaseWorkAuthority $authority) use ($workPolicy): void {
+        $tokens = new WPrism\Tokens('https://fixture.test', 'https://fixture.test/uploads');
+        $inner = new WPrism\OptionsCapture($workPolicy, $tokens, static fn() => null, static fn() => null, static fn() => false);
+        $outer = new WPrism\OptionsCapture(
+            $workPolicy,
+            $tokens,
+            static fn() => $inner->capture(false, workAuthority: $authority),
+            static fn() => null,
+            static fn() => false
+        );
+        $outer->capture(false, workAuthority: $authority);
+    },
+    optionsOnly: true
+));
+assert_capture_atomicity(
+    $reentrantFailure instanceof WPrism\DatabaseQueryIsolationViolationException
+        && str_contains($reentrantFailure->getMessage(), 'statement-count boundary')
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 0, 'rollbacks' => 1],
+    'a callback reentering the real option reader cannot turn nested semantic items into fresh quota'
+);
+
+[$wpdb, $workPolicy] = capture_work_fixture();
+$attemptAuthorities = [];
+$retriedUnits = CaptureTransaction::run(
+    $workPolicy,
+    static function (WPrism\DatabaseWorkAuthority $authority) use ($wpdb, $statement, &$attemptAuthorities): string {
+        $attemptAuthorities[] = $authority;
+        WPrism\DatabaseQueryIsolation::work_unit($authority, static function () use ($wpdb, $statement): void {
+            for ($index = 0; $index < 1024; $index++) {
+                $wpdb->query($statement);
+            }
+        });
+        if (count($attemptAuthorities) === 1) {
+            throw new WPrism\TransientDbException('bounded work retry fixture');
+        }
+        return 'retried';
+    }
+);
+assert_capture_atomicity(
+    $retriedUnits === 'retried'
+        && count($attemptAuthorities) === 2
+        && $attemptAuthorities[0] !== $attemptAuthorities[1]
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 2, 'commits' => 1, 'rollbacks' => 1],
+    'retry grants a new work authority and quota only after settling the old physical transaction'
+);
+
+foreach (['constructed', 'cloned', 'stale', 'serialized'] as $kind) {
+    [$wpdb, $workPolicy] = capture_work_fixture();
+    $failure = capture_work_failure(static fn() => CaptureTransaction::run(
+        $workPolicy,
+        static function (WPrism\DatabaseWorkAuthority $authority) use ($kind, $attemptAuthorities, $wpdb, $statement): void {
+            $wrong = match ($kind) {
+                'constructed' => new WPrism\DatabaseWorkAuthority(),
+                'cloned' => clone $authority,
+                'stale' => $attemptAuthorities[1],
+                'serialized' => unserialize(serialize($authority), ['allowed_classes' => [WPrism\DatabaseWorkAuthority::class]]),
+            };
+            WPrism\DatabaseQueryIsolation::work_unit($wrong, static fn() => $wpdb->query($statement));
+        }
+    ));
+    assert_capture_atomicity(
+        $failure instanceof WPrism\DatabaseQueryIsolationViolationException
+            && count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement)) === 0
+            && capture_atomicity_transaction_counts($wpdb)['rollbacks'] === 1,
+        "$kind work authority cannot partition or transport work in the current transaction"
+    );
+}
+
+[$wpdb, $workPolicy] = capture_work_fixture();
+$users = [];
+for ($index = 1; $index <= 501; $index++) {
+    $users[] = ['ID' => $index, 'user_login' => 'bounded-user-' . $index];
+}
+$wpdb->seedTable('wp_users', $users);
+$chunkReader = new WPrism\UserMetaCapture(
+    $workPolicy,
+    new WPrism\Tokens('https://fixture.test', 'https://fixture.test/uploads'),
+    static fn() => null,
+    static fn() => null,
+    static function () use ($wpdb, $statement): void {
+        // Amplify the real read checkpoint without inventing a row fake:
+        // every four-read chunk stays below 1,024, both chunks exceed it.
+        for ($index = 0; $index < 200; $index++) {
+            $wpdb->query($statement);
+        }
+    }
+);
+$chunkResult = CaptureTransaction::run(
+    $workPolicy,
+    static fn(WPrism\DatabaseWorkAuthority $authority): array => $chunkReader->capture([], $authority),
+    readOnly: true
+);
+assert_capture_atomicity(
+    $chunkResult === []
+        && count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement)) === 2000
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 1, 'rollbacks' => 0],
+    'the actual user-meta generator charges pre-yield reads per bounded chunk, not to the complete user roster'
+);
+
+[$wpdb, $workPolicy] = capture_work_fixture();
+$largeStatement = $statement . str_repeat(' ', 1048576 - strlen($statement));
+$byteFailure = capture_work_failure(static fn() => CaptureTransaction::run(
+    $workPolicy,
+    static fn(WPrism\DatabaseWorkAuthority $authority): mixed => WPrism\DatabaseQueryIsolation::work_unit(
+        $authority,
+        static function () use ($wpdb, $largeStatement): void {
+            for ($index = 0; $index < 17; $index++) {
+                $wpdb->query($largeStatement);
+            }
+        }
+    )
+));
+assert_capture_atomicity(
+    $byteFailure instanceof WPrism\DatabaseQueryIsolationViolationException
+        && str_contains($byteFailure->getMessage(), 'cumulative SQL-byte boundary')
+        && count(array_filter($wpdb->queries(), static fn(string $sql): bool => str_starts_with($sql, $statement))) === 16
+        && capture_atomicity_transaction_counts($wpdb)['rollbacks'] === 1,
+    'one core unit retains the exact 16 MiB cumulative SQL-byte frontier before transport'
+);
+
+[$wpdb, $workPolicy] = capture_work_fixture();
+$swallowedFailure = capture_work_failure(static fn() => CaptureTransaction::run(
+    $workPolicy,
+    static function (WPrism\DatabaseWorkAuthority $authority) use ($wpdb, $statement): void {
+        try {
+            WPrism\DatabaseQueryIsolation::work_unit($authority, static function () use ($wpdb, $statement): void {
+                for ($index = 0; $index < 1025; $index++) {
+                    $wpdb->query($statement);
+                }
+            });
+        } catch (WPrism\DatabaseQueryIsolationViolationException) {
+            // Native code may catch its own failure; capture still cannot
+            // publish a successful candidate from the poisoned profile.
+        }
+    }
+));
+assert_capture_atomicity(
+    $swallowedFailure instanceof WPrism\DatabaseQueryIsolationViolationException
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 0, 'rollbacks' => 1],
+    'catching a work-unit refusal cannot clear poisoning or turn capture completion into success'
 );
 
 echo "ALL PASSED\n";

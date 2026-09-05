@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/DatabaseExceptions.php';
 require_once __DIR__ . '/DatabaseLockBoundary.php';
 require_once __DIR__ . '/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/DatabaseServerDiagnostics.php';
 require_once __DIR__ . '/DatabaseTransportBoundary.php';
 require_once __DIR__ . '/NativeDatabaseProfile.php';
@@ -704,7 +705,7 @@ final class Db {
     public static function start(
         string $context,
         NativeDatabaseProfile $profile
-    ): void {
+    ): DatabaseWorkAuthority {
         self::before($context);
         self::assert_product_transaction_usable($context);
         self::enter_query_isolation($context);
@@ -722,7 +723,7 @@ final class Db {
                 throw $startFailure;
             }
             self::$pendingStartAuthority = null;
-            self::establish_profile($profile, $context);
+            return self::establish_profile($profile, $context);
         } catch (\Throwable $failure) {
             self::finish_query_isolation_if_settled();
             throw $failure;
@@ -733,7 +734,7 @@ final class Db {
     public static function start_repeatable_read(
         string $context,
         NativeDatabaseProfile $profile
-    ): void {
+    ): DatabaseWorkAuthority {
         // `@@transaction_isolation`/`@@tx_isolation` report the session
         // default, not a one-shot active-transaction override, while
         // information_schema.innodb_trx requires PROCESS on ordinary WP DB
@@ -747,7 +748,7 @@ final class Db {
             $authority = self::prepare_transaction_start($context);
             self::set_next_transaction_repeatable_read($context, $authority);
             self::start_after_repeatable_read('START TRANSACTION', $context, $authority);
-            self::establish_profile($profile, $context);
+            return self::establish_profile($profile, $context);
         } catch (\Throwable $failure) {
             self::finish_query_isolation_if_settled();
             throw $failure;
@@ -758,7 +759,7 @@ final class Db {
     public static function start_consistent_snapshot(
         string $context,
         NativeDatabaseProfile $profile
-    ): void {
+    ): DatabaseWorkAuthority {
         self::before($context . ' isolation');
         self::before($context);
         self::assert_product_transaction_usable($context);
@@ -771,7 +772,7 @@ final class Db {
                 $context,
                 $authority
             );
-            self::establish_profile($profile, $context);
+            return self::establish_profile($profile, $context);
         } catch (\Throwable $failure) {
             self::finish_query_isolation_if_settled();
             throw $failure;
@@ -782,7 +783,7 @@ final class Db {
     public static function start_read_only_consistent_snapshot(
         string $context,
         NativeDatabaseProfile $profile
-    ): void {
+    ): DatabaseWorkAuthority {
         if (!$profile->is_read_only()) {
             throw new \InvalidArgumentException(
                 "wprism: $context received mutation tables for a server-enforced read-only transaction"
@@ -800,7 +801,7 @@ final class Db {
                 $context,
                 $authority
             );
-            self::establish_profile($profile, $context);
+            return self::establish_profile($profile, $context);
         } catch (\Throwable $failure) {
             self::finish_query_isolation_if_settled();
             throw $failure;
@@ -927,7 +928,7 @@ final class Db {
     private static function establish_profile(
         NativeDatabaseProfile $profile,
         string $context
-    ): void {
+    ): DatabaseWorkAuthority {
         try {
             $authority = self::transaction_authority($context . ' mutation-scope authority');
             $readTables = $profile->read_tables();
@@ -966,7 +967,7 @@ final class Db {
                     );
                 }
             }
-            DatabaseQueryIsolation::bind_profile($profile, $context . ' database profile');
+            return DatabaseQueryIsolation::bind_profile($profile, $context . ' database profile');
         } catch (\Throwable $failure) {
             self::rollback_after_failure($failure, $context . ' mutation-scope rollback');
             throw $failure;

@@ -6,6 +6,8 @@ require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/TransientDbException.php';
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/TableSchema.php';
 require_once __DIR__ . '/../Publication/Publish.php';
@@ -165,6 +167,10 @@ final class CaptureTransaction {
     /**
      * Run one candidate build inside a coherent InnoDB snapshot.
      *
+     * This callback is an engine orchestration boundary, never a provider or
+     * native hook: its exact work authority is passed only to core semantic
+     * readers/publishers. They do not forward it to their native callbacks.
+     *
      * The callback may report its publication phase through the by-reference
      * array. Once `filesystem_swapped` is true, this method never replays it.
      *
@@ -173,7 +179,7 @@ final class CaptureTransaction {
      * makes this public class safe on its own and closes the time-of-check gap
      * immediately before the transaction begins.
      *
-     * @param callable():mixed $fn
+     * @param callable(DatabaseWorkAuthority):mixed $fn
      * @param ?array<string,mixed> $phase
      */
     public static function run(
@@ -207,15 +213,18 @@ final class CaptureTransaction {
                 // positively proven on the same connection.
                 $profile = self::database_profile($policy, $optionsOnly, $readOnly);
                 if ($profile->is_read_only()) {
-                    Db::start_read_only_consistent_snapshot(
+                    $workAuthority = Db::start_read_only_consistent_snapshot(
                         'capture transaction start',
                         $profile
                     );
                 } else {
-                    Db::start_consistent_snapshot('capture transaction start', $profile);
+                    $workAuthority = Db::start_consistent_snapshot('capture transaction start', $profile);
                 }
                 $transactionOpen = true;
-                $result = $fn();
+                $result = DatabaseQueryIsolation::with_engine_work_units(
+                    $workAuthority,
+                    static fn(): mixed => $fn($workAuthority)
+                );
                 if (isset($phase['state_dir'], $phase['intent'])
                     && is_string($phase['state_dir']) && is_array($phase['intent'])) {
                     // The durable `committing` marker is written before the

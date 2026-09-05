@@ -1111,6 +1111,50 @@ wprism_check(
     '1,024 provider statements leave exact engine continuity and rollback permits outside the callback budget'
 );
 
+// The physical profile owner alone receives work-partition authority. A
+// provider callback gets neither that return value nor a getter for it, and
+// construction is not authority even while its native snapshot is active.
+foreach (['engine-scope', 'work-item'] as $entry) {
+    $wpdb = provider_database_session_fixture();
+    $deniedWork = provider_database_session_failure(static fn() => ProviderDatabaseSession::read_only_snapshot(
+        'provider cannot partition its callback',
+        provider_database_read_profile(),
+        static function () use ($entry, $wpdb, $statement): void {
+            $forged = new WPrism\DatabaseWorkAuthority();
+            $operation = static fn() => $wpdb->query($statement);
+            if ($entry === 'engine-scope') {
+                DatabaseQueryIsolation::with_engine_work_units($forged, $operation);
+            } else {
+                DatabaseQueryIsolation::work_unit($forged, $operation);
+            }
+        }
+    ));
+    wprism_check(
+        $deniedWork instanceof DatabaseQueryIsolationViolationException
+            && count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement)) === 0
+            && $wpdb->activeTransactionIsolation() === null,
+        "a provider cannot mint $entry authority from its active native profile"
+    );
+}
+
+$wpdb = provider_database_session_fixture();
+$nestedProviderBudget = provider_database_session_failure(static fn() => ProviderDatabaseSession::read_only_snapshot(
+    'provider helper reentry keeps one budget',
+    provider_database_read_profile(),
+    static function () use ($wpdb, $statement): void {
+        for ($index = 0; $index < 1025; $index++) {
+            DatabaseQueryIsolation::work_unit(null, static fn() => $wpdb->query($statement));
+        }
+    }
+));
+wprism_check(
+    $nestedProviderBudget instanceof DatabaseQueryIsolationViolationException
+        && str_contains($nestedProviderBudget->getMessage(), 'statement-count boundary')
+        && count(array_filter($wpdb->queries(), static fn(string $sql): bool => $sql === $statement)) === 1024
+        && $wpdb->activeTransactionIsolation() === null,
+    'provider reentry through authority-free core helpers preserves its one 1,024-statement callback budget'
+);
+
 $wpdb->resetLog();
 $afterBudgetResult = ProviderDatabaseSession::read_only_snapshot(
     'provider statement budget reset',

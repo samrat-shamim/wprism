@@ -2,6 +2,8 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/CaptureIdentity.php';
 require_once __DIR__ . '/CaptureSafetyGates.php';
 require_once __DIR__ . '/CaptureTransaction.php';
@@ -176,7 +178,8 @@ final class CaptureCandidateBuilder {
         ?array $previousOptions = null,
         array $dynamicResolverValues = [],
         bool $bindMissingDynamicDesired = false,
-        bool $strictReadOnly = false
+        bool $strictReadOnly = false,
+        ?DatabaseWorkAuthority $workAuthority = null
     ): array {
         $this->reset($forceUnresolvedRefs);
         $options = $this->buildOptions(
@@ -185,7 +188,8 @@ final class CaptureCandidateBuilder {
             $previousOptions,
             $dynamicResolverValues,
             $bindMissingDynamicDesired,
-            $strictReadOnly
+            $strictReadOnly,
+            $workAuthority
         );
         $this->assertOptionGates();
         return $options;
@@ -206,19 +210,20 @@ final class CaptureCandidateBuilder {
         ?array $previousOptions = null,
         array $carriedUserLogins = [],
         bool $strictReadOnly = false,
-        ?array $selectedIdentities = null
+        ?array $selectedIdentities = null,
+        ?DatabaseWorkAuthority $workAuthority = null
     ): array {
         $this->reset($forceUnresolvedRefs);
         $entities = [];
         $media = [];
         $mediaBytes = 0;
 
-        $scope = $this->scopeDiscovery->discover(
+        $scope = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array => $this->scopeDiscovery->discover(
             $strictReadOnly,
             function (array $gaps): void {
                 $this->safetyGates->assertScopeGaps($gaps);
             }
-        );
+        ));
         $posts = $scope['posts'];
         $terms = $scope['terms'];
         $this->taxonomiesByPostType = $scope['by_post_type'];
@@ -226,38 +231,43 @@ final class CaptureCandidateBuilder {
 
         $postUuids = [];
         foreach ($posts as $post) {
-            $uuid = $this->captureIdentity->ensurePost((int) $post->ID, 'post', $mint, $strictReadOnly);
+            $uuid = DatabaseQueryIsolation::work_unit($workAuthority, fn(): ?string =>
+                $this->captureIdentity->ensurePost((int) $post->ID, 'post', $mint, $strictReadOnly));
             if ($uuid !== null) {
                 $postUuids[(int) $post->ID] = $uuid;
             }
         }
         $termUuids = [];
         foreach ($terms as $term) {
-            $uuid = $this->captureIdentity->ensureTerm($term, 'term', $mint, $strictReadOnly);
+            $uuid = DatabaseQueryIsolation::work_unit($workAuthority, fn(): ?string =>
+                $this->captureIdentity->ensureTerm($term, 'term', $mint, $strictReadOnly));
             if ($uuid !== null) {
                 $termUuids[(int) $term->term_id] = $uuid;
             }
         }
 
-        $menuBuild = $this->menuCapture->capture($mint, $strictReadOnly);
+        $menuBuild = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array =>
+            $this->menuCapture->capture($mint, $strictReadOnly));
         $menus = $menuBuild['menus'];
         $this->planObservations['menus_by_term_id'] = $menuBuild['observations'];
 
         foreach ($terms as $term) {
-            $flatMeta = $this->entityMetaCapture->termMetaMap((int) $term->term_id);
-            foreach ($flatMeta as $key => $_) {
-                if ($this->policy->meta_rule_for_term($key, $flatMeta) === null) {
-                    $this->unclassified[] = "term_meta:$key (unclassified on taxonomy {$term->taxonomy})";
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($term): void {
+                $flatMeta = $this->entityMetaCapture->termMetaMap((int) $term->term_id);
+                foreach ($flatMeta as $key => $_) {
+                    if ($this->policy->meta_rule_for_term($key, $flatMeta) === null) {
+                        $this->unclassified[] = "term_meta:$key (unclassified on taxonomy {$term->taxonomy})";
+                    }
                 }
-            }
+            });
         }
 
         // Table identities must exist before post/sidebar tokenization.
-        $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint, $strictReadOnly);
+        $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint, $strictReadOnly, $workAuthority);
         CaptureTransaction::check_transient_db_error('Snapshot::capture()');
-        $portableWidgetScan = $this->portableWidgetReferenceScan($posts, $postUuids, $selectedIdentities);
+        $portableWidgetScan = $this->portableWidgetReferenceScan($posts, $postUuids, $selectedIdentities, $workAuthority);
         $portableWidgetReferences = $portableWidgetScan['references'];
-        $sidebarBuild = SidebarState::capture(
+        $sidebarBuild = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array => SidebarState::capture(
             $this->policy,
             $this->tokens,
             $mint,
@@ -265,12 +275,13 @@ final class CaptureCandidateBuilder {
             $strictReadOnly,
             $portableWidgetReferences === [] ? null : $portableWidgetReferences,
             $this->canonicalShortcodeTree
-        );
+        ));
 
         foreach ($terms as $term) {
             $uuid = $termUuids[(int) $term->term_id] ?? null;
             if ($uuid !== null) {
-                $entities[] = $this->termCapture->capture($term, $uuid, $this->termObjectTaxonomies);
+                $entities[] = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array =>
+                    $this->termCapture->capture($term, $uuid, $this->termObjectTaxonomies));
             }
         }
         foreach ($posts as $post) {
@@ -278,13 +289,13 @@ final class CaptureCandidateBuilder {
             if ($uuid === null) {
                 continue;
             }
-            $postBuild = $this->postCapture->capture(
+            $postBuild = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array => $this->postCapture->capture(
                 $post,
                 $uuid,
                 $this->taxonomiesByPostType,
                 $forceUnresolvedRefs,
                 $strictReadOnly
-            );
+            ));
             if ($postBuild['media_ref'] !== null) {
                 $mediaName = $postBuild['media_ref'][0];
                 $mediaSource = $postBuild['media_ref'][1];
@@ -319,7 +330,8 @@ final class CaptureCandidateBuilder {
             $previousOptions,
             [],
             false,
-            $strictReadOnly
+            $strictReadOnly,
+            $workAuthority
         );
         $entities[] = [
             'uuid' => 'options/core',
@@ -330,7 +342,7 @@ final class CaptureCandidateBuilder {
         foreach ($tableEntities as $entity) {
             $entities[] = $entity;
         }
-        foreach ($this->userMetaCapture->capture($carriedUserLogins) as $entity) {
+        foreach ($this->userMetaCapture->capture($carriedUserLogins, $workAuthority) as $entity) {
             $entities[] = $entity;
         }
 
@@ -365,7 +377,8 @@ final class CaptureCandidateBuilder {
     private function portableWidgetReferenceScan(
         array $posts,
         array $postUuids,
-        ?array $selectedIdentities
+        ?array $selectedIdentities,
+        ?DatabaseWorkAuthority $workAuthority
     ): array {
         $selected = null;
         if ($selectedIdentities !== null) {
@@ -394,10 +407,11 @@ final class CaptureCandidateBuilder {
                 continue;
             }
             $scannedPostUuids[$postUuid] = true;
-            foreach (Blocks::capture_widget_instance_references(
+            $references = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array => Blocks::capture_widget_instance_references(
                 (string) ($post->post_content ?? ''),
                 $this->policy
-            ) as $reference) {
+            ));
+            foreach ($references as $reference) {
                 $referencesByKey[$reference['type'] . '-' . $reference['local_id']] = $reference;
             }
         }
@@ -438,7 +452,8 @@ final class CaptureCandidateBuilder {
         ?array $previousDocument = null,
         array $dynamicResolverValues = [],
         bool $bindMissingDynamicDesired = false,
-        bool $strictReadOnly = false
+        bool $strictReadOnly = false,
+        ?DatabaseWorkAuthority $workAuthority = null
     ): array {
         $result = $this->optionsCapture->capture(
             $mint,
@@ -446,7 +461,8 @@ final class CaptureCandidateBuilder {
             $previousDocument,
             $dynamicResolverValues,
             $bindMissingDynamicDesired,
-            $strictReadOnly
+            $strictReadOnly,
+            $workAuthority
         );
         $this->unclassified = array_merge($this->unclassified, $result['unclassified']);
         $this->unscopedRefs = array_merge($this->unscopedRefs, $result['unscoped_refs']);

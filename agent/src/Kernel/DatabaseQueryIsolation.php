@@ -6,6 +6,7 @@ namespace WPrism;
 require_once __DIR__ . '/DatabaseExceptions.php';
 require_once __DIR__ . '/DatabaseTransportBoundary.php';
 require_once __DIR__ . '/NativeDatabaseProfile.php';
+require_once __DIR__ . '/DatabaseWorkAuthority.php';
 
 /**
  * Transaction-local hook object used in place of WordPress's final WP_Hook.
@@ -225,6 +226,9 @@ final class DatabaseQueryIsolation {
     private static ?NativeDatabaseProfile $profile = null;
     private static int $profileStatements = 0;
     private static int $profileSqlBytes = 0;
+    private static ?DatabaseWorkAuthority $workAuthority = null;
+    private static ?object $engineWorkScope = null;
+    private static ?object $workUnit = null;
     /** @var array<string,array{present:bool,value:mixed}> */
     private static array $hooks = [];
     /** @var array{all:DatabaseHookGate,query:DatabaseHookGate}|array{} */
@@ -243,6 +247,95 @@ final class DatabaseQueryIsolation {
     /** Whether the current isolated query boundary proves a read-only profile. */
     public static function bound_profile_is_read_only(): bool {
         return self::has_bound_profile() && self::$profile->is_read_only();
+    }
+
+    /**
+     * Admit independently bounded engine work without splitting its snapshot.
+     *
+     * A capture combines a finite discovered entity/option roster; charging
+     * that entire roster as one native callback refused the 1,025th statement
+     * while publishing an ordinary 11-post/26-term candidate. Table authority,
+     * the SQL grammar, and the transaction lifetime still cover every unit.
+     * SQL outside explicit units keeps the original finite aggregate budget.
+     * Native provider sessions never enter this engine orchestration scope.
+     *
+     * @template T
+     * @param callable():T $work
+     * @return T
+     */
+    public static function with_engine_work_units(DatabaseWorkAuthority $authority, callable $work): mixed {
+        self::assert_active('engine database work');
+        if (self::$profile === null || self::$workAuthority !== $authority
+            || self::$engineWorkScope !== null || self::$workUnit !== null) {
+            self::violation('wprism: engine database work requires one newly bound transaction profile');
+        }
+        $scope = new \stdClass();
+        $profile = self::$profile;
+        self::$engineWorkScope = $scope;
+        try {
+            $result = $work();
+            self::assert_active('engine database work completion');
+            if (self::$engineWorkScope !== $scope || self::$profile !== $profile || self::$workUnit !== null) {
+                self::violation('wprism: engine database work changed its bound transaction profile');
+            }
+            return $result;
+        } finally {
+            if (self::$engineWorkScope === $scope) {
+                self::$engineWorkScope = null;
+            }
+        }
+    }
+
+    /**
+     * Charge one complete semantic work item, including its native callbacks.
+     *
+     * Only the outermost item gets an independent budget. A native filter
+     * reentering an engine helper, or a provider calling the same helper in
+     * its own snapshot, therefore cannot refresh its enclosing quota. Owners
+     * call this around complete items from their already-bounded rosters, not
+     * around individual SQL statements or arbitrary portions of a callback.
+     *
+     * @template T
+     * @param callable():T $work
+     * @return T
+     */
+    public static function work_unit(?DatabaseWorkAuthority $authority, callable $work): mixed {
+        if ($authority === null) {
+            return $work();
+        }
+        self::assert_active('engine database work item authority');
+        if (self::$workAuthority !== $authority) {
+            self::violation('wprism: engine database work item has no authority for its bound profile');
+        }
+        if (self::$engineWorkScope === null || self::$workUnit !== null) {
+            return $work();
+        }
+        self::assert_active('engine database work item');
+        $scope = self::$engineWorkScope;
+        $profile = self::$profile;
+        $unit = new \stdClass();
+        $statements = self::$profileStatements;
+        $bytes = self::$profileSqlBytes;
+        self::$workUnit = $unit;
+        self::$profileStatements = 0;
+        self::$profileSqlBytes = 0;
+        try {
+            $result = $work();
+            self::assert_active('engine database work item completion');
+            if (self::$engineWorkScope !== $scope || self::$profile !== $profile || self::$workUnit !== $unit) {
+                self::violation('wprism: engine database work item changed its bound transaction profile');
+            }
+            return $result;
+        } finally {
+            // A lost/replaced transaction cannot inherit the prior counters.
+            // A poisoned *same* profile still restores only its enclosing
+            // accounting; poisoning and the exact rollback permit remain.
+            if (self::$engineWorkScope === $scope && self::$profile === $profile && self::$workUnit === $unit) {
+                self::$workUnit = null;
+                self::$profileStatements = $statements;
+                self::$profileSqlBytes = $bytes;
+            }
+        }
     }
 
     /**
@@ -366,10 +459,13 @@ final class DatabaseQueryIsolation {
         self::$profile = null;
         self::$profileStatements = 0;
         self::$profileSqlBytes = 0;
+        self::$workAuthority = null;
+        self::$engineWorkScope = null;
+        self::$workUnit = null;
         self::$active = true;
     }
 
-    public static function bind_profile(NativeDatabaseProfile $profile, string $context): void {
+    public static function bind_profile(NativeDatabaseProfile $profile, string $context): DatabaseWorkAuthority {
         self::assert_active($context . ' query profile');
         if (self::$cleanupAttempt || self::$profile !== null || self::$permittedQuery !== null) {
             self::violation("wprism: $context could not bind one isolated native database profile");
@@ -377,6 +473,8 @@ final class DatabaseQueryIsolation {
         self::$profile = $profile;
         self::$profileStatements = 0;
         self::$profileSqlBytes = 0;
+        self::$workAuthority = new DatabaseWorkAuthority();
+        return self::$workAuthority;
     }
 
     /**
@@ -636,6 +734,9 @@ final class DatabaseQueryIsolation {
         self::$profile = null;
         self::$profileStatements = 0;
         self::$profileSqlBytes = 0;
+        self::$workAuthority = null;
+        self::$engineWorkScope = null;
+        self::$workUnit = null;
         self::$hooks = [];
         self::$gates = [];
         self::$currentFilterStack = [];

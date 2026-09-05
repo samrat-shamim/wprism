@@ -1,5 +1,5 @@
 {
-    "class_count": 477,
+    "class_count": 478,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -9339,6 +9339,14 @@
                             "name": "selectedIdentities",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -9387,6 +9395,14 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],
@@ -10202,6 +10218,14 @@
                             "has_default": true,
                             "name": "forceUnresolvedRefs",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],
@@ -16083,7 +16107,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "void",
+                    "return_type": "WPrism\\DatabaseWorkAuthority",
                     "static": true,
                     "visibility": "public"
                 },
@@ -16183,6 +16207,56 @@
                         }
                     ],
                     "return_type": "never",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "with_engine_work_units": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "work",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "work_unit": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "work",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
                 }
@@ -16784,6 +16858,17 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\DatabaseWorkAuthority": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": [],
+            "parent": null,
+            "properties": [],
+            "readonly": true
+        },
         "WPrism\\Db": {
             "abstract": false,
             "constants": [],
@@ -17209,7 +17294,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "void",
+                    "return_type": "WPrism\\DatabaseWorkAuthority",
                     "static": true,
                     "visibility": "public"
                 },
@@ -17234,7 +17319,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "void",
+                    "return_type": "WPrism\\DatabaseWorkAuthority",
                     "static": true,
                     "visibility": "public"
                 },
@@ -17259,7 +17344,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "void",
+                    "return_type": "WPrism\\DatabaseWorkAuthority",
                     "static": true,
                     "visibility": "public"
                 },
@@ -17284,7 +17369,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "void",
+                    "return_type": "WPrism\\DatabaseWorkAuthority",
                     "static": true,
                     "visibility": "public"
                 },
@@ -29356,6 +29441,14 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],
@@ -72583,6 +72676,14 @@
                             "name": "strictReadOnly",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -77354,6 +77455,14 @@
                             "has_default": false,
                             "name": "carriedLogins",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "workAuthority",
+                            "type": "?WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],

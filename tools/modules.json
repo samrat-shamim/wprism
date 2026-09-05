@@ -72,6 +72,7 @@
     "DatabaseQueryIsolation",
     "DatabaseQueryIsolationViolationException",
     "DatabaseTransportBoundary",
+    "DatabaseWorkAuthority",
     "DatabaseTransactionOutcomeException",
     "ExactOptionReader",
     "ExactOptionWriter",
@@ -143,7 +144,7 @@
             ]
           }
         ],
-  "file_count": 61,
+  "file_count": 62,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -158,6 +159,7 @@
     "DatabaseExceptions.php",
     "DatabaseQueryIsolation.php",
     "DatabaseTransportBoundary.php",
+    "DatabaseWorkAuthority.php",
     "Db.php",
     "DurableFilesystem.php",
     "ExactOptionReader.php",

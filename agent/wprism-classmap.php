@@ -105,6 +105,7 @@ return [
     'WPrism\\DatabaseTargetIdentity' => 'src/Recovery/DatabaseTargetIdentity.php',
     'WPrism\\DatabaseTransactionOutcomeException' => 'src/Kernel/DatabaseExceptions.php',
     'WPrism\\DatabaseTransportBoundary' => 'src/Kernel/DatabaseTransportBoundary.php',
+    'WPrism\\DatabaseWorkAuthority' => 'src/Kernel/DatabaseWorkAuthority.php',
     'WPrism\\Db' => 'src/Kernel/Db.php',
     'WPrism\\DeadlockTransactionAbortedException' => 'src/Kernel/TransientDbException.php',
     'WPrism\\DeleteExecutor' => 'src/Delete/DeleteExecutor.php',

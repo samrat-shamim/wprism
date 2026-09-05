@@ -3,6 +3,8 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/OrderPreserved.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
@@ -781,7 +783,13 @@ final class Snapshot {
      *
      * @return array<int, array{uuid:string, type:string, path:string, content:string}>
      */
-    public static function capture(Policy $policy, Tokens $tokens, bool $mint, bool $strictReadOnly = false): array {
+    public static function capture(
+        Policy $policy,
+        Tokens $tokens,
+        bool $mint,
+        bool $strictReadOnly = false,
+        ?DatabaseWorkAuthority $workAuthority = null
+    ): array {
         $rowTables = self::row_tables($policy); // throws on duplicate id_kind
         if (!$rowTables) {
             return [];
@@ -818,7 +826,10 @@ final class Snapshot {
 
         $entities = [];
         foreach (self::topo_order($rowTables) as $table) {
-            $entities = array_merge($entities, self::capture_table(
+            // Typed tables do not yet admit a count/byte-bounded row roster.
+            // The complete table, not each returned row, therefore remains
+            // one finite query unit within the 256-table profile frontier.
+            $entities = array_merge($entities, DatabaseQueryIsolation::work_unit($workAuthority, static fn(): array => self::capture_table(
                 $table,
                 $rowTables[$table],
                 $metaByOwner[$table] ?? [],
@@ -829,7 +840,7 @@ final class Snapshot {
                 // because this is the last frame that still holds a Policy —
                 // TypedTableCapture is deliberately Policy-free.
                 $policy->column_codec_rules($table)
-            ));
+            )));
         }
         return $entities;
     }

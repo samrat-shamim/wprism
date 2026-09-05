@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Repository/CompiledArtifact.php';
 require_once __DIR__ . '/../Repository/CanonicalLedgerMapGuard.php';
 require_once __DIR__ . '/../Repository/Identity.php';
@@ -50,7 +51,7 @@ final class CaptureSnapshotService {
 
         $build = CaptureTransaction::run(
             $policy,
-            static function () use (
+            static function (DatabaseWorkAuthority $workAuthority) use (
                 $capture,
                 $forceUnresolvedRefs,
                 $repositoryOptions,
@@ -61,7 +62,8 @@ final class CaptureSnapshotService {
                     false,
                     $forceUnresolvedRefs,
                     $repositoryOptions,
-                    $repositoryUserLogins
+                    $repositoryUserLogins,
+                    workAuthority: $workAuthority
                 );
                 Identity::assert_entities_unique($candidate['entities']);
                 return $candidate;
@@ -101,7 +103,7 @@ final class CaptureSnapshotService {
 
         $build = CaptureTransaction::run(
             $policy,
-            static function () use (
+            static function (DatabaseWorkAuthority $workAuthority) use (
                 $capture,
                 $forceUnresolvedRefs,
                 $repositoryOptions,
@@ -117,7 +119,8 @@ final class CaptureSnapshotService {
                     $forceUnresolvedRefs,
                     $repositoryOptions,
                     $repositoryUserLogins,
-                    true
+                    true,
+                    workAuthority: $workAuthority
                 );
                 self::assertReadOnlyIdentityPrecondition(
                     static function () use ($candidate): void {
@@ -141,7 +144,8 @@ final class CaptureSnapshotService {
         Policy $policy,
         ?array $previousOptions,
         array $previousUserLogins,
-        bool $forceUnresolvedRefs = false
+        bool $forceUnresolvedRefs = false,
+        ?DatabaseWorkAuthority $workAuthority = null
     ): array {
         Canary::suppress_cron_spawn();
         return (new CaptureCandidateBuilder($repo, $policy))->build(
@@ -149,7 +153,8 @@ final class CaptureSnapshotService {
             $forceUnresolvedRefs,
             $previousOptions,
             $previousUserLogins,
-            true
+            true,
+            workAuthority: $workAuthority
         );
     }
 
@@ -183,7 +188,7 @@ final class CaptureSnapshotService {
 
         $document = CaptureTransaction::run(
             $policy,
-            static function () use (
+            static function (DatabaseWorkAuthority $workAuthority) use (
                 $capture,
                 $forceUnresolvedRefs,
                 $repositoryOptions,
@@ -195,7 +200,8 @@ final class CaptureSnapshotService {
                     $repositoryOptions,
                     $dynamicResolverValues,
                     true,
-                    true
+                    true,
+                    $workAuthority
                 );
             },
             optionsOnly: true

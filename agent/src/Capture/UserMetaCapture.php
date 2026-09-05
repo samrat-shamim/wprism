@@ -1,6 +1,9 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/OrderPreserved.php';
@@ -52,35 +55,37 @@ final class UserMetaCapture {
      * @param string[] $carriedLogins
      * @return array<int,array{uuid:string,type:string,path:string,content:string}>
      */
-    public function capture(array $carriedLogins): array {
+    public function capture(array $carriedLogins, ?DatabaseWorkAuthority $workAuthority = null): array {
         $carry = array_fill_keys(array_filter(array_map('strval', $carriedLogins)), true);
         $outByLogin = [];
-        foreach ($this->userMetaMaps() as $user) {
-            UserMetaState::assert_login($user['login']);
-            $login = $user['login'];
-            $authored = [];
-            foreach ($user['values'] as $key => $values) {
-                [$store, $value] = $this->classifyValue(
-                    (string) $key,
-                    $values,
-                    $user['meta'],
-                    $login
-                );
-                if ($store) {
-                    $authored[(string) $key] = $value;
+        foreach ($this->userMetaMaps($workAuthority) as $user) {
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($user, $carry, &$outByLogin): void {
+                UserMetaState::assert_login($user['login']);
+                $login = $user['login'];
+                $authored = [];
+                foreach ($user['values'] as $key => $values) {
+                    [$store, $value] = $this->classifyValue(
+                        (string) $key,
+                        $values,
+                        $user['meta'],
+                        $login
+                    );
+                    if ($store) {
+                        $authored[(string) $key] = $value;
+                    }
                 }
-            }
-            if (!$authored && !isset($carry[$login])) {
-                continue;
-            }
-            $document = UserMetaState::document($login, $authored);
-            $outByLogin[$login] = [
-                // Canonical-state key only: not a UUID, never wprism_map.
-                'uuid' => UserMetaState::key($login),
-                'type' => 'user-meta',
-                'path' => UserMetaState::path($login),
-                'content' => Canon::encode($document),
-            ];
+                if (!$authored && !isset($carry[$login])) {
+                    return;
+                }
+                $document = UserMetaState::document($login, $authored);
+                $outByLogin[$login] = [
+                    // Canonical-state key only: not a UUID, never wprism_map.
+                    'uuid' => UserMetaState::key($login),
+                    'type' => 'user-meta',
+                    'path' => UserMetaState::path($login),
+                    'content' => Canon::encode($document),
+                ];
+            });
         }
         // Only canonical outputs survive a chunk. A sparse million-user site
         // with no authored sidecars therefore retains zero raw user/meta maps
@@ -95,7 +100,7 @@ final class UserMetaCapture {
      *
      * @return \Generator<int, array{login:string,meta:array<string,mixed>,values:array<string,string[]>}>
      */
-    private function userMetaMaps(): \Generator {
+    private function userMetaMaps(?DatabaseWorkAuthority $workAuthority = null): \Generator {
         global $wpdb;
         $this->assertNoOrphanMeta();
         $this->assertNoCollationEqualLogins();
@@ -103,101 +108,110 @@ final class UserMetaCapture {
         $lastUserId = 0;
         $seenUsers = 0;
         while (true) {
-            $preflight = $this->checkedRows(
-                $wpdb->prepare(
-                    'SELECT ID AS user_id, OCTET_LENGTH(user_login) AS user_login_bytes, '
-                    . 'SHA2(user_login, 256) AS user_login_sha256 '
-                    . "FROM {$wpdb->users} WHERE ID > %d ORDER BY ID ASC LIMIT "
-                    . (self::USER_CHUNK_SIZE + 1),
-                    $lastUserId
-                ),
-                'Capture::user_meta_users_size_preflight()'
-            );
-            if ($preflight === []) {
+            // The four matched reads belong to the existing 500-user and
+            // byte-bounded chunk. They execute before yield, so a unit around
+            // the consumer alone would still charge all chunks as one call.
+            $chunk = DatabaseQueryIsolation::work_unit($workAuthority, function () use ($wpdb, &$lastUserId, &$seenUsers): ?array {
+                $preflight = $this->checkedRows(
+                    $wpdb->prepare(
+                        'SELECT ID AS user_id, OCTET_LENGTH(user_login) AS user_login_bytes, '
+                        . 'SHA2(user_login, 256) AS user_login_sha256 '
+                        . "FROM {$wpdb->users} WHERE ID > %d ORDER BY ID ASC LIMIT "
+                        . (self::USER_CHUNK_SIZE + 1),
+                        $lastUserId
+                    ),
+                    'Capture::user_meta_users_size_preflight()'
+                );
+                if ($preflight === []) {
+                    return null;
+                }
+                $hasMore = count($preflight) > self::USER_CHUNK_SIZE;
+                if ($hasMore) {
+                    $preflight = array_slice($preflight, 0, self::USER_CHUNK_SIZE);
+                }
+                $expectedUsers = [];
+                foreach ($preflight as $position => $row) {
+                    $id = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
+                    $bytes = is_array($row) ? self::nonnegativeSize($row['user_login_bytes'] ?? null) : null;
+                    $loginHash = is_array($row) ? self::sha256($row['user_login_sha256'] ?? null) : null;
+                    if (!is_array($row)
+                        || array_keys($row) !== ['user_id', 'user_login_bytes', 'user_login_sha256']
+                        || $id === null
+                        || $id <= $lastUserId
+                        || $bytes === null
+                        || $loginHash === null
+                        || $bytes === 0
+                        || $bytes > self::MAX_USER_LOGIN_BYTES) {
+                        throw new \RuntimeException(
+                            "wprism: user-meta user size preflight returned a malformed row at bounded position $position"
+                        );
+                    }
+                    $expectedUsers[$id] = [
+                        'id' => $row['user_id'],
+                        'login_bytes' => $bytes,
+                        'login_sha256' => $loginHash,
+                    ];
+                    $lastUserId = $id;
+                    ++$seenUsers;
+                    if ($seenUsers > self::MAX_USERS) {
+                        throw new \RuntimeException('wprism: user-meta capture exceeds the bounded user limit');
+                    }
+                }
+                $ids = array_keys($expectedUsers);
+                $placeholders = implode(',', array_fill(0, count($ids), '%d'));
+                $userRows = $this->checkedRows(
+                    $wpdb->prepare(
+                        "SELECT ID AS user_id, user_login FROM {$wpdb->users} "
+                        . "WHERE ID IN ($placeholders) ORDER BY ID ASC LIMIT " . (count($ids) + 1),
+                        ...$ids
+                    ),
+                    'Capture::user_meta_users_value_read()'
+                );
+                if (count($userRows) !== count($expectedUsers)) {
+                    throw new \RuntimeException('wprism: user-meta users changed after the bounded size preflight');
+                }
+                $users = [];
+                $loginHashes = [];
+                foreach ($userRows as $position => $row) {
+                    $id = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
+                    $login = is_array($row) ? ($row['user_login'] ?? null) : null;
+                    $witness = $id === null ? null : ($expectedUsers[$id] ?? null);
+                    $characters = is_string($login) && strlen($login) <= self::MAX_USER_LOGIN_BYTES
+                        ? preg_match_all('/./us', $login)
+                        : false;
+                    if (!is_array($row)
+                        || array_keys($row) !== ['user_id', 'user_login']
+                        || $id === null
+                        || $witness === null
+                        || !is_string($login)
+                        || strlen($login) !== $witness['login_bytes']
+                        || !hash_equals($witness['login_sha256'], hash('sha256', $login))
+                        || !is_int($characters)
+                        || $characters === 0
+                        || $characters > self::MAX_USER_LOGIN_CHARACTERS) {
+                        throw new \RuntimeException(
+                            "wprism: user-meta user value read returned a malformed row at bounded position $position"
+                        );
+                    }
+                    UserMetaState::assert_login($login);
+                    $loginHash = hash('sha256', $login);
+                    if (isset($loginHashes[$loginHash])) {
+                        throw new \RuntimeException('wprism: user-meta capture found duplicate exact login identities');
+                    }
+                    $loginHashes[$loginHash] = true;
+                    $users[$id] = ['login' => $login, 'meta' => [], 'values' => []];
+                }
+
+                $this->fillUserMetaChunk($users, $ids, $placeholders);
+                return ['users' => $users, 'has_more' => $hasMore];
+            });
+            if ($chunk === null) {
                 return;
             }
-            $hasMore = count($preflight) > self::USER_CHUNK_SIZE;
-            if ($hasMore) {
-                $preflight = array_slice($preflight, 0, self::USER_CHUNK_SIZE);
-            }
-            $expectedUsers = [];
-            foreach ($preflight as $position => $row) {
-                $id = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
-                $bytes = is_array($row) ? self::nonnegativeSize($row['user_login_bytes'] ?? null) : null;
-                $loginHash = is_array($row) ? self::sha256($row['user_login_sha256'] ?? null) : null;
-                if (!is_array($row)
-                    || array_keys($row) !== ['user_id', 'user_login_bytes', 'user_login_sha256']
-                    || $id === null
-                    || $id <= $lastUserId
-                    || $bytes === null
-                    || $loginHash === null
-                    || $bytes === 0
-                    || $bytes > self::MAX_USER_LOGIN_BYTES) {
-                    throw new \RuntimeException(
-                        "wprism: user-meta user size preflight returned a malformed row at bounded position $position"
-                    );
-                }
-                $expectedUsers[$id] = [
-                    'id' => $row['user_id'],
-                    'login_bytes' => $bytes,
-                    'login_sha256' => $loginHash,
-                ];
-                $lastUserId = $id;
-                ++$seenUsers;
-                if ($seenUsers > self::MAX_USERS) {
-                    throw new \RuntimeException('wprism: user-meta capture exceeds the bounded user limit');
-                }
-            }
-            $ids = array_keys($expectedUsers);
-            $placeholders = implode(',', array_fill(0, count($ids), '%d'));
-            $userRows = $this->checkedRows(
-                $wpdb->prepare(
-                    "SELECT ID AS user_id, user_login FROM {$wpdb->users} "
-                    . "WHERE ID IN ($placeholders) ORDER BY ID ASC LIMIT " . (count($ids) + 1),
-                    ...$ids
-                ),
-                'Capture::user_meta_users_value_read()'
-            );
-            if (count($userRows) !== count($expectedUsers)) {
-                throw new \RuntimeException('wprism: user-meta users changed after the bounded size preflight');
-            }
-            $users = [];
-            $loginHashes = [];
-            foreach ($userRows as $position => $row) {
-                $id = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
-                $login = is_array($row) ? ($row['user_login'] ?? null) : null;
-                $witness = $id === null ? null : ($expectedUsers[$id] ?? null);
-                $characters = is_string($login) && strlen($login) <= self::MAX_USER_LOGIN_BYTES
-                    ? preg_match_all('/./us', $login)
-                    : false;
-                if (!is_array($row)
-                    || array_keys($row) !== ['user_id', 'user_login']
-                    || $id === null
-                    || $witness === null
-                    || !is_string($login)
-                    || strlen($login) !== $witness['login_bytes']
-                    || !hash_equals($witness['login_sha256'], hash('sha256', $login))
-                    || !is_int($characters)
-                    || $characters === 0
-                    || $characters > self::MAX_USER_LOGIN_CHARACTERS) {
-                    throw new \RuntimeException(
-                        "wprism: user-meta user value read returned a malformed row at bounded position $position"
-                    );
-                }
-                UserMetaState::assert_login($login);
-                $loginHash = hash('sha256', $login);
-                if (isset($loginHashes[$loginHash])) {
-                    throw new \RuntimeException('wprism: user-meta capture found duplicate exact login identities');
-                }
-                $loginHashes[$loginHash] = true;
-                $users[$id] = ['login' => $login, 'meta' => [], 'values' => []];
-            }
-
-            $this->fillUserMetaChunk($users, $ids, $placeholders);
-            foreach ($users as $user) {
+            foreach ($chunk['users'] as $user) {
                 yield $user;
             }
-            if (!$hasMore) {
+            if (!$chunk['has_more']) {
                 return;
             }
         }

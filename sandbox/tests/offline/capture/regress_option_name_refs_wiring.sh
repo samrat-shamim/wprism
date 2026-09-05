@@ -56,7 +56,9 @@ check_wiring() { # check_wiring <path> <label> -- exits 0 (wired correctly) or 1
   loop_line=$(echo "$body" | grep -n 'option_name_ref_match_details' | head -1 | cut -d: -f1)
   [ -n "$loop_line" ] || { echo "  [$label] option_name_ref_match_details() call site not found in OptionsCapture" >&2; return 1; }
   local window
-  window=$(echo "$body" | sed -n "$((loop_line - 1)),$((loop_line + 5))p")
+  # The engine-owned work-unit closure sits between this exact consumer loop
+  # and its classifier; the nearby authored-options loop remains out of range.
+  window=$(echo "$body" | sed -n "$((loop_line - 4)),$((loop_line + 5))p")
   grep -qE 'foreach\s*\(\s*array_keys\(\$allOptionValues\)\s*as\s*\$name\s*\)' <<<"$window" \
     || { echo "  [$label] option_name_ref_match_details() consumer loop does not iterate array_keys(\$allOptionValues) -- got:
 $window" >&2; return 1; }
@@ -80,7 +82,7 @@ import re, sys
 src, dst = sys.argv[1], sys.argv[2]
 lines = open(src, encoding='utf-8').readlines()
 call_idx = next(i for i, l in enumerate(lines) if 'option_name_ref_match_details' in l)
-for i in range(max(0, call_idx - 2), min(call_idx + 2, len(lines))):
+for i in range(max(0, call_idx - 4), min(call_idx + 2, len(lines))):
     if 'foreach (array_keys($allOptionValues) as $name) {' in lines[i]:
         lines[i] = lines[i].replace(
             'foreach (array_keys($allOptionValues) as $name) {',

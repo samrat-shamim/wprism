@@ -4,6 +4,8 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Kernel/ProcessFence.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
@@ -344,7 +346,7 @@ final class CapturePublicationWorkflow {
             // collides with one of THIS build's own writes. In particular,
             // an unsupported deletion must roll back every row mutation made
             // while assembling the refused candidate.
-            $build = self::runInConsistentSnapshot(function () use (
+            $build = self::runInConsistentSnapshot(function (DatabaseWorkAuthority $workAuthority) use (
                 $c, $policy, $repo, $forceUnresolvedRefs, $previous, $previousOptions,
                 $previousUserLogins, $intoRepo, $stateDir,
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
@@ -363,7 +365,7 @@ final class CapturePublicationWorkflow {
                     Ledger::prune_dead_map();
                     $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
                     $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
-                    SidebarState::prune_dead_map($policy);
+                    DatabaseQueryIsolation::work_unit($workAuthority, static fn() => SidebarState::prune_dead_map($policy));
                     // A typed method row may disappear before its instance-
                     // settings option. Keep the option-name identity alive
                     // through this capture so build_options() can still emit
@@ -382,7 +384,8 @@ final class CapturePublicationWorkflow {
                     $previousOptions,
                     $previousUserLogins,
                     $scoped,
-                    $scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null
+                    $scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null,
+                    $workAuthority
                 );
                 Identity::assert_entities_unique($candidate['entities']);
                 $candidate['deletions'] = Deletion::capture_tombstones(
@@ -733,13 +736,7 @@ final class CapturePublicationWorkflow {
                 }
                 if ($intoRepo) {
                     $ledgerEntities = $scoped ? $selectedObserved : $candidate['entities'];
-                    foreach ($ledgerEntities as $e) {
-                        Ledger::set_state_hash(
-                            $e['uuid'],
-                            $e['type'],
-                            hash('sha256', $e['hash_basis'] ?? $e['content'])
-                        );
-                    }
+                    self::recordCapturedStateHashes($ledgerEntities, $workAuthority);
                     if ($scoped && ScopedApply::has_record_scoped_options($scopeContract)) {
                         $options = null;
                         foreach ($candidate['entities'] as $entity) {
@@ -754,7 +751,8 @@ final class CapturePublicationWorkflow {
                         try {
                             $document = Canon::decode((string) ($options['content'] ?? ''));
                             foreach (ScopedApply::option_state_hashes((array) $document, $scopeContract) as $identity => $hash) {
-                                Ledger::set_state_hash($identity, 'option', $hash);
+                                DatabaseQueryIsolation::work_unit($workAuthority, static fn() =>
+                                    Ledger::set_state_hash($identity, 'option', $hash));
                             }
                         } catch (\Throwable $failure) {
                             throw new \RuntimeException('wprism: scoped capture options carrier is malformed before ledger finalization', 0, $failure);
@@ -765,14 +763,17 @@ final class CapturePublicationWorkflow {
                             // This is the only map/state removal in scoped
                             // v1, and its UUID already passed selected-scope,
                             // capability, inbound, and candidate gates.
-                            Ledger::forget((string) $identity);
+                            DatabaseQueryIsolation::work_unit($workAuthority, static fn() => Ledger::forget((string) $identity));
                         }
                     }
                     if (!$scoped) {
-                        Ledger::prune_state(array_merge(
+                        // The old ledger inventory has no admitted row/byte
+                        // frontier. Keep the entire prune one finite unit;
+                        // per-row quotas would authorize an unbounded roster.
+                        DatabaseQueryIsolation::work_unit($workAuthority, static fn() => Ledger::prune_state(array_merge(
                             array_column($candidate['entities'], 'uuid'),
                             array_column($candidate['deletions'], 'uuid')
-                        ));
+                        )));
                         // Capture may initialize or reaffirm an exact baseline,
                         // but it never consumes drift. CodeBaselineCapture binds
                         // that decision to the same transaction as the captured
@@ -1119,6 +1120,17 @@ final class CapturePublicationWorkflow {
             $operatorMessage,
             $previous
         );
+    }
+
+    /** Publish each admitted candidate identity in the same capture transaction. */
+    private static function recordCapturedStateHashes(array $entities, DatabaseWorkAuthority $workAuthority): void {
+        foreach ($entities as $entity) {
+            DatabaseQueryIsolation::work_unit($workAuthority, static fn() => Ledger::set_state_hash(
+                $entity['uuid'],
+                $entity['type'],
+                hash('sha256', $entity['hash_basis'] ?? $entity['content'])
+            ));
+        }
     }
 
     private static function runInConsistentSnapshot(

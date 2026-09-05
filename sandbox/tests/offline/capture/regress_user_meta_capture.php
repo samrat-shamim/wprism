@@ -468,7 +468,7 @@ $check(
         && str_contains($candidateSource, '$this->safetyGates->guardPersonalData(')
         && str_contains($candidateSource, "'user_meta',")
         && str_contains($candidateSource, 'CaptureTransaction::check_transient_db_error($where);')
-        && str_contains($candidateSource, '$this->userMetaCapture->capture($carriedUserLogins)'),
+        && str_contains($candidateSource, '$this->userMetaCapture->capture($carriedUserLogins, $workAuthority)'),
     'candidate builder binds exact secret, personal-data, and transient-read callbacks'
 );
 $check(

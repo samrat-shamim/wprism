@@ -770,6 +770,15 @@ exact runtime object returned by the engine's digest/provenance loader can
 activate either database scope; a direct, cloned, or unserialized runtime cannot
 reuse its declaration to mint a profile.
 
+One native database callback is limited to 1,024 statements, 16 MiB of total
+rendered SQL, and 1 MiB per statement. Engine transaction controls do not
+consume that callback budget. Capture partitions its separately bounded core
+entity/option/chunk work inside the same snapshot, using an opaque authority
+returned only to the transaction owner. Providers do not receive that authority
+and must not use the engine's work-partition APIs. Calling or reentering a core
+helper from native code does not replenish the callback's quota; an oversized
+operation needs a genuinely bounded semantic design, not a counter reset.
+
 Audit native API reads with cold caches as well as warm ones before narrowing
 that table list. For example, WordPress's `url_to_postid()` creates a `WP_Query`
 that can prime post metadata: an id-only answer still needs `postmeta` read
