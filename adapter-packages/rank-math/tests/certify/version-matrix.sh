@@ -147,14 +147,17 @@ echo wp_json_encode([
 # and drives real redirect traffic. Upgrade/downgrade are continuations of that
 # state, so their oracle must be read-only and compare against the immediately
 # preceding target rather than replaying the fresh-target fixture assumptions.
-assert_rank_math_transition_content() { # <label> <version> <source> <target-before> <target-after> <apply-receipt>
-  local label="$1" version="$2" source="$3" target_before="$4" target_after="$5" receipt="$6"
+assert_rank_math_transition_content() { # <label> <version> <source> <target-before> <target-after> <apply-receipt> <target-port>
+  [ "$#" -eq 7 ] || fail 'Rank Math transition requires exactly seven arguments'
+  local label="$1" version="$2" source="$3" target_before="$4" target_after="$5" receipt="$6" target_port="$7"
+  [[ "$target_port" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$target_port" -le 65535 ] \
+    || fail "$label requires an explicit target HTTP port"
   require_observed_nonempty "$label source observation" "$source"
   require_observed_nonempty "$label target baseline" "$target_before"
   require_observed_nonempty "$label target observation" "$target_after"
   require_observed_nonempty "$label apply receipt" "$receipt"
   printf '%s\n' "$source" "$target_before" "$target_after" "$receipt" | jq -es \
-    --arg version "$version" --arg port "$CONF2_PORT" '
+    --arg version "$version" --arg port "$target_port" '
     length == 4 and
     .[0] as $source | .[1] as $before | .[2] as $target | .[3] as $receipt |
     ($source | type) == "object" and ($before | type) == "object" and
@@ -496,7 +499,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     UPGRADE_TARGET_TRANSITION=$(observe_rank_math conf2 "siterepo/${PAIR}2" wp2)
     assert_rank_math_transition_content 'Rank Math 1.0.277 to 1.0.277.2 transition' \
       "$RANK_MATH_VERSION" "$UPGRADE_SOURCE_TRANSITION" "$UPGRADE_TARGET_TRANSITION_BEFORE" \
-      "$UPGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON"
+      "$UPGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON" "$PORT2"
     RANK_MATH_VERSION=1.0.277
 
     UPGRADED_TITLE=$(wp2 post list --post_type=post --name=rank-math-article --field=post_title)
@@ -589,7 +592,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     DOWNGRADE_TARGET_TRANSITION=$(observe_rank_math conf2 "siterepo/${PAIR}2" wp2)
     assert_rank_math_transition_content 'Rank Math 1.0.277.2 to 1.0.277.1 transition' \
       "$RANK_MATH_VERSION" "$DOWNGRADE_SOURCE_TRANSITION" "$DOWNGRADE_TARGET_TRANSITION_BEFORE" \
-      "$DOWNGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON"
+      "$DOWNGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON" "$PORT2"
     RANK_MATH_VERSION=1.0.277
 
     DOWNGRADED_TITLE=$(wp2 post list --post_type=post --name=rank-math-article --field=post_title)

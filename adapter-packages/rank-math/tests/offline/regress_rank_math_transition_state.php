@@ -144,7 +144,10 @@ function rank_transition_shell(
     array $source,
     array $before,
     array $target,
-    array $receipt
+    array $receipt,
+    string $port = '9321',
+    bool $ambientConflict = false,
+    ?string $invocation = null
 ): array {
     $script = <<<'SH'
 set -euo pipefail
@@ -158,20 +161,29 @@ wp2() { mutation_attempt wp2 "$@"; }
 host_wprism() { mutation_attempt host_wprism "$@"; }
 commit_rank_math_source() { mutation_attempt commit_rank_math_source "$@"; }
 git() { mutation_attempt git "$@"; }
-CONF2_PORT=9321
+unset CONF2_PORT PORT2
 SH;
-    return ShellProbe::run(
-        $script . "\n" . $function . <<<'SH'
+    if ($ambientConflict) $script .= "\nCONF2_PORT=9999 PORT2=9998\n";
+    if ($invocation !== null) {
+        $script .= <<<'SH'
 
-assert_rank_math_transition_content fixture "$1" "$2" "$3" "$4" "$5"
-printf 'TRANSITION_READY\n'
-SH,
+PORT2="$6" RANK_MATH_VERSION="$1"
+UPGRADE_SOURCE_TRANSITION="$2" UPGRADE_TARGET_TRANSITION_BEFORE="$3" UPGRADE_TARGET_TRANSITION="$4"
+DOWNGRADE_SOURCE_TRANSITION="$2" DOWNGRADE_TARGET_TRANSITION_BEFORE="$3" DOWNGRADE_TARGET_TRANSITION="$4"
+RANK_MATH_BOUNDARY_APPLY_JSON="$5"
+SH;
+    }
+    return ShellProbe::run(
+        $script . "\n" . $function . "\n"
+            . ($invocation ?? 'assert_rank_math_transition_content fixture "$1" "$2" "$3" "$4" "$5" "$6"')
+            . "\nprintf 'TRANSITION_READY\\n'\n",
         [
             $version,
             json_encode($source, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
             json_encode($before, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
             json_encode($target, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
             json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            $port,
         ],
         $root
     );
@@ -232,6 +244,35 @@ wprism_check($status === 0 && str_contains($stdout, "TRANSITION_READY\n") && $st
     'the same read-only helper accepts the sequential downgrade without resetting evolved state');
 if ($status !== 0 || !str_contains($stdout, "TRANSITION_READY\n") || $stderr !== '') {
     wprism_check_detail("downgrade transition exit=$status; stdout=$stdout; stderr=$stderr");
+}
+
+[$status, $stdout, $stderr] = rank_transition_shell($root, $transitionFunction, '1.0.277.2',
+    $upgradeSource, $before, $upgradeTarget, $receipt, ambientConflict: true);
+wprism_check($status === 0 && $stdout === "TRANSITION_READY\n" && $stderr === '',
+    'the transition uses its explicit port even when both ambient conformance and matrix ports disagree');
+foreach (['', '0', '09321', '65536', '9322', 'PRIVATE_BAD_PORT'] as $port) {
+    [$status, $stdout, $stderr] = rank_transition_shell($root, $transitionFunction, '1.0.277.2',
+        $upgradeSource, $before, $upgradeTarget, $receipt, $port);
+    wprism_check($status !== 0 && !str_contains($stdout, 'TRANSITION_READY')
+        && str_contains($stderr, 'TRANSITION_REFUSED:') && !str_contains($stderr, 'PRIVATE_'),
+        'an absent, malformed or wrong explicit port cannot certify target URLs: ' . ($port === 'PRIVATE_BAD_PORT' ? 'non-port' : $port));
+}
+[$status, $stdout, $stderr] = rank_transition_shell($root, $transitionFunction, '1.0.277.2',
+    $upgradeSource, $before, $upgradeTarget, $receipt,
+    invocation: 'assert_rank_math_transition_content fixture "$1" "$2" "$3" "$4" "$5"');
+wprism_check($status !== 0 && !str_contains($stdout, 'TRANSITION_READY') && str_contains($stderr, 'TRANSITION_REFUSED:'),
+    'a caller that omits the target port fails with the explicit argument contract');
+
+foreach ([['1.0.277 to 1.0.277.2', '1.0.277.2', $upgradeSource, $before, $upgradeTarget],
+    ['1.0.277.2 to 1.0.277.1', '1.0.277.1', $downgradeSource, $upgradeTarget, $downgradeTarget]] as [$label, $version, $source, $baseline, $target]) {
+    $callStart = strpos($matrix, "    assert_rank_math_transition_content 'Rank Math $label transition'");
+    $callEnd = $callStart === false ? false : strpos($matrix, '    RANK_MATH_VERSION=', $callStart);
+    wprism_check(is_int($callStart) && is_int($callEnd), "$label retains one actual matrix invocation");
+    if (!is_int($callStart) || !is_int($callEnd)) continue;
+    [$status, $stdout, $stderr] = rank_transition_shell($root, $transitionFunction, $version,
+        $source, $baseline, $target, $receipt, invocation: substr($matrix, $callStart, $callEnd - $callStart));
+    wprism_check($status === 0 && $stdout === "TRANSITION_READY\n" && $stderr === '',
+        "$label actual caller binds the matrix-owned port without a conformance local");
 }
 
 $mutations = [
