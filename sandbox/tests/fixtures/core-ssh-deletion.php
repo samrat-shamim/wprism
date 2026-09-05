@@ -78,8 +78,28 @@ final class CoreSshDeletionFixture {
         require_once ABSPATH . 'wp-admin/includes/image.php';
         $metadata = wp_generate_attachment_metadata($ids['attachment'], $upload['file']);
         if (!is_array($metadata) || !is_string($metadata['file'] ?? null)
-            || !is_array($metadata['sizes'] ?? null) || $metadata['sizes'] === []
-            || !wp_update_attachment_metadata($ids['attachment'], $metadata)) {
+            || !is_array($metadata['sizes'] ?? null) || $metadata['sizes'] === []) {
+            self::fail('native attachment derivatives were not recorded');
+        }
+        // wp_create_image_subsizes() already persists generated metadata;
+        // wp_update_attachment_metadata() returns false for that exact no-op.
+        // Its boolean is not storage evidence (65d92acd's live seed refused
+        // here). Check the immediate error, then one exact raw metadata row.
+        $wpdb->last_error = '';
+        $updated = wp_update_attachment_metadata($ids['attachment'], $metadata);
+        if ($wpdb->last_error !== ''
+            || (!is_bool($updated) && (!is_int($updated) || $updated <= 0))) {
+            self::fail('native attachment metadata update failed');
+        }
+        $stored = self::rows($wpdb->prepare(
+            "SELECT LEFT(meta_key,24) AS meta_key,SHA2(meta_value,256) AS value_hash FROM {$wpdb->postmeta} "
+            . 'WHERE post_id=%d AND meta_key=%s ORDER BY meta_id LIMIT 2',
+            $ids['attachment'], '_wp_attachment_metadata'
+        ), ['meta_key', 'value_hash']);
+        if (count($stored) !== 1
+            || array_keys($stored[0]) !== ['meta_key', 'value_hash']
+            || $stored[0]['meta_key'] !== '_wp_attachment_metadata'
+            || $stored[0]['value_hash'] !== hash('sha256', serialize($metadata))) {
             self::fail('native attachment derivatives were not recorded');
         }
         $paths = [$metadata['file']];

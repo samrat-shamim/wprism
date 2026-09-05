@@ -14,6 +14,87 @@ use WPrismTest\ShellProbe;
 use WPrismTest\WpStore;
 
 $root = dirname(__DIR__, 4);
+if (($argv[1] ?? null) === '--metadata') {
+    $fixtureSource = file_get_contents($argv[2] . '/sandbox/tests/fixtures/core-ssh-deletion.php');
+    $start = strpos($fixtureSource, '$metadata = wp_generate_attachment_metadata(');
+    $end = strpos($fixtureSource, '$paths = [$metadata[\'file\']];', $start);
+    if ($start === false || $end === false) {
+        throw new LogicException('the real metadata seed acceptance block is unavailable');
+    }
+    $mode = $argv[3];
+    $metadataFixture = ['file' => '2026/09/original.png',
+        'sizes' => ['thumbnail' => ['file' => 'original-150x150.png', 'width' => 150, 'height' => 150]]];
+    if ($mode === 'no derivatives') {
+        $metadataFixture['sizes'] = [];
+    }
+    $wpdb = FakeWpdb::install();
+    $updateCalls = 0;
+    // Model only the native API boundary: generation has already persisted
+    // its data and WordPress's final identical update returns false. The real
+    // seed acceptance below reads actual FakeWpdb rows, not a canned answer.
+    function wp_generate_attachment_metadata(int $id, string $file): array {
+        global $wpdb, $metadataFixture;
+        $wpdb->seedTable('wp_postmeta', [['meta_id' => 1, 'post_id' => $id,
+            'meta_key' => '_wp_attachment_metadata', 'meta_value' => serialize($metadataFixture)]]);
+        return $metadataFixture;
+    }
+    function wp_update_attachment_metadata(int $id, array $metadata): mixed {
+        global $wpdb, $mode, $updateCalls;
+        $updateCalls++;
+        $row = ['meta_id' => 1, 'post_id' => $id, 'meta_key' => '_wp_attachment_metadata', 'meta_value' => serialize($metadata)];
+        if (in_array($mode, ['false stale', 'true stale'], true)) {
+            $wpdb->seedTable('wp_postmeta', [array_replace($row, ['meta_value' => 'stale'])]);
+        } elseif ($mode === 'missing') {
+            $wpdb->seedTable('wp_postmeta', []);
+        } elseif ($mode === 'duplicate') {
+            $wpdb->seedTable('wp_postmeta', [$row, array_replace($row, ['meta_id' => 2])]);
+        } elseif ($mode === 'write error') {
+            $wpdb->last_error = 'injected metadata write failure';
+        } elseif ($mode === 'read error') {
+            $wpdb->failNextQuery('injected metadata read failure', 'SELECT LEFT(meta_key,24)');
+        } elseif ($mode === 'malformed read') {
+            $wpdb->returnNextGetResultsAs([['meta_key' => '_wp_attachment_metadata']], 'SELECT LEFT(meta_key,24)');
+        }
+        return match ($mode) {
+            'unchanged', 'false stale', 'write error' => false,
+            'new meta id' => 19,
+            'invalid return' => null,
+            default => true,
+        };
+    }
+    $ids = ['attachment' => 13];
+    $upload = ['file' => '/native/fixture.png'];
+    $block = substr($fixtureSource, $start, $end - $start);
+    $run = Closure::bind(eval('return static function () use ($ids, $upload) { global $wpdb; ' . $block . 'return $metadata; };'), null, Fixture::class);
+    try {
+        $result = $run();
+        echo json_encode(['accepted' => true, 'update_calls' => $updateCalls, 'metadata' => $result], JSON_THROW_ON_ERROR) . "\n";
+    } catch (RuntimeException $failure) {
+        echo json_encode(['accepted' => false, 'update_calls' => $updateCalls, 'message' => $failure->getMessage()], JSON_THROW_ON_ERROR) . "\n";
+        exit(1);
+    }
+    exit(0);
+}
+$metadataSourceRoot = $argv[1] ?? $root;
+foreach (['unchanged', 'changed', 'new meta id', 'false stale', 'true stale', 'missing', 'duplicate',
+    'write error', 'read error', 'malformed read', 'invalid return', 'no derivatives'] as $mode) {
+    $process = proc_open([PHP_BINARY, __FILE__, '--metadata', $metadataSourceRoot, $mode],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('metadata seed child could not start');
+    }
+    $out = stream_get_contents($pipes[1]);
+    $err = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exit = proc_close($process);
+    $answer = json_decode($out, true);
+    $accepted = in_array($mode, ['unchanged', 'changed', 'new meta id'], true);
+    wprism_check_same('', $err, "$mode metadata acceptance has no PHP/fixture infrastructure failure");
+    wprism_check_same($accepted ? 0 : 1, $exit, "$mode metadata acceptance agrees with durable storage, not the setter boolean");
+    wprism_check_same($accepted, $answer['accepted'] ?? null, "$mode metadata answer agrees with exit status");
+    wprism_check_same($mode === 'no derivatives' ? 0 : 1, $answer['update_calls'] ?? null, "$mode executes the actual metadata update boundary exactly once after valid generation");
+}
 $source = file_get_contents($root . '/sandbox/tests/live/regress_core_ssh_deletion.sh');
 $parent = file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
 if (!is_string($source) || !is_string($parent)
