@@ -693,6 +693,92 @@ adopt_assert_ordered(
 );
 
 $sourceRoot = dirname(__DIR__, 4);
+
+// Execute the initial-only writer, including its real generation lock and
+// publication journal. A dispatcher proof is not permission to update an
+// authority that appeared after the proof; preserve that actor's exact bytes.
+$stageDistribution = new ReflectionMethod(Adopt::class, 'stageDistribution');
+$removeStage = new ReflectionMethod(Adopt::class, 'removeLocalStage');
+$initialDistribution = $stageDistribution->invoke(
+    null, $sourceRoot, bin2hex(random_bytes(12)), $sourceRoot . '/tools/src/AdapterLibraryAssembler.php'
+);
+register_shutdown_function(static fn() => $removeStage->invoke(null, $initialDistribution['path']));
+foreach (['pristine', 'before-agent', 'before-repo', 'after-control', 'after-state', 'after-repo-rebind'] as $initialCase) {
+    $initialFixture = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-' . bin2hex(random_bytes(8));
+    register_shutdown_function(static function () use ($initialFixture): void {
+        if (is_dir($initialFixture)) adopt_remove_fixture($initialFixture);
+    });
+    $initialTransport = new AdoptFilesystemTransactionTransport($initialFixture, $sourceRoot);
+    $initialMu = $initialTransport->muDir();
+    $initialRepo = $initialTransport->repoPath();
+    adopt_remove_fixture($initialMu . '/wprism');
+    unlink($initialMu . '/wprism-loader.php');
+    adopt_remove_fixture($initialRepo);
+    $initialArchive = $initialFixture . '/candidate.tar';
+    exec('COPYFILE_DISABLE=1 tar -C ' . escapeshellarg($initialDistribution['path'])
+        . ' -cf ' . escapeshellarg($initialArchive) . ' agent recovery', $archiveLines, $archiveExit);
+    adopt_check($archiveExit === 0, 'the initial writer fixture packages the actual distribution for ' . $initialCase);
+    $initialToken = bin2hex(random_bytes(12));
+    $initialScript = (string) $installScript->invoke(
+        null, $initialArchive, $initialMu, $initialRepo, $initialToken,
+        null, null, null, null, $absentLoaderProbe, false, true
+    );
+    $sentinel = null;
+    if ($initialCase === 'before-agent' || $initialCase === 'before-repo') {
+        $foreign = $initialCase === 'before-agent' ? $initialMu . '/wprism' : $initialRepo;
+        mkdir($foreign, 0700);
+        $sentinel = $foreign . '/sentinel';
+        file_put_contents($sentinel, 'preserve');
+    } elseif (str_starts_with($initialCase, 'after-')) {
+        $foreign = match ($initialCase) {
+            'after-control' => $initialMu . '/wprism-control',
+            'after-state' => $initialRepo . '/.wprism',
+            default => $initialRepo,
+        };
+        $sentinel = $foreign . '/sentinel';
+        $injection = $initialCase === 'after-repo-rebind'
+            ? 'mv ' . escapeshellarg($initialRepo) . ' ' . escapeshellarg($initialRepo . '.prior') . "\n"
+            : '';
+        $injection .= 'mkdir ' . escapeshellarg($foreign) . '; printf preserve > ' . escapeshellarg($sentinel) . "\n";
+        $initialScript = str_replace("generation_lock_acquire 0\n", "generation_lock_acquire 0\n" . $injection,
+            $initialScript, $injections);
+        adopt_check($injections === 1, 'the authority-race fixture plants exactly at the real generation-writer boundary');
+    }
+    $initialBefore = [adopt_tree_hash($initialMu), is_dir($initialRepo) ? adopt_tree_hash($initialRepo) : null];
+    $initialResult = $initialTransport->captureRaw($initialScript);
+    if ($initialCase === 'pristine') {
+        if ($initialResult['exit'] !== 0) fwrite(STDERR, json_encode($initialResult, JSON_THROW_ON_ERROR) . "\n");
+        adopt_check($initialResult['exit'] === 0
+            && str_contains($initialResult['stdout'], 'wprism-install-complete')
+            && is_file($initialMu . '/wprism/wprism.php')
+            && is_file($initialMu . '/wprism-loader.php')
+            && is_file($initialRepo . '/.wprism/control/target.json')
+            && is_file($initialRepo . '/site.wprism.json'),
+            'the initial-only generation writer installs a genuinely absent repository and control plane');
+        $barrier = new ReflectionMethod(Adopt::class, 'commitBarrierScript');
+        $cleanup = new ReflectionMethod(Adopt::class, 'cleanupCommittedScript');
+        adopt_check($initialTransport->captureRaw($barrier->invoke(null, $initialMu, $initialRepo, $initialToken))['exit'] === 0
+            && $initialTransport->captureRaw($cleanup->invoke(null, $initialMu, $initialRepo, $initialToken))['exit'] === 0,
+            'the initial-only generation writer crosses its commit barrier and releases transaction ownership');
+        continue;
+    }
+    $expected = str_starts_with($initialCase, 'before-')
+        ? 'initial control authority changed before staging'
+        : ($initialCase === 'after-repo-rebind'
+            ? 'initial repository authority changed before publication'
+            : 'initial control authority changed before publication');
+    adopt_check($initialResult['exit'] !== 0 && str_contains($initialResult['stderr'], $expected)
+        && !str_contains($initialResult['stdout'], 'wprism-install-complete')
+        && is_file($sentinel) && file_get_contents($sentinel) === 'preserve'
+        && !file_exists($initialMu . '/wprism-loader.php')
+        && !file_exists($initialRepo . '/site.wprism.json'),
+        'the initial writer refuses ' . $initialCase . ' without publishing or erasing the competing authority');
+    if (str_starts_with($initialCase, 'before-')) {
+        adopt_check([adopt_tree_hash($initialMu), is_dir($initialRepo) ? adopt_tree_hash($initialRepo) : null] === $initialBefore,
+            'initial refusal before staging changes no destination node or byte for ' . $initialCase);
+    }
+}
+
 $adoptSource = (string) file_get_contents($sourceRoot . '/cli/src/Onboarding/Adopt.php');
 adopt_check(
     str_contains($adoptSource, "'COPYFILE_DISABLE=1 tar -C '")

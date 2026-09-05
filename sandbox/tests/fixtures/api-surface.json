@@ -30243,6 +30243,14 @@
                             "name": "sourceRoot",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "bootstrapAuthority",
+                            "type": "?WPrism\\Orchestrator\\BootstrapEligibilityReport",
+                            "variadic": false
                         }
                     ],
                     "return_type": "int",
@@ -31877,6 +31885,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "initialRecoveryAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "WPrism\\Orchestrator\\AdoptionTransport",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?WPrism\\Orchestrator\\BootstrapEligibilityReport",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "inspect": {
                     "abstract": false,
                     "final": false,
@@ -31916,6 +31949,14 @@
                     ],
                     "return_type": "WPrism\\Orchestrator\\BootstrapEligibilityReport",
                     "static": true,
+                    "visibility": "public"
+                },
+                "isInitialRecoveryAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
                     "visibility": "public"
                 },
                 "muDir": {

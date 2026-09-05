@@ -469,15 +469,19 @@ ssh_fixture 'test ! -e /var/www/html/wp-content/mu-plugins/wprism && test ! -e /
 pass "SSH driver reports adopt ready, create unsupported, and performs zero target mutation during negotiation"
 
 say "refuse an unsafe durable-control destination before first adoption"
-ssh_fixture 'mkdir -p /var/www/html/wp-content/mu-plugins && cd /var/www/html/wp-content/mu-plugins && mkdir wprism-control-real && printf "%s\n" preserve > wprism-control-real/sentinel && ln -s wprism-control-real wprism-control'
+ssh_fixture 'set -eu; mkdir -p /var/www/html/wp-content/mu-plugins; cd /var/www/html/wp-content/mu-plugins; mkdir wprism-control-real; printf "%s\n" preserve > wprism-control-real/sentinel; ln -s wprism-control-real wprism-control'
 if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -ne 0 ] || fail "adopt followed a symlink durable-control destination"
-grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/wprism-control' <<<"$OUT" \
-  || fail "durable-control symlink refusal omitted the unsafe destination"
-ssh_fixture 'test "$(cat /var/www/html/wp-content/mu-plugins/wprism-control/sentinel)" = preserve; test ! -e /var/www/html/wp-content/mu-plugins/wprism; test ! -e /home/wprism/site; test ! -e /var/www/html/wp-content/mu-plugins/.wprism-adopt-lock' \
+require_wprism_answered 'initial SSH adoption recovery authority refusal' human "$OUT"
+# The host recovery preflight owns initial authority before Adopt's installer
+# exists (cli/wprism external_recovery_fence_refusal). Unsafe bootstrap topology
+# therefore uses its stable category, not the later installer's path detail.
+grep -Fxq 'wprism: the database-external recovery fence could not be read safely; repair the adopted control directory boundary, then rerun wprism doctor' <<<"$OUT" \
+  || fail "durable-control symlink refusal did not name unreadable external recovery authority"
+ssh_fixture 'set -eu; cd /var/www/html/wp-content/mu-plugins; test -L wprism-control; test "$(readlink wprism-control)" = wprism-control-real; test -d wprism-control-real; test ! -L wprism-control-real; test -f wprism-control-real/sentinel; test ! -L wprism-control-real/sentinel; test "$(cat wprism-control-real/sentinel)" = preserve; for path in wprism wprism-loader.php /home/wprism/site; do test ! -e "$path"; test ! -L "$path"; done; test -z "$(find . -maxdepth 1 -name ".wprism-*" -print)"' \
   || fail "durable-control symlink refusal changed the target before first adoption"
-ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm wprism-control && rm -rf wprism-control-real'
+ssh_fixture 'set -eu; cd /var/www/html/wp-content/mu-plugins; rm wprism-control; rm -rf wprism-control-real'
 pass "unsafe durable-control topology refuses before target mutation"
 
 say "adopt the pre-existing target through the product command"

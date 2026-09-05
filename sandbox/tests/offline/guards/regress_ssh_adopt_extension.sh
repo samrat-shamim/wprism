@@ -638,6 +638,51 @@ pass 'tombstone publication and source retirement are no-replace at both post-ob
 # if the actual driver forgot to call it or discarded the warning stream.
 SSH_ADOPT_DRIVER="$ROOT/sandbox/tests/live/regress_ssh_adopt.sh"
 source "$ROOT/sandbox/conformance/asserts.sh"
+SSH_INITIAL_REFUSAL_BLOCK="$(sed -n '/^say "refuse an unsafe durable-control destination/,/^pass "unsafe durable-control topology/p' "$SSH_ADOPT_DRIVER")"
+[[ "$SSH_INITIAL_REFUSAL_BLOCK" == *'adopt target'* ]] \
+  || fail 'the SSH driver omitted its initial durable-control authority refusal'
+case_ssh_initial_refusal() {
+  (
+    local mutation="$1" WPRISM=fake_initial_adopt
+    prepare_remote "initial-refusal-$mutation"
+    rmdir "$REMOTE/home/wprism/site"
+    say() { :; }
+    ssh_fixture() {
+      local translated
+      translated="$(translated_remote_command "$1")"
+      /bin/sh -c "$translated"
+    }
+    fake_initial_adopt() {
+      local mu="$REMOTE/var/www/html/wp-content/mu-plugins"
+      case "$mutation" in
+        wrong-refusal) printf 'wprism adopt: refusing symlink destination: /var/www/html/wp-content/mu-plugins/wprism-control\n'; return 1 ;;
+        dead) return 255 ;;
+        sentinel) printf 'changed\n' >"$mu/wprism-control-real/sentinel" ;;
+        link) rm "$mu/wprism-control"; mkdir "$mu/wprism-control" ;;
+        loader) printf 'changed\n' >"$mu/wprism-loader.php" ;;
+        agent) mkdir "$mu/wprism" ;;
+        repo) mkdir "$REMOTE/home/wprism/site" ;;
+        lock) mkdir "$mu/.wprism-adopt-lock" ;;
+        pending) printf 'changed\n' >"$mu/.wprism-generation-writer-pending" ;;
+      esac
+      printf 'wprism: the database-external recovery fence could not be read safely; repair the adopted control directory boundary, then rerun wprism doctor\n'
+      [ "$mutation" = zero-exit ] || return 1
+    }
+    eval "$SSH_INITIAL_REFUSAL_BLOCK"
+    printf 'INITIAL_REFUSAL_READY\n'
+  )
+}
+INITIAL_REFUSAL_OUT=$(case_ssh_initial_refusal normal)
+[[ "$INITIAL_REFUSAL_OUT" == *INITIAL_REFUSAL_READY* ]] \
+  || fail 'the actual initial-adoption block rejected its unchanged unsafe recovery authority'
+for initial_case in wrong-refusal zero-exit dead sentinel link loader agent repo lock pending; do
+  initial_status=0
+  initial_output=$(case_ssh_initial_refusal "$initial_case" 2>&1) || initial_status=$?
+  [ "$initial_status" -ne 0 ] && [[ "$initial_output" != *INITIAL_REFUSAL_READY* ]] \
+    || fail "the actual initial-adoption block accepted $initial_case: $initial_output"
+done
+pass 'the actual initial-adoption refusal requires its public recovery category, nonzero exit, and unchanged control/loader/repository/transaction boundaries'
+
 eval "$(sed -n '/^wp_ssh_fixture() {/,/^}/p' "$SSH_ADOPT_DRIVER")"
 eval "$(sed -n '/^assert_ssh_fixture_positive_diagnostics() {/,/^}/p' "$SSH_ADOPT_DRIVER")"
 declare -F wp_ssh_fixture >/dev/null \

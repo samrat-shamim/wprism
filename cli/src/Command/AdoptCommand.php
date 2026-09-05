@@ -23,11 +23,16 @@ final class AdoptCommand {
     /**
      * Run the host-side adoption workflow.
      *
-     * Eligibility is deliberately inspected only for an authorized local
-     * transport. SSH and other adoption transports retain Adopt's existing
-     * target preflight; the transaction itself remains owned by Adopt.
+     * The dispatcher supplies explicit initial authority when the recovery
+     * root does not exist. Local bootstrap always requires isolated target
+     * eligibility; existing SSH targets retain Adopt's update preflight.
      */
-    public static function run(EnvironmentDriver $transport, array $extra, string $sourceRoot): int {
+    public static function run(
+        EnvironmentDriver $transport,
+        array $extra,
+        string $sourceRoot,
+        ?BootstrapEligibilityReport $bootstrapAuthority = null
+    ): int {
         $legacyLoaderQuiesced = false;
         foreach ($extra as $arg) {
             if ($arg === AgentGenerationFence::LEGACY_QUIESCENCE_FLAG && !$legacyLoaderQuiesced) {
@@ -45,8 +50,8 @@ final class AdoptCommand {
             return 1;
         }
 
-        $eligibility = null;
-        if ($transport instanceof LocalTransport) {
+        $eligibility = $bootstrapAuthority;
+        if ($transport instanceof LocalTransport && $eligibility === null) {
             echo "adopt phase: read-only target eligibility\n";
             $eligibility = BootstrapEligibilityReport::inspect(
                 $transport,

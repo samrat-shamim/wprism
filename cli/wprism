@@ -298,6 +298,7 @@ use WPrism\Orchestrator\DriverCapabilitiesCommand;
 use WPrism\Orchestrator\EnvironmentListCommand;
 use WPrism\Orchestrator\DoctorCommand;
 use WPrism\Orchestrator\AdoptCommand;
+use WPrism\Orchestrator\BootstrapEligibilityReport;
 use WPrism\Orchestrator\UnadoptCommand;
 use WPrism\Orchestrator\ConnectCommand;
 use WPrism\Orchestrator\OnboardCommand;
@@ -1902,8 +1903,9 @@ function main(array $argv): int {
             $extra,
             static fn(string $arg): bool => PassthroughCommand::isScopeContractFlag($arg)
         )) > 0;
+    $bootstrapAuthority = null;
     if ($recoveryControlRequired && !$recoveryResume && !$deferRecoveryFence) {
-        $fenceRefusal = external_recovery_fence_refusal($transport, $verb, $extra);
+        $fenceRefusal = external_recovery_fence_refusal($transport, $verb, $extra, $bootstrapAuthority);
         if (is_int($fenceRefusal)) {
             return $fenceRefusal;
         }
@@ -1914,13 +1916,17 @@ function main(array $argv): int {
 
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
-        'adopt' => cmd_adopt($transport, $extra),
+        'adopt' => cmd_adopt($transport, $extra, $bootstrapAuthority),
         'unadopt' => cmd_unadopt($transport, $extra),
         'onboard' => OnboardCommand::run(
             $transport,
             $extra,
             dirname(__DIR__),
-            ['status' => static fn(EnvironmentDriver $driver): int => cmd_status($driver, [], $envsFileOverride)]
+            [
+                'status' => static fn(EnvironmentDriver $driver): int => cmd_status($driver, [], $envsFileOverride),
+                'adopt' => static fn(EnvironmentDriver $driver, array $args, string $sourceRoot): int =>
+                    AdoptCommand::run($driver, $args, $sourceRoot, $bootstrapAuthority),
+            ]
         ),
         'init' => cmd_init($transport, $extra, $envsFileOverride),
         'status' => cmd_status($transport, $extra, $envsFileOverride),
@@ -1998,12 +2004,25 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
 function external_recovery_fence_refusal(
     EnvironmentDriver $transport,
     string $verb,
-    array $extra
+    array $extra,
+    ?BootstrapEligibilityReport &$bootstrapAuthority = null
 ): ?int {
     $fence = CodeDeploy::externalRecoveryFence($transport, $transport->repoPath());
     $state = (string) ($fence['state'] ?? 'unsafe');
     if ($state === 'clear') {
         return null;
+    }
+    // RecoveryFence remains strict for every already-managed operation. Only
+    // the adoption owner can positively prove a pristine initial target, and
+    // carries that proof into the generation writer rather than treating a
+    // missing repository as clear recovery state.
+    $initialAdoption = $verb === 'adopt'
+        || ($verb === 'onboard' && !in_array('--handoff-only', $extra, true) && ($extra[0] ?? '') !== 'status');
+    if ($state === 'unsafe' && $initialAdoption && $transport instanceof \WPrism\Orchestrator\AdoptionTransport) {
+        $bootstrapAuthority = BootstrapEligibilityReport::initialRecoveryAuthority($transport, dirname(__DIR__));
+        if ($bootstrapAuthority !== null) {
+            return null;
+        }
     }
     [$reasonCode, $message, $remediation] = match ($state) {
         'provider_settlement' => [
@@ -2090,8 +2109,8 @@ function cmd_doctor(EnvironmentDriver $t): int {
     return DoctorCommand::run($t);
 }
 
-function cmd_adopt(EnvironmentDriver $t, array $extra): int {
-    return AdoptCommand::run($t, $extra, dirname(__DIR__));
+function cmd_adopt(EnvironmentDriver $t, array $extra, ?BootstrapEligibilityReport $bootstrapAuthority = null): int {
+    return AdoptCommand::run($t, $extra, dirname(__DIR__), $bootstrapAuthority);
 }
 
 function cmd_unadopt(EnvironmentDriver $t, array $extra): int {

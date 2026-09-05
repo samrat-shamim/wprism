@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism\Orchestrator;
 
+require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
+
 /**
  * Read-only proof that one adoption-capable driver points at a safe target.
  *
@@ -58,8 +60,89 @@ PHP;
         private array $body,
         private array $checks,
         private string $repoPath,
-        private ?string $muDir
+        private ?string $muDir,
+        private bool $initialRecoveryAuthority = false
     ) {}
+
+    /**
+     * Initial adoption cannot read a recovery root it has not created yet.
+     * This is positive bootstrap authority, not a missing-repository exception
+     * in RecoveryFence: an existing control plane or unsafe ancestor still
+     * refuses, and the adoption writer must retain the initial-only premise.
+     */
+    public static function initialRecoveryAuthority(
+        AdoptionTransport $transport,
+        string $sourceRoot
+    ): ?self {
+        if (!$transport instanceof BoundedControlDriver
+            || !self::safeAbsolutePath($transport->repoPath())) {
+            return null;
+        }
+        $program = <<<'PHP'
+$repo = $arguments[0];
+if (@lstat($repo) !== false || !is_dir(dirname($repo))) {
+    return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption repository is not absent'];
+}
+for ($parent = dirname($repo); $parent !== '/'; $parent = dirname($parent)) {
+    $stat = @lstat($parent);
+    if (!is_array($stat) || ($stat['mode'] & 0170000) !== 0040000
+        || is_link($parent) || !is_readable($parent) || !is_executable($parent)) {
+        return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption repository ancestor is unsafe'];
+    }
+}
+$mu = $arguments[1] ?? '';
+if ($mu !== '') {
+    foreach ([$mu . '/wprism', $mu . '/wprism-loader.php', $mu . '/wprism-control'] as $path) {
+        if (@lstat($path) !== false) {
+            return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption control authority already exists'];
+        }
+    }
+    if (@lstat($mu) !== false) {
+        $entries = @scandir($mu);
+        if (!is_array($entries)) {
+            return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption control directory is unreadable'];
+        }
+        foreach ($entries as $entry) {
+            if (str_starts_with($entry, '.wprism-')) {
+                return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption transaction authority already exists'];
+            }
+        }
+    }
+}
+return ['exit' => 0, 'stdout' => 'initial-adoption-absent', 'stderr' => ''];
+PHP;
+        $absent = static function (array $result): bool {
+            return ($result['verified'] ?? false) === true
+                && ($result['exit'] ?? null) === 0
+                && ($result['stdout'] ?? null) === 'initial-adoption-absent'
+                && ($result['stderr'] ?? null) === '';
+        };
+        // Prove absence before isolated WordPress discovery; an unreadable or
+        // existing managed repository never reaches a bootstrap WP request.
+        if (!$absent(self::capture(static fn(): array => $transport->captureRawFramed(
+            $program, [$transport->repoPath()], 30000, 1024, 1024
+        )))) {
+            return null;
+        }
+        $report = self::inspect($transport, $transport->name(), $transport->driverId(), $sourceRoot);
+        if (!$report->ready() || !$absent(self::capture(static fn(): array => $transport->captureRawFramed(
+            $program, [$transport->repoPath(), $report->muDir()], 30000, 1024, 1024
+        )))) {
+            return null;
+        }
+        return self::finish(
+            $transport->name(), $transport->driverId(), $transport->repoPath(),
+            array_merge($report->checks(), [self::check(
+                'initial_recovery_authority', true,
+                'the repository and every WPrism control-plane or transaction authority are absent', ''
+            )]),
+            $report->muDir(), true
+        );
+    }
+
+    public function isInitialRecoveryAuthority(): bool {
+        return $this->initialRecoveryAuthority;
+    }
 
     public static function inspect(
         AdoptionTransport $transport,
@@ -233,7 +316,8 @@ PHP;
         string $driverId,
         string $repo,
         array $checks,
-        ?string $muDir
+        ?string $muDir,
+        bool $initialRecoveryAuthority = false
     ): self {
         $ready = $checks !== [];
         foreach ($checks as $check) {
@@ -247,7 +331,7 @@ PHP;
             'checks' => $checks,
         ];
         $body['digest'] = 'sha256:' . hash('sha256', self::canonicalJson($body));
-        return new self($body, $checks, $repo, $muDir);
+        return new self($body, $checks, $repo, $muDir, $initialRecoveryAuthority);
     }
 
     /** @return array{exit:int,stdout:string,stderr:string} */

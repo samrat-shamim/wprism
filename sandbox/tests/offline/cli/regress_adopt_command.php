@@ -359,4 +359,10 @@ assert_adopt_command($unreadableResult['exit'] === 77, 'an unreadable topology a
 assert_adopt_command($unreadableResult['phase'] === 'topology probe', 'and refuses at the same phase');
 assert_adopt_command($unreadable->uploadCalls === 0, 'fail-closed: an unanswerable topology probe uploads nothing');
 
+$frontdoorCode = 0;
+passthru(
+    escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/../../fixtures/adopt-public-preflight.php'),
+    $frontdoorCode
+);
+assert_adopt_command($frontdoorCode === 0, 'the public dispatcher admits only independently proved initial bootstrap authority');
 echo "PASS: adopt command\n";
