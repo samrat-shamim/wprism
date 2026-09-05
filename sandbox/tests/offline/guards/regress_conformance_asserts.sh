@@ -253,7 +253,7 @@ CONF_DEPLOY_LINE=$(grep -n '^DEPLOY_OUT=.*host_wprism conf2 deploy' conformance/
 grep -Fq 'wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R1"' conformance/run.sh \
   && grep -Fq 'wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R2"' conformance/run.sh \
   || fail 'conformance recovery bytes must come from the exact worktree selected for pair mounts'
-grep -A8 '^clone_case_target() {' tests/certify/certify_version_matrix.sh \
+sed -n '/^clone_case_target() {/,/^}/p' tests/certify/certify_version_matrix.sh \
   | grep -Fq 'wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT"' \
   || fail 'the version matrix does not reinstall recovery authority from its selected pair source after each repository reset'
 grep -Fq 'Rank Math negative control could not install the source recovery runtime' \
@@ -537,5 +537,168 @@ esac
 grep -q "^require_wprism_answered: unknown mode 'jsonn' (expected human|json)$" <<<"$TYPO_OUT" \
   || fail "an unknown mode did not name itself as a caller bug: $TYPO_OUT"
 pass "an unknown mode fails loudly as a caller bug, outside the infrastructure-failure grammar"
+
+# A positive fixture must choose its core intent, not adopt ambient drift.
+# Exercise the real shared helper with an argv/stdin-recording WP boundary;
+# no database, pair bootstrap, or intentionally missing-env test is altered.
+core_binding_probe() { # <case> <home URL>
+  local binding_case="$1" fixture_home="$2"
+  local binding_trace="$MATRIX_PROBE/core-bindings-$binding_case.jsonl"
+  : > "$binding_trace"
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    fixture_wp() {
+      case "$1" in
+        eval)
+          [[ "$2" == *'["admin_email", "home", "siteurl"]'* && "$2" == *'get_option($name)'* ]] \
+            || return 81
+          local observed
+          observed=$(jq -nc --arg home "$fixture_home" \
+            '{admin_email:"admin@example.test",home:$home,siteurl:($home + "/wordpress")}')
+          case "$binding_case" in
+            drift) observed=$(jq -c '.home="https://unexpected.invalid"' <<<"$observed") ;;
+            email) observed=$(jq -c '.admin_email="unexpected@example.test"' <<<"$observed") ;;
+            empty) observed=$(jq -c '.siteurl=""' <<<"$observed") ;;
+            missing) observed=$(jq -c 'del(.home)' <<<"$observed") ;;
+            extra) observed=$(jq -c '.plugin_secret="must-not-bind"' <<<"$observed") ;;
+            boolean) observed=$(jq -c '.admin_email=false' <<<"$observed") ;;
+            multiline) observed=$(jq -c '.home="line-one\nline-two"' <<<"$observed") ;;
+            dead) printf 'Container fixture creation stopped\n'; return 9 ;;
+          esac
+          printf '%s\n' "$observed"
+          [ "$binding_case" != read_failure ] || return 7
+          ;;
+        wprism)
+          local name="${4#--name=}" value
+          case "$name" in admin_email|home|siteurl) ;; *) return 82 ;; esac
+          [ "$(printf '<%s>' "$@")" = "<wprism><env-set><--repo=/siterepo><--name=$name><--stdin><--format=json>" ] \
+            || return 83
+          IFS= read -r value || return 84
+          jq -nc --arg name "$name" --arg value "$value" \
+            '{name:$name,value:$value}' >> "$binding_trace"
+          case "$binding_case" in
+            wrong_receipt) printf '{"name":"other","previously_set":true}\n' ;;
+            malformed_receipt) printf '{"name":"%s","previously_set":"true"}\n' "$name" ;;
+            write_failure) printf '{"ok":false,"format":"wprism-command-refusal/v1"}\n'; return 7 ;;
+            *) printf '{"name":"%s","previously_set":true}\n' "$name" ;;
+          esac
+          ;;
+        *) return 85 ;;
+      esac
+    }
+    establish_core_environment_bindings fixture_wp /siterepo admin@example.test \
+      "$fixture_home" "$fixture_home/wordpress"
+    printf 'FIXTURE_BOUND\n'
+  ) 2>&1
+}
+for role in source target; do
+  FIXTURE_HOME="http://$role.invalid"
+  BINDING_OUT=$(core_binding_probe "$role" "$FIXTURE_HOME") \
+    || fail "core binding helper failed on the exact $role fixture: $BINDING_OUT"
+  [ "$BINDING_OUT" = FIXTURE_BOUND ] \
+    || fail "core binding helper did not accept the exact $role fixture: $BINDING_OUT"
+  jq -es --arg home "$FIXTURE_HOME" '. == [
+    {name:"admin_email",value:"admin@example.test"},
+    {name:"home",value:$home},
+    {name:"siteurl",value:($home + "/wordpress")}
+  ]' "$MATRIX_PROBE/core-bindings-$role.jsonl" >/dev/null \
+    || fail "core binding helper changed the $role argv/stdin values or bound more than three core options"
+done
+for binding_case in drift email empty missing extra boolean multiline dead read_failure; do
+  BINDING_RC=0
+  BINDING_OUT=$(core_binding_probe "$binding_case" http://source.invalid) || BINDING_RC=$?
+  [ "$BINDING_RC" -ne 0 ] && [ ! -s "$MATRIX_PROBE/core-bindings-$binding_case.jsonl" ] \
+    || fail "core binding helper wrote intent before proving its $binding_case observation: $BINDING_OUT"
+done
+for binding_case in wrong_receipt malformed_receipt write_failure; do
+  BINDING_RC=0
+  BINDING_OUT=$(core_binding_probe "$binding_case" http://source.invalid) || BINDING_RC=$?
+  [ "$BINDING_RC" -ne 0 ] \
+    && [ "$(wc -l < "$MATRIX_PROBE/core-bindings-$binding_case.jsonl" | tr -d ' ')" = 1 ] \
+    || fail "core binding helper proceeded after its $binding_case provisioning result: $BINDING_OUT"
+done
+pass 'positive fixtures bind exactly their chosen core values via stdin; ambient drift, malformed observations, and invalid provisioning receipts refuse'
+
+apply_ready_probe() {
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    assert_wprism_apply_ready 'fixture apply' "$1"
+    printf 'APPLY_READY\n'
+  ) 2>&1
+}
+READY_APPLY='{"plan":{"env_missing":1},"canary":"clean","verification":{"result":"pass"},"warnings":["adopted env term 1 as fixture-id (terms/fixture.json)","provider capability fired: fixture@1.0.0 rebuild (0.1s, verified)","native action fired: rewrite.flush (verified)"]}'
+[ "$(apply_ready_probe "$READY_APPLY")" = APPLY_READY ] \
+  || fail 'apply readiness rejected optional env rows or normal lifecycle receipts'
+for mutation in \
+  '.warnings += ["env_missing: option admin_email is required"]' \
+  '.canary="dirty"' '.verification.result="fail"' 'del(.verification)' \
+  'del(.warnings)' '.warnings=null' '.warnings += [null]'; do
+  READY_RC=0
+  READY_OUT=$(apply_ready_probe "$(jq -c "$mutation" <<<"$READY_APPLY")") || READY_RC=$?
+  [ "$READY_RC" -ne 0 ] \
+    || fail "apply readiness accepted missing provisioning or malformed verification: $mutation"
+done
+environment_ready_probe() {
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    assert_wprism_required_environment 'fixture apply' "$1" "$2"
+    printf 'ENVIRONMENT_READY\n'
+  ) 2>&1
+}
+READY_HUMAN=$'Warning: provider capability fired: fixture@1.0.0 rebuild (0.1s, verified)\nSuccess: applied 1 entities (canary clean) — plan was: {"env_missing":1}'
+[ "$(environment_ready_probe human "$READY_HUMAN")" = ENVIRONMENT_READY ] \
+  || fail 'human apply readiness confused an optional count or action receipt with required provisioning'
+for mode in human json; do
+  READY_RC=0
+  if [ "$mode" = human ]; then READY_ANSWER="$READY_HUMAN"; else READY_ANSWER="$READY_APPLY"; fi
+  READY_OUT=$(environment_ready_probe "$mode" $'Warning: env_missing: option home is required\n'"$READY_ANSWER") || READY_RC=$?
+  [ "$READY_RC" -ne 0 ] || fail "$mode readiness discarded a required-env diagnostic in its prelude"
+done
+pass 'apply acceptance refuses required-env diagnostics and failed verification while retaining optional rows and lifecycle receipts'
+
+CONF_BIND_SOURCE_LINE=$(grep -n '^establish_core_environment_bindings wp_conf1 ' conformance/run.sh | cut -d: -f1)
+CONF_SEED_LINE=$(grep -n '^bash "\$SEED"$' conformance/run.sh | cut -d: -f1)
+CONF_CAPTURE_LINE=$(grep -n '^say "capture conf1 into the site repo"$' conformance/run.sh | cut -d: -f1)
+CONF_BIND_TARGET_LINE=$(grep -n '^establish_core_environment_bindings wp_conf2 ' conformance/run.sh | cut -d: -f1)
+[ "$CONF_SEED_LINE" -lt "$CONF_BIND_SOURCE_LINE" ] \
+  && [ "$CONF_BIND_SOURCE_LINE" -lt "$CONF_CAPTURE_LINE" ] \
+  && [ "$CONF_CLONE_LINE" -lt "$CONF_BIND_TARGET_LINE" ] \
+  && [ "$CONF_BIND_TARGET_LINE" -lt "$CONF_DEPLOY_LINE" ] \
+  || fail 'conformance must establish chosen core intent after seeding/cloning and before capture/deploy'
+grep -Fq "assert_wprism_apply_ready 'conf2 wprism apply'" conformance/run.sh \
+  || fail 'conformance can still report PASS over missing required environment bindings'
+MATRIX_CLONE_PROBE=$(
+  PAIR=fixture
+  PAIR_SOURCE_ROOT=/exact-candidate
+  PORT1=9280 PORT2=9281
+  git() { :; }
+  chmod() { :; }
+  establish_core_environment_bindings() { printf 'BIND'; printf '<%s>' "$@"; printf '\n'; }
+  wprism_host_install_recovery_runtime() { printf 'RECOVERY<%s><%s>\n' "$@"; }
+  eval "$(sed -n '/^clone_case_target() {/,/^}/p' tests/certify/certify_version_matrix.sh)"
+  clone_case_target
+)
+[ "$MATRIX_CLONE_PROBE" = $'BIND<wp1></siterepo><admin@example.test><http://localhost:9280><http://localhost:9280>\nBIND<wp2></siterepo><admin@example.test><http://localhost:9281><http://localhost:9281>\nRECOVERY</exact-candidate><siterepo/fixture1>\nRECOVERY</exact-candidate><siterepo/fixture2>' ] \
+  || fail "version boundaries did not reestablish each role's chosen binding after repository reset: $MATRIX_CLONE_PROBE"
+for capsule in ../adapter-packages/*/tests/certify/version-matrix.sh; do
+  awk '
+    index($0, "| tee \"$VMATRIX_APPLY_LOG\"") {
+      if (getline <= 0 || $0 !~ /^[[:space:]]*assert_version_matrix_apply_ready$/) exit 1
+    }
+  ' "$capsule" || fail "$capsule reuses a positive apply log before requiring environment readiness"
+done
+for harness in bin/adapter-boundary.sh tests/live/regress_core_scope_database.sh; do
+  grep -q 'establish_core_environment_bindings wp1 ' "$harness" \
+    && grep -q 'establish_core_environment_bindings wp2 ' "$harness" \
+    || fail "$harness lacks explicit source/target core binding premises"
+done
+! grep -Eq 'establish_core_environment_bindings|wprism env-set' lib/pair_bootstrap.sh \
+  || fail 'pair bootstrap must retain the unprovisioned premise used by negative env-set tests'
+! grep -q 'establish_core_environment_bindings' tests/live/regress_env_set.sh \
+  || fail 'the intentional missing-binding product regression was silently provisioned'
+pass 'shared conformance, version, boundary, and database positive fixtures require explicit core intent without altering missing-binding negatives'
 
 printf '\033[1;32m✔ REGRESS_CONFORMANCE_ASSERTS PASSED\033[0m\n'

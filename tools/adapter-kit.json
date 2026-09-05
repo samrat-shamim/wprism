@@ -100,16 +100,16 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 37550,
-            "sha256": "967a8e530fcf7c96d2eccd69fa8f49b36e481afa4473d2ba5d33ae6dbff0c04d"
+            "bytes": 37884,
+            "sha256": "61452186fe0de2d1b090afd316027abba8e06f5e7b13ae96f7ea3e217dd05753"
         },
         {
             "path": "conformance/asserts.sh",
             "origin": "copied",
             "source": "sandbox/conformance/asserts.sh",
             "role": "premise assertions every seed/postdeploy hook calls before its engine assertion",
-            "bytes": 15115,
-            "sha256": "a928e0111387ff5ab04637b312995246907fe314f7f0c2a786240dbee518263d"
+            "bytes": 18963,
+            "sha256": "ea1ed4d916fb05a3bb9bf86926b6a206bf9d3803498fbe6eb0912537271f5675"
         },
         {
             "path": "skeleton/example-adapter.php",

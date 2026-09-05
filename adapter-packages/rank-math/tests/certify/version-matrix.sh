@@ -234,9 +234,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
       --default-author=admin --revision="$REV" --json
   printf '%s\n' "$RANK_MATH_BOUNDARY_APPLY_JSON" > "$VMATRIX_APPLY_LOG"
-  jq -e '.canary == "clean" and .verification.result == "pass"' \
-    <<<"$RANK_MATH_BOUNDARY_APPLY_JSON" >/dev/null \
-    || fail "Rank Math $RANK_MATH_VERSION apply did not verify cleanly"
+  assert_version_matrix_apply_ready
   check_rank_math_boundary_content
 
   wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rank-math-final
@@ -328,6 +326,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply' \
       wp2 wprism apply --repo=/siterepo --default-author=admin \
         --revision="$UPGRADE_REV" --json
+    assert_wprism_apply_ready 'Rank Math version-matrix upgrade apply' "$RANK_MATH_BOUNDARY_APPLY_JSON"
     UPGRADE_TARGET_MODULES=$(rank_math_module_state wp2)
     require_observed_nonempty 'Rank Math upgrade target native module readiness' "$UPGRADE_TARGET_MODULES"
     jq -e '
@@ -424,6 +423,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix downgrade apply' \
       wp2 wprism apply --repo=/siterepo --default-author=admin \
         --revision="$DOWNGRADE_REV" --json
+    assert_wprism_apply_ready 'Rank Math version-matrix downgrade apply' "$RANK_MATH_BOUNDARY_APPLY_JSON"
     RANK_MATH_VERSION=1.0.277.1
     check_rank_math_boundary_content
     RANK_MATH_VERSION=1.0.277

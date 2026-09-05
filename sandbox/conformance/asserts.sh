@@ -67,6 +67,48 @@ require_observed_nonempty() { # require_observed_nonempty <what> <captured value
     || fail "infrastructure failure: $1 returned no bytes — a load-starved docker compose run can exit 0 with empty stdout, which hashes to the empty-string digest e3b0c442… and would falsely accuse the engine of mutating the target; nothing here is measuring the engine"
 }
 
+# Installed WordPress values are not intended-value authority. The first
+# Rank Math/core database round trips at f1c9a6fb reported env_missing for all
+# three required core options despite their live values being nonempty. These
+# positive fixtures assert the driver's chosen install values before using the
+# public provisioning path; pair bootstrap must not do this, because missing-
+# binding suites deliberately need an unprovisioned environment. Plugin and
+# protected-post bindings remain the owning fixture's explicit choice.
+establish_core_environment_bindings() { # <wp command/function> <repo> <email> <home> <siteurl> [command prefix arguments...]
+  local wp_command="$1" repo="$2" expected values name value receipt
+  expected=$(jq -nc --arg email "$3" --arg home "$4" --arg siteurl "$5" \
+    '{admin_email:$email,home:$home,siteurl:$siteurl}')
+  shift 5
+  command -v "$wp_command" >/dev/null \
+    || fail "establish_core_environment_bindings: unknown wp command '$wp_command'"
+  capture_wprism_json_success values 'core environment fixture observation' \
+    "$wp_command" "$@" eval '
+$values = [];
+foreach (["admin_email", "home", "siteurl"] as $name) {
+    $values[$name] = get_option($name);
+}
+echo wp_json_encode($values);
+'
+  jq -e '
+    type == "object" and keys == ["admin_email","home","siteurl"] and
+    all(.[]; type == "string" and length > 0 and (explode | all(.[]; . != 0 and . != 10 and . != 13)))
+  ' <<<"$values" >/dev/null \
+    || fail 'fixture manufacture failed: core environment values are not three nonempty single-line strings'
+  jq -e --argjson expected "$expected" '. == $expected' <<<"$values" >/dev/null \
+    || fail 'fixture manufacture failed: core environment values disagree with the driver-owned install premise; refusing to adopt drift as intent'
+  for name in admin_email home siteurl; do
+    value=$(jq -er --arg name "$name" '.[$name]' <<<"$expected")
+    capture_wprism_json_success receipt "core environment fixture binding $name" \
+      "$wp_command" "$@" wprism env-set --repo="$repo" --name="$name" --stdin --format=json \
+      <<<"$value"
+    jq -e --arg name "$name" '
+      keys == ["name","previously_set"] and .name == $name and
+      (.previously_set | type) == "boolean"
+    ' <<<"$receipt" >/dev/null \
+      || fail "fixture manufacture failed: core environment binding $name did not return its exact provisioning receipt"
+  done
+}
+
 # Exact WooCommerce 11.0.0/11.0.1 new-shop setup. Its `wc hpos enable` CLI
 # deliberately emits "Orders table does not exist. Creating..." on a fresh
 # database, which makes an otherwise successful evidence run non-green. Drive
@@ -240,4 +282,32 @@ capture_wprism_json_refusal() { # <OUT_VAR> <what> <command> [args...]
     fail "$__wprism_capture_what unexpectedly succeeded: $__wprism_capture_last"
   fi
   printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
+}
+
+# Apply's env_missing summary counts optional rows too (Code Snippets leaves
+# an optional plugin option absent). Only required rows produce env_missing:
+# diagnostics in ApplyPlanner::env_missing_projection(). Its warnings field
+# also carries adoption/provider/native-action receipts, so an empty-array
+# requirement would reject the very lifecycle work conformance must exercise.
+# Keep those existing wire bytes visible while refusing unprovisioned evidence.
+assert_wprism_required_environment() { # <what> <human|json> <captured output>
+  local what="$1" mode="$2" out="$3" last
+  require_wprism_answered "$what" "$mode" "$out"
+  if grep -Eq '(^|[[:space:]])env_missing:' <<<"$out"; then
+    fail "$what did not prove all required environment bindings; inspect its env_missing diagnostics"
+  fi
+  case "$mode" in
+    json)
+      last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
+      jq -e '.warnings | type == "array" and all(.[]; type == "string" and (startswith("env_missing:") | not))' \
+        <<<"$last" >/dev/null \
+        || fail "$what did not prove all required environment bindings; inspect its env_missing diagnostics"
+      ;;
+  esac
+}
+
+assert_wprism_apply_ready() { # <what> <JSON apply answer>
+  assert_wprism_required_environment "$1" json "$2"
+  jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$2" >/dev/null \
+    || fail "$1 did not return a clean canary and passed canonical verification"
 }

@@ -744,6 +744,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail 'WooCommerce exact 11.0.0 apply canary was not clean after downgrade re-baseline'
   target_price=$(wp2 eval '
@@ -1284,6 +1285,7 @@ EOF
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
   WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
@@ -1333,6 +1335,7 @@ EOF
     woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
     UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)

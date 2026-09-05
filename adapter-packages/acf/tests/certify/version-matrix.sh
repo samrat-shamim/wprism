@@ -107,6 +107,7 @@ EOF
   # expected pattern every other grind/certify pair script in this repo
   # already handles the identical way (grind_r3b_events.sh, grind_r1b_shop.sh).
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at acf $ACF_VERSION"
   pass "deploy + apply succeeded on side 2 (acf $ACF_VERSION, canary clean)"
 
@@ -142,6 +143,7 @@ EOF
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail "ACF in-place 6.0.0 -> 6.8.7 apply canary was not clean"
 

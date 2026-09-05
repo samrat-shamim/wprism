@@ -97,6 +97,7 @@ require_fixture_values INSTALLED_2
 wp2 wprism deploy --repo=/siterepo
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
 wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+assert_version_matrix_apply_ready
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at classic-editor $CLASSIC_VERSION"
 check_classic_editor_boundary_content

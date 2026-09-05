@@ -139,6 +139,7 @@ wp2 wprism deploy --repo=/siterepo
 postdeploy_yoast_duplicate_post_content
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
 wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+assert_version_matrix_apply_ready
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at duplicate-post $YDP_VERSION"
 grep -q 'provider capability fired: yoast-duplicate-post-role-capabilities@1.0.0 reconcile_role_capabilities' "$VMATRIX_APPLY_LOG" \

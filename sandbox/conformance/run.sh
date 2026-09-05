@@ -259,6 +259,8 @@ export WPRISM_HOST_CLI WPRISM_HOST_REGISTRY
 export -f wp_env wp_conf1 wp_conf2 host_wprism wprism_host_call say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
   require_wprism_answered capture_wprism_json_success capture_wprism_json_refusal require_observed_nonempty \
+  establish_core_environment_bindings \
+  assert_wprism_required_environment assert_wprism_apply_ready \
   establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
   artifact_library_repo_root artifact_library_package_context artifact_library_participant_context \
   artifact_library_platform_context artifact_library_platform_emit artifact_library_emit \
@@ -400,6 +402,8 @@ SEED=$(conformance_hook seed.sh "conformance/seeds/$MANIFEST.sh")
 say "seed representative authored content on conf1 ($SEED)"
 [ -f "$SEED" ] || fail "no seed script for '$MANIFEST' (expected $SEED)"
 bash "$SEED"
+establish_core_environment_bindings wp_conf1 /siterepo admin@example.test \
+  "http://localhost:$CONF1_PORT" "http://localhost:$CONF1_PORT"
 
 say "capture conf1 into the site repo"
 wp_conf1 wprism capture --repo=/siterepo
@@ -489,6 +493,8 @@ fi
 say "clone the repo for conf2"
 git clone -q "$ORIGIN" "$R2"
 REV=$(git -C "$R2" rev-parse HEAD)
+establish_core_environment_bindings wp_conf2 /siterepo admin@example.test \
+  "http://localhost:$CONF2_PORT" "http://localhost:$CONF2_PORT"
 wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R1" \
   || fail 'could not install the adoption-equivalent recovery runtime on conf1'
 wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R2" \
@@ -598,7 +604,7 @@ capture_wprism_json_success \
   --default-author=admin --revision="$REV" --json
 export APPLY_JSON
 echo "$APPLY_JSON" | jq .
-[ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
+assert_wprism_apply_ready 'conf2 wprism apply' "$APPLY_JSON"
 pass "apply succeeded, side-effect canary clean"
 
 # Optional per-manifest post-apply hook. This is deliberately before the

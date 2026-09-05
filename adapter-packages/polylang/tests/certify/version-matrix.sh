@@ -104,6 +104,7 @@ EOF
   wp2 wprism deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at polylang $POLYLANG_VERSION"
   assert_no_php_diagnostics "Polylang $POLYLANG_VERSION clean-target apply" "$VMATRIX_APPLY_LOG"
   POLYLANG_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
@@ -141,6 +142,7 @@ EOF
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" --format=json \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     assert_no_php_diagnostics 'Polylang 3.8 to 3.8.7 upgrade apply' "$VMATRIX_APPLY_LOG"
     UPGRADE_APPLY_JSON=$(awk '/^[{]/ { receipt=$0 } END { print receipt }' "$VMATRIX_APPLY_LOG")
     require_wprism_answered 'Polylang 3.8 to 3.8.7 upgrade apply' json "$UPGRADE_APPLY_JSON"

@@ -95,6 +95,23 @@ wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=wprism-vmatrix1 -c user.email=vmatrix1@example.test)
 
+# Capsule-owned positive apply steps write this log before any subsequent
+# command can replace it. Both historical human-output and newer JSON cases
+# must reject missing required bindings; optional env rows and verified action
+# receipts keep their existing meanings. Expected refusals do not use this gate.
+assert_version_matrix_apply_ready() {
+  local out last
+  out=$(<"$VMATRIX_APPLY_LOG")
+  last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
+  assert_no_php_diagnostics 'version matrix apply' "$VMATRIX_APPLY_LOG"
+  if [[ "$last" == \{* ]]; then
+    assert_wprism_apply_ready 'version matrix apply' "$last"
+  else
+    assert_wprism_required_environment 'version matrix apply' human "$out"
+    grep -q 'canary clean' <<<"$out" || fail 'version matrix apply did not return its clean success result'
+  fi
+}
+
 . bin/fetch-artifact.sh
 
 normalize_version_matrix_archive_root() { # <service> <plugin|theme> <slug> <archive-root>
@@ -136,6 +153,10 @@ reset_case_repositories() {
 clone_case_target() {
   git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
   chmod 0777 "siterepo/${PAIR}2"
+  establish_core_environment_bindings wp1 /siterepo admin@example.test \
+    "http://localhost:$PORT1" "http://localhost:$PORT1"
+  establish_core_environment_bindings wp2 /siterepo admin@example.test \
+    "http://localhost:$PORT2" "http://localhost:$PORT2"
   wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "siterepo/${PAIR}1" \
     || fail 'version matrix could not install the source recovery runtime'
   wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "siterepo/${PAIR}2" \
