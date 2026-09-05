@@ -334,8 +334,10 @@ propagation, and an env exclusion makes provisioning operator-owned instead.
 Test an actually changed default, equal default coordinates with *other* terms
 divergent, wrong-category collisions, missing/partial maps, physical-table drift,
 and fresh activation before identity minting. The last case has a narrow
-read-only projection for a physically valid tuple with both mappings absent;
-ordinary capture never publishes that omission. Do not align all fixture ids or
+options-only lifecycle projection for a physically valid tuple with both mappings
+absent, bound to the desired-state handoff. Ordinary capture, production export,
+and read-only explain must not use that projection; test an excluded taxonomy
+too, where the full entity walk cannot supply the identity guard. Do not align all fixture ids or
 filter warnings to turn the unsupported domain into a positive case. See
 [the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
 

@@ -229,13 +229,19 @@ foreach (['wp_terms', 'wp_term_taxonomy'] as $table) {
             'a compatible driver cannot supply malformed physical evidence');
     }
 }
+$lookups = 0;
+$lookup = static function () use (&$lookups, $uuid): string {
+    ++$lookups;
+    return $uuid;
+};
+$db = $witnessDb();
+Intersection::capture(41, $rule, $lookup, 'fixture', TermCoordinateWitness::matches(...), true);
+wprism_check_same(2, $lookups, 'the shared lookup counter observes both real healthy identity reads');
+$lookups = 0;
 $db = $witnessDb()->seedTable('wp_term_taxonomy', [[
     'term_taxonomy_id' => 41, 'term_id' => 99, 'taxonomy' => 'category',
 ]]);
-$lookups = 0;
-wprism_check_throws(static fn() => Intersection::capture(41, $rule,
-    static function () use (&$lookups, $uuid): string { ++$lookups;
-    return $uuid; }, 'fixture', TermCoordinateWitness::matches(...), true),
+wprism_check_throws(static fn() => Intersection::capture(41, $rule, $lookup, 'fixture', TermCoordinateWitness::matches(...), true),
     CommandRefusalException::class, 'physical inconsistency refuses even the unmapped lifecycle projection');
 wprism_check_same(0, $lookups, 'physical evidence is established before any source identity lookup');
 
