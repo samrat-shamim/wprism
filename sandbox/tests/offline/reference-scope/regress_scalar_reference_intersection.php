@@ -61,6 +61,37 @@ wprism_check_same(null, Intersection::capture(41, $rule, static fn(): ?string =>
     'a strict read-only observation may project a wholly unmapped hook-created reference as absent');
 wprism_check_throws(static fn() => Intersection::capture(41, $rule, static fn(): ?string => null, 'fixture', $physical),
     CommandRefusalException::class, 'ordinary capture never omits the same wholly unmapped reference');
+$plannedCalls = [];
+$planned = static function (int $id, string $taxonomy) use (&$plannedCalls, $uuid): string {
+    $plannedCalls[] = [$id, $taxonomy];
+    return $uuid;
+};
+wprism_check_same($token, Intersection::capture(41, $rule, static fn(): ?string => null, 'fixture', $physical, false, $planned),
+    'comparison-only planned identity still produces the ordinary primary token, not an omitted record');
+wprism_check_same([[41, 'category']], $plannedCalls, 'the planned observer receives the physically witnessed integer and exact declared taxonomy');
+$neverPlanned = static function (): never { throw new LogicException('planned identity must not replace this observation'); };
+wprism_check_same($token, Intersection::capture(41, $rule, static fn(): string => $uuid, 'fixture', $physical, false, $neverPlanned),
+    'fully mapped identity never consults a planned replacement');
+foreach ([0, '0'] as $zero) {
+    wprism_check_same(0, Intersection::capture($zero, $rule, $neverPlanned, 'fixture', $neverPlanned, false, $neverPlanned),
+        'durable zero does not invoke either physical, ledger or planned observation');
+}
+foreach ([[null, $uuid], [$uuid, null], [$uuid, $other], ['malformed', null]] as [$primary, $alternate]) {
+    wprism_check_throws(static fn() => Intersection::capture(41, $rule,
+        static fn(int $id, string $kind): ?string => $kind === 'term' ? $primary : $alternate,
+        'fixture', $physical, false, $neverPlanned), CommandRefusalException::class,
+        'planned identity cannot repair a partial, contradictory or malformed retained map');
+}
+wprism_check_throws(static fn() => Intersection::capture(41, $rule, $neverPlanned, 'fixture',
+    static fn(): bool => false, false, $neverPlanned), CommandRefusalException::class,
+    'a missing exact physical tuple refuses before ledger or planned identity callbacks');
+foreach ([null, '', 'malformed', '11111111-1111-0111-8111-111111111111'] as $invalid) {
+    wprism_check_throws(static fn() => Intersection::capture(41, $rule, static fn(): ?string => null,
+        'fixture', $physical, false, static fn(): ?string => $invalid), CommandRefusalException::class,
+        'absent or malformed planned identity remains a reference refusal');
+}
+wprism_check_throws(static fn() => Intersection::capture(41, $rule, $neverPlanned, 'fixture', $physical, true, $planned),
+    LogicException::class, 'lifecycle omission and full-plan comparison are mutually exclusive purposes');
 foreach ([[null, $uuid], [$uuid, null], [$uuid, $other], ['malformed', null]] as [$primary, $alternate]) {
     wprism_check_throws(static fn() => Intersection::capture(41, $rule,
         static fn(int $id, string $kind): ?string => $kind === 'term' ? $primary : $alternate, 'fixture', $physical, true),

@@ -1250,6 +1250,10 @@ regress-delete-authorization-receipt:
 regress-apply-planner:
 	php sandbox/tests/offline/apply/regress_apply_planner.php
 
+.PHONY: regress-plan-reference-adoption
+regress-plan-reference-adoption:
+	php sandbox/tests/offline/apply/regress_plan_reference_adoption.php
+
 regress-table-graph:
 	php sandbox/tests/offline/repository/regress_table_graph.php
 

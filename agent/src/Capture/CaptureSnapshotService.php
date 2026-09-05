@@ -26,14 +26,18 @@ require_once __DIR__ . '/../Repository/Snapshot.php';
  * projection. Capture remains the stable command-facing facade.
  */
 final class CaptureSnapshotService {
-    /** @return array<string,array{type:string,hash:string,content:string,path:string}> */
+    /**
+     * @param null|\Closure(object):?string $unmappedTermObserver Fresh full-plan comparison witness; strict/export and options-only snapshots never accept it.
+     * @return array<string,array{type:string,hash:string,content:string,path:string}>
+     */
     public static function snapshot(
         string $repo,
         bool $forceUnresolvedRefs = false,
         ?CompiledRepository $compiled = null,
         ?Policy $policy = null,
         ?array &$planObservations = null,
-        ?array $binding = null
+        ?array $binding = null,
+        ?\Closure $unmappedTermObserver = null
     ): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
@@ -44,7 +48,7 @@ final class CaptureSnapshotService {
         CanonicalLedgerMapGuard::assert_pre_prune($policy, $repository);
         Ledger::prune_dead_map();
         SidebarState::prune_dead_map($policy);
-        $capture = new CaptureCandidateBuilder($repo, $policy, $binding, $repository->tree());
+        $capture = new CaptureCandidateBuilder($repo, $policy, $binding, $repository->tree(), $unmappedTermObserver);
         $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);
         Snapshot::prune_dead_map($policy, $repositoryOptions);
         $repositoryUserLogins = self::repositoryUserLogins($repository);

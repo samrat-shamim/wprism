@@ -337,8 +337,22 @@ and fresh activation before identity minting. The last case has a narrow
 options-only lifecycle projection for a physically valid tuple with both mappings
 absent, bound to the desired-state handoff. Ordinary capture, production export,
 and read-only explain must not use that projection; test an excluded taxonomy
-too, where the full entity walk cannot supply the identity guard. Do not align all fixture ids or
-filter warnings to turn the unsupported domain into a positive case. See
+too, where the full entity walk cannot supply the identity guard.
+
+Also exercise first Apply against the installer's unmapped default, without
+seeding a synthetic identity map. Ordinary planning can compare that reference
+using the unique desired taxonomy/slug/parent identity witnessed during its full
+target snapshot. This comparison writes no identity and omits no authored
+option: the plan still reports a collision unless term adoption was explicitly
+requested. The authored transaction must install both coordinates and verify
+the physical tuple again before materializing the option. Partial maps, a UUID
+already live elsewhere, ambiguous natural keys, and failed reads still refuse.
+Production export and read-only explain continue to require durable identities.
+The shared product regression is
+`sandbox/tests/offline/apply/regress_plan_reference_adoption.php`; adapter live
+evidence must also prove native behavior after adoption and a fixed-point retry.
+Do not align all fixture ids or filter warnings to turn the unsupported domain
+into a positive case. See
 [the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
 
 ### Deleting what you author

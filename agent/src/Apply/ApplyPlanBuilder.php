@@ -107,7 +107,8 @@ final class ApplyPlanBuilder {
                 !empty($opts['force_unresolved_refs']),
                 $compiled,
                 $this->policy,
-                $planObservations
+                $planObservations,
+                unmappedTermObserver: $this->planner->unmapped_term_reference_observer($tree)
             );
         }
         // A target materialized from another environment's snapshot (`wprism
@@ -133,7 +134,8 @@ final class ApplyPlanBuilder {
                 $compiled,
                 $this->policy,
                 $foreignObservations,
-                $rebindFrom
+                $rebindFrom,
+                $this->planner->unmapped_term_reference_observer($tree)
             );
         }
         $base = Ledger::all_state();

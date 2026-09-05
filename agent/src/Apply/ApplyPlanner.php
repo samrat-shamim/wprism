@@ -107,6 +107,55 @@ final class ApplyPlanner {
         return $annotations;
     }
 
+    /**
+     * Compare a wholly untracked native term with its unique desired natural
+     * identity before deciding collision versus explicitly authorized adoption.
+     * The closure runs inside Capture's full consistent snapshot, after native
+     * identity discovery; it neither mints mappings nor observes for export.
+     * First Apply otherwise fails on an installer's reference-valued default
+     * before it can even construct the adoption/collision row for that term.
+     *
+     * @param array<string,array<string,mixed>> $tree
+     * @return \Closure(object):?string
+     */
+    public function unmapped_term_reference_observer(array $tree): \Closure {
+        $candidates = [];
+        foreach ($tree as $uuid => $entity) {
+            if (($entity['type'] ?? null) === 'term') {
+                $candidates[(string) $entity['data']['taxonomy']][(string) $entity['data']['slug']][(string) $uuid] = $entity;
+            }
+        }
+        $collisions = [];
+        return function (object $nativeTerm) use ($tree, $candidates, &$collisions): ?string {
+            $nativeId = $nativeTerm->term_id ?? null;
+            $id = Policy::strict_positive_local_id(is_int($nativeId) ? (string) $nativeId : $nativeId);
+            $taxonomy = $nativeTerm->taxonomy ?? null;
+            $slug = $nativeTerm->slug ?? null;
+            if ($id === null || !is_string($taxonomy) || !is_string($slug)) {
+                return null;
+            }
+            if (!in_array($taxonomy, $this->policy->taxonomies(), true)) {
+                return null;
+            }
+            $matched = null;
+            // Capture already bounded and observed this native row. Index
+            // desired keys in memory so one option does not spend its entire
+            // 1024-statement work unit probing unrelated canonical terms.
+            foreach ($candidates[$taxonomy][$slug] ?? [] as $uuid => $entity) {
+                if (($this->ledgerIdFor)((string) $uuid, 'term') !== null
+                    || ($this->ledgerIdFor)((string) $uuid, 'term_taxonomy') !== null
+                    || $this->find_collision($entity, $tree, $collisions) !== $id) {
+                    continue;
+                }
+                if ($matched !== null) {
+                    return null;
+                }
+                $matched = (string) $uuid;
+            }
+            return $matched;
+        };
+    }
+
     /** Same-slug target entity: managed with a different UUID or adoptable. */
     public function find_collision(array $e, array $tree, array &$cache): ?int {
         global $wpdb;
@@ -132,11 +181,11 @@ final class ApplyPlanner {
             if (!empty($front['parent']) && $parentId === null) {
                 return $cache[$uuid] = null;
             }
-            $ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_name = %s AND p.post_type = %s "
-                . 'AND p.post_parent = %d ORDER BY p.ID ASC',
+            $ids = $this->collision_ids($wpdb->prepare(
+                "SELECT LEFT(p.ID, 21) FROM {$wpdb->posts} p WHERE p.post_name = %s AND p.post_type = %s "
+                . 'AND p.post_parent = %d ORDER BY p.ID ASC LIMIT 2',
                 $front['slug'], $front['type'], $parentId ?? 0
-            )) ?: [];
+            ));
             return $cache[$uuid] = $this->one_collision(
                 $ids,
                 "post {$front['type']}/{$front['slug']} under parent " . ($parentId ?? 0)
@@ -152,12 +201,12 @@ final class ApplyPlanner {
             if ($e['type'] !== 'menu' && !empty($front['parent']) && $parentId === null) {
                 return $cache[$uuid] = null;
             }
-            $ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT t.term_id FROM {$wpdb->terms} t
+            $ids = $this->collision_ids($wpdb->prepare(
+                "SELECT LEFT(t.term_id, 21) FROM {$wpdb->terms} t
                  JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-                 WHERE t.slug = %s AND tt.taxonomy = %s AND tt.parent = %d ORDER BY t.term_id ASC",
+                 WHERE t.slug = %s AND tt.taxonomy = %s AND tt.parent = %d ORDER BY t.term_id ASC LIMIT 2",
                 $slug, $tax, $parentId ?? 0
-            )) ?: [];
+            ));
             return $cache[$uuid] = $this->one_collision(
                 $ids,
                 "term $tax/$slug under parent " . ($parentId ?? 0)
@@ -191,6 +240,28 @@ final class ApplyPlanner {
             return null;
         }
         return $this->find_collision($parent, $tree, $cache);
+    }
+
+    /** Two rows/21 bytes distinguish uniqueness and BIGINT overflow without an unbounded identity observation. */
+    private function collision_ids(string $query): array {
+        global $wpdb;
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $ids = $wpdb->get_col($query);
+        if (!is_array($ids) || !array_is_list($ids) || count($ids) > 2
+            || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException('wprism: natural-key collision observation failed or exceeded its bound');
+        }
+        foreach ($ids as $id) {
+            if (Policy::strict_positive_local_id(is_int($id) ? (string) $id : $id) === null) {
+                throw new \RuntimeException('wprism: natural-key collision observation returned a malformed local identity');
+            }
+        }
+        if (count(array_unique($ids, SORT_STRING)) !== count($ids)) {
+            throw new \RuntimeException('wprism: natural-key collision observation returned duplicate physical rows');
+        }
+        return $ids;
     }
 
     private function one_collision(array $ids, string $identity): ?int {

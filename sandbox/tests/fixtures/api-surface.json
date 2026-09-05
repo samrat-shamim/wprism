@@ -4317,6 +4317,23 @@
                     "return_type": "string",
                     "static": true,
                     "visibility": "public"
+                },
+                "unmapped_term_reference_observer": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tree",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Closure",
+                    "static": false,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -9147,6 +9164,14 @@
                             "name": "binding",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "unmappedTermObserver",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -9281,6 +9306,14 @@
                             "has_default": true,
                             "name": "canonicalShortcodeTree",
                             "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "unmappedTermObserver",
+                            "type": "?Closure",
                             "variadic": false
                         }
                     ],
@@ -10324,6 +10357,14 @@
                             "has_default": true,
                             "name": "binding",
                             "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "unmappedTermObserver",
+                            "type": "?Closure",
                             "variadic": false
                         }
                     ],
@@ -29392,6 +29433,14 @@
                             "has_default": false,
                             "name": "rowExists",
                             "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "unmappedTermObserver",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],
@@ -66767,6 +66816,14 @@
                             "has_default": true,
                             "name": "allowUnmappedProjection",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "unmappedTermObserver",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],

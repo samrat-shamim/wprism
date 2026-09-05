@@ -56,6 +56,8 @@ final class CaptureCandidateBuilder {
     private array $taxonomiesByPostType = [];
     /** @var string[] */
     private array $termObjectTaxonomies = [];
+    /** @var array<int,array<string,object|null>> Same-snapshot untracked rows; null means an ambiguous native key. */
+    private array $unmappedTerms = [];
     /** @var array{menus_by_term_id:array} */
     private array $planObservations = ['menus_by_term_id' => []];
 
@@ -63,12 +65,14 @@ final class CaptureCandidateBuilder {
      * @param array{home:string,uploads:string}|null $binding observe AS this
      *        environment binding instead of the live one (Tokens' docblock);
      *        plan's foreign-bound comparison observation is the only caller.
+     * @param null|\Closure(object):?string $unmappedTermObserver Only a full non-minting plan may compare an unmanaged native row with desired natural identity.
      */
     public function __construct(
         string $repo,
         private Policy $policy,
         ?array $binding = null,
-        private readonly ?array $canonicalShortcodeTree = null
+        private readonly ?array $canonicalShortcodeTree = null,
+        private readonly ?\Closure $unmappedTermObserver = null
     ) {
         $this->repo = rtrim($repo, '/');
         $this->tokens = $binding === null
@@ -155,6 +159,10 @@ final class CaptureCandidateBuilder {
             },
             static function (Policy $policy, string $kind, int $id): bool {
                 return Snapshot::row_exists_for_kind($policy, $kind, $id);
+            },
+            $this->unmappedTermObserver === null ? null : function (int $id, string $taxonomy): ?string {
+                $native = $this->unmappedTerms[$id][$taxonomy] ?? null;
+                return $native === null ? null : ($this->unmappedTermObserver)($native);
             }
         );
     }
@@ -183,6 +191,9 @@ final class CaptureCandidateBuilder {
         bool $lifecycleHandoffProjection = false
     ): array {
         $this->reset($forceUnresolvedRefs);
+        if ($this->unmappedTermObserver !== null) {
+            throw new \LogicException('wprism: planned references require the full target identity observation');
+        }
         $options = $this->buildOptions(
             false,
             $forceUnresolvedRefs,
@@ -215,6 +226,9 @@ final class CaptureCandidateBuilder {
         ?array $selectedIdentities = null,
         ?DatabaseWorkAuthority $workAuthority = null
     ): array {
+        if ($this->unmappedTermObserver !== null && ($mint || $strictReadOnly)) {
+            throw new \LogicException('wprism: planned references cannot mint identity or replace strict export observation');
+        }
         $this->reset($forceUnresolvedRefs);
         $entities = [];
         $media = [];
@@ -240,11 +254,17 @@ final class CaptureCandidateBuilder {
             }
         }
         $termUuids = [];
+        $this->unmappedTerms = [];
         foreach ($terms as $term) {
             $uuid = DatabaseQueryIsolation::work_unit($workAuthority, fn(): ?string =>
                 $this->captureIdentity->ensureTerm($term, 'term', $mint, $strictReadOnly));
             if ($uuid !== null) {
                 $termUuids[(int) $term->term_id] = $uuid;
+            } elseif ($this->unmappedTermObserver !== null) {
+                $id = (int) $term->term_id;
+                $taxonomy = (string) $term->taxonomy;
+                $this->unmappedTerms[$id][$taxonomy] = array_key_exists($taxonomy, $this->unmappedTerms[$id] ?? [])
+                    ? null : $term;
             }
         }
 

@@ -75,15 +75,23 @@ final class ScalarReferenceIntersection {
         }
     }
 
-    /** @param callable(int,string):?string $uuidFor @param callable(int,string):bool $physicalTuple */
+    /**
+     * @param callable(int,string):?string $uuidFor
+     * @param callable(int,string):bool $physicalTuple
+     * @param null|callable(int,string):?string $unmappedTermObserver Comparison-only planned identity, never durable capture.
+     */
     public static function capture(
         mixed $value,
         array $rule,
         callable $uuidFor,
         string $where,
         callable $physicalTuple,
-        bool $allowUnmappedProjection = false
+        bool $allowUnmappedProjection = false,
+        ?callable $unmappedTermObserver = null
     ): string|int|null {
+        if ($allowUnmappedProjection && $unmappedTermObserver !== null) {
+            throw new \LogicException('wprism: lifecycle and planned reference observation are distinct purposes');
+        }
         $kinds = self::kinds($rule, $where);
         $id = self::local_id($value);
         if ($id === null) {
@@ -102,8 +110,16 @@ final class ScalarReferenceIntersection {
         // Read-only lifecycle observation can encounter a hook-created term
         // before state apply establishes ANY identity. This is the existing
         // missing-ref projection, never a publication or partial-map fallback.
-        if ($allowUnmappedProjection && array_filter($bindings, static fn($uuid): bool => $uuid !== null) === []) {
-            return null;
+        if (array_filter($bindings, static fn($uuid): bool => $uuid !== null) === []) {
+            if ($allowUnmappedProjection) {
+                return null;
+            }
+            if ($unmappedTermObserver !== null) {
+                // Only a completely absent map can use a plan's natural-key
+                // witness. A partial/contradictory tuple must never be filled
+                // from desired state and mistaken for existing identity.
+                $bindings = array_fill(0, count($kinds), $unmappedTermObserver($id, $rule[self::TAXONOMY_FIELD]));
+            }
         }
         $uuid = null;
         foreach ($bindings as $candidate) {

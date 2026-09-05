@@ -32,6 +32,7 @@ final class OptionsCapture {
     private \Closure $guardSecret;
     private \Closure $classifyScope;
     private \Closure $rowExists;
+    private ?\Closure $unmappedTermObserver;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int,array{option:string,kind:string,id:int,target_type:string}> */
@@ -39,18 +40,21 @@ final class OptionsCapture {
     /** @var array<int,array{option:string,id_kind:string,id:int}> */
     private array $unscopedOptionNameRefs = [];
 
+    /** @param null|callable(int,string):?string $unmappedTermObserver Same-snapshot full-plan identity witness, never an option-only identity lookup. */
     public function __construct(
         Policy $policy,
         Tokens $tokens,
         callable $guardSecret,
         callable $classifyScope,
-        callable $rowExists
+        callable $rowExists,
+        ?callable $unmappedTermObserver = null
     ) {
         $this->policy = $policy;
         $this->tokens = $tokens;
         $this->guardSecret = \Closure::fromCallable($guardSecret);
         $this->classifyScope = \Closure::fromCallable($classifyScope);
         $this->rowExists = \Closure::fromCallable($rowExists);
+        $this->unmappedTermObserver = $unmappedTermObserver === null ? null : \Closure::fromCallable($unmappedTermObserver);
     }
 
     /**
@@ -71,6 +75,9 @@ final class OptionsCapture {
         ?DatabaseWorkAuthority $workAuthority = null,
         bool $lifecycleHandoffProjection = false
     ): array {
+        if ($this->unmappedTermObserver !== null && ($mint || $strictReadOnly || $lifecycleHandoffProjection)) {
+            throw new \LogicException('wprism: planned reference observation cannot publish or replace a strict lifecycle/export observation');
+        }
         // Strict read-only is also used by full export/explain, where an
         // excluded taxonomy skips identity discovery. Only the desired-bound
         // options lifecycle observer may hide a wholly unmapped hook result.
@@ -352,7 +359,8 @@ final class OptionsCapture {
                     static fn(int $id, string $kind): ?string => Ledger::uuid_for($id, Tokens::ledger_kind($kind)),
                     "option $ctx",
                     static fn(int $id, string $taxonomy): bool => TermCoordinateWitness::matches($id, $taxonomy),
-                    $allowUnmappedIntersectionProjection
+                    $allowUnmappedIntersectionProjection,
+                    $this->unmappedTermObserver
                 );
                 return ['included' => $captured !== null, 'value' => $captured];
             }
