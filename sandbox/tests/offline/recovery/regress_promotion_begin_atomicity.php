@@ -13,6 +13,8 @@
  * in the external-authority callback and observes no CREATE/INSERT/transaction;
  * the second fails the session upsert after the lease upsert and proves the
  * transaction restores the prior session with no contender lease.
+ * Scoped replacement consumes the same core storage proof; its old second
+ * metadata census crossed the already-bound query profile on a real target.
  */
 declare(strict_types=1);
 
@@ -21,17 +23,20 @@ require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
-require_once __DIR__ . '/../../../../agent/src/Kernel/CommandRefusal.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/ProcessFence.php';
-require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
-require_once __DIR__ . '/../../../../agent/src/Promotion/PromotionSessionJournal.php';
-require_once __DIR__ . '/../../../../agent/src/Promotion/LifecycleJournal.php';
-require_once __DIR__ . '/../../../../agent/src/Promotion/StateTransitionJournal.php';
-require_once __DIR__ . '/../../../../agent/src/Promotion/PromotionLease.php';
+$runtimeRoot = $argv[1] ?? dirname(__DIR__, 4);
+require_once $runtimeRoot . '/agent/src/Kernel/CommandRefusal.php';
+require_once $runtimeRoot . '/agent/src/Kernel/TransientDbException.php';
+require_once $runtimeRoot . '/agent/src/Kernel/Db.php';
+require_once $runtimeRoot . '/agent/src/Kernel/ProcessFence.php';
+require_once $runtimeRoot . '/agent/src/Repository/Ledger.php';
+require_once $runtimeRoot . '/agent/src/Promotion/PromotionSessionJournal.php';
+require_once $runtimeRoot . '/agent/src/Promotion/LifecycleJournal.php';
+require_once $runtimeRoot . '/agent/src/Promotion/StateTransitionJournal.php';
+require_once $runtimeRoot . '/agent/src/Promotion/PromotionLease.php';
 
 use WPrism\DatabaseMutationException;
+use WPrism\DatabaseQueryIsolation;
+use WPrism\Db;
 use WPrism\ProcessFence;
 use WPrism\PromotionLease;
 use WPrismTest\FakeWpdb;
@@ -53,7 +58,7 @@ function begin_atomicity_prior_session(): array {
 }
 
 /** Install the current InnoDB ledger schema with exactly one prior session. */
-function begin_atomicity_database(): FakeWpdb {
+function begin_atomicity_database(?string $kvEngine = 'InnoDB'): FakeWpdb {
     WpStore::reset();
     $wpdb = FakeWpdb::install()
         ->enableInformationSchema()
@@ -81,8 +86,10 @@ function begin_atomicity_database(): FakeWpdb {
         'v' => json_encode(begin_atomicity_prior_session(), JSON_UNESCAPED_SLASHES),
     ]])
         ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
-        ->setUniqueKey('wp_wprism_kv', ['k'])
-        ->setTableEngine('wp_wprism_kv', 'InnoDB');
+        ->setUniqueKey('wp_wprism_kv', ['k']);
+    if ($kvEngine !== null) {
+        $wpdb->setTableEngine('wp_wprism_kv', $kvEngine);
+    }
     $wpdb->seedTable('wp_wprism_journal', [])
         ->setColumns('wp_wprism_journal', [
             'id' => 'bigint unsigned',
@@ -223,4 +230,223 @@ wprism_check(
     'the failure is injected after the real contender lease upsert executes'
 );
 
-wprism_check_summary('promotion begin external-fence atomicity');
+/** @return array<string,mixed> */
+function begin_atomicity_scoped_witness(): array {
+    return [
+        'active' => true,
+        'allow_deletes' => false,
+        'artifact_hash' => BEGIN_ATOMICITY_NEXT_ARTIFACT,
+        'exclusion_state' => 'held',
+        'format' => 'wprism-scoped-promotion-witness/v1',
+        'generation' => 1,
+        'ok' => true,
+        'owner' => BEGIN_ATOMICITY_NEXT_OWNER,
+        'receipt_format' => 'wprism-scoped-promotion-receipt/v1',
+        'receipt_id' => str_repeat('3', 32),
+        'receipt_payload_sha256' => str_repeat('4', 64),
+        'recovery_ready' => true,
+        'scope_hash' => str_repeat('5', 64),
+        'signing_key_id' => 'offline-scoped-key',
+        'state' => 'promoting',
+        'target_id' => str_repeat('6', 32),
+        'terminal' => false,
+    ];
+}
+
+/** @return array<string,mixed> */
+function begin_atomicity_scoped(): array {
+    $witness = begin_atomicity_scoped_witness();
+    return PromotionLease::begin_scoped(
+        BEGIN_ATOMICITY_NEXT_OWNER,
+        BEGIN_ATOMICITY_NEXT_ARTIFACT,
+        $witness['receipt_payload_sha256'],
+        $witness['scope_hash'],
+        $witness
+    );
+}
+
+// This fixture starts at the durable post-abort state: one ordinary session,
+// no lease. Unlike the scoped semantic suite, all SQL crosses real Db's
+// installed gate and the shared interpreter; a second raw metadata census
+// after profile binding therefore reproduces the exact live refusal.
+$scopedDb = begin_atomicity_database();
+$scopedContender = (new FakeWpdb())
+    ->setConnectionId(2)
+    ->shareAdvisoryLocksWith($scopedDb);
+$profiledHandoffReads = [];
+$metadataAfterBinding = 0;
+$publicationChecked = false;
+$publicationWriteAuthority = false;
+$publicationFenceHeld = false;
+$scopedDb->onQuery(static function (string $sql) use (
+    $scopedContender,
+    &$profiledHandoffReads,
+    &$metadataAfterBinding,
+    &$publicationChecked,
+    &$publicationWriteAuthority,
+    &$publicationFenceHeld
+): null {
+    if (DatabaseQueryIsolation::has_bound_profile()) {
+        if (str_contains($sql, 'information_schema.')) {
+            ++$metadataAfterBinding;
+        }
+        foreach (['promotion_lock', 'promotion_session'] as $key) {
+            if (str_contains($sql, "SELECT k, v FROM wp_wprism_kv WHERE k = '$key'")) {
+                $profiledHandoffReads[$key] = true;
+            }
+        }
+    }
+    if (!$publicationChecked && str_starts_with($sql, 'INSERT INTO `wp_wprism_kv`')) {
+        $publicationChecked = true;
+        DatabaseQueryIsolation::assert_profile_contains(
+            ['wp_wprism_kv'],
+            true,
+            'scoped replacement publication authority control'
+        );
+        $publicationWriteAuthority = true;
+        $publicationFenceHeld = $scopedContender->get_var(
+            $scopedContender->prepare('SELECT GET_LOCK(%s, 0)', ProcessFence::name())
+        ) === '0';
+    }
+    return null;
+});
+$scopedResult = null;
+$scopedFailure = null;
+try {
+    $scopedResult = begin_atomicity_scoped();
+} catch (Throwable $failure) {
+    $scopedFailure = $failure;
+}
+wprism_check(
+    $scopedFailure === null,
+    'scoped replacement succeeds through real Db/Ledger and its installed query gate'
+        . ($scopedFailure === null ? '' : ' (' . get_class($scopedFailure) . ': ' . $scopedFailure->getMessage() . ')')
+);
+wprism_check(
+    isset($profiledHandoffReads['promotion_lock'], $profiledHandoffReads['promotion_session']),
+    'both handoff rows are re-read through the bound native profile before scoped publication'
+);
+wprism_check(
+    $publicationChecked && $publicationWriteAuthority && $publicationFenceHeld,
+    'scoped publication retains exact core-proven write authority under the original process fence'
+);
+wprism_check_same(0, $metadataAfterBinding, 'no feature-local metadata census escapes the bound scoped profile');
+$scopedQueries = $scopedDb->queries();
+$scopedFenceAt = null;
+$scopedStartAt = array_search('START TRANSACTION', $scopedQueries, true);
+$scopedMetadataAt = array_search('SELECT 1 FROM `wp_wprism_kv` LIMIT 0', $scopedQueries, true);
+foreach ($scopedQueries as $index => $sql) {
+    if (str_contains($sql, 'GET_LOCK(')) {
+        $scopedFenceAt = $index;
+        break;
+    }
+}
+wprism_check(
+    is_int($scopedFenceAt) && is_int($scopedStartAt) && is_int($scopedMetadataAt)
+        && $scopedFenceAt < $scopedStartAt && $scopedStartAt < $scopedMetadataAt,
+    'the process fence still precedes START and the core transactional metadata proof'
+);
+$scopedSession = begin_atomicity_row($scopedDb, 'promotion_session');
+$scopedLease = begin_atomicity_row($scopedDb, 'promotion_lock');
+wprism_check(
+    is_array($scopedResult) && is_array($scopedSession) && is_array($scopedLease)
+        && ($scopedSession['profile'] ?? null) === 'scoped-checkpoint-v1'
+        && ($scopedSession['owner'] ?? null) === BEGIN_ATOMICITY_NEXT_OWNER
+        && ($scopedSession['artifact_hash'] ?? null) === BEGIN_ATOMICITY_NEXT_ARTIFACT
+        && ($scopedSession['session_id'] ?? null) === ($scopedResult['session_id'] ?? null)
+        && ($scopedSession['session_id'] ?? null) !== begin_atomicity_prior_session()['session_id']
+        && ($scopedSession['scoped_receipt_sha256'] ?? null) === str_repeat('4', 64)
+        && ($scopedSession['scoped_scope_hash'] ?? null) === str_repeat('5', 64)
+        && ($scopedLease['owner'] ?? null) === BEGIN_ATOMICITY_NEXT_OWNER,
+    'one fresh scoped session and matching lease replace the completed ordinary session atomically'
+);
+wprism_check(
+    count(array_filter($scopedQueries, static fn(string $sql): bool => $sql === 'COMMIT AND NO CHAIN NO RELEASE')) === 1
+        && !in_array('ROLLBACK AND NO CHAIN NO RELEASE', $scopedQueries, true)
+        && $scopedDb->activeTransactionIsolation() === null
+        && !DatabaseQueryIsolation::is_active(),
+    'successful scoped replacement commits once and settles its transaction and query gate'
+);
+if ($scopedFailure === null) {
+    $retryBefore = $scopedDb->rows('wp_wprism_kv');
+    $scopedDb->resetLog();
+    $retry = begin_atomicity_scoped();
+    wprism_check_same($scopedResult['session_id'], $retry['session_id'], 'exact scoped retry does not rotate the target generation');
+    wprism_check_same($scopedSession, begin_atomicity_row($scopedDb, 'promotion_session'), 'exact scoped retry preserves every receipt-bound session field');
+    wprism_check(
+        count($retryBefore) === 2 && count($scopedDb->rows('wp_wprism_kv')) === 2
+            && array_filter($scopedDb->queries(), static fn(string $sql): bool => str_contains($sql, "SELECT 'promotion_session',")) === [],
+        'exact scoped retry renews only the existing lease and publishes no replacement session'
+    );
+}
+ProcessFence::release();
+
+foreach (['failed engine read', 'unknown engine', 'nontransactional engine', 'failed session publication'] as $case) {
+    $db = begin_atomicity_database($case === 'unknown engine' ? null : 'InnoDB');
+    $before = $db->rows('wp_wprism_kv');
+    if ($case === 'failed engine read') {
+        $db->failNextQuery('fixture: scoped storage read failed', 'SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES');
+    } elseif ($case === 'nontransactional engine') {
+        $db->setTableEngine('wp_wprism_kv', 'MyISAM');
+    } elseif ($case === 'failed session publication') {
+        $db->failNextQuery('fixture: scoped session publication failed', "SELECT 'promotion_session',");
+    }
+    $contender = (new FakeWpdb())->setConnectionId(2)->shareAdvisoryLocksWith($db);
+    $rollbackFenceHeld = false;
+    $db->onQuery(static function (string $sql) use ($contender, &$rollbackFenceHeld): null {
+        if ($sql === 'ROLLBACK AND NO CHAIN NO RELEASE') {
+            $rollbackFenceHeld = $contender->get_var(
+                $contender->prepare('SELECT GET_LOCK(%s, 0)', ProcessFence::name())
+            ) === '0';
+        }
+        return null;
+    });
+    $caught = null;
+    try {
+        begin_atomicity_scoped();
+    } catch (Throwable $failure) {
+        $caught = $failure;
+    }
+    $expected = match ($case) {
+        'failed engine read' => 'fixture: scoped storage read failed',
+        'unknown engine' => 'unknown engine: wp_wprism_kv (engine: NULL/unknown)',
+        'nontransactional engine' => 'unsupported engine (InnoDB required): wp_wprism_kv (engine: MYISAM)',
+        default => 'fixture: scoped session publication failed',
+    };
+    $expectedFailure = match ($case) {
+        'failed engine read' => $caught instanceof mysqli_sql_exception
+            && $caught->getMessage() === $expected,
+        'failed session publication' => $caught instanceof DatabaseMutationException
+            && $caught->getPrevious() instanceof mysqli_sql_exception
+            && $caught->getPrevious()->getMessage() === $expected,
+        default => $caught instanceof RuntimeException
+            && str_contains($caught->getMessage(), $expected),
+    };
+    wprism_check(
+        $expectedFailure,
+        "$case refuses at its actual storage/publication boundary"
+    );
+    wprism_check_same($before, $db->rows('wp_wprism_kv'), "$case preserves prior session bytes with no contender lease");
+    $queries = $db->queries();
+    $leaseWrites = count(array_filter($queries, static fn(string $sql): bool => str_contains($sql, "SELECT 'promotion_lock',")));
+    wprism_check_same(
+        $case === 'failed session publication' ? 1 : 0,
+        $leaseWrites,
+        "$case reaches exactly its intended pre-write or provisional-write boundary"
+    );
+    wprism_check(
+        $rollbackFenceHeld
+            && count(array_filter($queries, static fn(string $sql): bool => $sql === 'ROLLBACK AND NO CHAIN NO RELEASE')) === 1
+            && !in_array('COMMIT AND NO CHAIN NO RELEASE', $queries, true)
+            && $db->activeTransactionIsolation() === null
+            && !DatabaseQueryIsolation::is_active()
+            && !ProcessFence::isContinuous(),
+        "$case rolls back under the original fence and releases transaction, query and process authority"
+    );
+    $db->onQuery(null);
+    Db::start('scoped refusal settled retry', new \WPrism\NativeDatabaseProfile([]));
+    Db::rollback('scoped refusal settled retry rollback');
+    wprism_check(true, "$case leaves the physical session usable for an independent transaction");
+}
+
+wprism_check_summary('promotion begin external-fence and scoped atomicity');

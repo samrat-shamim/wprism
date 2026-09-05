@@ -560,6 +560,11 @@ class PromotionLease {
         try {
             if ($replaceProfilelessOrdinarySession) {
                 $ledgerTable = $wpdb->prefix . 'wprism_kv';
+                // Db proves this exact read/write roster (InnoDB, retained
+                // metadata locks, triggers and FK destinations) before it
+                // binds the query profile. A second information_schema probe
+                // after start() returns escapes that closed authority; the
+                // scoped handoff consumes the core proof for this transaction.
                 Db::start(
                     'scoped ordinary session replacement transaction start',
                     new NativeDatabaseProfile([$ledgerTable], [$ledgerTable])
@@ -577,7 +582,6 @@ class PromotionLease {
                 );
             }
             if ($replaceProfilelessOrdinarySession) {
-                self::assert_transactional_replacement_storage();
                 if ($before !== null) {
                     throw new \RuntimeException('wprism: scoped promotion begin found a live ordinary target promotion lock');
                 }
@@ -1557,13 +1561,6 @@ class PromotionLease {
             throw new \RuntimeException('wprism: malformed completed lifecycle state transition blocks scoped promotion session replacement');
         }
         self::assert_state_transition($transition['entity'], $transition['before_hash'], $transition['after_hash']);
-    }
-
-    private static function assert_transactional_replacement_storage(): void {
-        self::assert_transactional_promotion_storage(
-            'scoped ordinary session replacement requires an InnoDB wprism_kv table; '
-                . 'refusing a nontransactional promotion handoff'
-        );
     }
 
     private static function assert_transactional_promotion_storage(

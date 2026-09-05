@@ -9,6 +9,8 @@ declare(strict_types=1);
  * exact host retry. A profile-less completed ordinary residue with no lease
  * is replaced only through PromotionLock's fresh fenced acquire path, while
  * scoped mismatches and lifecycle ambiguity must never be silently replaced.
+ * Storage/query authority is exercised with real Db/Ledger and the shared
+ * FakeWpdb in regress_promotion_begin_atomicity.php, not this semantic seam.
  * The Apply checks use reflection because these are pre-mutation gates; no
  * WordPress bootstrap, database, cache backend, or Docker target is needed
  * to prove their closed selection vocabulary.
@@ -184,7 +186,6 @@ namespace WPrism {
 
 namespace {
     use WPrism\Apply;
-    use WPrism\CommandRefusalException;
     use WPrism\PromotionLock;
     use WPrism\ScopedPromotionAuthority;
     use WPrism\VerifiedPromotionAuthority;
@@ -201,7 +202,6 @@ namespace {
         public string $prefix = 'wp_';
         public string $dbname = 'wprism_scoped_promotion_target_test';
         public string $last_error = '';
-        public string|false|null $wprismKvEngine = 'InnoDB';
         private int $connection = 4401;
         private bool $fenceHeld = false;
 
@@ -214,21 +214,6 @@ namespace {
                 return (string) $this->connection;
             }
             [$template, $args] = $this->decode($query);
-            if (str_contains($template, 'information_schema.TABLES')) {
-                if (!ScopedPromotionTargetLedger::transactionOpen()
-                    || ScopedPromotionTargetLedger::$transactionReadKeys !== [
-                        'promotion_lock',
-                        'promotion_session',
-                    ]) {
-                    throw new RuntimeException(
-                        'engine assertion must follow transaction-bound promotion lock/session reads'
-                    );
-                }
-                if (($args[0] ?? null) !== $this->prefix . 'wprism_kv') {
-                    throw new RuntimeException('unexpected promotion-lock engine table query');
-                }
-                return $this->wprismKvEngine;
-            }
             if (str_contains($template, 'GET_LOCK')) {
                 $this->fenceHeld = true;
                 return '1';
@@ -655,7 +640,7 @@ namespace {
     );
     $replacementStorageOffset = strpos(
         $acquireInternalSource,
-        'self::assert_transactional_replacement_storage();'
+        'new NativeDatabaseProfile([$ledgerTable], [$ledgerTable])'
     );
     $replacementTransactionStartOffset = strpos(
         $acquireInternalSource,
@@ -668,12 +653,11 @@ namespace {
             && $replacementTransactionStartOffset !== false
             && $replacementLockReadOffset !== false
             && $replacementSessionReadOffset !== false
-            && $replacementTransactionStartOffset < $replacementLockReadOffset
+            && $replacementTransactionStartOffset < $replacementStorageOffset
+            && $replacementStorageOffset < $replacementLockReadOffset
             && $replacementLockReadOffset < $replacementSessionReadOffset
-            && $replacementSessionReadOffset < $replacementStorageOffset
-            && str_contains($lockSource, 'information_schema.TABLES')
-            && str_contains($lockSource, "strcasecmp(\$engine, 'InnoDB')"),
-        'ordinary-session replacement checks exact InnoDB storage only after transaction-bound lock/session reads'
+            && !str_contains($acquireInternalSource, 'self::assert_transactional_replacement_storage();'),
+        'ordinary-session replacement delegates exact read/write storage authority to Db before its handoff reads'
     );
     $second = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $check(
@@ -790,29 +774,6 @@ namespace {
         'promotion_session' => json_encode($ordinaryCompletedSession, JSON_THROW_ON_ERROR),
     ];
     $ordinaryCompletedBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
-    $ordinaryReplacementTransactionStarts = ScopedPromotionTargetLedger::$transactionStarts;
-    $ordinaryReplacementTransactionRollbacks = ScopedPromotionTargetLedger::$transactionRollbacks;
-    $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
-    $GLOBALS['wpdb']->wprismKvEngine = 'MyISAM';
-    $expect(
-        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
-        'requires an InnoDB wprism_kv table',
-        'nontransactional wprism_kv refuses ordinary-session replacement before any handoff mutation'
-    );
-    $check(
-        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryCompletedBytes
-            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
-            && !ScopedPromotionTargetLedger::transactionOpen()
-            && ScopedPromotionTargetLedger::$transactionStarts === $ordinaryReplacementTransactionStarts + 1
-            && ScopedPromotionTargetLedger::$transactionRollbacks === $ordinaryReplacementTransactionRollbacks + 1
-            && ScopedPromotionTargetLedger::$lastTransactionReadKeys === [
-                'promotion_lock',
-                'promotion_session',
-            ]
-            && ScopedPromotionTargetLedger::$promotionLockWrites === $ordinaryReplacementLockWrites,
-        'nontransactional storage refusal rolls back its metadata-locked reads without changing the ordinary session or lock'
-    );
-    $GLOBALS['wpdb']->wprismKvEngine = 'InnoDB';
     $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
     ScopedPromotionTargetLedger::$failNextPromotionSessionUpsert = true;
     $expect(
@@ -1284,7 +1245,7 @@ namespace {
     );
     $authoritySource = (string) file_get_contents("$root/agent/src/Promotion/ScopedPromotionAuthority.php");
     $check(
-        str_contains($authoritySource, "& 0777) !== 0600")
+        str_contains($authoritySource, '& 0777) !== 0600')
             && str_contains($authoritySource, 'scoped promotion control configuration is not protected mode 0600'),
         'target witness refuses an installed trust-root file whose protected mode changed'
     );
@@ -1409,7 +1370,7 @@ namespace {
             );
         }
     };
-    $taxonomyGate = new class {
+    $taxonomyGate = new class() {
         public function invoke(mixed $_, array $work, array $tree, array $deletions): bool {
             return \WPrism\NativeRebuildExecutor::needs_taxonomy_recount($work, $tree, $deletions);
         }
