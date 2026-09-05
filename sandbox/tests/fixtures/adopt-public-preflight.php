@@ -82,9 +82,22 @@ try {
     if ($mode === 'sunrise') define('SUNRISE', true);
     if ($mode === 'explicit-mu') define('WPMU_PLUGIN_DIR', getenv('WPRISM_BOOTSTRAP_MU'));
     if ($mode === 'relocated-content') define('WP_CONTENT_DIR', getcwd() . '/custom-content');
+    if ($mode === 'fresh-cron-disabled') define('DISABLE_WP_CRON', true);
+    if ($mode === 'cron-enabled') define('DISABLE_WP_CRON', false);
     foreach (WP_CLI::$hooks['after_wp_config_load'] ?? [] as $callback) $callback();
     if (!defined('WPMU_PLUGIN_DIR')) define('WPMU_PLUGIN_DIR', getenv('WPRISM_BOOTSTRAP_MU'));
     foreach (glob(WPMU_PLUGIN_DIR . '/*.php') ?: [] as $muPlugin) require $muPlugin;
+    // WordPress 7.1 queues _wp_cron for shutdown: a valid eval answer alone
+    // does not prove a write-free request. Represent its transient/loopback
+    // effect boundaries without making a network request from this fixture.
+    if (getenv('WPRISM_BOOTSTRAP_CRON_CANARY') === '1') {
+        register_shutdown_function(static function () use ($trace): void {
+            if (!(defined('DISABLE_WP_CRON') && DISABLE_WP_CRON)) {
+                file_put_contents(getcwd() . '/doing-cron-write', 'must-not-write');
+                file_put_contents($trace, "CRON_POST\n", FILE_APPEND);
+            }
+        });
+    }
     if ($command === ['core', 'is-installed']) {
         file_put_contents($trace, $isolated ? "WP_ISOLATED\n" : "WP_PLAIN\n", FILE_APPEND);
     } elseif ($command[0] === 'eval' && count($command) === 2) {
@@ -120,6 +133,10 @@ $cases = [
     'fresh-onboard' => ['onboard'],
     'fresh-mu-adopt' => ['adopt'],
     'fresh-mu-onboard' => ['onboard'],
+    'fresh-cron-unset-adopt' => ['adopt'],
+    'fresh-cron-unset-onboard' => ['onboard'],
+    'fresh-cron-disabled' => ['adopt'],
+    'cron-enabled' => ['adopt'],
     'multisite' => ['adopt'],
     'unreadable-topology' => ['adopt'],
     'malformed-topology' => ['adopt'],
@@ -246,6 +263,7 @@ foreach ($cases as $name => $arguments) {
     $environment['WPRISM_BOOTSTRAP_TRACE'] = $trace;
     $environment['WPRISM_BOOTSTRAP_MU'] = $mu;
     $environment['WPRISM_BOOTSTRAP_WP_MODE'] = $name;
+    $environment['WPRISM_BOOTSTRAP_CRON_CANARY'] = str_contains($name, 'cron-') ? '1' : '0';
     $environment['WPRISM_BOOTSTRAP_FRAME_MODE'] = match ($name) {
         'malformed-transport' => 'malformed',
         'malformed-proof', 'over-bound-proof' => $name,
@@ -265,7 +283,8 @@ foreach ($cases as $name => $arguments) {
     $exit = proc_close($process);
     $events = (string) file_get_contents($trace);
     $admitted = in_array($name, ['fresh-adopt', 'fresh-onboard', 'fresh-mu-adopt',
-        'fresh-mu-onboard', 'existing-clear-adopt'], true);
+        'fresh-mu-onboard', 'fresh-cron-unset-adopt', 'fresh-cron-unset-onboard',
+        'fresh-cron-disabled', 'existing-clear-adopt'], true);
     $valid = $admitted
         ? $exit === 73 && str_contains($stdout, 'adopt phase: staged install + transactional doctor')
             && str_contains($stderr, 'adopt failed during archive upload')
@@ -276,6 +295,9 @@ foreach ($cases as $name => $arguments) {
     wprism_check($valid, 'public bootstrap preflight classifies ' . $name);
     if (!$valid) wprism_check_detail(json_encode([$exit, $stdout, $stderr, $events], JSON_THROW_ON_ERROR));
     wprism_check($before === $witness(), $name . ' changes no target filesystem byte or node');
+    if (str_contains($name, 'cron-')) {
+        wprism_check(!str_contains($events, 'CRON_POST'), $name . ' starts no cron loopback request');
+    }
     if ($admitted) {
         $initial = $name !== 'existing-clear-adopt';
         wprism_check($initial

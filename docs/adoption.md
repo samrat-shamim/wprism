@@ -36,6 +36,11 @@ plane remains a recovery refusal; do not create an empty replacement to bypass
 it. Initial SSH and local discovery require the standard content/MU layout and
 refuse an explicit `WPMU_PLUGIN_DIR`, relocated `WP_CONTENT_DIR`, or `SUNRISE`.
 The existing-repository SSH update path retains its normal recovery preflight.
+Initial probes suppress WordPress cron within their own process, so they do not
+write its transient or start background loopback work. An explicitly false
+`DISABLE_WP_CRON` in `wp-config.php` prevents that isolation and refuses initial
+adoption; remove the redundant definition or set it to `true` before retrying.
+The adoption command does not edit `wp-config.php`.
 
 Configure the target in `site.wprism.json` or the machine-local,
 gitignored `.wprism-envs.json`:

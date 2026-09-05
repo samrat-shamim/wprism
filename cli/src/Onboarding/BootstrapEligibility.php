@@ -47,6 +47,15 @@ if (defined('WPMU_PLUGIN_DIR')) {
             'wprism: local bootstrap eligibility requires the standard wp-content/mu-plugins control-plane root'
         );
     }
+    /* Native cron can write doing_cron and start a loopback request before
+       WP-CLI exits. MU isolation alone cannot prevent those effects.
+       An explicit false constant cannot be overridden in this process. */
+    if (defined('DISABLE_WP_CRON') && !constant('DISABLE_WP_CRON')) {
+        throw new \RuntimeException('wprism: bootstrap eligibility cannot isolate explicitly enabled WordPress cron');
+    }
+    if (!defined('DISABLE_WP_CRON')) {
+        define('DISABLE_WP_CRON', true);
+    }
     define('WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR', $wprismStandardContent . '/mu-plugins');
     define('WPMU_PLUGIN_DIR', $wprismStandardContent . '/.wprism-bootstrap-read-only-' . bin2hex(random_bytes(16)));
 });
