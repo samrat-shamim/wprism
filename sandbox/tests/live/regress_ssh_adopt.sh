@@ -60,6 +60,9 @@ SCOPED_SUCCESS_PROMOTE_EXIT=""
 AUTHORITY_STATUS_STDOUT=""
 AUTHORITY_STATUS_STDERR=""
 AUTHORITY_STATUS_EXIT=""
+DATABASE_MUTATION_STDOUT=""
+DATABASE_MUTATION_STDERR=""
+DATABASE_MUTATION_EXIT=""
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -255,7 +258,10 @@ SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"
 AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
 AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"
 AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
-for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
+DATABASE_MUTATION_STDOUT="$DIAG_DIR/database-mutation.stdout"
+DATABASE_MUTATION_STDERR="$DIAG_DIR/database-mutation.stderr"
+DATABASE_MUTATION_EXIT="$DIAG_DIR/database-mutation.exit"
+for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
@@ -350,6 +356,14 @@ for _ in $(seq 1 60); do
 done
 docker exec "$DB" mariadb-admin ping -h 127.0.0.1 -uroot -proot-pass --silent >/dev/null 2>&1 \
   || fail "database never became ready"
+# The standalone account starts with database-local grants only. fd8's
+# Doctor named missing PROCESS before the first env-set correctly refused:
+# complete incoming foreign-key visibility is a mutation prerequisite, not
+# authority adoption may grant. Match pair_db.sh at this disposable DB owner.
+docker exec -i "$DB" mariadb -uroot -proot-pass <<'SQL' \
+  || fail "standalone database could not establish its mutation metadata prerequisite"
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
+SQL
 docker run --rm --user root --network "$NET" -v "$VOLUME:/var/www/html" wordpress:cli-php8.3 \
   sh -lc 'php -d memory_limit=512M /usr/local/bin/wp core download --version="'"$WP_CORE_VERSION"'" --path=/var/www/html --allow-root --quiet && chown -R 1000:1000 /var/www/html'
 pass "WordPress files initialized without sharing the WPrism checkout"
@@ -607,6 +621,22 @@ pass "target carries the shipped platform boundary and a cited disposition for e
 say "provision the SSH promotion fixture's chosen core environment values"
 ssh_fixture 'test ! -e /home/wprism/site/.wprism-env-values.json && test ! -L /home/wprism/site/.wprism-env-values.json' \
   || fail "adoption unexpectedly provisioned environment intent"
+# Adoption's read-only Doctor permits this advisory; the positive mutation
+# fixture requires the exact passed row before publishing any intended value.
+# Keep both streams private and reject a conflicting stderr-only warning too.
+if "$WPRISM" --envs-file="$TMP/envs.json" doctor target >"$DATABASE_MUTATION_STDOUT" 2>"$DATABASE_MUTATION_STDERR"; then
+  DATABASE_MUTATION_CODE=0
+else
+  DATABASE_MUTATION_CODE=$?
+fi
+printf '%s\n' "$DATABASE_MUTATION_CODE" >"$DATABASE_MUTATION_EXIT"
+[ "$DATABASE_MUTATION_CODE" -eq 0 ] \
+  || fail "SSH mutation fixture doctor failed; inspect its private diagnostic capture"
+assert_ssh_fixture_positive_diagnostics 'SSH mutation fixture doctor' "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR"
+DATABASE_MUTATION_CHECKS=$(grep -hF 'transactional database mutation (' "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR") \
+  || fail "SSH mutation fixture has no readable transactional database prerequisite"
+[ "$DATABASE_MUTATION_CHECKS" = '[PASS] transactional database mutation (mariadb)' ] \
+  || fail "SSH mutation fixture requires one passed transactional database prerequisite; inspect its private diagnostic capture"
 establish_core_environment_bindings wp_ssh_fixture /home/wprism/site admin@example.test \
   http://adopt.example.test http://adopt.example.test
 pass "public stdin provisioning binds the exact installer-owned core values before promotion"

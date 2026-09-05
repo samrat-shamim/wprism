@@ -683,6 +683,56 @@ for initial_case in wrong-refusal zero-exit dead sentinel link loader agent repo
 done
 pass 'the actual initial-adoption refusal requires its public recovery category, nonzero exit, and unchanged control/loader/repository/transaction boundaries'
 
+# Execute the standalone database owner's readiness and grant block: adoption
+# must not acquire server authority, and a ping alone cannot prove mutation
+# readiness (fd8's first env-set refused for missing direct global PROCESS).
+SSH_DATABASE_READY_BLOCK="$(sed -n '/^DATABASE_OWNED=1$/,/^docker run --rm --user root --network "\$NET"/p' "$SSH_ADOPT_DRIVER" | sed '$d')"
+case_ssh_database_ready() {
+  (
+    local mutation="$1" DB=fixture-database DATABASE_OWNED=0 sql
+    local trace="$SCRATCH/database-$1.trace" ownership="$SCRATCH/database-$1.ownership"
+    : >"$trace"
+    trap 'printf "%s\n" "$DATABASE_OWNED" >"$ownership"' EXIT
+    seq() { printf '1\n'; }
+    sleep() { :; }
+    docker() {
+      [ "$DATABASE_OWNED" -eq 1 ] || return 90
+      case "$*" in
+        'exec fixture-database mariadb-admin ping -h 127.0.0.1 -uroot -proot-pass --silent')
+          printf 'PING\n' >>"$trace"
+          [ "$mutation" != unavailable ]
+          ;;
+        'exec -i fixture-database mariadb -uroot -proot-pass')
+          sql=$(cat)
+          [ "$sql" = "GRANT PROCESS ON *.* TO 'wordpress'@'%';" ] || return 91
+          [ "$(cat "$trace")" = $'PING\nPING' ] || return 92
+          printf 'GRANT\n' >>"$trace"
+          [ "$mutation" != grant-refused ]
+          ;;
+        *) return 93 ;;
+      esac
+    }
+    eval "$SSH_DATABASE_READY_BLOCK"
+    [ "$(cat "$trace")" = $'PING\nPING\nGRANT' ] \
+      || fail 'standalone database never established the exact application-account metadata grant'
+    printf 'DATABASE_READY\n'
+  )
+}
+DATABASE_READY_OUT=$(case_ssh_database_ready normal)
+[[ "$DATABASE_READY_OUT" == *DATABASE_READY* ]] \
+  || fail 'the actual standalone database block rejected its ready/granted control'
+for database_case in unavailable grant-refused; do
+  database_status=0
+  database_output=$(case_ssh_database_ready "$database_case" 2>&1) || database_status=$?
+  [ "$database_status" -ne 0 ] && [[ "$database_output" != *DATABASE_READY* ]] \
+    || fail "the actual standalone database block accepted $database_case"
+  [ "$(cat "$SCRATCH/database-$database_case.ownership")" = 1 ] \
+    || fail 'failed database initialization lost ownership needed by cleanup'
+done
+[ "$(cat "$SCRATCH/database-unavailable.trace")" = $'PING\nPING' ] \
+  || fail 'an unavailable standalone database reached privilege provisioning'
+pass 'the actual standalone database setup requires readiness and the one exact PROCESS grant while retaining cleanup ownership on refusal'
+
 eval "$(sed -n '/^wp_ssh_fixture() {/,/^}/p' "$SSH_ADOPT_DRIVER")"
 eval "$(sed -n '/^assert_ssh_fixture_positive_diagnostics() {/,/^}/p' "$SSH_ADOPT_DRIVER")"
 declare -F wp_ssh_fixture >/dev/null \
@@ -696,6 +746,7 @@ ADOPT_CORE_BIND=$(grep -n '^establish_core_environment_bindings wp_ssh_fixture '
 ADOPT_SCOPED_START=$(grep -n '^say "exercise a real checkpointed SSH scoped promotion' "$SSH_ADOPT_DRIVER" | cut -d: -f1)
 [ "$ADOPT_LAST_VERIFY" -lt "$ADOPT_CORE_BIND" ] && [ "$ADOPT_CORE_BIND" -lt "$ADOPT_SCOPED_START" ] \
   || fail 'core intent must be chosen after adoption refusal/rollback witnesses and before scoped capture'
+SSH_DIAGNOSTIC_INIT_BLOCK="$(sed -n '/^DIAG_DIR="$(mktemp /,/^done$/p' "$SSH_ADOPT_DRIVER")"
 
 ssh_fixture() {
   local translated
@@ -753,11 +804,40 @@ jq -en --argjson expected "$SSH_QUOTE_EXPECTED" --argjson actual "$SSH_QUOTE_ACT
 pass 'the actual SSH WP boundary preserves empty/quoted/multiline/metacharacter arguments and stdin through /bin/sh'
 
 case_ssh_binding() {
+  local WPRISM=fake_binding_doctor
   prepare_ssh_binding_case "ssh-binding-$1" "$1"
+  local TMPDIR="$TMP" PREFIX=offline-mutation previous_umask
+  previous_umask=$(umask)
+  eval "$SSH_DIAGNOSTIC_INIT_BLOCK"
+  [ "$(umask)" = "$previous_umask" ] || fail 'private diagnostics changed the caller umask'
+  "$PHP_BIN" -r '
+    foreach (array_slice($argv, 1) as $index => $path) {
+        $expected = $index === 0 ? 0700 : 0600;
+        if (!file_exists($path) || is_link($path) || (fileperms($path) & 0777) !== $expected) {
+            exit(1);
+        }
+    }
+  ' "$DIAG_DIR" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT" \
+    || fail 'the actual mutation diagnostic owner did not create private files'
+  fake_binding_doctor() {
+    [ "$#" -eq 3 ] && [ "$1" = "--envs-file=$TMP/envs.json" ] && [ "$2" = doctor ] && [ "$3" = target ] \
+      || return 91
+    case "$SSH_EVIDENCE_MODE" in
+      database-empty) return 0 ;;
+      database-warning) printf '[WARN] transactional database mutation (mariadb) — private-operator-value\n'; return 0 ;;
+      database-wrong-family) printf '[PASS] transactional database mutation (mysql)\n'; return 0 ;;
+      database-stderr-warning) printf '[WARN] transactional database mutation (mariadb) — private-operator-value\n' >&2 ;;
+      database-duplicate) printf '[PASS] transactional database mutation (mariadb)\n' ;;
+      database-php) printf 'PHP Warning: private-operator-value in /fixture.php on line 12\n' >&2 ;;
+    esac
+    printf '[PASS] transactional database mutation (mariadb)\n'
+    [ "$SSH_EVIDENCE_MODE" != database-exit ] || return 13
+  }
   if [ "$1" = already-bound ]; then
     printf '{}\n' >"$REMOTE/home/wprism/site/.wprism-env-values.json"
   fi
   eval "$SSH_CORE_BINDING_BLOCK"
+  printf 'ENV_BINDINGS_READY\n'
 }
 case_ssh_binding normal
 jq -es '. == [
@@ -776,6 +856,21 @@ expect_refusal 'SSH fixture env-set command failure' 'failed with exit 7' case_s
 [ "$(wc -l <"$SCRATCH/ssh-binding-write-failure/local/env-bindings.jsonl" | tr -d ' ')" -eq 1 ] \
   || fail 'the SSH fixture continued provisioning after an env-set refusal'
 pass 'the actual SSH transition preserves unprovisioned adoption and refuses drift or partial provisioning'
+for binding_case in database-empty database-warning database-wrong-family database-stderr-warning database-duplicate database-php database-exit; do
+  binding_status=0
+  binding_output=$(case_ssh_binding "$binding_case" 2>&1) || binding_status=$?
+  [ "$binding_status" -ne 0 ] && [[ "$binding_output" != *ENV_BINDINGS_READY* ]] \
+    || fail "the actual SSH provisioning block accepted $binding_case"
+  [[ "$binding_output" != *private-operator-value* ]] \
+    || fail 'the SSH mutation readiness gate exposed private operator material'
+  [ ! -s "$SCRATCH/ssh-binding-$binding_case/local/env-bindings.jsonl" ] \
+    || fail 'the SSH fixture wrote intent before its transactional mutation premise passed'
+  expected_exit=0
+  [ "$binding_case" != database-exit ] || expected_exit=13
+  [ "$(cat "$SCRATCH/ssh-binding-$binding_case/local/"offline-mutation-ssh-adopt-diagnostics.*/database-mutation.exit)" = "$expected_exit" ] \
+    || fail 'the SSH mutation premise lost the actual Doctor exit status'
+done
+pass 'the actual SSH mutation premise requires one passed MariaDB check with matching exit and clean complete diagnostics before env-set; private capture and caller umask are preserved'
 
 SSH_SCOPED_SUCCESS_BLOCK="$(sed -n '/^if "\$WPRISM".*promote target.*scoped-apply-success-scope.json/,/^SUCCESS_STATUS=/p' "$SSH_ADOPT_DRIVER" | sed '$d')"
 [[ "$SSH_SCOPED_SUCCESS_BLOCK" == *'SCOPED_SUCCESS_PROMOTE_STDOUT'* ]] \
