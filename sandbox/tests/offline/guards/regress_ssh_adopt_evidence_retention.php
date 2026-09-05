@@ -561,6 +561,87 @@ if (is_int($resourceStart) && is_int($resourceEnd) && $resourceStart < $resource
     );
 }
 
+$bootstrapStart = strpos($harness, 'say "install WordPress through the SSH boundary"');
+$bootstrapEnd = $bootstrapStart === false ? false : strpos($harness, 'if ssh_fixture ', $bootstrapStart);
+$firstAdopt = strpos($harness, 'adopt target 2>&1)');
+if ($bootstrapStart === false || $bootstrapEnd === false || $firstAdopt === false) {
+    throw new LogicException('the actual pre-adoption native bootstrap window is unavailable');
+}
+$check($bootstrapEnd < $firstAdopt, 'the real host hardening premise belongs before every adoption attempt');
+$bootstrapBlock = substr($harness, $bootstrapStart, $bootstrapEnd - $bootstrapStart);
+preg_match('/^harden_ssh_fixture_host\(\) \{.*?^}/ms', $harness, $hardeningHelper);
+$hardeningProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_CASE="$2" PHP="$3" DB=fixture-db
+say() { :; }
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+probe_scratch=$(mktemp -d "${TMPDIR:-/tmp}/ssh-host-hardening.XXXXXX")
+trap '[ ! -f "$probe_scratch/read" ] || printf "NATIVE_READ\n"; rm -rf -- "$probe_scratch"' EXIT
+"$PHP" -r 'file_put_contents($argv[1],"<?php\n");' "$probe_scratch/wp-config.php"
+ssh_fixture() {
+  [ "$#" -eq 1 ] || return 81
+  case "$1" in
+    'cd /var/www/html && wp config create '*|'cd /var/www/html && wp core install '*|'cd /var/www/html && wp db query '*) return 0 ;;
+    *) return 82 ;;
+  esac
+}
+wp_ssh_fixture() {
+  case "$*" in
+    'config set DISALLOW_FILE_MODS true --raw --type=constant --quiet')
+      [ "$PROBE_CASE" != set-nonzero ] || return 7
+      [ "$PROBE_CASE" != set-no-write ] || return 0
+      "$PHP" -r '
+        $value=match($argv[2]) {"set-false"=>"false","set-string"=>"\"true\"",default=>"true"};
+        file_put_contents($argv[1],"<?php\ndefine(\"DISALLOW_FILE_MODS\",$value);\n");
+      ' "$probe_scratch/wp-config.php" "$PROBE_CASE"
+      case "$PROBE_CASE" in
+        set-stdout) printf 'PHP Warning: private-hardening-canary in Unknown on line 0\n' ;;
+        set-stderr) printf 'Warning: private-hardening-canary\n' >&2 ;;
+      esac
+      ;;
+    *)
+      [ "$#" -eq 2 ] && [ "$1" = eval ] || return 83
+      : >"$probe_scratch/read"
+      case "$PROBE_CASE" in
+        read-empty) return 0 ;;
+        read-nonzero) return 7 ;;
+        read-extra) printf '{}\n' ;;
+        read-stdout) printf 'PHP Warning: private-hardening-canary in Unknown on line 0\n' ;;
+        read-stderr) printf 'PHP Warning: private-hardening-canary in Unknown on line 0\n' >&2 ;;
+      esac
+      "$PHP" -r 'require $argv[1]; eval($argv[2]);' "$probe_scratch/wp-config.php" "$2"
+      ;;
+  esac
+}
+SH;
+// Run Doctor's complete real composed probe against the file persisted by the
+// modeled native config command. Other absent host facts retain their own null
+// sentinels; this does not invent a ready database or a live adopted agent.
+$doctorProbe = <<<'SH'
+facts=$("$PHP" -r '
+require $argv[1]."/cli/src/Onboarding/Doctor.php";
+require $argv[2];
+ob_start();
+eval((new ReflectionClass(\WPrism\Orchestrator\Doctor::class))->getReflectionConstant("SITE_FACTS")->getValue());
+$facts=json_decode(ob_get_clean(),true,32,JSON_THROW_ON_ERROR);
+echo $facts["file_mods"];
+' "$ROOT" "$probe_scratch/wp-config.php")
+[ "$facts" = wprism-set ] || fail 'actual Doctor still observes an unhardened host'
+printf 'HOST_HARDENED\n'
+SH;
+foreach (['ready', 'set-nonzero', 'set-no-write', 'set-false', 'set-string', 'set-stdout', 'set-stderr',
+    'read-empty', 'read-nonzero', 'read-extra', 'read-stdout', 'read-stderr'] as $case) {
+    [$status, $out, $err] = \WPrismTest\ShellProbe::run($hardeningProbe . "\n" . ($hardeningHelper[0] ?? '')
+        . "\n" . $bootstrapBlock . "\n" . $doctorProbe, [$root, $case, PHP_BINARY], $root);
+    $ready = $case === 'ready';
+    $check($ready ? $status === 0 && str_contains($out, 'HOST_HARDENED') && $err === ''
+        : $status !== 0 && !str_contains($out, 'HOST_HARDENED'),
+        "$case verifies the actual pre-adoption native hardening and Doctor fact");
+    $expectRead = !in_array($case, ['set-nonzero', 'set-stdout', 'set-stderr'], true);
+    $check($expectRead === str_contains($out, 'NATIVE_READ'), "$case reads only after a diagnostic-free successful config command");
+    $check(!str_contains($out . $err, 'private-hardening-canary'), "$case does not disclose captured bootstrap diagnostics");
+}
+
 echo $failures === 0
     ? "REGRESS_SSH_ADOPT_EVIDENCE_RETENTION PASSED\n"
     : "REGRESS_SSH_ADOPT_EVIDENCE_RETENTION FAILED: $failures assertion(s)\n";

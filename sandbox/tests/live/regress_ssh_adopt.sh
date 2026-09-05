@@ -292,6 +292,20 @@ wp_ssh_fixture() {
   ssh_fixture "$command"
 }
 
+harden_ssh_fixture_host() {
+  local out
+  # eb55 completed signed deletion but both adoption doctors warned that the
+  # native test host still allowed wp-admin code changes. Establish the host
+  # premise; do not suppress the product's advisory or change managed policy.
+  out=$(wp_ssh_fixture config set DISALLOW_FILE_MODS true --raw --type=constant --quiet 2>&1) \
+    || fail 'SSH fixture host hardening command failed'
+  [ -z "$out" ] || fail 'SSH fixture host hardening command emitted a diagnostic'
+  out=$(wp_ssh_fixture eval 'echo json_encode(["file_mods_disabled" => defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS === true], JSON_THROW_ON_ERROR);' 2>&1) \
+    || fail 'SSH fixture host hardening readback failed'
+  jq -e -s 'length == 1 and .[0] == {file_mods_disabled:true}' <<<"$out" >/dev/null 2>&1 \
+    || fail 'SSH fixture host hardening did not produce one exact native boolean readback'
+}
+
 private_refusal_diagnostic() { # <snapshot|capture> <command> [canonical baseline JSON]
   [ "$#" -ge 2 ] || fail 'private refusal diagnostic requires an explicit mode and command'
   local mode="$1" command="$2" baseline baseline_encoded code
@@ -439,6 +453,7 @@ pass "fresh SSH login is reachable without a process-selected adapter library"
 say "install WordPress through the SSH boundary"
 ssh_fixture "cd /var/www/html && wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress-pass --dbhost=$DB --skip-check --quiet"
 ssh_fixture "cd /var/www/html && wp core install --url=http://adopt.example.test --title='Adopt Fixture' --admin_user=admin --admin_password=admin-pass --admin_email=admin@example.test --skip-email --quiet"
+harden_ssh_fixture_host
 ssh_fixture "cd /var/www/html && wp db query \"CREATE TABLE wprism_cert_state (id bigint primary key, value varchar(191) not null); INSERT INTO wprism_cert_state VALUES (1,'prior-db'); CREATE TABLE wprism_cert_lease (id bigint primary key, owner varchar(191) not null);\""
 if ssh_fixture "cd /var/www/html && wp eval 'echo class_exists(\"\\WPrism\\Capture\") ? \"present\" : \"absent\";'" | grep -qx present; then
   fail "fixture unexpectedly started with WPrism installed"
