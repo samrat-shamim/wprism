@@ -92,8 +92,8 @@
             "origin": "copied",
             "source": "sandbox/lib/host_orchestrator.sh",
             "role": "host CLI registry, adoption-equivalent recovery setup and invocation boundary for checkpointed pair deployment",
-            "bytes": 8536,
-            "sha256": "8fd7747f9d8747fd02ee472de33f7ec30e4ea48bd1436fdbe5f2a76d5f997db3"
+            "bytes": 8824,
+            "sha256": "9bc297b808dd46ff4017c79069b7677b3ba377c41fadcec404e7094acc7aecf2"
         },
         {
             "path": "conformance/run.sh",

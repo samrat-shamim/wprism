@@ -486,6 +486,11 @@ PHP
 start_probe() {
   local mode="$1" fixture="$2" table="$3" ready="$4" release="$5" log="$6"
   rm -f -- "$ready" "$release" "$log"
+  # The probe owns its diagnostic leaf, not the caller's repository mask.
+  # Preallocation keeps native-query output at 0600 while leaving the direct
+  # Compose child and its recorded PID/release ordering unchanged.
+  (umask 077; set -C; : > "$log") \
+    || fail 'could not allocate the private database-boundary probe transcript'
   ACTIVE_RELEASE="$release"
   ACTIVE_LOG="$log"
   compose run --rm -T \

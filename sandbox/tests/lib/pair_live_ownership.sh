@@ -62,8 +62,10 @@ pair_live_ownership_prepare() { # <pair> <port1> <port2> <diagnostic-label> <scr
 
   trap 'pair_live_ownership_exit "$?"' EXIT
   trap 'exit 130' INT TERM
-  umask 077
-  PAIR_LIVE_OWNERSHIP_TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/${scratch_prefix}.${pair}.XXXXXX")" \
+  # The host later writes repository fixtures read by the pair's uid 33.
+  # A process-wide 077 here silently turned those files into unreadable 0600
+  # inputs. Only scratch allocation owns this mask; the caller keeps its own.
+  PAIR_LIVE_OWNERSHIP_TMP_ROOT="$(umask 077; mktemp -d "${TMPDIR:-/tmp}/${scratch_prefix}.${pair}.XXXXXX")" \
     || fail "$label could not allocate owner-private scratch"
   chmod 0700 "$PAIR_LIVE_OWNERSHIP_TMP_ROOT" \
     || fail "$label could not protect owner-private scratch"
@@ -171,8 +173,8 @@ pair_live_ownership_teardown() { # <remove-scratch:0|1>
     else
       destroy_log="${TMPDIR:-/tmp}/wprism-pair-destroy-${PAIR_LIVE_OWNERSHIP_PAIR}.$$"
     fi
-    if bash "$PAIR_LIVE_OWNERSHIP_SANDBOX/bin/pair.sh" destroy \
-        "$PAIR_LIVE_OWNERSHIP_PAIR" >"$destroy_log" 2>&1; then
+    if (umask 077; bash "$PAIR_LIVE_OWNERSHIP_SANDBOX/bin/pair.sh" destroy \
+        "$PAIR_LIVE_OWNERSHIP_PAIR" >"$destroy_log" 2>&1); then
       PAIR_LIVE_OWNERSHIP_PAIR_OWNED=0
     else
       failed=1

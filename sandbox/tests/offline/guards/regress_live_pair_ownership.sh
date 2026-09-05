@@ -20,12 +20,14 @@ assert_before() {
 }
 
 FIXTURE="$TMP/repo"
-mkdir -p "$FIXTURE/sandbox/bin" "$FIXTURE/sandbox/lib" "$FIXTURE/sandbox/tests/lib" \
+mkdir -p "$FIXTURE/sandbox/bin" "$FIXTURE/sandbox/lib" "$FIXTURE/sandbox/tests/lib" "$FIXTURE/sandbox/tests/live" \
   "$FIXTURE/sandbox/siterepo" "$FIXTURE/agent" "$FIXTURE/adapter-packages" "$FIXTURE/platform"
 cp "$ROOT/sandbox/lib/pair_identity.sh" "$FIXTURE/sandbox/lib/pair_identity.sh"
 cp "$ROOT/sandbox/lib/pair_db.sh" "$FIXTURE/sandbox/lib/pair_db.sh"
 cp "$ROOT/sandbox/lib/pair_lease.sh" "$FIXTURE/sandbox/lib/pair_lease.sh"
+cp "$ROOT/sandbox/lib/host_orchestrator.sh" "$FIXTURE/sandbox/lib/host_orchestrator.sh"
 cp "$ROOT/sandbox/tests/lib/pair_live_ownership.sh" "$FIXTURE/sandbox/tests/lib/pair_live_ownership.sh"
+cp "$ROOT/sandbox/tests/live/regress_env_set.sh" "$FIXTURE/sandbox/tests/live/regress_env_set.sh"
 : > "$FIXTURE/agent/.fixture"
 : > "$FIXTURE/adapter-packages/.fixture"
 : > "$FIXTURE/platform/.fixture"
@@ -49,6 +51,21 @@ printf '%s engine=%s host=%s token=%s args=%s\n' \
   "${WPRISM_PAIR_LEASE_TOKEN:-}" "$*" >> "${TEST_EVENTS:?}"
 case "$command_name" in
   lease-batch-acquire)
+    if [ "${TEST_ENV_SET_PRIVATE_PROBE:-0}" -eq 1 ]; then
+      # The real env-set driver has already provisioned its private outputs.
+      # Refuse before publishing any lease or reaching Docker/WordPress.
+      php -r '
+        $roots = glob($argv[1] . "/wprism-env-set." . $argv[2] . ".*");
+        if (count($roots) !== 1 || (fileperms($roots[0]) & 0777) !== 0700) exit(81);
+        $files = glob($roots[0] . "/*");
+        if (count($files) !== 8) exit(82);
+        foreach ($files as $file) {
+            if (!is_file($file) || (fileperms($file) & 0777) !== 0600) exit(83);
+        }
+        if (file_put_contents($argv[3], $roots[0]) === false) exit(84);
+      ' "$TMPDIR" "$TEST_PAIR" "${TEST_ENV_SET_PRIVATE_RECORD:?}" || exit "$?"
+      exit 71
+    fi
     [ "${TEST_FAIL_ACQUIRE:-0}" -eq 0 ] || exit 71
     [ ! -e "${TEST_ACTIVE:?}" ] || exit 72
     printf '%s\n' "$1" > "$TEST_ACTIVE"
@@ -82,9 +99,139 @@ case "$command_name" in
 esac
 FAKE_PAIR
 chmod +x "$FIXTURE/sandbox/bin/pair.sh"
+git -C "$FIXTURE" add sandbox/bin/pair.sh
+git -C "$FIXTURE" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'offline pair launcher'
+FIXTURE_SHA="$(git -C "$FIXTURE" rev-parse HEAD)"
 
 export TEST_EVENTS="$EVENTS" TEST_ACTIVE="$ACTIVE" TEST_RESOURCE="$RESOURCE" \
   TEST_SCRATCH_RECORD="$SCRATCH_RECORD" TEST_PAIR='ownershipprobe'
+
+say 'private helper creation preserves the caller repository mask'
+for CALLER_MASK in 000 022 077; do
+  : > "$EVENTS"
+  (
+    set -euo pipefail
+    cd "$FIXTURE/sandbox"
+    fail() { printf 'fixture failure: %s\n' "$*" >&2; exit 1; }
+    export WPRISM_SOURCE_ROOT="$FIXTURE" WPRISM_EXPECTED_SOURCE_SHA="$FIXTURE_SHA" \
+      TEST_FAIL_ACQUIRE=0 TEST_PARTIAL_UP_FAILURE=0 TEST_REQUIRE_SCRATCH_ABSENT=0
+    umask "$CALLER_MASK"
+    EXPECTED_MASK="$(umask)"
+    . tests/lib/pair_live_ownership.sh
+    . lib/host_orchestrator.sh
+    pair_live_ownership_prepare "$TEST_PAIR" 9520 9521 'permission fixture' 'wprism-owner-test'
+    [ "$(umask)" = "$EXPECTED_MASK" ] || fail 'prepare changed the caller umask'
+    [ "$(pair_live_ownership_mode_of "$PAIR_LIVE_OWNERSHIP_TMP_ROOT")" = 700 ] \
+      || fail 'prepare did not keep owner scratch at 0700'
+    printf '%s\n' "$PAIR_LIVE_OWNERSHIP_TMP_ROOT" > "$TEST_SCRATCH_RECORD"
+    REGISTRY="$PAIR_LIVE_OWNERSHIP_TMP_ROOT/host-envs.json"
+    wprism_host_registry_create "$REGISTRY" "$FIXTURE/sandbox/pair.yml" "$TEST_PAIR"
+    [ "$(umask)" = "$EXPECTED_MASK" ] || fail 'registry creation changed the caller umask'
+    [ "$(pair_live_ownership_mode_of "$REGISTRY")" = 600 ] \
+      || fail 'the host registry was not created at 0600'
+    jq -e --arg name "${TEST_PAIR}1" '.envs[$name].service == "cli1"' "$REGISTRY" >/dev/null \
+      || fail 'private registry did not preserve its exact host transport record'
+    chmod 0644 "$REGISTRY"
+    wprism_host_registry_create "$REGISTRY" "$FIXTURE/sandbox/pair.yml" "$TEST_PAIR"
+    [ "$(pair_live_ownership_mode_of "$REGISTRY")" = 600 ] \
+      || fail 'rewriting an existing host registry did not protect it at 0600'
+    if wprism_host_registry_create "$PAIR_LIVE_OWNERSHIP_TMP_ROOT/absent/envs.json" \
+        "$FIXTURE/sandbox/pair.yml" "$TEST_PAIR" 2>/dev/null; then
+      fail 'registry creation accepted an absent destination parent'
+    fi
+    [ "$(umask)" = "$EXPECTED_MASK" ] || fail 'failed registry creation changed the caller umask'
+    # Execute the real asynchronous probe launcher, replacing only Compose.
+    # Its log redirection is a separate owner from the pair destroy transcript.
+    . <(sed -n '/^start_probe() {$/,/^}$/p' "$ROOT/sandbox/tests/live/regress_database_boundary_live.sh")
+    compose() { printf 'offline database-boundary probe\n'; }
+    PROBE_LOG="$PAIR_LIVE_OWNERSHIP_TMP_ROOT/database-boundary-probe.log"
+    start_probe holder fixture.php wp_fixture \
+      "$PAIR_LIVE_OWNERSHIP_TMP_ROOT/probe-ready" "$PAIR_LIVE_OWNERSHIP_TMP_ROOT/probe-release" "$PROBE_LOG"
+    wait "$ACTIVE_PID" || fail 'the offline database-boundary probe failed'
+    [ "$(pair_live_ownership_mode_of "$PROBE_LOG")" = 600 ] \
+      || fail 'the database-boundary probe transcript was not kept at 0600'
+    [ "$(umask)" = "$EXPECTED_MASK" ] || fail 'the database-boundary probe changed the caller umask'
+    pair_live_ownership_acquire mariadb
+    pair_live_ownership_up --headless
+    mkdir "$PAIR_LIVE_OWNERSHIP_SITE1/code"
+    printf '%s\n' '<?php return "fixture";' > "$PAIR_LIVE_OWNERSHIP_SITE1/code/fixture.php"
+    # Docker exposes the site root, not this suite's private outer mktemp.
+    # Check the Unix other-user bits uid 33 uses on a host-owned bind mount;
+    # `test -r` as the host owner would incorrectly accept the old 0600 file.
+    php -r '
+      $mask = octdec($argv[1]);
+      foreach ([$argv[2], $argv[2] . "/code", $argv[2] . "/code/fixture.php"] as $path) {
+          $mode = fileperms($path) & 0777;
+          $expected = (is_dir($path) ? 0777 : 0666) & ~$mask;
+          if ($mode !== $expected) {
+              fwrite(STDERR, "repository fixture mode no longer follows the caller mask\n");
+              exit(1);
+          }
+          $otherAccess = is_dir($path) ? 0005 : 0004;
+          if ($mask === 0022 && (($mode & $otherAccess) !== $otherAccess)) {
+              fwrite(STDERR, "repository fixture is not readable/traversable by uid 33\n");
+              exit(1);
+          }
+      }
+    ' "$CALLER_MASK" "$PAIR_LIVE_OWNERSHIP_SITE1" \
+      || fail 'repository bytes did not preserve their caller-selected cross-uid mode'
+    pair_live_ownership_finish_leg
+    [ "$(umask)" = "$EXPECTED_MASK" ] || fail 'teardown changed the caller umask'
+    for DESTROY_LOG in "$PAIR_LIVE_OWNERSHIP_TMP_ROOT"/pair-destroy-*; do
+      [ -f "$DESTROY_LOG" ] && [ "$(pair_live_ownership_mode_of "$DESTROY_LOG")" = 600 ] \
+        || fail 'the pair destroy transcript was not kept at 0600'
+    done
+    pair_live_ownership_complete 'PRIVATE CREATION PRESERVED CALLER MASK'
+  ) >"$TMP/permission-$CALLER_MASK.out" 2>&1 \
+    || { cat "$TMP/permission-$CALLER_MASK.out" >&2; fail "private creation leaked or weakened mask $CALLER_MASK"; }
+  [ ! -e "$ACTIVE" ] && [ ! -e "$RESOURCE" ] && [ ! -e "$(cat "$SCRATCH_RECORD")" ] \
+    || fail 'permission evidence leaked owned state'
+done
+pass 'prepare/registry/teardown preserve 000, 022 and 077; scratch is 0700, private files are 0600, and 022 repository bytes remain uid-33 readable'
+
+say 'failed scratch allocation also preserves the caller mask'
+if (
+  set -euo pipefail
+  cd "$FIXTURE/sandbox"
+  export WPRISM_SOURCE_ROOT="$FIXTURE" WPRISM_EXPECTED_SOURCE_SHA="$FIXTURE_SHA"
+  umask 022
+  fail() { umask > "$TMP/failed-prepare-mask"; exit 1; }
+  . tests/lib/pair_live_ownership.sh
+  mktemp() { return 85; }
+  pair_live_ownership_prepare "$TEST_PAIR" 9520 9521 'failed scratch fixture' 'wprism-owner-test'
+) >"$TMP/failed-prepare.out" 2>&1; then
+  fail 'prepare accepted failed private scratch allocation'
+fi
+[ "$(cat "$TMP/failed-prepare-mask")" = 0022 ] \
+  || fail 'failed private scratch allocation changed the caller mask'
+pass 'scratch allocation failure does not leak its private creation mask'
+
+say 'the real env-set driver privately allocates every diagnostic before lease acquisition'
+mkdir "$TMP/bin" "$TMP/env-set-scratch"
+cat > "$TMP/bin/docker" <<'FAKE_DOCKER'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$*" = info ] || { printf 'unexpected Docker mutation in the offline permission probe\n' >&2; exit 86; }
+FAKE_DOCKER
+chmod +x "$TMP/bin/docker"
+: > "$EVENTS"
+if (
+  umask 000
+  export PATH="$TMP/bin:$PATH" TMPDIR="$TMP/env-set-scratch" \
+    ENV_SET_PAIR="$TEST_PAIR" ENV_SET_PORT1=9520 ENV_SET_PORT2=9521 \
+    WPRISM_EXPECTED_SOURCE_SHA="$FIXTURE_SHA" TEST_ENV_SET_PRIVATE_PROBE=1 \
+    TEST_ENV_SET_PRIVATE_RECORD="$TMP/env-set-private-record"
+  bash "$FIXTURE/sandbox/tests/live/regress_env_set.sh"
+) >"$TMP/env-set-private.out" 2>&1; then
+  fail 'the real env-set driver passed an intentionally refused lease'
+fi
+[ -s "$TMP/env-set-private-record" ] \
+  || { cat "$TMP/env-set-private.out" >&2; fail 'env-set did not protect all eight private output leaves at 0600'; }
+[ ! -e "$(cat "$TMP/env-set-private-record")" ] \
+  || fail 'the real env-set driver leaked scratch after its refused lease'
+! grep -Eq '^(destroy|lease-batch-release|up) ' "$EVENTS" \
+  || fail 'the env-set private-output probe crossed into pair mutation'
+pass 'env-set keeps its registry and seven diagnostic leaves at 0600 even with caller mask 000, before any pair mutation'
 
 say 'failed acquisition never arms destructive cleanup'
 : > "$EVENTS"

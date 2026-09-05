@@ -89,16 +89,11 @@ mkdir -p "$ARTIFACTS"
 # This matrix changes engines between legs. Keep each pair, both schemas, the
 # caller-local engine/host context, and cleanup under one engine-bound lease;
 # neither leg owns either fleet-shared database server itself.
-PAIR_CALLER_UMASK="$(umask)"
 # shellcheck source=../lib/pair_live_ownership.sh
 . "$REPO_ROOT/sandbox/tests/lib/pair_live_ownership.sh"
 pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" \
   'database engine matrix evidence' 'wprism-core-scope-database'
 ENVS_FILE="$PAIR_LIVE_OWNERSHIP_TMP_ROOT/environments.json"
-# prepare() protects its private scratch with umask 077. Restore the caller's
-# mode before copying repository bytes that the pair's uid-33 CLI must read;
-# the registry remains protected by its already-created 0700 parent.
-umask "$PAIR_CALLER_UMASK"
 
 compose() { docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml "$@"; }
 wp1() { compose run --rm -T cli1 wp "$@"; }
@@ -111,11 +106,12 @@ sql() { # sql <container> <client> <statement>
   docker exec -i -e MYSQL_PWD=root "$1" "$2" -uroot -N -B -e "$3"
 }
 
-write_env_file() {
+write_env_file() (
+  umask 077
   jq -n --arg compose "$(pwd)/pair.yml" --arg name "${PAIR}1" '
     {envs:{($name):{transport:"docker",compose_file:$compose,service:"cli1",repo_path:"/siterepo"}}}
   ' > "$ENVS_FILE"
-}
+)
 
 prepare_repo() {
   cp tests/fixtures/core_lifecycle_site.wprism.json "$R1/site.wprism.json"

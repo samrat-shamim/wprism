@@ -103,8 +103,13 @@ wprism_host_install_recovery_runtime() { # <source-root> <site-repository>
     || { printf 'wprism test runtime: could not share recovery authority files\n' >&2; return 1; }
 }
 
-wprism_host_registry_create() { # <file> <compose-file> <pair> [repo-path]
+wprism_host_registry_create() ( # <file> <compose-file> <pair> [repo-path]
   local file="$1" compose_file="$2" pair="$3" repo_path="${4:-/siterepo}"
+  # This registry is host-private even when the caller's next repository
+  # fixture must be readable by uid 33. Protect fresh and reused files before
+  # writing target coordinates, without exporting this mask into the caller.
+  umask 077
+  : > "$file" && chmod 0600 "$file" || return 1
   jq -n \
     --arg compose_file "$compose_file" \
     --arg pair "$pair" \
@@ -119,7 +124,7 @@ wprism_host_registry_create() { # <file> <compose-file> <pair> [repo-path]
         service: "cli2", repo_path: $repo_path
       }
     }}' > "$file"
-}
+)
 
 wprism_host_call() { # <cli> <registry> <project> <env> <verb> [args...]
   local cli="$1" registry="$2" project="$3" environment="$4" verb="$5"

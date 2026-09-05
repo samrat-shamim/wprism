@@ -17,6 +17,14 @@ not standalone suites.
 | `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
 | `pair_live_ownership.sh` | the direct-live evidence state machine: exact-worktree mounts, engine/root-bound pair leases, partial-up teardown, exact site/scratch removal, checked release, and the sole post-cleanup PASS |
 
+`pair_live_ownership_prepare()` preserves the caller's umask: its `0700`
+scratch allocation must not turn later host-authored repository fixtures into
+`0600` files that the pair's uid 33 cannot read. Private file owners scope
+their own `077` creation mask instead. The shared host-registry writer and
+destroy transcript do this themselves; a driver-owned diagnostic must do the
+same before its first write. `regress_live_pair_ownership.sh` exercises both
+the cross-uid repository mode bits and the private scratch/output modes.
+
 `FrozenPolicy` exists because the frozen wire stopped taking a snapshot's word
 for provenance. A suite that only wants a `Policy` object used to hand
 `Policy::from_snapshot()` a `wprism-policy-snapshot/v4` envelope, where any

@@ -134,6 +134,13 @@ for path in "$ENVS_FILE" "$STDIN_RESULT" "$TRUNCATED_RESULT" "$REFUSE_1" \
     "$REFUSE_2" "$REFUSE_3" "$REFUSE_4" "$REFUSE_5"; do
   [ ! -e "$path" ] && [ ! -L "$path" ] \
     || fail "chosen env-set scratch target already exists: $path"
+  # These outputs can include deliberately refused input. Allocate each leaf
+  # privately before later redirections, without changing repository modes
+  # for the host/uid-33 pair participants. Noclobber preserves the absence gate.
+  (umask 077; set -C; : > "$path") \
+    || fail "could not allocate owner-private env-set output: $path"
+  [ "$(pair_live_ownership_mode_of "$path")" = 600 ] \
+    || fail 'owner-private env-set output mode is not 0600'
 done
 
 jq -n --arg name "$ENV_NAME" --arg compose "$REPO_ROOT/sandbox/pair.yml" '
