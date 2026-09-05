@@ -1452,6 +1452,14 @@ plugin faithfully.
    Compose's preceding `Container ... Creating` diagnostics from that variable.
    If the public envelope sets `details_redacted: true`, assert the public
    redaction and its `.wprism/refusals/` pointer separately from the cause.
+   Retain private diagnostics for native `wp wprism apply` as well as host
+   deploy: the latter's successful lifecycle capture does not cover a later
+   Apply failure. Use `sandbox/tests/lib/private_command_capture.sh` to collect
+   the bounded fresh delta before caller assertions or disposable teardown,
+   with the owner binding its exact native transport and command inventory.
+   A diagnostic-only record remains unverified; expected-cause acceptance
+   still requires the separate exact profile below. Never expose the private
+   cause publicly or call a diagnostic failure a product rollback.
    Inspect private records from a standalone, non-WordPress process running as
    the target CLI identity: the store is intentionally `0700`/`0600`, so host
    traversal that happens to work through Docker Desktop is not portable to a

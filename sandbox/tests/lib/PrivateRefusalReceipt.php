@@ -41,6 +41,12 @@ final class PrivateRefusalReceipt {
         return json_encode(self::inventory($directory, $command), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
+    /** Validate a transported baseline before its protected command may run. */
+    public static function validateDiagnosticBaseline(string $baselineJson, string $command): void {
+        self::checkCommand($command);
+        self::baseline($baselineJson, $command);
+    }
+
     /**
      * Retain bounded new records for private diagnosis without verifying them.
      *

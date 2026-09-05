@@ -1706,6 +1706,10 @@ regress-cli-json-refusals:
 regress-private-refusal-receipt:
 	php sandbox/tests/offline/guards/regress_private_refusal_receipt.php
 
+.PHONY: regress-private-command-capture
+regress-private-command-capture:
+	php sandbox/tests/offline/guards/regress_private_command_capture.php
+
 # One scalar must satisfy every declared local-id consumer without guessing.
 .PHONY: regress-scalar-reference-intersection
 regress-scalar-reference-intersection:
