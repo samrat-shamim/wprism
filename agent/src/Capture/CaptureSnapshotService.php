@@ -201,7 +201,8 @@ final class CaptureSnapshotService {
                     $dynamicResolverValues,
                     true,
                     true,
-                    $workAuthority
+                    $workAuthority,
+                    lifecycleHandoffProjection: true
                 );
             },
             optionsOnly: true

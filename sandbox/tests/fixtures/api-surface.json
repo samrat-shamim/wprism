@@ -9404,6 +9404,14 @@
                             "name": "workAuthority",
                             "type": "?WPrism\\DatabaseWorkAuthority",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "lifecycleHandoffProjection",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -29449,6 +29457,14 @@
                             "has_default": true,
                             "name": "workAuthority",
                             "type": "?WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "lifecycleHandoffProjection",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],

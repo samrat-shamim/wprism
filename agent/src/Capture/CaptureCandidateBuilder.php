@@ -179,7 +179,8 @@ final class CaptureCandidateBuilder {
         array $dynamicResolverValues = [],
         bool $bindMissingDynamicDesired = false,
         bool $strictReadOnly = false,
-        ?DatabaseWorkAuthority $workAuthority = null
+        ?DatabaseWorkAuthority $workAuthority = null,
+        bool $lifecycleHandoffProjection = false
     ): array {
         $this->reset($forceUnresolvedRefs);
         $options = $this->buildOptions(
@@ -189,7 +190,8 @@ final class CaptureCandidateBuilder {
             $dynamicResolverValues,
             $bindMissingDynamicDesired,
             $strictReadOnly,
-            $workAuthority
+            $workAuthority,
+            $lifecycleHandoffProjection
         );
         $this->assertOptionGates();
         return $options;
@@ -453,7 +455,8 @@ final class CaptureCandidateBuilder {
         array $dynamicResolverValues = [],
         bool $bindMissingDynamicDesired = false,
         bool $strictReadOnly = false,
-        ?DatabaseWorkAuthority $workAuthority = null
+        ?DatabaseWorkAuthority $workAuthority = null,
+        bool $lifecycleHandoffProjection = false
     ): array {
         $result = $this->optionsCapture->capture(
             $mint,
@@ -462,7 +465,8 @@ final class CaptureCandidateBuilder {
             $dynamicResolverValues,
             $bindMissingDynamicDesired,
             $strictReadOnly,
-            $workAuthority
+            $workAuthority,
+            $lifecycleHandoffProjection
         );
         $this->unclassified = array_merge($this->unclassified, $result['unclassified']);
         $this->unscopedRefs = array_merge($this->unscopedRefs, $result['unscoped_refs']);

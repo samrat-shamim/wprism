@@ -2620,6 +2620,10 @@ regress-refresh-export-unit:
 regress-ledger-read-only-schema:
 	php sandbox/tests/offline/refresh/regress_ledger_read_only_schema.php
 
+.PHONY: regress-refresh-reference-projection
+regress-refresh-reference-projection:
+	php sandbox/tests/offline/refresh/regress_refresh_reference_projection.php
+
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-collision:
 	bash sandbox/tests/live/regress_collision.sh

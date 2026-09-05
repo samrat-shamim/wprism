@@ -68,8 +68,15 @@ final class OptionsCapture {
         array $dynamicResolverValues = [],
         bool $bindMissingDynamicDesired = false,
         bool $strictReadOnly = false,
-        ?DatabaseWorkAuthority $workAuthority = null
+        ?DatabaseWorkAuthority $workAuthority = null,
+        bool $lifecycleHandoffProjection = false
     ): array {
+        // Strict read-only is also used by full export/explain, where an
+        // excluded taxonomy skips identity discovery. Only the desired-bound
+        // options lifecycle observer may hide a wholly unmapped hook result.
+        if ($lifecycleHandoffProjection && ($mint || !$strictReadOnly || !$bindMissingDynamicDesired)) {
+            throw new \LogicException('wprism: lifecycle option projection requires a desired-bound read-only observation');
+        }
         $this->unclassified = [];
         $this->unscopedRefs = [];
         $this->unscopedOptionNameRefs = [];
@@ -79,7 +86,7 @@ final class OptionsCapture {
         $liveCanonicalNames = [];
         foreach ($this->policy->authored_options() as $name => $rule) {
             DatabaseQueryIsolation::work_unit($workAuthority, function () use (
-                $name, $rule, $forceUnresolvedRefs, $strictReadOnly, &$processed, &$liveCanonicalNames, &$out
+                $name, $rule, $forceUnresolvedRefs, $lifecycleHandoffProjection, &$processed, &$liveCanonicalNames, &$out
             ): void {
                 $processed[$name] = true;
                 $row = $this->read_option_row($name);
@@ -90,7 +97,7 @@ final class OptionsCapture {
                 $v = PlainData::decode($row['option_value'], "option $name");
                 PlainData::assert($v, "option $name");
                 ($this->guardSecret)('options', $name, $v, $rule);
-                $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs, false, $strictReadOnly);
+                $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs, false, $lifecycleHandoffProjection);
                 if (!$captured['included']) {
                     return;
                 }

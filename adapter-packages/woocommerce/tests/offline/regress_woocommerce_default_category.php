@@ -59,7 +59,8 @@ $physicalRows = static function (array $bindings): array {
     return [$terms, $tt];
 };
 $capture = static function (
-    string $stored, array $bindings, bool $force = false, bool $strict = false, ?array $physical = null
+    string $stored, array $bindings, bool $force = false, bool $strict = false, ?array $physical = null,
+    bool $lifecycle = false
 ) use ($policy, $physicalRows): array {
     WpStore::reset()->seedOptions(['home' => 'https://source.example.test']);
     $wpdb = FakeWpdb::install();
@@ -82,7 +83,8 @@ $capture = static function (
     );
     $before = $wpdb->rows('wp_options');
     try {
-        $result = $reader->capture(false, $force, null, [], false, $strict);
+        $result = $reader->capture(false, $force, null, [], $lifecycle, $strict,
+            lifecycleHandoffProjection: $lifecycle);
     } finally {
         wprism_check_same($before, $wpdb->rows('wp_options'), 'default-category capture does not mutate its source row');
     }
@@ -226,7 +228,11 @@ wprism_check_same('product_cat', $manifest['options']['default_product_cat']['re
 $sourceTuple = [[['term_id' => 41]], [['term_taxonomy_id' => 41, 'term_id' => 41, 'taxonomy' => 'product_cat']]];
 wprism_check_throws(static fn() => $capture('41', [], false, false, $sourceTuple), CommandRefusalException::class,
     'ordinary capture never omits a physically valid but wholly unmanaged default');
-[$unmapped, $warnings] = $capture('41', [], false, true, $sourceTuple);
+foreach ([false, true] as $force) {
+    wprism_check_throws(static fn() => $capture('41', [], $force, true, $sourceTuple), CommandRefusalException::class,
+        'generic strict observation cannot omit an unmapped default, even with force');
+}
+[$unmapped, $warnings] = $capture('41', [], false, true, $sourceTuple, true);
 wprism_check_same(['state' => 'absent'], $unmapped, 'strict lifecycle observation retains the existing wholly-unmapped transient projection');
 wprism_check_same([], $warnings, 'the transient lifecycle projection is explicit and warning-free');
 foreach ([
@@ -235,7 +241,7 @@ foreach ([
     [[['term_id' => 41]], [['term_taxonomy_id' => 41, 'term_id' => 41, 'taxonomy' => 'category']]],
     [[['term_id' => 41], ['term_id' => 41]], [['term_taxonomy_id' => 41, 'term_id' => 41, 'taxonomy' => 'product_cat']]],
 ] as $physical) {
-    wprism_check_throws(static fn() => $capture('41', [], false, true, $physical), CommandRefusalException::class,
+    wprism_check_throws(static fn() => $capture('41', [], false, true, $physical, true), CommandRefusalException::class,
         'strict lifecycle observation refuses missing, cross-wired, wrong-taxonomy, or ambiguous physical tuples');
     wprism_check_throws(static fn() => $capture('41', [[$category, 'term', 41], [$category, 'term_taxonomy', 41]], false, false, $physical),
         CommandRefusalException::class, 'coincident ledger integers cannot authorize contradictory native source rows');
