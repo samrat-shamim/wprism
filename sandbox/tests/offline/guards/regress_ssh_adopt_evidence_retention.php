@@ -131,6 +131,9 @@ $diagnosticAssignments = [
     'AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"',
     'AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"',
     'AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"',
+    'DATABASE_MUTATION_STDOUT="$DIAG_DIR/database-mutation.stdout"',
+    'DATABASE_MUTATION_STDERR="$DIAG_DIR/database-mutation.stderr"',
+    'DATABASE_MUTATION_EXIT="$DIAG_DIR/database-mutation.exit"',
 ];
 $check(
     array_reduce(
@@ -138,10 +141,10 @@ $check(
         static fn(bool $ok, string $assignment): bool => $ok && str_contains($harness, $assignment),
         true
     )
-        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
+        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT"; do')
         && str_contains($harness, '( umask 077; : >"$diagnostic_file" )')
         && str_contains($harness, 'chmod 0600 "$diagnostic_file"'),
-    'only the bounded plan, promote, and authority-status streams and numeric exits are precreated mode 0600'
+    'only the bounded mutation-readiness, plan, promote, and authority-status streams and numeric exits are precreated mode 0600'
 );
 preg_match_all('/\$DIAG_DIR\/([A-Za-z0-9._-]+)/', $harness, $diagnosticNames);
 $actualDiagnosticNames = array_values(array_unique($diagnosticNames[1] ?? []));
@@ -150,6 +153,9 @@ $expectedDiagnosticNames = [
     'authority-status.exit',
     'authority-status.stderr',
     'authority-status.stdout',
+    'database-mutation.exit',
+    'database-mutation.stderr',
+    'database-mutation.stdout',
     'scoped-plan.exit',
     'scoped-plan.stderr',
     'scoped-plan.stdout',
@@ -302,7 +308,7 @@ $check(
         && !str_contains($successCapture, '$TMP/scoped-apply-success.err'),
     'the committed scoped-promote retry retains private stdout, stderr, and exit before parsing its receipt directly from stdout'
 );
-foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_REFRESH_STDOUT', 'SCOPED_REFRESH_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
+foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_REFRESH_STDOUT', 'SCOPED_REFRESH_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR', 'DATABASE_MUTATION_STDOUT', 'DATABASE_MUTATION_STDERR'] as $diagnosticVariable) {
     $check(
         preg_match('/(?:\\bcat\\b|\\becho\\b|\\bprintf\\b)[^\\n]*\\$' . $diagnosticVariable . '\\b/', $harness) !== 1,
         "$diagnosticVariable is never printed or catted into terminal/CI output"
