@@ -659,6 +659,60 @@ for mode in human json; do
 done
 pass 'apply acceptance refuses required-env diagnostics and failed verification while retaining optional rows and lifecycle receipts'
 
+# The shared matrix wrapper must inspect the complete capture, not just the
+# final JSON line. Exercise its real definition, then execute every human
+# capsule's first apply command with a fake WP process that writes its required
+# warning only to stderr. A stdout-only tee reproduces the former false green.
+matrix_readiness_probe() { # <json|json-warning|php-warning|human-command> [actual capsule command]
+  local readiness_case="$1" capsule_apply="${2:-}"
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    eval "$(sed -n '/^assert_no_php_diagnostics() {/,/^}/p' tests/certify/certify_version_matrix.sh)"
+    eval "$(sed -n '/^assert_version_matrix_apply_ready() {/,/^}/p' tests/certify/certify_version_matrix.sh)"
+    VMATRIX_APPLY_LOG="$MATRIX_PROBE/matrix-apply-$readiness_case.log"
+    case "$readiness_case" in
+      json) printf 'Container fixture created\n%s\n' "$READY_APPLY" > "$VMATRIX_APPLY_LOG" ;;
+      json-warning) printf 'Warning: env_missing: option home is required\n%s\n' "$READY_APPLY" > "$VMATRIX_APPLY_LOG" ;;
+      php-warning) printf 'PHP Warning: fixture diagnostic in /fixture.php on line 12\n%s\n' "$READY_APPLY" > "$VMATRIX_APPLY_LOG" ;;
+      human-command)
+        REV=fixture revision=fixture
+        wp2() {
+          printf 'Warning: env_missing: option home is required\n' >&2
+          printf 'Success: applied 1 entities (canary clean)\n'
+        }
+        eval "$capsule_apply"
+        ;;
+      *) return 86 ;;
+    esac
+    assert_version_matrix_apply_ready
+    printf 'MATRIX_READY\n'
+  ) 2>&1
+}
+[ "$(matrix_readiness_probe json)" = MATRIX_READY ] \
+  || fail 'matrix wrapper rejected a healthy JSON answer after ordinary Compose chatter'
+for readiness_case in json-warning php-warning; do
+  MATRIX_READY_RC=0
+  MATRIX_READY_OUT=$(matrix_readiness_probe "$readiness_case") || MATRIX_READY_RC=$?
+  [ "$MATRIX_READY_RC" -ne 0 ] \
+    || fail "matrix wrapper discarded the full capture's $readiness_case diagnostic"
+done
+HUMAN_CAPTURE_CASES=0
+for capsule in ../adapter-packages/*/tests/certify/version-matrix.sh; do
+  CAPSULE_APPLY=$(awk '
+    /^[[:space:]]*wp2 wprism apply / && index($0, "| tee \"$VMATRIX_APPLY_LOG\"") && !/--format=json/ { print; exit }
+  ' "$capsule")
+  [ -n "$CAPSULE_APPLY" ] || continue
+  HUMAN_CAPTURE_CASES=$((HUMAN_CAPTURE_CASES + 1))
+  MATRIX_READY_RC=0
+  MATRIX_READY_OUT=$(matrix_readiness_probe human-command "$CAPSULE_APPLY") || MATRIX_READY_RC=$?
+  [ "$MATRIX_READY_RC" -ne 0 ] \
+    && grep -q 'did not prove all required environment bindings' <<<"$MATRIX_READY_OUT" \
+    || fail "$capsule lost a stderr-only required-environment diagnostic before its positive apply gate: $MATRIX_READY_OUT"
+done
+[ "$HUMAN_CAPTURE_CASES" -gt 0 ] || fail 'the human capsule capture regression exercised no callsite'
+pass "the real matrix wrapper rejects full-stream diagnostics across $HUMAN_CAPTURE_CASES actual human capsule apply commands and the JSON path"
+
 CONF_BIND_SOURCE_LINE=$(grep -n '^establish_core_environment_bindings wp_conf1 ' conformance/run.sh | cut -d: -f1)
 CONF_SEED_LINE=$(grep -n '^bash "\$SEED"$' conformance/run.sh | cut -d: -f1)
 CONF_CAPTURE_LINE=$(grep -n '^say "capture conf1 into the site repo"$' conformance/run.sh | cut -d: -f1)
@@ -686,6 +740,7 @@ MATRIX_CLONE_PROBE=$(
 for capsule in ../adapter-packages/*/tests/certify/version-matrix.sh; do
   awk '
     index($0, "| tee \"$VMATRIX_APPLY_LOG\"") {
+      if (!/--format=json/ && !/2>&1/) exit 1
       if (getline <= 0 || $0 !~ /^[[:space:]]*assert_version_matrix_apply_ready$/) exit 1
     }
   ' "$capsule" || fail "$capsule reuses a positive apply log before requiring environment readiness"

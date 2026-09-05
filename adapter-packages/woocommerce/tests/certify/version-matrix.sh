@@ -277,6 +277,8 @@ check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifa
   pii_revision=$(git -C "$target_repo" rev-parse HEAD)
   pii_apply_log="$target_repo/.tmp-woo-pii-apply.log"
   wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$pii_revision" --force-theirs >"$pii_apply_log" 2>&1
+  assert_no_php_diagnostics "WooCommerce $version WPRA-019 apply" "$pii_apply_log"
+  assert_wprism_required_environment "WooCommerce $version WPRA-019 apply" human "$(<"$pii_apply_log")"
   grep -q 'canary clean' "$pii_apply_log" || fail "WooCommerce $version WPRA-019 apply was not canary-clean"
   target_applied=$(woocommerce_native_pii_fingerprints wp2)
   [ "$target_applied" = "$source_native" ] \
@@ -834,7 +836,7 @@ check_woocommerce_product_deletion() { # <exact-version>
   local product order lookup_before lookup_after product_file product_uuid expected_hash expected_revision source_path backup
   local before_tree after_tree before_head after_head before_origin after_origin plan_rc apply_rc plan_out apply_out retry
   local disposable_sku disposable_slug disposable_source disposable_target disposable_file disposable_uuid
-  local revision delete_file delete_plan delete_apply final_plan final_diff residue
+  local revision delete_file delete_plan delete_apply final_plan final_diff residue creation_apply
 
   # First prove the ordinary guard posture on a product referenced by a native
   # HPOS order.  The plan must describe the blocked deletion, and apply must
@@ -928,7 +930,9 @@ echo $product->get_id();')
   "${GIT1[@]}" push -q origin main
   git -C "$repo" pull -q origin main
   revision=$(git -C "$repo" rev-parse HEAD)
-  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  capture_wprism_json_success creation_apply 'WooCommerce disposable product creation apply' \
+    wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" --format=json
+  assert_wprism_apply_ready 'WooCommerce disposable product creation apply' "$creation_apply"
   disposable_target=$(wp2 eval '$id=(int) wc_get_product_id_by_sku('"'"$disposable_sku"'"'); echo $id;')
   require_fixture_ids disposable_target
 
@@ -1026,7 +1030,9 @@ echo $parentId . "|" . $variationId;')
   "${GIT1[@]}" push -q origin main
   git -C "$repo" pull -q origin main
   revision=$(git -C "$repo" rev-parse HEAD)
-  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  capture_wprism_json_success creation_apply 'WooCommerce disposable variation creation apply' \
+    wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" --format=json
+  assert_wprism_apply_ready 'WooCommerce disposable variation creation apply' "$creation_apply"
   variation_parent_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')
   variation_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')
   require_fixture_ids variation_parent_target variation_target

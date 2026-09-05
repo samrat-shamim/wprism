@@ -105,7 +105,7 @@ assert_version_matrix_apply_ready() {
   last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
   assert_no_php_diagnostics 'version matrix apply' "$VMATRIX_APPLY_LOG"
   if [[ "$last" == \{* ]]; then
-    assert_wprism_apply_ready 'version matrix apply' "$last"
+    assert_wprism_apply_ready 'version matrix apply' "$out"
   else
     assert_wprism_required_environment 'version matrix apply' human "$out"
     grep -q 'canary clean' <<<"$out" || fail 'version matrix apply did not return its clean success result'

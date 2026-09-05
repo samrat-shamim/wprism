@@ -1021,6 +1021,32 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 $woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
+// These three positive applies do not use VMATRIX_APPLY_LOG. The shared
+// stderr-only mutation probe covers its gate, while the capsule pins these
+// nonstandard callsites before their native observations or log deletion.
+$piiApplyPosition = strpos($woocommerceMatrixHarness, '--force-theirs >"$pii_apply_log" 2>&1');
+$piiReadyPosition = strpos($woocommerceMatrixHarness,
+    'assert_wprism_required_environment "WooCommerce $version WPRA-019 apply" human "$(<"$pii_apply_log")"');
+$piiReadbackPosition = strpos($woocommerceMatrixHarness,
+    'target_applied=$(woocommerce_native_pii_fingerprints wp2)');
+woo_ok($piiApplyPosition !== false && $piiReadyPosition !== false && $piiReadbackPosition !== false
+    && $piiApplyPosition < $piiReadyPosition && $piiReadyPosition < $piiReadbackPosition,
+    'the custom WPRA-019 apply log proves required environment readiness before native readback or deletion');
+foreach (['product', 'variation'] as $creationKind) {
+    $creationCapture = "capture_wprism_json_success creation_apply 'WooCommerce disposable $creationKind creation apply'";
+    $creationReady = "assert_wprism_apply_ready 'WooCommerce disposable $creationKind creation apply'";
+    $creationPosition = strpos($woocommerceMatrixHarness, $creationCapture);
+    $readyPosition = strpos($woocommerceMatrixHarness, $creationReady);
+    $creationCommand = $creationPosition !== false && $readyPosition !== false
+        ? substr($woocommerceMatrixHarness, $creationPosition, $readyPosition - $creationPosition)
+        : '';
+    woo_ok($creationPosition !== false && $readyPosition !== false
+        && $creationPosition < $readyPosition
+        && str_contains($creationCommand, 'wp2 wprism apply')
+        && str_contains($creationCommand, '--format=json')
+        && !str_contains($creationCommand, '>/dev/null'),
+        "the disposable $creationKind apply premise retains its JSON answer and checks required environment readiness");
+}
 $woocommerceOwnerObserverHarness = '';
 if (preg_match(
     '/woocommerce_deletion_owner_agreements\(\) \{(?<body>.*?)\n\}\n\nVMATRIX_PLUGIN_SLUG/s',
@@ -1254,8 +1280,8 @@ $settingsApiRecheck = $settingsApiLoad === false
     ? false
     : strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)", $settingsApiLoad + 1);
 $settingsApiReflection = strpos($nativeSettingsApi, "new \\ReflectionClass('WC_Settings_API')");
-$settingsApiHashCheck = strpos($nativeValidationFiles, "hash_equals(self::WOO_SETTINGS_API_SHA256, \$settingsHash)");
-$formattingHashCheck = strpos($nativeValidationFiles, "hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, \$formattingHash)");
+$settingsApiHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)');
+$formattingHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)');
 $settingsApiRequire = strpos($settingsApiLoader, "require_once \$files['settings'];");
 $formattingRequire = strpos($nativePermalinkRunner, "require_once \$files['formatting'];");
 woo_ok(
@@ -1886,7 +1912,7 @@ foreach ([
     "'display' => 'subcategories'",
     'wp_conf1 theme activate twentytwentyfive',
     'restore_conformance_theme 0',
-    "--type=wc-visual",
+    '--type=wc-visual',
     'VisualAttributeTermMeta::save_term_visual_from_request',
     "'/wc/v3/products/attributes/",
     "update_post_meta(\$COUPON_ID, 'product_brands'",
@@ -1989,8 +2015,8 @@ foreach ([
 foreach ([
     'Hostile selected review page',
     'TARGET_REVIEW_PAGE_ID',
-    "--slug=conformance-widgets --parent=\"\$TARGET_CAT_PARENT_ID\" --porcelain",
-    "--slug=atelier-tokyo --parent=\"\$TARGET_BRAND_PARENT_ID\" --porcelain",
+    '--slug=conformance-widgets --parent="$TARGET_CAT_PARENT_ID" --porcelain',
+    '--slug=atelier-tokyo --parent="$TARGET_BRAND_PARENT_ID" --porcelain',
     'woocommerce_review_order_flush_rewrite_pending',
 ] as $reviewTargetWitness) {
     woo_ok(str_contains($wooPostdeployHarness, $reviewTargetWitness),
@@ -2288,7 +2314,7 @@ woo_ok(
     )
         && str_contains(
             $woocommerceMatrixHarness,
-            "posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-lifecycle-final/posts/(product|product_variation)/[^ ]+"
+            'posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-lifecycle-final/posts/(product|product_variation)/[^ ]+'
         )
         && str_contains(
             $woocommerceMatrixHarness,
@@ -2304,7 +2330,7 @@ woo_ok(
     )
         && str_contains(
             $matrixHarness,
-            "posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+"
+            'posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+'
         )
         && str_contains(
             $matrixHarness,

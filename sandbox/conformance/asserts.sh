@@ -306,8 +306,10 @@ assert_wprism_required_environment() { # <what> <human|json> <captured output>
   esac
 }
 
-assert_wprism_apply_ready() { # <what> <JSON apply answer>
+assert_wprism_apply_ready() { # <what> <JSON apply capture>
+  local last
   assert_wprism_required_environment "$1" json "$2"
-  jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$2" >/dev/null \
+  last=$(awk 'NF { line=$0 } END { print line }' <<<"$2")
+  jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$last" >/dev/null \
     || fail "$1 did not return a clean canary and passed canonical verification"
 }
