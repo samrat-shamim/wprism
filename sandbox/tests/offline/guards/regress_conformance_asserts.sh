@@ -532,7 +532,7 @@ CAPTURE_COLLISIONS=$(capture_collision_probe)
   || fail "JSON capture helpers did not publish through former local-name collisions: $CAPTURE_COLLISIONS"
 grep -q '^capture_wprism_json_success ' conformance/run.sh \
   || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
-grep -Eq 'require_wprism_answered capture_wprism_json_success capture_wprism_json_refusal require_observed_nonempty' conformance/run.sh \
+grep -Eq 'require_wprism_answered capture_wprism_json_success capture_wprism_json_checked capture_wprism_json_refusal require_observed_nonempty' conformance/run.sh \
   || fail "manifest check subprocesses cannot call the success/refusal-preserving JSON command wrappers"
 grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode' conformance/run.sh \
   || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
@@ -703,6 +703,55 @@ for mode in human json; do
   [ "$READY_RC" -ne 0 ] || fail "$mode readiness discarded a required-env diagnostic in its prelude"
 done
 pass 'apply acceptance refuses required-env diagnostics and failed verification while retaining optional rows and lifecycle receipts'
+
+# Execute the shared command-to-publication boundary, including diagnostics
+# that are absent from the JSON warnings array. A later check on the selected
+# line cannot recover a stderr-only required-env warning.
+checked_capture_probe() {
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    local mode="$1" assertion=assert_wprism_apply_ready answer="$READY_APPLY"
+    case "$mode" in
+      required-json) answer=$(jq -c '.warnings += ["env_missing: fixture"]' <<<"$answer") ;;
+      bad-canary) answer=$(jq -c '.canary="dirty"' <<<"$answer") ;;
+      bad-verification) answer=$(jq -c '.verification.result="fail"' <<<"$answer") ;;
+      missing-warnings) answer=$(jq -c 'del(.warnings)' <<<"$answer") ;;
+      false-assertion) assertion=fixture_false ;;
+      missing-assertion) assertion=fixture_missing ;;
+      malformed-assertion) assertion=-p ;;
+    esac
+    fixture_false() { return 1; }
+    fixture_command() {
+      printf 'FIXTURE_INVOKED\n'
+      case "$mode" in
+        php-stdout) printf 'PHP Warning: checked capture canary in /fixture.php on line 12\n' ;;
+        php-stderr) printf 'PHP Parse error: checked capture canary\n' >&2 ;;
+        required-stderr) printf 'Warning: env_missing: fixture required value\n' >&2 ;;
+      esac
+      printf '%s\n' "$answer"
+      [ "$mode" != nonzero ] || return 7
+    }
+    capture_wprism_json_checked checked_answer 'checked Apply' "$assertion" fixture_command
+    [ "$checked_answer" = "$answer" ] || fail 'checked capture changed the JSON envelope'
+    printf 'CHECKED_READY\n'
+  ) 2>&1
+}
+CHECKED_OUT=$(checked_capture_probe ready)
+[[ "$CHECKED_OUT" == *CHECKED_READY ]] || fail "checked capture rejected ordinary lifecycle receipts: $CHECKED_OUT"
+for checked_case in php-stdout php-stderr required-stderr required-json bad-canary bad-verification missing-warnings nonzero false-assertion missing-assertion malformed-assertion; do
+  CHECKED_RC=0
+  CHECKED_OUT=$(checked_capture_probe "$checked_case") || CHECKED_RC=$?
+  [ "$CHECKED_RC" -ne 0 ] && [[ "$CHECKED_OUT" != *CHECKED_READY* ]] \
+    || fail "checked capture published JSON after $checked_case: $CHECKED_OUT"
+  case "$checked_case" in
+    missing-assertion|malformed-assertion)
+      [[ "$CHECKED_OUT" != *FIXTURE_INVOKED* ]] \
+        || fail 'an invalid capture assertion reached the command'
+      ;;
+  esac
+done
+pass 'checked JSON capture gates complete-stream assertions before publication, including stderr-only required warnings and false callbacks'
 
 # The shared matrix wrapper must inspect the complete capture, not just the
 # final JSON line. Exercise its real definition, then execute every human

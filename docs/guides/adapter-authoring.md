@@ -1987,8 +1987,13 @@ library.
    Immediately after each positive matrix apply writes `VMATRIX_APPLY_LOG`,
    call `assert_version_matrix_apply_ready` before another command can reuse
    that log. For a separately captured JSON apply, call
-   `capture_wprism_json_success` to execute it, followed by
-   `assert_wprism_apply_ready <label> "$APPLY_JSON"`. The capture helper retains
+   `capture_wprism_json_checked APPLY_JSON <label> assert_wprism_apply_ready <command...>`.
+   The shared assertion examines the complete stdout/stderr capture before
+   the helper publishes JSON; checking only its last line loses stderr-only
+   required-environment warnings. Use `assert_wprism_json_required_environment`
+   for a terminal scoped replay whose verification is deliberately null, and
+   retain its separate no-work/terminal-receipt assertions. Plain
+   `capture_wprism_json_success` remains transport-only. The capture helper retains
    refusal envelopes and diagnostic bytes, but rejects a zero-exit answer
    carrying a PHP runtime diagnostic, including startup warnings and parse
    errors, before publishing the JSON value. Printing that diagnostic and then

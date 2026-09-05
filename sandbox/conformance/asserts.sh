@@ -260,13 +260,27 @@ assert_no_php_runtime_diagnostics() { # <label> <captured output>
 # __wprism_capture_*; rejecting that prefix keeps
 # every other valid caller variable safe from Bash's dynamic local scope.
 capture_wprism_json_success() { # <OUT_VAR> <what> <command> [args...]
+  capture_wprism_json_checked "$1" "$2" '' "${@:3}"
+}
+
+# A positive Apply must validate its complete stream before JSON publication:
+# stderr-only env_missing diagnostics disappear from a last-line-only check.
+# The caller supplies a shared assertion (<what> <capture>), never an adapter
+# process runner. Plain captures keep their existing transport-only contract.
+capture_wprism_json_checked() { # <OUT_VAR> <what> <assertion|empty> <command> [args...]
   local __wprism_capture_out_var="$1" __wprism_capture_what="$2"
+  local __wprism_capture_assertion="$3"
   local __wprism_capture_stream='' __wprism_capture_rc=0 __wprism_capture_last=''
-  shift 2
+  shift 3
   [[ "$__wprism_capture_out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
     || fail "capture_wprism_json_success: malformed output variable"
   [[ "$__wprism_capture_out_var" != __wprism_capture_* ]] \
     || fail "capture_wprism_json_success: reserved output variable prefix __wprism_capture_"
+  if [ -n "$__wprism_capture_assertion" ]; then
+    [[ "$__wprism_capture_assertion" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+      && declare -F "$__wprism_capture_assertion" >/dev/null \
+      || fail "capture_wprism_json_checked: assertion must name a declared shell function"
+  fi
   __wprism_capture_stream=$("$@" 2>&1) || __wprism_capture_rc=$?
   require_wprism_answered "$__wprism_capture_what" json "$__wprism_capture_stream"
   __wprism_capture_last=$(awk 'NF { line=$0 } END { print line }' <<<"$__wprism_capture_stream")
@@ -277,6 +291,10 @@ capture_wprism_json_success() { # <OUT_VAR> <what> <command> [args...]
     fail "$__wprism_capture_what failed with exit $__wprism_capture_rc"
   fi
   assert_no_php_runtime_diagnostics "$__wprism_capture_what" "$__wprism_capture_stream"
+  if [ -n "$__wprism_capture_assertion" ]; then
+    "$__wprism_capture_assertion" "$__wprism_capture_what" "$__wprism_capture_stream" \
+      || fail "$__wprism_capture_what failed its complete-stream assertion"
+  fi
   printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
 }
 
@@ -322,6 +340,10 @@ assert_wprism_required_environment() { # <what> <human|json> <captured output>
         || fail "$what did not prove all required environment bindings; inspect its env_missing diagnostics"
       ;;
   esac
+}
+
+assert_wprism_json_required_environment() { # <what> <JSON capture>
+  assert_wprism_required_environment "$1" json "$2"
 }
 
 assert_wprism_apply_ready() { # <what> <JSON apply capture>
