@@ -141,6 +141,103 @@ echo wp_json_encode([
 ' | awk 'NF { line=$0 } END { print line }'
 }
 
+# The ordinary boundary check deliberately authors one scoped metadata change
+# and drives real redirect traffic. Upgrade/downgrade are continuations of that
+# state, so their oracle must be read-only and compare against the immediately
+# preceding target rather than replaying the fresh-target fixture assumptions.
+assert_rank_math_transition_content() { # <label> <version> <source> <target-before> <target-after> <apply-receipt>
+  local label="$1" version="$2" source="$3" target_before="$4" target_after="$5" receipt="$6"
+  require_observed_nonempty "$label source observation" "$source"
+  require_observed_nonempty "$label target baseline" "$target_before"
+  require_observed_nonempty "$label target observation" "$target_after"
+  require_observed_nonempty "$label apply receipt" "$receipt"
+  printf '%s\n' "$source" "$target_before" "$target_after" "$receipt" | jq -es \
+    --arg version "$version" --arg port "$CONF2_PORT" '
+    length == 4 and
+    .[0] as $source | .[1] as $before | .[2] as $target | .[3] as $receipt |
+    ($source | type) == "object" and ($before | type) == "object" and
+    ($target | type) == "object" and ($receipt | type) == "object" and
+    ["attachment","category","hub","post","secondary","tag"] as $identity_keys |
+    ["link-counter","redirections","rich-snippet","image-seo"] as $modules |
+    ($source.version == $version and $target.version == $version) and
+    ($source.modules == $modules and $target.modules == $modules) and
+    (($source.setup.configured | tostring) == "1" and
+      ($source.setup.registration_skip | tostring) == "1" and
+      ($target.setup.configured | tostring) == "1" and
+      ($target.setup.registration_skip | tostring) == "1") and
+    ($before.post.description == "Scoped Rank Math description 東京 🚀 with exact recovery." and
+      $source.post.description == $before.post.description and
+      $target.post.description == $source.post.description) and
+    ([ $identity_keys[] as $key |
+      ($source.ids[$key] | type) == "number" and ($target.ids[$key] | type) == "number" and
+      $source.ids[$key] > 0 and $target.ids[$key] > 0 and
+      $source.ids[$key] != $target.ids[$key] and $target.ids[$key] == $before.ids[$key]
+    ] | all) and
+    ($target.options.breadcrumbs_home_label == $source.options.breadcrumbs_home_label and
+      $target.options.plain_large_bytes == $source.options.plain_large_bytes and
+      $target.options.plain_nested == $source.options.plain_nested and
+      $target.options.homepage_image_id == $target.ids.attachment and
+      $target.options.logo_id == $target.ids.attachment and
+      $target.options.open_graph_image_id == $target.ids.attachment and
+      $target.options.local_seo_about_page == $target.ids.hub and
+      $target.options.local_seo_contact_page == $target.ids.post) and
+    ($target.post.title == $source.post.title and
+      ($target.post.canonical | startswith("http://localhost:" + $port + "/rank-math-canonical/")) and
+      $target.post.facebook_image_id == $target.ids.attachment and
+      $target.post.primary_category == $target.ids.category and $target.post.processed == true) and
+    ($target.term.description == $source.term.description and
+      $target.term.facebook_image_id == $target.ids.attachment and
+      $target.term.title == $source.term.title) and
+    ($target.redirection_count == 1 and $target.redirection.id == $before.redirection.id and
+      $target.redirection.sources_shape == $source.redirection.sources_shape and
+      $target.redirection.header_code == $source.redirection.header_code and
+      $target.redirection.status == $source.redirection.status and
+      ($target.redirection.url_to | startswith("http://localhost:" + $port + "/rank-math-hub/")) and
+      $target.redirection.hits == $before.redirection.hits and
+      $target.redirection.created == $before.redirection.created and
+      $target.redirection.updated == $before.redirection.updated and
+      $target.redirection.last_accessed == $before.redirection.last_accessed and
+      $target.redirection_cache_count == $before.redirection_cache_count) and
+    ($target.links | length) == 2 and
+    ([ $target.links[].type ] | sort) == ["external","internal"] and
+    ([ $target.links[] | select(.type == "internal") ] | length) == 1 and
+    ([ $target.links[] | select(.type == "internal") ][0].post_id | tonumber) == $target.ids.post and
+    ([ $target.links[] | select(.type == "internal") ][0].target_post_id | tonumber) == $target.ids.hub and
+    ([ $target.links[] | select(.type == "external") ] | length) == 1 and
+    ([ $target.links[] | select(.type == "external") ][0].post_id | tonumber) == $target.ids.post and
+    ([ $target.links[] | select(.type == "external") ][0].target_post_id | tonumber) == 0 and
+    (($target.post_counts.internal_link_count | tonumber) == 1 and
+      ($target.post_counts.external_link_count | tonumber) == 1 and
+      ($target.post_counts.incoming_link_count | tonumber) == 0 and
+      ($target.hub_counts.internal_link_count | tonumber) == 0 and
+      ($target.hub_counts.external_link_count | tonumber) == 0 and
+      ($target.hub_counts.incoming_link_count | tonumber) == 1) and
+    ($target.schema == {
+      rank_math_internal_links:{present:true,columns:["id","url","post_id","target_post_id","type"]},
+      rank_math_internal_meta:{present:true,columns:["object_id","internal_link_count","external_link_count","incoming_link_count"]},
+      rank_math_redirections:{present:true,columns:["id","sources","url_to","header_code","hits","status","created","updated","last_accessed"]},
+      rank_math_redirections_cache:{present:true,columns:["id","from_url","redirection_id","object_id","object_type","is_redirected"]}
+    } and $target.schema == $before.schema) and
+    ($target.target_owned == $before.target_owned) and
+    ($receipt.canary == "clean" and $receipt.verification.result == "pass" and
+      ($receipt.actions | type) == "array" and
+      ([ $receipt.actions[]?.source | select(startswith("provider:rank-math-state/")) ] | sort | unique) ==
+        ["provider:rank-math-state/rebuild_all_link_state"] and
+      any($receipt.actions[]?;
+        .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true and
+        .before.enabled == true and .after.enabled == true and
+        ([.before.link_count,.before.meta_count,.before.marker_count,
+          .after.link_count,.after.meta_count,.after.marker_count] |
+          all(.[]; type == "number" and . >= 0)) and
+        .after.link_count == 2 and .after.meta_count == 2 and .after.marker_count == 2 and
+        ([.before.link_hash,.after.link_hash,.before.meta_hash,.after.meta_hash,
+          .before.marker_hash,.after.marker_hash,.before.dependency_hash,.after.dependency_hash,
+          .before.dependency_state_hash,.after.dependency_state_hash] |
+          all(.[]; type == "string" and test("^[a-f0-9]{64}$"))) and
+        .before.dependency_state_hash == .after.dependency_state_hash))
+  ' >/dev/null || fail "$label did not preserve the evolved authored, native, derived, and target-runtime state"
+}
+
 rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseline]
   "${PAIR_COMPOSE[@]}" run --rm -T --entrypoint php cli2 \
     /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
@@ -299,6 +396,8 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
 
   if [ "$RANK_MATH_VERSION" = 1.0.277 ]; then
     say 'in-place upgrade: seo-by-rank-math 1.0.277 -> 1.0.277.2 on populated source and target'
+    UPGRADE_TARGET_TRANSITION_BEFORE=$(observe_rank_math conf2)
+    require_observed_nonempty 'Rank Math pre-upgrade target transition baseline' "$UPGRADE_TARGET_TRANSITION_BEFORE"
     UPGRADE_ARTIFACT_1=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli1)
     UPGRADE_ARTIFACT_2=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli2)
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
@@ -389,7 +488,11 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     ' <<<"$UPGRADE_TARGET_MODULES" >/dev/null \
       || fail "Rank Math upgrade target modules are not registered and active: $UPGRADE_TARGET_MODULES"
     RANK_MATH_VERSION=1.0.277.2
-    check_rank_math_boundary_content
+    UPGRADE_SOURCE_TRANSITION=$(observe_rank_math conf1)
+    UPGRADE_TARGET_TRANSITION=$(observe_rank_math conf2)
+    assert_rank_math_transition_content 'Rank Math 1.0.277 to 1.0.277.2 transition' \
+      "$RANK_MATH_VERSION" "$UPGRADE_SOURCE_TRANSITION" "$UPGRADE_TARGET_TRANSITION_BEFORE" \
+      "$UPGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON"
     RANK_MATH_VERSION=1.0.277
 
     UPGRADED_TITLE=$(wp2 post list --post_type=post --name=rank-math-article --field=post_title)
@@ -405,6 +508,8 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     pass 'Rank Math 1.0.277 -> 1.0.277.2 preserves native behavior, target identities, projections and byte identity'
 
     say 'in-range downgrade: seo-by-rank-math 1.0.277.2 -> 1.0.277.1 on populated source and target'
+    DOWNGRADE_TARGET_TRANSITION_BEFORE=$(observe_rank_math conf2)
+    require_observed_nonempty 'Rank Math pre-downgrade target transition baseline' "$DOWNGRADE_TARGET_TRANSITION_BEFORE"
     DOWNGRADE_ARTIFACT_1=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli1)
     DOWNGRADE_ARTIFACT_2=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli2)
     wp1 plugin install "$DOWNGRADE_ARTIFACT_1" --force --activate >/dev/null
@@ -476,7 +581,11 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
         --revision="$DOWNGRADE_REV" --json
     assert_wprism_apply_ready 'Rank Math version-matrix downgrade apply' "$RANK_MATH_BOUNDARY_APPLY_JSON"
     RANK_MATH_VERSION=1.0.277.1
-    check_rank_math_boundary_content
+    DOWNGRADE_SOURCE_TRANSITION=$(observe_rank_math conf1)
+    DOWNGRADE_TARGET_TRANSITION=$(observe_rank_math conf2)
+    assert_rank_math_transition_content 'Rank Math 1.0.277.2 to 1.0.277.1 transition' \
+      "$RANK_MATH_VERSION" "$DOWNGRADE_SOURCE_TRANSITION" "$DOWNGRADE_TARGET_TRANSITION_BEFORE" \
+      "$DOWNGRADE_TARGET_TRANSITION" "$RANK_MATH_BOUNDARY_APPLY_JSON"
     RANK_MATH_VERSION=1.0.277
 
     DOWNGRADED_TITLE=$(wp2 post list --post_type=post --name=rank-math-article --field=post_title)

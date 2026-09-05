@@ -18,6 +18,72 @@ observe_rank_math() { # <conf1|conf2>
   cat > "$file" <<'PHPEOF'
 <?php
 global $wpdb;
+$read = static function (callable $query, string $label) use ($wpdb) {
+    // wpdb reports a failed SELECT as null/[] and the next successful query
+    // clears last_error. Check each result at its own boundary and keep the
+    // driver payload out of the public conformance diagnostic.
+    $suppressed = $wpdb->suppress_errors(true);
+    $wpdb->last_error = '';
+    try {
+        $result = $query();
+        if ((string) $wpdb->last_error !== '') {
+            throw new RuntimeException('incomplete read');
+        }
+        return $result;
+    } catch (Throwable) {
+        throw new RuntimeException('Rank Math conformance observation could not read ' . $label);
+    } finally {
+        $wpdb->suppress_errors($suppressed);
+    }
+};
+$readRows = static function (string $sql, string $label, array $columns, bool $required = true) use ($wpdb, $read): array {
+    $rows = $read(static fn() => $wpdb->get_results($sql, ARRAY_A), $label);
+    if (!is_array($rows) || !array_is_list($rows) || ($required && $rows === [])) {
+        throw new RuntimeException('Rank Math conformance observation has an invalid row set for ' . $label);
+    }
+    foreach ($rows as $row) {
+        if (!is_array($row) || array_keys($row) !== $columns) {
+            throw new RuntimeException('Rank Math conformance observation has invalid columns for ' . $label);
+        }
+        foreach ($row as $key => $value) {
+            if (!is_string($key) || $key === '' || ($value !== null && !is_string($value))) {
+                throw new RuntimeException('Rank Math conformance observation has an invalid value for ' . $label);
+            }
+        }
+    }
+    return $rows;
+};
+$readRow = static function (string $sql, string $label, array $columns) use ($wpdb, $read): array {
+    $row = $read(static fn() => $wpdb->get_row($sql, ARRAY_A), $label);
+    if (!is_array($row) || array_keys($row) !== $columns) {
+        throw new RuntimeException('Rank Math conformance observation has an invalid row for ' . $label);
+    }
+    foreach ($row as $key => $value) {
+        if (!is_string($key) || $key === '' || ($value !== null && !is_string($value))) {
+            throw new RuntimeException('Rank Math conformance observation has an invalid value for ' . $label);
+        }
+    }
+    return $row;
+};
+$readList = static function (callable $query, string $label) use ($read): array {
+    $values = $read($query, $label);
+    if (!is_array($values) || !array_is_list($values) || $values === []
+        || array_filter($values, static fn($value): bool => !is_string($value)) !== []) {
+        throw new RuntimeException('Rank Math conformance observation has an invalid list for ' . $label);
+    }
+    return $values;
+};
+$readCount = static function (string $sql, string $label) use ($wpdb, $read): int {
+    $value = $read(static fn() => $wpdb->get_var($sql), $label);
+    if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+        throw new RuntimeException('Rank Math conformance observation has an invalid count for ' . $label);
+    }
+    $count = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+    if (!is_int($count)) {
+        throw new RuntimeException('Rank Math conformance observation count exceeds the PHP integer domain for ' . $label);
+    }
+    return $count;
+};
 $post = get_page_by_path('rank-math-article', OBJECT, 'post');
 $hub = get_page_by_path('rank-math-hub', OBJECT, 'page');
 $category = get_term_by('slug', 'rank-math-primary', 'category');
@@ -29,10 +95,11 @@ if (!$post instanceof WP_Post || !$hub instanceof WP_Post || !$attachment instan
     throw new RuntimeException('Rank Math native content fixture is incomplete');
 }
 
-$redirections = $wpdb->get_results(
+$redirections = $readRows(
     "SELECT id,sources,url_to,header_code,hits,status,created,updated,last_accessed "
         . "FROM {$wpdb->prefix}rank_math_redirections ORDER BY id",
-    ARRAY_A
+    'redirections',
+    ['id', 'sources', 'url_to', 'header_code', 'hits', 'status', 'created', 'updated', 'last_accessed']
 );
 $redirection = null;
 foreach ((array) $redirections as $candidate) {
@@ -43,27 +110,34 @@ foreach ((array) $redirections as $candidate) {
         break;
     }
 }
-$links = $wpdb->get_results($wpdb->prepare(
+$links = $readRows($wpdb->prepare(
     "SELECT url,post_id,target_post_id,type FROM {$wpdb->prefix}rank_math_internal_links "
         . "WHERE post_id=%d ORDER BY type,url,target_post_id",
     $post->ID
-), ARRAY_A);
-$postCounts = $wpdb->get_row($wpdb->prepare(
+), 'post links', ['url', 'post_id', 'target_post_id', 'type']);
+$postCounts = $readRow($wpdb->prepare(
     "SELECT internal_link_count,external_link_count,incoming_link_count "
         . "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
     $post->ID
-), ARRAY_A);
-$hubCounts = $wpdb->get_row($wpdb->prepare(
+), 'post link counts', ['internal_link_count', 'external_link_count', 'incoming_link_count']);
+$hubCounts = $readRow($wpdb->prepare(
     "SELECT internal_link_count,external_link_count,incoming_link_count "
         . "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
     $hub->ID
-), ARRAY_A);
+), 'hub link counts', ['internal_link_count', 'external_link_count', 'incoming_link_count']);
 $schema = [];
 foreach (['rank_math_internal_links', 'rank_math_internal_meta', 'rank_math_redirections', 'rank_math_redirections_cache'] as $suffix) {
     $table = $wpdb->prefix . $suffix;
+    $found = $read(
+        static fn() => $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))),
+        'table presence ' . $suffix
+    );
+    if (!is_string($found) || !hash_equals($table, $found)) {
+        throw new RuntimeException('Rank Math conformance observation requires the exact table ' . $suffix);
+    }
     $schema[$suffix] = [
-        'present' => $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table,
-        'columns' => array_values(array_map('strval', (array) $wpdb->get_col("SHOW COLUMNS FROM `$table`"))),
+        'present' => true,
+        'columns' => $readList(static fn() => $wpdb->get_col("SHOW COLUMNS FROM `$table`"), 'columns ' . $suffix),
     ];
 }
 $titles = (array) get_option('rank-math-options-titles', []);
@@ -110,8 +184,9 @@ echo wp_json_encode([
     ],
     'redirection' => $redirection,
     'redirection_count' => count((array) $redirections),
-    'redirection_cache_count' => (int) $wpdb->get_var(
-        "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_redirections_cache"
+    'redirection_cache_count' => $readCount(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_redirections_cache",
+        'redirection cache count'
     ),
     'links' => $links,
     'post_counts' => $postCounts,
