@@ -9,9 +9,51 @@ set -euo pipefail
 # Polylang, and Rank Math state while a real Woo product remains active and
 # retains its authored fields, language, native lookup row, and identity.
 
+# Remote PHP and recovery output can contain operator values even when exit is
+# zero. Mint each diagnostic label once beneath the parent's private directory,
+# classify both retained streams there, then publish only one parsed JSON value.
+capture_rmcombo_ssh_json() { # <OUT_VAR> <unique label> <what> <command> [args...]
+  local __rmcombo_ssh_out_var="$1" __rmcombo_ssh_label="$2" __rmcombo_ssh_what="$3"
+  local __rmcombo_ssh_directory __rmcombo_ssh_stdout __rmcombo_ssh_stderr __rmcombo_ssh_exit
+  local __rmcombo_ssh_answer='' __rmcombo_ssh_rc=0
+  shift 3
+  [[ "$__rmcombo_ssh_out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+    && [[ "$__rmcombo_ssh_out_var" != __rmcombo_ssh_* ]] \
+    || fail 'combined SSH JSON observation has a malformed or reserved output variable'
+  [[ "$__rmcombo_ssh_label" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
+    || fail 'combined SSH JSON observation has a malformed private diagnostic label'
+  [ "$#" -gt 0 ] || fail "$__rmcombo_ssh_what has no observation command"
+  __rmcombo_ssh_directory="$DIAG_DIR/rank-math-commerce-multilingual-$__rmcombo_ssh_label"
+  if [ -e "$__rmcombo_ssh_directory" ] || [ -L "$__rmcombo_ssh_directory" ]; then
+    fail "$__rmcombo_ssh_what reused its private diagnostic label"
+  fi
+  ( umask 077; mkdir -- "$__rmcombo_ssh_directory" ) 2>/dev/null \
+    || fail "$__rmcombo_ssh_what could not allocate its private diagnostic capture"
+  __rmcombo_ssh_stdout="$__rmcombo_ssh_directory/stdout"
+  __rmcombo_ssh_stderr="$__rmcombo_ssh_directory/stderr"
+  __rmcombo_ssh_exit="$__rmcombo_ssh_directory/exit"
+  ( umask 077; : >"$__rmcombo_ssh_stdout"; : >"$__rmcombo_ssh_stderr"; : >"$__rmcombo_ssh_exit" ) \
+    || fail "$__rmcombo_ssh_what could not initialize its private diagnostic capture"
+  # An invoked shell function may call fail()/exit. Its subshell keeps the
+  # parent's resource-cleanup trap visible while this label retains raw status.
+  ( "$@" ) >"$__rmcombo_ssh_stdout" 2>"$__rmcombo_ssh_stderr" || __rmcombo_ssh_rc=$?
+  printf '%s\n' "$__rmcombo_ssh_rc" >"$__rmcombo_ssh_exit" \
+    || fail "$__rmcombo_ssh_what could not retain its private exit status"
+  assert_ssh_fixture_positive_diagnostics "$__rmcombo_ssh_what" \
+    "$__rmcombo_ssh_stdout" "$__rmcombo_ssh_stderr"
+  [ "$__rmcombo_ssh_rc" -eq 0 ] \
+    || fail "$__rmcombo_ssh_what failed; inspect its private diagnostic capture"
+  __rmcombo_ssh_answer=$(jq -ce -s \
+    'select(length == 1 and (.[0] | type == "object" or type == "array")) | .[0]' \
+    "$__rmcombo_ssh_stdout" 2>>"$__rmcombo_ssh_stderr") \
+    || fail "$__rmcombo_ssh_what did not return one JSON object or array; inspect its private diagnostic capture"
+  printf -v "$__rmcombo_ssh_out_var" '%s' "$__rmcombo_ssh_answer"
+}
+
 wprism_ssh_adopt_extension() {
   local adapter actual_version expected_version post_id product_id post_uuid
-  local plan_json before_json after_json status_json
+  local version_json active_order_json runtime_ready_json pin_json baseline_capture_json
+  local plan_json before_json after_json status_json promotion_lock_json provider_state_json
   local converged_plan diagnostic_file promote_code seed_json plan_code converged_code
   local success_stdout="$DIAG_DIR/rank-math-commerce-multilingual-delete-success.stdout"
   local success_stderr="$DIAG_DIR/rank-math-commerce-multilingual-delete-success.stderr"
@@ -38,7 +80,13 @@ wprism_ssh_adopt_extension() {
   while IFS='|' read -r adapter expected_version; do
     [ -n "$adapter" ] || continue
     wprism_ssh_install_certified_plugin "$adapter" "$expected_version"
-    actual_version="$(ssh_fixture "cd /var/www/html && wp plugin get '$adapter' --field=version")"
+    capture_rmcombo_ssh_json version_json "plugin-version-$adapter" \
+      "combined SSH $adapter version observation" \
+      wp_ssh_fixture plugin get "$adapter" --fields=version --format=json
+    actual_version="$(jq -er \
+      'select(type == "object" and keys == ["version"] and (.version | type == "string")) | .version' \
+      <<<"$version_json")" \
+      || fail "$adapter returned a malformed version observation"
     [ "$actual_version" = "$expected_version" ] \
       || fail "$adapter is $actual_version, expected exact $expected_version"
   done <<'PLUGINS'
@@ -49,12 +97,15 @@ woocommerce|11.0.1
 PLUGINS
 
   ssh_fixture 'cd /var/www/html && wp option update active_plugins '\''["polylang/polylang.php","advanced-custom-fields/acf.php","seo-by-rank-math/rank-math.php","woocommerce/woocommerce.php"]'\'' --format=json >/dev/null'
+  capture_rmcombo_ssh_json active_order_json active-plugin-order \
+    'combined SSH active-plugin order observation' \
+    wp_ssh_fixture option get active_plugins --format=json
   jq -e '. == [
     "polylang/polylang.php",
     "advanced-custom-fields/acf.php",
     "seo-by-rank-math/rank-math.php",
     "woocommerce/woocommerce.php"
-  ]' <<<"$(ssh_fixture 'cd /var/www/html && wp option get active_plugins --format=json')" >/dev/null \
+  ]' <<<"$active_order_json" >/dev/null \
     || fail "the SSH deletion did not retain the exact four-plugin active order"
 
 cat >"$TMP/rank-math-commerce-multilingual-config.php" <<'PHP'
@@ -127,17 +178,9 @@ $options["sync"] = ["taxonomies", "post_meta", "post_date"];
 update_option("polylang", $options);
 '\''' >/dev/null
 
-  jq -e '
-    .active_modules == ["link-counter","redirections","rich-snippet"]
-    and .languages == ["en"]
-    and .rank_tables == {
-      rank_math_internal_links:true,
-      rank_math_internal_meta:true,
-      rank_math_redirections:true,
-      rank_math_redirections_cache:true
-    }
-    and .stock_notifications == true
-  ' <<<"$(ssh_fixture 'cd /var/www/html && wp eval '\''
+  capture_rmcombo_ssh_json runtime_ready_json runtime-readiness \
+    'combined SSH four-plugin runtime readiness' \
+    ssh_fixture 'cd /var/www/html && wp eval '\''
 global $wpdb;
 $tables = [];
 foreach (["rank_math_internal_links", "rank_math_internal_meta", "rank_math_redirections", "rank_math_redirections_cache"] as $suffix) {
@@ -153,7 +196,18 @@ echo wp_json_encode([
     "rank_tables" => $tables,
     "stock_notifications" => $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $stock)) === $stock,
 ]);
-'\''')" >/dev/null \
+'\'''
+  jq -e '
+    .active_modules == ["link-counter","redirections","rich-snippet"]
+    and .languages == ["en"]
+    and .rank_tables == {
+      rank_math_internal_links:true,
+      rank_math_internal_meta:true,
+      rank_math_redirections:true,
+      rank_math_redirections_cache:true
+    }
+    and .stock_notifications == true
+  ' <<<"$runtime_ready_json" >/dev/null \
     || fail "the four-plugin runtime did not expose its non-vacuous native topology"
   pass "exact plugin bytes, active order, Rank Math tables, Polylang language, and Woo topology are live"
 
@@ -162,9 +216,10 @@ echo wp_json_encode([
     advanced-custom-fields polylang seo-by-rank-math woocommerce
 
   for adapter in acf polylang rank-math woocommerce; do
-    ssh_fixture "cd /var/www/html && wp wprism manifest-pin --repo=/home/wprism/site --name='$adapter'" \
-      >"$TMP/rm-combo-$adapter-pin.json" \
-      || fail "the combined deletion could not obtain the shipped $adapter pin"
+    capture_rmcombo_ssh_json pin_json "manifest-pin-$adapter" \
+      "combined SSH shipped $adapter manifest pin" \
+      wp_ssh_fixture wprism manifest-pin --repo=/home/wprism/site --name="$adapter"
+    printf '%s\n' "$pin_json" >"$TMP/rm-combo-$adapter-pin.json"
   done
   jq -s '.' \
     "$TMP/rm-combo-acf-pin.json" \
@@ -269,17 +324,20 @@ echo wp_json_encode(['post' => $postId, 'product' => $productId], JSON_UNESCAPED
 PHP
   scp -F "$TMP/ssh_config" "$TMP/rank-math-commerce-multilingual-seed.php" \
     wprism-adopt-fixture:/home/wprism/recovery-fixture/rank-math-commerce-multilingual-seed.php >/dev/null
-  seed_json="$(ssh_fixture 'cd /var/www/html && wp eval-file /home/wprism/recovery-fixture/rank-math-commerce-multilingual-seed.php')" \
-    || fail "the combined native deletion graph could not be authored"
+  capture_rmcombo_ssh_json seed_json native-seed \
+    'combined SSH native deletion seed' \
+    ssh_fixture 'cd /var/www/html && wp eval-file /home/wprism/recovery-fixture/rank-math-commerce-multilingual-seed.php'
   ssh_fixture 'rm -f /home/wprism/recovery-fixture/rank-math-commerce-multilingual-seed.php'
   post_id="$(jq -r '.post' <<<"$seed_json")"
   product_id="$(jq -r '.product' <<<"$seed_json")"
   [[ "$post_id" =~ ^[1-9][0-9]*$ ]] && [[ "$product_id" =~ ^[1-9][0-9]*$ ]] \
     || fail "the combined native deletion graph returned malformed identities"
 
-  "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" \
-    --format=json >"$TMP/rm-combo-baseline-capture.json" \
-    || fail "the combined deletion could not capture its code/state baseline"
+  capture_rmcombo_ssh_json baseline_capture_json baseline-capture \
+    'combined SSH code/state baseline capture' \
+    "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" \
+    --format=json
+  printf '%s\n' "$baseline_capture_json" >"$TMP/rm-combo-baseline-capture.json"
   ssh_fixture '
     set -eu
     git -C /home/wprism/site add -A
@@ -369,8 +427,9 @@ echo wp_json_encode([
 PHP
   scp -F "$TMP/ssh_config" "$TMP/rank-math-commerce-multilingual-observe.php" \
     wprism-adopt-fixture:/home/wprism/recovery-fixture/rank-math-commerce-multilingual-observe.php >/dev/null
-  before_json="$(ssh_fixture "cd /var/www/html && WPRISM_RMCOMBO_POST='$post_id' WPRISM_RMCOMBO_PRODUCT='$product_id' wp eval-file /home/wprism/recovery-fixture/rank-math-commerce-multilingual-observe.php")" \
-    || fail "the combined deletion preimage could not be observed"
+  capture_rmcombo_ssh_json before_json native-preimage \
+    'combined SSH deletion native preimage' \
+    ssh_fixture "cd /var/www/html && WPRISM_RMCOMBO_POST='$post_id' WPRISM_RMCOMBO_PRODUCT='$product_id' wp eval-file /home/wprism/recovery-fixture/rank-math-commerce-multilingual-observe.php"
   jq -e '
     .deleted.post == 1
     and .deleted.acf_meta == 2
@@ -445,7 +504,9 @@ PHP
     "$success_stdout" "$success_stderr"
   grep -Fq 'promote complete: verified committed receipt; traffic exclusion released' "$success_stdout" \
     || fail "the combined deletion lacked its verified committed full-recovery receipt"
-  status_json="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php active-evidence --root=/home/wprism/site/.wprism/control')"
+  capture_rmcombo_ssh_json status_json recovery-status \
+    'combined SSH signed recovery status' \
+    ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php active-evidence --root=/home/wprism/site/.wprism/control'
   jq -e '
     .receipt.format == "wprism-rollback-receipt/v3"
     and .receipt.allow_deletes == true
@@ -454,8 +515,9 @@ PHP
   ' <<<"$status_json" >/dev/null \
     || fail "the combined deletion did not retain exact signed committed authority"
 
-  after_json="$(ssh_fixture "cd /var/www/html && WPRISM_RMCOMBO_POST='$post_id' WPRISM_RMCOMBO_PRODUCT='$product_id' wp eval-file /home/wprism/recovery-fixture/rank-math-commerce-multilingual-observe.php")" \
-    || fail "the combined deletion postimage could not be observed"
+  capture_rmcombo_ssh_json after_json native-postimage \
+    'combined SSH deletion native postimage' \
+    ssh_fixture "cd /var/www/html && WPRISM_RMCOMBO_POST='$post_id' WPRISM_RMCOMBO_PRODUCT='$product_id' wp eval-file /home/wprism/recovery-fixture/rank-math-commerce-multilingual-observe.php"
   ssh_fixture 'rm -f /home/wprism/recovery-fixture/rank-math-commerce-multilingual-observe.php'
   jq -en --argjson before "$before_json" --argjson after "$after_json" '
     $after.deleted == {
@@ -497,9 +559,15 @@ PHP
     and (.env_missing | type == "array" and all(.[]; type == "object" and .required == false))
   ' <<<"$converged_plan" >/dev/null 2>>"$converged_stderr" \
     || fail "the combined signed deletion did not reach a no-action fixed point; inspect its private capture"
-  [ -z "$(target_ledger_value promotion_lock)" ] \
+  capture_rmcombo_ssh_json promotion_lock_json promotion-lock \
+    'combined SSH promotion-lock observation' \
+    wp_ssh_fixture eval 'echo wp_json_encode(["value" => \WPrism\Ledger::kv_get("promotion_lock")]);'
+  jq -e '. == {value:null}' <<<"$promotion_lock_json" >/dev/null \
     || fail "the combined signed deletion retained a promotion lock"
-  jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
+  capture_rmcombo_ssh_json provider_state_json provider-state \
+    'combined SSH external-writer release receipt' \
+    ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json'
+  jq -e '.state == "released"' <<<"$provider_state_json" >/dev/null \
     || fail "the combined signed deletion did not release external writer exclusion"
   pass "signed promotion deletes ACF/Polylang/Rank Math state, preserves the live Woo product/lookup, and converges"
 }

@@ -1563,7 +1563,7 @@ $tombstonePublication = strpos($sshDeletion,
     'wprism_ssh_publish_post_tombstone post rmcombo-ssh-delete');
 $fullPlan = strpos($sshDeletion, 'plan target --format=json');
 $signedPromotion = strpos($sshDeletion, 'promote target --with-deletes');
-$postimageObservation = strpos($sshDeletion, 'after_json="$(ssh_fixture');
+$postimageObservation = strpos($sshDeletion, 'capture_rmcombo_ssh_json after_json native-postimage');
 $fixedPointPlan = strrpos($sshDeletion, 'plan target --format=json');
 wprism_check(
     $extensionDefinition !== false
@@ -1621,6 +1621,134 @@ wprism_check(
 // action receipts stay admissible. Private host diagnostics are never echoed.
 $sshAdoptSource = (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
 preg_match('/^assert_ssh_fixture_positive_diagnostics\(\).*?^\}/ms', $sshAdoptSource, $sshDiagnosticDefinition);
+preg_match('/^capture_rmcombo_ssh_json\(\).*?^\}/ms', $sshDeletion, $sshJsonCaptureDefinition);
+wprism_check(
+    isset($sshDiagnosticDefinition[0], $sshJsonCaptureDefinition[0]),
+    'the SSH observation transport and its parent-owned private diagnostic classifier are extractable'
+);
+$sshJsonProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" DIAG_DIR="$2" PROBE_CASE="$3"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+umask 000
+fixture_json_command() {
+  case "$PROBE_CASE" in
+    ready-object|duplicate) printf '%s\n' '{"ok":true}' ;;
+    ready-array) printf '%s\n' '[{"ok":true}]' ;;
+    php-stdout)
+      printf 'PHP Warning: private-observation-canary in /fixture.php on line 1\n'
+      printf '%s\n' '{"ok":true}'
+      ;;
+    php-stderr)
+      printf 'PHP Warning: private-observation-canary in /fixture.php on line 1\n' >&2
+      printf '%s\n' '{"ok":true}'
+      ;;
+    startup-stdout)
+      printf 'PHP Warning: PHP Startup: private-observation-canary in Unknown on line 0\n'
+      printf '%s\n' '{"ok":true}'
+      ;;
+    parse-stderr)
+      printf 'PHP Parse error: private-observation-canary\n' >&2
+      printf '%s\n' '{"ok":true}'
+      ;;
+    nonzero)
+      printf '%s\n' '{"private":"private-observation-canary"}'
+      return 7
+      ;;
+    malformed) printf '%s\n' 'private-observation-canary' ;;
+    multiple) printf '%s\n' '{"ok":true}' '{"private":"private-observation-canary"}' ;;
+    scalar) printf '%s\n' '"private-observation-canary"' ;;
+    missing) ;;
+    *) return 81 ;;
+  esac
+}
+SH;
+foreach (['ready-object', 'ready-array', 'php-stdout', 'php-stderr', 'startup-stdout', 'parse-stderr', 'nonzero', 'malformed', 'multiple', 'scalar', 'missing', 'duplicate'] as $case) {
+    $scratch = sys_get_temp_dir() . '/wprism-rmcombo-ssh-observation-' . bin2hex(random_bytes(8));
+    if (!mkdir($scratch, 0700)) {
+        throw new RuntimeException('could not allocate SSH observation scratch');
+    }
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+        $sshJsonProbe . "\n" . ($sshDiagnosticDefinition[0] ?? '')
+            . "\n" . ($sshJsonCaptureDefinition[0] ?? '') . <<<'SH'
+
+OBSERVED=''
+capture_rmcombo_ssh_json OBSERVED fixture-observation \
+  'combined SSH fixture observation' fixture_json_command
+if [ "$PROBE_CASE" = duplicate ]; then
+  capture_rmcombo_ssh_json OBSERVED fixture-observation \
+    'combined SSH duplicate fixture observation' fixture_json_command
+fi
+jq -e '(type == "object" or type == "array")' <<<"$OBSERVED" >/dev/null
+printf 'SSH_OBSERVATION_READY\n'
+SH,
+        [$root, $scratch, $case],
+        $root
+    );
+    $captureDirectory = $scratch . '/rank-math-commerce-multilingual-fixture-observation';
+    $captureFiles = is_dir($captureDirectory) ? array_values(array_diff(scandir($captureDirectory) ?: [], ['.', '..'])) : [];
+    $privateModes = is_dir($captureDirectory)
+        && !is_link($captureDirectory)
+        && (fileperms($captureDirectory) & 0777) === 0700
+        && $captureFiles === ['exit', 'stderr', 'stdout'];
+    foreach ($captureFiles as $captureFile) {
+        $path = $captureDirectory . '/' . $captureFile;
+        $privateModes = $privateModes
+            && is_file($path)
+            && !is_link($path)
+            && (fileperms($path) & 0777) === 0600;
+    }
+    $privateModes = $privateModes
+        && trim((string) file_get_contents($captureDirectory . '/exit')) === ($case === 'nonzero' ? '7' : '0');
+    $expectedFailure = match ($case) {
+        'php-stdout', 'php-stderr', 'startup-stdout', 'parse-stderr' => 'emitted a PHP runtime diagnostic',
+        'nonzero' => 'failed; inspect its private diagnostic capture',
+        'malformed', 'multiple', 'scalar', 'missing' => 'did not return one JSON object or array',
+        default => 'reused its private diagnostic label',
+    };
+    wprism_check(
+        (in_array($case, ['ready-object', 'ready-array'], true)
+            ? $status === 0 && $stdout === "SSH_OBSERVATION_READY\n" && $stderr === ''
+            : $status !== 0
+                && !str_contains($stdout, 'SSH_OBSERVATION_READY')
+                && str_contains($stderr, $expectedFailure)
+                && !str_contains($stdout . $stderr, 'private-observation-canary'))
+            && $privateModes,
+        "the actual private SSH JSON transport classifies $case, preserves modes and publishes no failed value"
+    );
+    foreach ($captureFiles as $captureFile) {
+        unlink($captureDirectory . '/' . $captureFile);
+    }
+    rmdir($captureDirectory);
+    rmdir($scratch);
+}
+foreach ([
+    'capture_rmcombo_ssh_json version_json "plugin-version-$adapter"' => 'plugin version',
+    'capture_rmcombo_ssh_json active_order_json active-plugin-order' => 'active-plugin order',
+    'capture_rmcombo_ssh_json runtime_ready_json runtime-readiness' => 'runtime readiness',
+    'capture_rmcombo_ssh_json pin_json "manifest-pin-$adapter"' => 'shipped manifest pin',
+    'capture_rmcombo_ssh_json seed_json native-seed' => 'native seed',
+    'capture_rmcombo_ssh_json baseline_capture_json baseline-capture' => 'code/state baseline capture',
+    'capture_rmcombo_ssh_json before_json native-preimage' => 'native preimage',
+    'capture_rmcombo_ssh_json status_json recovery-status' => 'recovery status',
+    'capture_rmcombo_ssh_json after_json native-postimage' => 'native postimage',
+    'capture_rmcombo_ssh_json promotion_lock_json promotion-lock' => 'promotion lock',
+    'capture_rmcombo_ssh_json provider_state_json provider-state' => 'external-writer release receipt',
+] as $call => $observation) {
+    wprism_check(
+        str_contains($sshDeletion, $call),
+        "the SSH $observation uses private complete-stream checked JSON transport"
+    );
+}
+wprism_check(
+    !preg_match('/(?:actual_version|seed_json|before_json|status_json|after_json)="?\$\(ssh_fixture/', $sshDeletion)
+        && !str_contains($sshDeletion, '<<<"$(ssh_fixture')
+        && !str_contains($sshDeletion, 'ssh_fixture "cd /var/www/html && wp wprism manifest-pin')
+        && !preg_match('/"\$WPRISM"[^\n]* capture target[^\n]*\n\s*--format=json >/', $sshDeletion)
+        && !str_contains($sshDeletion, '[ -z "$(target_ledger_value promotion_lock)" ]'),
+    'the SSH extension has no remaining raw positive JSON or PHP observation acceptance'
+);
 $sshCaptureStart = strpos($sshDeletion, '  local success_stdout=');
 $sshCaptureEnd = $sshCaptureStart === false ? false : strpos($sshDeletion, '  say "enroll full recovery', $sshCaptureStart);
 $sshCaptureBlock = $sshCaptureStart === false || $sshCaptureEnd === false ? ''
@@ -1685,7 +1813,7 @@ $sshPlanCases = [
         ],
     ],
     'converged' => [
-        '  converged_code=0', '  [ -z "$(target_ledger_value promotion_lock)" ]',
+        '  converged_code=0', '  capture_rmcombo_ssh_json promotion_lock_json promotion-lock',
         array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'delete', 'delete_conflict', 'code_mismatch', 'selected_actions', 'provider_problems'], []),
     ],
 ];
@@ -1768,7 +1896,7 @@ $sshHumanCases = [
     ],
     'signed deletion' => [
         '  if "$WPRISM" --envs-file="$TMP/envs.json" promote target --with-deletes',
-        '  status_json=',
+        '  capture_rmcombo_ssh_json status_json recovery-status',
         'promote complete: verified committed receipt; traffic exclusion released',
     ],
 ];
