@@ -52,17 +52,58 @@ case "$remote" in
   *) printf 'UNEXPECTED\n' >>"$WPRISM_BOOTSTRAP_TRACE"; exit 91 ;;
 esac
 SH);
-file_put_contents($bin . '/wp', <<<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-case "$*" in
-  *'core is-installed') printf 'WP_ISOLATED\n' >>"$WPRISM_BOOTSTRAP_TRACE" ;;
-  *'echo WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR;'*) printf '%s\n' "$WPRISM_BOOTSTRAP_MU" ;;
-  'eval echo WPMU_PLUGIN_DIR;') printf '%s\n' "$WPRISM_BOOTSTRAP_MU" ;;
-  *'echo is_multisite() ? "wprism-multisite" : "wprism-single-site";'*) printf 'wprism-single-site\n' ;;
-  *) printf 'UNEXPECTED_WP\n' >>"$WPRISM_BOOTSTRAP_TRACE"; exit 92 ;;
-esac
-SH);
+file_put_contents($bin . '/wp', <<<'PHP'
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+// Execute the shipped --exec program at the real WP-CLI hook boundary. The
+// native MU loader below is deliberately independent of argument matching:
+// an accidental plain probe really executes the planted filesystem canary.
+final class WP_CLI {
+    public static array $hooks = [];
+    public static function get_runner(): object { return (object) ['config' => ['path' => getcwd()]]; }
+    public static function add_hook(string $name, callable $callback): void { self::$hooks[$name][] = $callback; }
+}
+function is_multisite(): bool { return getenv('WPRISM_BOOTSTRAP_WP_MODE') === 'multisite'; }
+$trace = (string) getenv('WPRISM_BOOTSTRAP_TRACE');
+$mode = (string) getenv('WPRISM_BOOTSTRAP_WP_MODE');
+$command = [];
+$isolated = false;
+foreach (array_slice($argv, 1) as $argument) {
+    if (str_starts_with($argument, '--exec=')) {
+        eval(substr($argument, strlen('--exec=')));
+        $isolated = true;
+    } elseif (!in_array($argument, ['--skip-plugins', '--skip-themes'], true)) {
+        $command[] = $argument;
+    }
+}
+try {
+    if ($mode === 'sunrise') define('SUNRISE', true);
+    if ($mode === 'explicit-mu') define('WPMU_PLUGIN_DIR', getenv('WPRISM_BOOTSTRAP_MU'));
+    if ($mode === 'relocated-content') define('WP_CONTENT_DIR', getcwd() . '/custom-content');
+    foreach (WP_CLI::$hooks['after_wp_config_load'] ?? [] as $callback) $callback();
+    if (!defined('WPMU_PLUGIN_DIR')) define('WPMU_PLUGIN_DIR', getenv('WPRISM_BOOTSTRAP_MU'));
+    foreach (glob(WPMU_PLUGIN_DIR . '/*.php') ?: [] as $muPlugin) require $muPlugin;
+    if ($command === ['core', 'is-installed']) {
+        file_put_contents($trace, $isolated ? "WP_ISOLATED\n" : "WP_PLAIN\n", FILE_APPEND);
+    } elseif ($command[0] === 'eval' && count($command) === 2) {
+        if (str_contains($command[1], 'wprism-single-site')) {
+            file_put_contents($trace, $isolated ? "TOPOLOGY_ISOLATED\n" : "TOPOLOGY_PLAIN\n", FILE_APPEND);
+            if ($mode === 'unreadable-topology') exit(77);
+            if ($mode === 'malformed-topology') { echo "not-a-topology\n"; exit(0); }
+            if ($mode === 'warning-topology') fwrite(STDERR, "private topology warning\n");
+        }
+        eval($command[1]);
+    } else {
+        file_put_contents($trace, "UNEXPECTED_WP\n", FILE_APPEND);
+        exit(92);
+    }
+} catch (Throwable $error) {
+    fwrite(STDERR, $error->getMessage() . "\n");
+    exit(93);
+}
+PHP);
 file_put_contents($bin . '/scp', <<<'SH'
 #!/usr/bin/env bash
 printf 'FIRST_UPLOAD\n' >>"$WPRISM_BOOTSTRAP_TRACE"
@@ -77,6 +118,15 @@ $unreadable = 'wprism: the database-external recovery fence could not be read sa
 $cases = [
     'fresh-adopt' => ['adopt'],
     'fresh-onboard' => ['onboard'],
+    'fresh-mu-adopt' => ['adopt'],
+    'fresh-mu-onboard' => ['onboard'],
+    'multisite' => ['adopt'],
+    'unreadable-topology' => ['adopt'],
+    'malformed-topology' => ['adopt'],
+    'warning-topology' => ['adopt'],
+    'sunrise' => ['adopt'],
+    'explicit-mu' => ['adopt'],
+    'relocated-content' => ['adopt'],
     'existing-clear-adopt' => ['adopt'],
     'missing-apply' => ['apply'],
     'missing-capture' => ['capture'],
@@ -112,6 +162,12 @@ foreach ($cases as $name => $arguments) {
     $trace = $case . '/trace';
     file_put_contents($trace, '');
     $expectedMessage = $unreadable;
+    if (in_array($name, ['fresh-mu-adopt', 'fresh-mu-onboard', 'multisite',
+        'unreadable-topology', 'malformed-topology', 'warning-topology',
+        'sunrise', 'explicit-mu', 'relocated-content'], true)) {
+        file_put_contents($mu . '/existing-callback.php',
+            '<?php file_put_contents(__DIR__ . "/callback-ran", "must-not-run");');
+    }
     switch ($name) {
         case 'existing-clear-adopt':
             mkdir($repo, 0700);
@@ -189,6 +245,7 @@ foreach ($cases as $name => $arguments) {
     $environment['PATH'] = $bin . ':' . (getenv('PATH') ?: '');
     $environment['WPRISM_BOOTSTRAP_TRACE'] = $trace;
     $environment['WPRISM_BOOTSTRAP_MU'] = $mu;
+    $environment['WPRISM_BOOTSTRAP_WP_MODE'] = $name;
     $environment['WPRISM_BOOTSTRAP_FRAME_MODE'] = match ($name) {
         'malformed-transport' => 'malformed',
         'malformed-proof', 'over-bound-proof' => $name,
@@ -207,7 +264,8 @@ foreach ($cases as $name => $arguments) {
     fclose($pipes[2]);
     $exit = proc_close($process);
     $events = (string) file_get_contents($trace);
-    $admitted = in_array($name, ['fresh-adopt', 'fresh-onboard', 'existing-clear-adopt'], true);
+    $admitted = in_array($name, ['fresh-adopt', 'fresh-onboard', 'fresh-mu-adopt',
+        'fresh-mu-onboard', 'existing-clear-adopt'], true);
     $valid = $admitted
         ? $exit === 73 && str_contains($stdout, 'adopt phase: staged install + transactional doctor')
             && str_contains($stderr, 'adopt failed during archive upload')
@@ -218,6 +276,13 @@ foreach ($cases as $name => $arguments) {
     wprism_check($valid, 'public bootstrap preflight classifies ' . $name);
     if (!$valid) wprism_check_detail(json_encode([$exit, $stdout, $stderr, $events], JSON_THROW_ON_ERROR));
     wprism_check($before === $witness(), $name . ' changes no target filesystem byte or node');
+    if ($admitted) {
+        $initial = $name !== 'existing-clear-adopt';
+        wprism_check($initial
+            ? substr_count($events, "TOPOLOGY_ISOLATED\n") === 2 && !str_contains($events, 'TOPOLOGY_PLAIN')
+            : substr_count($events, "TOPOLOGY_PLAIN\n") === 1,
+            $name . ' uses only its authorized topology bootstrap before upload');
+    }
     if (str_starts_with($name, 'missing-') || str_ends_with($name, '-debt')) {
         wprism_check(!str_contains($events, 'WP_'), $name . ' refuses without asking WordPress');
     }
@@ -245,7 +310,8 @@ final class AdoptProofExceptionTransport extends \WPrism\Orchestrator\Transport 
         return ['exit' => 0, 'stdout' => $script === 'echo wprism-reachable' ? 'wprism-reachable' : 'safe', 'stderr' => ''];
     }
     public function captureWp(array $wpArgs): array {
-        return ['exit' => 0, 'stdout' => '/fixture/wp/wp-content/mu-plugins', 'stderr' => ''];
+        return ['exit' => 0, 'stdout' => in_array('echo is_multisite() ? "wprism-multisite" : "wprism-single-site";', $wpArgs, true)
+            ? 'wprism-single-site' : '/fixture/wp/wp-content/mu-plugins', 'stderr' => ''];
     }
     public function captureRawFramed(string $phpTupleProgram, array $arguments, int $timeoutMilliseconds, int $maxStdoutBytes, int $maxStderrBytes): array {
         if (++$this->frames === $this->throwOnFrame) throw new RuntimeException('private transport exception');

@@ -185,12 +185,12 @@ set -eu
 printf '%s\n' "$*" >> "${WPRISM_LOCAL_BOOTSTRAP_LOG:?}"
 case " $* " in
   *" core is-installed "*) exit 0 ;;
+  # The isolated bootstrap also names WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR, so
+  # match the requested topology result before the discovery program.
+  *wprism-single-site*) printf '%s' 'wprism-single-site'; exit 0 ;;
   *WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR*) printf '%s' "$WPRISM_LOCAL_BOOTSTRAP_MU"; exit 0 ;;
   *WPRISM_AGENT_VERSION*) printf '%s' "$WPRISM_LOCAL_BOOTSTRAP_VERSION"; exit 0 ;;
   *wprism-policy-ok*) printf '%s' 'wprism-policy-ok'; exit 0 ;;
-  # The pre-swap topology probe, matched on its own literal so it cannot
-  # shadow the version/policy probes above.
-  *wprism-single-site*) printf '%s' 'wprism-single-site'; exit 0 ;;
 esac
 printf '%s\n' 'unexpected fake wp invocation' >&2
 exit 91
@@ -353,6 +353,14 @@ SH;
     );
     local_bootstrap_ok(($result['repo_created'] ?? false) === true, 'fresh local adoption creates the minimal seed repository');
     $wpLog = (string) file_get_contents($root . '/wp.log');
+    $topologyLines = array_values(array_filter(explode("\n", $wpLog),
+        static fn(string $line): bool => str_contains($line, 'wprism-single-site')));
+    local_bootstrap_ok(count($topologyLines) === 2
+        && count(array_filter($topologyLines, static fn(string $line): bool =>
+            str_contains($line, '--exec=') && str_contains($line, '--skip-plugins')
+            && str_contains($line, '--skip-themes')
+            && str_contains($line, 'WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR'))) === 2,
+        'initial local eligibility and its fresh pre-staging proof both use isolated single-site probes');
     local_bootstrap_ok(
         str_contains($wpLog, 'WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR')
             && str_contains($wpLog, 'WPRISM_CONTROL_PLANE')

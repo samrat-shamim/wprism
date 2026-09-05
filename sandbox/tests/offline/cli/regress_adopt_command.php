@@ -118,10 +118,9 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         if (str_contains($snippet, 'WPMU_PLUGIN_DIR')) {
             return ['exit' => 0, 'stdout' => "/fixture/mu\n", 'stderr' => ''];
         }
-        // The PRE-SWAP topology probe. Answered with plain `wp eval` args in
-        // both branches, never CodeDeploy::controlArgs(): that bootstrap
-        // requires the installed agent at wp-content/mu-plugins/wprism/wprism.php,
-        // which by construction does not exist yet at this point.
+        // Existing SSH updates retain this target-loaded pre-swap probe;
+        // initial adoption instead proves topology in BootstrapEligibility's
+        // agent-independent isolated bootstrap.
         // Matched on the probe's own distinctive literal, not on
         // `is_multisite`: doctor's composed SITE_FACTS eval now names
         // is_multisite() too, and a looser pattern would shadow it

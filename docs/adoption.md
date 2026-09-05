@@ -71,7 +71,7 @@ Local delivery is a privileged opt-in and must live in untracked
 
 That exact closed object authorizes only the mechanism. Checked-in repository
 configuration cannot self-label it machine-local. `wprism driver-capabilities`
-remains target-free; `wprism adopt` separately emits a read-only eligibility
+remains target-free; `wprism adopt` separately evaluates a read-only eligibility
 report and refuses before archive allocation or target writes unless every
 target check passes. Docker has no adoption capability at this version.
 
@@ -151,9 +151,11 @@ Adoption performs these operations:
    a genuinely absent repository requires positive initial-bootstrap authority
    rather than an exception to the recovery fence. Local targets additionally
    retain their initial-only eligibility requirement;
-2. verifies reachability and installed WordPress; initial adoption discovers
+2. verifies reachability and installed single-site WordPress; initial adoption discovers
    the standard `WPMU_PLUGIN_DIR` through a plugin-free control bootstrap and
-   proves a normalized, disjoint, ordinary, writable filesystem topology.
+   proves a normalized, disjoint, ordinary, writable filesystem topology. Its
+   pre-write WordPress probes also shadow existing MU code; the single-site
+   check never falls back to loading that code before installation.
    Existing-repository SSH updates retain their target-discovered path contract;
 3. assembles `adapter-packages/*/package/` and `platform/adapter-library/`
    into staging's `agent/adapter-library/`, then sends one archive containing

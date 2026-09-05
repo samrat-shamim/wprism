@@ -283,9 +283,8 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
             return ['exit' => 0, 'stdout' => $this->muDir . "\n", 'stderr' => ''];
         }
         $code = $wpArgs[1] ?? '';
-        // The pre-swap topology probe. Plain `wp eval` in BOTH branches, never
-        // CodeDeploy::controlArgs(): that bootstrap requires the installed
-        // agent, which does not exist yet at this point.
+        // This existing-update fixture keeps the target-loaded pre-swap
+        // probe; fresh initial eligibility has its own isolated bootstrap.
         if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'wprism-single-site')) {
             return ['exit' => 0, 'stdout' => "wprism-single-site\n", 'stderr' => ''];
         }

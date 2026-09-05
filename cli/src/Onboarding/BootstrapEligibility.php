@@ -214,6 +214,26 @@ PHP;
             return self::finish($environment, $driverId, $repo, $checks, null);
         }
 
+        // Eligibility is the pre-write authority: asking this again through
+        // plain wp eval in Adopt would load the MU code shadowed by discovery.
+        $wordpressTopology = self::capture(static fn(): array => $transport->captureWp(
+            self::controlArgs(['eval', 'echo is_multisite() ? "wprism-multisite" : "wprism-single-site";'])
+        ));
+        $singleSite = $wordpressTopology['exit'] === 0
+            && trim($wordpressTopology['stdout']) === 'wprism-single-site'
+            && $wordpressTopology['stderr'] === '';
+        $checks[] = self::check(
+            'wordpress_topology',
+            $singleSite,
+            $singleSite
+                ? 'isolated WordPress discovery proves a single-site installation'
+                : 'isolated WordPress discovery did not prove a single-site installation',
+            'use an ordinary single-site WordPress installation; multisite and unreadable topology are unsupported'
+        );
+        if (!$singleSite) {
+            return self::finish($environment, $driverId, $repo, $checks, null);
+        }
+
         $mu = self::capture(static fn(): array => $transport->captureWp(
             self::controlArgs(['eval', 'echo WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR;'])
         ));
