@@ -1723,6 +1723,145 @@ SH,
     rmdir($captureDirectory);
     rmdir($scratch);
 }
+
+// Host capture intentionally publishes a count, not private native warnings
+// (CaptureCommand::receipt). Exercise the real baseline block before it can
+// publish or commit state: a clean transport is necessary but not sufficient.
+$sshBaselineStart = strpos($sshDeletion, '  capture_rmcombo_ssh_json baseline_capture_json baseline-capture');
+$sshBaselineEnd = $sshBaselineStart === false ? false : strpos($sshDeletion, "  ssh_fixture '", $sshBaselineStart);
+$sshBaselineBlock = $sshBaselineStart === false || $sshBaselineEnd === false ? ''
+    : substr($sshDeletion, $sshBaselineStart, $sshBaselineEnd - $sshBaselineStart);
+wprism_check($sshBaselineBlock !== '', 'the SSH host baseline capture and pre-publication receipt acceptance are executable');
+$sshBaselineReceipt = [
+    'branch' => 'fixture/private-baseline-canary',
+    'capture' => [
+        'counts' => ['post' => 2, 'option' => 3],
+        'media_count' => 1,
+        'notes_count' => 2,
+        'state_revision' => str_repeat('a', 64),
+        'warnings_count' => 0,
+    ],
+    'environment' => 'target',
+    'format' => 'wprism-capture-result/v1',
+    'next_action' => 'review_and_commit',
+];
+$sshBaselineReceipt['receipt_sha256'] = 'sha256:' . hash('sha256', Canon::encode($sshBaselineReceipt));
+$sshBaselineCases = [
+    'ready' => $sshBaselineReceipt,
+    'command-nonzero' => $sshBaselineReceipt,
+    'php-stdout' => $sshBaselineReceipt,
+    'php-stderr' => $sshBaselineReceipt,
+];
+foreach ([
+    ['warnings-positive', ['capture', 'warnings_count'], 1],
+    ['warnings-missing', ['capture', 'warnings_count'], null, true],
+    ['warnings-null', ['capture', 'warnings_count'], null],
+    ['warnings-string', ['capture', 'warnings_count'], '0'],
+    ['warnings-boolean', ['capture', 'warnings_count'], false],
+    ['warnings-array', ['capture', 'warnings_count'], []],
+    ['warnings-object', ['capture', 'warnings_count'], new stdClass()],
+    ['warnings-negative', ['capture', 'warnings_count'], -1],
+    ['warnings-fractional', ['capture', 'warnings_count'], 0.5],
+    ['format-missing', ['format'], null, true],
+    ['format-unsupported', ['format'], 'wprism-capture-result/v2'],
+    ['environment-unbound', ['environment'], 'source'],
+    ['branch-unbound', ['branch'], 'other/private-baseline-canary'],
+    ['action-unrelated', ['next_action'], 'unrelated'],
+    ['root-extra', ['extra'], 'private-baseline-canary'],
+    ['capture-missing', ['capture'], null, true],
+    ['capture-extra', ['capture', 'extra'], 'private-baseline-canary'],
+    ['counts-missing', ['capture', 'counts'], null, true],
+    ['counts-array', ['capture', 'counts'], []],
+    ['counts-empty', ['capture', 'counts'], new stdClass()],
+    ['counts-key', ['capture', 'counts'], ['INVALID' => 1]],
+    ['counts-overflow', ['capture', 'counts'], array_fill_keys(array_map(static fn(int $index): string => 'kind_' . $index, range(0, 128)), 1)],
+    ['counts-negative', ['capture', 'counts', 'post'], -1],
+    ['counts-fractional', ['capture', 'counts', 'post'], 0.5],
+    ['counts-string', ['capture', 'counts', 'post'], 'private-baseline-canary'],
+    ['media-missing', ['capture', 'media_count'], null, true],
+    ['media-negative', ['capture', 'media_count'], -1],
+    ['notes-overflow', ['capture', 'notes_count'], 10001],
+    ['revision-malformed', ['capture', 'state_revision'], 'private-baseline-canary'],
+    ['digest-malformed', ['receipt_sha256'], 'private-baseline-canary'],
+] as $mutation) {
+    [$case, $path, $value] = $mutation;
+    $candidate = $sshBaselineReceipt;
+    $cursor = &$candidate;
+    foreach (array_slice($path, 0, -1) as $field) {
+        $cursor = &$cursor[$field];
+    }
+    $field = $path[count($path) - 1];
+    if ($mutation[3] ?? false) {
+        unset($cursor[$field]);
+    } else {
+        $cursor[$field] = $value;
+    }
+    unset($cursor);
+    $sshBaselineCases[$case] = $candidate;
+}
+$sshBaselineProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" TMP="$2" DIAG_DIR="$2" fixture_answer="$3" PROBE_CASE="$4"
+TARGET_REPOSITORY_BRANCH='fixture/private-baseline-canary'
+WPRISM=fixture_capture
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+trap 'printf "SSH_BASELINE_CLEANUP_VISIBLE\n" >&2' EXIT
+fixture_capture() {
+  [ "$#" -eq 5 ] && [ "$1" = "--envs-file=$TMP/envs.json" ] \
+    && [ "$2" = capture ] && [ "$3" = target ] \
+    && [ "$4" = "--target-branch=$TARGET_REPOSITORY_BRANCH" ] && [ "$5" = --format=json ] \
+    || return 81
+  if [ "$PROBE_CASE" = php-stdout ]; then
+    printf 'PHP Warning: private-baseline-canary in /fixture.php on line 1\n'
+  elif [ "$PROBE_CASE" = php-stderr ]; then
+    printf 'PHP Parse error: private-baseline-canary\n' >&2
+  fi
+  printf '%s\n' "$fixture_answer"
+  [ "$PROBE_CASE" != command-nonzero ] || return 7
+}
+SH;
+foreach ($sshBaselineCases as $case => $candidate) {
+    $scratch = sys_get_temp_dir() . '/wprism-rmcombo-ssh-baseline-' . bin2hex(random_bytes(8));
+    if (!mkdir($scratch, 0700)) {
+        throw new RuntimeException('could not allocate SSH baseline scratch');
+    }
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+        $sshBaselineProbe . "\n" . ($sshDiagnosticDefinition[0] ?? '')
+            . "\n" . ($sshJsonCaptureDefinition[0] ?? '') . "\n" . $sshBaselineBlock
+            . "\nprintf 'SSH_BASELINE_READY\\n'\n",
+        [$root, $scratch, json_encode($candidate, JSON_THROW_ON_ERROR), $case],
+        $root
+    );
+    $published = $scratch . '/rm-combo-baseline-capture.json';
+    $captureDirectory = $scratch . '/rank-math-commerce-multilingual-baseline-capture';
+    $publicFailure = in_array($case, ['php-stdout', 'php-stderr'], true)
+        ? 'emitted a PHP runtime diagnostic'
+        : ($case === 'command-nonzero'
+            ? 'failed; inspect its private diagnostic capture'
+            : 'did not return a warning-free bound capture receipt');
+    wprism_check(
+        ($case === 'ready'
+            ? $status === 0 && $stdout === "SSH_BASELINE_READY\n"
+                && $stderr === "SSH_BASELINE_CLEANUP_VISIBLE\n"
+                && is_file($published)
+                && Canon::encode(Canon::decode((string) file_get_contents($published))) === Canon::encode($candidate)
+            : $status !== 0 && $stdout === '' && !file_exists($published)
+                && str_contains($stderr, $publicFailure)
+                && substr_count($stderr, 'SSH_BASELINE_CLEANUP_VISIBLE') === 1)
+            && !str_contains($stdout . $stderr, 'private-baseline-canary')
+            && trim((string) file_get_contents($captureDirectory . '/exit')) === ($case === 'command-nonzero' ? '7' : '0'),
+        "the actual SSH baseline receipt rejects $case unless warning-free and bound, with private failure and visible cleanup"
+    );
+    if (is_file($published)) {
+        unlink($published);
+    }
+    foreach (['stdout', 'stderr', 'exit'] as $captureFile) {
+        unlink($captureDirectory . '/' . $captureFile);
+    }
+    rmdir($captureDirectory);
+    rmdir($scratch);
+}
 foreach ([
     'capture_rmcombo_ssh_json version_json "plugin-version-$adapter"' => 'plugin version',
     'capture_rmcombo_ssh_json active_order_json active-plugin-order' => 'active-plugin order',
