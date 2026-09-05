@@ -8,6 +8,9 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
+require_once __DIR__ . '/../Kernel/TermCoordinateWitness.php';
+require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
@@ -362,6 +365,19 @@ final class OptionsMaterializer {
      * path.
      */
     private function apply_value(string $ctx, $v, array $rule) {
+        if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
+            return ScalarReferenceIntersection::apply(
+                $v,
+                $rule,
+                fn(string $uuid, string $kind): ?int => $this->tokens->bound_token_id(
+                    (string) IdentityTokenCodec::encode($kind, $uuid)
+                ),
+                "option $ctx",
+                static fn(int $id, string $taxonomy): bool => TermCoordinateWitness::matches(
+                    $id, $taxonomy, Db::transaction_authority('authored scalar reference intersection')
+                )
+            );
+        }
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
             return StructuredValue::encode($v, $rule, $ctx);

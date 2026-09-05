@@ -1610,7 +1610,7 @@ class FakeWpdb {
         if ($profiled) {
             if (preg_match(
                 "/^[1-9][0-9]*' AND BINARY @wprism_tx_session = BINARY '[a-f0-9]{64}' "
-                    . "ON DUPLICATE KEY UPDATE v = IF\\( \\( (.*)$/D",
+                    . 'ON DUPLICATE KEY UPDATE v = IF\\( \\( (.*)$/D',
                 $actualSuffix,
                 $authority
             ) !== 1) {
@@ -2510,8 +2510,8 @@ class FakeWpdb {
         $lower = strtolower($trimmed);
         if ($this->informationSchemaEnabled
             && preg_match(
-                "/^SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE "
-                    . "FROM information_schema\\.COLUMNS "
+                '/^SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE '
+                    . 'FROM information_schema\\.COLUMNS '
                     . "WHERE TABLE_SCHEMA = DATABASE\\(\\) AND TABLE_NAME = '([A-Za-z0-9_]{1,64})' "
                     . "AND COLUMN_NAME = '([A-Za-z0-9_]{1,64})'$/iD",
                 $trimmed,
@@ -2864,7 +2864,7 @@ class FakeWpdb {
                     // separately interpreted below; it has no shared-write
                     // seam, so a synthetic range lock would only reject it.
                 } elseif (preg_match(
-                    '/\bWHERE\b[^;]*\b`?(?:ID|option_id|meta_id|event_id|occurrence_id|post_id|post_parent|term_id|user_id|object_id|action_id|claim_id|group_id|log_id)`?\s*=\s*[0-9]+\b/is',
+                    '/\bWHERE\b[^;]*\b`?(?:ID|option_id|meta_id|event_id|occurrence_id|post_id|post_parent|term_id|term_taxonomy_id|user_id|object_id|action_id|claim_id|group_id|log_id)`?\s*=\s*[0-9]+\b/is',
                     $trimmed
                 ) !== 1) {
                     throw $this->unsupported('unregistered SELECT FOR UPDATE lock target');

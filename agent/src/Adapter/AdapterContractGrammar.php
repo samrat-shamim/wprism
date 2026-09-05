@@ -34,6 +34,7 @@ require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // Redirection's action_data column is the measured mixed serialized/text
 // demand; this leaf owns the value-vocabulary feature name that gates it.
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -168,6 +169,12 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        // A value constraint on an existing option field; canonical references
+        // keep their existing kind and certificate arm, so no new section.
+        ScalarReferenceIntersection::FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
         // ARM `field`, and the reviewed reason: an id codec is a typed
         // REFINEMENT over a declared `block_attrs` rule — it decides the JSON
         // type one already-declared attribute's resolved id is written back as
@@ -475,7 +482,7 @@ final class AdapterContractGrammar {
      * publishes from its own constants. `keys` stays the flat list it was, so a
      * consumer that only wanted membership is unaffected.
      *
-     * @return array<string,array{since:int,keys:list<string>,sections:array<string,array<string,mixed>>}>
+     * @return array<string,array{since:int,keys:list<string>,sections:array<string,array<string,mixed>>,value_constraint?:array<string,mixed>}>
      */
     public static function implemented_feature_rows(): array {
         $arms = self::feature_key_arms();
@@ -493,6 +500,9 @@ final class AdapterContractGrammar {
                 'keys' => $keys,
                 'sections' => $sections,
             ];
+            if ($name === ScalarReferenceIntersection::FEATURE) {
+                $rows[$name]['value_constraint'] = ScalarReferenceIntersection::declaration_grammar();
+            }
         }
 
         return $rows;

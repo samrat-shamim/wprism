@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/ReferencePath.php';
+require_once __DIR__ . '/ScalarReferenceIntersection.php';
 
 /**
  * Manifest-time normalization and validation for the shared structural-ref
@@ -70,6 +71,13 @@ final class ReferenceRules {
 
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
     public static function value_rule(array $rule, string $where): void {
+        if (array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $rule)
+            && !array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
+            throw new \RuntimeException("wprism: $where.ref_taxonomy requires the scalar reference intersection feature");
+        }
+        if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
+            ScalarReferenceIntersection::kinds($rule, $where);
+        }
         $structured = array_key_exists('json_refs', $rule) || array_key_exists('key_refs', $rule);
         if (array_key_exists('repeated_rows', $rule)) {
             $repeated = $rule['repeated_rows'];
@@ -158,6 +166,9 @@ final class ReferenceRules {
     /** @return string[] referenced keyspace names */
     public static function kinds(array $rule): array {
         $out = [];
+        foreach ((array) ($rule[ScalarReferenceIntersection::FIELD] ?? []) as $kind) {
+            $out[] = (string) $kind;
+        }
         if (isset($rule['ref']) && is_string($rule['ref'])) {
             $out[] = rtrim($rule['ref'], '[]');
         }
@@ -175,6 +186,9 @@ final class ReferenceRules {
     /** @param string[] $allowed */
     public static function assert_keyspaces(array $rule, array $allowed, string $where): void {
         $kinds = [];
+        foreach ((array) ($rule[ScalarReferenceIntersection::FIELD] ?? []) as $kind) {
+            $kinds[] = (string) $kind;
+        }
         if (isset($rule['ref']) && is_string($rule['ref'])) {
             $scalarKind = rtrim($rule['ref'], '[]');
             if ($scalarKind !== 'user') {

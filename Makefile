@@ -1698,6 +1698,11 @@ regress-cli-json-refusals:
 regress-private-refusal-receipt:
 	php sandbox/tests/offline/guards/regress_private_refusal_receipt.php
 
+# One scalar must satisfy every declared local-id consumer without guessing.
+.PHONY: regress-scalar-reference-intersection
+regress-scalar-reference-intersection:
+	php sandbox/tests/offline/reference-scope/regress_scalar_reference_intersection.php
+
 # The lock/concurrency and repository-state refusals an orchestrator meets on
 # capture/plan/apply/deploy each reach --format=json as their own reason code
 # instead of `<command>_failed` + details_redacted, produced by the real

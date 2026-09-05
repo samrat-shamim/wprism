@@ -326,17 +326,17 @@ const WPRISM_CURRENT_DIGESTS = [
     'rank-math' => '0d25239e1ef81b66f446260b55e83745a8c53f10e23d7854bb41c1e13d804bc8',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
-    'woocommerce' => 'c66724d62f9410b43208b172ebdf95f6a5003b81a00dd6137401da4ae5cc94e3',
+    'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'd359d1ba451b50e91060fe089a4cff0789c19e0f4dd7b75bf00bab7234b10c3d';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '27bc459348aa1cdef579452d12d4f9bb56f23c33bab74c866145c1eaded6b44c';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '9acae1d6eb62273b9e92717ebfa97993367c636a23b3b41a9824af1fff5af06d';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
 const WPRISM_CURRENT_REGISTRY_SHA = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '8e62ea9e04a4b19361658a0e5e68e1ef20084a0aab5332707d35ff6a576e88de';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'a36a0afaee1c449a47daed0d6f3d5bc3be93cf086d63c27354cf356a2423cbf2';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '67eca63f8b2deafaa933f1349d71cbef481bbe2209cbf2e90ff5133bbb805676';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -1080,7 +1080,7 @@ wprism_check(
         $refusal(static function () use ($strayName): void {
             ManifestDispositions::load($strayName)?->data();
         }),
-        "is not named for a canonical adapter slug"
+        'is not named for a canonical adapter slug'
     ),
     'a document not named for a canonical adapter slug refuses rather than being skipped — reviewed bytes with no '
     . 'subject are the authoring half of the coverage rule'
@@ -1090,7 +1090,7 @@ wprism_check(
         $refusal(static function () use ($goodProfile): void {
             ManifestDispositions::load($goodProfile)?->entry('profiles');
         }),
-        "is the reserved name of the profiles document"
+        'is the reserved name of the profiles document'
     ),
     "'profiles' is reserved: an adapter of that name would be its own profiles map, so it refuses by name"
 );

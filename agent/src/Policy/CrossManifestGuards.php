@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 // Circular with Policy.php's own require_once of this file: safe for the
 // same reason ActionProviderGrammar.php's identical circular require is
 // (issue #3348 slice 6) -- require_once marks Policy.php's path included the
@@ -231,6 +232,11 @@ final class CrossManifestGuards {
     public static function validate_no_conflicting_option_rules(array $manifests, array $siteOptions): void {
         $seen = [];
         foreach ($manifests as $manifest) {
+            foreach ((array) ($manifest['options'] ?? []) as $name => $declared) {
+                if (is_array($declared) && is_array($siteOptions[$name] ?? null)) {
+                    ScalarReferenceIntersection::assert_site_override($declared, $siteOptions[$name], "options.$name");
+                }
+            }
             $manifestName = (string) ($manifest['name'] ?? '?');
             if ($manifestName === 'core') {
                 continue;

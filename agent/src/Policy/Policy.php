@@ -18,6 +18,7 @@ require_once __DIR__ . '/../Kernel/ManifestExecutableLoader.php';
 require_once __DIR__ . '/AdapterLibrary.php';
 require_once __DIR__ . '/AdapterPackage.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 // issue #3348 first extraction slice: the pure table/widget declaration grammar,
@@ -2858,6 +2859,22 @@ final class Policy {
             $rule = $i->{$hook}($key, $allValues);
             if ($rule === null) {
                 continue;
+            }
+            // This feature authorizes one exact static option, not executable
+            // classification. Even echoing a static constrained rule would
+            // add a second authority capable of stripping its constraint.
+            $intersection = array_key_exists(ScalarReferenceIntersection::FIELD, $rule)
+                || array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $rule)
+                || array_key_exists(ScalarReferenceIntersection::FIELD, $static['rule'] ?? []);
+            foreach ((array) ($rule['sub_keys'] ?? []) as $subRule) {
+                $intersection = $intersection
+                    || (is_array($subRule) && (array_key_exists(ScalarReferenceIntersection::FIELD, $subRule)
+                        || array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $subRule)));
+            }
+            if ($intersection) {
+                throw new \RuntimeException(
+                    "wprism: interpreter '$name' cannot classify $section '$key' with a static scalar reference intersection"
+                );
             }
             $owners = [];
             foreach ($this->manifests as $m) {

@@ -1,5 +1,11 @@
 # agent: Kernel
 
+`ScalarReferenceIntersection` owns the opt-in exact scalar term/TT value
+constraint and its authoring grammar; `TermCoordinateWitness` proves the
+physical tuple, using read-only observation or the caller's exact authored
+transaction and term-before-TT row locks. Taxonomy names remain manifest data.
+Neither class loads adapter executables or chooses transaction policy.
+
 **Purpose.** Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.
 
 **Directory** `agent/src/Kernel/` &middot; **layer** `kernel` &middot; **files** 35 &middot; **status** populated

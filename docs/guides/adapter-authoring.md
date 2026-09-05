@@ -313,6 +313,32 @@ than in a static key list,
 [`adapter-packages/acf/package/manifest.json`](../../adapter-packages/acf/package/manifest.json) is
 the reference.
 
+### One stored number, multiple native keyspaces
+
+Trace every native writer and reader of a reference option. One value may be
+consumed as both `term_id` and `term_taxonomy_id`; observing that those numbers
+happen to coincide on a fresh site is not evidence that they share a keyspace.
+WooCommerce's `default_product_cat` is the concrete case: its installer and
+batch assignment use TT ids, while its admin and default-term APIs use term ids.
+
+For this modeled coordinate pair, declare `scalar-reference-intersection/v1`
+and one exact authored option with `ref: "term"`,
+`ref_same_local_id_as: ["tt"]`, and required `ref_taxonomy: "product_cat"`.
+The engine checks physical rows, canonical taxonomy, and both identity bindings;
+canonical state still contains the ordinary term token. A default whose two
+native interpretations disagree refuses. A force flag cannot make that value
+portable. Neither an interpreter nor an authored site override may replace this
+static value contract; a whole-option runtime/derived exclusion relinquishes
+propagation, and an env exclusion makes provisioning operator-owned instead.
+
+Test an actually changed default, equal default coordinates with *other* terms
+divergent, wrong-category collisions, missing/partial maps, physical-table drift,
+and fresh activation before identity minting. The last case has a narrow
+read-only projection for a physically valid tuple with both mappings absent;
+ordinary capture never publishes that omission. Do not align all fixture ids or
+filter warnings to turn the unsupported domain into a positive case. See
+[the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
+
 ### Deleting what you author
 
 Authoring a post type does not make its rows deletable through WPrism. A capture

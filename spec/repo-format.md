@@ -2776,6 +2776,50 @@ first consumer; the participant-owned scenario executes capture and host
 deploy with both manifest and active-plugin orders and proves the same refusal
 with no repository publication or durable mutation debt.
 
+### v3.25 `scalar-reference-intersection/v1` — one value, multiple native coordinates
+
+This feature refines an existing exact `options.<name>` declaration and adds no
+top-level section, certificate arm, token kind, or version-integer change. The
+v1 shape is closed: `class: "authored"`, `ref: "term"`,
+`ref_same_local_id_as: ["tt"]`, and required `ref_taxonomy`, a nonempty lowercase
+ASCII taxonomy name of at most 32 characters (`[a-z0-9_-]`). Optional `cast` is
+only `"string"`. Array/CSV refs, structured values, sub-keys, repeated rows,
+patterns, dynamic options, metadata, interpreter-returned rules, and standalone
+`ref_taxonomy` are not admitted. The declaring v3 manifest must claim the
+feature. The emitted feature row publishes its `value_constraint` from the
+owning engine grammar.
+
+Terms are the only canonical entity currently modeled with two physical ledger
+coordinates. Arbitrary post/custom-keyspace combinations would claim an entity
+relationship the engine cannot prove, so this version rejects them. WooCommerce
+declares `product_cat`; no WooCommerce-specific branch enters the engine.
+
+For a positive native integer, capture first proves real term and TT rows whose
+ids both equal that integer and whose taxonomy is the declaration's exact value.
+Both ledger coordinates must then resolve to the same UUID. Canonical output is
+the ordinary `{{term:uuid}}` token. Compilation requires that UUID to identify
+exactly one canonical term in the declared taxonomy. Apply requires both target
+bindings to resolve to the same positive integer, then locks and proves its
+physical term/TT tuple inside the authored transaction before writing the option.
+The target integer may differ from the source integer; unrelated terms need
+not have equal term/TT ids.
+
+Native `0` and `"0"` capture as canonical integer `0`, the durable unset value.
+Declared absence remains absence. A strict read-only observation may project a
+physically valid hook-created tuple as transient absence only when **both**
+ledger bindings are absent; lifecycle handoff binds that missing projection to
+frozen desired state before ordinary apply. A partial, malformed, contradictory,
+or physically missing tuple never qualifies. Ordinary capture and apply refuse
+with `reference_intersection_failed`; no warning/drop path, fallback keyspace,
+force bypass, or native-id rewrite is authorized.
+
+Site policy may relinquish the whole option as runtime/derived, or declare it
+operator-provisioned env state. It cannot substitute a write-capable rule or
+any `sub_keys` object for the manifest's value contract. Interpreter answers
+cannot echo or replace a constrained static rule. These are boundary refusals,
+not implicit merging of missing constraints. Manifest edits change adapter
+identity and require recompile plus explicit re-pin.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

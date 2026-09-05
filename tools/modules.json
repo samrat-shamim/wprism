@@ -104,6 +104,8 @@
           "JsonRefs",
           "ReferenceKindGrammar",
           "ReferenceShapeGrammar",
+          "ScalarReferenceIntersection",
+          "TermCoordinateWitness",
           "TableGraph",
           "TableSchema",
           "IdentityTokenCodec",
@@ -144,7 +146,7 @@
             ]
           }
         ],
-  "file_count": 62,
+  "file_count": 64,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -191,6 +193,7 @@
           "ReferenceRules.php",
           "ReferenceScopeClassifier.php",
           "ReferenceShapeGrammar.php",
+          "ScalarReferenceIntersection.php",
           "Secrets.php",
           "SiteTopology.php",
           "SpecVersionWindow.php",
@@ -198,6 +201,7 @@
           "StructuredValue.php",
           "TableGraph.php",
           "TableSchema.php",
+          "TermCoordinateWitness.php",
     "TextTokenizer.php",
     "TransactionAuthority.php",
     "TransactionalTableBoundary.php",

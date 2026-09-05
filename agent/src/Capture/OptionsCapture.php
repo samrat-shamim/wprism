@@ -10,6 +10,8 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
+require_once __DIR__ . '/../Kernel/TermCoordinateWitness.php';
 require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
 
 /**
@@ -77,7 +79,7 @@ final class OptionsCapture {
         $liveCanonicalNames = [];
         foreach ($this->policy->authored_options() as $name => $rule) {
             DatabaseQueryIsolation::work_unit($workAuthority, function () use (
-                $name, $rule, $forceUnresolvedRefs, &$processed, &$liveCanonicalNames, &$out
+                $name, $rule, $forceUnresolvedRefs, $strictReadOnly, &$processed, &$liveCanonicalNames, &$out
             ): void {
                 $processed[$name] = true;
                 $row = $this->read_option_row($name);
@@ -88,7 +90,7 @@ final class OptionsCapture {
                 $v = PlainData::decode($row['option_value'], "option $name");
                 PlainData::assert($v, "option $name");
                 ($this->guardSecret)('options', $name, $v, $rule);
-                $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
+                $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs, false, $strictReadOnly);
                 if (!$captured['included']) {
                     return;
                 }
@@ -321,7 +323,8 @@ final class OptionsCapture {
         $v,
         array $rule,
         bool $forceUnresolvedRefs,
-        bool $omitUnsetScalarRef = false
+        bool $omitUnsetScalarRef = false,
+        bool $allowUnmappedIntersectionProjection = false
     ): array {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = StructuredValue::decode($v, $rule, "option $ctx");
@@ -335,6 +338,17 @@ final class OptionsCapture {
             return ['included' => true, 'value' => $this->tokens->plain_data_capture($v)];
         }
         if (!empty($rule['ref'])) {
+            if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
+                $captured = ScalarReferenceIntersection::capture(
+                    $v,
+                    $rule,
+                    static fn(int $id, string $kind): ?string => Ledger::uuid_for($id, Tokens::ledger_kind($kind)),
+                    "option $ctx",
+                    static fn(int $id, string $taxonomy): bool => TermCoordinateWitness::matches($id, $taxonomy),
+                    $allowUnmappedIntersectionProjection
+                );
+                return ['included' => $captured !== null, 'value' => $captured];
+            }
             $captured = $this->option_ref_tokens(
                 $ctx,
                 $v,
