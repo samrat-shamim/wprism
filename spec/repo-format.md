@@ -2805,13 +2805,16 @@ The target integer may differ from the source integer; unrelated terms need
 not have equal term/TT ids.
 
 Native `0` and `"0"` capture as canonical integer `0`, the durable unset value.
-Declared absence remains absence. A strict read-only observation may project a
-physically valid hook-created tuple as transient absence only when **both**
-ledger bindings are absent; lifecycle handoff binds that missing projection to
-frozen desired state before ordinary apply. A partial, malformed, contradictory,
-or physically missing tuple never qualifies. Ordinary capture and apply refuse
+Declared absence remains absence. Only the explicitly selected options-only
+lifecycle snapshot may project a physically valid hook-created tuple as
+transient absence when **both** ledger bindings are absent. Handoff binds that
+missing projection to frozen desired state before ordinary apply. Generic strict
+read-only capture, production export and explain never select that purpose,
+including when site scope excludes the referenced taxonomy. A partial, malformed,
+contradictory, or physically missing tuple never qualifies. Ordinary capture and apply refuse
 with `reference_intersection_failed`; no warning/drop path, fallback keyspace,
-force bypass, or native-id rewrite is authorized.
+force bypass, or native-id rewrite is authorized. Unconstrained reference rules
+retain their existing dangling-reference semantics.
 
 Site policy may relinquish the whole option as runtime/derived, or declare it
 operator-provisioned env state. It cannot substitute a write-capable rule or
