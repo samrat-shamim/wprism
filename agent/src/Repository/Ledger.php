@@ -157,7 +157,7 @@ final class Ledger {
      * export: CREATE/ALTER would turn an observation request into a repair.
      * This helper therefore proves that the three ledger tables the export
      * consumes already exist with the minimum schema that makes their
-     * uniqueness promises meaningful, using information_schema SELECTs only.
+     * uniqueness promises meaningful, using exact-table SHOW metadata reads.
      * A stale deployment must be repaired through the ordinary capture gate;
      * an export has no authority to make it look current.
      */
@@ -179,17 +179,30 @@ final class Ledger {
             $wpdb->prefix . 'wprism_state',
             $wpdb->prefix . 'wprism_kv',
         ];
-        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
-        $columns = self::checked_get_results($wpdb->prepare(
-            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH\n"
-            . 'FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() '
-            . "AND TABLE_NAME IN ($placeholders)",
-            ...$tables
-        ), 'read-only ledger schema inventory');
-
+        // The snapshot's native profile grants these three physical tables,
+        // not information_schema. SHOW keeps the proof inside that same
+        // session and table authority; it must not become an unchecked
+        // pre-transaction census or a reason to widen the profile grammar.
         $byTable = [];
-        foreach ($columns as $column) {
-            $byTable[(string) $column['TABLE_NAME']][(string) $column['COLUMN_NAME']] = $column;
+        foreach ($tables as $table) {
+            if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
+                throw new \RuntimeException('wprism: ledger read failed: read-only ledger schema inventory');
+            }
+            $columns = self::read_only_schema_rows(
+                "SHOW FULL COLUMNS FROM `$table`",
+                'read-only ledger schema inventory'
+            );
+            foreach ($columns as $column) {
+                $field = $column['Field'] ?? null;
+                $type = $column['Type'] ?? null;
+                if (!is_string($field) || $field === '' || strlen($field) > 256
+                    || str_contains($field, "\0") || !is_string($type)
+                    || $type === '' || strlen($type) > 65535
+                    || isset($byTable[$table][$field])) {
+                    throw new \RuntimeException('wprism: ledger read failed: read-only ledger schema inventory');
+                }
+                $byTable[$table][$field] = strtolower($type);
+            }
         }
         $need = [
             $wpdb->prefix . 'wprism_map' => ['uuid' => 36, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'id_kind' => self::ID_KIND_WIDTH, 'local_id' => 0],
@@ -198,33 +211,61 @@ final class Ledger {
         ];
         foreach ($need as $table => $fields) {
             foreach ($fields as $field => $minimum) {
-                $row = $byTable[$table][$field] ?? null;
-                if (!is_array($row)) {
+                $type = $byTable[$table][$field] ?? null;
+                if ($type === null) {
                     throw new \RuntimeException("wprism: refresh export refused — required ledger table/column '$table.$field' is missing; run the existing capture gate to provision or repair it");
                 }
                 if ($field === 'local_id') {
-                    $type = strtolower((string) ($row['COLUMN_TYPE'] ?? ''));
-                    if (!str_contains($type, 'bigint') || !str_contains($type, 'unsigned')) {
+                    if (preg_match('/^bigint(?:\([1-9][0-9]?\))? unsigned(?: zerofill)?$/D', $type) !== 1) {
                         throw new \RuntimeException("wprism: refresh export refused — ledger column '$table.$field' is not an unsigned BIGINT identity");
                     }
                     continue;
                 }
-                $length = (int) ($row['CHARACTER_MAXIMUM_LENGTH'] ?? 0);
+                $length = self::read_only_column_width($type);
                 if ($length < $minimum) {
                     throw new \RuntimeException("wprism: refresh export refused — ledger column '$table.$field' is narrower than the supported durable identity schema");
                 }
             }
         }
 
-        $indexes = self::checked_get_results($wpdb->prepare(
-            "SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME\n"
-            . 'FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() '
-            . "AND TABLE_NAME IN ($placeholders) ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
-            ...$tables
-        ), 'read-only ledger index inventory');
         $byIndex = [];
-        foreach ($indexes as $index) {
-            $byIndex[(string) $index['TABLE_NAME']][(string) $index['INDEX_NAME']][] = $index;
+        foreach ($tables as $table) {
+            $indexes = self::read_only_schema_rows("SHOW INDEX FROM `$table`", 'read-only ledger index inventory');
+            foreach ($indexes as $index) {
+                $name = $index['Key_name'] ?? null;
+                $sequence = $index['Seq_in_index'] ?? null;
+                $nonUnique = $index['Non_unique'] ?? null;
+                $field = $index['Column_name'] ?? null;
+                if (!is_string($name) || $name === '' || strlen($name) > 256
+                    || str_contains($name, "\0")
+                    || (array_key_exists('Table', $index) && $index['Table'] !== $table)
+                    || !in_array($nonUnique, [0, 1, '0', '1'], true)
+                    || (!is_int($sequence) && !is_string($sequence))
+                    || preg_match('/^[1-9][0-9]?$/D', (string) $sequence) !== 1
+                    || (int) $sequence > 64
+                    || ($field !== null && (!is_string($field) || $field === '' || strlen($field) > 256))
+                    || !array_key_exists('Sub_part', $index)
+                    || ($index['Sub_part'] !== null
+                        && ((!is_int($index['Sub_part']) && !is_string($index['Sub_part']))
+                            || preg_match('/^[1-9][0-9]{0,4}$/D', (string) $index['Sub_part']) !== 1
+                            || (int) $index['Sub_part'] > 65535))
+                    || isset($byIndex[$table][$name][(int) $sequence])) {
+                    throw new \RuntimeException('wprism: ledger read failed: read-only ledger index inventory');
+                }
+                $byIndex[$table][$name][(int) $sequence] = [
+                    'field' => $field,
+                    'non_unique' => (int) $nonUnique,
+                    'prefix' => $index['Sub_part'],
+                ];
+            }
+            foreach ($byIndex[$table] ?? [] as $name => $rows) {
+                ksort($rows, SORT_NUMERIC);
+                if (array_keys($rows) !== range(1, count($rows))
+                    || count(array_unique(array_column($rows, 'non_unique'))) !== 1) {
+                    throw new \RuntimeException('wprism: ledger read failed: read-only ledger index inventory');
+                }
+                $byIndex[$table][$name] = array_values($rows);
+            }
         }
         foreach ([
             [$wpdb->prefix . 'wprism_map', ['uuid', 'id_kind']],
@@ -234,10 +275,11 @@ final class Ledger {
         ] as [$table, $fields]) {
             $found = false;
             foreach ($byIndex[$table] ?? [] as $rows) {
-                if ((int) ($rows[0]['NON_UNIQUE'] ?? 1) !== 0) {
+                if ($rows[0]['non_unique'] !== 0
+                    || array_filter($rows, static fn(array $row): bool => $row['prefix'] !== null) !== []) {
                     continue;
                 }
-                if (array_column($rows, 'COLUMN_NAME') === $fields) {
+                if (array_column($rows, 'field') === $fields) {
                     $found = true;
                     break;
                 }
@@ -250,9 +292,59 @@ final class Ledger {
             }
         }
 
-        // This SELECT-only structural pass catches accidental/manual table
+        // This observation-only structural pass catches accidental/manual table
         // edits before individual content rows are trusted below.
         self::assert_read_only_map_inventory();
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function read_only_schema_rows(string $sql, string $context): array {
+        try {
+            $rows = self::checked_get_results($sql, $context);
+        } catch (\mysqli_sql_exception $failure) {
+            // Db's strict transport prevents wpdb reconnect/replay. Retain
+            // its original driver evidence privately without substituting
+            // database values for the ledger's existing read-failure text.
+            throw new \RuntimeException("wprism: ledger read failed: $context", 0, $failure);
+        }
+        // SHOW has no LIMIT in the admitted grammar. Bound its complete
+        // result before interpreting facts: at most 1,024 column/index parts,
+        // 32 attributes per row and 4 MiB including non-authoritative defaults
+        // and comments. No extra metadata query escapes the active profile.
+        if (!array_is_list($rows) || count($rows) > 1024) {
+            throw new \RuntimeException("wprism: ledger read failed: $context");
+        }
+        $bytes = 0;
+        foreach ($rows as $row) {
+            if (!is_array($row) || array_is_list($row) || count($row) > 32) {
+                throw new \RuntimeException("wprism: ledger read failed: $context");
+            }
+            foreach ($row as $key => $value) {
+                if (!is_string($key) || strlen($key) > 64
+                    || ($value !== null && !is_string($value) && !is_int($value))) {
+                    throw new \RuntimeException("wprism: ledger read failed: $context");
+                }
+                $bytes += strlen($key) + strlen((string) $value);
+                if ($bytes > 4194304) {
+                    throw new \RuntimeException("wprism: ledger read failed: $context");
+                }
+            }
+        }
+        return $rows;
+    }
+
+    private static function read_only_column_width(string $type): int {
+        if (preg_match('/^(var)?(?:char|binary)\(([1-9][0-9]{0,4})\)$/D', $type, $match) === 1) {
+            $maximum = $match[1] === 'var' ? 65535 : 255;
+            return (int) $match[2] <= $maximum ? (int) $match[2] : 0;
+        }
+        return match ($type) {
+            'tinytext', 'tinyblob' => 255,
+            'text', 'blob' => 65535,
+            'mediumtext', 'mediumblob' => 16777215,
+            'longtext', 'longblob' => 4294967295,
+            default => 0,
+        };
     }
 
     /**

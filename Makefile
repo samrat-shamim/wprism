@@ -73,7 +73,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-adapter-package-current-paths \
 	regress-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
 	regress-post-field-classification regress-init-contract regress-wprism-init regress-reference-contract \
-	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
+	regress-refresh-export-unit regress-ledger-read-only-schema regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
 	release-gate
@@ -2610,10 +2610,15 @@ regress-pair-candidate-source:
 
 # issue #3343: a production refresh is an observation boundary, not a capture
 # variant. This focused no-WordPress harness proves the exporter's
-# SELECT-only ledger validation, mutation prohibition, and semantic-record
+# read-only ledger validation, mutation prohibition, and semantic-record
 # envelope without needing a sandbox database.
 regress-refresh-export-unit:
 	php sandbox/tests/offline/refresh/regress_refresh_export_unit.php
+
+# The actual refresh snapshot/table gate, explicit SHOW schema facts and
+# failure/shape/session controls; no information_schema authority is added.
+regress-ledger-read-only-schema:
+	php sandbox/tests/offline/refresh/regress_ledger_read_only_schema.php
 
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-collision:

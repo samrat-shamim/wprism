@@ -1,12 +1,14 @@
 <?php
 /**
- * Offline boundary regression: only a fake SELECT-capable wpdb is present.
- * Any mutation query throws, so this proves the strict ledger/export helpers
- * are observers rather than capture repair paths.
+ * Offline boundary regression: explicit ledger schema and rows run through
+ * the shared interpreter. Mutation SQL refuses before execution, so strict
+ * ledger/export helpers remain observers rather than capture repair paths.
  */
 $root = realpath(__DIR__ . '/../../../..');
 if ($root === false) throw new RuntimeException('FAIL: root missing');
-define('ARRAY_A', 'ARRAY_A');
+require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once $root . '/agent/src/Kernel/Uuid.php';
 require_once $root . '/agent/src/Kernel/Db.php';
 require_once $root . '/agent/src/Repository/Ledger.php';
@@ -25,6 +27,7 @@ use WPrism\ScopeDiscovery;
 use WPrism\Snapshot;
 use WPrism\Tokens;
 use WPrism\Uuid;
+use WPrismTest\FakeWpdb;
 
 function fail_re(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function check_re(bool $ok, string $message): void { if (!$ok) fail_re($message); }
@@ -32,108 +35,42 @@ if (!function_exists('get_taxonomy')) {
     function get_taxonomy(string $_taxonomy): false { return false; }
 }
 
-final class RefreshExportReadOnlyWpdb {
-    public string $prefix = 'wp_';
-    public string $last_error = '';
-    /** @var list<array<string,mixed>> */
-    public array $maps = [];
-    public int $queries = 0;
-
-    public function prepare(string $sql, mixed ...$args): string {
-        foreach ($args as $arg) {
-            $value = is_int($arg) ? (string) $arg : "'" . addslashes((string) $arg) . "'";
-            $sql = preg_replace('/%[sd]/', $value, $sql, 1) ?? $sql;
-        }
-        return $sql;
-    }
-    public function query(string $sql): never {
-        $this->queries++;
-        throw new RuntimeException("FAIL: unexpected mutation query $sql");
-    }
-    /** @return list<array<string,mixed>> */
-    public function get_results(string $sql, mixed $_output = null): array {
-        if (str_contains($sql, 'information_schema.COLUMNS')) return $this->columns();
-        if (str_contains($sql, 'information_schema.STATISTICS')) return $this->indexes();
-        if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM wp_wprism_map')) return $this->maps;
-        throw new RuntimeException("FAIL: unexpected inventory query $sql");
-    }
-    public function get_var(string $sql): mixed {
-        if (preg_match("/WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)/", $sql, $m) === 1) {
-            foreach ($this->maps as $row) {
-                if ($row['id_kind'] === $m[1] && (int) $row['local_id'] === (int) $m[2]) {
-                    return $row['uuid'];
-                }
-            }
-            return null;
-        }
-        throw new RuntimeException("FAIL: unexpected scalar query $sql");
-    }
-    /** @return ?array<string,mixed> */
-    public function get_row(string $sql, mixed $_output = null): ?array {
-        if (preg_match("/WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m) === 1) {
-            foreach ($this->maps as $row) if ($row['uuid'] === $m[1] && $row['id_kind'] === $m[2]) {
-                return ['entity_type' => $row['entity_type'], 'local_id' => $row['local_id']];
-            }
-            return null;
-        }
-        if (preg_match("/WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)/", $sql, $m) === 1) {
-            foreach ($this->maps as $row) if ($row['id_kind'] === $m[1] && (int) $row['local_id'] === (int) $m[2]) {
-                return ['uuid' => $row['uuid'], 'entity_type' => $row['entity_type']];
-            }
-            return null;
-        }
-        throw new RuntimeException("FAIL: unexpected row query $sql");
-    }
-    /** @return list<array<string,mixed>> */
-    private function columns(): array {
-        $out = [];
-        $add = static function (string $table, string $name, string $type, int $length) use (&$out): void {
-            $out[] = ['TABLE_NAME' => $table, 'COLUMN_NAME' => $name, 'DATA_TYPE' => $type,
-                'COLUMN_TYPE' => $type, 'CHARACTER_MAXIMUM_LENGTH' => $length];
-        };
-        $add('wp_wprism_map', 'uuid', 'char(36)', 36);
-        $add('wp_wprism_map', 'entity_type', 'varchar(64)', 64);
-        $add('wp_wprism_map', 'id_kind', 'varchar(64)', 64);
-        $add('wp_wprism_map', 'local_id', 'bigint(20) unsigned', 0);
-        $add('wp_wprism_state', 'uuid', 'varchar(64)', 64);
-        $add('wp_wprism_state', 'entity_type', 'varchar(64)', 64);
-        $add('wp_wprism_state', 'content_hash', 'char(64)', 64);
-        $add('wp_wprism_kv', 'k', 'varchar(191)', 191);
-        $add('wp_wprism_kv', 'v', 'longtext', PHP_INT_MAX);
-        return $out;
-    }
-    /** @return list<array<string,mixed>> */
-    private function indexes(): array {
-        return [
-            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'uuid'],
-            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>2,'COLUMN_NAME'=>'id_kind'],
-            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'kind_local','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'id_kind'],
-            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'kind_local','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>2,'COLUMN_NAME'=>'local_id'],
-            ['TABLE_NAME'=>'wp_wprism_state','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'uuid'],
-            ['TABLE_NAME'=>'wp_wprism_kv','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'k'],
-        ];
-    }
-}
-
 $uuid = '123e4567-e89b-42d3-a456-426614174000';
 $renamedNaturalUuid = Uuid::v5(
     Uuid::NAMESPACE_WPRISM,
     'woocommerce_attribute_taxonomies:original-name'
 );
-$wpdb = new RefreshExportReadOnlyWpdb();
-$wpdb->maps = [
-    ['uuid'=>$uuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>7],
+$wpdb = FakeWpdb::install()->seedTable('wp_wprism_map', [
+    ['uuid' => $uuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 7],
     [
-        'uuid'=>$renamedNaturalUuid,
-        'entity_type'=>'woocommerce_attribute_taxonomies',
-        'id_kind'=>'attr_taxonomy',
-        'local_id'=>42,
+        'uuid' => $renamedNaturalUuid,
+        'entity_type' => 'woocommerce_attribute_taxonomies',
+        'id_kind' => 'attr_taxonomy',
+        'local_id' => 42,
     ],
+])->setColumns('wp_wprism_map', [
+    'uuid' => 'char(36)', 'entity_type' => 'varchar(64)', 'id_kind' => 'varchar(64)', 'local_id' => 'bigint(20) unsigned',
+])->setColumns('wp_wprism_state', [
+    'uuid' => 'varchar(64)', 'entity_type' => 'varchar(64)', 'content_hash' => 'char(64)',
+])->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+$index = static fn(string $name, string $column, int $sequence): array => [
+    'Key_name' => $name, 'Non_unique' => 0, 'Seq_in_index' => $sequence,
+    'Column_name' => $column, 'Sub_part' => null, 'Index_type' => 'BTREE',
 ];
-$GLOBALS['wpdb'] = $wpdb;
+$wpdb->setIndexes('wp_wprism_map', [
+    $index('PRIMARY', 'uuid', 1), $index('PRIMARY', 'id_kind', 2),
+    $index('kind_local', 'id_kind', 1), $index('kind_local', 'local_id', 2),
+])->setIndexes('wp_wprism_state', [$index('PRIMARY', 'uuid', 1)])
+    ->setIndexes('wp_wprism_kv', [$index('PRIMARY', 'k', 1)])
+    ->onQuery(static function (string $sql): ?string {
+        if (preg_match('/^(?:SELECT|SHOW)\b/i', $sql) !== 1) {
+            throw new RuntimeException('FAIL: read-only fixture attempted mutation SQL');
+        }
+        return null;
+    });
 Ledger::assert_read_only_schema();
 Ledger::require_read_only_mapping($uuid, 'post', 'post', 7, 'fixture post');
-check_re($wpdb->queries === 0, 'read-only ledger helper attempted a mutation query');
+check_re($wpdb->ddlLog() === [], 'read-only ledger helper attempted schema repair');
 
 $identify = new ReflectionMethod(Snapshot::class, 'identify_row');
 // issue #3318: identify_row() takes the capture-direction tokenizer, because a
@@ -149,7 +86,7 @@ $retained = $identify->invoke(null, 'woocommerce_attribute_taxonomies', [
 ], ['attribute_name' => 'renamed-value'], 42, $identifyTokens, false, true);
 check_re($retained === $renamedNaturalUuid,
     'strict export did not preserve durable natural-key identity across an authored rename');
-check_re($wpdb->queries === 0, 'natural-key continuity check attempted a mutation query');
+check_re($wpdb->ddlLog() === [], 'natural-key continuity check attempted schema repair');
 
 // The isolated control bootstrap deliberately skips user plugins. An exact
 // plugin taxonomy can therefore be in policy scope without being registered.
@@ -201,9 +138,9 @@ check_re(!str_contains($code, 'Canon::write_file('), 'exporter writes filesystem
 
 $records = new ReflectionMethod(RefreshExport::class, 'records');
 $result = $records->invoke(null, [[
-    'uuid'=>'options/core', 'type'=>'options', 'path'=>'options/core.json', 'content'=>"{}\n",
+    'uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json', 'content' => "{}\n",
 ], [
-    'uuid'=>$uuid, 'type'=>'post', 'path'=>"posts/post/$uuid--fixture.md", 'content'=>"visible\n", 'hash_basis'=>"semantic\n",
+    'uuid' => $uuid, 'type' => 'post', 'path' => "posts/post/$uuid--fixture.md", 'content' => "visible\n", 'hash_basis' => "semantic\n",
 ]]);
 check_re(array_keys($result) === [$uuid, 'options/core'], 'records are not keyed by semantic identity');
 check_re($result[$uuid]['hash'] === hash('sha256', "semantic\n"), 'post semantic hash basis was not retained');
