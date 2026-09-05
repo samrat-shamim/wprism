@@ -2,12 +2,18 @@
 declare(strict_types=1);
 
 /** Core fixture evidence must exercise unsigned refusal, not invent deletion authority. */
+$pagePlanScratch = null;
+if (($argv[1] ?? '') === '--page-plan') {
+    $pagePlanScratch = sys_get_temp_dir() . '/wprism-core-page-plan-' . bin2hex(random_bytes(8));
+    define('WP_CONTENT_DIR', $pagePlanScratch);
+}
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../lib/ShellProbe.php';
 require_once __DIR__ . '/../../lib/PrivateRefusalReceipt.php';
-require_once dirname(__DIR__, 4) . '/sandbox/conformance/fixtures/core-private-refusal-evidence.php';
+$profileRoot = is_dir($argv[1] ?? '') ? $argv[1] : dirname(__DIR__, 4);
+require_once $profileRoot . '/sandbox/conformance/fixtures/core-private-refusal-evidence.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Delete/DeletionWriterExclusion.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Apply/ApplyRequestCoordinator.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Command/Cli.php';
@@ -35,6 +41,64 @@ $root = dirname(__DIR__, 4);
 $self = __FILE__;
 $nativeTables = ['posts', 'postmeta', 'comments', 'commentmeta', 'term_relationships',
     'terms', 'termmeta', 'term_taxonomy', 'options', 'wprism_map', 'wprism_state', 'wprism_kv', 'wprism_journal'];
+
+// Derive the warning's entity kind through the actual immutable-plan builder.
+// An already-absent page isolates row construction from comment scanning; the
+// comment witness below still belongs to the separately exercised live guard.
+if (($argv[1] ?? '') === '--page-plan') {
+    require_once $root . '/sandbox/tests/lib/agent_version.php';
+    wprism_test_define_agent_versions();
+    require_once $root . '/agent/src/Capture/Capture.php';
+    function get_taxonomies(array $args = [], string $output = 'names'): array { return []; }
+    $scratch = $pagePlanScratch;
+    mkdir($scratch . '/themes/fixture', 0700, true);
+    file_put_contents($scratch . '/themes/fixture/style.css', "/*\nTheme Name: Core plan fixture\nVersion: 1.0.0\n*/\n");
+    try {
+        $db = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions();
+        WpStore::reset()->seedOptions(['home' => 'https://core.example.test']);
+        foreach (\WPrism\TableSchema::core_capture_required_columns() as $property => $columns) {
+            $db->setColumns($db->$property, array_fill_keys($columns, 'longtext'))->setTableEngine($db->$property, 'InnoDB');
+        }
+        $db->setColumns('wp_wprism_map', [
+            'uuid' => 'char(36)', 'entity_type' => 'varchar(64)', 'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
+        ])->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+            ->setTableEngine('wp_wprism_map', 'InnoDB')->setColumns('wp_wprism_state', [
+                'uuid' => 'varchar(64)', 'entity_type' => 'varchar(64)', 'content_hash' => 'char(64)',
+            ])->setUniqueKey('wp_wprism_state', ['uuid'])->setTableEngine('wp_wprism_state', 'InnoDB')
+            ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'varchar(1024)'])
+            ->setUniqueKey('wp_wprism_kv', ['k'])->setTableEngine('wp_wprism_kv', 'InnoDB')
+            ->seedTable('wp_options', [
+                ['option_id' => 1, 'option_name' => 'active_plugins', 'option_value' => 'a:0:{}', 'autoload' => 'yes'],
+                ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'fixture', 'autoload' => 'yes'],
+                ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'fixture', 'autoload' => 'yes'],
+            ]);
+        $policy = new \WPrism\Policy();
+        $policy->site = ['policy' => ['taxonomies' => [], 'post_types' => []]];
+        $policy->manifests = [\WPrism\Canon::decode((string) file_get_contents($root . '/platform/adapter-library/core/manifest.json'))];
+        $uuid = $argv[2];
+        $previous = \WPrism\CompiledRepository::create(['revision_hash' => str_repeat('b', 64), 'tree' => [$uuid => [
+            'type' => 'post', 'hash' => str_repeat('a', 64), 'path' => 'posts/page/' . $uuid . '.md',
+            'data' => ['uuid' => $uuid, 'type' => 'page'],
+        ]]]);
+        $tombstone = \WPrism\Deletion::capture_tombstones($previous, [], $policy)[0];
+        $compiled = \WPrism\CompiledRepository::create(['tree' => [], 'deletions' => [$uuid => $tombstone + [
+            'data' => \WPrism\Canon::decode($tombstone['content']), 'hash' => hash('sha256', $tombstone['content']),
+        ]]]);
+        $planner = new ApplyPlanner($policy, [], \WPrism\Ledger::id_for(...), \WPrism\Ledger::id_for(...));
+        $builder = new \WPrism\ApplyPlanBuilder($scratch, $policy, $planner,
+            new \WPrism\DeleteGuardReferenceScanner($policy), [], null,
+            static fn(): array => ['regen_pending' => [], 'regen_context' => [], 'warnings' => []],
+            static fn(): array => ['env_missing' => [], 'warnings' => []]);
+        $result = $builder->build([], $compiled, false, false);
+        echo json_encode($result['plan']['deleted'][0], JSON_THROW_ON_ERROR) . "\n";
+    } finally {
+        unlink($scratch . '/themes/fixture/style.css');
+        rmdir($scratch . '/themes/fixture');
+        rmdir($scratch . '/themes');
+        rmdir($scratch);
+    }
+    exit(0);
+}
 
 // Child modes run the actual submitted fixture PHP, or append an engine-built
 // record only after the real shell block has inventoried its private store.
@@ -123,6 +187,12 @@ wprism_check(is_int($start) && is_int($end), 'core owns one explicit receipt/nat
 $helpers = substr($source, (int) $start, (int) $end - (int) $start);
 $uuid = '11111111-1111-4111-8111-111111111111';
 $secondUuid = '22222222-2222-4222-8222-222222222222';
+[$pageStatus, $pageJson, $pageStderr] = ShellProbe::run('"$1" "$2" --page-plan "$3"', [PHP_BINARY, $self, $uuid], $root);
+wprism_check($pageStatus === 0 && $pageStderr === '', 'page tombstone and full target planner produce a warning-free row');
+$pageRow = json_decode($pageJson, true, 16, JSON_THROW_ON_ERROR);
+wprism_check(($pageRow['uuid'] ?? null) === $uuid && ($pageRow['type'] ?? null) === 'post'
+    && ($pageRow['deletion_kind'] ?? null) === 'post' && ($pageRow['deletion_type'] ?? null) === 'page',
+    'actual page deletion planning preserves the logical post kind separately from its page subtype');
 $contexts = [
     'plain' => '{}',
     'forced-comments' => json_encode(['uuid' => $uuid, 'comment_id' => 23], JSON_THROW_ON_ERROR),
@@ -164,8 +234,7 @@ foreach ($contexts as $name => $contextJson) {
     $warnings = [];
     $forced = [];
     if ($name === 'forced-comments') {
-        DeleteGuardLockCoordinator::append_forced_warnings($warnings, [
-            'type' => 'page', 'uuid' => $uuid,
+        DeleteGuardLockCoordinator::append_forced_warnings($warnings, $pageRow + [
             'guard_refs' => [['table' => 'comments', 'rows' => ['comments.comment_ID=23'],
                 'repairable' => false, 'option_name_ref' => false]],
         ], 'FORCED delete of guarded');

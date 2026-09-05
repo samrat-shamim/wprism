@@ -37,7 +37,7 @@ function core_private_refusal_profile(string $name, string $contextJson): array 
             || !is_int($context['comment_id']) || $context['comment_id'] < 1) {
             throw new RuntimeException('core forced-comment context does not identify one exact fixture guard');
         }
-        $warnings[] = "FORCED delete of guarded page {$context['uuid']}: 1 rows in comments will be orphaned; "
+        $warnings[] = "FORCED delete of guarded post {$context['uuid']}: 1 rows in comments will be orphaned; "
             . 'comments is not a declared authored-snapshot table and must be resolved through its owning content workflow. '
             . "Surviving rows: comments.comment_ID={$context['comment_id']}";
         $rootClass = 'RuntimeException';
