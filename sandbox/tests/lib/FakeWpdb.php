@@ -1264,39 +1264,6 @@ class FakeWpdb {
      * TYPES note), or null -- for no rows, a NULL column, or a failure.
      */
     public function get_var(string $query, int $x = 0, int $y = 0): ?string {
-        if ($this->informationSchemaEnabled
-            && str_contains(strtolower($query), 'information_schema.')
-            && !str_contains(strtolower($query), 'information_schema.character_sets')) {
-            $lower = strtolower($query);
-            if (str_contains($lower, 'information_schema.tables')) {
-                $rows = $this->informationSchemaRows($query, 'tables');
-                // get_var() returns the first PROJECTED column, not the first
-                // field in informationSchemaRows()'s shared inventory shape.
-                // PromotionLease's transactional-storage gate selects ENGINE
-                // alone; returning TABLE_NAME here would falsely classify an
-                // explicitly seeded InnoDB ledger as nontransactional.
-                if (preg_match('/^\s*SELECT\s+ENGINE\s+FROM\s+information_schema\.TABLES\b/i', $query) === 1) {
-                    $rows = array_map(
-                        static fn(array $row): array => ['ENGINE' => $row['ENGINE'] ?? null],
-                        $rows
-                    );
-                }
-            } elseif (str_contains($lower, 'information_schema.triggers')) {
-                $rows = [['COUNT(*)' => (string) $this->triggerCountForQuery($query)]];
-            } elseif (str_contains($lower, 'character_maximum_length')) {
-                preg_match("/TABLE_NAME\s*=\s*'([^']+)'/i", $query, $tableMatch);
-                preg_match("/COLUMN_NAME\s*=\s*'([^']+)'/i", $query, $columnMatch);
-                $table = (string) ($tableMatch[1] ?? '');
-                $column = (string) ($columnMatch[1] ?? '');
-                $type = $this->columnTypes[$table][$column] ?? '';
-                $rows = [['CHARACTER_MAXIMUM_LENGTH' => preg_match('/\((\d+)\)/', $type, $length) === 1 ? $length[1] : null]];
-            } elseif (str_contains($lower, 'information_schema.columns')) {
-                $rows = $this->informationSchemaRows($query, 'generic');
-            } else {
-                throw $this->unsupported('unsupported opt-in information_schema shape');
-            }
-            return isset($rows[$y]) ? self::outbound(array_values($rows[$y])[$x] ?? null) : null;
-        }
         $result = $this->run('get_var', $query);
         if ($result === null || $result['kind'] !== 'rows') {
             return null;
@@ -1363,37 +1330,6 @@ class FakeWpdb {
      * @return array<array-key,array<string,?string>|object>|false|null
      */
     public function get_results(string $query, string $output = OBJECT): array|false|null {
-        if (str_contains($query, 'information_schema.USER_PRIVILEGES')
-            && str_contains($query, 'direct_trigger_grants')) {
-            $rows = $this->triggerMetadataVisible
-                ? [['scope_type' => 'schema', 'table_name' => '']]
-                : [];
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
-        if ($this->informationSchemaEnabled
-            && str_contains(strtolower($query), 'information_schema.')
-            && !str_contains(strtolower($query), 'information_schema.innodb_foreign')
-            && !str_contains(strtolower($query), 'information_schema.innodb_sys_foreign')
-            && !(str_contains(strtolower($query), 'information_schema.user_privileges')
-                && str_contains(strtolower($query), "privilege_type = 'process'"))
-            && !(str_contains(strtolower($query), "table_schema = binary 'information_schema'")
-                && str_contains(strtolower($query), "'innodb_foreign'")
-                && str_contains(strtolower($query), "'innodb_sys_foreign'"))) {
-            $lower = strtolower($query);
-            if (!str_contains($lower, 'information_schema.tables')
-                && !str_contains($lower, 'information_schema.columns')) {
-                throw $this->unsupported('unsupported opt-in information_schema shape');
-            }
-            $rows = $this->informationSchemaRows($query, 'generic');
-            if ($output === OBJECT_K) {
-                $keyed = [];
-                foreach ($rows as $row) {
-                    $keyed[(string) reset($row)] = $this->shape($row, OBJECT);
-                }
-                return $keyed;
-            }
-            return array_map(fn(array $row): array|object => $this->shape($row, $output), $rows);
-        }
         if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyAttachmentMarkerQuery($query)) {
             $rows = [];
             foreach ($this->store[$this->tableName('wprism_kv')] ?? [] as $row) {
@@ -2508,6 +2444,12 @@ class FakeWpdb {
             ]]];
         }
         $lower = strtolower($trimmed);
+        if (str_contains($lower, 'information_schema.user_privileges')
+            && str_contains($lower, 'direct_trigger_grants')) {
+            return ['kind' => 'rows', 'rows' => $this->triggerMetadataVisible
+                ? [['scope_type' => 'schema', 'table_name' => '']]
+                : []];
+        }
         if ($this->informationSchemaEnabled
             && preg_match(
                 '/^SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE '
@@ -2953,6 +2895,30 @@ class FakeWpdb {
             $schemaCount = $this->boundedSchemaCount($trimmed);
             if ($schemaCount !== null) {
                 return ['kind' => 'rows', 'rows' => [['COUNT(*)' => $schemaCount]]];
+            }
+            if ($this->informationSchemaEnabled && str_contains($lower, 'information_schema.')) {
+                // Metadata is still SQL. Projection after run() preserves the
+                // real query filter, error injection, logging and wpdb flush;
+                // the former public-reader shortcut hid RefreshExport's
+                // out-of-profile ledger census before any row was examined.
+                if (str_contains($lower, 'information_schema.tables')) {
+                    $rows = $this->informationSchemaRows($trimmed, 'tables');
+                    if (preg_match('/^\\s*SELECT\\s+ENGINE\\s+FROM\\s+information_schema\\.TABLES\\b/i', $trimmed) === 1) {
+                        $rows = array_map(static fn(array $row): array => ['ENGINE' => $row['ENGINE'] ?? null], $rows);
+                    }
+                } elseif (str_contains($lower, 'information_schema.triggers')) {
+                    $rows = [['COUNT(*)' => (string) $this->triggerCountForQuery($trimmed)]];
+                } elseif (str_contains($lower, 'character_maximum_length')) {
+                    preg_match("/TABLE_NAME\\s*=\\s*'([^']+)'/i", $trimmed, $tableMatch);
+                    preg_match("/COLUMN_NAME\\s*=\\s*'([^']+)'/i", $trimmed, $columnMatch);
+                    $type = $this->columnTypes[$tableMatch[1] ?? ''][$columnMatch[1] ?? ''] ?? '';
+                    $rows = [['CHARACTER_MAXIMUM_LENGTH' => preg_match('/\\((\\d+)\\)/', $type, $length) === 1 ? $length[1] : null]];
+                } elseif (str_contains($lower, 'information_schema.columns')) {
+                    $rows = $this->informationSchemaRows($trimmed, 'generic');
+                } else {
+                    throw $this->unsupported('unsupported opt-in information_schema shape');
+                }
+                return ['kind' => 'rows', 'rows' => $rows];
             }
         }
         switch ($head) {

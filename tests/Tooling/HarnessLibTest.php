@@ -408,6 +408,128 @@ final class HarnessLibTest extends TestCase
         $db->get_results('SELECT * FROM information_schema.STATISTICS WHERE TABLE_NAME = \'wp_options\'');
     }
 
+    /** @return array<string,array{string}> */
+    public static function metadataProjectionQueries(): array
+    {
+        return [
+            'tables' => ["SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('wp_options') ORDER BY TABLE_NAME ASC"],
+            'columns' => ["SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' ORDER BY TABLE_NAME, ORDINAL_POSITION"],
+            'column length' => ["SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' AND COLUMN_NAME = 'option_name'"],
+            'trigger count' => ["SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_TABLE = 'wp_options'"],
+            'trigger privileges' => ['SELECT scope_type, table_name FROM information_schema.USER_PRIVILEGES WHERE direct_trigger_grants = 1'],
+        ];
+    }
+
+    #[DataProvider('metadataProjectionQueries')]
+    public function testMetadataProjectionUsesTheOrdinaryReadPipeline(string $sql): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema()
+            ->seedTable('wp_options', [])
+            ->setColumns('wp_options', ['option_name' => 'varchar(191)'])
+            ->setTableEngine('wp_options', 'InnoDB');
+        $observed = [];
+        $db->onQuery(static function (string $query, string $method) use (&$observed): null {
+            $observed[] = [$query, $method];
+            return null;
+        });
+        $db->last_error = 'stale metadata error';
+        $rows = $db->get_results($sql, ARRAY_A);
+        self::assertNotEmpty($rows, 'the positive metadata premise must contain actual projected evidence');
+        self::assertSame('', $db->last_error);
+        self::assertSame([[$sql, 'get_results']], $observed);
+        self::assertSame([$sql], $db->queries());
+        self::assertSame((string) reset($rows[0]), $db->get_var($sql));
+        self::assertSame([[$sql, 'get_results'], [$sql, 'get_var']], $observed);
+
+        $db->failNextQuery('metadata-read-canary', $sql);
+        self::assertSame([], $db->get_results($sql, ARRAY_A));
+        self::assertSame('metadata-read-canary', $db->last_error);
+        $db->failNextQuery('metadata-scalar-canary', $sql);
+        self::assertNull($db->get_var($sql));
+        self::assertSame('metadata-scalar-canary', $db->last_error);
+        $db->returnNextGetResultsAs(false, $sql);
+        self::assertFalse($db->get_results($sql, ARRAY_A));
+        self::assertSame('', $db->last_error);
+        self::assertSame(5, count($observed), 'every read reaches driver interception exactly once');
+    }
+
+    #[DataProvider('metadataProjectionQueries')]
+    public function testMetadataCannotBypassTheInstalledQueryGate(string $sql): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema()
+            ->seedTable('wp_options', [])
+            ->setColumns('wp_options', ['option_name' => 'varchar(191)']);
+        $driverReads = 0;
+        $db->onQuery(static function () use (&$driverReads): null {
+            ++$driverReads;
+            return null;
+        });
+        $framesPresent = array_key_exists('wp_current_filter', $GLOBALS);
+        $frames = $GLOBALS['wp_current_filter'] ?? null;
+        $hooksPresent = array_key_exists('wp_filter', $GLOBALS);
+        $hooks = $GLOBALS['wp_filter'] ?? null;
+        // The fake delegates to engine-installed hook objects, not WpStore's
+        // ordinary callback registry. Exercise that transport seam directly;
+        // the Ledger/profile regression supplies the actual engine authority.
+        $gate = new class() {
+            public bool $refuse = false;
+            public int $reads = 0;
+
+            public function hook_name(): string
+            {
+                return 'query';
+            }
+
+            /** @param array{string} $arguments */
+            public function apply_filters(string $query, array $arguments): string
+            {
+                ++$this->reads;
+                if ($this->refuse) {
+                    throw new \RuntimeException('metadata query gate refused');
+                }
+                return $query;
+            }
+        };
+        $GLOBALS['wp_filter'] = ['query' => $gate];
+        $GLOBALS['wp_current_filter'] = [];
+        try {
+            self::assertNotEmpty($db->get_results($sql));
+            self::assertNotNull($db->get_var($sql));
+            self::assertSame(2, $gate->reads, 'healthy metadata reaches the installed gate once per read');
+            self::assertSame(2, $driverReads);
+            $db->resetLog();
+            $driverReads = 0;
+            $gate->refuse = true;
+            foreach (['get_results', 'get_var'] as $method) {
+                $caught = null;
+                try {
+                    $db->$method($sql);
+                } catch (\RuntimeException $failure) {
+                    $caught = $failure;
+                }
+                self::assertNotNull($caught, 'metadata projection skipped its installed query gate');
+                self::assertSame('metadata query gate refused', $caught->getMessage());
+            }
+            self::assertSame(4, $gate->reads);
+        } finally {
+            // This test owns no Db transaction to settle the WordPress stack.
+            // Preserve the fake's real exceptional-dispatch behavior; fixture
+            // teardown restores only the exact frames it observed at entry.
+            if ($hooksPresent) {
+                $GLOBALS['wp_filter'] = $hooks;
+            } else {
+                unset($GLOBALS['wp_filter']);
+            }
+            if ($framesPresent) {
+                $GLOBALS['wp_current_filter'] = $frames;
+            } else {
+                unset($GLOBALS['wp_current_filter']);
+            }
+        }
+        self::assertSame(0, $driverReads, 'query authority refuses before any schema answer is manufactured');
+        self::assertSame([], $db->queries());
+    }
+
     public function testFullApplySqlExtensionsRefuseWithoutExplicitOptIn(): void
     {
         $db = FakeWpdb::install();
