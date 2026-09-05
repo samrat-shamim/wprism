@@ -33,7 +33,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-shortcode-reference-scanner
 .PHONY: regress-promotion-abort-reason regress-promotion-begin-atomicity
 .PHONY: regress-control-plane-seams regress-code-descriptor-compiler regress-agent-src-requires regress-wp-cli-child-process regress-target-observation-premises regress-live-exit-code-contract
-.PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-code-config-grammar regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver
+.PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-code-config-grammar regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-scalar-reference-intersection regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver
 .PHONY: regress-delete-guard-value-codec
 .PHONY: regress-delete-guard-evaluator
 .PHONY: regress-executable-tree-identity
@@ -2427,6 +2427,9 @@ regress-repository-reference-graph-validator:
 
 regress-repository-portable-shape-validator:
 	php sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php
+
+regress-repository-scalar-reference-intersection:
+	php sandbox/tests/offline/repository/regress_repository_scalar_reference_intersection.php
 
 regress-repository-menu-location-validator:
 	php sandbox/tests/offline/repository/regress_repository_menu_location_validator.php

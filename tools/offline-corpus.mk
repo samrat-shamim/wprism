@@ -293,6 +293,7 @@ regress-offline-corpus: code-half-unit \
 	regress-repository-menu-location-validator \
 	regress-repository-portable-shape-validator \
 	regress-repository-reference-graph-validator \
+	regress-repository-scalar-reference-intersection \
 	regress-repository-schema-validator \
 	regress-repository-state-file-catalog \
 	regress-reviewer-evidence-tier \

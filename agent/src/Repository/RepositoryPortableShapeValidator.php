@@ -13,6 +13,9 @@ if (!class_exists(Snapshot::class, false)) {
 if (!class_exists(OptionState::class, false)) {
     require_once __DIR__ . '/../Kernel/OptionState.php';
 }
+if (!class_exists(ScalarReferenceIntersection::class, false)) {
+    require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
+}
 if (!class_exists(SidebarState::class, false)) {
     require_once __DIR__ . '/SidebarState.php';
 }
@@ -33,6 +36,8 @@ if (!class_exists(Secrets::class, false)) {
 }
 
 final class RepositoryPortableShapeValidator {
+    private const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+
     private Policy $policy;
     /** @var \Closure(string,string,string,string,?string):void */
     private \Closure $add;
@@ -55,6 +60,25 @@ final class RepositoryPortableShapeValidator {
         $metaByOwner = [];
         foreach (Snapshot::meta_tables($this->policy) as $name => $decl) {
             $metaByOwner[(string) ($decl['attached_to']['table'] ?? '')][$name] = $decl;
+        }
+        // The canonical option pass below can precede its referenced term in
+        // tree order. Preserve every matching document in this pure index so
+        // a duplicate UUID can never become a last-writer-wins taxonomy proof.
+        $termTargets = [];
+        foreach ($tree as $entity) {
+            if (($entity['type'] ?? null) !== 'term' || !is_array($entity['data'] ?? null)) {
+                continue;
+            }
+            $uuid = $entity['data']['uuid'] ?? null;
+            if (!is_string($uuid) || preg_match('/^' . self::UUID_PATTERN . '$/D', $uuid) !== 1) {
+                continue; // RepositoryEntityParser owns malformed identity diagnostics.
+            }
+            $termTargets[$uuid][] = [
+                'taxonomy' => is_string($entity['data']['taxonomy'] ?? null)
+                    ? $entity['data']['taxonomy']
+                    : null,
+                'path' => (string) ($entity['path'] ?? ''),
+            ];
         }
         foreach ($tree as $entity) {
             $path = $entity['path'];
@@ -117,6 +141,13 @@ final class RepositoryPortableShapeValidator {
                         ? $this->policy->canonical_option_name_ref_details((string) $name)
                         : $this->policy->option_rule_details_for_option((string) $name, $allOptions);
                     $rule = $details['rule'] ?? [];
+                    $intersectionKinds = null;
+                    if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
+                        $intersectionKinds = ScalarReferenceIntersection::kinds(
+                            $rule,
+                            $path . ' options.' . $name
+                        );
+                    }
                     if (!empty($rule['sub_keys']) && is_array($value)) {
                         foreach ($value as $subKey => $subValue) {
                             $subRule = (array) ($rule['sub_keys'][$subKey] ?? []);
@@ -138,13 +169,25 @@ final class RepositoryPortableShapeValidator {
                     } elseif (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                         $this->validate_structured_rule($value, $rule, $path, 'options.' . $name);
                     } elseif (!empty($rule['ref'])) {
-                        $this->validate_declared_ref(
-                            $value,
-                            (string) $rule['ref'],
-                            $path,
-                            'options.' . $name,
-                            true
-                        );
+                        $locator = 'options.' . $name;
+                        if ($intersectionKinds !== null) {
+                            $this->validate_scalar_reference_intersection(
+                                $value,
+                                $intersectionKinds[0],
+                                (string) $rule[ScalarReferenceIntersection::TAXONOMY_FIELD],
+                                $termTargets,
+                                $path,
+                                $locator
+                            );
+                        } else {
+                            $this->validate_declared_ref(
+                                $value,
+                                (string) $rule['ref'],
+                                $path,
+                                $locator,
+                                true
+                            );
+                        }
                     }
                 }
             } elseif ($entity['type'] === 'user-meta') {
@@ -205,6 +248,47 @@ final class RepositoryPortableShapeValidator {
                 }
             }
         }
+    }
+
+    /**
+     * @param array<string,list<array{taxonomy:?string,path:string}>> $termTargets
+     */
+    private function validate_scalar_reference_intersection(
+        $value,
+        string $primaryKind,
+        string $taxonomy,
+        array $termTargets,
+        string $path,
+        string $locator
+    ): void {
+        if ($value === 0) {
+            return; // the whole-option durable unset sentinel is canonical
+        }
+        if (!is_string($value)
+            || preg_match(
+                '/^\{\{' . preg_quote($primaryKind, '/') . ':(' . self::UUID_PATTERN . ')\}\}$/D',
+                $value,
+                $match
+            ) !== 1) {
+            $this->add(
+                'nonportable_reference',
+                $path,
+                $locator,
+                "declared $primaryKind reference must be a canonical token or integer zero, never a raw target id"
+            );
+            return;
+        }
+        $targets = $termTargets[$match[1]] ?? [];
+        if (count($targets) === 1 && $targets[0]['taxonomy'] === $taxonomy) {
+            return;
+        }
+        $this->add(
+            'reference_taxonomy_mismatch',
+            $path,
+            $locator,
+            "declared $primaryKind reference must resolve to exactly one canonical term in taxonomy '$taxonomy'",
+            count($targets) === 1 ? $targets[0]['path'] : null
+        );
     }
 
     /** Validate one canonical post/term meta value, including explicit repeated database rows. */
