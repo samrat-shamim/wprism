@@ -29,6 +29,12 @@ assert_rmcombo_default_apply_ready() { # <what> <complete JSON apply stream>
     || fail "$1 did not settle the portable Woo default without an option warning"
 }
 
+capture_rmcombo_native_json() { # <what> <command> [args...]
+  local answer
+  capture_wprism_json_success answer "$1" "${@:2}"
+  printf '%s\n' "$answer"
+}
+
 for command in docker git jq mktemp php; do
   command -v "$command" >/dev/null 2>&1 || fail "$command required"
 done
@@ -210,7 +216,7 @@ active_plugin_order() { # <wp1|wp2>
 
 establish_woocommerce_default_category() { # <wp1|wp2> <source|target>
   local side="$1" role="$2"
-  "$side" eval '
+  capture_rmcombo_native_json "Rank Math combination $role Woo default fixture" "$side" eval '
 global $wpdb;
 $role = (string) getenv("WPRISM_RMCOMBO_ROLE");
 if (!in_array($role, ["source", "target"], true)) {
@@ -271,12 +277,12 @@ echo wp_json_encode([
     "term_id"=>$termId,
     "term_taxonomy_id"=>$termTaxonomyId,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');" | awk 'NF { line=$0 } END { print line }'
+' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');"
 }
 
 default_product_category_state() { # <wp1|wp2>
   local side="$1"
-  "$side" eval '
+  capture_rmcombo_native_json 'Rank Math combination Woo default-category native observation' "$side" eval '
 global $wpdb;
 $positiveId = static function ($value): int {
     if (is_int($value) && $value > 0) return $value;
@@ -325,14 +331,14 @@ echo wp_json_encode([
         "taxonomy"=>$taxonomy["taxonomy"],
     ],
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-' | awk 'NF { line=$0 } END { print line }'
+'
 }
 
 default_product_category_identity() { # <wp1|wp2> <canonical uuid>
   local side="$1" uuid="$2"
   [[ "$uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
     || fail 'default product-category canonical identity is malformed'
-  "$side" eval '
+  capture_rmcombo_native_json 'Rank Math combination Woo default-category identity observation' "$side" eval '
 global $wpdb;
 $uuid = (string) getenv("WPRISM_RMCOMBO_UUID");
 $wpdb->last_error = "";
@@ -349,12 +355,12 @@ if ($wpdb->last_error !== "" || !is_array($rows) || !array_is_list($rows)) {
 foreach ($rows as &$row) $row["local_id"] = (int) $row["local_id"];
 unset($row);
 echo wp_json_encode($rows, JSON_UNESCAPED_SLASHES);
-' --exec="putenv('WPRISM_RMCOMBO_UUID=$uuid');" | awk 'NF { line=$0 } END { print line }'
+' --exec="putenv('WPRISM_RMCOMBO_UUID=$uuid');"
 }
 
 identity_map_digest() { # <wp1|wp2>
   local side="$1"
-  "$side" eval '
+  capture_rmcombo_native_json 'Rank Math combination identity-map digest observation' "$side" eval '
 global $wpdb;
 $wpdb->last_error = "";
 $rows = $wpdb->get_results(
@@ -368,7 +374,7 @@ if ($wpdb->last_error !== "" || !is_array($rows) || !array_is_list($rows)) {
 $bytes = wp_json_encode($rows, JSON_UNESCAPED_SLASHES);
 if (!is_string($bytes)) throw new RuntimeException("identity-map digest encoding failed");
 echo wp_json_encode(["count"=>count($rows),"sha256"=>hash("sha256",$bytes)], JSON_UNESCAPED_SLASHES);
-' | awk 'NF { line=$0 } END { print line }'
+'
 }
 
 canonical_capture_digest() { # <repository root>
@@ -1188,6 +1194,7 @@ wp2 plugin is-inactive seo-by-rank-math >/dev/null \
   || fail 'Rank Math combination schema drift premise retained the derived cache table'
 CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy 2>&1) \
   || fail "clean Rank Math combination host deploy failed: $CLEAN_DEPLOY"
+assert_no_php_runtime_diagnostics 'clean Rank Math combination host deploy' "$CLEAN_DEPLOY"
 CLEAN_DEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$CLEAN_DEPLOY" | paste -sd ' ' -)
 [ "$CLEAN_DEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle lifecycle-settle provider-settlement-complete' ] \
   || fail "compatible host deploy skipped or reordered checkpointed lifecycle/schema settlement: $CLEAN_DEPLOY"

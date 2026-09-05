@@ -166,6 +166,81 @@ $scenarioAssertionDefinitions = $scenarioAssertionsStart === false || $scenarioA
     ? ''
     : substr($live, $scenarioAssertionsStart, $scenarioAssertionsEnd - $scenarioAssertionsStart);
 wprism_check($scenarioAssertionDefinitions !== '', 'the scenario-owned complete-stream assertions are extractable');
+$nativeJsonProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_CASE="$2"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+native_json_command() {
+  case "$PROBE_CASE" in
+    object) printf '%s\n' '{"ok":true}' ;;
+    array) printf '%s\n' '[{"ok":true}]' ;;
+    php-stdout)
+      printf 'PHP Warning: fixture stdout diagnostic in /fixture.php on line 1\n'
+      printf '%s\n' '{"ok":true}'
+      ;;
+    php-stderr)
+      printf 'PHP Warning: fixture stderr diagnostic in /fixture.php on line 1\n' >&2
+      printf '%s\n' '{"ok":true}'
+      ;;
+    startup)
+      printf 'PHP Warning: PHP Startup: fixture diagnostic in Unknown on line 0\n' >&2
+      printf '%s\n' '{"ok":true}'
+      ;;
+    parse)
+      printf 'PHP Parse error: fixture diagnostic\n'
+      printf '%s\n' '{"ok":true}'
+      ;;
+    nonzero)
+      printf '%s\n' '{"ok":true}'
+      return 7
+      ;;
+    malformed) printf '%s\n' 'not-json' ;;
+    missing) ;;
+    *) return 81 ;;
+  esac
+}
+SH;
+foreach (['object', 'array', 'php-stdout', 'php-stderr', 'startup', 'parse', 'nonzero', 'malformed', 'missing'] as $case) {
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+        $nativeJsonProbe . "\n" . $scenarioAssertionDefinitions . <<<'SH'
+
+NATIVE_ANSWER=$(capture_rmcombo_native_json 'fixture native JSON observation' native_json_command)
+jq -e '(type == "object" or type == "array")' <<<"$NATIVE_ANSWER" >/dev/null
+printf 'NATIVE_CAPTURE_READY\n'
+SH,
+        [$root, $case],
+        $root
+    );
+    $expectedFailure = match ($case) {
+        'php-stdout', 'php-stderr', 'startup', 'parse' => 'emitted a PHP runtime diagnostic',
+        'nonzero' => 'failed with exit 7',
+        default => 'infrastructure failure:',
+    };
+    wprism_check(
+        in_array($case, ['object', 'array'], true)
+            ? $status === 0 && $stdout === "NATIVE_CAPTURE_READY\n" && $stderr === ''
+            : $status !== 0
+                && !str_contains($stdout, 'NATIVE_CAPTURE_READY')
+                && str_contains($stderr, $expectedFailure),
+        "scenario-native JSON transport classifies $case before publishing an observation"
+    );
+}
+foreach ([
+    'establish_woocommerce_default_category() {' => 'default_product_category_state() {',
+    'default_product_category_state() {' => 'default_product_category_identity() {',
+    'default_product_category_identity() {' => 'identity_map_digest() {',
+    'identity_map_digest() {' => 'canonical_capture_digest() {',
+] as $startToken => $endToken) {
+    $start = strpos($live, $startToken);
+    $end = $start === false ? false : strpos($live, "\n$endToken", $start);
+    $definition = $start === false || $end === false ? '' : substr($live, $start, $end - $start);
+    wprism_check(
+        str_contains($definition, 'capture_rmcombo_native_json ')
+            && !str_contains($definition, "| awk 'NF { line=\$0 } END { print line }'"),
+        "$startToken retains complete-stream checked JSON transport"
+    );
+}
 foreach ([
     ['SOURCE_CAPTURE', 'Rank Math combination source capture'],
     ['RESTORED_DEFAULT_CAPTURE', 'Rank Math combination restored-default capture'],
@@ -712,6 +787,10 @@ wp1() {
   [ "$#" -eq 2 ] && [ "$1" = eval ] || return 81
   php -r 'printf("%s\n", base64_encode($argv[1]));' "$2"
 }
+capture_rmcombo_native_json() {
+  shift
+  "$@"
+}
 SH;
 [$defaultOracleStatus, $defaultOracleStdout, $defaultOracleStderr] = WPrismTest\ShellProbe::run(
     $defaultOracleCapture . "\n" . $defaultOracleDefinition . "\ndefault_product_category_state wp1\n",
@@ -1083,6 +1162,81 @@ wprism_check(
         && str_contains($live, '$actual == $expected'),
     'host lifecycle order is independently read back and matched to canonical source before product apply'
 );
+$cleanDeployEndToken = "pass 'host deploy refuses hostile schema, then checkpoint-settles legitimate lifecycle/schema drift without crossing combination boundaries'";
+$cleanDeployEnd = $hostDeploy === false ? false : strpos($live, $cleanDeployEndToken, $hostDeploy);
+$cleanDeployBlock = $hostDeploy === false || $cleanDeployEnd === false
+    ? ''
+    : substr($live, $hostDeploy, $cleanDeployEnd + strlen($cleanDeployEndToken) - $hostDeploy);
+wprism_check($cleanDeployBlock !== '', 'the complete clean host-settlement acceptance block is extractable');
+$cleanDeployProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_CASE="$2" R2="$3"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+pass() { printf 'HOST_SETTLEMENT_ACCEPTED\n'; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+expected_source='["polylang","advanced-custom-fields","seo-by-rank-math","woocommerce"]'
+HOSTILE_NATIVE='{"redirection_cache":[{"id":17}],"stable":"yes"}'
+TARGET_DEFAULT_FIXTURE='{"installer_default":41,"option":41,"term_id":42}'
+host_wprism_combo() {
+  [ "$#" -eq 2 ] && [ "$1" = wp2 ] && [ "$2" = deploy ] || return 81
+  case "$PROBE_CASE" in
+    php-stdout) printf 'PHP Warning: fixture diagnostic in /fixture.php on line 1\n' ;;
+    php-stderr) printf 'PHP Warning: fixture diagnostic in /fixture.php on line 1\n' >&2 ;;
+    startup-stdout) printf 'PHP Warning: PHP Startup: fixture diagnostic in Unknown on line 0\n' ;;
+    startup-stderr) printf 'PHP Warning: PHP Startup: fixture diagnostic in Unknown on line 0\n' >&2 ;;
+    parse-stdout) printf 'PHP Parse error: fixture diagnostic\n' ;;
+    parse-stderr) printf 'PHP Parse error: fixture diagnostic\n' >&2 ;;
+  esac
+  local phase
+  for phase in compile lifecycle-status schema-status promotion-begin checkpoint \
+    provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle \
+    lifecycle-settle provider-settlement-complete; do
+    printf 'deploy phase: %s\n' "$phase"
+  done
+}
+wp2() {
+  if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = is-active ] \
+    && [ "$3" = seo-by-rank-math ]; then
+    return 0
+  fi
+  if [ "$#" -eq 4 ] && [ "$1" = db ] && [ "$2" = query ] \
+    && [ "$3" = "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" ] \
+    && [ "$4" = --skip-column-names ]; then
+    printf 'wp_rank_math_redirections_cache\n'
+    return 0
+  fi
+  return 82
+}
+active_plugin_order() { printf '%s\n' "$expected_source"; }
+native_state() { printf '%s\n' '{"redirection_cache":[],"stable":"yes"}'; }
+default_product_category_state() {
+  printf '%s\n' '{"option":41,"term":{"term_id":41,"slug":"fixture"},"term_taxonomy":{"term_taxonomy_id":41,"term_id":41,"taxonomy":"product_cat"}}'
+}
+SH;
+$cleanDeployScratch = sys_get_temp_dir() . '/wprism-rmcombo-clean-deploy-' . bin2hex(random_bytes(8));
+if (!mkdir($cleanDeployScratch, 0700)) {
+    throw new RuntimeException('could not allocate clean host-settlement scratch');
+}
+foreach (['ready', 'php-stdout', 'php-stderr', 'startup-stdout', 'startup-stderr', 'parse-stdout', 'parse-stderr'] as $case) {
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+        $cleanDeployProbe . "\n" . $cleanDeployBlock . "\nprintf 'HOST_SETTLEMENT_READY\\n'\n",
+        [$root, $case, $cleanDeployScratch],
+        $root
+    );
+    wprism_check(
+        $case === 'ready'
+            ? $status === 0
+                && $stdout === "HOST_SETTLEMENT_ACCEPTED\nHOST_SETTLEMENT_READY\n"
+                && $stderr === ''
+            : $status !== 0
+                && !str_contains($stdout, 'HOST_SETTLEMENT_ACCEPTED')
+                && !str_contains($stdout, 'HOST_SETTLEMENT_READY')
+                && str_contains($stderr, 'clean Rank Math combination host deploy emitted a PHP runtime diagnostic')
+                && !str_contains($stdout . $stderr, 'fixture diagnostic'),
+        "actual clean host-settlement block classifies $case before accepting phases and native state"
+    );
+}
+rmdir($cleanDeployScratch);
 $sourceBinding = strpos($live, <<<'SH'
 establish_core_environment_bindings wp1 /siterepo admin@example.test \
   "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"
