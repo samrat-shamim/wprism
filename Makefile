@@ -1693,6 +1693,11 @@ regress-lifecycle-executor:
 regress-cli-json-refusals:
 	php sandbox/tests/offline/cli/regress_cli_json_refusals.php
 
+# Standalone test evidence: one fresh private graph, never an inferred cause.
+.PHONY: regress-private-refusal-receipt
+regress-private-refusal-receipt:
+	php sandbox/tests/offline/guards/regress_private_refusal_receipt.php
+
 # The lock/concurrency and repository-state refusals an orchestrator meets on
 # capture/plan/apply/deploy each reach --format=json as their own reason code
 # instead of `<command>_failed` + details_redacted, produced by the real

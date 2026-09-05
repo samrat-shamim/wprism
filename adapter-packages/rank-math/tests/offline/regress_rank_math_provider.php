@@ -377,6 +377,7 @@ namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderOperationProcess.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PrivateRefusalEvidence.php';
     require_once dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php';
 
     use WPrism\Providers\RankMathState;
@@ -1324,6 +1325,68 @@ namespace {
     );
     wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
         'malformed readiness refuses without attempting dbDelta repair');
+    // The combined live schema-settle control enters through Providers, not
+    // this suite's convenient direct runtime calls. Its exact private graph
+    // must remain compatible with the target-identity evidence verifier.
+    foreach ([false, true] as $extraColumn) {
+        $provider = rank_math_test_reset('full');
+        if ($extraColumn) {
+            $columns = rank_math_test_schema()['rank_math_internal_links']['columns'];
+            $columns[] = [
+                'Field' => 'wprism_hostile_schema', 'Type' => 'varchar(12)',
+                'Collation' => 'utf8mb4_unicode_ci', 'Null' => 'YES',
+                'Key' => '', 'Default' => null, 'Extra' => '',
+            ];
+            $GLOBALS['wpdb']->setColumnDefinitions('rank_math_internal_links', $columns);
+        }
+        $beforeRows = [];
+        foreach (array_keys(rank_math_test_schema()) as $table) {
+            $beforeRows[$table] = $GLOBALS['wpdb']->rows($table);
+        }
+        $GLOBALS['wpdb']->resetLog();
+        $readiness = null;
+        $wrapped = null;
+        try {
+            $readiness = \WPrism\Providers::invoke(
+                $provider,
+                ['provider' => 'rank-math-state', 'capability' => 'inspect_schema', 'args' => []],
+                $provider->capabilities()['inspect_schema'],
+                []
+            );
+        } catch (Throwable $caught) {
+            $wrapped = $caught;
+        }
+        if ($extraColumn) {
+            $graph = $wrapped === null ? [] : \WPrism\PrivateRefusalEvidence::graph($wrapped);
+            wprism_check(
+                $wrapped instanceof \WPrism\PrivateEvidenceException && $wrapped->getPrevious() === null
+                    && $wrapped->getMessage() === "wprism: provider 'rank-math-state' capability 'inspect_schema' failed"
+                    && count($graph['throwable'] ?? []) === 2
+                    && ($graph['throwable'][1]['parent_index'] ?? null) === 0
+                    && ($graph['throwable'][1]['relation'] ?? null) === 'private_evidence'
+                    && ($graph['throwable'][1]['class'] ?? null) === RuntimeException::class
+                    && ($graph['throwable'][1]['message'] ?? null)
+                        === 'wprism: Rank Math schema disagrees with the audited column/index contract',
+                'the exact scenario extra column refuses only behind the real public provider/private cause boundary'
+            );
+        } else {
+            wprism_check($wrapped === null && ($readiness['verified'] ?? null) === true,
+                'the same public provider path accepts an unchanged audited schema');
+        }
+        $afterRows = [];
+        foreach (array_keys(rank_math_test_schema()) as $table) {
+            $afterRows[$table] = $GLOBALS['wpdb']->rows($table);
+        }
+        wprism_check_same($beforeRows, $afterRows,
+            'public schema inspection preserves every native Rank Math row for extra-column=' . (int) $extraColumn);
+        wprism_check_same([], array_values(array_filter($GLOBALS['wpdb']->queries(),
+            static fn(string $query): bool => preg_match('/^\\s*(INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE)\\b/i', $query) === 1)),
+            'public schema inspection performs no DDL/DML for extra-column=' . (int) $extraColumn);
+        wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
+            'public schema inspection never invokes the installer for extra-column=' . (int) $extraColumn);
+        wprism_check_same(false, \WPrism\Db::connection_transaction_active('Rank Math schema receipt regression'),
+            'public schema inspection settles its read-only snapshot for extra-column=' . (int) $extraColumn);
+    }
     foreach ([
         'dbdelta_create_queries',
         'dbdelta_insert_queries',

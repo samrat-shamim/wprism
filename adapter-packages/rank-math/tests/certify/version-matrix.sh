@@ -239,9 +239,11 @@ assert_rank_math_transition_content() { # <label> <version> <source> <target-bef
 }
 
 rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseline]
-  "${PAIR_COMPOSE[@]}" run --rm -T --entrypoint php cli2 \
+  "${PAIR_COMPOSE[@]}" run --rm -T \
+    --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+    --entrypoint php cli2 \
     /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
-    "$@"
+    /wprism-test/PrivateRefusalReceipt.php "$@"
 }
 
 assert_rank_math_baseline_only_deploy() { # <label> <captured-output>

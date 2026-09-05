@@ -742,9 +742,11 @@ wp_conf2 db query \
 wp_conf2 db query \
   'INSERT INTO wp_rank_math_redirections_wprism_loss_backup SELECT * FROM wp_rank_math_redirections' >/dev/null
 wp_conf2 db query 'DROP TABLE wp_rank_math_redirections' >/dev/null
-AUTHORED_LOSS_PRIVATE_BASELINE=$($COMPOSE run --rm -T --entrypoint php cli2 \
+AUTHORED_LOSS_PRIVATE_BASELINE=$($COMPOSE run --rm -T \
+  --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+  --entrypoint php cli2 \
   /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
-  snapshot schema-loss /siterepo/.wprism/refusals) \
+  /wprism-test/PrivateRefusalReceipt.php snapshot schema-loss /siterepo/.wprism/refusals) \
   || fail 'Rank Math authored loss could not snapshot private refusal evidence as the target CLI identity'
 require_observed_nonempty 'Rank Math authored schema private refusal baseline' "$AUTHORED_LOSS_PRIVATE_BASELINE"
 AUTHORED_LOSS_RC=0
@@ -759,9 +761,11 @@ require_wprism_answered 'Rank Math authored schema loss refusal' human "$AUTHORE
   && grep -Fq '.wprism/refusals/' <<<"$AUTHORED_LOSS_OUT" \
   && ! grep -Eq 'durable (identity|canonical) history remains' <<<"$AUTHORED_LOSS_OUT" \
   || fail "Rank Math authored table loss was treated as empty schema: $AUTHORED_LOSS_OUT"
-AUTHORED_LOSS_PRIVATE_RECEIPT=$($COMPOSE run --rm -T --entrypoint php cli2 \
+AUTHORED_LOSS_PRIVATE_RECEIPT=$($COMPOSE run --rm -T \
+  --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+  --entrypoint php cli2 \
   /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
-  verify schema-loss /siterepo/.wprism/refusals "$AUTHORED_LOSS_PRIVATE_BASELINE") \
+  /wprism-test/PrivateRefusalReceipt.php verify schema-loss /siterepo/.wprism/refusals "$AUTHORED_LOSS_PRIVATE_BASELINE") \
   || fail 'Rank Math authored loss could not verify private refusal evidence as the target CLI identity'
 require_observed_nonempty 'Rank Math authored schema private refusal receipt' "$AUTHORED_LOSS_PRIVATE_RECEIPT"
 [ "$AUTHORED_LOSS_PRIVATE_RECEIPT" = \
@@ -1032,9 +1036,11 @@ jq -en --argjson before "$UNINSTALL_DATA_BEFORE" --argjson after "$UNINSTALL_DAT
   '$after == $before' >/dev/null \
   || fail "Rank Math default uninstall changed options, metadata, tables, counters, or neighbor state: $UNINSTALL_DATA_AFTER"
 MISSING_CODE_RC=0
-MISSING_CODE_PRIVATE_BASELINE=$($COMPOSE run --rm -T --entrypoint php cli2 \
+MISSING_CODE_PRIVATE_BASELINE=$($COMPOSE run --rm -T \
+  --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+  --entrypoint php cli2 \
   /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
-  snapshot missing-code /siterepo/.wprism/refusals) \
+  /wprism-test/PrivateRefusalReceipt.php snapshot missing-code /siterepo/.wprism/refusals) \
   || fail 'Rank Math missing-code refusal could not snapshot private evidence as the target CLI identity'
 require_observed_nonempty 'Rank Math missing-code private refusal baseline' "$MISSING_CODE_PRIVATE_BASELINE"
 MISSING_CODE_OUT=$(host_wprism conf2 deploy 2>&1) || MISSING_CODE_RC=$?
@@ -1048,9 +1054,11 @@ require_wprism_answered 'Rank Math deploy with code absent' human "$MISSING_CODE
   && grep -Fq '.wprism/refusals/' <<<"$MISSING_CODE_OUT" \
   && ! grep -Eq 'code_mismatch|missing_in_code|is not installed|active_plugins' <<<"$MISSING_CODE_OUT" \
   || fail "missing Rank Math code did not refuse before lifecycle mutation: $MISSING_CODE_OUT"
-MISSING_CODE_PRIVATE_RECEIPT=$($COMPOSE run --rm -T --entrypoint php cli2 \
+MISSING_CODE_PRIVATE_RECEIPT=$($COMPOSE run --rm -T \
+  --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+  --entrypoint php cli2 \
   /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
-  verify missing-code /siterepo/.wprism/refusals "$MISSING_CODE_PRIVATE_BASELINE") \
+  /wprism-test/PrivateRefusalReceipt.php verify missing-code /siterepo/.wprism/refusals "$MISSING_CODE_PRIVATE_BASELINE") \
   || fail 'Rank Math missing-code refusal could not verify private evidence as the target CLI identity'
 require_observed_nonempty 'Rank Math missing-code private refusal receipt' "$MISSING_CODE_PRIVATE_RECEIPT"
 [ "$MISSING_CODE_PRIVATE_RECEIPT" = \

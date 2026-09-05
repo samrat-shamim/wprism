@@ -764,14 +764,43 @@ wprism_host_install_recovery_runtime "$ROOT" "$R2" \
 
 say 'deploy/apply combined product path against reverse-order hostile target'
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL' >/dev/null
+# Providers::invoke deliberately keeps the schema cause out of public errors.
+# Inventory immediately before this invocation, then inspect its one new v2
+# record as the target CLI uid without bootstrapping WordPress (0700/0600).
+DIRTY_REFUSAL_BASELINE=$("${COMPOSE[@]}" run --rm -T \
+  --volume "$ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+  --entrypoint php cli2 \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
+  /wprism-test/PrivateRefusalReceipt.php snapshot schema-mismatch /siterepo/.wprism/refusals) \
+  || fail 'Rank Math schema mismatch private-evidence baseline failed'
+require_observed_nonempty 'Rank Math schema mismatch private-evidence baseline' "$DIRTY_REFUSAL_BASELINE"
 DIRTY_DEPLOY_RC=0
 DIRTY_DEPLOY=$(host_wprism_combo wp2 deploy 2>&1) || DIRTY_DEPLOY_RC=$?
-[ "$DIRTY_DEPLOY_RC" -ne 0 ] \
-  && grep -Fq 'Rank Math schema disagrees with the audited column/index contract' <<<"$DIRTY_DEPLOY" \
-  || fail "independently extended Rank Math schema did not refuse host readiness: $DIRTY_DEPLOY"
+[ "$DIRTY_DEPLOY_RC" -ne 0 ] || fail 'independently extended Rank Math schema did not refuse host readiness'
+require_wprism_answered 'Rank Math schema mismatch deploy refusal' human "$DIRTY_DEPLOY"
+assert_no_php_runtime_diagnostics 'Rank Math schema mismatch deploy refusal' "$DIRTY_DEPLOY"
+grep -Fxq "Error: wprism: provider 'rank-math-state' capability 'inspect_schema' failed" <<<"$DIRTY_DEPLOY" \
+  || fail 'Rank Math schema mismatch did not retain the public provider refusal'
+! grep -Fq 'Rank Math schema disagrees with the audited column/index contract' <<<"$DIRTY_DEPLOY" \
+  || fail 'Rank Math schema mismatch disclosed its private cause publicly'
+grep -Fxq 'wprism: deploy: schema settlement failed (exit 1); later phases were not run' <<<"$DIRTY_DEPLOY" \
+  || fail 'Rank Math schema mismatch did not stop deployment at schema settlement'
+grep -Fxq 'wprism: deploy: promotion lease cleanup confirmed' <<<"$DIRTY_DEPLOY" \
+  || fail 'Rank Math schema mismatch did not confirm promotion lease cleanup'
+DIRTY_DEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$DIRTY_DEPLOY" | paste -sd ' ' -)
+[ "$DIRTY_DEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle' ] \
+  || fail 'Rank Math schema mismatch skipped or crossed its checkpointed terminal phase'
+DIRTY_REFUSAL_RECEIPT=$("${COMPOSE[@]}" run --rm -T \
+  --volume "$ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+  --entrypoint php cli2 \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
+  /wprism-test/PrivateRefusalReceipt.php verify schema-mismatch /siterepo/.wprism/refusals "$DIRTY_REFUSAL_BASELINE") \
+  || fail 'Rank Math schema mismatch did not retain one exact complete private provider cause'
+[ "$DIRTY_REFUSAL_RECEIPT" = '{"command":"schema-settle","format":"wprism-rank-math-private-refusal-check/v1","new_records":1,"root_message_sha256":"800d345a391e42ef89df45c65a2f3c5ac1c43527b55b20c7652bff88cde8e412","private_cause_message_sha256":"30ffabce9b0cc6d426729de1ac7be8202d2fcf0502b695b6200c23086eb95378","verified":true}' ] \
+  || fail 'Rank Math schema mismatch private verification receipt is not exact'
 DIRTY_NATIVE=$(native_state wp2)
 jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$DIRTY_NATIVE" '$before == $after' >/dev/null \
-  || fail "schema refusal crossed the target content/runtime boundary: $DIRTY_NATIVE"
+  || fail 'schema refusal crossed the target content/runtime boundary'
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema' >/dev/null
 # An inactive plugin plus one absent derived table is a legitimate host-level
 # drift, not content drift. It forces the no-code deploy path through both

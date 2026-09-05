@@ -333,9 +333,11 @@ wprism_check(
 );
 $matrixPrivateFunction = strpos($versionMatrixHarness, <<<'SH'
 rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseline]
-  "${PAIR_COMPOSE[@]}" run --rm -T --entrypoint php cli2 \
+  "${PAIR_COMPOSE[@]}" run --rm -T \
+    --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
+    --entrypoint php cli2 \
     /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
-    "$@"
+    /wprism-test/PrivateRefusalReceipt.php "$@"
 }
 SH);
 $matrixVirginRefusalSnippet = str_replace(
@@ -596,11 +598,11 @@ wprism_check(
         && str_contains($checkHarness, "grep -Fq '.wprism/refusals/'")
         && str_contains(
             $checkHarness,
-            'AUTHORED_LOSS_PRIVATE_BASELINE=$($COMPOSE run --rm -T --entrypoint php cli2'
+            'AUTHORED_LOSS_PRIVATE_BASELINE=$($COMPOSE run --rm -T'
         )
         && str_contains(
             $checkHarness,
-            'AUTHORED_LOSS_PRIVATE_RECEIPT=$($COMPOSE run --rm -T --entrypoint php cli2'
+            'AUTHORED_LOSS_PRIVATE_RECEIPT=$($COMPOSE run --rm -T'
         )
         && str_contains($checkHarness, 'wprism-rank-math-private-refusal-check/v1'),
     'B4: authored schema loss keeps its cause private while uid-matched evidence proves the exact new refusal graph'

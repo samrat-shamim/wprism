@@ -15,8 +15,29 @@ not standalone suites.
 | `frozen_policy.php` | `\WPrismTest\FrozenPolicy` — the `wprism-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
 | `ConformanceVector.php` | `\WPrismTest\ConformanceVector` — the `wprism-conformance-vector/v1` grammar and its offline replay driver |
 | `ShellProbe.php` | `\WPrismTest\ShellProbe` — actual command/acceptance block extraction and isolated Bash execution with private, separately observed stdout/stderr; each capsule owns its commands, payloads and assertions |
+| `PrivateRefusalReceipt.php` | `\WPrismTest\PrivateRefusalReceipt` — bounded private-record freshness, mode/inode and exact v2 graph verification; callers declare the command, reason and ordered class/message/parent/edge profile and receive only message digests |
 | `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
 | `pair_live_ownership.sh` | the direct-live evidence state machine: exact-worktree mounts, engine/root-bound pair leases, partial-up teardown, exact site/scratch removal, checked release, and the sole post-cleanup PASS |
+
+`PrivateRefusalReceipt::snapshot($directory, $profile)` returns the canonical
+command-scoped filename baseline; call it immediately before the expected
+refusal. `verify($directory, $baseline, $profile)` requires exactly one new
+record, no removed prior names, and the exact complete graph. A profile has
+only `command`, `reason_code`, and ordered `nodes`; each node declares only
+`parent_index`, `relation`, `class`, and `message`. Array position is its exact
+node index. No runtime cause selects or modifies a profile. Failures throw a
+value-free `RuntimeException`; successful receipts contain only the command,
+format, one-new-record count, ordered message digests, and `verified: true`.
+
+Run private inspection as the target CLI uid **outside WordPress**. Docker
+callers mount the exact candidate file read-only for that invocation, e.g.
+`--volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro"`,
+and pass its explicit container path to their own fixture entrypoint. SSH
+fixtures transport the same exact test file under their private diagnostic
+ownership. A missing test library refuses; it never falls back to deployed
+runtime or package code. Besides v2's 64-node/4096-field-byte/262144-record-byte
+bounds, inventory admits at most 4096 directory entries and a 1048576-byte
+baseline; exceeding a test boundary cannot delete operator evidence.
 
 `pair_live_ownership_prepare()` preserves the caller's umask: its `0700`
 scratch allocation must not turn later host-authored repository fixtures into

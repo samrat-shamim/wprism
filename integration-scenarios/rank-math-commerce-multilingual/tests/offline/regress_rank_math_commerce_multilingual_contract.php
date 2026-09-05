@@ -5,6 +5,9 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/ShellProbe.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PrivateRefusalEvidence.php';
+require_once dirname(__DIR__, 4) . '/adapter-packages/rank-math/fixtures/private-refusal-evidence.php';
 
 $root = dirname(__DIR__, 4);
 wprism_test_define_agent_versions();
@@ -175,6 +178,171 @@ foreach ([
     'combined target recapture differs',
 ] as $witness) {
     wprism_check(str_contains($live, $witness), "the candidate-bound live scenario pins: $witness");
+}
+
+// The fd8 live control reached the correct redacted provider boundary but
+// still searched public output for its private schema sentence. Execute the
+// real ALTER/refusal/receipt/native-equality block with an actual private
+// verifier; no stub is allowed to pronounce the receipt valid.
+$dirtyStartToken = "wp2 db query 'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL' >/dev/null";
+$dirtyEndToken = "wp2 db query 'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema' >/dev/null";
+$dirtyStart = strpos($live, $dirtyStartToken);
+$dirtyEnd = $dirtyStart === false ? false : strpos($live, $dirtyEndToken, $dirtyStart);
+$dirtyBlock = $dirtyStart === false || $dirtyEnd === false ? ''
+    : substr($live, $dirtyStart, $dirtyEnd + strlen($dirtyEndToken) - $dirtyStart);
+wprism_check($dirtyBlock !== '', 'the actual hostile-schema command and full acceptance block are extractable');
+$dirtyProfile = rank_math_private_refusal_profile('schema-mismatch');
+$dirtyRecord = [
+    'format' => 'wprism-private-refusal-evidence/v2',
+    'command' => 'schema-settle',
+    'reason_code' => 'schema_settle_failed',
+    ...WPrism\PrivateRefusalEvidence::graph(new WPrism\PrivateEvidenceException(
+        $dirtyProfile['message'], new RuntimeException($dirtyProfile['private_cause_message'])
+    )),
+];
+$dirtyPhases = [
+    'compile', 'lifecycle-status', 'schema-status', 'promotion-begin', 'checkpoint',
+    'provider-settlement-begin', 'lifecycle-retire', 'lifecycle-activate', 'schema-settle',
+];
+$dirtyOutput = implode("\n", array_map(static fn(string $phase): string => "deploy phase: $phase", $dirtyPhases))
+    . "\nError: " . $dirtyProfile['message']
+    . "\nwprism: deploy: schema settlement failed (exit 1); later phases were not run"
+    . "\nwprism: deploy: promotion lease cleanup confirmed\n";
+$dirtyProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" fixture_case="$2" fixture_directory="$3" fixture_record="$4" fixture_output="$5" fixture_rc="$6"
+fixture_trace="$fixture_directory/trace"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+COMPOSE=(fixture_compose)
+HOSTILE_NATIVE='{"native":"unchanged","scheduler":[17]}'
+wp2() {
+  [ "$#" -eq 3 ] && [ "$1" = db ] && [ "$2" = query ] || return 81
+  case "$3" in
+    'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL')
+      printf 'ADD\n' >>"$fixture_trace" ;;
+    'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema')
+      printf 'DROP\n' >>"$fixture_trace" ;;
+    *) return 82 ;;
+  esac
+}
+fixture_compose() {
+  [ "$#" -ge 13 ] && [ "$1" = run ] && [ "$2" = --rm ] && [ "$3" = -T ] \
+    && [ "$4" = --volume ] \
+    && [ "$5" = "$ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" ] \
+    && [ "$6" = --entrypoint ] && [ "$7" = php ] && [ "$8" = cli2 ] \
+    && [ "$9" = /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php ] \
+    && [ "${10}" = /wprism-test/PrivateRefusalReceipt.php ] \
+    && [ "${12}" = schema-mismatch ] && [ "${13}" = /siterepo/.wprism/refusals ] || return 83
+  case "${11}" in
+    snapshot) [ "$#" -eq 13 ] && printf 'SNAPSHOT\n' >>"$fixture_trace" || return 84 ;;
+    verify) [ "$#" -eq 14 ] && printf 'VERIFY\n' >>"$fixture_trace" || return 85 ;;
+    *) return 86 ;;
+  esac
+  php "$ROOT/adapter-packages/rank-math/fixtures/private-refusal-evidence.php" \
+    "$ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php" "${11}" "${12}" "$fixture_directory" "${@:14}"
+}
+host_wprism_combo() {
+  [ "$#" -eq 2 ] && [ "$1" = wp2 ] && [ "$2" = deploy ] || return 87
+  printf 'INVOKE\n' >>"$fixture_trace"
+  if [ "$fixture_case" != stale ]; then
+    cp "$fixture_record" "$fixture_directory/20260905-095334-schema-settle-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+    chmod 0600 "$fixture_directory/20260905-095334-schema-settle-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+  fi
+  if [ "$fixture_case" = extra ]; then
+    cp "$fixture_record" "$fixture_directory/20260905-095335-schema-settle-cccccccccccccccccccccccc.json"
+    chmod 0600 "$fixture_directory/20260905-095335-schema-settle-cccccccccccccccccccccccc.json"
+  fi
+  printf '%s\n' "$fixture_output"
+  if [ "$fixture_case" = php-stderr ]; then
+    printf 'PHP Warning: private scenario receipt canary in /fixture.php on line 1\n' >&2
+  fi
+  return "$fixture_rc"
+}
+native_state() {
+  [ "$#" -eq 1 ] && [ "$1" = wp2 ] || return 88
+  printf 'NATIVE\n' >>"$fixture_trace"
+  if [ "$fixture_case" = native-change ]; then
+    printf '{"native":"private scenario receipt canary","scheduler":[18]}\n'
+  else
+    printf '%s\n' "$HOSTILE_NATIVE"
+  fi
+}
+SH;
+$dirtyScratch = sys_get_temp_dir() . '/wprism-rmcombo-private-receipt-' . bin2hex(random_bytes(8));
+mkdir($dirtyScratch, 0700);
+$dirtyCleanup = static function () use ($dirtyScratch): void {
+    foreach (scandir($dirtyScratch) ?: [] as $case) {
+        if ($case === '.' || $case === '..') {
+            continue;
+        }
+        $directory = $dirtyScratch . '/' . $case;
+        foreach (scandir($directory) ?: [] as $name) {
+            if ($name !== '.' && $name !== '..') {
+                @unlink($directory . '/' . $name);
+            }
+        }
+        @rmdir($directory);
+    }
+    @rmdir($dirtyScratch);
+};
+register_shutdown_function($dirtyCleanup);
+foreach ([
+    'valid', 'success', 'wrong-provider', 'missing-cleanup', 'later-phase', 'missing-phase',
+    'wrong-terminal', 'private-leak', 'php-stdout', 'php-stderr', 'stale', 'extra',
+    'unrelated-cause', 'incomplete-graph', 'old-root-only-graph', 'native-change',
+] as $case) {
+    $directory = $dirtyScratch . '/' . $case;
+    mkdir($directory, 0700);
+    $candidate = $dirtyRecord;
+    $output = $dirtyOutput;
+    if ($case === 'unrelated-cause') {
+        $candidate = array_replace($candidate, WPrism\PrivateRefusalEvidence::graph(
+            new WPrism\PrivateEvidenceException($dirtyProfile['message'], new RuntimeException('private scenario receipt canary'))
+        ));
+    } elseif ($case === 'incomplete-graph') {
+        $candidate['traversal']['record_complete'] = false;
+    } elseif ($case === 'old-root-only-graph') {
+        $candidate = array_replace($candidate, WPrism\PrivateRefusalEvidence::graph(
+            new RuntimeException($dirtyProfile['private_cause_message'])
+        ));
+    } elseif ($case === 'wrong-provider') {
+        $output = str_replace("'rank-math-state'", "'unrelated-provider'", $output);
+    } elseif ($case === 'missing-cleanup') {
+        $output = str_replace("wprism: deploy: promotion lease cleanup confirmed\n", '', $output);
+    } elseif ($case === 'later-phase') {
+        $output .= "deploy phase: lifecycle-settle\n";
+    } elseif ($case === 'missing-phase') {
+        $output = str_replace("deploy phase: checkpoint\n", '', $output);
+    } elseif ($case === 'wrong-terminal') {
+        $output = str_replace('schema settlement failed (exit 1)', 'lifecycle settlement failed (exit 1)', $output);
+    } elseif ($case === 'private-leak') {
+        $output .= $dirtyProfile['private_cause_message'] . "\n";
+    } elseif ($case === 'php-stdout') {
+        $output = "PHP Warning: private scenario receipt canary in /fixture.php on line 1\n" . $output;
+    }
+    $payload = $directory . '/candidate';
+    file_put_contents($payload, json_encode($candidate, JSON_THROW_ON_ERROR));
+    chmod($payload, 0600);
+    $stale = $directory . '/20260905-095300-schema-settle-aaaaaaaaaaaaaaaaaaaaaaaa.json';
+    file_put_contents($stale, json_encode($dirtyRecord, JSON_THROW_ON_ERROR));
+    chmod($stale, 0600);
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+        $dirtyProbe . "\n" . $dirtyBlock . "\nprintf 'SCHEMA_REFUSAL_READY\\n'\n",
+        [$root, $case, $directory, $payload, $output, $case === 'success' ? '0' : '1'],
+        $root
+    );
+    $trace = is_file($directory . '/trace') ? (string) file_get_contents($directory . '/trace') : '';
+    wprism_check(
+        ($case === 'valid'
+            ? $status === 0 && $stdout === "SCHEMA_REFUSAL_READY\n" && $stderr === ''
+                && $trace === "ADD\nSNAPSHOT\nINVOKE\nVERIFY\nNATIVE\nDROP\n"
+            : $status !== 0 && !str_contains($stdout, 'SCHEMA_REFUSAL_READY')
+                && str_contains($stderr, 'FAIL:') && !str_contains($trace, "DROP\n"))
+            && !str_contains($stdout . $stderr, 'private scenario receipt canary')
+            && !str_contains($stdout . $stderr, $dirtyProfile['private_cause_message']),
+        "actual hostile-schema block $case checks mounted private evidence, terminal phases, cleanup and native nonmutation"
+    );
 }
 
 // Execute the actual native_state shell function far enough to observe the
