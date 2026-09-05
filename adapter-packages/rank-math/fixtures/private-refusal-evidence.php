@@ -19,10 +19,22 @@ const WPRISM_RANK_MATH_PRIVATE_REFUSAL_PROFILES = [
         'reason_code' => 'lifecycle_status_failed',
         'message' => "wprism: deploy refused — code_mismatch:\n\n"
             . "  - active_plugins in state/options/core.json declares 'seo-by-rank-math/rank-math.php' "
-            . "but seo-by-rank-math/rank-math.php does not exist in this environment (checked against "
+            . 'but seo-by-rank-math/rank-math.php does not exist in this environment (checked against '
             . "this environment's wp-content/plugins/ — phase 1 has no code/ deploy transport, so 'in code' "
             . "means 'installed on the env'). Install/vendor the plugin here, or this branch's code/ changes "
             . "haven't reached this environment yet.\n\n"
+            . 'Install/vendor whatever is missing (or update code/) in this environment first, or pass '
+            . '--force-code-mismatch to proceed anyway.',
+    ],
+    'below-range' => [
+        'command' => 'lifecycle-status',
+        'reason_code' => 'lifecycle_status_failed',
+        'message' => "wprism: deploy refused — code_mismatch:\n\n"
+            . "  - seo-by-rank-math/rank-math.php 1.0.276 is active in this environment, outside the 'rank-math' "
+            . "manifest's declared version_range (>=1.0.277 <1.0.277.3, pinned by site.wprism.json). "
+            . 'Classification guarantees for this plugin are NOT validated against this version — apply may '
+            . 'silently misclassify fields. Update the plugin, pin an older manifest, or pass '
+            . "--force-code-mismatch to proceed at your own risk.\n\n"
             . 'Install/vendor whatever is missing (or update code/) in this environment first, or pass '
             . '--force-code-mismatch to proceed anyway.',
     ],

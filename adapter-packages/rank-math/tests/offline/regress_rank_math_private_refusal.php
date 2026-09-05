@@ -302,17 +302,18 @@ $matrixFunction = $matrixStart === false || $matrixEnd === false ? ''
     : substr($matrix, $matrixStart, $matrixEnd + 3 - $matrixStart);
 $mountProbe = <<<'SH'
 set -euo pipefail
-PAIR_SOURCE_ROOT="$1" fixture_directory="$2" fixture_broken_library="$3"
+PAIR_SOURCE_ROOT="$1" fixture_directory="$2" fixture_broken_library="$3" fixture_service="$4"
 COMPOSE=fixture_compose
 PAIR_COMPOSE=(fixture_compose)
 AUTHORED_LOSS_PRIVATE_BASELINE='[]'
 MISSING_CODE_PRIVATE_BASELINE='[]'
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$PAIR_SOURCE_ROOT/sandbox/conformance/asserts.sh"
 fixture_compose() {
   [ "$#" -ge 13 ] && [ "$1" = run ] && [ "$2" = --rm ] && [ "$3" = -T ] \
     && [ "$4" = --volume ] \
     && [ "$5" = "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" ] \
-    && [ "$6" = --entrypoint ] && [ "$7" = php ] && [ "$8" = cli2 ] \
+    && [ "$6" = --entrypoint ] && [ "$7" = php ] && [ "$8" = "$fixture_service" ] \
     && [ "$9" = /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php ] \
     && [ "${10}" = /wprism-test/PrivateRefusalReceipt.php ] \
     && [ "${13}" = /siterepo/.wprism/refusals ] || return 83
@@ -323,14 +324,16 @@ fixture_compose() {
 }
 SH;
 $mountCases = [
-    ['AUTHORED_LOSS_PRIVATE_BASELINE', 'schema-loss', 'snapshot'],
-    ['AUTHORED_LOSS_PRIVATE_RECEIPT', 'schema-loss', 'verify'],
-    ['MISSING_CODE_PRIVATE_BASELINE', 'missing-code', 'snapshot'],
-    ['MISSING_CODE_PRIVATE_RECEIPT', 'missing-code', 'verify'],
-    ['MATRIX_SNAPSHOT', 'virgin-schema', 'snapshot'],
-    ['MATRIX_VERIFY', 'virgin-schema', 'verify'],
+    ['AUTHORED_LOSS_PRIVATE_BASELINE', 'schema-loss', 'snapshot', 'cli2'],
+    ['AUTHORED_LOSS_PRIVATE_RECEIPT', 'schema-loss', 'verify', 'cli2'],
+    ['MISSING_CODE_PRIVATE_BASELINE', 'missing-code', 'snapshot', 'cli2'],
+    ['MISSING_CODE_PRIVATE_RECEIPT', 'missing-code', 'verify', 'cli2'],
+    ['MATRIX_SNAPSHOT', 'virgin-schema', 'snapshot', 'cli2'],
+    ['MATRIX_VERIFY', 'virgin-schema', 'verify', 'cli2'],
+    ['MATRIX_SOURCE_SNAPSHOT', 'below-range', 'snapshot', 'cli1'],
+    ['MATRIX_SOURCE_VERIFY', 'below-range', 'verify', 'cli1'],
 ];
-foreach ($mountCases as [$variable, $profileName, $mode]) {
+foreach ($mountCases as [$variable, $profileName, $mode, $service]) {
     $mountedDirectory = $scratch . '/mount-' . $variable;
     mkdir($mountedDirectory, 0700);
     if ($mode === 'verify') {
@@ -339,13 +342,13 @@ foreach ($mountCases as [$variable, $profileName, $mode]) {
         $writeRecord($mountedDirectory . '/' . $name, $profileName, $profile['message']);
     }
     $block = str_starts_with($variable, 'MATRIX_')
-        ? $matrixFunction . "\n$variable=\$(rank_math_private_evidence $mode $profileName /siterepo/.wprism/refusals"
+        ? $matrixFunction . "\n$variable=\$(rank_math_private_evidence $service $mode $profileName /siterepo/.wprism/refusals"
             . ($mode === 'verify' ? " '[]'" : '') . ")\n"
         : WPrismTest\ShellProbe::captureBlock($conformance, $variable, 'require_observed_nonempty');
     foreach (['no', 'yes'] as $missingLibrary) {
         [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
             $mountProbe . "\n" . $block . "\nprintf '%s\\n' \"\$$variable\"\n",
-            [$mountedRoot, $mountedDirectory, $missingLibrary],
+            [$mountedRoot, $mountedDirectory, $missingLibrary, $service],
             $root
         );
         $expected = $mode === 'snapshot' ? '[]' : rank_math_private_refusal_receipt($profileName);

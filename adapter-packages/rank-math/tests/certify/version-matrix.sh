@@ -243,12 +243,68 @@ assert_rank_math_transition_content() { # <label> <version> <source> <target-bef
   ' >/dev/null || fail "$label did not preserve the evolved authored, native, derived, and target-runtime state"
 }
 
-rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseline]
-  "${PAIR_COMPOSE[@]}" run --rm -T \
+rank_math_private_evidence() { # <cli1|cli2> <snapshot|verify> <profile> <directory> [baseline]
+  local service="${1:-}" receipt
+  case "$service" in cli1|cli2) ;; *) fail 'Rank Math private evidence requires an explicit CLI site' ;; esac
+  shift
+  capture_wprism_json_success receipt 'Rank Math private refusal evidence' "${PAIR_COMPOSE[@]}" run --rm -T \
     --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
-    --entrypoint php cli2 \
+    --entrypoint php "$service" \
     /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
     /wprism-test/PrivateRefusalReceipt.php "$@"
+  printf '%s\n' "$receipt"
+}
+
+# A failed status command is not evidence of inactivity. WP-CLI's documented
+# plugin-get JSON exposes name/status/version together; require that complete
+# source-site observation before and after the negative host deployment.
+rank_math_assert_inactive_release() { # <label> <WP command> <pair>
+  [ "$#" -eq 3 ] || fail 'Rank Math inactive-release observation requires a label, WP command and pair'
+  local label="$1" wp_command="$2" pair="$3" out
+  [[ "$pair" =~ ^[a-z0-9][a-z0-9-]*$ ]] && command -v "$wp_command" >/dev/null \
+    || fail 'Rank Math inactive-release observation has invalid site bindings'
+  out=$("$wp_command" plugin get seo-by-rank-math --fields=name,status,version --format=json 2>&1) \
+    || fail "$label inactive-release observation failed"
+  jq -Rse --arg pair "$pair" '
+    split("\n") | map(select(length > 0))
+    | map(select(test("^ ?Container wprism-" + $pair + "-cli1-run-[a-f0-9]+ (Creating|Created) *$") | not))
+    | length == 1 and (.[0] | fromjson == {name:"seo-by-rank-math",status:"inactive",version:"1.0.276"})
+  ' <<<"$out" >/dev/null 2>&1 \
+    || fail 'Rank Math below-range plugin is not one checked inactive 1.0.276 release'
+}
+
+# DeployCommand prints two successful phase receipts, then its failed
+# lifecycle transport on stderr, followed by CommandOutput's private-evidence
+# hint. The 40ea matrix incorrectly demanded the hidden cause in that public
+# stream. Check the complete public trace here; the separate shared verifier
+# proves freshness and the exact cause without publishing private bytes.
+assert_rank_math_below_range_refusal() { # <exit> <complete capture> <pair>
+  [ "$#" -eq 3 ] || fail 'Rank Math below-range refusal requires exit, capture and pair'
+  local code="$1" out="$2" pair="$3"
+  [[ "$code" =~ ^[1-9][0-9]{0,2}$ ]] && [ "$code" -le 255 ] \
+    && [[ "$pair" =~ ^[a-z0-9][a-z0-9-]*$ ]] \
+    || fail 'Rank Math below-range deploy did not return a bound nonzero status'
+  jq -Rse --arg pair "$pair" '
+    "wprism: deploy: lifecycle preflight failed; no target mutation occurred" as $failed
+    | "wprism: the target\u0027s lifecycle-status refusal was redacted for machine output; its private operator evidence is under the target site repository\u0027s .wprism/refusals/ (a bounded v2 JSON graph with explicit completeness and truncation witnesses)" as $hint
+    | split("\n") | map(select(length > 0)) as $lines
+    | $lines[0:2] == ["deploy phase: compile","deploy phase: lifecycle-status"]
+      and ($lines | map(select(. == $failed)) | length) == 1
+      and ($lines | map(select(. == $hint)) | length) == 1
+      and ($lines[2:] | map(select(. != $failed and . != $hint))
+        | map(select(test("^ ?Container wprism-" + $pair + "-cli1-run-[a-f0-9]+ (Creating|Created) *$") | not))
+        | length == 1 and (.[0] | fromjson == {
+          format:"wprism-command-refusal/v1",ok:false,command:"lifecycle-status",
+          error:"lifecycle_status_failed",reason_code:"lifecycle_status_failed",
+          message:"lifecycle-status refused at an unclassified safety gate",
+          remediation:"correct the named lifecycle-status blocker, then retry the command",
+          details_redacted:true,diagnostics:[{
+            code:"lifecycle_status_failed",message:"lifecycle-status refused at an unclassified safety gate",
+            remediation:"correct the named lifecycle-status blocker, then retry the command"
+          }]
+        }))
+  ' <<<"$out" >/dev/null 2>&1 \
+    || fail 'Rank Math below-range deploy did not return its exact redacted lifecycle preflight refusal'
 }
 
 assert_rank_math_baseline_only_deploy() { # <label> <captured-output>
@@ -343,7 +399,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
   PREDEPLOY_STATE=$(rank_math_native_state_hash wp2)
   require_observed_nonempty 'Rank Math virgin-target native baseline' "$PREDEPLOY_STATE"
   PREDEPLOY_PRIVATE_BASELINE=$(rank_math_private_evidence \
-    snapshot virgin-schema /siterepo/.wprism/refusals) \
+    cli2 snapshot virgin-schema /siterepo/.wprism/refusals) \
     || fail 'Rank Math virgin-target plan could not snapshot private evidence as the target CLI identity'
   require_observed_nonempty 'Rank Math virgin-target private refusal baseline' "$PREDEPLOY_PRIVATE_BASELINE"
   PREDEPLOY_RC=0
@@ -367,7 +423,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     && ! grep -Fq "declared table 'rank_math_" <<<"$PREDEPLOY_PLAN" \
     || fail "Rank Math virgin-target plan did not return its exact redacted refusal: $PREDEPLOY_PLAN"
   PREDEPLOY_PRIVATE_RECEIPT=$(rank_math_private_evidence \
-    verify virgin-schema /siterepo/.wprism/refusals "$PREDEPLOY_PRIVATE_BASELINE") \
+    cli2 verify virgin-schema /siterepo/.wprism/refusals "$PREDEPLOY_PRIVATE_BASELINE") \
     || fail 'Rank Math virgin-target plan could not verify private evidence as the target CLI identity'
   require_observed_nonempty 'Rank Math virgin-target private refusal receipt' "$PREDEPLOY_PRIVATE_RECEIPT"
   [ "$PREDEPLOY_PRIVATE_RECEIPT" = \
@@ -639,22 +695,23 @@ wp1 plugin deactivate seo-by-rank-math >/dev/null
 wp1 plugin delete seo-by-rank-math >/dev/null
 RANK_MATH_OUT_OF_RANGE=$(fetch_artifact seo-by-rank-math 1.0.276 cli1)
 wp1 plugin install "$RANK_MATH_OUT_OF_RANGE" >/dev/null
-INSTALLED_OOR=$(wp1 plugin get seo-by-rank-math --field=version)
-[ "$INSTALLED_OOR" = 1.0.276 ] \
-  || fail "Rank Math negative control expected 1.0.276, got $INSTALLED_OOR"
-NEGATIVE_BEFORE=$(rank_math_native_state_hash wp1)
-require_observed_nonempty 'Rank Math outside-range state baseline' "$NEGATIVE_BEFORE"
+rank_math_assert_inactive_release 'Rank Math below-range preimage' wp1 "$PAIR"
+NEGATIVE_BEFORE=$(rank_math_native_state_hash wp1) \
+  || fail 'Rank Math outside-range native baseline could not be observed'
+[[ "$NEGATIVE_BEFORE" =~ ^[a-f0-9]{64}$ ]] || fail 'Rank Math outside-range native baseline is malformed'
+NEGATIVE_PRIVATE_BASELINE=$(rank_math_private_evidence cli1 snapshot below-range /siterepo/.wprism/refusals) \
+  || fail 'Rank Math below-range deploy could not snapshot source private evidence'
+require_observed_nonempty 'Rank Math below-range private baseline' "$NEGATIVE_PRIVATE_BASELINE"
 NEGATIVE_RC=0
 NEGATIVE_OUT=$(host_wprism conf1 deploy 2>&1) || NEGATIVE_RC=$?
-require_wprism_answered 'Rank Math outside-range host deploy' human "$NEGATIVE_OUT"
-[ "$NEGATIVE_RC" -ne 0 ] \
-  && grep -Eq 'outside_version_range|outside the .* declared version_range' <<<"$NEGATIVE_OUT" \
-  && grep -q 'seo-by-rank-math/rank-math.php' <<<"$NEGATIVE_OUT" \
-  && grep -q '1.0.276' <<<"$NEGATIVE_OUT" \
-  || fail "Rank Math 1.0.276 refused for the wrong reason: $NEGATIVE_OUT"
-wp1 plugin is-active seo-by-rank-math >/dev/null 2>&1 \
-  && fail 'outside-range Rank Math 1.0.276 was activated before refusal'
-NEGATIVE_AFTER=$(rank_math_native_state_hash wp1)
+assert_rank_math_below_range_refusal "$NEGATIVE_RC" "$NEGATIVE_OUT" "$PAIR"
+NEGATIVE_PRIVATE_RECEIPT=$(rank_math_private_evidence cli1 verify below-range /siterepo/.wprism/refusals "$NEGATIVE_PRIVATE_BASELINE") \
+  || fail 'Rank Math below-range deploy did not retain its exact fresh source private cause'
+[[ "$NEGATIVE_PRIVATE_RECEIPT" == '{"command":"lifecycle-status","format":"wprism-rank-math-private-refusal-check/v1","new_records":1,"root_message_sha256":"b9083ba18936bad11ff693f9bbd03f5f4a394d05557a947ee6af38a959829f7d","verified":true}' ]] \
+  || fail 'Rank Math below-range private evidence receipt is malformed'
+rank_math_assert_inactive_release 'Rank Math below-range postimage' wp1 "$PAIR"
+NEGATIVE_AFTER=$(rank_math_native_state_hash wp1) \
+  || fail 'Rank Math outside-range native postimage could not be observed'
 [ "$NEGATIVE_AFTER" = "$NEGATIVE_BEFORE" ] \
   || fail 'Rank Math outside-range refusal mutated plugin state'
 pass 'official Rank Math 1.0.276 is loudly refused before activation or plugin-state mutation'

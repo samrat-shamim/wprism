@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=46 fixtures=8
+# expected observations=49 fixtures=8
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math source native observation'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math target native observation'
@@ -45,8 +45,11 @@ observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math
 observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math virgin-target private refusal baseline'
 observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math virgin-target private refusal receipt'
 observation	tests/certify/version-matrix.sh	require_wprism_answered 'Rank Math virgin-target strict plan' json
-observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math outside-range state baseline'
-observation	tests/certify/version-matrix.sh	require_wprism_answered 'Rank Math outside-range host deploy' human
+observation	tests/certify/version-matrix.sh	[[ "$NEGATIVE_BEFORE" =~ ^[a-f0-9]{64}$ ]]
+observation	tests/certify/version-matrix.sh	assert_rank_math_below_range_refusal "$NEGATIVE_RC" "$NEGATIVE_OUT" "$PAIR"
+observation	tests/certify/version-matrix.sh	rank_math_assert_inactive_release 'Rank Math below-range preimage' wp1 "$PAIR"
+observation	tests/certify/version-matrix.sh	rank_math_assert_inactive_release 'Rank Math below-range postimage' wp1 "$PAIR"
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math below-range private baseline'
 fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_ID TARGET_ID
 fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_REDIR TARGET_REDIR
 fixture	tests/conformance/check.sh	require_fixture_ids DUPLICATE_ID

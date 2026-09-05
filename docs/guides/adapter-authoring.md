@@ -1439,7 +1439,14 @@ plugin faithfully.
    before the invocation, set-difference them against the names afterward,
    require exactly one appended record, and validate its
    `wprism-private-refusal-evidence/v2` completeness witnesses plus the exact
-   root cause. Do not clear prior evidence or select by timestamp/mtime: both
+   root cause. Reuse `sandbox/tests/lib/PrivateRefusalReceipt.php` with a
+   caller-declared graph profile; do not grow a capsule-owned private-store
+   parser. Bind the source or target CLI service explicitly for each call.
+   A host deploy is a mixed phase stream, not a standalone agent JSON answer:
+   its transport-detail renderer sends the refusal to stderr and may append
+   the private-evidence hint after it. Test the complete phase/envelope trace
+   through the real renderer instead of assuming that the last line is JSON.
+   Do not clear prior evidence or select by timestamp/mtime: both
    can make a failed invocation appear proved by a stale record. The private
    sentence is deliberately absent from host output; grepping that stream for
    it tests against the disclosure boundary rather than the refusal that

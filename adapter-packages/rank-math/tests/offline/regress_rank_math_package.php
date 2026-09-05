@@ -332,12 +332,16 @@ wprism_check(
     'B4: upgrade and downgrade exercise host refusal, one isolated acceptance phase, zero residual drift and capture non-consumption'
 );
 $matrixPrivateFunction = strpos($versionMatrixHarness, <<<'SH'
-rank_math_private_evidence() { # <snapshot|verify> <profile> <directory> [baseline]
-  "${PAIR_COMPOSE[@]}" run --rm -T \
+rank_math_private_evidence() { # <cli1|cli2> <snapshot|verify> <profile> <directory> [baseline]
+  local service="${1:-}" receipt
+  case "$service" in cli1|cli2) ;; *) fail 'Rank Math private evidence requires an explicit CLI site' ;; esac
+  shift
+  capture_wprism_json_success receipt 'Rank Math private refusal evidence' "${PAIR_COMPOSE[@]}" run --rm -T \
     --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" \
-    --entrypoint php cli2 \
+    --entrypoint php "$service" \
     /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
     /wprism-test/PrivateRefusalReceipt.php "$@"
+  printf '%s\n' "$receipt"
 }
 SH);
 $matrixVirginRefusalSnippet = str_replace(
@@ -347,7 +351,7 @@ $matrixVirginRefusalSnippet = str_replace(
   PREDEPLOY_STATE=$(rank_math_native_state_hash wp2)
   require_observed_nonempty 'Rank Math virgin-target native baseline' "$PREDEPLOY_STATE"
   PREDEPLOY_PRIVATE_BASELINE=$(rank_math_private_evidence \
-    snapshot virgin-schema /siterepo/.wprism/refusals) \
+    cli2 snapshot virgin-schema /siterepo/.wprism/refusals) \
     || fail 'Rank Math virgin-target plan could not snapshot private evidence as the target CLI identity'
   require_observed_nonempty 'Rank Math virgin-target private refusal baseline' "$PREDEPLOY_PRIVATE_BASELINE"
   PREDEPLOY_RC=0
@@ -371,7 +375,7 @@ $matrixVirginRefusalSnippet = str_replace(
     && ! grep -Fq "declared table 'rank_math_" <<<"$PREDEPLOY_PLAN" \
     || fail "Rank Math virgin-target plan did not return its exact redacted refusal: $PREDEPLOY_PLAN"
   PREDEPLOY_PRIVATE_RECEIPT=$(rank_math_private_evidence \
-    verify virgin-schema /siterepo/.wprism/refusals "$PREDEPLOY_PRIVATE_BASELINE") \
+    cli2 verify virgin-schema /siterepo/.wprism/refusals "$PREDEPLOY_PRIVATE_BASELINE") \
     || fail 'Rank Math virgin-target plan could not verify private evidence as the target CLI identity'
   require_observed_nonempty 'Rank Math virgin-target private refusal receipt' "$PREDEPLOY_PRIVATE_RECEIPT"
   [ "$PREDEPLOY_PRIVATE_RECEIPT" = \
