@@ -3906,6 +3906,8 @@ $ownerMismatchDb->seedTable($ownerMismatchDb->options, [
 ]);
 $ownerMismatchOptionPreimage = $ownerMismatchDb->rows($ownerMismatchDb->options);
 $scopedWidgetScanner = new ReflectionMethod(CaptureCandidateBuilder::class, 'portableWidgetReferenceScan');
+// These direct selection/ownership probes do not open a capture transaction;
+// only CaptureTransaction can supply its exact work-partition authority.
 $scopedWidgetBuilder = new CaptureCandidateBuilder($root, $coreTecPolicy);
 $selectedWidgetPost = (object) [
     'ID' => 7001,
@@ -3931,7 +3933,8 @@ foreach ([$unrelatedCoreWidgetPost, $unrelatedTecWidgetPost] as $unrelatedPost) 
             $scopedWidgetBuilder,
             [$selectedWidgetPost, $unrelatedPost],
             $scopedPostUuids,
-            [TEC_EVENT_UUID]
+            [TEC_EVENT_UUID],
+            null
         ),
         'scoped stored-widget discovery observes only the contract-selected post closure'
     );
@@ -3941,7 +3944,8 @@ wprism_check_throws(
         $scopedWidgetBuilder,
         [$selectedWidgetPost, $unrelatedCoreWidgetPost],
         $scopedPostUuids,
-        [TEC_EVENT_UUID, TEC_VENUE_UUID]
+        [TEC_EVENT_UUID, TEC_VENUE_UUID],
+        null
     ),
     RuntimeException::class,
     'the same foreign core widget refuses when its owning post is actually selected',
