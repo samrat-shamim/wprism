@@ -530,7 +530,7 @@ capture_collision_probe() {
 CAPTURE_COLLISIONS=$(capture_collision_probe)
 [ "$CAPTURE_COLLISIONS" = $'last={"canary":"clean"}\ncapture={"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}' ] \
   || fail "JSON capture helpers did not publish through former local-name collisions: $CAPTURE_COLLISIONS"
-grep -q '^capture_wprism_json_success ' conformance/run.sh \
+grep -q '^capture_wprism_json_checked ' conformance/run.sh \
   || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
 grep -Eq 'require_wprism_answered capture_wprism_json_success capture_wprism_json_checked capture_wprism_json_refusal require_observed_nonempty' conformance/run.sh \
   || fail "manifest check subprocesses cannot call the success/refusal-preserving JSON command wrappers"

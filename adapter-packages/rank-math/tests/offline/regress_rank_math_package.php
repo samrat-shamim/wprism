@@ -264,7 +264,7 @@ $matrixSourceOracle = strpos(
 $matrixSourceCapture = strpos($versionMatrixHarness, 'wp1 wprism capture --repo=/siterepo', $matrixSourceOracle ?: 0);
 $matrixTargetApply = strpos(
     $versionMatrixHarness,
-    "capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply'"
+    "capture_wprism_json_checked RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply'"
 );
 $matrixTargetReadback = strpos($versionMatrixHarness, 'UPGRADE_TARGET_MODULES=$(rank_math_module_state wp2)');
 $matrixTargetObserved = strpos(
@@ -319,7 +319,7 @@ wprism_check(
         && str_contains($versionMatrixHarness, "grep -q '^deploy phase: code-baseline-accept$'")
         && str_contains($versionMatrixHarness, "grep -q '^deploy complete: code-baseline-accept; no code descriptor$'")
         && str_contains($versionMatrixHarness, "[ \"\$(grep -c 'FORCED past code_drift' <<<\"\$output\")\" -eq 1 ]")
-        && str_contains($versionMatrixHarness, "fail \"\$label invented lifecycle, provider, or checkpoint work: \$output\"")
+        && str_contains($versionMatrixHarness, 'fail "$label invented lifecycle, provider, or checkpoint work: $output"')
         && str_contains($versionMatrixHarness, 'UPGRADE_SOURCE_REFUSE=$(host_wprism conf1 deploy 2>&1)')
         && str_contains($versionMatrixHarness, 'UPGRADE_TARGET_REFUSE=$(host_wprism conf2 deploy 2>&1)')
         && str_contains($versionMatrixHarness, 'UPGRADE_SOURCE_BASELINE_BEFORE')
@@ -460,7 +460,7 @@ $schemaBaselineCommit = strpos(
     "commit_rank_math_source 'conformance: schema recovery module baseline'"
 );
 $schemaBaselineApply = strpos($checkHarness, <<<'SH'
-capture_wprism_json_success SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply' \
+capture_wprism_json_checked SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply' assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 SH);
 $schemaDeactivate = strpos($checkHarness, 'wp_conf2 plugin deactivate seo-by-rank-math');
@@ -484,7 +484,7 @@ $schemaRestoreCommit = strpos(
     "commit_rank_math_source 'conformance: restore Rank Math module intent after recovery'"
 );
 $schemaRestoreApply = strpos($checkHarness, <<<'SH'
-capture_wprism_json_success RESTORE 'Rank Math canonical verification after lifecycle recovery' \
+capture_wprism_json_checked RESTORE 'Rank Math canonical verification after lifecycle recovery' assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 SH);
 wprism_check(
@@ -549,7 +549,7 @@ $reinstallActivationNotification = strpos(
     $checkHarness,
     "require_observed_nonempty 'Rank Math reinstall activation notification outcome'"
 );
-$reinstallApply = strpos($checkHarness, 'REINSTALL_APPLY=$(wp_conf2 wprism apply');
+$reinstallApply = strpos($checkHarness, 'capture_wprism_json_checked REINSTALL_APPLY');
 wprism_check(
     is_int($recoveredNotification)
         && is_int($nativeActivationNotification)

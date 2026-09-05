@@ -598,9 +598,10 @@ ADOPT_BY_SLUG=terms,posts
 if [ "$MANIFEST" = core ] || [ "$MANIFEST" = polylang ]; then
   ADOPT_BY_SLUG=terms,posts,menus
 fi
-capture_wprism_json_success \
+capture_wprism_json_checked \
   APPLY_JSON \
   "conf2 wprism apply" \
+  assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" \
   --default-author=admin --revision="$REV" --json
 export APPLY_JSON

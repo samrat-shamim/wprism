@@ -201,11 +201,13 @@ diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-redirection-after-traffic" \
 rm -rf "$CONF_REPO2/.tmp-redirection-after-traffic"
 pass 'real 302, regex 307, language 302, and 410 behavior works while hits/logs/404/cache state remain target-local'
 
-ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked ZERO_PLAN 'Redirection zero-change plan' assert_wprism_json_required_environment \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered 'Redirection zero-change plan' json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null \
   || fail "Redirection zero-change plan retained work: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked ZERO_APPLY 'Redirection zero-change apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 require_wprism_answered 'Redirection zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "Redirection zero-change apply reran effects: $ZERO_APPLY"
@@ -259,7 +261,8 @@ wp_conf2 eval '
   if (is_wp_error($item->update($details))) throw new RuntimeException("target native update failed");
 ' >/dev/null
 CONFLICT_BEFORE=$(redirection_target_hash)
-CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked CONFLICT_PLAN 'Redirection competing branch plan' assert_wprism_json_required_environment \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered 'Redirection competing branch plan' json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "Redirection competing rule did not produce a typed conflict: $CONFLICT_PLAN"
@@ -270,7 +273,8 @@ require_wprism_answered 'Redirection unforced competing branch apply' human "$CO
   || fail "Redirection unforced conflict did not refuse: $CONFLICT_OUT"
 [ "$(redirection_target_hash)" = "$CONFLICT_BEFORE" ] \
   || fail 'Redirection unforced conflict partially mutated target state'
-FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked FORCED 'Redirection forced competing branch apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json
 require_wprism_answered 'Redirection forced competing branch apply' json "$FORCED"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .plan.conflict > 0 and
@@ -287,7 +291,8 @@ BEFORE_DEACTIVATE=$(observe_redirection conf2)
 wp_conf2 plugin deactivate redirection >/dev/null
 [ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_redirection_items' --skip-column-names | tr -d '[:space:]')" = 4 ] \
   || fail 'Redirection deactivation changed authored rules'
-REDEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_success REDEPLOY 'Redirection code reactivation' \
+  wp_conf2 wprism deploy --repo=/siterepo --format=json
 require_wprism_answered 'Redirection deploy after deactivation' json "$REDEPLOY"
 wp_conf2 plugin is-active redirection >/dev/null || fail 'WPrism deploy did not reactivate exact Redirection code'
 redirection_request /summer
@@ -326,7 +331,8 @@ require_wprism_answered 'Redirection unsupported server-module apply' human "$MO
   || fail 'Redirection provider refusal crossed the target neighbor'
 wp_conf1 db query "UPDATE wp_redirection_groups SET module_id=1 WHERE name='Summer campaign 東京 🚀'" >/dev/null
 commit_redirection_source 'conformance: repair Redirection module scope'
-RECOVERY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked RECOVERY 'Redirection provider-scope recovery apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 require_wprism_answered 'Redirection provider-scope recovery apply' json "$RECOVERY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
@@ -334,7 +340,8 @@ jq -e '
 ' <<<"$RECOVERY" >/dev/null || fail "Redirection provider-scope recovery did not converge: $RECOVERY"
 [ "$(wp_conf2 db query "SELECT module_id FROM wp_redirection_groups WHERE name='Summer campaign 東京 🚀'" --skip-column-names | tr -d '[:space:]')" = 1 ] \
   || fail 'Redirection scope repair did not restore the WordPress module'
-FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked FINAL_PLAN 'Redirection final zero plan' assert_wprism_json_required_environment \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered 'Redirection final zero plan' json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "Redirection final plan retained work: $FINAL_PLAN"

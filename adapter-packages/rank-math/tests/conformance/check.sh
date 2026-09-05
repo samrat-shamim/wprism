@@ -394,11 +394,13 @@ diff -r "${CONF_REPO1:-siterepo/conf1}/state" "${CONF_REPO2:-siterepo/conf2}/.tm
 rm -rf "${CONF_REPO2:-siterepo/conf2}/.tmp-rank-math-traffic"
 pass 'real frontend SEO and 302 routing consume target-local references while traffic, cache and links remain noncanonical'
 
-ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked ZERO_PLAN 'Rank Math zero-change plan' assert_wprism_json_required_environment \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered 'Rank Math zero-change plan' json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' \
   <<<"$ZERO_PLAN" >/dev/null || fail "Rank Math zero-change plan retained work: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked ZERO_APPLY 'Rank Math zero-change apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 require_wprism_answered 'Rank Math zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "Rank Math zero-change apply reran effects: $ZERO_APPLY"
@@ -459,17 +461,18 @@ RANK_SCOPED_ACTION_HASH=$(php -r '
   || fail 'Rank Math scope contract provider declaration could not be canonically hashed'
 [[ "$RANK_SCOPED_ACTION_INDEX" =~ ^[0-9]+$ && "$RANK_SCOPED_ACTION_HASH" =~ ^[a-f0-9]{64}$ ]] \
   || fail 'Rank Math scope contract published a malformed provider action identity'
-RANK_SCOPED_PLAN=$(wp_conf2 wprism plan --repo=/siterepo \
-  --scope-contract=/siterepo/.tmp-rank-math.scope.json --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_success RANK_SCOPED_PLAN 'Rank Math scoped provider plan' wp_conf2 wprism plan --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-rank-math.scope.json --format=json
 require_wprism_answered 'Rank Math scoped provider plan' json "$RANK_SCOPED_PLAN"
 jq -e --arg hash "$RANK_SCOPED_ACTION_HASH" --argjson index "$RANK_SCOPED_ACTION_INDEX" '
   .format == "wprism-scoped-plan/v1" and
   .selected_actions == [{declaration_hash:$hash,index:$index,manifest:"rank-math"}]
 ' <<<"$RANK_SCOPED_PLAN" >/dev/null \
   || fail "Rank Math scoped plan did not bind its site-complete provider: $RANK_SCOPED_PLAN"
-RANK_SCOPED_APPLY=$(wp_conf2 wprism apply --repo=/siterepo \
+capture_wprism_json_checked RANK_SCOPED_APPLY 'Rank Math scoped provider apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-rank-math.scope.json \
-  --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+  --default-author=admin --format=json
 require_wprism_answered 'Rank Math scoped provider apply' json "$RANK_SCOPED_APPLY"
 jq -e '
   .format == "wprism-scoped-apply-result/v1" and .canary == "clean" and
@@ -497,12 +500,13 @@ jq -e '
   (.hub_counts.incoming_link_count | tonumber) == 1
 ' <<<"$RANK_SCOPED_OBSERVED" >/dev/null \
   || fail "Rank Math scoped apply did not retain the exact native link projection: $RANK_SCOPED_OBSERVED"
-RANK_SCOPED_REPLAY=$(wp_conf2 wprism apply --repo=/siterepo \
+capture_wprism_json_checked RANK_SCOPED_REPLAY 'Rank Math scoped terminal replay' assert_wprism_json_required_environment \
+  wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-rank-math.scope.json \
-  --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+  --default-author=admin --format=json
 require_wprism_answered 'Rank Math scoped terminal replay' json "$RANK_SCOPED_REPLAY"
 jq -e '
-  .format == "wprism-scoped-apply-result/v1" and .replayed == true and
+  .format == "wprism-scoped-apply-result/v1" and .replayed == true and .canary == "clean" and
   .applied == 0 and (.actions | length) == 0 and .verification == null
 ' <<<"$RANK_SCOPED_REPLAY" >/dev/null \
   || fail "Rank Math scoped terminal replay repeated work: $RANK_SCOPED_REPLAY"
@@ -610,7 +614,8 @@ grep -Fq 'provider recovery proof' <<<"$(wp_conf2 post get "$TARGET_POST" --fiel
 [ "$(wp_conf2 option get wprism_rank_math_target_neighbor)" = target-neighbor-must-survive ] \
   || fail 'Rank Math provider refusal crossed the target option boundary'
 $COMPOSE exec -T --user root wp2 rm -f /var/www/html/wp-content/mu-plugins/wprism-rank-math-provider-fault.php
-RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked RETRY 'Rank Math retry after callback repair' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 require_wprism_answered 'Rank Math retry after callback repair' json "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
@@ -626,7 +631,8 @@ commit_rank_math_source 'conformance: competing Rank Math metadata intent'
 TARGET_POST=$(jq -r '.ids.post' <<<"$(observe_rank_math conf2)")
 wp_conf2 post meta update "$TARGET_POST" rank_math_title 'Target competing Rank Math title' >/dev/null
 CONFLICT_BEFORE=$(observe_rank_math conf2 | shasum -a 256 | awk '{print $1}')
-CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked CONFLICT_PLAN 'Rank Math competing metadata plan' assert_wprism_json_required_environment \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered 'Rank Math competing metadata plan' json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "Rank Math competing metadata did not produce a typed conflict: $CONFLICT_PLAN"
@@ -637,7 +643,8 @@ require_wprism_answered 'Rank Math unforced competing metadata apply' human "$CO
   || fail "Rank Math unforced conflict did not refuse: $CONFLICT_OUT"
 [ "$(observe_rank_math conf2 | shasum -a 256 | awk '{print $1}')" = "$CONFLICT_BEFORE" ] \
   || fail 'Rank Math unforced conflict partially mutated authored, derived or target-owned state'
-FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked FORCED 'Rank Math forced metadata conflict' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json
 require_wprism_answered 'Rank Math forced metadata conflict' json "$FORCED"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .plan.conflict > 0 and
@@ -712,7 +719,7 @@ $modules=array_values(array_filter($modules,static fn($m)=>$m!=="redirections"))
 update_option("rank_math_modules",$modules);
 ' >/dev/null
 commit_rank_math_source 'conformance: schema recovery module baseline'
-capture_wprism_json_success SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply' \
+capture_wprism_json_checked SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply' assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update >= 1' \
   <<<"$SCHEMA_BASELINE_APPLY" >/dev/null \
@@ -859,7 +866,7 @@ array_splice($modules,$offset,0,["redirections"]);
 update_option("rank_math_modules",$modules);
 ' >/dev/null
 commit_rank_math_source 'conformance: restore Rank Math module intent after recovery'
-capture_wprism_json_success RESTORE 'Rank Math canonical verification after lifecycle recovery' \
+capture_wprism_json_checked RESTORE 'Rank Math canonical verification after lifecycle recovery' assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update >= 1' <<<"$RESTORE" >/dev/null \
   || fail "Rank Math canonical module state did not restore after lifecycle recovery: $RESTORE"
@@ -885,6 +892,8 @@ fi
 for result in A B; do
   eval "rc=\$RC_$result"; eval "log=\$CONCURRENT_$result"
   if [ "$rc" -eq 0 ]; then
+    assert_no_php_runtime_diagnostics 'successful competing Rank Math apply' "$(cat "$log")"
+    assert_wprism_required_environment 'successful competing Rank Math apply' human "$(cat "$log")"
     grep -q 'canary clean' "$log" \
       || fail "successful competing Rank Math apply lacked a clean canary: $(cat "$log")"
   else
@@ -1011,7 +1020,8 @@ echo wp_json_encode(get_option("rank_math_notifications", null));
 require_observed_nonempty 'Rank Math reinstall activation notification outcome' "$REINSTALL_ACTIVATED_NOTIFICATION"
 jq -e 'type == "array" and length == 0' <<<"$REINSTALL_ACTIVATED_NOTIFICATION" >/dev/null \
   || fail "Rank Math reinstall activation did not reproduce its empty notification outcome: $REINSTALL_ACTIVATED_NOTIFICATION"
-REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked REINSTALL_APPLY 'Rank Math apply after exact reinstall' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 require_wprism_answered 'Rank Math apply after exact reinstall' json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "Rank Math exact reinstall did not verify canonical state: $REINSTALL_APPLY"
@@ -1020,7 +1030,8 @@ jq -en --argjson before "$TARGET_FINAL" --argjson after "$REINSTALLED" '$after =
   || fail "Rank Math exact reinstall did not preserve the complete observed native state: $REINSTALLED"
 pass 'deactivate/retire, native uninstall residue, missing-code refusal and digest-bound reinstall preserve exact Rank Math behavior'
 
-FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_checked FINAL_PLAN 'Rank Math final zero plan' assert_wprism_json_required_environment \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered 'Rank Math final zero plan' json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' \
   <<<"$FINAL_PLAN" >/dev/null || fail "Rank Math final plan retained work: $FINAL_PLAN"

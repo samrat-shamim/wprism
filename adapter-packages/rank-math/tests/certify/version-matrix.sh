@@ -230,7 +230,7 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     || fail "Rank Math host deploy omitted an ordered provider phase: $DEPLOY_OUT"
   postdeploy_rank_math_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix boundary apply' \
+  capture_wprism_json_checked RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix boundary apply' assert_wprism_apply_ready \
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
       --default-author=admin --revision="$REV" --json
   printf '%s\n' "$RANK_MATH_BOUNDARY_APPLY_JSON" > "$VMATRIX_APPLY_LOG"
@@ -323,7 +323,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     assert_rank_math_baseline_only_deploy 'Rank Math upgraded target forced host deploy' "$UPGRADE_TARGET_DEPLOY"
     assert_rank_math_zero_code_drift wp2 'Rank Math upgraded target forced host deploy'
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply' \
+    capture_wprism_json_checked RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply' assert_wprism_apply_ready \
       wp2 wprism apply --repo=/siterepo --default-author=admin \
         --revision="$UPGRADE_REV" --json
     assert_wprism_apply_ready 'Rank Math version-matrix upgrade apply' "$RANK_MATH_BOUNDARY_APPLY_JSON"
@@ -420,7 +420,7 @@ RankMath\Helper::update_modules(["image-seo" => "on"]);
     "${GIT1[@]}" push -q origin main
     git -C "siterepo/${PAIR}2" pull -q origin main
     DOWNGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix downgrade apply' \
+    capture_wprism_json_checked RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix downgrade apply' assert_wprism_apply_ready \
       wp2 wprism apply --repo=/siterepo --default-author=admin \
         --revision="$DOWNGRADE_REV" --json
     assert_wprism_apply_ready 'Rank Math version-matrix downgrade apply' "$RANK_MATH_BOUNDARY_APPLY_JSON"
