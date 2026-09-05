@@ -23,6 +23,15 @@ if (!function_exists('is_multisite')) {
     }
 }
 $root = dirname(__DIR__, 4);
+// Counterfactuals load one complete runtime/library tree, never mixed class
+// files from two physical checkouts with conflicting explicit dependencies.
+if (isset($argv[1])) {
+    $priorRoot = realpath($argv[1]);
+    if (!is_string($priorRoot) || !is_file($priorRoot . '/agent/src/Delete/ExecutableOwnerBoundary.php')) {
+        throw new RuntimeException('deletion-owner counterfactual runtime is unavailable');
+    }
+    $root = $priorRoot;
+}
 $executableOwnerFixture = sys_get_temp_dir() . '/wprism-woo-owners-' . bin2hex(random_bytes(8));
 mkdir($executableOwnerFixture . '/mu-plugins', 0777, true);
 mkdir($executableOwnerFixture . '/themes/twentytwentyfive', 0777, true);
@@ -993,7 +1002,7 @@ check($screenClean("wprism: option_name_refs rule for option 'woocommerce_flat_r
 // shaped variant, or the pin above would pass vacuously.
 check(!$screenClean("wprism: option '/Users/alice/.aws/credentials' matches a malformed option_name_refs namespace"),
     'issue #3403 self-test: a path-shaped option_name_ref message would be caught by this pin');
-check(!$screenClean("wprism: option_name_refs owner leaked token sk_live_0123456789abcdef in its match"),
+check(!$screenClean('wprism: option_name_refs owner leaked token sk_live_0123456789abcdef in its match'),
     'issue #3403 self-test: a credential-shaped option_name_ref message would be caught by this pin');
 
 $rows = Snapshot::row_tables($policy);
@@ -1102,14 +1111,14 @@ foreach (['11.0.0' => false, '11.0.1' => false, '10.9.4' => true, '11.0.2' => tr
             && ($row['path'] ?? '') === 'plugins/woocommerce/woocommerce.php'
     ));
     check(($outside !== []) === $refused,
-        "the executable code-source gate " . ($refused ? 'refuses' : 'admits') . " exact WooCommerce $version");
+        'the executable code-source gate ' . ($refused ? 'refuses' : 'admits') . " exact WooCommerce $version");
 }
 unlink($compatibilityPlugin);
 rmdir(dirname($compatibilityPlugin));
 rmdir($compatibilityRoot . '/plugins');
 rmdir($compatibilityRoot);
 check(str_contains((string) file_get_contents($root . '/agent/src/Adapter/Providers.php'),
-    "\$provider->invoke(\$capability, \$args)"),
+    '$provider->invoke($capability, $args)'),
     'provider capabilities are invoked through the engine contract, never as an engine-executed string');
 // The retired channel ran every payload in a freshly launched WP-CLI process
 // (cold runtime caches by construction). Providers run IN-PROCESS, so the
@@ -1687,6 +1696,91 @@ check(count($fakeWpdb->activationQueries) === 6
         static fn(string $query): bool => str_contains($query, 'FOR UPDATE')
     )) === 6,
     'executable-owner boundary binds active_plugins, stylesheet, and template through direct locked reads');
+// Exercise the public locked boundary on native post-deactivation storage.
+// Deletion binds a SET of owners (legacy duplicates intentionally collapse),
+// unlike lifecycle's duplicate-free ordered roster. Only key-shape machinery
+// is shared; neither policy may be widened by the other consumer's contract.
+$activationPreimage = $fakeWpdb->activationOptions;
+$nativeOwnerRosters = [
+    'dense' => ['woocommerce/woocommerce.php'],
+    'first-removed' => [1 => 'woocommerce/woocommerce.php'],
+    'middle-removed' => [0 => 'woocommerce/woocommerce.php', 2 => 'woocommerce/woocommerce.php'],
+    'ordered-sparse' => [9 => 'woocommerce/woocommerce.php', 2 => 'woocommerce/woocommerce.php', PHP_INT_MAX => 'woocommerce/woocommerce.php'],
+];
+foreach ($nativeOwnerRosters as $case => $roster) {
+    $fakeWpdb->activationOptions['active_plugins'] = serialize($roster);
+    $rawBefore = $fakeWpdb->activationOptions;
+    $fakeWpdb->activationQueries = [];
+    $accepted = false;
+    try {
+        $nativeBoundary = new \WPrism\ExecutableOwnerBoundary($policy);
+        $nativeBoundary->bind($boundaryWork);
+        $nativeBoundary->assert_unchanged();
+        $accepted = true;
+    } catch (Throwable $failure) {
+        // The assertion names the native shape, not a convenient decoder call.
+    }
+    check($accepted, "locked native $case roster binds and rechecks reviewed executable owners");
+    check($rawBefore === $fakeWpdb->activationOptions,
+        "$case owner observation preserves every native activation byte");
+    check($fakeWpdb->activationQueries !== [] && count(array_filter($fakeWpdb->activationQueries,
+        static fn(string $query): bool => str_contains($query, 'FOR UPDATE'))) === count($fakeWpdb->activationQueries),
+        "$case owner roster stays inside the direct locked activation read path");
+}
+$invalidOwnerRosters = [
+    'associative' => ['plugin' => 'woocommerce/woocommerce.php'],
+    'negative-key' => [-1 => 'woocommerce/woocommerce.php'],
+    'noncanonical-numeric-key' => ['01' => 'woocommerce/woocommerce.php'],
+    'numeric-value' => [2 => 17], 'nested-value' => [2 => []], 'empty-value' => [2 => ''],
+    'unsafe-owner' => [2 => '../woocommerce/woocommerce.php'],
+    'unreviewed-owner' => [0 => 'woocommerce/woocommerce.php', 2 => 'acme-extension/acme.php'],
+    'too-many-positions' => array_fill(1, 4097, 'woocommerce/woocommerce.php'),
+];
+foreach ($invalidOwnerRosters as $case => $roster) {
+    $fakeWpdb->activationOptions['active_plugins'] = serialize($roster);
+    $rawBefore = $fakeWpdb->activationOptions;
+    $failure = null;
+    try {
+        (new \WPrism\ExecutableOwnerBoundary($policy))->bind($boundaryWork);
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    check($failure instanceof RuntimeException,
+        "locked native $case roster cannot acquire deletion-owner authority");
+    check($rawBefore === $fakeWpdb->activationOptions,
+        "$case refusal preserves every native activation byte");
+    if ($case === 'unreviewed-owner') {
+        check($failure instanceof \WPrism\CommandRefusalException
+            && $failure->reasonCode === 'deletion_executable_owner_boundary'
+            && ($failure->diagnostics[0]['owner'] ?? null) === 'plugin:acme-extension/acme.php',
+            'a sparse position cannot hide an unreviewed executable owner behind a generic storage-shape refusal');
+    }
+}
+// A new owner after binding still refuses even if both stored shapes are
+// legitimate native sequences. Reindexing alone moves no owner-set authority.
+$fakeWpdb->activationOptions['active_plugins'] = serialize([1 => 'woocommerce/woocommerce.php']);
+$nativeRecheck = new \WPrism\ExecutableOwnerBoundary($policy);
+$recheckReady = true;
+try {
+    $nativeRecheck->bind($boundaryWork);
+} catch (Throwable $failure) {
+    $recheckReady = false;
+}
+check($recheckReady, 'the sparse owner-set change control reaches its real bound preimage');
+if ($recheckReady) {
+    $fakeWpdb->activationOptions['active_plugins'] = serialize(['woocommerce/woocommerce.php']);
+    $nativeRecheck->assert_unchanged();
+    check(true, 'native reindexing alone does not change the transaction-bound owner set');
+    $fakeWpdb->activationOptions['active_plugins'] = serialize([1 => 'woocommerce/woocommerce.php', 5 => 'acme-extension/acme.php']);
+    $changedRefused = false;
+    try {
+        $nativeRecheck->assert_unchanged();
+    } catch (\WPrism\CommandRefusalException $refusal) {
+        $changedRefused = $refusal->reasonCode === 'deletion_executable_owner_changed';
+    }
+    check($changedRefused, 'a new sparse executable owner cannot enter already-bound deletion work');
+}
+$fakeWpdb->activationOptions = $activationPreimage;
 $ownerBoundaryTokens = token_get_all((string) file_get_contents(
     $root . '/agent/src/Delete/ExecutableOwnerBoundary.php'
 ));

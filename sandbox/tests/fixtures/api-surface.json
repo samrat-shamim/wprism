@@ -51563,6 +51563,23 @@
                     "return_type": null,
                     "static": true,
                     "visibility": "public"
+                },
+                "has_nonnegative_integer_keys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,

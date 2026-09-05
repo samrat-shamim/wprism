@@ -218,7 +218,7 @@ final class CodeLifecycleObservation {
         // order in the observed list below without rewriting the native row.
         if (!is_array($decoded)
             || count($decoded) > self::MAX_ACTIVE_PLUGINS
-            || array_filter(array_keys($decoded), static fn($key): bool => !is_int($key) || $key < 0) !== []) {
+            || !PlainData::has_nonnegative_integer_keys($decoded)) {
             throw new \RuntimeException('wprism: active_plugins option is malformed or oversized');
         }
         $active = [];

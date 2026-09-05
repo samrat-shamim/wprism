@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/ExecutableTreeIdentity.php';
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
@@ -745,7 +746,10 @@ final class ExecutableOwnerBoundary {
     /** @return list<string> */
     private static function decode_list(string $raw, string $name): array {
         $decoded = self::decode_array($raw, $name);
-        if (!array_is_list($decoded)) {
+        // The locked raw active_plugins row is native storage, not an artifact
+        // list. WordPress deactivation leaves holes; those positions must not
+        // hide an owner or require rewriting state before destructive work.
+        if (!PlainData::has_nonnegative_integer_keys($decoded)) {
             throw new \RuntimeException("wprism: $name is not a canonical plugin list");
         }
         foreach ($decoded as $value) {
