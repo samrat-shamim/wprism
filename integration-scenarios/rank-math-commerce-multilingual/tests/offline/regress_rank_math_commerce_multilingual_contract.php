@@ -456,7 +456,7 @@ wprism_check(
 );
 $hostDeploy = strpos($live, 'CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy');
 $settledOrderReadback = strpos($live, 'HOST_SETTLED_ORDER=$(active_plugin_order wp2)');
-$initialApply = strpos($live, 'capture_wprism_json_success INITIAL');
+$initialApply = strpos($live, 'capture_wprism_json_checked INITIAL');
 wprism_check(
     $hostDeploy !== false
         && $settledOrderReadback !== false
@@ -499,24 +499,33 @@ foreach ([
     ['RETRY', 'Rank Math combination provider retry', 'RETRY_NATIVE=$(native_state wp2)'],
     ['NOOP', 'Rank Math combination no-op apply', 'wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final'],
 ] as [$answer, $label, $observation]) {
-    $captureStart = strpos($live, "capture_wprism_json_success $answer '$label' ");
-    $ready = strpos($live, "assert_wprism_apply_ready '$label' \"\$$answer\"");
-    $observe = strpos($live, $observation);
-    wprism_check(
-        $captureStart !== false
-            && $ready !== false
-            && $observe !== false
-            && $captureStart < $ready
-            && $ready < $observe
-            && !str_contains($live, "$answer=\$(wp2 wprism apply"),
-        "$answer preserves the public refusal/diagnostic stream and requires provisioned, verified apply before its native oracle"
+    $checkedCapture = strpos(
+        $live,
+        "capture_wprism_json_checked $answer '$label' assert_wprism_apply_ready "
     );
-    $block = $captureStart === false || $ready === false ? '' : substr(
+    // Keep the old shape executable as a counterfactual: this regression must
+    // demonstrate why publishing the last JSON line before readiness was wrong.
+    $legacyCapture = strpos($live, "capture_wprism_json_success $answer '$label' ");
+    $captureStart = $checkedCapture !== false ? $checkedCapture : $legacyCapture;
+    $receipt = $captureStart === false ? false : strpos($live, "\njq -e '", $captureStart);
+    $observe = $captureStart === false ? false : strpos($live, $observation, $captureStart);
+    wprism_check(
+        $checkedCapture !== false
+            && $legacyCapture === false
+            && $receipt !== false
+            && $observe !== false
+            && $checkedCapture < $receipt
+            && $receipt < $observe
+            && !str_contains($live, "\nassert_wprism_apply_ready '$label' \"\$$answer\"")
+            && !str_contains($live, "$answer=\$(wp2 wprism apply"),
+        "$answer checks the complete public stream before publishing verified apply evidence to its native oracle"
+    );
+    $block = $captureStart === false || $receipt === false ? '' : substr(
         $live,
         $captureStart,
-        $ready + strlen("assert_wprism_apply_ready '$label' \"\$$answer\"") - $captureStart
+        $receipt - $captureStart
     );
-    foreach (['ready', 'missing', 'refusal', 'diagnostic', 'startup', 'parse'] as $case) {
+    foreach (['ready', 'missing', 'missing-stderr', 'refusal', 'diagnostic', 'startup', 'parse'] as $case) {
         $script = <<<'SH'
 set -euo pipefail
 fail() { printf '%s\n' "$*" >&2; exit 1; }
@@ -538,6 +547,9 @@ wp2() {
   fi
   if [ "$PROBE_CASE" = parse ]; then
     printf 'PHP Parse error: fixture diagnostic\n' >&2
+  fi
+  if [ "$PROBE_CASE" = missing-stderr ]; then
+    printf 'Warning: env_missing: option home is required\n' >&2
   fi
   if [ "$PROBE_CASE" = missing ]; then
     printf '%s\n' '{"canary":"clean","verification":{"result":"pass"},"warnings":["env_missing: option home is required"]}'
@@ -569,7 +581,7 @@ SH;
         wprism_check(
             match ($case) {
                 'ready' => $accepted && $stderr === '',
-                'missing' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
+                'missing', 'missing-stderr' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
                     && str_contains($stderr, 'did not prove all required environment bindings'),
                 'refusal' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
                     && str_contains($stderr, 'fixture_refusal') && str_contains($stderr, 'failed with exit 7'),

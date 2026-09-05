@@ -805,10 +805,9 @@ jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$HOST_SETTLED_NATIVE"
 ' >/dev/null || fail "compatible host settlement crossed an unrelated plugin/content/runtime boundary: $HOST_SETTLED_NATIVE"
 pass 'host deploy refuses hostile schema, then checkpoint-settles legitimate lifecycle/schema drift without crossing combination boundaries'
 REVISION=$(git -C "$R2" rev-parse HEAD)
-capture_wprism_json_success INITIAL 'Rank Math commerce/multilingual initial apply' \
+capture_wprism_json_checked INITIAL 'Rank Math commerce/multilingual initial apply' assert_wprism_apply_ready \
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
   --default-author=admin --revision="$REVISION" --format=json
-assert_wprism_apply_ready 'Rank Math commerce/multilingual initial apply' "$INITIAL"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
@@ -985,9 +984,8 @@ jq -en --argjson baseline "$TARGET_RUNTIME" --argjson failed "$FAILURE_NATIVE" '
   ([ $failed.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 0
 ' >/dev/null || fail "combined provider failure crossed a runtime boundary or fabricated derived success: $FAILURE_NATIVE"
 remove_hostile_provider
-capture_wprism_json_success RETRY 'Rank Math combination provider retry' \
+capture_wprism_json_checked RETRY 'Rank Math combination provider retry' assert_wprism_apply_ready \
   wp2 wprism apply --repo=/siterepo --default-author=admin --format=json
-assert_wprism_apply_ready 'Rank Math combination provider retry' "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
@@ -1014,9 +1012,8 @@ pass 'provider failure and retry preserve every Woo, Polylang, ACF, taxonomy, mo
 
 say 'combined recapture and repeated apply are exact no-ops'
 REVISION=$(git -C "$R2" rev-parse HEAD)
-capture_wprism_json_success NOOP 'Rank Math combination no-op apply' \
+capture_wprism_json_checked NOOP 'Rank Math combination no-op apply' assert_wprism_apply_ready \
   wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REVISION" --format=json
-assert_wprism_apply_ready 'Rank Math combination no-op apply' "$NOOP"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$NOOP" >/dev/null \
   || fail "combined no-op reran effects: $NOOP"
 wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final >/dev/null
