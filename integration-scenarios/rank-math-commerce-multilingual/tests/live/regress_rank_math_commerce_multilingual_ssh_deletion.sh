@@ -15,8 +15,10 @@ wprism_ssh_adopt_extension() {
   local converged_plan diagnostic_file promote_code seed_json
   local success_stdout="$DIAG_DIR/rank-math-commerce-multilingual-delete-success.stdout"
   local success_stderr="$DIAG_DIR/rank-math-commerce-multilingual-delete-success.stderr"
+  local plan_stderr="$DIAG_DIR/rank-math-commerce-multilingual-delete-plan.stderr"
+  local converged_stderr="$DIAG_DIR/rank-math-commerce-multilingual-delete-converged.stderr"
 
-  for diagnostic_file in "$success_stdout" "$success_stderr"; do
+  for diagnostic_file in "$success_stdout" "$success_stderr" "$plan_stderr" "$converged_stderr"; do
     ( umask 077; : >"$diagnostic_file" )
     chmod 0600 "$diagnostic_file"
   done
@@ -287,6 +289,8 @@ PHP
     || fail "the combined deletion could not complete its code lifecycle baseline"
   grep -q '^deploy complete:' "$TMP/rm-combo-code-baseline.stdout" \
     || fail "the combined deletion did not report a completed code lifecycle baseline"
+  assert_ssh_fixture_positive_diagnostics 'combined deletion code lifecycle baseline' \
+    "$TMP/rm-combo-code-baseline.stdout" "$TMP/rm-combo-code-baseline.stderr"
   pass "the four-plugin state and immutable code inventory completed the public capture/deploy lifecycle"
 
   cat >"$TMP/rank-math-commerce-multilingual-observe.php" <<'PHP'
@@ -394,8 +398,10 @@ PHP
   post_uuid="$(wprism_ssh_publish_post_tombstone post rmcombo-ssh-delete)" \
     || fail "the combined deletion could not publish its engine-derived core-post tombstone"
 
-  plan_json="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json)" \
+  plan_json="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json 2>"$plan_stderr")" \
     || fail "the combined deletion could not plan its signed full promotion"
+  assert_ssh_fixture_positive_diagnostics 'combined deletion plan' "$plan_stderr"
+  assert_wprism_required_environment 'combined deletion plan' json "$plan_json"
   jq -e --arg uuid "$post_uuid" '
     ([.delete[]? | select(
       .uuid == $uuid and .type == "post" and .deletion_type == "post"
@@ -406,6 +412,7 @@ PHP
     and ([.effects_inventory[]? | select(.source == "provider:woocommerce-product-lookups/cleanup_product_deletions")] | length) == 0
     and .code_mismatch == []
     and .provider_problems == []
+    and (.env_missing | type == "array" and all(.[]; type == "object" and .required == false))
   ' <<<"$plan_json" >/dev/null \
     || fail "the combined plan did not isolate one supported core deletion and its Rank Math repair: $plan_json"
   pass "one core post deletion selects Rank Math repair while refusing to imply Woo product-delete authority"
@@ -419,6 +426,8 @@ PHP
   fi
   [ "$promote_code" -eq 0 ] \
     || fail "the signed four-plugin core deletion did not complete"
+  assert_ssh_fixture_positive_diagnostics 'signed four-plugin core deletion' \
+    "$success_stdout" "$success_stderr"
   grep -Fq 'promote complete: verified committed receipt; traffic exclusion released' "$success_stdout" \
     || fail "the combined deletion lacked its verified committed full-recovery receipt"
   status_json="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php active-evidence --root=/home/wprism/site/.wprism/control')"
@@ -454,13 +463,17 @@ PHP
   ' >/dev/null \
     || fail "the signed deletion retained plugin-owned rows or crossed the Woo/ACF/Polylang boundary: $after_json"
 
-  converged_plan="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json)" \
+  converged_plan="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json 2>"$converged_stderr")" \
     || fail "the combined deletion did not permit a converged follow-up plan"
+  assert_ssh_fixture_positive_diagnostics 'combined deletion follow-up plan' "$converged_stderr"
+  assert_wprism_required_environment 'combined deletion follow-up plan' json "$converged_plan"
   jq -e '
     .create == [] and .update == [] and .adopt == []
     and .drift == [] and .conflict == []
     and .delete == [] and .delete_conflict == []
     and .code_mismatch == [] and .selected_actions == []
+    and .provider_problems == []
+    and (.env_missing | type == "array" and all(.[]; type == "object" and .required == false))
   ' <<<"$converged_plan" >/dev/null \
     || fail "the combined signed deletion did not reach a no-action fixed point: $converged_plan"
   [ -z "$(target_ledger_value promotion_lock)" ] \

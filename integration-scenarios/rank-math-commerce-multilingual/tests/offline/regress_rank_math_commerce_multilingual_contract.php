@@ -587,6 +587,155 @@ wprism_check(
     'WooCommerce is live and populated, remains outside the core deletion, and the signed path reaches a no-action fixed point'
 );
 
+// Run the exact SSH scenario command/acceptance blocks. Required rows must
+// fail independently of their warning strings, while optional rows and native
+// action receipts stay admissible. Private host diagnostics are never echoed.
+$sshAdoptSource = (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
+preg_match('/^assert_ssh_fixture_positive_diagnostics\(\).*?^\}/ms', $sshAdoptSource, $sshDiagnosticDefinition);
+$sshProbe = static function (string $block, string $answer, string $diagnostic = '', int $exit = 0) use ($root, $sshDiagnosticDefinition): array {
+    $script = <<<'SH'
+set -euo pipefail
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$1/sandbox/conformance/asserts.sh"
+umask 077
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/wprism-rmcombo-ssh-oracle.XXXXXX")
+trap 'rm -rf -- "$TMP"' EXIT
+success_stdout="$TMP/success.stdout"
+success_stderr="$TMP/success.stderr"
+plan_stderr="$TMP/plan.stderr"
+converged_stderr="$TMP/converged.stderr"
+post_uuid=12345678-1234-1234-1234-123456789abc
+WPRISM=fixture_host
+fixture_answer="$2" fixture_diagnostic="$3" fixture_exit="$4"
+fixture_host() {
+  [ "$3" = target ] || return 81
+  case "$2" in plan|promote|deploy) ;; *) return 82 ;; esac
+  printf '%s\n' "$fixture_answer"
+  [ -z "$fixture_diagnostic" ] || printf '%s\n' "$fixture_diagnostic" >&2
+  return "$fixture_exit"
+}
+SH;
+    $process = proc_open(
+        ['bash', '-c', $script . "\n" . ($sshDiagnosticDefinition[0] ?? '') . "\n" . $block . "\nprintf 'SSH_READY\\n'\n",
+            'ssh-scenario-oracle', $root, $answer, $diagnostic, (string) $exit],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        $root,
+        ['PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin')]
+    );
+    if (!is_resource($process)) {
+        return [127, '', 'could not start SSH scenario oracle'];
+    }
+    $stdout = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    return [proc_close($process), $stdout, $stderr];
+};
+$sshPlanCases = [
+    'deletion' => [
+        '  plan_json="$(', '  pass "one core post deletion',
+        [
+            'delete' => [['uuid' => '12345678-1234-1234-1234-123456789abc', 'type' => 'post', 'deletion_type' => 'post', 'blocked' => '']],
+            'selected_actions' => [['manifest' => 'rank-math']],
+            'effects_inventory' => [['source' => 'provider:rank-math-state/rebuild_all_link_state']],
+            'code_mismatch' => [], 'provider_problems' => [],
+        ],
+    ],
+    'converged' => [
+        '  converged_plan="$(', '  [ -z "$(target_ledger_value promotion_lock)" ]',
+        array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'delete', 'delete_conflict', 'code_mismatch', 'selected_actions', 'provider_problems'], []),
+    ],
+];
+foreach ($sshPlanCases as $phase => [$startToken, $endToken, $plan]) {
+    $start = strpos($sshDeletion, $startToken);
+    $end = $start === false ? false : strpos($sshDeletion, $endToken, $start);
+    $block = $start === false || $end === false ? '' : substr($sshDeletion, $start, $end - $start);
+    wprism_check($block !== '' && isset($sshDiagnosticDefinition[0]),
+        "the SSH $phase plan has an executable command-to-acceptance block");
+    $plan['env_missing'] = [['name' => 'fixture_optional', 'required' => false]];
+    $plan['warnings'] = ['native action fired: fixture (verified)'];
+    foreach (['ready', 'required-row', 'required-warning', 'missing-env', 'malformed-env', 'provider-problem', 'php-stderr', 'refusal'] as $mutation) {
+        $candidate = $plan;
+        switch ($mutation) {
+            case 'required-row':
+                $candidate['env_missing'][] = ['name' => 'home', 'required' => true];
+                break;
+            case 'required-warning':
+                $candidate['warnings'][] = 'env_missing: option home is required';
+                break;
+            case 'missing-env':
+                unset($candidate['env_missing']);
+                break;
+            case 'malformed-env':
+                $candidate['env_missing'][0]['required'] = 'false';
+                break;
+            case 'provider-problem':
+                $candidate['provider_problems'][] = ['provider' => 'fixture'];
+                break;
+        }
+        [$status, $stdout, $stderr] = $sshProbe(
+            $block,
+            json_encode($candidate, JSON_THROW_ON_ERROR),
+            $mutation === 'php-stderr' ? 'PHP Warning: private-operator-value in /fixture.php on line 12' : '',
+            $mutation === 'refusal' ? 7 : 0
+        );
+        wprism_check(
+            $mutation === 'ready'
+                ? $status === 0 && $stdout === "SSH_READY\n" && $stderr === ''
+                : $status !== 0 && !str_contains($stdout, 'SSH_READY') && !str_contains($stdout . $stderr, 'private-operator-value'),
+            "the actual SSH $phase plan block classifies $mutation without treating optional rows as missing authority"
+        );
+    }
+}
+$sshHumanCases = [
+    'baseline deploy' => [
+        '  "$WPRISM" --envs-file="$TMP/envs.json" deploy target',
+        '  pass "the four-plugin state',
+        'deploy complete: verified immutable code baseline',
+    ],
+    'signed deletion' => [
+        '  if "$WPRISM" --envs-file="$TMP/envs.json" promote target --with-deletes',
+        '  status_json=',
+        'promote complete: verified committed receipt; traffic exclusion released',
+    ],
+];
+foreach ($sshHumanCases as $phase => [$startToken, $endToken, $receipt]) {
+    $start = strpos($sshDeletion, $startToken);
+    $end = $start === false ? false : strpos($sshDeletion, $endToken, $start);
+    $block = $start === false || $end === false ? '' : substr($sshDeletion, $start, $end - $start);
+    wprism_check($block !== '', "the SSH $phase has an executable complete-stream acceptance block");
+    $success = "Success: applied 1 entities (canary clean) — plan was: {\"env_missing\":1}\n" . $receipt;
+    foreach (['ready', 'required-stderr', 'required-stdout', 'php-stderr', 'php-stdout', 'missing-receipt', 'refusal'] as $mutation) {
+        $answer = $success;
+        $diagnostic = 'Warning: provider capability fired: fixture (verified)';
+        switch ($mutation) {
+            case 'required-stderr':
+                $diagnostic = 'Warning: env_missing: private-operator-value';
+                break;
+            case 'required-stdout':
+                $answer = "Warning: env_missing: private-operator-value\n" . $answer;
+                break;
+            case 'php-stderr':
+                $diagnostic = 'PHP Deprecated: private-operator-value in /fixture.php on line 12';
+                break;
+            case 'php-stdout':
+                $answer = "PHP Notice: private-operator-value in /fixture.php on line 12\n" . $answer;
+                break;
+            case 'missing-receipt':
+                $answer = 'Success: applied 1 entities (canary clean)';
+                break;
+        }
+        [$status, $stdout, $stderr] = $sshProbe($block, $answer, $diagnostic, $mutation === 'refusal' ? 7 : 0);
+        wprism_check(
+            $mutation === 'ready'
+                ? $status === 0 && $stdout === "SSH_READY\n" && $stderr === ''
+                : $status !== 0 && !str_contains($stdout, 'SSH_READY') && !str_contains($stdout . $stderr, 'private-operator-value'),
+            "the actual SSH $phase block gates $mutation before trusting its completed receipt"
+        );
+    }
+}
+
 foreach ([
     'PAIR="${RANK_MATH_COMBO_PAIR:-}"',
     'PORT1_RAW="${RANK_MATH_COMBO_PORT1:-}"',

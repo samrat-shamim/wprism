@@ -65,6 +65,8 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+. "$ROOT/sandbox/conformance/asserts.sh"
+
 # shellcheck source=../lib/ssh_adopt_extension.sh
 . "$ROOT/sandbox/tests/lib/ssh_adopt_extension.sh"
 
@@ -259,6 +261,36 @@ for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN
 done
 
 ssh_fixture() { ssh -F "$TMP/ssh_config" wprism-adopt-fixture "$@"; }
+
+# The fixture's login shell is /bin/sh. Single-quote each argument rather
+# than using Bash's %q dialect, and leave stdin available for public env-set.
+wp_ssh_fixture() {
+  local command='cd /var/www/html && exec wp' argument
+  for argument in "$@"; do
+    argument="${argument//\'/\'\\\'\'}"
+    command+=" '$argument'"
+  done
+  ssh_fixture "$command"
+}
+
+# These private files can contain operator material. Reject diagnostics by
+# category without echoing the matching line; normal action receipts remain
+# admissible. Serialized scoped Apply warnings are checked separately below.
+assert_ssh_fixture_positive_diagnostics() { # <label> <stdout/stderr file>...
+  local label="$1" diagnostic_file
+  shift
+  [ "$#" -gt 0 ] || fail "$label has no diagnostic capture"
+  for diagnostic_file in "$@"; do
+    [ -f "$diagnostic_file" ] && [ ! -L "$diagnostic_file" ] && [ -r "$diagnostic_file" ] \
+      || fail "$label has an unreadable diagnostic capture"
+    if grep -Eq '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated|Fatal error): .* in .*[.]php on line [0-9]+' "$diagnostic_file"; then
+      fail "$label emitted a PHP runtime diagnostic; inspect its private capture"
+    fi
+    if grep -Eq '(^|[[:space:]])env_missing:' "$diagnostic_file"; then
+      fail "$label did not prove all required environment bindings; inspect its private capture"
+    fi
+  done
+}
 
 target_ledger_value() {
   local key="$1"
@@ -564,6 +596,16 @@ if ! ssh_fixture 'php -r '\''$m="/var/www/html/wp-content/mu-plugins/wprism/adap
 fi
 pass "target carries the shipped platform boundary and a cited disposition for every certified claim"
 
+# Adoption installs code and authority, never operator intent. Its refusal,
+# rollback and idempotence witnesses above therefore retain their original
+# unprovisioned premise; only this positive promotion fixture chooses values.
+say "provision the SSH promotion fixture's chosen core environment values"
+ssh_fixture 'test ! -e /home/wprism/site/.wprism-env-values.json && test ! -L /home/wprism/site/.wprism-env-values.json' \
+  || fail "adoption unexpectedly provisioned environment intent"
+establish_core_environment_bindings wp_ssh_fixture /home/wprism/site admin@example.test \
+  http://adopt.example.test http://adopt.example.test
+pass "public stdin provisioning binds the exact installer-owned core values before promotion"
+
 say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
 ssh_fixture 'php -r '\''$p="/home/wprism/site/site.wprism.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["scoped-apply_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''
 ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-failure --autoload=no >/dev/null'
@@ -742,6 +784,11 @@ fi
 printf '%s\n' "$SUCCESS_CODE" >"$SCOPED_SUCCESS_PROMOTE_EXIT"
 [ "$SUCCESS_CODE" -eq 0 ] \
   || fail "public SSH scoped promote did not complete"
+assert_ssh_fixture_positive_diagnostics 'public SSH scoped promote' \
+  "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR"
+SCOPED_APPLY_JSON=$(jq -ce '.scoped_apply | select(type == "object")' "$SCOPED_SUCCESS_PROMOTE_STDOUT") \
+  || fail "public SSH scoped promote did not return its nested Apply result"
+assert_wprism_apply_ready 'public SSH scoped promote Apply' "$SCOPED_APPLY_JSON"
 jq -e --argjson failed_generation "$(jq -r '.generation' "$AUTHORITY_STATUS_STDOUT")" '
   .format == "wprism-scoped-promotion-result/v1" and .state == "committed"
   and (.generation > $failed_generation)

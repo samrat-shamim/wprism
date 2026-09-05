@@ -633,4 +633,141 @@ TOMBSTONE_PRESENT_RACE_ROOT="$SCRATCH/tombstone-present-race-collision/remote/ho
   || fail 'retirement-race refusal left its remote executable installed'
 pass 'tombstone publication and source retirement are no-replace at both post-observation races'
 
+# Execute the driver's own POSIX SSH argv boundary, provisioning transition,
+# and scoped success block. A copied readiness predicate would remain green
+# if the actual driver forgot to call it or discarded the warning stream.
+SSH_ADOPT_DRIVER="$ROOT/sandbox/tests/live/regress_ssh_adopt.sh"
+source "$ROOT/sandbox/conformance/asserts.sh"
+eval "$(sed -n '/^wp_ssh_fixture() {/,/^}/p' "$SSH_ADOPT_DRIVER")"
+eval "$(sed -n '/^assert_ssh_fixture_positive_diagnostics() {/,/^}/p' "$SSH_ADOPT_DRIVER")"
+declare -F wp_ssh_fixture >/dev/null \
+  && declare -F assert_ssh_fixture_positive_diagnostics >/dev/null \
+  || fail 'the SSH driver omitted its tested argument/diagnostic boundaries'
+SSH_CORE_BINDING_BLOCK="$(sed -n '/^ssh_fixture '\''test ! -e .*wprism-env-values.json/,/^pass "public stdin provisioning/p' "$SSH_ADOPT_DRIVER")"
+[[ "$SSH_CORE_BINDING_BLOCK" == *'establish_core_environment_bindings wp_ssh_fixture'* ]] \
+  || fail 'the SSH driver omitted its explicit post-adoption provisioning transition'
+ADOPT_LAST_VERIFY=$(grep -n '^pass "target carries the shipped platform boundary' "$SSH_ADOPT_DRIVER" | cut -d: -f1)
+ADOPT_CORE_BIND=$(grep -n '^establish_core_environment_bindings wp_ssh_fixture ' "$SSH_ADOPT_DRIVER" | cut -d: -f1)
+ADOPT_SCOPED_START=$(grep -n '^say "exercise a real checkpointed SSH scoped promotion' "$SSH_ADOPT_DRIVER" | cut -d: -f1)
+[ "$ADOPT_LAST_VERIFY" -lt "$ADOPT_CORE_BIND" ] && [ "$ADOPT_CORE_BIND" -lt "$ADOPT_SCOPED_START" ] \
+  || fail 'core intent must be chosen after adoption refusal/rollback witnesses and before scoped capture'
+
+ssh_fixture() {
+  local translated
+  translated="$(translated_remote_command "$1")"
+  PATH="$FAKE_BIN:$ORIGINAL_PATH" /bin/sh -c "$translated"
+}
+
+prepare_ssh_binding_case() {
+  prepare_remote "$1"
+  export SSH_EVIDENCE_MODE="${2:-normal}"
+  export SSH_EVIDENCE_TRACE="$TMP/env-bindings.jsonl"
+  : >"$SSH_EVIDENCE_TRACE"
+  cat >"$FAKE_BIN/wp" <<'SSH_EVIDENCE_WP'
+#!/usr/bin/env php
+<?php
+$args = array_slice($argv, 1);
+$mode = getenv('SSH_EVIDENCE_MODE');
+if ($mode === 'argv') {
+    echo json_encode(['argv' => $args, 'stdin' => stream_get_contents(STDIN)]), "\n";
+    exit(0);
+}
+if (($args[0] ?? null) === 'eval' && count($args) === 2) {
+    $values = ['admin_email' => 'admin@example.test', 'home' => 'http://adopt.example.test', 'siteurl' => 'http://adopt.example.test'];
+    if ($mode === 'drift') {
+        $values['home'] = 'https://unexpected.invalid';
+    }
+    echo json_encode($values), "\n";
+    exit(0);
+}
+$name = substr((string) ($args[3] ?? ''), strlen('--name='));
+if ($args !== ['wprism', 'env-set', '--repo=' . getenv('REMOTE') . '/home/wprism/site', '--name=' . $name, '--stdin', '--format=json']
+    || !in_array($name, ['admin_email', 'home', 'siteurl'], true)) {
+    exit(91);
+}
+$value = stream_get_contents(STDIN);
+file_put_contents(getenv('SSH_EVIDENCE_TRACE'), json_encode(['name' => $name, 'stdin' => $value]) . "\n", FILE_APPEND);
+if ($mode === 'write-failure') {
+    echo '{"format":"wprism-command-refusal/v1","ok":false}', "\n";
+    exit(7);
+}
+echo json_encode(['name' => $name, 'previously_set' => true]), "\n";
+SSH_EVIDENCE_WP
+  chmod +x "$FAKE_BIN/wp"
+}
+
+prepare_ssh_binding_case ssh-argv argv
+SSH_QUOTE_ARGS=(eval $'line one\nline two' "apostrophe's" '"double quotes"' \
+  "\$(touch '$REMOTE/escaped')" "\`touch '$REMOTE/escaped'\`" '' '--name=x y')
+SSH_QUOTE_EXPECTED=$(jq -nc --args '$ARGS.positional' -- "${SSH_QUOTE_ARGS[@]}")
+SSH_QUOTE_ACTUAL=$(wp_ssh_fixture "${SSH_QUOTE_ARGS[@]}" <<<'one stdin value')
+jq -en --argjson expected "$SSH_QUOTE_EXPECTED" --argjson actual "$SSH_QUOTE_ACTUAL" \
+  '$actual.argv == $expected and $actual.stdin == "one stdin value\n"' >/dev/null \
+  || fail 'the actual SSH WP runner changed quoted arguments or consumed provisioning stdin'
+[ ! -e "$REMOTE/escaped" ] || fail 'the actual SSH WP runner executed an argument as shell code'
+pass 'the actual SSH WP boundary preserves empty/quoted/multiline/metacharacter arguments and stdin through /bin/sh'
+
+case_ssh_binding() {
+  prepare_ssh_binding_case "ssh-binding-$1" "$1"
+  if [ "$1" = already-bound ]; then
+    printf '{}\n' >"$REMOTE/home/wprism/site/.wprism-env-values.json"
+  fi
+  eval "$SSH_CORE_BINDING_BLOCK"
+}
+case_ssh_binding normal
+jq -es '. == [
+  {name:"admin_email",stdin:"admin@example.test\n"},
+  {name:"home",stdin:"http://adopt.example.test\n"},
+  {name:"siteurl",stdin:"http://adopt.example.test\n"}
+]' "$SCRATCH/ssh-binding-normal/local/env-bindings.jsonl" >/dev/null \
+  || fail 'the actual SSH fixture did not choose exactly the three installer-owned stdin values'
+expect_refusal 'SSH fixture ambient core drift' 'refusing to adopt drift as intent' case_ssh_binding drift
+expect_refusal 'adoption unexpectedly binding intent' 'adoption unexpectedly provisioned' case_ssh_binding already-bound
+for binding_case in drift already-bound; do
+  [ ! -s "$SCRATCH/ssh-binding-$binding_case/local/env-bindings.jsonl" ] \
+    || fail 'the SSH fixture wrote intent before its unprovisioned/exact-value premise passed'
+done
+expect_refusal 'SSH fixture env-set command failure' 'failed with exit 7' case_ssh_binding write-failure
+[ "$(wc -l <"$SCRATCH/ssh-binding-write-failure/local/env-bindings.jsonl" | tr -d ' ')" -eq 1 ] \
+  || fail 'the SSH fixture continued provisioning after an env-set refusal'
+pass 'the actual SSH transition preserves unprovisioned adoption and refuses drift or partial provisioning'
+
+SSH_SCOPED_SUCCESS_BLOCK="$(sed -n '/^if "\$WPRISM".*promote target.*scoped-apply-success-scope.json/,/^SUCCESS_STATUS=/p' "$SSH_ADOPT_DRIVER" | sed '$d')"
+[[ "$SSH_SCOPED_SUCCESS_BLOCK" == *'SCOPED_SUCCESS_PROMOTE_STDOUT'* ]] \
+  || fail 'the SSH driver has no executable scoped-promotion success block'
+case_ssh_scoped_success() {
+  local mutation="$1"
+  local WPRISM=fake_scoped_promote SUCCESS_SCOPE_HASH=scope-fixture
+  local SCOPED_SUCCESS_PROMOTE_STDOUT="$SCRATCH/scoped-$mutation.stdout"
+  local SCOPED_SUCCESS_PROMOTE_STDERR="$SCRATCH/scoped-$mutation.stderr"
+  local SCOPED_SUCCESS_PROMOTE_EXIT="$SCRATCH/scoped-$mutation.exit"
+  local AUTHORITY_STATUS_STDOUT="$SCRATCH/scoped-prior.json"
+  printf '{"generation":7}\n' >"$AUTHORITY_STATUS_STDOUT"
+  fake_scoped_promote() {
+    local answer
+    answer='{"format":"wprism-scoped-promotion-result/v1","state":"committed","generation":8,"scope_hash":"scope-fixture","rollback":{"format":"wprism-scoped-promotion-receipt/v1","automatic_window_closed":true,"later_rollback_supported":false},"scoped_apply":{"format":"wprism-scoped-apply-result/v1","canary":"clean","verification":{"result":"pass"},"scoped_receipt":{"phase":"complete"},"plan":{"env_missing":1},"warnings":["provider capability fired: fixture (verified)"]}}'
+    case "$mutation" in
+      required) answer=$(jq -c '.scoped_apply.warnings += ["env_missing: option home is required"]' <<<"$answer") ;;
+      verification) answer=$(jq -c '.scoped_apply.verification.result="fail"' <<<"$answer") ;;
+      canary) answer=$(jq -c '.scoped_apply.canary="dirty"' <<<"$answer") ;;
+      no-apply) answer=$(jq -c 'del(.scoped_apply)' <<<"$answer") ;;
+      php-stderr) printf 'PHP Warning: private-operator-value in /fixture.php on line 12\n' >&2 ;;
+      required-stderr) printf 'Warning: env_missing: private-operator-value\n' >&2 ;;
+      php-stdout) printf 'PHP Notice: private-operator-value in /fixture.php on line 12\n' ;;
+    esac
+    printf '%s\n' "$answer"
+    [ "$mutation" != exit-failure ] || return 7
+  }
+  eval "$SSH_SCOPED_SUCCESS_BLOCK"
+}
+case_ssh_scoped_success normal
+for scoped_case in required verification canary no-apply php-stderr required-stderr php-stdout exit-failure; do
+  scoped_status=0
+  scoped_output=$(case_ssh_scoped_success "$scoped_case" 2>&1) || scoped_status=$?
+  [ "$scoped_status" -ne 0 ] || fail "the actual scoped success block accepted $scoped_case"
+  [[ "$scoped_output" != *private-operator-value* ]] \
+    || fail 'the scoped success diagnostic gate exposed private operator material'
+done
+pass 'the actual scoped success block rejects nested required-env/verification failures and both host-visible diagnostic streams without exposing private bytes'
+
 printf 'PASS: shared SSH adoption extension helper\n'
