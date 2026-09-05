@@ -141,7 +141,7 @@ if ($actual !== $desired) {
 
 rank_math_readiness() { # <wp1|wp2> <source|target>
   local side="$1" role="$2"
-  "$side" eval '
+  capture_rmcombo_native_json "Rank Math combination $role Rank Math readiness" "$side" eval '
 global $wpdb;
 $role = (string) getenv("WPRISM_RMCOMBO_ROLE");
 $expectedModules = $role === "source"
@@ -170,7 +170,7 @@ echo wp_json_encode([
     "tables" => $tables,
     "version" => defined("RANK_MATH_VERSION") ? RANK_MATH_VERSION : null,
 ], JSON_UNESCAPED_SLASHES);
-' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');" | awk 'NF { line=$0 } END { print line }'
+' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');"
 }
 
 create_languages() { # <wp1|wp2>
@@ -209,9 +209,10 @@ update_option("polylang", $options);
 }
 
 active_plugin_order() { # <wp1|wp2>
-  local side="$1"
-  "$side" option get active_plugins --format=json \
-    | jq -c 'map(split("/")[0])'
+  local side="$1" active
+  active=$(capture_rmcombo_native_json 'Rank Math combination active-plugin order observation' \
+    "$side" option get active_plugins --format=json)
+  jq -c 'map(split("/")[0])' <<<"$active"
 }
 
 establish_woocommerce_default_category() { # <wp1|wp2> <source|target>
@@ -404,7 +405,7 @@ echo hash("sha256", json_encode($rows, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLAS
 
 native_state() { # <wp1|wp2>
   local side="$1"
-  "$side" eval '
+  capture_rmcombo_native_json 'Rank Math combination native-state observation' "$side" eval '
 global $wpdb;
 // This program crosses the outer Bash single-quoted wp-eval boundary. The
 // 900b3e52 live run lost three inline SQL quote pairs there; prepare every
@@ -560,17 +561,17 @@ echo wp_json_encode([
     "term_translations" => array_map("intval", pll_get_term_translations($catEn->term_id)),
     "translations" => array_map("intval", pll_get_post_translations($en->ID)),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-' | awk 'NF { line=$0 } END { print line }'
+'
 }
 
 product_response() { # <slug>
   local slug="$1" route host path response status body
-  route=$(wp2 eval '
+  route=$(capture_rmcombo_native_json 'Rank Math combination product-route observation' wp2 eval '
 $slug = (string) getenv("WPRISM_RMCOMBO_SLUG");
 $post = get_page_by_path($slug, OBJECT, "product");
 if (!$post instanceof WP_Post) throw new RuntimeException("product route is absent");
 echo wp_json_encode(["host"=>wp_parse_url(home_url("/"),PHP_URL_HOST),"path"=>wp_parse_url(get_permalink($post),PHP_URL_PATH)]);
-' --exec="putenv('WPRISM_RMCOMBO_SLUG=$slug');" | awk 'NF { line=$0 } END { print line }')
+' --exec="putenv('WPRISM_RMCOMBO_SLUG=$slug');")
   host=$(jq -er '.host|strings' <<<"$route")
   path=$(jq -er '.path|strings' <<<"$route")
   response=$("${COMPOSE[@]}" exec -T wp2 curl -sS --max-time 20 -H "Host: $host" \
@@ -618,8 +619,8 @@ echo json_encode([
 
 redirection_response() { # populates REDIRECT_STATUS and REDIRECT_LOCATION
   local route host response
-  route=$(wp2 eval 'echo wp_json_encode(["host"=>wp_parse_url(home_url("/"),PHP_URL_HOST)]);' \
-    | awk 'NF { line=$0 } END { print line }')
+  route=$(capture_rmcombo_native_json 'Rank Math combination redirection-route observation' \
+    wp2 eval 'echo wp_json_encode(["host"=>wp_parse_url(home_url("/"),PHP_URL_HOST)]);')
   host=$(jq -er '.host|strings' <<<"$route")
   response=$("${COMPOSE[@]}" exec -T wp2 curl -sS --max-time 20 -o /dev/null -D - \
     -H "Host: $host" -w '__WPRISM_STATUS__%{http_code}\n' 'http://127.0.0.1/rmcombo-old') \
@@ -800,7 +801,7 @@ jq -en --argjson source "$SOURCE_RANK_MATH_READY" --argjson target "$TARGET_RANK
 pass 'Rank Math native module lifecycle persisted exact roles and installed every required table'
 
 say 'author native multilingual products, ACF values, Rank Math SEO/link state and Woo lookup state'
-SOURCE_SEED=$(wp1 eval '
+SOURCE_SEED=$(capture_rmcombo_native_json 'Rank Math combination source native seed' wp1 eval '
 global $wpdb;
 $createTerm = static function (string $name, string $slug): int {
     $result = wp_insert_term($name, "product_cat", ["slug"=>$slug]);
@@ -875,7 +876,7 @@ $redirectionId = $redirection->save();
 if (!is_int($redirectionId) || $redirectionId < 1) throw new RuntimeException("Rank Math redirection creation failed");
 if (function_exists("as_schedule_single_action")) as_schedule_single_action(time()+3600, "rmcombo_source_runtime");
 echo wp_json_encode(["book"=>(int)$book,"categories"=>$categories,"category_tts"=>$categoryTts,"group"=>(int)$groupPosts[0],"products"=>$products,"redirection"=>$redirectionId]);
-' | awk 'NF { line=$0 } END { print line }')
+')
 require_observed_nonempty 'Rank Math combination source seed' "$SOURCE_SEED"
 jq -e '
   .categories.en > 0 and .categories.de > 0 and
@@ -891,7 +892,7 @@ jq -e '
   || fail "source Action Scheduler witness is absent or ambiguous before capture: $SOURCE_NATIVE"
 pass 'source-only Action Scheduler state exists natively before capture'
 
-TARGET_SEED=$(wp2 eval '
+TARGET_SEED=$(capture_rmcombo_native_json 'Rank Math combination target native seed' wp2 eval '
 global $wpdb;
 $createTerm = static function (string $name, string $slug): int {
     $result = wp_insert_term($name, "product_cat", ["slug"=>$slug]);
@@ -965,7 +966,7 @@ $wpdb->insert($wpdb->prefix."rank_math_internal_meta",["object_id"=>(int)$book,"
 $wpdb->insert($wpdb->prefix."rank_math_internal_meta",["object_id"=>$neighborId,"internal_link_count"=>0,"external_link_count"=>0,"incoming_link_count"=>999]);
 if (function_exists("as_schedule_single_action")) as_schedule_single_action(time()+7200,"rmcombo_target_runtime");
 echo wp_json_encode(["book"=>(int)$book,"categories"=>$categories,"category_tts"=>$categoryTts,"group"=>(int)$groupPosts[0],"neighbor"=>(int)$neighborId,"products"=>$products,"redirection"=>$redirectionId]);
-' | awk 'NF { line=$0 } END { print line }')
+')
 require_observed_nonempty 'Rank Math combination hostile target' "$TARGET_SEED"
 jq -en --argjson source "$SOURCE_SEED" --argjson target "$TARGET_SEED" '
   $target.categories.en > 0 and $target.categories.de > 0 and

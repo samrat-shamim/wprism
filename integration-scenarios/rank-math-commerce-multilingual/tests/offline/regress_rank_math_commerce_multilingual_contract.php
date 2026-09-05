@@ -227,10 +227,15 @@ SH,
     );
 }
 foreach ([
+    'rank_math_readiness() {' => 'create_languages() {',
+    'active_plugin_order() {' => 'establish_woocommerce_default_category() {',
     'establish_woocommerce_default_category() {' => 'default_product_category_state() {',
     'default_product_category_state() {' => 'default_product_category_identity() {',
     'default_product_category_identity() {' => 'identity_map_digest() {',
     'identity_map_digest() {' => 'canonical_capture_digest() {',
+    'native_state() {' => 'product_response() {',
+    'product_response() {' => 'head_projection() {',
+    'redirection_response() {' => 'install_hostile_provider() {',
 ] as $startToken => $endToken) {
     $start = strpos($live, $startToken);
     $end = $start === false ? false : strpos($live, "\n$endToken", $start);
@@ -241,6 +246,28 @@ foreach ([
         "$startToken retains complete-stream checked JSON transport"
     );
 }
+foreach ([
+    'SOURCE_SEED' => [
+        "SOURCE_SEED=\$(capture_rmcombo_native_json 'Rank Math combination source native seed' wp1 eval '",
+        "require_observed_nonempty 'Rank Math combination source seed'",
+    ],
+    'TARGET_SEED' => [
+        "TARGET_SEED=\$(capture_rmcombo_native_json 'Rank Math combination target native seed' wp2 eval '",
+        "require_observed_nonempty 'Rank Math combination hostile target'",
+    ],
+] as $answer => [$startToken, $endToken]) {
+    $start = strpos($live, $startToken);
+    $end = $start === false ? false : strpos($live, $endToken, $start);
+    $block = $start === false || $end === false ? '' : substr($live, $start, $end - $start);
+    wprism_check(
+        $block !== '' && !str_contains($block, "| awk 'NF { line=\$0 } END { print line }'"),
+        "$answer captures its actual authoring program through complete-stream checked JSON transport"
+    );
+}
+wprism_check(
+    !str_contains($live, "| awk 'NF { line=\$0 } END { print line }'"),
+    'the combination has no remaining stdout-only last-line JSON selector'
+);
 foreach ([
     ['SOURCE_CAPTURE', 'Rank Math combination source capture'],
     ['RESTORED_DEFAULT_CAPTURE', 'Rank Math combination restored-default capture'],
@@ -465,6 +492,10 @@ set -euo pipefail
 wp1() {
   [ "$#" -eq 2 ] && [ "$1" = eval ] || return 81
   php -r 'printf("%s\n", base64_encode($argv[1]));' "$2"
+}
+capture_rmcombo_native_json() {
+  shift
+  "$@"
 }
 SH;
 $nativeStateProcess = proc_open(
