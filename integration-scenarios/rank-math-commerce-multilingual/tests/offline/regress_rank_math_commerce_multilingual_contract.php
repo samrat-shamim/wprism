@@ -282,7 +282,7 @@ wprism_check(
 );
 $hostDeploy = strpos($live, 'CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy');
 $settledOrderReadback = strpos($live, 'HOST_SETTLED_ORDER=$(active_plugin_order wp2)');
-$initialApply = strpos($live, 'INITIAL=$(wp2 wprism apply');
+$initialApply = strpos($live, 'capture_wprism_json_success INITIAL');
 wprism_check(
     $hostDeploy !== false
         && $settledOrderReadback !== false
@@ -294,6 +294,111 @@ wprism_check(
         && str_contains($live, '$actual == $expected'),
     'host lifecycle order is independently read back and matched to canonical source before product apply'
 );
+$sourceBinding = strpos($live, <<<'SH'
+establish_core_environment_bindings wp1 /siterepo admin@example.test \
+  "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"
+SH);
+$targetBinding = strpos($live, <<<'SH'
+establish_core_environment_bindings wp2 /siterepo admin@example.test \
+  "http://${PAIR}2.invalid" "http://${PAIR}2.invalid"
+SH);
+$firstCapture = strpos($live, 'wp1 wprism capture --repo=/siterepo >/dev/null');
+$targetClone = strpos($live, 'git clone -q "$ORIGIN" "$R2"');
+$firstDeploy = strpos($live, 'DIRTY_DEPLOY=$(host_wprism_combo wp2 deploy');
+wprism_check(
+    $sourceBinding !== false
+        && $targetBinding !== false
+        && $firstCapture !== false
+        && $targetClone !== false
+        && $firstDeploy !== false
+        && $nativeAuthoring !== false
+        && $nativeAuthoring < $sourceBinding
+        && $sourceBinding < $firstCapture
+        && $firstCapture < $targetClone
+        && $targetClone < $targetBinding
+        && $targetBinding < $firstDeploy
+        && substr_count($live, 'establish_core_environment_bindings ') === 2,
+    'each complete plugin-order leg provisions the exact headless core intent after seed/clone and before capture/deploy'
+);
+foreach ([
+    ['INITIAL', 'Rank Math commerce/multilingual initial apply', 'TARGET=$(native_state wp2)'],
+    ['RETRY', 'Rank Math combination provider retry', 'RETRY_NATIVE=$(native_state wp2)'],
+    ['NOOP', 'Rank Math combination no-op apply', 'wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final'],
+] as [$answer, $label, $observation]) {
+    $captureStart = strpos($live, "capture_wprism_json_success $answer '$label' ");
+    $ready = strpos($live, "assert_wprism_apply_ready '$label' \"\$$answer\"");
+    $observe = strpos($live, $observation);
+    wprism_check(
+        $captureStart !== false
+            && $ready !== false
+            && $observe !== false
+            && $captureStart < $ready
+            && $ready < $observe
+            && !str_contains($live, "$answer=\$(wp2 wprism apply"),
+        "$answer preserves the public refusal/diagnostic stream and requires provisioned, verified apply before its native oracle"
+    );
+    $block = $captureStart === false || $ready === false ? '' : substr(
+        $live,
+        $captureStart,
+        $ready + strlen("assert_wprism_apply_ready '$label' \"\$$answer\"") - $captureStart
+    );
+    foreach (['ready', 'missing', 'refusal', 'diagnostic'] as $case) {
+        $script = <<<'SH'
+set -euo pipefail
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$1"
+REVISION=fixture-revision
+wp2() {
+  [ "$1" = wprism ] && [ "$2" = apply ] || return 64
+  case " $* " in *' --repo=/siterepo '*) ;; *) return 65 ;; esac
+  case " $* " in *' --format=json '*) ;; *) return 66 ;; esac
+  if [ "$PROBE_CASE" = refusal ]; then
+    printf '%s\n' '{"format":"wprism-command-refusal/v1","reason_code":"fixture_refusal"}'
+    return 7
+  fi
+  if [ "$PROBE_CASE" = diagnostic ]; then
+    printf 'PHP Warning: fixture diagnostic in /fixture.php on line 1\n' >&2
+  fi
+  if [ "$PROBE_CASE" = missing ]; then
+    printf '%s\n' '{"canary":"clean","verification":{"result":"pass"},"warnings":["env_missing: option home is required"]}'
+  else
+    printf '%s\n' '{"canary":"clean","verification":{"result":"pass"},"warnings":[]}'
+  fi
+}
+PROBE_CASE="$2"
+SH;
+        $process = proc_open(
+            ['bash', '-c', $script . "\n" . $block . "\nprintf 'APPLY_READY\\n'\n", 'combo-apply-probe',
+                $root . '/sandbox/conformance/asserts.sh', $case],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $root,
+            ['PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin')]
+        );
+        $stdout = '';
+        $stderr = '';
+        $status = 127;
+        if (is_resource($process)) {
+            $stdout = (string) stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            $stderr = (string) stream_get_contents($pipes[2]);
+            fclose($pipes[2]);
+            $status = proc_close($process);
+        }
+        $accepted = $status === 0 && $stdout === "APPLY_READY\n";
+        wprism_check(
+            match ($case) {
+                'ready' => $accepted && $stderr === '',
+                'missing' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
+                    && str_contains($stderr, 'did not prove all required environment bindings'),
+                'refusal' => $status !== 0 && !str_contains($stdout, 'APPLY_READY')
+                    && str_contains($stderr, 'fixture_refusal') && str_contains($stderr, 'failed with exit 7'),
+                'diagnostic' => $accepted && str_contains($stderr, 'PHP Warning: fixture diagnostic'),
+            },
+            "$answer actual live command block preserves the $case evidence domain"
+        );
+    }
+}
 wprism_check(
     str_contains($live, '([ $target.products.en.links[].type ] | sort) == ["external","internal"]')
         && str_contains($live, '.retired_target_counts.incoming_link_count | tonumber) == 0')

@@ -715,6 +715,8 @@ git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test comm
 git init --bare -b main "$ORIGIN" >/dev/null
 git -C "$R1" remote add origin "../origin-$PAIR.git"
 git -C "$R1" push -qu origin main
+establish_core_environment_bindings wp1 /siterepo admin@example.test \
+  "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"
 wp1 wprism capture --repo=/siterepo >/dev/null
 wp1 wprism lint --repo=/siterepo >/dev/null
 git -C "$R1" add -A
@@ -722,6 +724,8 @@ git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test comm
 git -C "$R1" push -q origin main
 git clone -q "$ORIGIN" "$R2"
 chmod 0777 "$R2"
+establish_core_environment_bindings wp2 /siterepo admin@example.test \
+  "http://${PAIR}2.invalid" "http://${PAIR}2.invalid"
 wprism_host_install_recovery_runtime "$ROOT" "$R1" \
   || fail 'Rank Math combination could not install the source recovery runtime'
 wprism_host_install_recovery_runtime "$ROOT" "$R2" \
@@ -770,10 +774,10 @@ jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$HOST_SETTLED_NATIVE"
 ' >/dev/null || fail "compatible host settlement crossed an unrelated plugin/content/runtime boundary: $HOST_SETTLED_NATIVE"
 pass 'host deploy refuses hostile schema, then checkpoint-settles legitimate lifecycle/schema drift without crossing combination boundaries'
 REVISION=$(git -C "$R2" rev-parse HEAD)
-INITIAL=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
-  --default-author=admin --revision="$REVISION" --format=json | awk 'NF { line=$0 } END { print line }') \
-  || fail 'Rank Math commerce/multilingual initial apply failed'
-require_wprism_answered 'Rank Math commerce/multilingual initial apply' json "$INITIAL"
+capture_wprism_json_success INITIAL 'Rank Math commerce/multilingual initial apply' \
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
+  --default-author=admin --revision="$REVISION" --format=json
+assert_wprism_apply_ready 'Rank Math commerce/multilingual initial apply' "$INITIAL"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
@@ -950,8 +954,9 @@ jq -en --argjson baseline "$TARGET_RUNTIME" --argjson failed "$FAILURE_NATIVE" '
   ([ $failed.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 0
 ' >/dev/null || fail "combined provider failure crossed a runtime boundary or fabricated derived success: $FAILURE_NATIVE"
 remove_hostile_provider
-RETRY=$(wp2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'Rank Math combination provider retry' json "$RETRY"
+capture_wprism_json_success RETRY 'Rank Math combination provider retry' \
+  wp2 wprism apply --repo=/siterepo --default-author=admin --format=json
+assert_wprism_apply_ready 'Rank Math combination provider retry' "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
@@ -978,7 +983,9 @@ pass 'provider failure and retry preserve every Woo, Polylang, ACF, taxonomy, mo
 
 say 'combined recapture and repeated apply are exact no-ops'
 REVISION=$(git -C "$R2" rev-parse HEAD)
-NOOP=$(wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REVISION" --format=json | awk 'NF { line=$0 } END { print line }')
+capture_wprism_json_success NOOP 'Rank Math combination no-op apply' \
+  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REVISION" --format=json
+assert_wprism_apply_ready 'Rank Math combination no-op apply' "$NOOP"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$NOOP" >/dev/null \
   || fail "combined no-op reran effects: $NOOP"
 wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final >/dev/null
