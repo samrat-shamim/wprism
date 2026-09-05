@@ -372,7 +372,7 @@ require_once "$root/sandbox/tests/lib/wp_stubs.php";
 require_once "$root/sandbox/tests/lib/FakeWpdb.php";
 
 if (!defined('WPRISM_SPEC_VERSION')) {
-    define('WPRISM_SPEC_VERSION', 2);
+    define('WPRISM_SPEC_VERSION', 3);
 }
 
 use WPrism\Capture;
@@ -613,6 +613,55 @@ assert_capture_atomicity(
 );
 
 $transactionPolicy = Policy::load(null, ['core']);
+
+// A declared plugin table may be absent before its host-checkpointed schema
+// settlement. Capture still probes that exact physical name inside the bound
+// snapshot so the planner can return its established absent-table refusal;
+// presence authority must not depend on the pre-START result being positive.
+$rankMathPolicy = Policy::load(
+    null,
+    ['rank-math'],
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'rank-math')
+);
+$wpdb = capture_atomicity_database();
+foreach ([
+    'ordinary plan' => CaptureTransaction::database_profile($rankMathPolicy),
+    'strict observation' => CaptureTransaction::database_profile($rankMathPolicy, readOnly: true),
+] as $profileLabel => $virginTableProfile) {
+    assert_capture_atomicity(
+        !in_array('wp_rank_math_redirections', $virginTableProfile->readable_tables(), true)
+            && in_array('wp_rank_math_redirections', $virginTableProfile->table_presence_reads(), true),
+        "$profileLabel gives an absent declared table exact presence authority without row-read authority"
+    );
+}
+$virginTableFailure = null;
+try {
+    CaptureTransaction::run(
+        $rankMathPolicy,
+        static function () use ($rankMathPolicy): array {
+            Snapshot::assert_row_schema(
+                'rank_math_redirections',
+                $rankMathPolicy->declared_tables()['rank_math_redirections']
+            );
+            return [];
+        }
+    );
+} catch (Throwable $failure) {
+    $virginTableFailure = $failure;
+}
+$virginTableCounts = capture_atomicity_transaction_counts($wpdb);
+assert_capture_atomicity(
+    $virginTableFailure instanceof RuntimeException
+        && !$virginTableFailure instanceof \WPrism\DatabaseQueryIsolationViolationException
+        && $virginTableFailure->getMessage()
+            === "wprism: declared table 'rank_math_redirections' does not exist on this environment "
+                . '(plugin inactive, or manifest stale?)',
+    'a virgin target reaches the established absent declared-table refusal through its profiled presence probe'
+);
+assert_capture_atomicity(
+    $virginTableCounts === ['starts' => 1, 'commits' => 0, 'rollbacks' => 1],
+    'the absent-table plan observation closes its read snapshot without mutation'
+);
 
 // MySQL 1213 rolls back the complete server transaction before wpdb reports
 // the error. Exercise the product retry seam with the shared row-backed fake:

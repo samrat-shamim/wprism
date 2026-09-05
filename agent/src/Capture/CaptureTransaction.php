@@ -379,15 +379,21 @@ final class CaptureTransaction {
             $prefix . 'wprism_state',
             $prefix . 'wprism_kv',
         ];
+        // Snapshot repeats each declared-table probe after START before it
+        // reads schema. An absent preimage therefore needs presence-only
+        // authority; adding it to $tables would instead grant row reads for a
+        // physical table this boundary never proved exists or uses InnoDB.
+        $presenceReads = [];
         foreach (array_keys($policy->declared_tables()) as $name) {
             $table = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+            $presenceReads[] = $table;
             if (self::declared_table_exists($table)) {
                 $tables[] = $table;
             }
         }
         $tables = array_values(array_unique($tables));
         if ($readOnly) {
-            return NativeDatabaseProfile::read_only($tables);
+            return NativeDatabaseProfile::schema_read_only($tables, $presenceReads);
         }
         return new NativeDatabaseProfile($tables, [
             $wpdb->postmeta,
@@ -395,7 +401,7 @@ final class CaptureTransaction {
             $prefix . 'wprism_map',
             $prefix . 'wprism_state',
             $prefix . 'wprism_kv',
-        ]);
+        ], $presenceReads);
     }
 
     /** Match Snapshot's optional-table behavior without authorizing an alias. */
