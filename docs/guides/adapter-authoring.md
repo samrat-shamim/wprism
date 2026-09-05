@@ -203,6 +203,24 @@ it is a plugin boundary plus two authored options:
   the note connects those observations to the declaration. A rule without that
   connection is a guess with better formatting.
 
+### Environment intent must have a provisioning path
+
+For a top-level `options.<name>.class: "env"` rule, `required: true` promises
+an operator-supplied intended value through public `wprism env-set --stdin`.
+That command accepts a whole scalar string, not a structured plugin settings
+blob: overwriting the parent would destroy its authored and target-local
+siblings. `OptionGrammar` therefore refuses `required: true` together with
+nonempty `sub_keys` before target contact.
+
+A plugin-managed structured parent needs `required: false` and evidence that
+its native activation or installation path populates it; each sub-key keeps
+its own classification. Redirection's native `red_set_options()` /
+`Red_Options::save()` lifecycle is one measured example. Do not lower a required
+flag merely to silence a live warning, auto-bind ambient values as intent, or
+teach the scalar provisioning command to replace a structured object. If a
+genuinely operator-required structured value has no safe provisioning path,
+that is a product-boundary gap to design and test before claiming support.
+
 ### Finding the two versions the range names
 
 The refusal above is permanent, so the cost it creates recurs forever: somebody
