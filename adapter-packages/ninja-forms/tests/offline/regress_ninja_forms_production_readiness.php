@@ -12,7 +12,6 @@ require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require_once __DIR__ . '/../../../../adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php';
 
 use WPrism\Interpreters\NinjaForms;
 use WPrism\Policy;

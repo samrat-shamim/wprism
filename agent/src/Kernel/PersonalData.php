@@ -222,7 +222,17 @@ final class PersonalData {
 
     /** Boolean/enum controls borrow contact nouns without storing contact data. */
     private static function is_technical_control(string $key, $value): bool {
-        $tokens = array_values(array_filter(explode('_', self::normalize_key($key)), 'strlen'));
+        $normalizedKey = self::normalize_key($key);
+        $tokens = array_values(array_filter(explode('_', $normalizedKey), 'strlen'));
+        // Rank Math 1.0.277.2 persists content_ai_country=all; the exact sentinel
+        // caused `rank-math-options-general looks like postal address` in the
+        // candidate-bound conformance sweep. `all` identifies no person or
+        // place, while every concrete country value still reaches the guard.
+        if (is_string($value)
+            && strtolower(trim($value)) === 'all'
+            && preg_match('/(?:^|_)country(?:_code)?$/D', $normalizedKey)) {
+            return true;
+        }
         $roles = [
             'allow', 'allowed', 'collect', 'confirmation', 'default', 'enable', 'enabled',
             'field', 'include', 'mode', 'notify', 'notification', 'require', 'required',

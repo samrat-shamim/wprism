@@ -20,6 +20,8 @@ wp2() { wp_env 2 "$@"; }
 say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 assert_redacted_json_refusal() {
   local command="$1" output="$2" label="$3" json remediation

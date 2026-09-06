@@ -5,6 +5,7 @@ namespace WPrism;
 // its declaration-shape dependency explicit instead of relying on Policy's
 // bootstrap order.
 require_once __DIR__ . '/ReferenceRules.php';
+require_once __DIR__ . '/ScalarReferenceIntersection.php';
 
 /**
  * Pure loader-time grammar for reference-valued manifest declarations.
@@ -21,7 +22,7 @@ final class ReferenceShapeGrammar {
      * policy. The label is preserved verbatim so refusal paths remain
      * byte-for-byte identical to Policy's former implementation.
      */
-    public static function validate_reference_shapes(array $source, string $label): void {
+    public static function validate_reference_shapes(array $source, string $label, bool $manifestFeatures = false): void {
         foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
             foreach (($source[$section] ?? []) as $name => $rule) {
                 if (!is_array($rule) || array_is_list($rule)) {
@@ -31,7 +32,10 @@ final class ReferenceShapeGrammar {
                     $rule,
                     "$label.$section.$name",
                     $section === 'options',
-                    in_array($section, ['post_meta', 'term_meta'], true)
+                    in_array($section, ['post_meta', 'term_meta'], true),
+                    $manifestFeatures && $section === 'options'
+                        && ($source['spec_version'] ?? 0) >= 3
+                        && in_array(ScalarReferenceIntersection::FEATURE, (array) ($source['engine_features'] ?? []), true)
                 );
             }
         }
@@ -48,6 +52,12 @@ final class ReferenceShapeGrammar {
             }
         }
         foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
+            if (array_key_exists(ScalarReferenceIntersection::FIELD, $declaration)
+                || array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $declaration)) {
+                throw new \RuntimeException(
+                    "wprism: $label.dynamic_options.$name cannot declare a static scalar reference intersection"
+                );
+            }
             foreach (($declaration['sub_keys'] ?? []) as $key => $rule) {
                 if (is_array($rule) && !array_is_list($rule)) {
                     self::validate_reference_value_rule(
@@ -84,8 +94,16 @@ final class ReferenceShapeGrammar {
         array $rule,
         string $where,
         bool $allowSubKeys = false,
-        bool $allowRepeatedRows = false
+        bool $allowRepeatedRows = false,
+        bool $allowIntersection = false
     ): void {
+        if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule) && !$allowIntersection) {
+            throw new \RuntimeException(
+                "wprism: $where." . ScalarReferenceIntersection::FIELD
+                    . ' belongs only to an exact whole option in a v3 adapter declaring '
+                    . ScalarReferenceIntersection::FEATURE
+            );
+        }
         ReferenceRules::value_rule($rule, $where);
         if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
             throw new \RuntimeException(

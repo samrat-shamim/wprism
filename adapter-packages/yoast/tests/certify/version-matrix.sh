@@ -119,6 +119,7 @@ EOF
   postdeploy_yoast_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
   pass "deploy + apply succeeded on side 2 (wordpress-seo $YOAST_VERSION, canary clean)"
 
@@ -154,6 +155,7 @@ EOF
     wp2 wprism deploy --repo=/siterepo --force-code-drift
     REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'apply canary not clean after wordpress-seo 28.0 to 28.3 in-place upgrade'
     SAVED_YOAST_VERSION="$YOAST_VERSION"

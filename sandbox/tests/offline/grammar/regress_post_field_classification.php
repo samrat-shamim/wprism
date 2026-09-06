@@ -41,6 +41,8 @@ function maybe_serialize($value) {
 }
 function wp_cache_delete($key, string $group = ''): bool { return false; }
 
+require __DIR__ . '/../../lib/wp_stubs.php';
+require __DIR__ . '/../../lib/FakeWpdb.php';
 require __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
@@ -65,6 +67,9 @@ use WPrism\Policy;
 use WPrism\RepositoryAuthorization;
 use WPrism\RepositoryAuthorizationException;
 use WPrism\Tokens;
+use WPrism\Db;
+use WPrism\NativeDatabaseProfile;
+use WPrismTest\FakeWpdb;
 
 final class PostFieldFakeWpdb {
     public string $prefix = 'wp_';
@@ -395,6 +400,22 @@ function apply_instance(
         new \WPrism\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot),
         $environmentValues
     );
+}
+
+/** @param array<string,int> $map */
+function post_field_seed_map(FakeWpdb $wpdb, array $map): void {
+    $rows = [];
+    foreach ($map as $uuid => $localId) {
+        $rows[] = ['uuid' => $uuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => $localId];
+    }
+    $wpdb->seedTable('wp_wprism_map', $rows);
+}
+
+function post_field_row(FakeWpdb $wpdb, int $id): array {
+    foreach ($wpdb->rows('wp_posts') as $row) {
+        if ((int) ($row['ID'] ?? 0) === $id) return $row;
+    }
+    return [];
 }
 
 $root = dirname(__DIR__, 4);
@@ -942,15 +963,54 @@ check(
     'RepositoryAuthorization still rejects runtime options'
 );
 
-$wpdb = new PostFieldFakeWpdb();
-$GLOBALS['wpdb'] = $wpdb;
+$wpdb = FakeWpdb::install()
+    ->seedTable('wp_posts', [['ID' => 41], ['ID' => 42], ['ID' => 43]])
+    ->setColumns('wp_posts', array_fill_keys([
+        'ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title',
+        'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password',
+        'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order',
+        'post_type', 'post_mime_type',
+    ], 'longtext'))
+    ->setAutoIncrement('wp_posts', 100, 'ID')
+    ->setTableEngine('wp_posts', 'InnoDB')
+    ->seedTable('wp_postmeta', [])
+    ->setColumns('wp_postmeta', [
+        'meta_id' => 'bigint unsigned', 'post_id' => 'bigint unsigned',
+        'meta_key' => 'varchar(255)', 'meta_value' => 'longtext',
+    ])
+    ->setIndexes('wp_postmeta', [[
+        'Key_name' => 'post_id', 'Column_name' => 'post_id', 'Seq_in_index' => 1,
+        'Sub_part' => null, 'Non_unique' => 1, 'Index_type' => 'BTREE',
+    ]])
+    ->setTableEngine('wp_postmeta', 'InnoDB')
+    ->seedTable('wp_term_relationships', [])
+    ->setColumns('wp_term_relationships', [
+        'object_id' => 'bigint unsigned', 'term_taxonomy_id' => 'bigint unsigned', 'term_order' => 'int',
+    ])
+    ->setTableEngine('wp_term_relationships', 'InnoDB')
+    ->seedTable('wp_wprism_map', [])
+    ->setColumns('wp_wprism_map', [
+        'uuid' => 'varchar(36)', 'entity_type' => 'varchar(64)',
+        'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
+    ])
+    ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wp_wprism_map', 'InnoDB')
+    ->enableInformationSchema();
 $tokens = new Tokens();
 
-$wpdb->map = [$uuid => 41];
+post_field_seed_map($wpdb, [$uuid => 41]);
+Db::start_repeatable_read(
+    'post-field classification fixture transaction start',
+    new NativeDatabaseProfile(
+        ['wp_posts', 'wp_postmeta', 'wp_term_relationships', 'wp_wprism_map'],
+        ['wp_posts', 'wp_postmeta', 'wp_term_relationships', 'wp_wprism_map']
+    )
+);
 $apply = apply_instance($policy, $tokens, $fixtureDir);
 $materializerWarnings = [];
 $apply->finalize_post($source, '', null, $materializerWarnings, []);
-$existingProductUpdate = $wpdb->updates[0]['data'] ?? [];
+$existingProductUpdate = post_field_row($wpdb, 41);
 check(
     !array_key_exists('post_modified', $existingProductUpdate)
         && !array_key_exists('post_modified_gmt', $existingProductUpdate),
@@ -962,14 +1022,14 @@ check(
 );
 
 $variationUuid = '018f0000-0000-7000-8000-000000000003';
-$wpdb->map = [$variationUuid => 42];
+post_field_seed_map($wpdb, [$variationUuid => 42]);
 $variation = post_front('product_variation', $variationUuid, '2026-08-08 00:00:02');
 check(
     post_authorization_diagnostics($policy, $variation) === [],
     'RepositoryAuthorization accepts captured Woo variation derived title and timestamps'
 );
 $apply->finalize_post($variation, '', null, $materializerWarnings, []);
-$existingVariationUpdate = $wpdb->updates[1]['data'] ?? [];
+$existingVariationUpdate = post_field_row($wpdb, 42);
 check(
     !array_key_exists('post_modified', $existingVariationUpdate)
         && !array_key_exists('post_modified_gmt', $existingVariationUpdate)
@@ -978,18 +1038,17 @@ check(
 );
 
 $articleUuid = '018f0000-0000-7000-8000-000000000004';
-$wpdb->map = [$articleUuid => 43];
+post_field_seed_map($wpdb, [$articleUuid => 43]);
 $article = post_front('article', $articleUuid, '2026-08-08 00:00:03');
 $apply->finalize_post($article, '', null, $materializerWarnings, []);
-$existingArticleUpdate = $wpdb->updates[2]['data'] ?? [];
+$existingArticleUpdate = post_field_row($wpdb, 43);
 check(
     ($existingArticleUpdate['post_modified'] ?? null) === $article['modified']
         && ($existingArticleUpdate['post_modified_gmt'] ?? null) === $article['modified_gmt'],
     'undeclared post type update still writes authored timestamps'
 );
 
-$wpdb->map = [];
-$wpdb->inserts = [];
+post_field_seed_map($wpdb, []);
 $newProduct = post_front('product', '018f0000-0000-7000-8000-000000000005', '2026-08-08 00:00:04');
 // issue #3347 slice 10: ensure_post_row() moved from Apply onto
 // PostMaterializer (Apply keeps only the facade). Fetched via Apply's own
@@ -997,7 +1056,8 @@ $newProduct = post_front('product', '018f0000-0000-7000-8000-000000000005', '202
 // PostMaterializer is wired with the exact same Tokens instance the real
 // facade would use.
 check($apply->ensure_post_row($newProduct) === true, 'new Woo product row is inserted');
-$insertedPost = $wpdb->inserts[0]['data'] ?? [];
+$insertedPostId = \WPrism\Ledger::id_for($newProduct['uuid'], \WPrism\Ledger::KIND_POST);
+$insertedPost = is_int($insertedPostId) ? post_field_row($wpdb, $insertedPostId) : [];
 check(
     ($insertedPost['post_modified'] ?? null) === $newProduct['modified']
         && ($insertedPost['post_modified_gmt'] ?? null) === $newProduct['modified_gmt'],
@@ -1021,10 +1081,9 @@ check(
     'an absent protected post materializes from its persisted target-local binding'
 );
 $protectedInsert = null;
-foreach ($wpdb->inserts as $insert) {
-    if ($insert['table'] === $wpdb->posts
-        && ($insert['data']['post_password'] ?? null) === $maximumPassword) {
-        $protectedInsert = $insert['data'];
+foreach ($wpdb->rows('wp_posts') as $insert) {
+    if (($insert['post_password'] ?? null) === $maximumPassword) {
+        $protectedInsert = $insert;
     }
 }
 check(
@@ -1035,6 +1094,10 @@ check(
             === $protectedInsert['post_password'],
     'absent-post apply writes the exact 255-character multibyte value read back from env-set intent without truncation'
 );
+
+Db::commit('post-field classification fixture transaction commit');
+\WPrism\CacheInvalidationTransaction::finish();
+\WPrism\CacheInvalidationTransaction::end();
 
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

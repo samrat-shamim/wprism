@@ -82,10 +82,37 @@ final class AdapterPackageTestsTest extends TestCase
         self::assertContains('evidence-wiring:2', $result['checks']);
     }
 
+    public function testEvidenceCatalogDiscoversLocalAndParticipantOwnedGates(): void
+    {
+        $tests = AdapterPackageValidator::discoverableEvidence(dirname(__DIR__, 2), 'rank-math');
+
+        self::assertSame($tests, array_values(array_unique($tests)));
+        self::assertContains('conformance-rank-math', $tests);
+        self::assertContains('exact-artifact-version-matrix', $tests);
+        self::assertContains('regress-rank-math-provider', $tests);
+        self::assertContains('regress-rank-math-commerce-multilingual', $tests);
+        self::assertContains('regress-rank-math-commerce-multilingual-ssh-deletion', $tests);
+    }
+
+    public function testEvidenceCatalogCannotCertifyANonExecutableFixture(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/fixtures/regress_claim.json',
+            "{}\n"
+        );
+
+        self::assertNotContains(
+            'regress-claim',
+            AdapterPackageValidator::discoverableEvidence($root, 'acf'),
+            'Evidence ids come only from executable class-named PHP/shell suites, not filename-shaped fixtures.'
+        );
+    }
+
     public function testRuntimeSdkIsVersionedAndInventoriesEveryCurrentLegitimateDependency(): void
     {
         self::assertSame([
-            'format' => 'wprism-adapter-runtime-sdk/v1',
+            'format' => 'wprism-adapter-runtime-sdk/v2',
             'symbols' => [
                 'WPrism\\CacheInvalidationTransaction',
                 'WPrism\\Canon',
@@ -101,28 +128,420 @@ final class AdapterPackageTestsTest extends TestCase
                 'WPrism\\Secrets',
                 'WPrism\\SidebarState',
                 'WPrism\\Tokens',
-                'WPrism\\WpCliChildProcess',
             ],
         ], AdapterPackageValidator::runtimeSdk());
+    }
+
+    /** @return iterable<string,array{0:string,1:string}> */
+    public static function forbiddenRuntimeExecutionMachinery(): iterable
+    {
+        foreach ([
+            'BEGIN', 'BEGIN WORK', 'SAVEPOINT adapter_save', 'RELEASE SAVEPOINT adapter_save',
+            'ROLLBACK TO adapter_save', 'ROLLBACK WORK TO SAVEPOINT adapter_save',
+            'SET autocommit=0', 'SET SESSION autocommit = OFF', 'SET @@SESSION.autocommit=1',
+            'LOCK TABLES wp_rows WRITE', 'UNLOCK TABLES', "XA START 'adapter'",
+        ] as $statement) {
+            yield 'transaction grammar ' . $statement => [
+                "\n\$transport(" . var_export($statement, true) . ");\n",
+                'transaction-control',
+            ];
+        }
+        foreach ([
+            '(\\WP_CLI)::runcommand("plugin list");',
+            '(\\WP_CLI::get_runner())->run_command(["plugin", "list"]);',
+            '((\\WP_CLI::get_runner()))?->run_command(["plugin", "list"]);',
+        ] as $statement) {
+            yield 'grouped process ' . $statement => ["\n" . $statement . "\n", 'direct-process'];
+        }
+        yield 'grouped PDO static call' => [
+            "\n(\\PDO)::getAvailableDrivers();\n",
+            'raw-database-transport',
+        ];
+        foreach ([
+            '($wpdb)->query("SELECT 1")',
+            '(($GLOBALS["wpdb"]))?->get_var("SELECT 1")',
+        ] as $statement) {
+            yield 'encoded grouped receiver ' . $statement => [
+                "\n\$code = " . var_export($statement, true) . ";\n",
+                'raw-database-transport',
+            ];
+        }
+        foreach (['include', 'include_once', 'require', 'require_once'] as $include) {
+            yield 'target-generated PHP ' . $include => [
+                "\n\$rows = $include \$indexPath;\n",
+                'direct-include',
+            ];
+        }
+        yield 'direct engine child process' => [
+            "\n\\WPrism\\WpCliChildProcess::capture('plugin command');\n",
+            'wp-cli-child-process',
+        ];
+        yield 'direct operating-system process' => [
+            "\nproc_open('php', [], \$pipes);\n",
+            'direct-process',
+        ];
+        yield 'raw wpdb query transport' => [
+            "\nglobal \$wpdb;\n\$wpdb->query(\$sql);\n",
+            'raw-database-transport',
+        ];
+        yield 'raw wpdb typed mutation transport' => [
+            "\nglobal \$wpdb;\n\$wpdb->update('wp_rows', ['value' => 1], ['id' => 1]);\n",
+            'raw-database-transport',
+        ];
+        yield 'raw wpdb selected-schema transport' => [
+            "\nglobal \$wpdb;\n\$wpdb->select('another_schema');\n",
+            'raw-database-transport',
+        ];
+        yield 'raw wpdb SQL-mode transport' => [
+            "\nglobal \$wpdb;\n\$wpdb->set_sql_mode(['ANSI_QUOTES']);\n",
+            'raw-database-transport',
+        ];
+        yield 'raw wpdb charset transport' => [
+            "\nglobal \$wpdb;\n\$wpdb->set_charset(\$wpdb->dbh, 'gbk');\n",
+            'raw-database-transport',
+        ];
+        yield 'raw wpdb mysqli handle access' => [
+            "\nglobal \$wpdb;\n\$handle = \$wpdb->dbh;\n",
+            'raw-database-transport',
+        ];
+        yield 'raw wpdb result-set transport' => [
+            "\nglobal \$wpdb;\n\$rows = \$wpdb->get_results('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'raw wpdb scalar transport' => [
+            "\nglobal \$wpdb;\n\$value = \$wpdb->get_var('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'raw global wpdb query transport' => [
+            "\n\$GLOBALS['wpdb']->query('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'raw global wpdb result-set transport' => [
+            "\n\$GLOBALS[\"wpdb\"]->get_results('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'nullsafe wpdb transport' => [
+            "\nglobal \$wpdb;\n\$wpdb?->query('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'nullsafe global wpdb transport' => [
+            "\n\$GLOBALS['wpdb']?->get_var('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'parenthesized wpdb transport' => [
+            "\nglobal \$wpdb;\n(\$wpdb)->query('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'nested parenthesized wpdb transport' => [
+            "\nglobal \$wpdb;\n((\$wpdb))->get_results('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'parenthesized global wpdb transport' => [
+            "\n(\$GLOBALS['wpdb'])->get_results('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'direct mysqli query transport' => [
+            "\nmysqli_query(\$handle, 'SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'direct mysqli selected-schema transport' => [
+            "\nmysqli_select_db(\$handle, 'another_schema');\n",
+            'raw-database-transport',
+        ];
+        yield 'direct mysqli execute-query transport' => [
+            "\nmysqli_execute_query(\$handle, 'SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'direct mysqli change-user transport' => [
+            "\nmysqli_change_user(\$handle, 'user', 'pass', 'db');\n",
+            'raw-database-transport',
+        ];
+        yield 'direct mysqli construction' => [
+            "\n\$db = new \\mysqli('localhost');\n",
+            'raw-database-transport',
+        ];
+        yield 'inline mysqli construction and query' => [
+            "\n(new \\mysqli('localhost'))->query('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'direct wpdb construction' => [
+            "\n\$db = new \\wpdb('user', 'pass', 'db', 'localhost');\n",
+            'raw-database-transport',
+        ];
+        yield 'direct PDO transport' => [
+            "\n\$pdo = new \\PDO('mysql:host=localhost');\n\$pdo->query('SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'aliased PDO class import' => [
+            "\nuse PDO as Connection;\n\$db = new Connection('mysql:host=localhost');\n",
+            'raw-database-transport',
+        ];
+        yield 'aliased mysqli class import' => [
+            "\nuse mysqli as Connection;\n\$db = new Connection('localhost');\n",
+            'raw-database-transport',
+        ];
+        yield 'aliased mysqli function import' => [
+            "\nuse function mysqli_query as db_query;\ndb_query(\$handle, 'SELECT 1');\n",
+            'raw-database-transport',
+        ];
+        yield 'absolute aliased mysqli function import' => [
+            "\nuse function \\mysqli_query as db_query;\n",
+            'raw-database-transport',
+        ];
+        yield 'multi class import with raw database aliases' => [
+            "\nuse DateTime, PDO as Connection, mysqli as NativeConnection;\n",
+            'raw-database-transport',
+        ];
+        yield 'multi function import with raw database alias' => [
+            "\nuse function strlen as text_length, mysqli_query as db_query;\n",
+            'raw-database-transport',
+        ];
+        yield 'absolute multi function import with raw database alias' => [
+            "\nuse function \\strlen as text_length, \\mysqli_query as db_query;\n",
+            'raw-database-transport',
+        ];
+        yield 'comment-separated raw database class alias' => [
+            "\nuse PDO/**/as Connection;\n",
+            'raw-database-transport',
+        ];
+        yield 'comment-separated raw database function alias' => [
+            "\nuse function/**/mysqli_query/**/as db_query;\n",
+            'raw-database-transport',
+        ];
+        yield 'raw database parent class' => [
+            "\nclass AdapterDatabase extends \\PDO {}\n",
+            'raw-database-transport',
+        ];
+        yield 'raw DML behind an adapter wrapper' => [
+            "\n\$transport('DELETE FROM `wp_rows`');\n",
+            'raw-database-transport',
+        ];
+        yield 'encoded nullsafe wpdb transport' => [
+            "\n\$code = '\$wpdb?->query(\"SELECT 1\")';\n",
+            'raw-database-transport',
+        ];
+        yield 'transaction control behind an adapter wrapper' => [
+            "\n\$transport('START TRANSACTION');\n",
+            'transaction-control',
+        ];
+        yield 'direct current-file include' => [
+            "\nrequire_once __FILE__;\n",
+            'direct-self-include',
+        ];
+        yield 'current-file include encoded for a child' => [
+            "\n\$code = 'require_once ' . var_export(__FILE__, true);\n",
+            'direct-self-include',
+        ];
+        yield 'aliased operating-system process' => [
+            "\nuse function proc_open as launch;\nlaunch('php', [], \$pipes);\n",
+            'direct-process',
+        ];
+        yield 'absolute aliased operating-system process' => [
+            "\nuse function \\proc_open as launch;\n",
+            'direct-process',
+        ];
+        yield 'comment-separated operating-system process alias' => [
+            "\nuse function/**/proc_open/**/as launch;\n",
+            'direct-process',
+        ];
+        yield 'forked operating-system process' => [
+            "\npcntl_fork();\n",
+            'direct-process',
+        ];
+        yield 'multi function import with process alias' => [
+            "\nuse function strlen as text_length, proc_open as launch;\n",
+            'direct-process',
+        ];
+        yield 'WP-CLI command process' => [
+            "\n\\WP_CLI::runcommand('plugin list');\n",
+            'direct-process',
+        ];
+        yield 'aliased WP-CLI command process' => [
+            "\nuse WP_CLI as Console;\nConsole::runcommand('plugin list');\n",
+            'direct-process',
+        ];
+        yield 'comment-separated WP-CLI command alias' => [
+            "\nuse WP_CLI/**/as Console;\n",
+            'direct-process',
+        ];
+        yield 'multi class import with WP-CLI alias' => [
+            "\nuse DateTime, WP_CLI as Console;\n",
+            'direct-process',
+        ];
+        yield 'WP-CLI runner command process' => [
+            "\n\\WP_CLI::get_runner()->run_command(['plugin', 'list']);\n",
+            'direct-process',
+        ];
+        yield 'PHP shell execution operator' => [
+            "\n\$result = `wp plugin list`;\n",
+            'direct-process',
+        ];
+    }
+
+    #[DataProvider('forbiddenRuntimeExecutionMachinery')]
+    public function testValidatorRejectsNewAdapterOwnedExecutionMachinery(string $mutation, string $finding): void
+    {
+        $root = $this->validatorFixture();
+        $path = $this->runtimeProbe($root);
+        self::write($path, (string) file_get_contents($path) . $mutation);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("introduces engine-owned runtime machinery '$finding'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testRuntimeExecutionGuardIgnoresCommentsAndDiagnosticProse(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $this->runtimeProbe($root);
+        self::write(
+            $path,
+            (string) file_get_contents($path)
+                . "\n// WpCliChildProcess, proc_open(), and \$wpdb->query('COMMIT') are inert prose.\n"
+                . "function wprismRuntimeBoundaryDiagnostic(mixed \$provider): string {\n"
+                . "    global \$wpdb;\n"
+                . "    \$wpdb->prepare('SELECT %s', 'value');\n"
+                . "    \$wpdb->esc_like('literal_%');\n"
+                . "    \$wpdb->get_blog_prefix(1);\n"
+                . "    \$provider->query('not a wpdb receiver');\n"
+                . "    return 'COMMIT outcome was unknown';\n"
+                . "}\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertContains('runtime-execution-boundary:1', $result['checks']);
+    }
+
+    /** @return iterable<string,array{string}> */
+    public static function permittedRuntimeSymbolLookalikes(): iterable
+    {
+        foreach ([
+            '\\Vendor\\proc_open();',
+            'Vendor\\proc_open();',
+            '\\Vendor\\mysqli_query();',
+            'Vendor\\mysqli_query();',
+            'use function Vendor\\proc_open; proc_open();',
+            'use function Vendor\\proc_open as launch; launch();',
+            'use function Vendor\\mysqli_query; mysqli_query();',
+            'use function Vendor\\mysqli_query as read; read();',
+            'new \\Vendor\\PDO();',
+            'new Vendor\\PDO();',
+            'use Vendor\\PDO; new PDO();',
+            '\\Vendor\\WP_CLI::runcommand();',
+            'use Vendor\\WP_CLI; WP_CLI::runcommand();',
+            'namespace Vendor; new PDO();',
+            'namespace Vendor; WP_CLI::runcommand();',
+            'trait PDO {} class UsesPdoTrait { use PDO; }',
+            'trait WP_CLI {} class UsesConsoleTrait { use WP_CLI; }',
+            '$constant = \\PDO::ATTR_TIMEOUT;',
+            '$constant = (\\PDO)::ATTR_TIMEOUT;',
+            '$closure = function () use ($transport) { return $transport; };',
+            '$message = "BEGIN work before exporting";',
+        ] as $statement) {
+            yield $statement => ["\n" . $statement . "\n"];
+        }
+    }
+
+    #[DataProvider('permittedRuntimeSymbolLookalikes')]
+    public function testRuntimeExecutionGuardResolvesExactSymbols(string $mutation): void
+    {
+        $root = $this->validatorFixture();
+        $path = $this->runtimeProbe($root);
+        self::write($path, (string) file_get_contents($path) . $mutation);
+        $result = AdapterPackageValidator::validate($root, 'acf');
+        self::assertContains('runtime-execution-boundary:1', $result['checks']);
+    }
+
+    public function testReviewedLegacyRuntimeDebtMatchesEveryCurrentPathAndSourceDigest(): void
+    {
+        $reflection = new \ReflectionClass(AdapterPackageValidator::class);
+        $registry = $reflection->getReflectionConstant('LEGACY_RUNTIME_EXECUTION_DEBT');
+        self::assertNotFalse($registry);
+        $rows = $registry->getValue();
+        self::assertIsArray($rows);
+        self::assertCount(12, $rows);
+        $guard = $reflection->getMethod('assertRuntimeExecutionBoundary');
+        $repo = dirname(__DIR__, 2);
+
+        foreach ($rows as $relative => $_row) {
+            self::assertIsString($relative);
+            self::assertMatchesRegularExpression(
+                '~^adapter-packages/(?<slug>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/~D',
+                $relative
+            );
+            preg_match('~^adapter-packages/(?<slug>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/~D', $relative, $match);
+            $slug = $match['slug'];
+            $capsule = $repo . '/adapter-packages/' . $slug;
+            $path = $repo . '/' . $relative;
+            $source = file_get_contents($path);
+            self::assertIsString($source);
+            self::assertSame($relative, $guard->invoke(null, $capsule, $path, $source, $slug));
+        }
+    }
+
+    public function testReviewedLegacyRuntimeDebtRejectsSourceDriftInsteadOfRefreshingItsHash(): void
+    {
+        $repo = dirname(__DIR__, 2);
+        $slug = 'elementor';
+        $capsule = $repo . '/adapter-packages/' . $slug;
+        $path = $capsule . '/package/runtime/providers/elementor-css.php';
+        $source = (string) file_get_contents($path) . "\n";
+        $guard = (new \ReflectionClass(AdapterPackageValidator::class))
+            ->getMethod('assertRuntimeExecutionBoundary');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('changed frozen legacy runtime debt');
+        $guard->invoke(null, $capsule, $path, $source, $slug);
+    }
+
+    public function testReviewedLegacyRuntimeDebtRequiresEveryRegisteredPathToBeVisited(): void
+    {
+        $reflection = new \ReflectionClass(AdapterPackageValidator::class);
+        $registry = $reflection->getReflectionConstant('LEGACY_RUNTIME_EXECUTION_DEBT');
+        self::assertNotFalse($registry);
+        $rows = $registry->getValue();
+        self::assertIsArray($rows);
+        $visited = [];
+        foreach (array_keys($rows) as $path) {
+            if (str_starts_with($path, 'adapter-packages/woocommerce/')) {
+                $visited[$path] = true;
+            }
+        }
+        self::assertCount(5, $visited);
+        unset($visited[array_key_first($visited)]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('did not consume its frozen legacy runtime debt row');
+        $reflection->getMethod('assertCompleteLegacyRuntimeDebt')->invoke(null, 'woocommerce', $visited);
+    }
+
+    public function testGrandfatheredRuntimeStillValidatesWithoutAdvertisingItsEngineInternal(): void
+    {
+        $result = AdapterPackageValidator::validate(dirname(__DIR__, 2), 'elementor');
+
+        self::assertContains('runtime-sdk:wprism-adapter-runtime-sdk/v2', $result['checks']);
+        self::assertContains('runtime-execution-boundary:1', $result['checks']);
+        self::assertNotContains('WPrism\\WpCliChildProcess', AdapterPackageValidator::runtimeSdk()['symbols']);
     }
 
     public function testValidatorRejectsRuntimeDependencyOutsideTheVersionedSdk(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         $source = (string) file_get_contents($path);
         self::write(
             $path,
             str_replace(
-                "namespace WPrism\\Interpreters;\n",
-                "namespace WPrism\\Interpreters;\n\nuse WPrism\\RepositoryCompiler;\n",
+                "namespace WPrism\\Providers;\n",
+                "namespace WPrism\\Providers;\n\nuse WPrism\\RepositoryCompiler;\n",
                 $source
             )
         );
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(
-            "depends on non-SDK WPrism symbol 'WPrism\\RepositoryCompiler' at package/runtime/interpreters/acf.php"
+            "depends on non-SDK WPrism symbol 'WPrism\\RepositoryCompiler' at package/runtime/providers/validator-probe.php"
         );
         AdapterPackageValidator::validate($root, 'acf');
     }
@@ -167,7 +586,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorRejectsSdkDependenciesHiddenByPhpNameForms(string $mutation): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write($path, (string) file_get_contents($path) . $mutation);
 
         $this->expectException(RuntimeException::class);
@@ -216,7 +635,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorRejectsUnresolvedDynamicClassDispatch(string $mutation): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write($path, (string) file_get_contents($path) . $mutation);
 
         $this->expectException(RuntimeException::class);
@@ -227,7 +646,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorAllowsAnUnresolvedDynamicStringThatIsNotUsedAsAClass(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write(
             $path,
             (string) file_get_contents($path) . "\n\$label = chr(68) . 'uo runtime label';\necho \$label;\n"
@@ -241,7 +660,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorRestoresAResolvedOuterDynamicClassAfterANamedFunctionScope(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write(
             $path,
             (string) file_get_contents($path)
@@ -258,7 +677,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorCarriesResolvedClassStateIntoClosureAndArrowCaptures(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write(
             $path,
             (string) file_get_contents($path)
@@ -275,7 +694,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorAcceptsObjectInspectionAndLiteralPluginClassNarrowing(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write(
             $path,
             (string) file_get_contents($path)
@@ -297,25 +716,25 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorRejectsCapsuleClassDeclaredInAnEngineInternalNamespace(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write(
             $path,
             str_replace(
-                'namespace WPrism\\Interpreters;',
+                'namespace WPrism\\Providers;',
                 'namespace WPrism\\Repository;',
                 (string) file_get_contents($path)
             )
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("outside owned namespace 'WPrism\\Interpreters'");
+        $this->expectExceptionMessage("outside owned namespace 'WPrism\\Providers'");
         AdapterPackageValidator::validate($root, 'acf');
     }
 
     public function testValidatorAcceptsDynamicReferencesToSdkAndCapsuleOwnedClasses(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write(
             $path,
             (string) file_get_contents($path)
@@ -341,11 +760,11 @@ final class AdapterPackageTestsTest extends TestCase
     public function testValidatorRejectsSdkImportSyntaxThatCouldHideAnExactSymbol(string $import): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         $source = (string) file_get_contents($path);
         self::write(
             $path,
-            str_replace("namespace WPrism\\Interpreters;\n", "namespace WPrism\\Interpreters;\n\n$import\n", $source)
+            str_replace("namespace WPrism\\Providers;\n", "namespace WPrism\\Providers;\n\n$import\n", $source)
         );
 
         $this->expectException(RuntimeException::class);
@@ -356,7 +775,7 @@ final class AdapterPackageTestsTest extends TestCase
     public function testSdkScannerIgnoresDependencyShapedCommentsAndRuntimeLineCounts(): void
     {
         $root = $this->validatorFixture();
-        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        $path = $this->runtimeProbe($root);
         self::write(
             $path,
             (string) file_get_contents($path) . "\n// use WPrism\\{RepositoryCompiler}; is documentation, not an import.\n"
@@ -392,6 +811,57 @@ final class AdapterPackageTestsTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("must own exactly its manifest plugin 'advanced-custom-fields'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testCertifiedPackageCannotOmitItsVersionMatrix(): void
+    {
+        $root = $this->validatorFixture();
+        self::assertTrue(unlink($root . '/adapter-packages/acf/tests/certify/version-matrix.sh'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('must own tests/certify/version-matrix.sh');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testArtifactRolesMustAgreeWithTheDeclaredVersionRange(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/evidence/artifacts.lock.json';
+        $artifacts = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($artifacts);
+        $artifacts['plugins']['advanced-custom-fields']['5.12.6']['role'] = 'certified-boundary';
+        self::write(
+            $path,
+            json_encode($artifacts, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('pins certified boundary 5.12.6 outside its declared version_range');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testEveryArtifactPinMustAppearInActiveMatrixSource(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write($path, str_replace('5.12.6', '5.12.5', (string) file_get_contents($path)));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('artifact pin 5.12.6 is absent from active certified workflow source');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testArtifactPinMentionedOnlyInAPhpCommentIsNotExecutableEvidence(): void
+    {
+        $root = $this->validatorFixture();
+        $matrix = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write($matrix, str_replace('5.12.6', '5.12.5', (string) file_get_contents($matrix)));
+        $evidence = $root . '/adapter-packages/acf/tests/offline/regress_acf_meta_interpreter.php';
+        self::write($evidence, (string) file_get_contents($evidence) . "\n// Refusal artifact 5.12.6.\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('artifact pin 5.12.6 is absent from active certified workflow source');
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -1117,6 +1587,33 @@ SH
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('uses target-observation premise helpers but owns no target-observation-premises.tsv');
         AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    #[DataProvider('jsonCapturePremiseHelpers')]
+    public function testValidatorTreatsJsonCaptureHelpersAsPremiseHelpers(string $helper): void
+    {
+        $package = $this->package('probe', false);
+        self::makeDirectory($package . '/tests/conformance');
+        self::write(
+            $package . '/tests/conformance/check.sh',
+            "#!/usr/bin/env bash\n$helper OUT 'probe answered' fake_wprism\n"
+        );
+        $checks = [];
+        $arguments = [$this->root, $package, 'probe', [], &$checks];
+        $premiseEvidence = new \ReflectionMethod(AdapterPackageValidator::class, 'premiseEvidence');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            "Adapter package 'probe' uses target-observation premise helpers but owns no target-observation-premises.tsv"
+        );
+        $premiseEvidence->invokeArgs(null, $arguments);
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function jsonCapturePremiseHelpers(): iterable
+    {
+        yield 'successful JSON answer' => ['capture_wprism_json_success'];
+        yield 'JSON refusal' => ['capture_wprism_json_refusal'];
     }
 
     public function testValidatorRejectsAStalePackagePremiseAssertion(): void
@@ -1965,6 +2462,7 @@ SH
         self::write($root . '/agent/wprism.php', (string) file_get_contents($repo . '/agent/wprism.php'));
         foreach ([
             'agent/src/Kernel/PlainData.php',
+            'sandbox/lib/pair_db.sh',
             'sandbox/tests/live/regress_capture_concurrency.sh',
             'sandbox/tests/live/regress_multisite_refusal.sh',
             'sandbox/tests/offline/apply/regress_fatal_mutations.php',
@@ -1972,6 +2470,36 @@ SH
             self::write($root . '/' . $evidence, (string) file_get_contents($repo . '/' . $evidence));
         }
         return $root;
+    }
+
+    private function runtimeProbe(string $root): string
+    {
+        $manifestPath = $root . '/adapter-packages/acf/package/manifest.json';
+        $manifest = json_decode(
+            (string) file_get_contents($manifestPath),
+            true,
+            flags: JSON_THROW_ON_ERROR
+        );
+        self::assertIsArray($manifest);
+        self::assertIsString($manifest['plugin'] ?? null);
+        $manifest['providers'] = [[
+            'capabilities' => ['validator_probe'],
+            'id' => 'validator-probe',
+            'plugin' => $manifest['plugin'],
+            'source' => 'manifest',
+            'version' => '1.0.0',
+        ]];
+        self::write(
+            $manifestPath,
+            (string) json_encode(
+                $manifest,
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ) . "\n"
+        );
+
+        $path = $root . '/adapter-packages/acf/package/runtime/providers/validator-probe.php';
+        self::write($path, "<?php\n\nnamespace WPrism\\Providers;\n\nfinal class ValidatorProbe {}\n");
+        return $path;
     }
 
     /**

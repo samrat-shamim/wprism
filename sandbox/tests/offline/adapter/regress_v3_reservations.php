@@ -26,7 +26,7 @@
  * That makes the rider's whole claim measurable, and this suite measures it in
  * five parts:
  *
- *   PART 1 — NOTHING THE ENGINE ACCEPTS TODAY MOVED. All 17 shipped manifests
+ *   PART 1 — NOTHING THE ENGINE ACCEPTS TODAY MOVED. All 18 shipped manifests
  *   still validate, every word the certification vocabulary knows still passes
  *   the host validator, and a well-formed six-member statement and a
  *   well-formed evidence object still pass the two functions this rider edited.

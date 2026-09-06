@@ -7,11 +7,12 @@
 # boot travels through cli/wprism's SSH path.
 #
 # Run only from a clean standalone candidate clone, with explicitly allocated
-# resources. Adapter capsules may reuse this exact host/provider setup by
-# setting WPRISM_SSH_ADOPT_EXTENSION to one tracked
-# adapter-packages/<slug>/tests/live/*.sh file that defines
-# wprism_ssh_adopt_extension(). The extension runs after the shared scoped
-# rollback proof and before label-verified cleanup; it is not a product hook.
+# resources. Adapter capsules and participant-declared integration scenarios
+# and the explicitly named core deletion suite may reuse this exact setup by
+# setting WPRISM_SSH_ADOPT_EXTENSION
+# to one tracked tests/live/*.sh file that defines wprism_ssh_adopt_extension().
+# The extension runs after the shared scoped rollback proof and before
+# label-verified cleanup; it is not a product hook.
 #
 #   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
 #     WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
@@ -54,16 +55,30 @@ SCOPED_REFRESH_EXIT=""
 SCOPED_PROMOTE_STDOUT=""
 SCOPED_PROMOTE_STDERR=""
 SCOPED_PROMOTE_EXIT=""
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT=""
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR=""
+SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT=""
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT=""
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR=""
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT=""
 SCOPED_SUCCESS_PROMOTE_STDOUT=""
 SCOPED_SUCCESS_PROMOTE_STDERR=""
 SCOPED_SUCCESS_PROMOTE_EXIT=""
 AUTHORITY_STATUS_STDOUT=""
 AUTHORITY_STATUS_STDERR=""
 AUTHORITY_STATUS_EXIT=""
+DATABASE_MUTATION_STDOUT=""
+DATABASE_MUTATION_STDERR=""
+DATABASE_MUTATION_EXIT=""
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+
+. "$ROOT/sandbox/conformance/asserts.sh"
+
+# shellcheck source=../lib/ssh_adopt_extension.sh
+. "$ROOT/sandbox/tests/lib/ssh_adopt_extension.sh"
 
 resource_has_our_labels() {
   local kind="$1" name="$2" labels=""
@@ -136,7 +151,7 @@ cleanup() {
   fi
 
   # A green body is not a green live proof until the label-verified fixture
-  # cleanup succeeds. Only then may the narrow, non-secret diagnostic record
+  # cleanup succeeds. Only then may the bounded private diagnostic record
   # be discarded and the final PASS be published.
   if [ "$BODY_COMPLETE" -eq 1 ] && [ "$incoming" -eq 0 ] && [ "$cleanup_failed" -eq 0 ]; then
     if [ -n "$DIAG_DIR" ]; then
@@ -244,18 +259,96 @@ SCOPED_REFRESH_EXIT="$DIAG_DIR/scoped-refresh.exit"
 SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
 SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
 SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT="$DIAG_DIR/scoped-promote-refusal-baseline.stdout"
+SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR="$DIAG_DIR/scoped-promote-refusal-baseline.stderr"
+SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT="$DIAG_DIR/scoped-promote-refusal-baseline.exit"
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT="$DIAG_DIR/scoped-promote-refusal-diagnostic.stdout"
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR="$DIAG_DIR/scoped-promote-refusal-diagnostic.stderr"
+SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT="$DIAG_DIR/scoped-promote-refusal-diagnostic.exit"
 SCOPED_SUCCESS_PROMOTE_STDOUT="$DIAG_DIR/scoped-success-promote.stdout"
 SCOPED_SUCCESS_PROMOTE_STDERR="$DIAG_DIR/scoped-success-promote.stderr"
 SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"
 AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
 AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"
 AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
-for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
+DATABASE_MUTATION_STDOUT="$DIAG_DIR/database-mutation.stdout"
+DATABASE_MUTATION_STDERR="$DIAG_DIR/database-mutation.stderr"
+DATABASE_MUTATION_EXIT="$DIAG_DIR/database-mutation.exit"
+for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR" "$SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT" "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR" "$DATABASE_MUTATION_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
 
 ssh_fixture() { ssh -F "$TMP/ssh_config" wprism-adopt-fixture "$@"; }
+
+# The fixture's login shell is /bin/sh. Single-quote each argument rather
+# than using Bash's %q dialect, and leave stdin available for public env-set.
+wp_ssh_fixture() {
+  local command='cd /var/www/html && exec wp' argument
+  for argument in "$@"; do
+    argument="${argument//\'/\'\\\'\'}"
+    command+=" '$argument'"
+  done
+  ssh_fixture "$command"
+}
+
+harden_ssh_fixture_host() {
+  local out
+  # eb55 completed signed deletion but both adoption doctors warned that the
+  # native test host still allowed wp-admin code changes. Establish the host
+  # premise; do not suppress the product's advisory or change managed policy.
+  out=$(wp_ssh_fixture config set DISALLOW_FILE_MODS true --raw --type=constant --quiet 2>&1) \
+    || fail 'SSH fixture host hardening command failed'
+  [ -z "$out" ] || fail 'SSH fixture host hardening command emitted a diagnostic'
+  out=$(wp_ssh_fixture eval 'echo json_encode(["file_mods_disabled" => defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS === true], JSON_THROW_ON_ERROR);' 2>&1) \
+    || fail 'SSH fixture host hardening readback failed'
+  jq -e -s 'length == 1 and .[0] == {file_mods_disabled:true}' <<<"$out" >/dev/null 2>&1 \
+    || fail 'SSH fixture host hardening did not produce one exact native boolean readback'
+}
+
+private_refusal_diagnostic() { # <snapshot|capture> <command> [canonical baseline JSON]
+  [ "$#" -ge 2 ] || fail 'private refusal diagnostic requires an explicit mode and command'
+  local mode="$1" command="$2" baseline baseline_encoded code
+  case "$mode" in snapshot|capture) ;; *) fail 'private refusal diagnostic mode is unknown' ;; esac
+  if [ "$mode" = snapshot ]; then
+    [ "$#" -eq 2 ] || fail 'private refusal diagnostic snapshot takes no baseline'
+  else
+    [ "$#" -eq 3 ] && [ -n "$3" ] || fail 'private refusal diagnostic capture requires its explicit baseline'
+  fi
+  [[ "$command" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail 'private refusal diagnostic command is invalid'
+  baseline="${3-[]}"  # Filenames only; raw refusal bytes are never passed in argv.
+  baseline_encoded="$(printf '%s' "$baseline" | base64 | tr -d '\r\n')" \
+    || fail 'private refusal diagnostic could not encode its baseline'
+  code='require "/home/wprism/recovery-fixture/PrivateRefusalReceipt.php";
+$dir="/home/wprism/site/.wprism/refusals";
+$baseline=base64_decode($argv[3],true);
+if (!is_string($baseline)) throw new RuntimeException("private diagnostic baseline is not base64");
+echo $argv[1] === "snapshot"
+  ? \WPrismTest\PrivateRefusalReceipt::diagnosticSnapshot($dir,$argv[2])
+  : \WPrismTest\PrivateRefusalReceipt::diagnosticNewRecords($dir,$baseline,$argv[2]);'
+  # No WordPress bootstrap while reading private evidence as the target uid.
+  ssh_fixture "php -r '$code' '$mode' '$command' '$baseline_encoded'"
+}
+
+# These private files can contain operator material. Reject diagnostics by
+# category without echoing the matching line; normal action receipts remain
+# admissible. Serialized scoped Apply warnings are checked separately below.
+assert_ssh_fixture_positive_diagnostics() { # <label> <stdout/stderr file>...
+  local label="$1" diagnostic_file diagnostic_out
+  shift
+  [ "$#" -gt 0 ] || fail "$label has no diagnostic capture"
+  for diagnostic_file in "$@"; do
+    [ -f "$diagnostic_file" ] && [ ! -L "$diagnostic_file" ] && [ -r "$diagnostic_file" ] \
+      || fail "$label has an unreadable diagnostic capture"
+    diagnostic_out=$(cat "$diagnostic_file") || fail "$label could not read its diagnostic capture"
+    if has_php_runtime_diagnostics "$diagnostic_out"; then
+      fail "$label emitted a PHP runtime diagnostic; inspect its private capture"
+    fi
+    if grep -Eq '(^|[[:space:]])env_missing:' "$diagnostic_file"; then
+      fail "$label did not prove all required environment bindings; inspect its private capture"
+    fi
+  done
+}
 
 target_ledger_value() {
   local key="$1"
@@ -314,6 +407,14 @@ for _ in $(seq 1 60); do
 done
 docker exec "$DB" mariadb-admin ping -h 127.0.0.1 -uroot -proot-pass --silent >/dev/null 2>&1 \
   || fail "database never became ready"
+# The standalone account starts with database-local grants only. fd8's
+# Doctor named missing PROCESS before the first env-set correctly refused:
+# complete incoming foreign-key visibility is a mutation prerequisite, not
+# authority adoption may grant. Match pair_db.sh at this disposable DB owner.
+docker exec -i "$DB" mariadb -uroot -proot-pass <<'SQL' \
+  || fail "standalone database could not establish its mutation metadata prerequisite"
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
+SQL
 docker run --rm --user root --network "$NET" -v "$VOLUME:/var/www/html" wordpress:cli-php8.3 \
   sh -lc 'php -d memory_limit=512M /usr/local/bin/wp core download --version="'"$WP_CORE_VERSION"'" --path=/var/www/html --allow-root --quiet && chown -R 1000:1000 /var/www/html'
 pass "WordPress files initialized without sharing the WPrism checkout"
@@ -352,6 +453,7 @@ pass "fresh SSH login is reachable without a process-selected adapter library"
 say "install WordPress through the SSH boundary"
 ssh_fixture "cd /var/www/html && wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress-pass --dbhost=$DB --skip-check --quiet"
 ssh_fixture "cd /var/www/html && wp core install --url=http://adopt.example.test --title='Adopt Fixture' --admin_user=admin --admin_password=admin-pass --admin_email=admin@example.test --skip-email --quiet"
+harden_ssh_fixture_host
 ssh_fixture "cd /var/www/html && wp db query \"CREATE TABLE wprism_cert_state (id bigint primary key, value varchar(191) not null); INSERT INTO wprism_cert_state VALUES (1,'prior-db'); CREATE TABLE wprism_cert_lease (id bigint primary key, owner varchar(191) not null);\""
 if ssh_fixture "cd /var/www/html && wp eval 'echo class_exists(\"\\WPrism\\Capture\") ? \"present\" : \"absent\";'" | grep -qx present; then
   fail "fixture unexpectedly started with WPrism installed"
@@ -364,11 +466,12 @@ openssl rand 32 >"$TMP/checkpoint.key"
 chmod 0600 "$TMP/checkpoint.key"
 jq -n --arg host "$DB" '{host:$host,port:3306,database:"wordpress",user:"wordpress",password:"wordpress-pass",admin_user:"root",admin_password:"root-pass",code_pointer:"/home/wprism/recovery-fixture/code-pointer",effect_target:"/home/wprism/recovery-fixture/effect-target"}' >"$TMP/checkpoint-db.json"
 ssh_fixture 'mkdir -p /home/wprism/recovery-fixture /home/wprism/recovery-fixture/checkpoint && chmod 700 /home/wprism/recovery-fixture /home/wprism/recovery-fixture/checkpoint && printf "adopt-code\\n" > /home/wprism/recovery-fixture/code-pointer && printf "adopt-effect\\n" > /home/wprism/recovery-fixture/effect-target'
-scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/ssh-rollback-checkpoint-provider.php sandbox/tests/fixtures/code-release-provider.php \
+scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/ssh-rollback-checkpoint-provider.php sandbox/tests/fixtures/code-release-provider.php sandbox/tests/lib/PrivateRefusalReceipt.php \
   wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
 scp -F "$TMP/ssh_config" "$TMP/checkpoint.key" "$TMP/checkpoint-db.json" \
   wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
 ssh_fixture 'chmod 700 /home/wprism/recovery-fixture/*.php'
+ssh_fixture 'chmod 600 /home/wprism/recovery-fixture/PrivateRefusalReceipt.php'
 ssh_fixture 'chmod 600 /home/wprism/recovery-fixture/checkpoint.key /home/wprism/recovery-fixture/checkpoint-db.json'
 
 cat >"$TMP/envs.json" <<EOF
@@ -433,15 +536,19 @@ ssh_fixture 'test ! -e /var/www/html/wp-content/mu-plugins/wprism && test ! -e /
 pass "SSH driver reports adopt ready, create unsupported, and performs zero target mutation during negotiation"
 
 say "refuse an unsafe durable-control destination before first adoption"
-ssh_fixture 'mkdir -p /var/www/html/wp-content/mu-plugins && cd /var/www/html/wp-content/mu-plugins && mkdir wprism-control-real && printf "%s\n" preserve > wprism-control-real/sentinel && ln -s wprism-control-real wprism-control'
+ssh_fixture 'set -eu; mkdir -p /var/www/html/wp-content/mu-plugins; cd /var/www/html/wp-content/mu-plugins; mkdir wprism-control-real; printf "%s\n" preserve > wprism-control-real/sentinel; ln -s wprism-control-real wprism-control'
 if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -ne 0 ] || fail "adopt followed a symlink durable-control destination"
-grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/wprism-control' <<<"$OUT" \
-  || fail "durable-control symlink refusal omitted the unsafe destination"
-ssh_fixture 'test "$(cat /var/www/html/wp-content/mu-plugins/wprism-control/sentinel)" = preserve; test ! -e /var/www/html/wp-content/mu-plugins/wprism; test ! -e /home/wprism/site; test ! -e /var/www/html/wp-content/mu-plugins/.wprism-adopt-lock' \
+require_wprism_answered 'initial SSH adoption recovery authority refusal' human "$OUT"
+# The host recovery preflight owns initial authority before Adopt's installer
+# exists (cli/wprism external_recovery_fence_refusal). Unsafe bootstrap topology
+# therefore uses its stable category, not the later installer's path detail.
+grep -Fxq 'wprism: the database-external recovery fence could not be read safely; repair the adopted control directory boundary, then rerun wprism doctor' <<<"$OUT" \
+  || fail "durable-control symlink refusal did not name unreadable external recovery authority"
+ssh_fixture 'set -eu; cd /var/www/html/wp-content/mu-plugins; test -L wprism-control; test "$(readlink wprism-control)" = wprism-control-real; test -d wprism-control-real; test ! -L wprism-control-real; test -f wprism-control-real/sentinel; test ! -L wprism-control-real/sentinel; test "$(cat wprism-control-real/sentinel)" = preserve; for path in wprism wprism-loader.php /home/wprism/site; do test ! -e "$path"; test ! -L "$path"; done; test -z "$(find . -maxdepth 1 -name ".wprism-*" -print)"' \
   || fail "durable-control symlink refusal changed the target before first adoption"
-ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm wprism-control && rm -rf wprism-control-real'
+ssh_fixture 'set -eu; cd /var/www/html/wp-content/mu-plugins; rm wprism-control; rm -rf wprism-control-real'
 pass "unsafe durable-control topology refuses before target mutation"
 
 say "adopt the pre-existing target through the product command"
@@ -561,6 +668,32 @@ if ! ssh_fixture 'php -r '\''$m="/var/www/html/wp-content/mu-plugins/wprism/adap
 fi
 pass "target carries the shipped platform boundary and a cited disposition for every certified claim"
 
+# Adoption installs code and authority, never operator intent. Its refusal,
+# rollback and idempotence witnesses above therefore retain their original
+# unprovisioned premise; only this positive promotion fixture chooses values.
+say "provision the SSH promotion fixture's chosen core environment values"
+ssh_fixture 'test ! -e /home/wprism/site/.wprism-env-values.json && test ! -L /home/wprism/site/.wprism-env-values.json' \
+  || fail "adoption unexpectedly provisioned environment intent"
+# Adoption's read-only Doctor permits this advisory; the positive mutation
+# fixture requires the exact passed row before publishing any intended value.
+# Keep both streams private and reject a conflicting stderr-only warning too.
+if "$WPRISM" --envs-file="$TMP/envs.json" doctor target >"$DATABASE_MUTATION_STDOUT" 2>"$DATABASE_MUTATION_STDERR"; then
+  DATABASE_MUTATION_CODE=0
+else
+  DATABASE_MUTATION_CODE=$?
+fi
+printf '%s\n' "$DATABASE_MUTATION_CODE" >"$DATABASE_MUTATION_EXIT"
+[ "$DATABASE_MUTATION_CODE" -eq 0 ] \
+  || fail "SSH mutation fixture doctor failed; inspect its private diagnostic capture"
+assert_ssh_fixture_positive_diagnostics 'SSH mutation fixture doctor' "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR"
+DATABASE_MUTATION_CHECKS=$(grep -hF 'transactional database mutation (' "$DATABASE_MUTATION_STDOUT" "$DATABASE_MUTATION_STDERR") \
+  || fail "SSH mutation fixture has no readable transactional database prerequisite"
+[ "$DATABASE_MUTATION_CHECKS" = '[PASS] transactional database mutation (mariadb)' ] \
+  || fail "SSH mutation fixture requires one passed transactional database prerequisite; inspect its private diagnostic capture"
+establish_core_environment_bindings wp_ssh_fixture /home/wprism/site admin@example.test \
+  http://adopt.example.test http://adopt.example.test
+pass "public stdin provisioning binds the exact installer-owned core values before promotion"
+
 say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
 ssh_fixture 'php -r '\''$p="/home/wprism/site/site.wprism.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["scoped-apply_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''
 ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-failure --autoload=no >/dev/null'
@@ -601,7 +734,7 @@ ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option pri
 # boundary rather than assuming a newly adopted target is session-empty.
 ORDINARY_OWNER="ordinary-scoped-apply-completed"
 ORDINARY_ARTIFACT="$(printf %s scoped-apply-ordinary-completed | shasum -a 256 | awk '{print $1}')"
-ssh_fixture "cd /var/www/html && wp wprism promotion-begin --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/scoped-apply-ordinary-begin.json" \
+ssh_fixture "cd /var/www/html && wp wprism promotion-begin --repo=/home/wprism/site --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/scoped-apply-ordinary-begin.json" \
   || fail "could not establish the completed ordinary-session precondition"
 ssh_fixture "cd /var/www/html && wp wprism promotion-abort --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/scoped-apply-ordinary-abort.json" \
   || fail "could not retire the ordinary promotion lock"
@@ -652,18 +785,70 @@ printf '%s\n' "$SCOPED_PLAN_CODE" >"$SCOPED_PLAN_EXIT"
 [ "$SCOPED_PLAN_CODE" -eq 0 ] \
   || fail "pre-promote scoped target plan did not complete"
 
+# Snapshot only promotion-begin-scoped filenames immediately before this
+# invocation. If it refuses before the deliberate Apply fault, preserve its
+# bounded new raw record in the private diagnostic directory; this is an
+# unverified debugging artifact, never the expected-cause receipt used by a
+# capability claim.
+if private_refusal_diagnostic snapshot promotion-begin-scoped >"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" 2>"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR"; then
+  SCOPED_PROMOTE_REFUSAL_BASELINE_CODE=0
+else
+  SCOPED_PROMOTE_REFUSAL_BASELINE_CODE=$?
+fi
+printf '%s\n' "$SCOPED_PROMOTE_REFUSAL_BASELINE_CODE" >"$SCOPED_PROMOTE_REFUSAL_BASELINE_EXIT"
+[ "$SCOPED_PROMOTE_REFUSAL_BASELINE_CODE" -eq 0 ] \
+  || fail "could not snapshot the scoped-promotion private diagnostic boundary"
+assert_ssh_fixture_positive_diagnostics 'scoped-promotion private diagnostic baseline' \
+  "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR"
+jq -se 'length == 1 and (.[0] | type == "array" and length <= 4096 and . == unique and all(.[];
+    type == "string" and test("^[0-9]{8}-[0-9]{6}-promotion-begin-scoped-[a-f0-9]{24}\\.json$")))' \
+  "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" >/dev/null 2>>"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR" \
+  || fail "scoped-promotion private diagnostic baseline was not one bounded filename list"
+[ "$(<"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT")" = "$(jq -c . "$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT" 2>>"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDERR")" ] \
+  || fail "scoped-promotion private diagnostic baseline was not canonical"
+
 if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-failure-scope.json" >"$SCOPED_PROMOTE_STDOUT" 2>"$SCOPED_PROMOTE_STDERR"; then
   FAILURE_CODE=0
 else
   FAILURE_CODE=$?
 fi
 printf '%s\n' "$FAILURE_CODE" >"$SCOPED_PROMOTE_EXIT"
+if private_refusal_diagnostic capture promotion-begin-scoped "$(<"$SCOPED_PROMOTE_REFUSAL_BASELINE_STDOUT")" >"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" 2>"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR"; then
+  SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE=0
+else
+  SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE=$?
+fi
+printf '%s\n' "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE" >"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_EXIT"
+[ "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_CODE" -eq 0 ] \
+  || fail "could not retain the scoped-promotion private diagnostic record"
+assert_ssh_fixture_positive_diagnostics 'scoped-promotion private diagnostic delta' \
+  "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR"
+# Validate only the diagnostic transport envelope. Its raw records remain
+# unclassified and cannot satisfy the exact expected-cause evidence contract.
+jq -se 'length == 1 and (.[0] |
+  type == "object" and
+  keys == ["command","format","new_records","purpose","records","verified"]
+  and .command == "promotion-begin-scoped"
+  and .format == "wprism-private-refusal-diagnostic/v1"
+  and .purpose == "diagnostic_only" and .verified == false
+  and (.records | type) == "array" and (.records | length) <= 4
+  and (.new_records | type) == "number" and .new_records == (.records | length)
+  and (.records | map(.name) | unique | length) == .new_records
+  and all(.records[];
+    keys == ["bytes","contents_base64","name","sha256"]
+    and (.bytes | type) == "number" and .bytes >= 1 and .bytes <= 262144 and .bytes == (.bytes | floor)
+    and (.contents_base64 | type) == "string" and (.contents_base64 | length) <= 349528
+    and (.name | type) == "string" and (.name | test("^[0-9]{8}-[0-9]{6}-promotion-begin-scoped-[a-f0-9]{24}\\.json$"))
+    and (.sha256 | type) == "string" and (.sha256 | test("^[a-f0-9]{64}$")))
+  )
+' "$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDOUT" >/dev/null 2>>"$SCOPED_PROMOTE_REFUSAL_DIAGNOSTIC_STDERR" \
+  || fail "scoped-promotion private diagnostic transport was incomplete"
 # Capture only the raw signed authority status before removing the injected
 # fault. The decorated `status` action probes recovery providers and therefore
 # is not observation-only. The separate diagnostic directory deliberately
-# contains only these bounded plan/promote/authority observations, never the
-# SSH config, keys, or DB credentials from TMP. Its contents are private and
-# must not be printed into CI output.
+# contains these bounded observations and raw refusal records, not copies of
+# TMP's credential/config files. Raw causes can contain operator material;
+# every retained stream is private and must never be printed publicly.
 if ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"; then
   AUTHORITY_STATUS_CODE=0
 else
@@ -739,6 +924,11 @@ fi
 printf '%s\n' "$SUCCESS_CODE" >"$SCOPED_SUCCESS_PROMOTE_EXIT"
 [ "$SUCCESS_CODE" -eq 0 ] \
   || fail "public SSH scoped promote did not complete"
+assert_ssh_fixture_positive_diagnostics 'public SSH scoped promote' \
+  "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR"
+SCOPED_APPLY_JSON=$(jq -ce '.scoped_apply | select(type == "object")' "$SCOPED_SUCCESS_PROMOTE_STDOUT") \
+  || fail "public SSH scoped promote did not return its nested Apply result"
+assert_wprism_apply_ready 'public SSH scoped promote Apply' "$SCOPED_APPLY_JSON"
 jq -e --argjson failed_generation "$(jq -r '.generation' "$AUTHORITY_STATUS_STDOUT")" '
   .format == "wprism-scoped-promotion-result/v1" and .state == "committed"
   and (.generation > $failed_generation)
@@ -782,10 +972,10 @@ pass "public scoped promotion restores a real encrypted DB checkpoint on failure
 
 if [ -n "$EXTENSION" ]; then
   EXTENSION_REAL="$(php -r '$p=realpath($argv[1]); if(!is_string($p)||$p==="")exit(1); echo $p;' "$EXTENSION")" \
-    || fail "WPRISM_SSH_ADOPT_EXTENSION does not resolve to a tracked capsule live script"
+    || fail "WPRISM_SSH_ADOPT_EXTENSION does not resolve to a tracked live script"
   case "$EXTENSION_REAL" in
-    "$ROOT"/adapter-packages/*/tests/live/*.sh) ;;
-    *) fail "WPRISM_SSH_ADOPT_EXTENSION must stay under adapter-packages/<slug>/tests/live" ;;
+    "$ROOT"/adapter-packages/*/tests/live/*.sh|"$ROOT"/integration-scenarios/*/tests/live/*.sh|"$ROOT"/sandbox/tests/live/regress_core_ssh_deletion.sh) ;;
+    *) fail "WPRISM_SSH_ADOPT_EXTENSION must name a capsule/scenario live script or the exact shared core deletion suite" ;;
   esac
   [ -f "$EXTENSION_REAL" ] && [ ! -L "$EXTENSION_REAL" ] && [ -r "$EXTENSION_REAL" ] \
     || fail "WPRISM_SSH_ADOPT_EXTENSION must be a readable, non-symlink regular file"
@@ -797,7 +987,7 @@ if [ -n "$EXTENSION" ]; then
   declare -F wprism_ssh_adopt_extension >/dev/null \
     || fail "WPRISM_SSH_ADOPT_EXTENSION must define wprism_ssh_adopt_extension()"
   wprism_ssh_adopt_extension
-  pass "candidate-bound capsule SSH extension completed under the shared recovery fixture"
+  pass "candidate-bound SSH extension completed under the shared recovery fixture"
 fi
 
 BODY_COMPLETE=1

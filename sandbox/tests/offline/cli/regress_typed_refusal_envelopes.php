@@ -214,39 +214,44 @@ namespace {
      * JSON_EXTRACT upsert would let it be exercised offline too, and is
      * recorded as follow-up work rather than done inside this change.
      */
-    final class LeaseStatementWpdb {
+    final class LeaseStatementWpdb extends FakeWpdb {
         public int $intercepted = 0;
 
-        public function __construct(public FakeWpdb $inner, public string $mode) {}
+        public function __construct(public string $mode) {
+            parent::__construct();
+        }
 
         public function query(string $query): int|bool {
             if (str_contains($query, 'JSON_EXTRACT')) {
                 $this->intercepted++;
-                if ($this->mode === 'clear') {
-                    $this->inner->seedTable('wp_wprism_kv', array_values(array_filter(
-                        $this->inner->rows('wp_wprism_kv'),
-                        static fn(array $row): bool => ($row['k'] ?? '') !== 'promotion_lock'
-                    )));
+                // Send the exact statement through the shared wpdb transport
+                // first so the engine's query/isolation gates observe it. The
+                // fixture then selects the real server outcome this suite is
+                // characterizing: conditional upsert kept the prior row, or a
+                // heartbeat raced with deletion and changed zero rows.
+                $before = $this->rows('wp_wprism_kv');
+                try {
+                    parent::query($query);
+                } catch (\LogicException $unsupportedFixtureGrammar) {
+                    if ($this->mode !== 'clear' || !str_starts_with(ltrim($query), 'UPDATE ')) {
+                        throw $unsupportedFixtureGrammar;
+                    }
+                    // The shared fake deliberately has no JSON_EXTRACT DML
+                    // grammar for this authority-fenced renewal. Its parent
+                    // call has still consumed the exact engine permit; this
+                    // fixture supplies only the selected zero-row server
+                    // outcome after that transport proof.
                 }
+                $after = $this->mode === 'clear'
+                    ? array_values(array_filter(
+                        $before,
+                        static fn(array $row): bool => ($row['k'] ?? '') !== 'promotion_lock'
+                    ))
+                    : $before;
+                $this->seedTable('wp_wprism_kv', $after);
                 return 0;
             }
-            return $this->inner->query($query);
-        }
-
-        public function __call(string $method, array $arguments): mixed {
-            return $this->inner->$method(...$arguments);
-        }
-
-        public function __get(string $name): mixed {
-            return $this->inner->$name;
-        }
-
-        public function __set(string $name, mixed $value): void {
-            $this->inner->$name = $value;
-        }
-
-        public function __isset(string $name): bool {
-            return isset($this->inner->$name);
+            return parent::query($query);
         }
     }
 
@@ -274,9 +279,14 @@ namespace {
      */
     function typed_refusal_wpdb(array $rows = [], ?string $leaseMode = null, int $lockResult = 1): object {
         WpStore::reset();
-        $inner = new FakeWpdb();
-        $inner->setLockResult($lockResult);
-        $inner->seedTable('wp_wprism_kv', array_values(array_map(
+        $wpdb = ($leaseMode === null ? new FakeWpdb() : new LeaseStatementWpdb($leaseMode))
+            ->enableInformationSchema()
+            ->enableFullApplySqlExtensions()
+            ->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+            ->setUniqueKey('wprism_kv', ['k'])
+            ->setTableEngine('wprism_kv', 'InnoDB');
+        $wpdb->setLockResult($lockResult);
+        $wpdb->seedTable('wp_wprism_kv', array_values(array_map(
             static fn(string $key, array $payload): array => [
                 'k' => $key,
                 'v' => json_encode($payload, JSON_UNESCAPED_SLASHES),
@@ -284,7 +294,6 @@ namespace {
             array_keys($rows),
             array_values($rows)
         )));
-        $wpdb = $leaseMode === null ? $inner : new LeaseStatementWpdb($inner, $leaseMode);
         $GLOBALS['wpdb'] = $wpdb;
         // ProcessFence caches the fence name and connection id in statics; a
         // new $wpdb without this would look like a continuously-held fence.
@@ -428,6 +437,70 @@ namespace {
     // ------------------------------------------------------------- the fence
     echo "\n== the connection-scoped process fence ==\n";
 
+    // The former synthetic 63-byte live probe missed the actual 66-byte
+    // branded name. Enforce the server limit on the product-derived name
+    // through acquisition, continuity, and release instead of copying its SQL.
+    $fenceNames = [];
+    $wpdb = typed_refusal_wpdb()->onQuery(static function (string $sql) use (&$fenceNames): ?string {
+        if (preg_match("/^SELECT (?:GET_LOCK|IS_USED_LOCK|RELEASE_LOCK)\\('([^']+)'/D", $sql, $match) === 1) {
+            $fenceNames[] = $match[1];
+            if (strlen($match[1]) > 64) {
+                return 'User-level lock name should not exceed 64 characters';
+            }
+        }
+        return null;
+    });
+    $name = ProcessFence::name();
+    wprism_check(
+        strlen($name) === 64 && preg_match('/^wprism:[a-f0-9]{57}$/D', $name) === 1,
+        'the actual product process-fence name fits exactly within the MySQL 64-byte limit'
+    );
+    wprism_check_same($name, ProcessFence::name(), 'the same database and site prefix derive the same process fence');
+    $database = $wpdb->dbname;
+    $wpdb->dbname = $database . '_other';
+    wprism_check($name !== ProcessFence::name(), 'different databases do not share the target process fence');
+    $wpdb->dbname = $database;
+    $prefix = $wpdb->prefix;
+    $wpdb->prefix = $prefix . 'other_';
+    wprism_check($name !== ProcessFence::name(), 'different site prefixes do not share the target process fence');
+    $wpdb->prefix = $prefix;
+    $roundTrip = false;
+    try {
+        ProcessFence::acquire();
+        $roundTrip = ProcessFence::isContinuous();
+    } catch (Throwable) {
+        // The old name must fail this assertion without terminating the suite.
+    } finally {
+        ProcessFence::release();
+    }
+    wprism_check($roundTrip, 'the real process fence acquires and verifies under the server name limit');
+    wprism_check_same([$name, $name, $name], $fenceNames, 'acquire, continuity, and release use one exact bounded name');
+
+    $suppressedDuringFailure = false;
+    $wpdb = typed_refusal_wpdb()->onQuery(
+        static function (string $sql, string $method, FakeWpdb $db) use (&$suppressedDuringFailure): ?string {
+            if (str_starts_with($sql, 'SELECT GET_LOCK(')) {
+                $suppressedDuringFailure = $db->suppress_errors();
+                return 'private database transport detail';
+            }
+            return null;
+        }
+    );
+    foreach ([false, true] as $previousSuppression) {
+        $wpdb->suppress_errors($previousSuppression);
+        try {
+            ProcessFence::acquire();
+        } catch (CommandRefusalException) {
+            // The envelope cases below independently pin this refusal's type.
+        }
+        wprism_check($suppressedDuringFailure, 'wpdb cannot render private SQL or driver text during fence transport failure');
+        wprism_check_same(
+            $previousSuppression,
+            $wpdb->suppress_errors(),
+            'fence transport restores either prior wpdb error-display policy after refusal'
+        );
+    }
+
     // GET_LOCK returns 0: another live process on this target holds the fence.
     // This is the single most common refusal a working operator meets, because
     // it is what two concurrent captures or a capture racing an apply produce.
@@ -449,6 +522,52 @@ namespace {
         'wait for the capture, apply, or promotion already running on this target to finish or release its fence, then retry this command',
         'wprism: promotion lock held by another live target process; concurrent target mutation refused'
     );
+
+    foreach ([
+        'a failed fence acquisition query' => static fn(): object => typed_refusal_wpdb()
+            ->failNextQuery('private database detail must not escape', 'SELECT GET_LOCK('),
+        'a NULL fence result without driver text' => static fn(): object => typed_refusal_wpdb()
+            ->failNextQuery('', 'SELECT GET_LOCK('),
+        'a malformed fence result' => static fn(): object => typed_refusal_wpdb([], null, 2),
+        'an unreadable fence connection' => static fn(): object => typed_refusal_wpdb()
+            ->failNextQuery('private connection detail must not escape', 'SELECT CONNECTION_ID()'),
+        'a malformed fence connection' => static fn(): object => typed_refusal_wpdb()->setConnectionId(0),
+        'a thrown fence transport failure' => static fn(): object => typed_refusal_wpdb()
+            ->onQuery(static function (string $sql): ?string {
+                if (str_starts_with($sql, 'SELECT GET_LOCK(')) {
+                    throw new RuntimeException('private thrown driver detail must not escape');
+                }
+                return null;
+            }),
+        'an unreadable held-fence witness' => static function (): object {
+            $db = typed_refusal_wpdb();
+            ProcessFence::acquire();
+            return $db->failNextQuery('private lock-holder detail must not escape', 'SELECT IS_USED_LOCK(');
+        },
+    ] as $case => $reseedUnavailable) {
+        [$refusal, $published] = typed_refusal_case(
+            $case,
+            'capture',
+            static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']),
+            static fn() => ProcessFence::acquire(),
+            $reseedUnavailable
+        );
+        typed_refusal_assert(
+            $case,
+            'capture',
+            $refusal,
+            $published,
+            'process_fence_unavailable',
+            'the target database could not establish or verify the process fence; target mutation was refused',
+            'restore database connectivity and advisory-lock support, then rerun the command; inspect recorded apply, promotion, and recovery evidence first if a mutation was already in flight',
+            'wprism: the target process fence is unavailable because its database lock state could not be established or verified'
+        );
+        wprism_check(
+            !str_contains((string) json_encode($published), 'private '),
+            "$case: driver detail never enters the public refusal"
+        );
+        wprism_check_same(false, $GLOBALS['wpdb']->suppress_errors(), "$case: the prior wpdb error-display policy is restored");
+    }
 
     // assertHeld() with no fence ever taken: the continuity break. A DIFFERENT
     // operator answer from contention, so a different code.

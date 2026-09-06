@@ -3,6 +3,12 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/ExecutableTreeIdentity.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+require_once __DIR__ . '/../Kernel/TransactionAuthority.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/Deletion.php';
@@ -21,12 +27,9 @@ require_once __DIR__ . '/Deletion.php';
 final class ExecutableOwnerBoundary {
     private const PURPOSE = 'deletion executable-owner boundary';
     private const AGREEMENTS_FORMAT = 'wprism-deletion-owner-agreements/v2';
-    private const CODE_IDENTITY_FORMAT = 'wprism-executable-tree/v1';
     private const MAX_OPTION_VALUE_BYTES = 16777216;
     private const MAX_OWNERS = 4096;
-    private const MAX_TREE_ENTRIES = 100000;
-    private const MAX_TREE_DEPTH = 128;
-    private const MAX_TREE_BYTES = 1073741824;
+    private const MAX_OWNER_ROSTER_ENTRIES = 100000;
     private const DROP_INS = [
         'advanced-cache.php',
         'blog-deleted.php',
@@ -50,12 +53,81 @@ final class ExecutableOwnerBoundary {
 
     public function __construct(private readonly Policy $policy) {}
 
+    /**
+     * Observe one caller-selected owner without selecting it for a policy.
+     *
+     * The returned tuple is inert: deletion still requires an active-owner
+     * snapshot, an adapter declaration where applicable, and a reviewed site
+     * agreement. This public seam exists only so authoring uses the exact same
+     * bounded digest implementation as the enforcement path.
+     *
+     * @return array{owner:string,code_identity:array{format:string,root:string,sha256:string}}
+     */
+    public static function observe_owner(string $owner): array {
+        if (!self::valid_site_owner($owner)) {
+            throw new \RuntimeException('wprism: executable owner observation requires one canonical owner');
+        }
+        [$type, $name] = explode(':', $owner, 2);
+        $identity = match ($type) {
+            'plugin' => self::plugin_identity($name),
+            'theme' => self::theme_identity($name),
+            'mu-plugin' => self::mu_plugin_identity($name),
+            'dropin' => self::dropin_identity($name),
+            default => throw new \RuntimeException('wprism: executable owner observation type is unsupported'),
+        };
+        return ['owner' => $owner, 'code_identity' => $identity];
+    }
+
+    /**
+     * Exact database rows this boundary will lock in the authored transaction.
+     *
+     * @param list<array<string,mixed>> $deleteWork
+     * @return list<string>
+     */
+    public function transaction_read_tables(array $deleteWork): array {
+        global $wpdb;
+        if ($this->capabilities_for($deleteWork) === []) {
+            return [];
+        }
+        if (!isset($wpdb->options) || !is_string($wpdb->options)) {
+            throw new \RuntimeException('wprism: deletion executable-owner boundary requires wpdb->options');
+        }
+        $tables = [$wpdb->options];
+        if (function_exists('is_multisite') && is_multisite()) {
+            if (!isset($wpdb->sitemeta) || !is_string($wpdb->sitemeta)) {
+                throw new \RuntimeException(
+                    'wprism: deletion executable-owner boundary cannot profile multisite plugin activation facts'
+                );
+            }
+            $tables[] = $wpdb->sitemeta;
+        }
+        DeleteGuardEvaluator::assert_table_identifiers($tables, self::PURPOSE);
+        $tables = array_values(array_unique($tables));
+        sort($tables, SORT_STRING);
+        return $tables;
+    }
+
     /** @param list<array<string,mixed>> $deleteWork */
     public function bind(array $deleteWork): void {
         if ($this->boundOwners !== null) {
             $this->assert_unchanged();
             return;
         }
+        $capabilities = $this->capabilities_for($deleteWork);
+        if ($capabilities === []) {
+            return;
+        }
+        ksort($capabilities, SORT_STRING);
+        $this->boundSelectors = array_keys($capabilities);
+        $this->boundOwners = $this->live_owners(true);
+        $this->assert_agreements($capabilities, $this->boundOwners);
+    }
+
+    /**
+     * @param list<array<string,mixed>> $deleteWork
+     * @return array<string,array<string,mixed>>
+     */
+    private function capabilities_for(array $deleteWork): array {
         $capabilities = [];
         foreach ($deleteWork as $row) {
             $selector = Deletion::selector(
@@ -67,13 +139,8 @@ final class ExecutableOwnerBoundary {
                 $capabilities[$selector] = $capability;
             }
         }
-        if ($capabilities === []) {
-            return;
-        }
         ksort($capabilities, SORT_STRING);
-        $this->boundSelectors = array_keys($capabilities);
-        $this->boundOwners = $this->live_owners(true);
-        $this->assert_agreements($capabilities, $this->boundOwners);
+        return $capabilities;
     }
 
     /** Prove locked DB facts and unlocked filesystem rosters did not move. */
@@ -226,7 +293,7 @@ final class ExecutableOwnerBoundary {
             $owners['plugin:' . $plugin] = self::plugin_identity($plugin);
         }
         foreach ([$facts['stylesheet'], $facts['template']] as $theme) {
-            if (preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $theme) !== 1) {
+            if (!self::valid_theme_name($theme)) {
                 throw new \RuntimeException('wprism: deletion executable-owner boundary found a malformed active theme identity');
             }
             $owners['theme:' . $theme] = self::theme_identity($theme);
@@ -340,20 +407,100 @@ final class ExecutableOwnerBoundary {
             'site_id',
             self::PURPOSE . ' network plugins'
         );
+        $authority = Db::transaction_authority(self::PURPOSE . ' network plugin authority');
+        $predicate = "FROM `{$wpdb->sitemeta}` FORCE INDEX (`$index`) "
+            . "WHERE site_id = %d AND meta_key = 'active_sitewide_plugins' "
+            . 'AND CONNECTION_ID() = %s '
+            . 'AND BINARY @wprism_tx_session = BINARY %s '
+            . 'ORDER BY meta_id ASC LIMIT 2 FOR UPDATE';
+        $args = [
+            $wpdb->siteid,
+            $authority->connection_id(),
+            $authority->session_nonce(),
+        ];
         $wpdb->last_error = '';
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM `{$wpdb->sitemeta}` FORCE INDEX (`$index`) "
-                . "WHERE site_id = %d AND meta_key = 'active_sitewide_plugins' ORDER BY meta_id ASC LIMIT 2 FOR UPDATE",
-            $wpdb->siteid
+        $sizes = $wpdb->get_results($wpdb->prepare(
+            'SELECT meta_id, meta_key, OCTET_LENGTH(meta_value) AS meta_value_bytes '
+                . $predicate,
+            ...$args
         ), ARRAY_A);
-        if (!is_array($rows) || !array_is_list($rows) || count($rows) > 1
+        self::assert_transaction_authority($authority, self::PURPOSE . ' network size witness');
+        if (!is_array($sizes) || !array_is_list($sizes) || count($sizes) > 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
             throw new \RuntimeException('wprism: deletion executable-owner boundary could not bind network plugin activation');
         }
-        if ($rows === []) {
+        if ($sizes === []) {
             return [];
         }
-        $decoded = self::decode_array((string) ($rows[0]['meta_value'] ?? ''), 'active_sitewide_plugins');
+        $size = $sizes[0];
+        $metaId = is_array($size) ? self::canonical_positive_id($size['meta_id'] ?? null) : null;
+        $valueBytes = is_array($size) ? self::canonical_nonnegative_size($size['meta_value_bytes'] ?? null) : null;
+        if (!is_array($size)
+            || array_keys($size) !== ['meta_id', 'meta_key', 'meta_value_bytes']
+            || $metaId === null
+            || !is_string($size['meta_key'] ?? null)
+            || !hash_equals('active_sitewide_plugins', $size['meta_key'])
+            || $valueBytes === null
+            || $valueBytes > self::MAX_OPTION_VALUE_BYTES) {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation is ambiguous or oversized'
+            );
+        }
+
+        $wpdb->last_error = '';
+        $hashRows = $wpdb->get_results($wpdb->prepare(
+            'SELECT meta_id, meta_key, SHA2(meta_value, 256) AS meta_value_sha256 '
+                . $predicate,
+            ...$args
+        ), ARRAY_A);
+        self::assert_transaction_authority($authority, self::PURPOSE . ' network hash witness');
+        if (!is_array($hashRows) || !array_is_list($hashRows) || count($hashRows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation changed under its lock'
+            );
+        }
+        $hashRow = $hashRows[0];
+        $valueHash = is_array($hashRow) ? ($hashRow['meta_value_sha256'] ?? null) : null;
+        if (!is_array($hashRow)
+            || array_keys($hashRow) !== ['meta_id', 'meta_key', 'meta_value_sha256']
+            || self::canonical_positive_id($hashRow['meta_id'] ?? null) !== $metaId
+            || !is_string($hashRow['meta_key'] ?? null)
+            || !hash_equals('active_sitewide_plugins', $hashRow['meta_key'])
+            || !is_string($valueHash)
+            || preg_match('/^[a-f0-9]{64}$/D', $valueHash) !== 1) {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation hash is malformed'
+            );
+        }
+
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT meta_id, meta_key, meta_value ' . $predicate,
+            ...$args
+        ), ARRAY_A);
+        self::assert_transaction_authority($authority, self::PURPOSE . ' network value witness');
+        if (!is_array($rows) || !array_is_list($rows) || count($rows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation changed under its lock'
+            );
+        }
+        $row = $rows[0];
+        $raw = is_array($row) ? ($row['meta_value'] ?? null) : null;
+        if (!is_array($row)
+            || array_keys($row) !== ['meta_id', 'meta_key', 'meta_value']
+            || self::canonical_positive_id($row['meta_id'] ?? null) !== $metaId
+            || !is_string($row['meta_key'] ?? null)
+            || !hash_equals('active_sitewide_plugins', $row['meta_key'])
+            || !is_string($raw)
+            || strlen($raw) !== $valueBytes
+            || !hash_equals($valueHash, hash('sha256', $raw))) {
+            throw new \RuntimeException(
+                'wprism: deletion executable-owner boundary network plugin activation disagrees with its bounded witness'
+            );
+        }
+        $decoded = self::decode_array($raw, 'active_sitewide_plugins');
         $plugins = array_keys($decoded);
         foreach ($plugins as $plugin) {
             if (!is_string($plugin)) {
@@ -362,6 +509,31 @@ final class ExecutableOwnerBoundary {
         }
         sort($plugins, SORT_STRING);
         return $plugins;
+    }
+
+    private static function assert_transaction_authority(
+        TransactionAuthority $authority,
+        string $context
+    ): void {
+        if (!$authority->equals(Db::transaction_authority($context))) {
+            throw new \RuntimeException("wprism: $context changed database session authority");
+        }
+    }
+
+    private static function canonical_positive_id(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+            return null;
+        }
+        $id = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($id) && $id > 0 ? $id : null;
+    }
+
+    private static function canonical_nonnegative_size(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $size = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($size) && $size >= 0 ? $size : null;
     }
 
     /** @return array<string,array{format:string,root:string,sha256:string}> */
@@ -374,7 +546,9 @@ final class ExecutableOwnerBoundary {
             ? WPMU_PLUGIN_DIR
             : rtrim(WP_CONTENT_DIR, '/\\') . '/mu-plugins';
         $muFiles = self::php_files($muRoot, 'MU plugin');
-        $muIdentity = $muFiles === [] ? null : self::tree_identity($muRoot, 'mu-plugins');
+        $muIdentity = $muFiles === []
+            ? null
+            : ExecutableTreeIdentity::observe(self::content_root(), $muRoot, 'mu-plugins');
         foreach ($muFiles as $file) {
             // WordPress executes only the top-level PHP roster, but any one of
             // those entries may include a sibling/subtree. Binding the whole MU
@@ -385,7 +559,11 @@ final class ExecutableOwnerBoundary {
             $path = rtrim(WP_CONTENT_DIR, '/\\') . '/' . $file;
             clearstatcache(true, $path);
             if (is_file($path)) {
-                $owners['dropin:' . $file] = self::tree_identity($path, $file);
+                $owners['dropin:' . $file] = ExecutableTreeIdentity::observe(
+                    self::content_root(),
+                    $path,
+                    $file
+                );
             }
         }
         ksort($owners, SORT_STRING);
@@ -394,6 +572,9 @@ final class ExecutableOwnerBoundary {
 
     /** @return array{format:string,root:string,sha256:string} */
     private static function theme_identity(string $theme): array {
+        if (!self::valid_theme_name($theme)) {
+            throw new \RuntimeException('wprism: executable owner observation contains a malformed theme owner');
+        }
         self::content_root();
         $root = rtrim(WP_CONTENT_DIR, '/\\') . '/themes/' . $theme;
         if (function_exists('get_theme_root')) {
@@ -404,11 +585,12 @@ final class ExecutableOwnerBoundary {
                 );
             }
         }
-        return self::tree_identity($root, 'themes/' . $theme);
+        return ExecutableTreeIdentity::observe(self::content_root(), $root, 'themes/' . $theme);
     }
 
     /** @return array{format:string,root:string,sha256:string} */
     private static function plugin_identity(string $plugin): array {
+        self::assert_plugin_owner($plugin, 'executable owner observation');
         self::content_root();
         $pluginsRoot = defined('WP_PLUGIN_DIR') && is_string(WP_PLUGIN_DIR) && WP_PLUGIN_DIR !== ''
             ? WP_PLUGIN_DIR
@@ -428,132 +610,35 @@ final class ExecutableOwnerBoundary {
         if (!is_file($main) || is_link($main) || !is_readable($main)) {
             throw new \RuntimeException("wprism: active plugin '$plugin' has an unsafe or unreadable main file");
         }
-        return self::tree_identity($absoluteRoot, $canonicalRoot);
+        return ExecutableTreeIdentity::observe(self::content_root(), $absoluteRoot, $canonicalRoot);
     }
 
     /** @return array{format:string,root:string,sha256:string} */
-    private static function tree_identity(string $absoluteRoot, string $canonicalRoot): array {
+    private static function mu_plugin_identity(string $file): array {
         $contentRoot = self::content_root();
-        $absolute = self::normalized_existing_path($absoluteRoot, 'executable owner root');
-        if (!self::path_within($absolute, $contentRoot)) {
-            throw new \RuntimeException('wprism: executable owner root escapes WP_CONTENT_DIR');
-        }
-        $expected = $contentRoot . '/' . $canonicalRoot;
-        if (!self::same_path($absolute, $expected)) {
+        $root = defined('WPMU_PLUGIN_DIR') && is_string(WPMU_PLUGIN_DIR) && WPMU_PLUGIN_DIR !== ''
+            ? WPMU_PLUGIN_DIR
+            : $contentRoot . '/mu-plugins';
+        if (!in_array($file, self::php_files($root, 'MU plugin'), true)) {
             throw new \RuntimeException(
-                "wprism: executable owner root does not match canonical identity '$canonicalRoot'"
+                "wprism: MU plugin owner '$file' is not an active ordinary top-level file"
             );
         }
-        $rows = [];
-        $bytes = 0;
-        // Count the canonical owner root as well as every descendant. Empty
-        // directories consume the same finite traversal budget as files.
-        $entries = 1;
-        $stat = @lstat($absolute);
-        if (!is_array($stat)) {
-            throw new \RuntimeException('wprism: executable owner root cannot be inspected');
-        }
-        $kind = ((int) $stat['mode']) & 0170000;
-        if ($kind === 0100000) {
-            self::append_file_identity($absolute, basename($canonicalRoot), $rows, $bytes);
-        } elseif ($kind === 0040000) {
-            self::walk_tree($absolute, '', $rows, $bytes, $entries, 0);
-        } else {
-            throw new \RuntimeException('wprism: executable owner root is not a regular file or directory');
-        }
-        usort($rows, static fn(array $a, array $b): int => strcmp($a['path'], $b['path']));
-        $payload = [
-            'files' => $rows,
-            'format' => self::CODE_IDENTITY_FORMAT,
-            'root' => $canonicalRoot,
-        ];
-        return [
-            'format' => self::CODE_IDENTITY_FORMAT,
-            'root' => $canonicalRoot,
-            'sha256' => hash('sha256', Canon::encode($payload)),
-        ];
+        return ExecutableTreeIdentity::observe($contentRoot, $root, 'mu-plugins');
     }
 
-    /** @param list<array{path:string,sha256:string}> $rows */
-    private static function walk_tree(
-        string $root,
-        string $relative,
-        array &$rows,
-        int &$bytes,
-        int &$entries,
-        int $depth
-    ): void {
-        if ($depth > self::MAX_TREE_DEPTH) {
-            throw new \RuntimeException('wprism: executable owner tree exceeds its depth bound');
+    /** @return array{format:string,root:string,sha256:string} */
+    private static function dropin_identity(string $file): array {
+        if (!in_array($file, self::DROP_INS, true)) {
+            throw new \RuntimeException('wprism: executable owner observation contains an unsupported drop-in owner');
         }
-        $directory = $relative === '' ? $root : $root . '/' . $relative;
-        $handle = @opendir($directory);
-        if (!is_resource($handle)) {
-            throw new \RuntimeException('wprism: executable owner tree contains an unreadable directory');
+        $contentRoot = self::content_root();
+        $path = $contentRoot . '/' . $file;
+        clearstatcache(true, $path);
+        if (!is_file($path) || is_link($path) || !is_readable($path)) {
+            throw new \RuntimeException("wprism: drop-in owner '$file' is absent, symlinked, or unreadable");
         }
-        try {
-            while (($entry = readdir($handle)) !== false) {
-                if ($entry === '.' || $entry === '..') {
-                    continue;
-                }
-                if ($entry === '' || str_contains($entry, "\0") || str_contains($entry, '/')
-                    || str_contains($entry, '\\') || preg_match('/[\x00-\x1f\x7f]/', $entry) === 1) {
-                    throw new \RuntimeException('wprism: executable owner tree contains an unsafe path component');
-                }
-                self::consume_tree_entry($entries);
-                $childRelative = $relative === '' ? $entry : $relative . '/' . $entry;
-                $path = $root . '/' . $childRelative;
-                clearstatcache(true, $path);
-                $stat = @lstat($path);
-                if (!is_array($stat)) {
-                    throw new \RuntimeException('wprism: executable owner tree entry cannot be inspected');
-                }
-                $kind = ((int) $stat['mode']) & 0170000;
-                if ($kind === 0040000) {
-                    self::walk_tree($root, $childRelative, $rows, $bytes, $entries, $depth + 1);
-                    continue;
-                }
-                if ($kind !== 0100000) {
-                    throw new \RuntimeException(
-                        "wprism: executable owner tree entry '$childRelative' is symlinked or nonregular"
-                    );
-                }
-                self::append_file_identity($path, $childRelative, $rows, $bytes, $stat);
-            }
-        } finally {
-            closedir($handle);
-        }
-    }
-
-    private static function consume_tree_entry(int &$entries): void {
-        if ($entries >= self::MAX_TREE_ENTRIES) {
-            throw new \RuntimeException('wprism: executable owner tree exceeds its entry bound');
-        }
-        $entries++;
-    }
-
-    /** @param list<array{path:string,sha256:string}> $rows @param ?array<string,mixed> $stat */
-    private static function append_file_identity(
-        string $path,
-        string $relative,
-        array &$rows,
-        int &$bytes,
-        ?array $stat = null
-    ): void {
-        $stat ??= @lstat($path);
-        if (!is_array($stat) || (((int) $stat['mode']) & 0170000) !== 0100000 || !is_readable($path)) {
-            throw new \RuntimeException("wprism: executable owner file '$relative' is nonregular or unreadable");
-        }
-        $size = $stat['size'] ?? null;
-        if (!is_int($size) || $size < 0 || $bytes > self::MAX_TREE_BYTES - $size) {
-            throw new \RuntimeException('wprism: executable owner tree exceeds its byte bound');
-        }
-        $digest = @hash_file('sha256', $path);
-        if (!is_string($digest) || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1) {
-            throw new \RuntimeException("wprism: executable owner file '$relative' could not be hashed");
-        }
-        $bytes += $size;
-        $rows[] = ['path' => $relative, 'sha256' => $digest];
+        return ExecutableTreeIdentity::observe($contentRoot, $path, $file);
     }
 
     private static function content_root(): string {
@@ -583,10 +668,6 @@ final class ExecutableOwnerBoundary {
             && hash_equals(rtrim(str_replace('\\', '/', $leftReal), '/'), rtrim(str_replace('\\', '/', $rightReal), '/'));
     }
 
-    private static function path_within(string $path, string $root): bool {
-        return hash_equals($root, $path) || str_starts_with($path, $root . '/');
-    }
-
     /** @return list<string> */
     private static function php_files(string $root, string $label): array {
         clearstatcache(true, $root);
@@ -607,7 +688,7 @@ final class ExecutableOwnerBoundary {
                 if ($entry === '.' || $entry === '..') {
                     continue;
                 }
-                self::consume_tree_entry($entries);
+                self::consume_owner_roster_entry($entries);
                 if (!str_ends_with(strtolower($entry), '.php')) {
                     continue;
                 }
@@ -632,16 +713,43 @@ final class ExecutableOwnerBoundary {
         return $files;
     }
 
+    private static function consume_owner_roster_entry(int &$entries): void {
+        if ($entries >= self::MAX_OWNER_ROSTER_ENTRIES) {
+            throw new \RuntimeException('wprism: executable owner tree exceeds its entry bound');
+        }
+        $entries++;
+    }
+
     private static function assert_plugin_owner(string $plugin, string $surface): void {
-        if (preg_match('#^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\.php$#D', $plugin) !== 1) {
+        if (!self::valid_plugin_name($plugin)) {
             throw new \RuntimeException("wprism: $surface contains a malformed executable plugin owner");
         }
+    }
+
+    private static function valid_plugin_name(string $plugin): bool {
+        if (preg_match('#^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\.php$#D', $plugin) !== 1) {
+            return false;
+        }
+        foreach (explode('/', $plugin) as $component) {
+            if ($component === '.' || $component === '..') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static function valid_theme_name(string $theme): bool {
+        return $theme !== '.' && $theme !== '..'
+            && preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $theme) === 1;
     }
 
     /** @return list<string> */
     private static function decode_list(string $raw, string $name): array {
         $decoded = self::decode_array($raw, $name);
-        if (!array_is_list($decoded)) {
+        // The locked raw active_plugins row is native storage, not an artifact
+        // list. WordPress deactivation leaves holes; those positions must not
+        // hide an owner or require rewriting state before destructive work.
+        if (!PlainData::has_nonnegative_integer_keys($decoded)) {
             throw new \RuntimeException("wprism: $name is not a canonical plugin list");
         }
         foreach ($decoded as $value) {
@@ -752,7 +860,7 @@ final class ExecutableOwnerBoundary {
                 sort($identityKeys, SORT_STRING);
                 $expectedRoot = self::expected_owner_root($owner);
                 if ($identityKeys !== ['format', 'root', 'sha256']
-                    || ($identity['format'] ?? null) !== self::CODE_IDENTITY_FORMAT
+                    || ($identity['format'] ?? null) !== ExecutableTreeIdentity::FORMAT
                     || !is_string($identity['root'] ?? null)
                     || !hash_equals($expectedRoot, (string) $identity['root'])
                     || preg_match('/^[a-f0-9]{64}$/D', (string) ($identity['sha256'] ?? '')) !== 1) {
@@ -762,7 +870,7 @@ final class ExecutableOwnerBoundary {
                 }
                 $out[$selector][$owner] = [
                     'code_identity' => [
-                        'format' => self::CODE_IDENTITY_FORMAT,
+                        'format' => ExecutableTreeIdentity::FORMAT,
                         'root' => $expectedRoot,
                         'sha256' => (string) $identity['sha256'],
                     ],
@@ -776,8 +884,15 @@ final class ExecutableOwnerBoundary {
     }
 
     private static function valid_site_owner(string $owner): bool {
-        if (preg_match('/^(?:plugin:[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\.php|theme:[A-Za-z0-9._-]{1,128}|mu-plugin:[A-Za-z0-9._-]{1,192}\.php)$/D', $owner) === 1) {
-            return true;
+        if (str_starts_with($owner, 'plugin:')) {
+            return self::valid_plugin_name(substr($owner, strlen('plugin:')));
+        }
+        if (str_starts_with($owner, 'theme:')) {
+            return self::valid_theme_name(substr($owner, strlen('theme:')));
+        }
+        if (str_starts_with($owner, 'mu-plugin:')) {
+            $file = substr($owner, strlen('mu-plugin:'));
+            return preg_match('/^[A-Za-z0-9._-]{1,192}\.php$/D', $file) === 1;
         }
         return str_starts_with($owner, 'dropin:')
             && in_array(substr($owner, strlen('dropin:')), self::DROP_INS, true);

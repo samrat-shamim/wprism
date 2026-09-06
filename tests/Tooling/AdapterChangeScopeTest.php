@@ -28,9 +28,19 @@ final class AdapterChangeScopeTest extends TestCase
 
         self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
         self::assertSame(['woocommerce'], $result['adapters']);
-        self::assertSame(['woocommerce-rewrite-coinstall'], $result['scenarios']);
         self::assertSame(
             [
+                'rank-math-commerce-multilingual',
+                'woocommerce-rewrite-coinstall',
+            ],
+            $result['scenarios']
+        );
+        self::assertSame(
+            [
+                'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh',
+                'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh',
+                'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php',
+                'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php',
                 'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
                 'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php',
             ],
@@ -49,7 +59,14 @@ final class AdapterChangeScopeTest extends TestCase
 
         self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
         self::assertSame(['acf', 'yoast'], $result['adapters']);
-        self::assertSame(['woocommerce-rewrite-coinstall'], $result['scenarios']);
+        self::assertSame(
+            [
+                'rank-math-commerce-multilingual',
+                'rank-math-yoast-incompatibility',
+                'woocommerce-rewrite-coinstall',
+            ],
+            $result['scenarios']
+        );
     }
 
     /** @return iterable<string,array{0:string}> */
@@ -126,7 +143,11 @@ final class AdapterChangeScopeTest extends TestCase
 
         self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
         self::assertSame(
-            ['polylang-tec-rewrite-coinstall', 'woocommerce-rewrite-coinstall'],
+            [
+                'polylang-tec-rewrite-coinstall',
+                'rank-math-commerce-multilingual',
+                'woocommerce-rewrite-coinstall',
+            ],
             $result['scenarios']
         );
     }

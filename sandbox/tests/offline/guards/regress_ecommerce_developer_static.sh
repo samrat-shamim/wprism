@@ -294,7 +294,7 @@ CLEANUP_DOCKER_CONTAINERS='pair_containers="$(docker ps -aq --filter "label=com.
 CLEANUP_DOCKER_VOLUMES='pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"'
 CLEANUP_DOCKER_NETWORKS='pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"'
 CLEANUP_DOCKER_LEFTOVER='[ -n "$pair_containers$pair_volumes$pair_networks" ]; then'
-CLEANUP_DB_QUERY="remaining_dbs=\"\$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw -e \"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_\${PAIR}1','wp_\${PAIR}2')\" 2>/dev/null)\""
+CLEANUP_DB_QUERY="remaining_dbs=\"\$(docker exec -e MYSQL_PWD=root \"\$DB_CONTAINER\" \"\$DB_CLIENT\" -uroot -N -B --raw -e \"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_\${PAIR}1','wp_\${PAIR}2')\" 2>/dev/null)\""
 CLEANUP_DB_LEFTOVER='[ -n "$remaining_dbs" ]; then'
 CLEANUP_PAIR_PATH_GUARD='if [ "$PAIR_PATHS_OWNED" = 1 ]; then'
 CLEANUP_TEARDOWN_GUARD='if [ "$teardown_verified" = 1 ]; then'
@@ -450,12 +450,12 @@ helper_noop_rejected visibility-helper "$VISIBILITY_STATE_ASSERT"
 helper_noop_rejected eq-helper "$EQ_PREDICATE"
 helper_noop_rejected receipt-helper "$RECEIPT_JQ_CALL"
 helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
-CLEANUP_HELPER_GOLDEN_HASH=ccfec1bbdbb869e320cc7bfa011501b9daf73ae717c426d6d2f330c1fe6c9c97
+CLEANUP_HELPER_GOLDEN_HASH=053c3398eba54690ccafb71fd9852e32119c1a3aa44098216009d4d9778265ca
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=49bc8eb8253fe2c9a3d9a5299ddce5123afb84689a8f74bf189ada8cdb830a51
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=b8e2aa13c1f59012e79456732c85a6844cc585f3727222fef7d3662b7dbb1999
+RECEIPT_HELPER_GOLDEN_HASH=0f56f0ba1737f3f13ff7e9a267c36b5a8386790a682933534074974dffb7686f
 THEME_HELPER_GOLDEN_HASH=1f138962a1311a9ee2b31c88e2eea62aba6c40294e6b240557270ab2bc0078ba
 REPLACEMENT_DEPENDENCY_HELPER_GOLDEN_HASH=be5e884fb7c71d66baca2c9963859849bd96c2b0c4f77f3aad29d1cf41463f95
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff

@@ -11,13 +11,16 @@ require_once __DIR__ . '/../Rebuild/NativeActions.php';
 // any manifest reaches a policy consumer, so it is required here for the same
 // reason NativeActions is.
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
+require_once __DIR__ . '/../Kernel/ManifestExecutableLoader.php';
 // Shipped executable paths belong to the adapter package that declares them.
 // Required here because this file is also loaded directly by offline policy
 // validators that never pass through agent/wprism.php.
 require_once __DIR__ . '/AdapterLibrary.php';
 require_once __DIR__ . '/AdapterPackage.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 // issue #3348 first extraction slice: the pure table/widget declaration grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ManifestGrammar.php';
@@ -36,6 +39,8 @@ require_once __DIR__ . '/../Kernel/SiteTopology.php';
 // (sandbox/tests/offline/guards/regress_agent_src_requires.php) is that every
 // engine class a file NAMES is loaded by that file, not by a neighbour.
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/CheckpointRecoveryIntent.php';
+require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
 // issue #3348 slice 5: manifest-pin normalization/validation, required here for
 // the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/PinResolver.php';
@@ -240,7 +245,10 @@ final class Policy {
      * vocabulary, so it is a shared constant rather than two regexes that can
      * drift into accepting different names for the same surface.
      */
-    public const SURFACE_PATTERN = '/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D';
+    // Native private option keys begin with '_' (transients and ACF shadows).
+    // Only that namespace gains the leading byte; the four other domains,
+    // exact-literal semantics, capture group and 128-byte bound stay intact.
+    public const SURFACE_PATTERN = '/^(post|term|table|option|entity):(?:[a-z0-9]|(?<=option:)_)[a-z0-9._-]{0,127}$/D';
 
     public array $site = [];
     /** @var array<int, array> */
@@ -251,6 +259,10 @@ final class Policy {
     private ?AdapterSources $adapterSources = null;
     /** The shipped library whose package paths this policy executes and hashes. */
     private ?AdapterLibrary $adapterLibrary = null;
+    /** @var null|array{artifact_hash:string,site_hash:string,manifest_hash:string,resolved_adapters_sha256:string,adapter_digests:array<string,string>} */
+    private ?array $executionArtifactIdentity = null;
+    /** @var null|array<string,mixed> exact validated policy frozen with the execution artifact */
+    private ?array $executionPolicySnapshot = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
     /** @var array<string, object>|null lazily-built regenerator instances (issue #3234) */
@@ -341,6 +353,215 @@ final class Policy {
             return $this->adapterLibrary;
         }
         return $this->adapterLibrary = self::shipped_adapter_library();
+    }
+
+    /**
+     * Bind executable adapter loading to the artifact this request validated.
+     *
+     * A Policy is loaded before its compiled artifact. Provider execution is
+     * later still, so recomputing identity only at provider load would accept
+     * package bytes changed in that gap under a new digest. This one-time
+     * binding compares the artifact's site, manifest, and stable executable
+     * adapter identities with the current Policy projection. Capability claims
+     * also carry the running platform version and intentionally are not part of
+     * that stable projection: CompiledArtifactReader permits an otherwise
+     * identical artifact across a compatible platform bump, and execution must
+     * preserve that contract instead of reintroducing artifact_hash equality by
+     * another name. The snapshot is frozen in the same step: a later fresh
+     * child may replay these exact validated bytes, never a site/action document
+     * reopened after artifact validation.
+     *
+     * @param list<array<string,mixed>> $resolvedAdapters
+     */
+    public function bind_execution_artifact_identity(
+        string $artifactHash,
+        string $siteHash,
+        string $manifestHash,
+        array $resolvedAdapters
+    ): void {
+        if (preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $siteHash) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $manifestHash) !== 1
+            || !array_is_list($resolvedAdapters)) {
+            throw new \RuntimeException('wprism: compiled execution adapter identity is malformed');
+        }
+        if (!class_exists(ArtifactPolicyIdentity::class, false)) {
+            require_once __DIR__ . '/ArtifactPolicyIdentity.php';
+        }
+        $currentSiteHash = ArtifactPolicyIdentity::site_hash($this);
+        $currentManifestHash = ArtifactPolicyIdentity::manifest_hash($this);
+        $currentAdapters = ArtifactPolicyIdentity::resolved_adapters($this);
+        if (!hash_equals($siteHash, $currentSiteHash)
+            || !hash_equals($manifestHash, $currentManifestHash)
+            || Canon::encode(self::execution_adapter_projection($resolvedAdapters))
+                !== Canon::encode(self::execution_adapter_projection($currentAdapters))) {
+            throw new \RuntimeException(
+                'wprism: compiled execution policy identity no longer matches the validated policy bytes'
+            );
+        }
+        $this->retain_execution_artifact_identity([
+            'artifact_hash' => $artifactHash,
+            'site_hash' => $siteHash,
+            'manifest_hash' => $manifestHash,
+            'resolved_adapters_sha256' => hash(
+                'sha256',
+                Canon::encode(self::execution_adapter_projection($resolvedAdapters))
+            ),
+        ], $resolvedAdapters);
+    }
+
+    /**
+     * Rebind a fresh child to the compact identity its parent proved.
+     *
+     * The artifact hash is an opaque request identity here; the three policy
+     * projections are independently recomputed from the frozen snapshot and
+     * exact adapter library before any provider source is loaded.
+     *
+     * @param array<string,mixed> $identity
+     */
+    public function bind_fresh_execution_identity(array $identity): void {
+        $keys = array_keys($identity);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['artifact_hash', 'manifest_hash', 'resolved_adapters_sha256', 'site_hash']) {
+            throw new \RuntimeException('wprism: fresh execution policy identity is malformed');
+        }
+        foreach ($identity as $digest) {
+            if (!is_string($digest) || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1) {
+                throw new \RuntimeException('wprism: fresh execution policy identity is malformed');
+            }
+        }
+        if (!class_exists(ArtifactPolicyIdentity::class, false)) {
+            require_once __DIR__ . '/ArtifactPolicyIdentity.php';
+        }
+        $this->assert_fresh_shipped_dispositions_current();
+        $currentAdapters = ArtifactPolicyIdentity::resolved_adapters($this);
+        if (!hash_equals($identity['site_hash'], ArtifactPolicyIdentity::site_hash($this))
+            || !hash_equals($identity['manifest_hash'], ArtifactPolicyIdentity::manifest_hash($this))
+            || !hash_equals(
+                $identity['resolved_adapters_sha256'],
+                hash('sha256', Canon::encode(self::execution_adapter_projection($currentAdapters)))
+            )) {
+            throw new \RuntimeException(
+                'wprism: fresh execution identity does not match its frozen policy and adapter bytes'
+            );
+        }
+        $this->retain_execution_artifact_identity($identity, $currentAdapters);
+    }
+
+    /**
+     * Keep only package identity that must survive from artifact validation to
+     * executable load. Dynamic capability/platform projections remain covered
+     * by current Policy validation, while name+digest pins the exact package
+     * bytes the child is permitted to execute.
+     *
+     * @param list<array<string,mixed>> $resolvedAdapters
+     * @return list<array{name:string,digest:string}>
+     */
+    private static function execution_adapter_projection(array $resolvedAdapters): array {
+        $projection = [];
+        foreach ($resolvedAdapters as $row) {
+            $name = is_array($row) ? ($row['name'] ?? null) : null;
+            $digest = is_array($row) ? ($row['digest'] ?? null) : null;
+            if (!is_string($name)
+                || preg_match('/^[a-z0-9][a-z0-9._-]{0,63}$/D', $name) !== 1
+                || !is_string($digest)
+                || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1) {
+                throw new \RuntimeException(
+                    'wprism: compiled execution adapter identity is malformed'
+                );
+            }
+            $projection[] = ['name' => $name, 'digest' => $digest];
+        }
+        return $projection;
+    }
+
+    /**
+     * Frozen policy semantics stay frozen, but shipped ratification is code-like
+     * package identity. Reopen only those current disposition bytes and prove
+     * exact equality before any adapter executable can load in the child.
+     */
+    private function assert_fresh_shipped_dispositions_current(): void {
+        $shipped = $this->adapter_sources()->shipped_manifests($this->manifests);
+        if ($shipped === []) {
+            return;
+        }
+        if ($this->manifestDispositions === null) {
+            throw new \RuntimeException(
+                'wprism: fresh execution identity has no frozen shipped disposition bytes'
+            );
+        }
+        $current = ManifestDispositions::load_library($this->adapter_library());
+        $current->assert_covers($shipped);
+        foreach ($shipped as $manifest) {
+            $name = (string) ($manifest['name'] ?? '');
+            $frozenEntry = $this->manifestDispositions->entry($name);
+            $currentEntry = $current->entry($name);
+            if (!is_array($frozenEntry)
+                || !is_array($currentEntry)
+                || !hash_equals(
+                    hash('sha256', Canon::encode($frozenEntry)),
+                    hash('sha256', Canon::encode($currentEntry))
+                )) {
+                throw new \RuntimeException(
+                    'wprism: fresh execution identity does not match current shipped disposition bytes'
+                );
+            }
+        }
+    }
+
+    /** @param array<string,string> $identity @param list<array<string,mixed>> $resolvedAdapters */
+    private function retain_execution_artifact_identity(array $identity, array $resolvedAdapters): void {
+        $digests = [];
+        foreach ($resolvedAdapters as $index => $row) {
+            $expectedName = $this->manifests[$index]['name'] ?? null;
+            $name = is_array($row) ? ($row['name'] ?? null) : null;
+            $digest = is_array($row) ? ($row['digest'] ?? null) : null;
+            if (!is_string($name)
+                || $name !== $expectedName
+                || !is_string($digest)
+                || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+                || isset($digests[$name])) {
+                throw new \RuntimeException('wprism: compiled execution adapter identity is malformed');
+            }
+            $digests[$name] = $digest;
+        }
+        if (count($digests) !== count($this->manifests)) {
+            throw new \RuntimeException('wprism: compiled execution adapter identity is incomplete');
+        }
+        $binding = $identity + ['adapter_digests' => $digests];
+        $snapshot = $this->export_snapshot();
+        if ($this->executionArtifactIdentity !== null
+            && ($this->executionArtifactIdentity !== $binding
+                || Canon::encode($this->executionPolicySnapshot) !== Canon::encode($snapshot))) {
+            throw new \RuntimeException(
+                'wprism: one policy instance cannot acquire two compiled execution identities'
+            );
+        }
+        $this->executionArtifactIdentity = $binding;
+        $this->executionPolicySnapshot = $snapshot;
+    }
+
+    /** The artifact-bound digest required before manifest code may mutate. */
+    public function execution_adapter_digest(string $name): ?string {
+        return $this->executionArtifactIdentity['adapter_digests'][$name] ?? null;
+    }
+
+    /** @return null|array{artifact_hash:string,site_hash:string,manifest_hash:string,resolved_adapters_sha256:string} */
+    public function execution_artifact_identity(): ?array {
+        if ($this->executionArtifactIdentity === null) {
+            return null;
+        }
+        return [
+            'artifact_hash' => $this->executionArtifactIdentity['artifact_hash'],
+            'site_hash' => $this->executionArtifactIdentity['site_hash'],
+            'manifest_hash' => $this->executionArtifactIdentity['manifest_hash'],
+            'resolved_adapters_sha256' => $this->executionArtifactIdentity['resolved_adapters_sha256'],
+        ];
+    }
+
+    /** @return null|array<string,mixed> */
+    public function execution_policy_snapshot(): ?array {
+        return $this->executionPolicySnapshot;
     }
 
     /** The platform boundary belonging to this policy's resolved library. */
@@ -581,6 +802,13 @@ final class Policy {
             if (!is_file($siteFile)) {
                 throw self::repository_missing($siteFile);
             }
+            // Repository identity is locally decidable and has a typed public
+            // refusal. Establish it before reading external recovery debt;
+            // otherwise a mistyped --repo is misreported as an unsafe recovery
+            // boundary. Both debt fences still run before the first policy byte
+            // is read, which is the safety boundary they protect.
+            CheckpointRecoveryIntent::assert_clear($repo);
+            ProviderSettlementIntent::assert_clear($repo);
             $p->site = Canon::decode(Canon::read_file($siteFile));
             SitePolicyValidator::validate(
                 $p->site,
@@ -1975,7 +2203,7 @@ final class Policy {
             if ($name === null || isset($this->interpreterInstances[$name])) {
                 continue;
             }
-            if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
+            if (!is_string($name) || !preg_match('/^[a-z][a-z0-9_-]*$/D', $name)) {
                 throw new \RuntimeException("wprism: manifest '{$m['name']}' declares invalid interpreter name '$name'");
             }
             $file = $this->adapter_runtime_path((string) $m['name'], 'interpreters', $name);
@@ -1985,9 +2213,20 @@ final class Policy {
                     . 'interpreter code ships with its manifest, not the engine'
                 );
             }
-            require_once $file;
-            $class = '\\WPrism\\Interpreters\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
-            if (!class_exists($class) || !method_exists($class, 'post_meta_rule')) {
+            if (!class_exists(ArtifactPolicyIdentity::class, false)) {
+                require_once __DIR__ . '/ArtifactPolicyIdentity.php';
+            }
+            $descriptor = ArtifactPolicyIdentity::runtime_component_descriptor(
+                $this,
+                (string) $m['name'],
+                'interpreters',
+                $name
+            );
+            $class = ManifestExecutableLoader::load(
+                $descriptor,
+                $this->execution_adapter_digest((string) $m['name'])
+            );
+            if (!method_exists($class, 'post_meta_rule')) {
                 throw new \RuntimeException(
                     "wprism: interpreter file $file must define $class with post_meta_rule(string, array): ?array"
                 );
@@ -1998,18 +2237,12 @@ final class Policy {
     }
 
     /**
-     * issue #3234 regenerator loading — the exact same trust boundary and
-     * validate/load/instantiate shape as interpreters() above (same
-     * rationale: manifest-shipped PHP, engine holds only the loading
-     * contract, never plugin-specific logic), deliberately mirrored rather
-     * than sharing code with interpreters(), for the same reason
-     * assert_meta_schema() stays separate from assert_row_schema() in
-     * Snapshot.php — the two mechanisms' discovery differs enough
-     * (interpreters: one name per manifest, off a top-level `interpreter`
-     * key; regenerators: potentially several names per manifest, one per
-     * declaring post_types{} entry's `regen_dependency.regenerator`) that
-     * a shared helper would need its own branching, buying nothing over two
-     * short, independently-readable methods.
+     * issue #3234 regenerator discovery remains distinct from interpreter
+     * discovery: potentially several names arise from post_types{} entries.
+     * Once discovered, both kinds cross the same ManifestExecutableLoader
+     * identity/provenance boundary as manifest providers; plugin-specific
+     * behavior remains in package code and loading mechanics remain engine
+     * owned.
      *
      * A declared name resolves through its adapter package's regenerator inventory,
      * which must define \WPrism\Regenerators\<CamelCase(name)> with
@@ -2037,7 +2270,7 @@ final class Policy {
                 if ($name === null || isset($this->regeneratorInstances[$name])) {
                     continue;
                 }
-                if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
+                if (!is_string($name) || !preg_match('/^[a-z][a-z0-9_-]*$/D', $name)) {
                     throw new \RuntimeException(
                         "wprism: manifest '{$m['name']}' post_types.$postType declares invalid regenerator name '$name'"
                     );
@@ -2049,9 +2282,20 @@ final class Policy {
                         . 'regenerator code ships with its manifest, not the engine'
                     );
                 }
-                require_once $file;
-                $class = '\\WPrism\\Regenerators\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
-                if (!class_exists($class) || !method_exists($class, 'regenerate')) {
+                if (!class_exists(ArtifactPolicyIdentity::class, false)) {
+                    require_once __DIR__ . '/ArtifactPolicyIdentity.php';
+                }
+                $descriptor = ArtifactPolicyIdentity::runtime_component_descriptor(
+                    $this,
+                    (string) $m['name'],
+                    'regenerators',
+                    $name
+                );
+                $class = ManifestExecutableLoader::load(
+                    $descriptor,
+                    $this->execution_adapter_digest((string) $m['name'])
+                );
+                if (!method_exists($class, 'regenerate')) {
                     throw new \RuntimeException(
                         "wprism: regenerator file $file must define $class with regenerate(int \$localId): void"
                     );
@@ -2618,6 +2862,22 @@ final class Policy {
             $rule = $i->{$hook}($key, $allValues);
             if ($rule === null) {
                 continue;
+            }
+            // This feature authorizes one exact static option, not executable
+            // classification. Even echoing a static constrained rule would
+            // add a second authority capable of stripping its constraint.
+            $intersection = array_key_exists(ScalarReferenceIntersection::FIELD, $rule)
+                || array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $rule)
+                || array_key_exists(ScalarReferenceIntersection::FIELD, $static['rule'] ?? []);
+            foreach ((array) ($rule['sub_keys'] ?? []) as $subRule) {
+                $intersection = $intersection
+                    || (is_array($subRule) && (array_key_exists(ScalarReferenceIntersection::FIELD, $subRule)
+                        || array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $subRule)));
+            }
+            if ($intersection) {
+                throw new \RuntimeException(
+                    "wprism: interpreter '$name' cannot classify $section '$key' with a static scalar reference intersection"
+                );
             }
             $owners = [];
             foreach ($this->manifests as $m) {
@@ -3386,6 +3646,60 @@ final class Policy {
     }
 
     /**
+     * Idempotent provider actions which establish exact declared table schema
+     * before a full target plan may observe canonical rows.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function schema_settle_actions(): array {
+        return array_values(array_filter(
+            $this->actions(),
+            static fn(array $action): bool => ($action['phase'] ?? null) === 'schema_settle'
+        ));
+    }
+
+    /**
+     * Read-only capability projections paired one-to-one with schema actions.
+     * The internal table list lets live negotiation enforce the same exact
+     * surface set the manifest grammar checked without turning readiness into
+     * a second mutating action or an effect-inventory entry.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function schema_readiness_actions(): array {
+        $out = [];
+        foreach ($this->schema_settle_actions() as $action) {
+            $out[] = [
+                '_schema_readiness_tables' => array_values((array) ($action['prepares'] ?? [])),
+                'args' => [],
+                'capability' => (string) ($action['readiness'] ?? ''),
+                'index' => (int) ($action['index'] ?? 0),
+                'kind' => 'provider',
+                'manifest' => (string) ($action['manifest'] ?? '?'),
+                'provider' => (string) ($action['provider'] ?? ''),
+            ];
+        }
+        return $out;
+    }
+
+    /** @return array<string,array{manifest:string,index:int,provider:string,capability:string}> */
+    public function schema_settle_tables(): array {
+        $out = [];
+        foreach ($this->schema_settle_actions() as $action) {
+            foreach ((array) ($action['prepares'] ?? []) as $table) {
+                $out[(string) $table] = [
+                    'manifest' => (string) ($action['manifest'] ?? '?'),
+                    'index' => (int) ($action['index'] ?? 0),
+                    'provider' => (string) ($action['provider'] ?? ''),
+                    'capability' => (string) ($action['capability'] ?? ''),
+                ];
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
+    /**
      * Manifest actions with an exact canonical surface intersection.
      *
      * A declaration without `triggers` is deliberately unscoped: it remains
@@ -3413,7 +3727,10 @@ final class Policy {
         $out = [];
         $declarations = $mutationChannels === null ? [] : $this->provider_declarations();
         foreach ($this->actions() as $action) {
-            if (($action['phase'] ?? null) === 'lifecycle_settle') {
+            // Phased actions have their own host/apply scheduling boundary;
+            // they are never selected again as post-commit rebuilds merely
+            // because an authored surface happened to change.
+            if (array_key_exists('phase', $action)) {
                 continue;
             }
             if (($action['kind'] ?? null) === 'provider'
@@ -3429,8 +3746,8 @@ final class Policy {
                 $out[] = $action;
                 continue;
             }
-            foreach ((array) $action['triggers'] as $trigger) {
-                if (isset($wanted[$trigger])) {
+            foreach (array_keys($wanted) as $surface) {
+                if (ActionTriggerMatcher::any_matches((array) $action['triggers'], $surface)) {
                     $out[] = $action;
                     break;
                 }
@@ -3593,9 +3910,11 @@ final class Policy {
                 foreach ($effects as $effect) {
                     $out[] = [
                         'manifest' => $name,
-                        'phase' => ($action['phase'] ?? null) === 'lifecycle_settle'
-                            ? 'lifecycle-settle'
-                            : 'rebuild',
+                        'phase' => match ($action['phase'] ?? null) {
+                            'lifecycle_settle' => 'lifecycle-settle',
+                            'schema_settle' => 'schema-settle',
+                            default => 'rebuild',
+                        },
                         'source' => $source,
                         'effect' => $effect,
                     ];
@@ -3653,10 +3972,10 @@ final class Policy {
         $out = array_values(array_filter(
             $this->effects_inventory(),
             static fn(array $row): bool => isset($wanted[
-                (string) ($row['manifest'] ?? '') . "\0"
-                . (string) ($row['phase'] ?? '') . "\0"
-                . (string) ($row['source'] ?? '')
-            ])
+                    (string) ($row['manifest'] ?? '') . "\0"
+                    . (string) ($row['phase'] ?? '') . "\0"
+                    . (string) ($row['source'] ?? '')
+                ])
         ));
         // A source spelling is not an action identity: multiple native
         // declarations may share `native:transient.delete` while naming
@@ -3667,9 +3986,11 @@ final class Policy {
             foreach (self::action_effects($action, $index) as $effect) {
                 $out[] = [
                     'manifest' => (string) ($action['manifest'] ?? '?'),
-                    'phase' => ($action['phase'] ?? null) === 'lifecycle_settle'
-                        ? 'lifecycle-settle'
-                        : 'rebuild',
+                    'phase' => match ($action['phase'] ?? null) {
+                        'lifecycle_settle' => 'lifecycle-settle',
+                        'schema_settle' => 'schema-settle',
+                        default => 'rebuild',
+                    },
                     'source' => self::action_source($action, $index),
                     'effect' => $effect,
                 ];
@@ -4122,6 +4443,7 @@ final class Policy {
             'widget_setting_codecs' => ManifestGrammar::widgetSettingCodecs(),
             'widget_setting_refs' => ManifestGrammar::widgetSettingRefs(),
             'action_kinds' => ActionProviderGrammar::actionKinds(),
+            'action_phases' => ActionProviderGrammar::actionPhases(),
             'provider_sources' => ActionProviderGrammar::providerSources(),
             'effect_kinds' => ActionProviderGrammar::effectKinds(),
             'effect_modes' => ActionProviderGrammar::effectModes(),

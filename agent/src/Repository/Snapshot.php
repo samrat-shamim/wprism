@@ -3,6 +3,8 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/OrderPreserved.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
@@ -431,10 +433,15 @@ final class Snapshot {
                 continue;
             }
             foreach (['wprism_map', 'wprism_state'] as $table) {
-                $affected = (int) Db::query($wpdb->prepare(
-                    "UPDATE {$wpdb->prefix}{$table} SET entity_type = %s WHERE entity_type = %s",
-                    $full, $truncated
-                ), "ledger repair truncated entity_type in $table ($truncated -> $full)");
+                $affected = Db::mutation(
+                    $wpdb->prepare(
+                        "UPDATE {$wpdb->prefix}{$table} SET entity_type = %s",
+                        $full
+                    ),
+                    $wpdb->prepare('entity_type = %s', $truncated),
+                    '',
+                    "ledger repair truncated entity_type in $table ($truncated -> $full)"
+                );
                 if ($affected > 0) {
                     $repaired[] = "$table: '$truncated' -> '$full' ($affected row" . ($affected === 1 ? '' : 's') . ')';
                 }
@@ -496,7 +503,10 @@ final class Snapshot {
             }
             $prefixed = $wpdb->prefix . $table;
             $pk = preg_replace('/[^A-Za-z0-9_]/', '', (string) $decl['pk']);
-            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+            if (!$wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($prefixed)
+            ))) {
                 continue;
             }
             foreach (Ledger::all_map() as $map) {
@@ -525,7 +535,10 @@ final class Snapshot {
             }
             $prefixed = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $table);
             $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
-            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+            if (!$wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($prefixed)
+            ))) {
                 continue;
             }
             $missing = $wpdb->get_var($wpdb->prepare(
@@ -770,7 +783,13 @@ final class Snapshot {
      *
      * @return array<int, array{uuid:string, type:string, path:string, content:string}>
      */
-    public static function capture(Policy $policy, Tokens $tokens, bool $mint, bool $strictReadOnly = false): array {
+    public static function capture(
+        Policy $policy,
+        Tokens $tokens,
+        bool $mint,
+        bool $strictReadOnly = false,
+        ?DatabaseWorkAuthority $workAuthority = null
+    ): array {
         $rowTables = self::row_tables($policy); // throws on duplicate id_kind
         if (!$rowTables) {
             return [];
@@ -807,7 +826,10 @@ final class Snapshot {
 
         $entities = [];
         foreach (self::topo_order($rowTables) as $table) {
-            $entities = array_merge($entities, self::capture_table(
+            // Typed tables do not yet admit a count/byte-bounded row roster.
+            // The complete table, not each returned row, therefore remains
+            // one finite query unit within the 256-table profile frontier.
+            $entities = array_merge($entities, DatabaseQueryIsolation::work_unit($workAuthority, static fn(): array => self::capture_table(
                 $table,
                 $rowTables[$table],
                 $metaByOwner[$table] ?? [],
@@ -818,7 +840,7 @@ final class Snapshot {
                 // because this is the last frame that still holds a Policy —
                 // TypedTableCapture is deliberately Policy-free.
                 $policy->column_codec_rules($table)
-            ));
+            )));
         }
         return $entities;
     }
@@ -842,7 +864,10 @@ final class Snapshot {
                 continue;
             }
             $prefixed = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $table);
-            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed));
+            $exists = $wpdb->get_var($wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $wpdb->esc_like($prefixed)
+            ));
             self::checkpoint_observation_read($observationReadCheckpoint);
             if (!$exists) {
                 continue;

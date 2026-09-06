@@ -478,9 +478,12 @@ refuses(
 // ======================================================================
 echo "\n== the real-world smoke: every SHIPPED manifest validates through the command ==\n";
 
-$shipped = wprism([$repo, '--format=json']);
+$shipped = wprism([$repo, '--pins=core,rank-math', '--format=json']);
 $shippedReport = report($shipped);
-check($shipped['exit'] === 0, "the repository's own adapter source tree validates clean (exit {$shipped['exit']})");
+check(
+    $shipped['exit'] === 0,
+    "every shipped manifest validates alone and an explicit compatible pin set validates together (exit {$shipped['exit']})"
+);
 check(
     ($shippedReport['format'] ?? null) === 'wprism-manifest-validation/v1'
         && ($shippedReport['status'] ?? null) === 'ok',
@@ -544,8 +547,8 @@ check(
 );
 check(
     ($shippedReport['pinned_set']['status'] ?? null) === 'ok'
-        && count($shippedReport['pinned_set']['names'] ?? []) === count($shippedNames),
-    'the whole shipped library also co-loads clean, which is the only way the cross-manifest guards run at all'
+        && ($shippedReport['pinned_set']['names'] ?? null) === ['core', 'rank-math'],
+    'the explicit core plus Rank Math pin set co-loads clean, so the cross-manifest guards run on a supported composition'
 );
 foreach ($shippedReport['manifests'] ?? [] as $row) {
     if (($row['status'] ?? null) !== 'ok') {
@@ -557,7 +560,7 @@ check(
     'each row carries the real file path of the manifest it judged'
 );
 
-$shippedText = wprism([$repo]);
+$shippedText = wprism([$repo, '--pins=core,rank-math']);
 check(
     $shippedText['exit'] === 0
         && str_contains($shippedText['stdout'], 'per manifest')
@@ -573,15 +576,45 @@ $smokeSite = site_repo(
     ['options' => ['blogname' => ['class' => 'authored', 'autoload' => 'yes']]],
     ['core', 'woocommerce']
 );
-$shippedWithSite = wprism([$repo, '--site=' . $smokeSite, '--format=json']);
+$shippedWithSite = wprism([
+    $repo,
+    '--site=' . $smokeSite,
+    '--pins=core,woocommerce',
+    '--format=json',
+]);
 $withSiteReport = report($shippedWithSite);
 check(
     $shippedWithSite['exit'] === 0
         && ($withSiteReport['status'] ?? null) === 'ok'
         && ($withSiteReport['site'] ?? null) === $smokeSite
         && count($withSiteReport['manifests'] ?? []) === count($shippedNames),
-    "the whole shipped library also validates clean WITH a site repo attached (exit {$shippedWithSite['exit']})"
+    "every shipped manifest and the site's explicit compatible pins validate WITH a site repo attached (exit {$shippedWithSite['exit']})"
 );
+
+// Bare/default and --all deliberately ask whether every shipped adapter can
+// coexist. Rank Math and Yoast cannot: both own one SEO plugin slot, so that
+// broad composition must refuse while every isolated row above stays green.
+$rankMathYoastIncompatibility = "wprism: manifest 'rank-math' for plugin 'seo-by-rank-math/rank-math.php' "
+    . "declares plugin 'wordpress-seo/wp-seo.php' incompatible, and pinned manifest(s) {'yoast'} claim that plugin "
+    . '— incompatible plugin adapters cannot share one policy; pin only one';
+foreach ([
+    'the bare default' => [$repo, '--format=json'],
+    'explicit --all' => [$repo, '--all', '--format=json'],
+] as $label => $args) {
+    $allAdapters = wprism($args);
+    $allAdaptersReport = report($allAdapters);
+    $allRowsGreen = count($allAdaptersReport['manifests'] ?? []) === count($shippedNames);
+    foreach ($allAdaptersReport['manifests'] ?? [] as $row) {
+        $allRowsGreen = $allRowsGreen && ($row['status'] ?? null) === 'ok';
+    }
+    check(
+        $allAdapters['exit'] === 1
+            && ($allAdaptersReport['status'] ?? null) === 'error'
+            && ($allAdaptersReport['pinned_set']['message'] ?? null) === $rankMathYoastIncompatibility
+            && $allRowsGreen,
+        "$label validates every manifest alone, then refuses only the unsupported Rank Math plus Yoast composition"
+    );
+}
 
 // Historical refs can predate package capsules. Compatibility is explicit and
 // strict: the caller names the complete flat closure, and the same
@@ -1336,7 +1369,7 @@ check(
 echo "\n== acceptance 2: the deferred list is emitted on EVERY run, so silence never reads as validity ==\n";
 
 foreach ([
-    'a passing run' => wprism([$repo, '--format=json']),
+    'a passing run' => wprism([$repo, '--pins=core,rank-math', '--format=json']),
     'a failing run' => wprism([fixtures(['b' => manifest_b(['tables' => ['acme_b_slots' => ['class' => 'nope']]])]), '--format=json']),
 ] as $label => $result) {
     $deferred = report($result)['deferred'] ?? [];
@@ -1350,7 +1383,7 @@ foreach ([
     }
     check($allDeferred, "$label reports every deferred check with its engine symbol, its surface, and why it cannot be answered offline (" . count($deferred) . ' entries)');
 }
-$text = wprism([$repo]);
+$text = wprism([$repo, '--pins=core,rank-math']);
 check(
     str_contains($text['stdout'], 'deferred — NOT checked here')
         && substr_count($text['stdout'], '[deferred]') === count($shippedReport['deferred']),
@@ -1543,8 +1576,9 @@ check(
         'column_codecs' => 'field',
         'declaration_evidence' => 'non_surface',
         'engine_features' => 'non_surface',
+        'incompatible_plugins' => 'non_surface',
     ],
-    'every feature-claimed key is published with its reviewed arm: the three typed refinements as `field`, the claim channel and its evidence records as `non_surface`'
+    'every feature-claimed key is published with its reviewed arm: typed refinements as `field`, and feature claims, evidence, and incompatibility declarations as `non_surface`'
 );
 check(
     array_keys($emittedArms) === array_values(array_diff(array_keys($emittedArms), $mergedPartition)),
@@ -2420,6 +2454,53 @@ refuses(
     'an action kind outside the published set is refused with the published set spelled back'
 );
 
+// --- action_phases. Both values are provider-only; schema settlement carries
+// the extra exact table/effect authority its grammar requires.
+$covered['action_phases'] = true;
+foreach ($vocabularies['action_phases'] as $phase) {
+    $action = [
+        'kind' => 'provider',
+        'provider' => 'acme-b-cache',
+        'capability' => 'flush',
+        'args' => [],
+        'phase' => $phase,
+    ];
+    if ($phase === 'schema_settle') {
+        $action['prepares'] = ['acme_b_slots'];
+        $action['readiness'] = 'inspect_schema';
+        $action['effects'] = [[
+            'id' => 'acme-b-schema',
+            'kind' => 'database',
+            'mode' => 'restorable',
+            'selector' => [
+                'scope' => 'database_checkpoint',
+                'type' => 'table',
+                'value' => 'acme_b_slots',
+            ],
+        ]];
+    }
+    $overrides = ['actions' => [$action]];
+    if ($phase === 'schema_settle') {
+        $overrides['engine_features'] = ['schema-settlement/v1', 'spec-window/v1'];
+        $overrides['providers'] = [[
+            'id' => 'acme-b-cache',
+            'version' => '1.0.0',
+            'source' => 'manifest',
+            'plugin' => 'acme-b/acme-b.php',
+            'capabilities' => ['flush', 'inspect_schema'],
+        ]];
+    }
+    accepts(solo_b($overrides), "action phase '$phase' is published as legal and loads");
+}
+refuses(
+    solo_b(['actions' => [[
+        'kind' => 'provider', 'provider' => 'acme-b-cache', 'capability' => 'flush',
+        'args' => [], 'phase' => 'post_deploy',
+    ]]]),
+    'phase must be ' . implode(' or ', $vocabularies['action_phases']) . ' on a provider action',
+    'an action phase outside the published set is refused with the published set spelled back'
+);
+
 // --- classification_sections: a section is a manifest KEY, not a value, so the
 // positive half is "every published section is a section the loader reads" and
 // the negative half comes from the engine's own refusal for an unknown one
@@ -2672,7 +2753,7 @@ if (is_readable($unreadableManifest)) {
 }
 chmod($unreadableManifest, 0644);
 
-$result = wprism([$repo, '--format=json']);
+$result = wprism([$repo, '--pins=core,rank-math', '--format=json']);
 check($result['exit'] === 0 && $result['stderr'] === '', 'a clean run writes nothing to stderr and exits 0');
 
 // ======================================================================

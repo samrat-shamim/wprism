@@ -29,6 +29,12 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$ROOT"
 
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/lib/pair_db.sh"
+pair_db_select_engine
+[ "$WPRISM_DB_ENGINE" = mariadb ] \
+  || fail "reference provider live conformance requires MariaDB; got WPRISM_DB_ENGINE=$WPRISM_DB_ENGINE"
+
 PAIR=envprovcheck
 PORT1=9200
 PORT2=9201
@@ -51,7 +57,6 @@ PAIR_OWNED=0
 
 say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 # `pair.sh list` reports bare pair names (`  - foo`), never Docker project
 # names. Keep the parser strict so `wprism-envprovcheck` or `envprovcheck0`

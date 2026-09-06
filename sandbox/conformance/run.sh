@@ -2,7 +2,7 @@
 # Conformance gate (DESIGN.md §6 / adversarial-review finding #20 — the
 # manifest-treadmill answer): a generalized capture -> apply -> re-capture
 # round-trip harness, run per manifest against a FRESH, disposable env pair.
-# This is what CI runs; it knows nothing manifest-specific beyond what's
+# This canonical local gate knows nothing manifest-specific beyond what's
 # declared by each package's tests/conformance/entry.json and optional
 # hook files, each invoked at a fixed point in the flow below IF PRESENT —
 # this file never inspects what any of them actually do. Adapter packages own
@@ -238,6 +238,11 @@ wp_env() { # wp_env <conf1|conf2> <wp args...>
 }
 wp_conf1() { wp_env conf1 "$@"; }
 wp_conf2() { wp_env conf2 "$@"; }
+. lib/host_orchestrator.sh
+WPRISM_HOST_CLI="$(cd .. && pwd)/cli/wprism"
+WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-conformance-host.${CONF_PAIR}.XXXXXX")
+trap 'rm -f -- "$WPRISM_HOST_REGISTRY"' EXIT
+wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$CONF_PAIR"
 # pair.sh set these for ITS OWN compose invocations while bringing the pair
 # up, but that was a separate process — its exports die with it. Every one
 # of run.sh's own $COMPOSE calls below creates a fresh --rm container
@@ -250,9 +255,13 @@ wp_conf2() { wp_env conf2 "$@"; }
 # warning that would have pointed straight at the cause.
 export WPRISM_PAIR="$CONF_PAIR" WPRISM_PORT1="$CONF1_PORT" WPRISM_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
-export -f wp_env wp_conf1 wp_conf2 say pass fail \
+export WPRISM_HOST_CLI WPRISM_HOST_REGISTRY
+export -f wp_env wp_conf1 wp_conf2 host_wprism wprism_host_call say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
-  require_wprism_answered capture_wprism_json_success require_observed_nonempty \
+  require_wprism_answered capture_wprism_json_success capture_wprism_json_checked capture_wprism_json_refusal require_observed_nonempty \
+  establish_core_environment_bindings \
+  has_php_runtime_diagnostics assert_no_php_runtime_diagnostics \
+  assert_wprism_required_environment assert_wprism_json_required_environment assert_wprism_apply_ready \
   establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
   artifact_library_repo_root artifact_library_package_context artifact_library_participant_context \
   artifact_library_platform_context artifact_library_platform_emit artifact_library_emit \
@@ -277,6 +286,8 @@ fi
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'conformance could not pin its selected source mounts in the caller environment'
+. lib/pair_db.sh
+pair_db_select_engine
 
 say "clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run)"
 bash bin/pair.sh reset "$CONF_PAIR"
@@ -392,6 +403,8 @@ SEED=$(conformance_hook seed.sh "conformance/seeds/$MANIFEST.sh")
 say "seed representative authored content on conf1 ($SEED)"
 [ -f "$SEED" ] || fail "no seed script for '$MANIFEST' (expected $SEED)"
 bash "$SEED"
+establish_core_environment_bindings wp_conf1 /siterepo admin@example.test \
+  "http://localhost:$CONF1_PORT" "http://localhost:$CONF1_PORT"
 
 say "capture conf1 into the site repo"
 wp_conf1 wprism capture --repo=/siterepo
@@ -481,6 +494,13 @@ fi
 say "clone the repo for conf2"
 git clone -q "$ORIGIN" "$R2"
 REV=$(git -C "$R2" rev-parse HEAD)
+establish_core_environment_bindings wp_conf2 /siterepo admin@example.test \
+  "http://localhost:$CONF2_PORT" "http://localhost:$CONF2_PORT"
+wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R1" \
+  || fail 'could not install the adoption-equivalent recovery runtime on conf1'
+wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R2" \
+  || fail 'could not install the adoption-equivalent recovery runtime on conf2'
+pass 'both dev-bound environments carry the exact durable recovery runtime an adopted target has'
 
 # --- deploy conf2 from canonical --------------------------------------------
 # The real promotion path this harness used to skip entirely (spec/
@@ -493,14 +513,16 @@ REV=$(git -C "$R2" rev-parse HEAD)
 # /siterepo, pair.yml mounts "$R2" there — not conf1's) and
 # before `wprism apply` (spec ordering: deploy code -> reconcile activation ->
 # migrations fire as an activation side effect -> THEN apply state).
-say "deploy conf2 from canonical (wp wprism deploy) — the real promotion path"
+say "deploy conf2 from canonical (host wprism deploy) — the real promotion path"
 DEPLOY_RC=0
-DEPLOY_OUT=$(wp_conf2 wprism deploy --repo=/siterepo --format=json) || DEPLOY_RC=$?
+DEPLOY_OUT=$(host_wprism conf2 deploy 2>&1) || DEPLOY_RC=$?
 if [ "$DEPLOY_RC" != "0" ]; then
   echo "$DEPLOY_OUT"
-  fail "wp wprism deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
+  fail "host wprism deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
 fi
-echo "$DEPLOY_OUT" | jq .
+grep -q '^deploy complete:' <<<"$DEPLOY_OUT" \
+  || fail "host wprism deploy returned success without its terminal product result: $DEPLOY_OUT"
+printf '%s\n' "$DEPLOY_OUT"
 pass "deploy succeeded on conf2"
 if [ "$MANIFEST" = woocommerce ]; then
   normalize_woocommerce_harness_placeholder_mode wp_conf2
@@ -576,14 +598,15 @@ ADOPT_BY_SLUG=terms,posts
 if [ "$MANIFEST" = core ] || [ "$MANIFEST" = polylang ]; then
   ADOPT_BY_SLUG=terms,posts,menus
 fi
-capture_wprism_json_success \
+capture_wprism_json_checked \
   APPLY_JSON \
   "conf2 wprism apply" \
+  assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" \
   --default-author=admin --revision="$REV" --json
 export APPLY_JSON
 echo "$APPLY_JSON" | jq .
-[ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
+assert_wprism_apply_ready 'conf2 wprism apply' "$APPLY_JSON"
 pass "apply succeeded, side-effect canary clean"
 
 # Optional per-manifest post-apply hook. This is deliberately before the

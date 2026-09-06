@@ -2,6 +2,8 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
+require_once __DIR__ . '/../Kernel/BoundedChildProcess.php';
+require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
 require_once __DIR__ . '/NativeRewriteEffects.php';
 
 /**
@@ -432,23 +434,30 @@ final class NativeActions {
         try {
             $result = WpCliChildProcess::capture(self::REWRITE_FRESH_COMMAND, 120, 262144, 131072);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException(
-                "wprism: native action 'rewrite.flush' could not launch its fresh WordPress process; recovery_required"
+            throw new PrivateEvidenceException(
+                "wprism: native action 'rewrite.flush' could not launch its fresh WordPress process; recovery_required",
+                $failure
             );
         }
 
+        // Receipt parsing owns acceptance, but not a second diagnostics stack.
+        // Retain the untrimmed capture through the same bounded private graph
+        // as provider children; public messages and known native errors stay
+        // fixed. A rejected receipt cannot imply rollback of the child effect.
         $stdout = trim($result['stdout']);
         $stderr = trim($result['stderr']);
         if ($result['return_code'] !== 0) {
             self::throw_known_rewrite_child_failure($stdout . "\n" . $stderr);
-            throw new \RuntimeException(
+            throw BoundedChildProcess::failure_evidence(
                 "wprism: native action 'rewrite.flush' fresh WordPress process exited "
-                . $result['return_code'] . '; recovery_required'
+                . $result['return_code'] . '; recovery_required',
+                $result
             );
         }
         if ($stderr !== '') {
-            throw new \RuntimeException(
-                "wprism: native action 'rewrite.flush' fresh WordPress process emitted a warning; recovery_required"
+            throw BoundedChildProcess::failure_evidence(
+                "wprism: native action 'rewrite.flush' fresh WordPress process emitted a warning; recovery_required",
+                $result
             );
         }
         $lines = preg_split('/\R/', $stdout) ?: [];
@@ -456,20 +465,27 @@ final class NativeActions {
         try {
             $fresh = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException(
+            throw BoundedChildProcess::failure_evidence(
                 "wprism: native action 'rewrite.flush' fresh WordPress process returned malformed evidence; "
-                . 'recovery_required'
+                . 'recovery_required',
+                $result,
+                $failure
             );
         }
         if (!is_array($fresh)
             || ($fresh['format'] ?? null) !== self::REWRITE_FRESH_FORMAT
             || !is_array($fresh['after'] ?? null)) {
-            throw new \RuntimeException(
+            throw BoundedChildProcess::failure_evidence(
                 "wprism: native action 'rewrite.flush' fresh WordPress process returned the wrong evidence envelope; "
-                . 'recovery_required'
+                . 'recovery_required',
+                $result
             );
         }
-        $after = self::validated_rewrite_evidence($fresh['after']);
+        try {
+            $after = self::validated_rewrite_evidence($fresh['after']);
+        } catch (\RuntimeException $failure) {
+            throw BoundedChildProcess::failure_evidence($failure->getMessage(), $result, $failure);
+        }
         $desiredHash = hash('sha256', $structure['present'] ? $structure['value'] : '');
         $storedStructure = self::permalink_structure_state();
         $storedRules = self::raw_option_state('rewrite_rules');

@@ -29,8 +29,9 @@ for file in "${LIVE_FILES[@]}"; do
 done
 printf 'PASS: every Polylang live fixture defines fail() before sourcing shared asserts\n'
 
-# Keep the ordering check mutation-sensitive: if either adjacent declaration is
-# reverted, this temp copy must be rejected without sourcing the live harness.
+# Move the exact declaration past the asserts import even when another shared
+# harness import separates them. An adjacency-dependent mutation became a
+# no-op once caller-local database selection was added between those lines.
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/wprism-polylang-live-guard.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 for file in "${LIVE_FILES[@]}"; do
@@ -38,18 +39,17 @@ for file in "${LIVE_FILES[@]}"; do
   awk '
     !done && $0 ~ /^fail\(\) \{ printf/ {
       fail_line=$0
-      if (getline source_line > 0 && source_line == ". conformance/asserts.sh") {
-        print source_line
-        print fail_line
-        done=1
-        next
-      }
+      next
+    }
+    !done && fail_line != "" && $0 == ". conformance/asserts.sh" {
+      print
       print fail_line
-      if (source_line != "") print source_line
+      done=1
       next
     }
     { print }
-  ' "$file" > "$mutated"
+    END { if (!done) exit 1 }
+  ' "$file" > "$mutated" || fail "could not construct an ordering mutation for $file"
   if (fail() { return 1; }; assert_fail_before_asserts "$mutated") >/dev/null 2>&1; then
     fail "ordering mutation unexpectedly passed for $file"
   fi

@@ -7,6 +7,7 @@ ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
 $root = getenv('WPRISM_ROOT');
+if (!defined('ARRAY_A')) { define('ARRAY_A', 'ARRAY_A'); }
 // WP-4.12: from agent/wprism.php, never retyped — this heredoc reaches the
 // shipped platform.json, which restates the defines.
 require_once $root . '/sandbox/tests/lib/agent_version.php';
@@ -73,12 +74,13 @@ final class DescriptorLedgerWpdb {
         return 'wprism-test-kv:' . (string) ($args[0] ?? '');
     }
 
-    public function get_var(string $query): ?string {
+    public function get_row(string $query, mixed $output): ?array {
         $prefix = 'wprism-test-kv:';
         if (!str_starts_with($query, $prefix)) {
             throw new RuntimeException("FAIL: unexpected ledger query '$query'");
         }
-        return $this->kv[substr($query, strlen($prefix))] ?? null;
+        $key = substr($query, strlen($prefix));
+        return isset($this->kv[$key]) ? ['k' => $key, 'v' => $this->kv[$key]] : null;
     }
 }
 

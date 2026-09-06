@@ -15,6 +15,7 @@
 # this file family.
 
 pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT/DB_COMPOSE/DB_LABEL from WPRISM_DB_ENGINE
+  local engine="${WPRISM_DB_ENGINE:-mariadb}"
   # The MySQL 8.x evidence lane (sandbox/db.mysql.yml) is a SECOND shared
   # server in its own compose project, so selecting it is a matter of which
   # container/client/project a pair talks to -- never an edit to db.yml, which
@@ -29,7 +30,7 @@ pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT
   # engine that silently produced MariaDB evidence while the operator believed
   # they were measuring MySQL is precisely the wrong-engine hazard this lane
   # exists to rule out (see sandbox/pair.yml's WPRISM_DB_HOST paragraph).
-  case "${WPRISM_DB_ENGINE:-mariadb}" in
+  case "$engine" in
     mariadb)
       DB_CONTAINER=wprism-shared-db
       DB_CLIENT=mariadb
@@ -46,6 +47,12 @@ pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT
       fail "unknown WPRISM_DB_ENGINE '${WPRISM_DB_ENGINE:-}' -- supported engines are 'mariadb' (default) and 'mysql'"
       ;;
   esac
+  # Fresh Compose and host-CLI descendants must retain this selection. A
+  # pair.sh subprocess cannot export back to its caller, and another pair can
+  # rewrite sandbox/.env mid-deploy (measured: MariaDB conformance reached the
+  # MySQL server at lifecycle-retire). The engine selector, not that shared
+  # fallback file or an inherited stale host, owns the engine/host mapping.
+  export WPRISM_DB_ENGINE="$engine" WPRISM_DB_HOST="$DB_CONTAINER"
 }
 
 pair_db_sql() { # pair_db_sql — run SQL read from stdin as root against the shared server
@@ -63,7 +70,15 @@ pair_db_sql() { # pair_db_sql — run SQL read from stdin as root against the sh
 }
 
 pair_db_ensure_up() {
-  "${DB_COMPOSE[@]}" up -d >/dev/null
+  # The server is fleet-shared across every pair and every linked worktree.
+  # Compose includes the absolute config path in container metadata, so plain
+  # `up` from another clean checkout can replace a healthy singleton even when
+  # db.yml is byte-identical; an in-flight host compile then fails with "Error
+  # establishing a database connection". Pair lifecycle may create or start
+  # this server, never reconfigure it underneath already-running pairs. A real
+  # DB image/config change is an explicit fleet-admin recreate, outside one
+  # pair's lifecycle.
+  "${DB_COMPOSE[@]}" up -d --no-recreate >/dev/null
   for _ in $(seq 1 60); do
     if [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB_CONTAINER" 2>/dev/null || true)" = "healthy" ]; then
       return 0
@@ -74,10 +89,12 @@ pair_db_ensure_up() {
 }
 
 pair_db_ensure_app_user() {
-  # Wildcard grant, not a per-pair user: `wp\_%` matches every wp_<name>{1,2}
-  # database this or any other pair will ever create. Quoted heredoc (no
-  # variable interpolation needed) so the backticks and backslash reach
-  # mysql literally instead of bash trying to parse them.
+  # One fleet-shared principal, with database authority granted only after a
+  # concrete pair schema exists (pair_db_create below). A schema-level TRIGGER
+  # proof must be direct for DatabaseLockBoundary; adding a narrower
+  # TRIGGER-only row beside the old `wp\_%` wildcard makes MariaDB select that
+  # row for the schema and shadow every ordinary privilege. Exact ALL grants
+  # provide both the direct metadata proof and the permissions WordPress needs.
   #
   # Engine-conditional SINCE the MySQL lane's first live probe ran and
   # decided (2026-08-24), exactly as the earlier note here said it would.
@@ -98,16 +115,59 @@ pair_db_ensure_app_user() {
     pair_db_sql <<'SQL'
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
 ALTER USER 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 SQL
   else
     pair_db_sql <<'SQL'
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 SQL
   fi
+}
+
+pair_db_assert_pair_schemas_absent() { # pair_db_assert_pair_schemas_absent <pair-name...>
+  local name schema_names='' sql_names='' output count_line count found
+  [ "$#" -gt 0 ] || fail "pair database absence census needs at least one pair name"
+
+  # Names reach SQL only after the same bare-identifier grammar used by
+  # pair_identity_validate_name(). Keep the transport helper independently
+  # closed: a future caller cannot turn the census into an identifier/string
+  # escape merely by skipping pair.sh's orchestration layer.
+  for name in "$@"; do
+    [[ "$name" =~ ^[a-z][a-z0-9]*$ ]] \
+      || fail "pair database absence census received unsafe pair name '$name'"
+    case "$name" in
+      db|sandbox) fail "pair database absence census received reserved pair name '$name'" ;;
+    esac
+    [ -z "$sql_names" ] || sql_names+=','
+    sql_names+="'wp_${name}1','wp_${name}2'"
+    schema_names+="wp_${name}1 wp_${name}2 "
+  done
+
+  # The count marker makes an empty result an observed fact rather than an
+  # empty stdout assumption. pair_db_sql's argv stays byte-identical; headers
+  # do not match either private marker and are therefore harmless on both
+  # MariaDB and MySQL clients.
+  output="$(pair_db_sql <<SQL
+SELECT CONCAT('__WPRISM_PAIR_SCHEMA_COUNT__:', COUNT(*)) AS wprism_pair_schema_count
+FROM INFORMATION_SCHEMA.SCHEMATA
+WHERE SCHEMA_NAME IN (${sql_names});
+SELECT CONCAT('__WPRISM_PAIR_SCHEMA_FOUND__:', SCHEMA_NAME) AS wprism_pair_schema_found
+FROM INFORMATION_SCHEMA.SCHEMATA
+WHERE SCHEMA_NAME IN (${sql_names})
+ORDER BY SCHEMA_NAME;
+SQL
+)" || fail "could not census pair database schemas at the lease boundary"
+
+  count_line="$(printf '%s\n' "$output" | grep -E '^__WPRISM_PAIR_SCHEMA_COUNT__:[0-9]+$' || true)"
+  [ "$(printf '%s\n' "$count_line" | awk 'NF { count++ } END { print count + 0 }')" -eq 1 ] \
+    || fail "pair database absence census returned no unique count witness"
+  count="${count_line#__WPRISM_PAIR_SCHEMA_COUNT__:}"
+  found="$(printf '%s\n' "$output" | sed -n 's/^__WPRISM_PAIR_SCHEMA_FOUND__://p')"
+  [ "$count" -eq 0 ] && [ -z "$found" ] \
+    || fail "pair database schema already exists (${found:-$schema_names}); pair namespace is not empty"
 }
 
 pair_db_create() { # pair_db_create <name>
@@ -115,6 +175,8 @@ pair_db_create() { # pair_db_create <name>
   pair_db_sql <<SQL
 CREATE DATABASE IF NOT EXISTS wp_${name}1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS wp_${name}2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON wp_${name}1.* TO 'wordpress'@'%';
+GRANT ALL PRIVILEGES ON wp_${name}2.* TO 'wordpress'@'%';
 SQL
 }
 

@@ -286,6 +286,16 @@ namespace {
         'A5: the cache generation is provider-owned derived state');
     wprism_check_same('env', $manifest['options']['redirection_options']['sub_keys']['modules']['class'] ?? null,
         'A5: server-module configuration stays environment-owned');
+    wprism_check_same(false, $manifest['options']['redirection_options']['required'] ?? null,
+        'A5: the plugin-populated structured parent is not an impossible operator provisioning slot');
+    $redirectionOptionEvidence = $manifest['declaration_evidence']['options.redirection_options']['evidence'][0] ?? [];
+    wprism_check(
+        str_contains((string) ($redirectionOptionEvidence['locator'] ?? ''), 'Redirection_Admin::plugin_activated()')
+            && str_contains((string) ($redirectionOptionEvidence['locator'] ?? ''), 'Red_Options::save()')
+            && str_contains((string) ($redirectionOptionEvidence['observation'] ?? ''), '5.8.1 and 5.9.0')
+            && str_contains((string) ($redirectionOptionEvidence['observation'] ?? ''), 'required:false'),
+        'A5: the parent classification records native creation across both hash-pinned artifacts'
+    );
     wprism_check_same([], $manifest['deletions'] ?? [],
         'A6: no custom-table deletion authority is advertised');
     $sourceSeed = (string) file_get_contents(dirname(__DIR__) . '/conformance/seed.sh');

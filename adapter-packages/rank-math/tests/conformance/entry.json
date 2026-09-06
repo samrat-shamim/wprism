@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core", "rank-math"],
+    "plugins": [
+      {"slug": "seo-by-rank-math", "version": "1.0.277.2"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "rank-math"
+}

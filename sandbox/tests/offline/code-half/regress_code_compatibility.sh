@@ -483,7 +483,7 @@ final class Ledger {
 }
 
 final class Db {
-    public static function start(string $context): void {}
+    public static function start(string $context, mixed $profile): void {}
     public static function commit(string $context): void {}
     public static function rollback(string $context): void {}
 }
@@ -506,6 +506,8 @@ require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Code/CodeCompatibility.php";
 require_once "$root/agent/src/Code/CodeStateContract.php";
 require_once "$root/agent/src/Code/Code.php";
+
+$GLOBALS['wpdb'] = (object) ['prefix' => 'wp_'];
 
 function fail_stage_compat(string $message): never { throw new \RuntimeException("FAIL: $message"); }
 function put_stage_compat(string $path, string $bytes): void {

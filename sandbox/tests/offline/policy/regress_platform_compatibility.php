@@ -6,7 +6,8 @@ declare(strict_types=1);
  *
  * Exercises the agent-owned gate with every inclusive/exclusive version edge,
  * the WordPress AND PHP range-plus-exercised-series semantics, the per-engine
- * database map, engine/topology mismatches, checked live-probe parsing, safe
+ * database map and scoped complete-InnoDB-FK-census declaration,
+ * engine/topology mismatches, checked live-probe parsing, safe
  * local-POSIX filesystem/process capability profiles, aggregate diagnostics, and
  * Policy ordering. Before this gate, a direct
  * `wp wprism` command bypassed the host doctor and reached repository reads or
@@ -90,6 +91,7 @@ $platformDocument = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 $platform = $platformDocument['platform'];
+$foreignKeyCensus = $platform['compatibility']['database']['foreign_key_census'];
 $facts = static fn(
     string $php = '8.3.33',
     string $engine = 'MariaDB',
@@ -116,7 +118,8 @@ $facts = static fn(
         'proc_terminate' => true,
     ],
     string $processShellPath = '/bin/sh',
-    bool $processShellExecutable = true
+    bool $processShellExecutable = true,
+    bool $wpCliOpcacheEnabled = false
 ): array => [
     'php' => $php,
     'database' => ['engine' => $engine, 'version' => $database],
@@ -129,6 +132,7 @@ $facts = static fn(
         'functions' => $processFunctions,
         'os_family' => $processOsFamily,
         'shell' => ['executable' => $processShellExecutable, 'path' => $processShellPath],
+        'wp_cli_opcache_enabled' => $wpCliOpcacheEnabled,
     ],
     'wordpress' => $wordpress,
     'site_mode' => $siteMode,
@@ -146,6 +150,20 @@ $refusal = static function (callable $operation): ?CommandRefusalException {
 
 PlatformCompatibility::assert_supported($platform, $facts());
 wprism_check(true, 'the shipped PHP/MariaDB/Linux-filesystem/process/WordPress/single-site boundary accepts its exercised facts');
+wprism_check_same(
+    [
+        'metadata_sources' => ['MariaDB' => 'INNODB_SYS_FOREIGN', 'MySQL' => 'INNODB_FOREIGN'],
+        'profile' => 'complete-innodb-foreign-key-census/v1',
+        'required_global_privilege' => 'PROCESS',
+        'scope' => 'transactional-database-mutation',
+    ],
+    $foreignKeyCensus,
+    'the platform boundary declares the exact vendor sources and scoped PROCESS prerequisite'
+);
+wprism_check(
+    $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts())) === null,
+    'the scoped mutation prerequisite is not fabricated into a blanket pre-policy/read-only requirement'
+);
 wprism_check(
     $refusal(static fn() => PlatformCompatibility::assert_supported(
         $platform,
@@ -253,6 +271,7 @@ foreach ([
     ]), 'platform_process_function_unsupported'],
     'different process shell path' => [$facts(processShellPath: '/usr/bin/sh'), 'platform_process_shell_unsupported'],
     'non-executable process shell' => [$facts(processShellExecutable: false), 'platform_process_shell_unavailable'],
+    'WP-CLI OPcache enabled' => [$facts(wpCliOpcacheEnabled: true), 'platform_process_cli_opcache_unsupported'],
     'multisite topology' => [$facts(siteMode: 'multisite'), 'platform_site_mode_unsupported'],
 ] as $label => [$caseFacts, $code]) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
@@ -334,10 +353,13 @@ wprism_check_same(
 // fixture boundary that omits MySQL must still refuse a MySQL target on the
 // engine axis, naming the engines it does claim.
 $mariadbOnly = $platform;
-$mariadbOnly['compatibility']['database'] = [
-    'engines' => ['MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0']],
-    'note' => 'fixture boundary claiming one engine',
+$mariadbOnly['compatibility']['database']['engines'] = [
+    'MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0'],
 ];
+$mariadbOnly['compatibility']['database']['foreign_key_census']['metadata_sources'] = [
+    'MariaDB' => 'INNODB_SYS_FOREIGN',
+];
+$mariadbOnly['compatibility']['database']['note'] = 'fixture boundary claiming one engine';
 $unclaimedEngine = $refusal(static fn() => PlatformCompatibility::assert_supported(
     $mariadbOnly,
     $facts(engine: 'MySQL', database: '8.4.3')
@@ -557,15 +579,20 @@ foreach ([
         'engine' => 'MariaDB', 'max' => '12.0.0', 'min' => '11.0.0',
         'note' => 'the shape this claim replaced',
     ],
-    'an empty engines map' => ['engines' => [], 'note' => 'fixture'],
+    'an empty engines map' => [
+        'engines' => [], 'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
+    ],
     'an engines map declared as a list' => [
-        'engines' => [['max' => '12.0.0', 'min' => '11.0.0']], 'note' => 'fixture',
+        'engines' => [['max' => '12.0.0', 'min' => '11.0.0']],
+        'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
     ],
     'an engines map with a numeric (non-string) engine key' => [
-        'engines' => [8 => ['max' => '8.5.0', 'min' => '8.4.0']], 'note' => 'fixture',
+        'engines' => [8 => ['max' => '8.5.0', 'min' => '8.4.0']],
+        'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
     ],
     'an engines map with a blank engine name' => [
-        'engines' => ['' => ['max' => '12.0.0', 'min' => '11.0.0']], 'note' => 'fixture',
+        'engines' => ['' => ['max' => '12.0.0', 'min' => '11.0.0']],
+        'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
     ],
     // A stray key is refused because nothing else validates an engine entry:
     // tools/capability-doc.php's allowlist checks only the axis's own
@@ -573,16 +600,48 @@ foreach ([
     // exercised-series claim this gate never evaluates.
     'an engine entry carrying a stray key' => [
         'engines' => ['MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0', 'verified' => ['11.8' => '11.8.8']]],
-        'note' => 'fixture',
+        'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
     ],
     'an engine entry missing its maximum' => [
-        'engines' => ['MariaDB' => ['min' => '11.0.0']], 'note' => 'fixture',
+        'engines' => ['MariaDB' => ['min' => '11.0.0']],
+        'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
     ],
     'an engine range whose minimum is not below its maximum' => [
-        'engines' => ['MariaDB' => ['max' => '11.0.0', 'min' => '12.0.0']], 'note' => 'fixture',
+        'engines' => ['MariaDB' => ['max' => '11.0.0', 'min' => '12.0.0']],
+        'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
     ],
     'an engine entry that is not an object at all' => [
-        'engines' => ['MariaDB' => '11.0.0-12.0.0'], 'note' => 'fixture',
+        'engines' => ['MariaDB' => '11.0.0-12.0.0'],
+        'foreign_key_census' => $foreignKeyCensus, 'note' => 'fixture',
+    ],
+    'a foreign-key census with an unreviewed profile' => [
+        'engines' => $platform['compatibility']['database']['engines'],
+        'foreign_key_census' => array_replace($foreignKeyCensus, ['profile' => 'partial-fk-view/v1']),
+        'note' => 'fixture',
+    ],
+    'a foreign-key census scoped as a blanket policy prerequisite' => [
+        'engines' => $platform['compatibility']['database']['engines'],
+        'foreign_key_census' => array_replace($foreignKeyCensus, ['scope' => 'policy-load']),
+        'note' => 'fixture',
+    ],
+    'a foreign-key census accepting a schema-local privilege' => [
+        'engines' => $platform['compatibility']['database']['engines'],
+        'foreign_key_census' => array_replace($foreignKeyCensus, ['required_global_privilege' => 'SELECT']),
+        'note' => 'fixture',
+    ],
+    'a foreign-key census swapping the MySQL and MariaDB metadata sources' => [
+        'engines' => $platform['compatibility']['database']['engines'],
+        'foreign_key_census' => array_replace($foreignKeyCensus, ['metadata_sources' => [
+            'MariaDB' => 'INNODB_FOREIGN', 'MySQL' => 'INNODB_SYS_FOREIGN',
+        ]]),
+        'note' => 'fixture',
+    ],
+    'a foreign-key census missing one admitted engine source' => [
+        'engines' => $platform['compatibility']['database']['engines'],
+        'foreign_key_census' => array_replace($foreignKeyCensus, ['metadata_sources' => [
+            'MariaDB' => 'INNODB_SYS_FOREIGN',
+        ]]),
+        'note' => 'fixture',
     ],
 ] as $label => $axis) {
     $shape = $platform;
@@ -653,32 +712,37 @@ foreach ([
     ],
     'a process profile omitting one required function' => [
         'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
-        'profile' => 'local-posix-process-group-exec/v1',
+        'profile' => 'local-posix-process-group-exec-no-cli-opcache/v1',
         'required_functions' => array_slice($processRequirements, 0, -1),
         'shell' => '/bin/sh',
+        'wp_cli_opcache_enabled' => false,
     ],
     'a process profile widening to an unexercised OS' => [
         'note' => 'fixture', 'os_families' => ['Darwin', 'Linux', 'BSD'],
-        'profile' => 'local-posix-process-group-exec/v1',
+        'profile' => 'local-posix-process-group-exec-no-cli-opcache/v1',
         'required_functions' => $processRequirements,
         'shell' => '/bin/sh',
+        'wp_cli_opcache_enabled' => false,
     ],
     'a process profile with an empty rationale' => [
         'note' => '', 'os_families' => ['Darwin', 'Linux'],
-        'profile' => 'local-posix-process-group-exec/v1',
+        'profile' => 'local-posix-process-group-exec-no-cli-opcache/v1',
         'required_functions' => $processRequirements,
         'shell' => '/bin/sh',
+        'wp_cli_opcache_enabled' => false,
     ],
     'a process profile omitting its exact shell' => [
         'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
-        'profile' => 'local-posix-process-group-exec/v1',
+        'profile' => 'local-posix-process-group-exec-no-cli-opcache/v1',
         'required_functions' => $processRequirements,
+        'wp_cli_opcache_enabled' => false,
     ],
     'a process profile substituting another shell' => [
         'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
-        'profile' => 'local-posix-process-group-exec/v1',
+        'profile' => 'local-posix-process-group-exec-no-cli-opcache/v1',
         'required_functions' => $processRequirements,
         'shell' => '/usr/bin/sh',
+        'wp_cli_opcache_enabled' => false,
     ],
 ] as $label => $axis) {
     $shape = $platform;
@@ -699,6 +763,10 @@ $missingProcessShellFact = $facts();
 unset($missingProcessShellFact['process']['shell']);
 $nonBooleanProcessShellFact = $facts();
 $nonBooleanProcessShellFact['process']['shell']['executable'] = 'yes';
+$missingProcessOpcacheFact = $facts();
+unset($missingProcessOpcacheFact['process']['wp_cli_opcache_enabled']);
+$nonBooleanProcessOpcacheFact = $facts();
+$nonBooleanProcessOpcacheFact['process']['wp_cli_opcache_enabled'] = 'no';
 foreach ([
     'missing filesystem function fact' => $facts(filesystemFunctions: [
         'chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true,
@@ -716,6 +784,8 @@ foreach ([
     ]),
     'missing process shell fact' => $missingProcessShellFact,
     'non-boolean process shell executable fact' => $nonBooleanProcessShellFact,
+    'missing WP-CLI OPcache fact' => $missingProcessOpcacheFact,
+    'non-boolean WP-CLI OPcache fact' => $nonBooleanProcessOpcacheFact,
 ] as $label => $caseFacts) {
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
     wprism_check_same('platform_probe_unavailable', $shapeFailure?->reasonCode, "$label is a probe failure, not a target mismatch");
@@ -746,6 +816,7 @@ wprism_check_same(
                 'executable' => function_exists('is_executable') && @is_executable('/bin/sh'),
                 'path' => '/bin/sh',
             ],
+            'wp_cli_opcache_enabled' => false,
         ],
         'wordpress' => '7.1',
         'site_mode' => 'single-site',

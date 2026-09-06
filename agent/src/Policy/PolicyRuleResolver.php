@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
+
 /**
  * Pure selection of one exact or pattern-backed Policy classification rule.
  *
@@ -62,6 +64,14 @@ final class PolicyRuleResolver {
     public function details(string $section, string $name): array {
         $sitePolicy = $this->site['policy'][$section][$name] ?? null;
         if ($sitePolicy !== null) {
+            if ($section === 'options') {
+                foreach ($this->manifests as $manifest) {
+                    $declared = $manifest['options'][$name] ?? null;
+                    if (is_array($declared)) {
+                        ScalarReferenceIntersection::assert_site_override($declared, $sitePolicy, "options.$name");
+                    }
+                }
+            }
             return [
                 'rule' => $section === 'options'
                     ? ($this->withOptionAutoload)($sitePolicy, $this->site['policy'] ?? [])

@@ -1439,7 +1439,7 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
             try {
                 \WPrism\Orchestrator\ContractAttestation::verify($signed, $unreadable, $library);
             } catch (\WPrism\CommandRefusalException $refusal) {
-                return $refusal->reasonCode . ": " . $refusal->publicMessage . " — " . $refusal->remediation;
+                return $refusal->reasonCode . ': ' . $refusal->publicMessage . ' — ' . $refusal->remediation;
             }
             return 'verified';
         }
@@ -1762,6 +1762,14 @@ function rehearsal_registry_probes(string $estate, string $state): array {
                 $woocommerce = \WPrism\Canon::decode(\WPrism\Canon::read_file($providerLib . '/woocommerce.json'));
                 $woocommerce['spec_version'] = 2;
                 unset($woocommerce['engine_features']);
+                // This historical v2 input predates scalar intersections as
+                // well as provider contracts. Keep its original term-ref
+                // shape so the probe reaches missing provider code; state B
+                // still validates the current complete v3 declaration.
+                unset(
+                    $woocommerce['options']['default_product_cat']['ref_same_local_id_as'],
+                    $woocommerce['options']['default_product_cat']['ref_taxonomy']
+                );
                 foreach ((array) ($woocommerce['providers'] ?? []) as $index => $declaration) {
                     if (is_array($declaration)) {
                         unset($declaration['contracts']);

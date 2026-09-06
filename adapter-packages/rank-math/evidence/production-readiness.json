@@ -1,0 +1,91 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "rank-math",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/rank-math/package/manifest.json",
+      "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",
+      "adapter-packages/rank-math/evidence/artifacts.lock.json",
+      "adapter-packages/rank-math/tests/offline/regress_rank_math_package.php",
+      "adapter-packages/rank-math/tests/offline/regress_rank_math_provider.php",
+      "adapter-packages/rank-math/tests/certify/version-matrix.sh",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/offline/regress_rank_math_yoast_incompatibility.php",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/rank-math/tests/conformance/entry.json",
+      "adapter-packages/rank-math/tests/conformance/seed.sh",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "adapter-packages/rank-math/tests/certify/version-matrix.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/rank-math/tests/conformance/postdeploy.sh",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/rank-math/package/manifest.json",
+      "adapter-packages/rank-math/tests/conformance/seed.sh",
+      "adapter-packages/rank-math/tests/conformance/postdeploy.sh",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php"
+    ],
+    "native-behavior": [
+      "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "adapter-packages/rank-math/tests/certify/version-matrix.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",
+      "adapter-packages/rank-math/tests/offline/regress_rank_math_provider.php",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh"
+    ],
+    "deletion": [
+      "adapter-packages/rank-math/package/disposition.json",
+      "adapter-packages/rank-math/tests/offline/regress_rank_math_package.php",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh"
+    ],
+    "failure-recovery": [
+      "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",
+      "adapter-packages/rank-math/tests/offline/regress_rank_math_provider.php",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/rank-math/tests/offline/regress_rank_math_provider.php",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/rank-math/package/manifest.json",
+      "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "adapter-packages/rank-math/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/rank-math/package/manifest.json",
+      "adapter-packages/rank-math/tests/offline/regress_rank_math_package.php",
+      "adapter-packages/rank-math/tests/conformance/seed.sh",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/offline/regress_rank_math_yoast_incompatibility.php",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/rank-math/package/manifest.json",
+      "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",
+      "adapter-packages/rank-math/tests/conformance/check.sh",
+      "adapter-packages/rank-math/tests/certify/version-matrix.sh",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

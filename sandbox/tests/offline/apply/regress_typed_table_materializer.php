@@ -13,6 +13,26 @@ namespace WPrism {
             return $result;
         }
 
+        public static function mutation(
+            string $head,
+            string|array $condition,
+            string $tail,
+            string $context,
+            array $readTables = []
+        ): int {
+            if (is_array($condition)) {
+                $statement = [
+                    'sql' => rtrim(trim($head) . ' WHERE ' . $condition['sql'] . ' ' . trim($tail)),
+                    'args' => $condition['args'],
+                ];
+            } else {
+                $statement = trim($head)
+                    . ($condition !== '' ? ' WHERE ' . $condition : '')
+                    . ($tail !== '' ? ' ' . $tail : '');
+            }
+            return self::query($statement, $context);
+        }
+
         public static function insert(string $table, array $data, $format = null, ?string $context = null): int {
             global $wpdb;
             $result = $wpdb->insert($table, $data, $format);
@@ -79,10 +99,18 @@ namespace {
             return ['sql' => $sql, 'args' => $args];
         }
 
+        public function esc_like(string $text): string {
+            return addcslashes($text, '_%\\');
+        }
+
         public function get_var($query) {
             [$sql, $args] = $this->unwrap($query);
             if (str_contains($sql, 'SHOW TABLES LIKE')) {
-                $table = $this->strip((string) ($args[0] ?? ''));
+                $physical = strtr(
+                    (string) ($args[0] ?? ''),
+                    ['\\_' => '_', '\\%' => '%', '\\\\' => '\\']
+                );
+                $table = $this->strip($physical);
                 return isset($this->tables[$table]) ? $this->prefix . $table : null;
             }
             if (preg_match('/^SELECT `([^`]+)` FROM `([^`]+)` WHERE `\1` = %d LIMIT 1$/', $sql, $match)) {

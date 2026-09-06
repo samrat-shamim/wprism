@@ -777,8 +777,10 @@ mkdir($fakeBin, 0700, true);
 $forwardedPath = "$tmp/capture-forwarded.json";
 put("$fakeBin/wp", "#!/usr/bin/env php\n<?php file_put_contents(getenv('WPRISM_CAPTURE_FORWARDED'), json_encode(array_slice(\$argv, 1)));\n");
 chmod("$fakeBin/wp", 0700);
+$targetRepo = "$tmp/target-repo";
+mkdir($targetRepo, 0700, true);
 put("$tmp/envs.json", json_encode(['envs' => ['fixture' => [
-    'transport' => 'local', 'wp_path' => "$tmp/wordpress", 'repo_path' => '/target/repo',
+    'transport' => 'local', 'wp_path' => "$tmp/wordpress", 'repo_path' => $targetRepo,
 ]]], JSON_UNESCAPED_SLASHES));
 $oldPath = getenv('PATH') ?: '';
 putenv("PATH=$fakeBin:$oldPath");

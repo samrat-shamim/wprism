@@ -170,6 +170,25 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
                 'diagnostics' => [],
             ], JSON_UNESCAPED_SLASHES) . "\n");
         }
+        if ($verb === 'lifecycle-status') {
+            return $this->ok(json_encode([
+                'baseline_state' => 'exact',
+                'code_boundary_sha256' => str_repeat('c', 64),
+                'code_drift' => [],
+                'findings_sha256' => str_repeat('d', 64),
+                'format' => 'wprism-lifecycle-status/v2',
+                'observation_sha256' => str_repeat('e', 64),
+                'reasons' => [],
+                'required' => false,
+                'warnings' => [],
+            ], JSON_UNESCAPED_SLASHES) . "\n");
+        }
+        if ($verb === 'checkpoint-target') {
+            return $this->ok(json_encode([
+                'database_target_sha256' => str_repeat('d', 64),
+                'format' => 'wprism-database-target/v1',
+            ], JSON_UNESCAPED_SLASHES) . "\n");
+        }
         if ($verb === 'apply') {
             if ($this->applyExit !== 0) {
                 return ['exit' => $this->applyExit, 'stdout' => '', 'stderr' => "apply refused\n"];
@@ -193,17 +212,26 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
     public function captureWpPipeline(array $producer, array $consumer): array {
         $this->calls[] = ['kind' => 'wp', 'args' => $producer];
         $this->calls[] = ['kind' => 'wp', 'args' => $consumer];
-        if (($producer[0] ?? '') !== 'db' || ($producer[1] ?? '') !== 'export' || ($producer[2] ?? '') !== '-'
+        if (array_slice($producer, -3) !== ['db', 'export', '-']
+            || count(array_filter(
+                $producer,
+                static fn(string $arg): bool => str_contains($arg, 'DatabaseTargetIdentity::fromWordPressConfig')
+                    && str_contains($arg, 'require_recovery_intent')
+            )) !== 1
             || fmp_wp_verb($consumer) !== 'checkpoint-seal') {
             return $this->fail('unexpected pipeline fixture');
         }
         $output = '';
+        $databaseTarget = '';
         foreach ($consumer as $arg) {
             if (str_starts_with($arg, '--output=')) {
                 $output = substr($arg, strlen('--output='));
             }
+            if (str_starts_with($arg, '--database-target-sha256=')) {
+                $databaseTarget = substr($arg, strlen('--database-target-sha256='));
+            }
         }
-        if ($output === '') {
+        if ($output === '' || $databaseTarget !== str_repeat('d', 64)) {
             return $this->fail('checkpoint seal omitted output');
         }
         $this->files[$output] = $this->emptyExport ? '' : "-- frozen checkpoint\n";

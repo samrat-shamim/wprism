@@ -1151,11 +1151,11 @@ wprism_check(
 // Comment 4 (cli/src/Plan/PlanSummary.php:406, issue #3339) — the provider-problem
 // row. Agent fragment: the WP_CLI::line() call at agent/src/Command/Cli.php:1153-1158.
 $providerRow = (array) $planVectors['plan']['provider_problems'][0];
-$agentProviderExpression = parity_wp_cli_line_expression($agentCli, ' [manifest=');
+$agentProviderExpression = parity_wp_cli_line_expression($agentCli, ' plugin=');
 $agentProviderLine = parity_eval_row_expression($agentProviderExpression, $providerRow);
 $cliProviderLine = '';
 foreach ($rendered['lines'] as $line) {
-    if (str_contains($line, ' [manifest=')) {
+    if (str_starts_with($line, '  - woocommerce_regen [manifest=')) {
         $cliProviderLine = $line;
     }
 }

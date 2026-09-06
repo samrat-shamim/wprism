@@ -568,11 +568,13 @@ $knownGapsByFile = [
     // require_once's CodeDescriptorCompiler.php, which declares it, so the
     // allowlist entry became a no-longer-observed gap and this two-sided
     // ratchet correctly refused to keep it.
-    // EffectDeclarationCoverage joins the same slice as Journal and Coverage:
-    // requiring it from Cli.php would pull the real Policy.php in at file
-    // scope, and the JSON-refusal suites load Cli.php against a pre-declared
+    // EffectDeclarationCoverage and Coverage retain that constraint: requiring
+    // either from Cli.php would pull the real Policy.php in at file scope, and
+    // the JSON-refusal suites load Cli.php against a pre-declared
     // \WPrism\Policy stub — the shadow-block idiom agent/wprism.php:106-138 names.
-    'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'Coverage', 'Db', 'Deploy', 'EffectDeclarationCoverage', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
+    // Journal is no longer grandfathered: executable-owner-observe loads it
+    // explicitly and lazily before suspending buffered provenance.
+    'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'Coverage', 'Db', 'Deploy', 'EffectDeclarationCoverage', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     // The reader deliberately tests this bridge at runtime rather than
     // requiring it: an unavailable bridge is a stable artifact diagnostic.
     'CompiledArtifactReader' => ['CodeStateContract'],
@@ -582,16 +584,16 @@ $knownGapsByFile = [
     'CompiledArtifact' => ['Canon', 'Code'],
     'ConvergenceVerifier' => ['CompiledRepository', 'Policy'],
     'Coverage' => ['Policy'],
-    'Db' => ['TransientDbException'],
+    'Db' => [],
     'DeleteExecutor' => ['Db', 'Ledger'],
     'Deletion' => ['Canon', 'CompiledRepository', 'Policy', 'SidebarState', 'Snapshot'],
     'Deploy' => ['Canary', 'Code', 'CompiledRepository', 'Ledger', 'OptionState', 'Policy', 'PromotionLock', 'RepositoryCompiler'],
     'Identity' => ['Canon', 'SidebarState', 'Uuid'],
     'IdentityBackup' => ['Canon', 'Identity', 'Ledger', 'Policy', 'RepositoryCompiler', 'SidebarState', 'Snapshot', 'Uuid'],
     'IdentityNotes' => ['Snapshot', 'Uuid'],
-    'Ledger' => ['Db', 'Uuid'],
+    'Ledger' => ['Uuid'],
     'LifecycleExecutor' => ['PromotionLock'],
-    'LifecyclePlanner' => ['Code', 'CompiledRepository', 'Ledger', 'Policy'],
+    'LifecyclePlanner' => ['Code', 'CompiledRepository', 'Policy'],
     'Lint' => ['Canon', 'OptionState', 'Pending', 'Policy', 'ReferenceRules'],
     // `Policy` arrives with the guarded manifests_dir() relocated here from the
     // deleted CapabilityRegistry: the call is behind `class_exists(Policy::class)`
@@ -607,7 +609,7 @@ $knownGapsByFile = [
     'PlanExplanation' => ['CommandRefusalException', 'CompiledRepository', 'Deletion', 'OptionState', 'Policy', 'ReferenceGraph', 'SidebarState'],
     'Policy' => ['Canon', 'ManifestDispositions', 'OptionState'],
     'PostMaterializer' => ['Db', 'Ledger'],
-    'PromotionLease' => ['Db', 'Ledger'],
+    'PromotionLease' => ['Ledger'],
     'PromotionSessionJournal' => ['Ledger'],
     'Providers' => ['Deploy', 'Policy'],
     'Publish' => ['PublicationJournal'],
@@ -641,7 +643,7 @@ $gaps = find_gaps($sources, $classFiles, $knownGaps);
 // relocated writers their own requirements and removing Pending's DDL
 // dependency (258 -> 247); retain the previous eight-pair deletion tripwire
 // below that reviewed baseline rather than making real gap closure fail.
-check(count($knownGaps) >= 239, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
+check(count($knownGaps) >= 238, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
 fwrite(STDOUT, 'known gaps: ' . count($knownGaps) . " (explicit baseline; new pairs fail)\n");
 // The allowlist cannot become a dead, copy-pasted escape hatch: every entry
 // must still be observed in the current baseline.  Then mutate concrete

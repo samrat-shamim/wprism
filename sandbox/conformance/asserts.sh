@@ -67,6 +67,48 @@ require_observed_nonempty() { # require_observed_nonempty <what> <captured value
     || fail "infrastructure failure: $1 returned no bytes — a load-starved docker compose run can exit 0 with empty stdout, which hashes to the empty-string digest e3b0c442… and would falsely accuse the engine of mutating the target; nothing here is measuring the engine"
 }
 
+# Installed WordPress values are not intended-value authority. The first
+# Rank Math/core database round trips at f1c9a6fb reported env_missing for all
+# three required core options despite their live values being nonempty. These
+# positive fixtures assert the driver's chosen install values before using the
+# public provisioning path; pair bootstrap must not do this, because missing-
+# binding suites deliberately need an unprovisioned environment. Plugin and
+# protected-post bindings remain the owning fixture's explicit choice.
+establish_core_environment_bindings() { # <wp command/function> <repo> <email> <home> <siteurl> [command prefix arguments...]
+  local wp_command="$1" repo="$2" expected values name value receipt
+  expected=$(jq -nc --arg email "$3" --arg home "$4" --arg siteurl "$5" \
+    '{admin_email:$email,home:$home,siteurl:$siteurl}')
+  shift 5
+  command -v "$wp_command" >/dev/null \
+    || fail "establish_core_environment_bindings: unknown wp command '$wp_command'"
+  capture_wprism_json_success values 'core environment fixture observation' \
+    "$wp_command" "$@" eval '
+$values = [];
+foreach (["admin_email", "home", "siteurl"] as $name) {
+    $values[$name] = get_option($name);
+}
+echo wp_json_encode($values);
+'
+  jq -e '
+    type == "object" and keys == ["admin_email","home","siteurl"] and
+    all(.[]; type == "string" and length > 0 and (explode | all(.[]; . != 0 and . != 10 and . != 13)))
+  ' <<<"$values" >/dev/null \
+    || fail 'fixture manufacture failed: core environment values are not three nonempty single-line strings'
+  jq -e --argjson expected "$expected" '. == $expected' <<<"$values" >/dev/null \
+    || fail 'fixture manufacture failed: core environment values disagree with the driver-owned install premise; refusing to adopt drift as intent'
+  for name in admin_email home siteurl; do
+    value=$(jq -er --arg name "$name" '.[$name]' <<<"$expected")
+    capture_wprism_json_success receipt "core environment fixture binding $name" \
+      "$wp_command" "$@" wprism env-set --repo="$repo" --name="$name" --stdin --format=json \
+      <<<"$value"
+    jq -e --arg name "$name" '
+      keys == ["name","previously_set"] and .name == $name and
+      (.previously_set | type) == "boolean"
+    ' <<<"$receipt" >/dev/null \
+      || fail "fixture manufacture failed: core environment binding $name did not return its exact provisioning receipt"
+  done
+}
+
 # Exact WooCommerce 11.0.0/11.0.1 new-shop setup. Its `wc hpos enable` CLI
 # deliberately emits "Orders table does not exist. Creating..." on a fresh
 # database, which makes an otherwise successful evidence run non-green. Drive
@@ -193,21 +235,157 @@ require_wprism_answered() { # require_wprism_answered <what> <human|json> <captu
   esac
 }
 
+# A native warning can precede an otherwise valid JSON success with exit zero.
+# Inspect the complete captured stream before publishing a positive answer;
+# Startup failures can name Unknown on line 0, and parse failures need not
+# print a filename at all. PHP-prefixed severities therefore need no location;
+# bare display_errors severities still require a location frame to distinguish
+# them from WP-CLI action receipts. The predicate never prints private bytes.
+has_php_runtime_diagnostics() { # <captured output>
+  grep -Eq '(^|[[:space:]])PHP (Warning|Notice|Deprecated|Fatal error|Parse error|Startup|Strict Standards|Recoverable fatal error):|(^|[[:space:]])(Warning|Notice|Deprecated|Fatal error|Parse error|Strict Standards|Recoverable fatal error): .* in .*( on line [0-9]+|:[0-9]+)' <<<"$1"
+}
+
+assert_no_php_runtime_diagnostics() { # <label> <captured output>
+  if has_php_runtime_diagnostics "$2"; then
+    fail "$1 emitted a PHP runtime diagnostic; inspect its captured output"
+  fi
+}
+
 # Execute one machine-output WPrism command without letting `set -e`, a command
 # substitution, or `tail` discard its refusal envelope. The command's complete
 # capture is retained through exit classification; only a successful
-# command publishes its last JSON line into the caller-named variable.
+# command publishes its last JSON line into the caller-named variable. Prefix
+# diagnostics remain visible on stderr; PHP runtime diagnostics also refuse a
+# zero-exit answer before publication. Internal locals reserve
+# __wprism_capture_*; rejecting that prefix keeps
+# every other valid caller variable safe from Bash's dynamic local scope.
 capture_wprism_json_success() { # <OUT_VAR> <what> <command> [args...]
-  local out_var="$1" what="$2" capture rc=0 last
-  shift 2
-  [[ "$out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+  capture_wprism_json_checked "$1" "$2" '' "${@:3}"
+}
+
+# A positive Apply must validate its complete stream before JSON publication:
+# stderr-only env_missing diagnostics disappear from a last-line-only check.
+# The caller supplies a shared assertion (<what> <capture>), never an adapter
+# process runner. Plain captures keep their existing transport-only contract.
+capture_wprism_json_checked() { # <OUT_VAR> <what> <assertion|empty> <command> [args...]
+  local __wprism_capture_out_var="$1" __wprism_capture_what="$2"
+  local __wprism_capture_assertion="$3"
+  local __wprism_capture_stream='' __wprism_capture_rc=0 __wprism_capture_last=''
+  shift 3
+  [[ "$__wprism_capture_out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
     || fail "capture_wprism_json_success: malformed output variable"
-  capture=$("$@" 2>&1) || rc=$?
-  require_wprism_answered "$what" json "$capture"
-  if [ "$rc" -ne 0 ]; then
-    printf '%s\n' "$capture" >&2
-    fail "$what failed with exit $rc"
+  [[ "$__wprism_capture_out_var" != __wprism_capture_* ]] \
+    || fail "capture_wprism_json_success: reserved output variable prefix __wprism_capture_"
+  if [ -n "$__wprism_capture_assertion" ]; then
+    [[ "$__wprism_capture_assertion" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+      && declare -F "$__wprism_capture_assertion" >/dev/null \
+      || fail "capture_wprism_json_checked: assertion must name a declared shell function"
   fi
-  last=$(awk 'NF { line=$0 } END { print line }' <<<"$capture")
-  printf -v "$out_var" '%s' "$last"
+  __wprism_capture_stream=$("$@" 2>&1) || __wprism_capture_rc=$?
+  require_wprism_answered "$__wprism_capture_what" json "$__wprism_capture_stream"
+  __wprism_capture_last=$(awk 'NF { line=$0 } END { print line }' <<<"$__wprism_capture_stream")
+  awk 'NF { last=NR } { lines[NR]=$0 } END { for (i=1; i<last; i++) print lines[i] }' \
+    <<<"$__wprism_capture_stream" >&2
+  if [ "$__wprism_capture_rc" -ne 0 ]; then
+    printf '%s\n' "$__wprism_capture_last" >&2
+    fail "$__wprism_capture_what failed with exit $__wprism_capture_rc"
+  fi
+  assert_no_php_runtime_diagnostics "$__wprism_capture_what" "$__wprism_capture_stream"
+  if [ -n "$__wprism_capture_assertion" ]; then
+    "$__wprism_capture_assertion" "$__wprism_capture_what" "$__wprism_capture_stream" \
+      || fail "$__wprism_capture_what failed its complete-stream assertion"
+  fi
+  printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
+}
+
+# Expected refusal sibling of capture_wprism_json_success. Compose writes its
+# container lifecycle to the merged stream before WP-CLI's JSON answer; callers
+# must assert on the selected answer, not feed that transport prelude to jq.
+capture_wprism_json_refusal() { # <OUT_VAR> <what> <command> [args...]
+  local __wprism_capture_out_var="$1" __wprism_capture_what="$2"
+  local __wprism_capture_stream='' __wprism_capture_rc=0 __wprism_capture_last=''
+  shift 2
+  [[ "$__wprism_capture_out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+    || fail "capture_wprism_json_refusal: malformed output variable"
+  [[ "$__wprism_capture_out_var" != __wprism_capture_* ]] \
+    || fail "capture_wprism_json_refusal: reserved output variable prefix __wprism_capture_"
+  __wprism_capture_stream=$("$@" 2>&1) || __wprism_capture_rc=$?
+  require_wprism_answered "$__wprism_capture_what" json "$__wprism_capture_stream"
+  __wprism_capture_last=$(awk 'NF { line=$0 } END { print line }' <<<"$__wprism_capture_stream")
+  awk 'NF { last=NR } { lines[NR]=$0 } END { for (i=1; i<last; i++) print lines[i] }' \
+    <<<"$__wprism_capture_stream" >&2
+  if [ "$__wprism_capture_rc" -eq 0 ]; then
+    fail "$__wprism_capture_what unexpectedly succeeded: $__wprism_capture_last"
+  fi
+  printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
+}
+
+# Apply's env_missing summary counts optional rows too (Code Snippets leaves
+# an optional plugin option absent). Only required rows produce env_missing:
+# diagnostics in ApplyPlanner::env_missing_projection(). Its warnings field
+# also carries adoption/provider/native-action receipts, so an empty-array
+# requirement would reject the very lifecycle work conformance must exercise.
+# Keep those existing wire bytes visible while refusing unprovisioned evidence.
+assert_wprism_required_environment() { # <what> <human|json> <captured output>
+  local what="$1" mode="$2" out="$3" last
+  require_wprism_answered "$what" "$mode" "$out"
+  if grep -Eq '(^|[[:space:]])env_missing:' <<<"$out"; then
+    fail "$what did not prove all required environment bindings; inspect its env_missing diagnostics"
+  fi
+  case "$mode" in
+    json)
+      last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
+      jq -e '.warnings | type == "array" and all(.[]; type == "string" and (startswith("env_missing:") | not))' \
+        <<<"$last" >/dev/null \
+        || fail "$what did not prove all required environment bindings; inspect its env_missing diagnostics"
+      ;;
+  esac
+}
+
+assert_wprism_json_required_environment() { # <what> <JSON capture>
+  assert_wprism_required_environment "$1" json "$2"
+}
+
+# CaptureCommand::receipt publishes native warnings as a count, not Apply's
+# root warnings array. Reusing Apply's environment assertion rejected a clean
+# signed-core baseline at 40ea0cae; the four-plugin SSH owner already checked
+# the correct host contract. Both owners now share its exact shape/context and
+# zero-warning gate. Complete private streams and exit status remain the
+# caller's responsibility; this is not cryptographic receipt verification.
+assert_wprism_host_capture_ready() { # <what> <environment> <branch> <complete JSON capture>
+  [ "$#" -eq 4 ] \
+    || fail 'assert_wprism_host_capture_ready requires an explicit label, environment, branch and capture'
+  local what="$1" environment="$2" branch="$3" out="$4"
+  [ -n "$environment" ] && [ -n "$branch" ] \
+    || fail 'assert_wprism_host_capture_ready requires nonempty environment and branch bindings'
+  jq -e -s --arg environment "$environment" --arg branch "$branch" '
+    def nonnegative_integer: type == "number" and . >= 0 and . == floor;
+    length == 1 and (.[0] |
+      type == "object"
+      and keys == ["branch","capture","environment","format","next_action","receipt_sha256"]
+      and .format == "wprism-capture-result/v1"
+      and .environment == $environment
+      and .branch == $branch
+      and .next_action == "review_and_commit"
+      and (.receipt_sha256 | type == "string" and test("^sha256:[a-f0-9]{64}$"))
+      and (.capture | type == "object"
+        and keys == ["counts","media_count","notes_count","state_revision","warnings_count"])
+      and (.capture.counts | type == "object" and length > 0 and length <= 128
+        and all(to_entries[];
+          (.key | test("^[a-z][a-z0-9_.-]{0,63}$")) and (.value | nonnegative_integer)))
+      and (.capture.media_count | nonnegative_integer)
+      and (.capture.notes_count | nonnegative_integer and . <= 10000)
+      and (.capture.state_revision | type == "string" and test("^[a-f0-9]{64}$"))
+      and .capture.warnings_count == 0)
+  ' <<<"$out" >/dev/null 2>&1 \
+    || fail "$what did not return a warning-free bound capture receipt; inspect its private capture"
+}
+
+assert_wprism_apply_ready() { # <what> <JSON apply capture>
+  local last
+  assert_no_php_runtime_diagnostics "$1" "$2"
+  assert_wprism_required_environment "$1" json "$2"
+  last=$(awk 'NF { line=$0 } END { print line }' <<<"$2")
+  jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$last" >/dev/null \
+    || fail "$1 did not return a clean canary and passed canonical verification"
 }

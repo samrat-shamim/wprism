@@ -232,10 +232,13 @@ branch or edit files before this passes.
     3) of the ONE relevant manifest — not the matrix.
   - **A live-pair `regress-*` suite** runs only when the diff touches the
     mechanism its own header names — not by habit.
-  - **A new WP extension joins by adding one capsule** — its manifest,
+  - **A new WP extension joins through one capsule** — its manifest,
     disposition, runtime hooks, fixtures, and tests live under
-    `adapter-packages/<slug>/`; no central allowlist, Makefile leaf, corpus
-    count, or dispatch switch is edited. Its own sweep is the evidence.
+    `adapter-packages/<slug>/`. Regenerate the derived runtime identity-name
+    inventory; add a hand-reviewed permanent identity floor only when the
+    capsule introduces a new `id_kind`. There is no hand-maintained adapter
+    name allowlist, Makefile leaf, corpus row, or plugin dispatch switch. Its
+    own sweep is the evidence.
   - **Safety floor:** an engine change you genuinely cannot bound to specific
     surfaces gets a small representative SUBSET — `core` plus the richest
     affected adapter surface(s) — never a silent skip, and never an unrelated
@@ -439,7 +442,18 @@ WPRISM refs where given.
   them to its child hooks, and `certify_version_matrix.sh` — a helper added
   to only one harness kills the other when it reaches that test with `command not
   found`, issue #3408); the wiring is enforced by
-  `sandbox/tests/offline/guards/regress_conformance_asserts.sh`.
+  `sandbox/tests/offline/guards/regress_conformance_asserts.sh`. For machine
+  output, use `capture_wprism_json_success` or
+  `capture_wprism_json_refusal` according to the expected exit class. They
+  retain the merged stream long enough to distinguish an engine answer from a
+  dead Compose invocation, publish only the last JSON line, and leave preceding
+  diagnostics visible on stderr so warning gates still see them. Caller output
+  variables may use any shell identifier except the reserved
+  `__wprism_capture_` prefix. Calling
+  `require_wprism_answered` directly validates that last line but deliberately
+  does not rewrite the caller's mixed-stream variable; passing that variable
+  to `jq` parses Compose's `Container ... Creating` prelude instead of the
+  refusal envelope.
 - **CLOSED (issue #3277):** `pair.sh up` defaults to the canonical checkout but
   accepts an exact related worktree through `WPRISM_SOURCE_ROOT`; the source must
   share the Git common directory and satisfy `WPRISM_EXPECTED_SOURCE_SHA` before

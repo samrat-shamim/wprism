@@ -532,8 +532,8 @@ wprism_check($validate['exit'] !== 0, '...and the run fails, because a pin set h
 
 // THE DEFERRAL, RECORDED RATHER THAN GLOSSED. Existing shipped manifests are
 // never mass-retrofitted: `ArtifactPolicyIdentity::manifest_rows()` folds each
-// manifest's JSON into its `digest`. Redirection can declare the section
-// because it is newly authored and its first digest already includes it.
+// manifest's JSON into its `digest`. Redirection introduced the section and
+// later adapters such as Rank Math can include it in their first identity.
 $shippedManifests = [];
 foreach ($adapterLibrary->packages() as $package) {
     $decoded = Canon::decode(Canon::read_file($package->manifestPath()));
@@ -544,9 +544,9 @@ $adopters = array_values(array_filter(
     static fn(string $n): bool => array_key_exists($SECTION, $shippedManifests[$n])
 ));
 wprism_check_same(
-    ['redirection'],
+    ['rank-math', 'redirection'],
     $adopters,
-    'Redirection is the first shipped manifest authored with structured evidence; no pre-existing manifest was retrofitted'
+    'Redirection introduced structured evidence and later adapters adopt it without retrofitting pre-existing identities'
 );
 $report('shipped manifests: ' . count($shippedManifests) . '; adopting the section: ' . count($adopters));
 

@@ -159,6 +159,7 @@ use WPrism\Orchestrator\OperationAuthorization;
 use WPrism\Recovery\CanonicalJson;
 use WPrism\Recovery\RollbackControl;
 use WPrism\ReferenceKindGrammar;
+use WPrism\ShippedIdentityInventory;
 use WPrism\StructuredEvidence;
 
 /** The four files that own an Ed25519 signature, relative to the repo root. */
@@ -803,6 +804,22 @@ function ws_shipped_identities(string $repo): array {
     return ['names' => array_values(array_unique($names)), 'id_kinds' => $kinds];
 }
 
+/** @return list<string> */
+function ws_shipped_names_with_vendor_shape(): array {
+    return array_values(array_filter(
+        IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES,
+        static fn(string $name): bool => IdentityNamespaces::vendor($name) !== null
+    ));
+}
+
+/** @return list<string> */
+function ws_shipped_names_without_vendor_shape(): array {
+    return array_values(array_filter(
+        IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES,
+        static fn(string $name): bool => IdentityNamespaces::vendor($name) === null
+    ));
+}
+
 /**
  * Gate 9 (WP-4.10, spec § v3.9): the closed grandfather list, in its place and
  * with its exact membership.
@@ -817,10 +834,11 @@ function ws_shipped_identities(string $repo): array {
  *
  * The MEMBERSHIP half is what makes the list CLOSED rather than merely
  * present: it must equal the shipped library exactly, in both directions. A
- * seventeenth adapter name — prefixed or not — therefore cannot enter the
- * library without a reviewed edit to the enumerated list, which is the whole
- * property § v3.9 claims and the reason the list enumerates instead of testing
- * shape (`the-events-calendar` is hyphen-shaped and is not vendor `the`).
+ * new adapter name — prefixed or not — therefore cannot enter a release until
+ * the committed runtime inventory is regenerated and reviewed. That is the
+ * whole property § v3.9 claims and the reason runtime consumes an enumeration
+ * instead of testing shape (`the-events-calendar` is hyphen-shaped and is not
+ * vendor `the`).
  */
 function ws_assert_grandfather_list(string $repo): void {
     // Both sides through realpath(): `--root=` accepts a relative directory
@@ -828,16 +846,18 @@ function ws_assert_grandfather_list(string $repo): void {
     // suite a repo-relative one), and reflection always answers absolute, so a
     // raw prefix compare would report "outside agent/src" for a tree that is
     // inside it.
-    $file = (new ReflectionClass(IdentityNamespaces::class))->getFileName();
-    $file = is_string($file) ? (realpath($file) ?: $file) : null;
     $agentSrc = realpath(rtrim($repo, '/') . '/agent/src');
     $agentSrc = $agentSrc === false ? rtrim($repo, '/') . '/agent/src' : $agentSrc;
-    if (!is_string($file) || !str_starts_with($file, $agentSrc . '/')) {
-        ws_fail(
-            'the § v3.9 grandfather list is declared in ' . var_export($file, true) . ', outside agent/src — '
-            . 'row R-27 records that it lives in agent code precisely so it is not a manifest byte, which '
-            . 'AGENTS.md rule 2 would fold into every adapter digest'
-        );
+    foreach ([IdentityNamespaces::class, ShippedIdentityInventory::class] as $class) {
+        $file = (new ReflectionClass($class))->getFileName();
+        $file = is_string($file) ? (realpath($file) ?: $file) : null;
+        if (!is_string($file) || !str_starts_with($file, $agentSrc . '/')) {
+            ws_fail(
+                "the § v3.9 grandfather inventory class $class is declared in " . var_export($file, true)
+                . ', outside agent/src — row R-27 records that it lives in agent code precisely so it is '
+                . 'not a manifest byte, which AGENTS.md rule 2 would fold into every adapter digest'
+            );
+        }
     }
     $shipped = ws_shipped_identities($repo);
     $pairs = [
@@ -855,9 +875,12 @@ function ws_assert_grandfather_list(string $repo): void {
             . ($added === [] ? 'nothing unlisted' : 'unlisted [' . implode(', ', $added) . ']')
             . ', ' . ($dropped === [] ? 'nothing stale' : 'stale [' . implode(', ', $dropped) . ']')
             . ($added === [] && $dropped === [] ? ', and the two are only out of sort order' : '')
-            . ' — the list is CLOSED (row R-27): edit '
-            . 'agent/src/Adapter/IdentityNamespaces.php in review, which is the reviewed act that admitting a '
-            . 'new unprefixed identity is meant to be'
+            . ' — the list is CLOSED (row R-27): '
+            . ($space === 'adapter names'
+                ? 'regenerate agent/src/Adapter/ShippedIdentityInventory.php with '
+                    . '`php tools/shipped-identity-inventory.php` and review the exact inventory diff'
+                : 'edit agent/src/Adapter/IdentityNamespaces.php in review; id_kind is a permanent floor, '
+                    . 'not a current-library projection')
         );
     }
 }
@@ -1584,7 +1607,8 @@ function ws_rows(): array {
             . '`{name, source:"site"}` override (T6 §3.3), which `wprism adapter certify` records by exact '
             . 'name.',
         'permanent' => 'Without it, enrolling a vendor with the namespace its own products live in '
-            . 'silently handed that vendor the SHIPPED adapter of the same name — 10 of the '
+            . 'silently handed that vendor the SHIPPED adapter of the same name — '
+            . count(ws_shipped_names_with_vendor_shape()) . ' of the '
             . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' sit inside a legal one '
             . '(`ninja-*`, `yoast-*`, `wprism-*`, `code-*` …) — and an out-of-tree adapter answering a '
             . 'shipped name is the override, which INHERITS that adapter\'s interpreter, regenerator and '
@@ -1711,15 +1735,17 @@ function ws_rows(): array {
             . 'which names a key may certify — except that no non-platform grant may reach a name on this '
             . 'list through a pattern (R-22). The grandfather exemption is the NAME\'s alone: a '
             . 'grandfathered name that has a vendor half is still held to the provider-id rule '
-            . '(G2-FIXES M2), and one with no vendor half — `core`, `acf`, `woocommerce`, `elementor`, '
-            . '`polylang`, `yoast` — has no namespace for a provider id to be bound to, so that rule has '
+            . '(G2-FIXES M2), and one with no vendor half — `'
+            . implode('`, `', ws_shipped_names_without_vendor_shape())
+            . '` — has no namespace for a provider id to be bound to, so that rule has '
             . 'nothing to say about it.',
         'permanent' => 'The separator forecloses every other scheme: `<vendor>-<name>` cannot later become '
             . '`<vendor>/<name>` or `<vendor>.<name>` without re-spelling every out-of-tree identity already '
             . 'authored, and an adapter name is inside the manifest bytes '
             . '`ArtifactPolicyIdentity::manifest_rows()` folds into that adapter\'s digest — so a re-spelling '
             . 'invalidates every pin and certificate that named it (the same door R-19 reaches). The '
-            . 'ENUMERATION cannot be replaced by a shape test afterwards either: 10 of the '
+            . 'ENUMERATION cannot be replaced by a shape test afterwards either: '
+            . count(ws_shipped_names_with_vendor_shape()) . ' of the '
             . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' shipped names are hyphen-shaped '
             . 'without being vendor-prefixed (`the-events-calendar` is not vendor `the`), so a shape test '
             . 'admits precisely the rows a reviewer would want to see. And the list can never simply grow: '
@@ -1903,7 +1929,8 @@ function ws_rows(): array {
             . '(spec/repo-format.md § v3.13). A target\'s HEAD must be a top-level key the same manifest '
             . 'declares, which is the whole difference between this and a note that mentions a section: a '
             . 'record for a deleted section refuses at load. Redirection is the first shipped declarer; adding '
-            . 'it moved only that new adapter\'s own digest, while the pre-existing 16 stayed byte-identical '
+            . 'it moved only that new adapter\'s own digest, while the pre-existing 16 stayed byte-identical. '
+            . 'Rank Math later adopted the section in its first identity, without restamping an existing adapter '
             . '(AGENTS.md rule 2). `notes` keeps everything it carries and this remains a sibling, never a migration.',
         'permanent' => 'The section name and every row member are inside the manifest bytes '
             . '`ArtifactPolicyIdentity::manifest_rows()` folds into the adapter `digest`, reached through '
@@ -2415,8 +2442,8 @@ function ws_build(string $repo): string {
     $out .= '    membership equals the shipped library exactly: '
         . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . " adapter\n";
     $out .= '    names and ' . count(IdentityNamespaces::GRANDFATHERED_ID_KINDS)
-        . " `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed\n";
-    $out .= "    edit rather than a file appearing in a directory (R-27).\n";
+        . " `id_kind`s, in both directions, so an additional unprefixed name requires a reviewed\n";
+    $out .= "    generated inventory diff rather than merely a directory appearing (R-27).\n";
     $out .= '11. **The register has no gaps and no duplicates.** Row ids run R-01 … R-'
         . str_pad((string) count(ws_rows()), 2, '0', STR_PAD_LEFT) . " with every integer\n";
     $out .= "    present exactly once. Ids are ordinal bookkeeping — nothing on disk or in a certificate\n";

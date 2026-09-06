@@ -7,7 +7,11 @@ require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
+require_once __DIR__ . '/../Kernel/TermCoordinateWitness.php';
 require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
 
 /**
@@ -28,6 +32,7 @@ final class OptionsCapture {
     private \Closure $guardSecret;
     private \Closure $classifyScope;
     private \Closure $rowExists;
+    private ?\Closure $unmappedTermObserver;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int,array{option:string,kind:string,id:int,target_type:string}> */
@@ -35,18 +40,21 @@ final class OptionsCapture {
     /** @var array<int,array{option:string,id_kind:string,id:int}> */
     private array $unscopedOptionNameRefs = [];
 
+    /** @param null|callable(int,string):?string $unmappedTermObserver Same-snapshot full-plan identity witness, never an option-only identity lookup. */
     public function __construct(
         Policy $policy,
         Tokens $tokens,
         callable $guardSecret,
         callable $classifyScope,
-        callable $rowExists
+        callable $rowExists,
+        ?callable $unmappedTermObserver = null
     ) {
         $this->policy = $policy;
         $this->tokens = $tokens;
         $this->guardSecret = \Closure::fromCallable($guardSecret);
         $this->classifyScope = \Closure::fromCallable($classifyScope);
         $this->rowExists = \Closure::fromCallable($rowExists);
+        $this->unmappedTermObserver = $unmappedTermObserver === null ? null : \Closure::fromCallable($unmappedTermObserver);
     }
 
     /**
@@ -63,8 +71,19 @@ final class OptionsCapture {
         ?array $previousDocument = null,
         array $dynamicResolverValues = [],
         bool $bindMissingDynamicDesired = false,
-        bool $strictReadOnly = false
+        bool $strictReadOnly = false,
+        ?DatabaseWorkAuthority $workAuthority = null,
+        bool $lifecycleHandoffProjection = false
     ): array {
+        if ($this->unmappedTermObserver !== null && ($mint || $strictReadOnly || $lifecycleHandoffProjection)) {
+            throw new \LogicException('wprism: planned reference observation cannot publish or replace a strict lifecycle/export observation');
+        }
+        // Strict read-only is also used by full export/explain, where an
+        // excluded taxonomy skips identity discovery. Only the desired-bound
+        // options lifecycle observer may hide a wholly unmapped hook result.
+        if ($lifecycleHandoffProjection && ($mint || !$strictReadOnly || !$bindMissingDynamicDesired)) {
+            throw new \LogicException('wprism: lifecycle option projection requires a desired-bound read-only observation');
+        }
         $this->unclassified = [];
         $this->unscopedRefs = [];
         $this->unscopedOptionNameRefs = [];
@@ -73,193 +92,222 @@ final class OptionsCapture {
         $processed = [];
         $liveCanonicalNames = [];
         foreach ($this->policy->authored_options() as $name => $rule) {
-            $processed[$name] = true;
-            $row = $this->read_option_row($name);
-            if ($row === null) {
-                continue;
-            }
-            $liveCanonicalNames[$name] = true;
-            $v = PlainData::decode($row['option_value'], "option $name");
-            PlainData::assert($v, "option $name");
-            ($this->guardSecret)('options', $name, $v, $rule);
-            $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
-            if (!$captured['included']) {
-                continue;
-            }
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-            $out[$name] = OptionState::present($captured['value'], $row['autoload']);
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use (
+                $name, $rule, $forceUnresolvedRefs, $lifecycleHandoffProjection, &$processed, &$liveCanonicalNames, &$out
+            ): void {
+                $processed[$name] = true;
+                $row = $this->read_option_row($name);
+                if ($row === null) {
+                    return;
+                }
+                $liveCanonicalNames[$name] = true;
+                $v = PlainData::decode($row['option_value'], "option $name");
+                PlainData::assert($v, "option $name");
+                ($this->guardSecret)('options', $name, $v, $rule);
+                $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs, false, $lifecycleHandoffProjection);
+                if (!$captured['included']) {
+                    return;
+                }
+                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+                $out[$name] = OptionState::present($captured['value'], $row['autoload']);
+            });
         }
 
         // One journal-independent scan feeds namespace discovery and every
         // option-name-reference matcher.
         $allOptionValues = $this->all_options_map();
         foreach (array_keys($allOptionValues) as $name) {
-            $owner = $this->policy->option_namespace($name);
-            if ($owner === null) {
-                continue;
-            }
-            $rule = $this->policy->owned_option_rule_via_interpreter($name, $allOptionValues);
-            if (isset($processed[$name]) || $this->policy->match_option_name_ref($name) !== null) {
-                continue;
-            }
-            if ($rule === null) {
-                $this->unclassified[] = "options:$name (owner candidate {$owner['owner']}; namespace matched without a classification)";
-                continue;
-            }
-            $processed[$name] = true;
-            if (($rule['class'] ?? '') !== 'authored' || !empty($rule['sub_keys'])) {
-                continue;
-            }
-            $row = $this->read_option_row($name);
-            if ($row === null) {
-                continue;
-            }
-            $liveCanonicalNames[$name] = true;
-            $v = PlainData::decode($row['option_value'], "option $name");
-            PlainData::assert($v, "option $name");
-            ($this->guardSecret)('options', $name, $v, $rule);
-            $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
-            if ($captured['included']) {
-                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-                $out[$name] = OptionState::present($captured['value'], $row['autoload']);
-            }
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use (
+                $name, $allOptionValues, $forceUnresolvedRefs, &$processed, &$liveCanonicalNames, &$out
+            ): void {
+                $owner = $this->policy->option_namespace($name);
+                if ($owner === null) {
+                    return;
+                }
+                $rule = $this->policy->owned_option_rule_via_interpreter($name, $allOptionValues);
+                if (isset($processed[$name]) || $this->policy->match_option_name_ref($name) !== null) {
+                    return;
+                }
+                if ($rule === null) {
+                    $this->unclassified[] = "options:$name (owner candidate {$owner['owner']}; namespace matched without a classification)";
+                    return;
+                }
+                $processed[$name] = true;
+                if (($rule['class'] ?? '') !== 'authored' || !empty($rule['sub_keys'])) {
+                    return;
+                }
+                $row = $this->read_option_row($name);
+                if ($row === null) {
+                    return;
+                }
+                $liveCanonicalNames[$name] = true;
+                $v = PlainData::decode($row['option_value'], "option $name");
+                PlainData::assert($v, "option $name");
+                ($this->guardSecret)('options', $name, $v, $rule);
+                $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
+                if ($captured['included']) {
+                    OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+                    $out[$name] = OptionState::present($captured['value'], $row['autoload']);
+                }
+            });
         }
 
         foreach ($this->policy->sub_keyed_options() as $name => $rule) {
-            $details = $this->policy->option_rule_details((string) $name);
-            $source = is_string($details['source'] ?? null) ? $details['source'] : null;
-            $this->capture_option_sub_keys(
-                $name,
-                $rule,
-                $source,
-                $allOptionValues,
-                $forceUnresolvedRefs,
-                $strictReadOnly,
-                $liveCanonicalNames,
-                $out
-            );
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use (
+                $name, $rule, $allOptionValues, $forceUnresolvedRefs, $strictReadOnly,
+                &$liveCanonicalNames, &$out
+            ): void {
+                $details = $this->policy->option_rule_details((string) $name);
+                $source = is_string($details['source'] ?? null) ? $details['source'] : null;
+                $this->capture_option_sub_keys(
+                    $name,
+                    $rule,
+                    $source,
+                    $allOptionValues,
+                    $forceUnresolvedRefs,
+                    $strictReadOnly,
+                    $liveCanonicalNames,
+                    $out
+                );
+            });
         }
 
         foreach ($this->policy->dynamic_options() as $key => $decl) {
-            $resolvedValue = match ($decl['resolver']) {
-                'active_stylesheet' => array_key_exists('active_stylesheet', $dynamicResolverValues)
-                    ? (string) $dynamicResolverValues['active_stylesheet']
-                    : (string) get_option('stylesheet'),
-                default => throw new \RuntimeException(
-                    "wprism: dynamic_options.$key declares unsupported resolver '{$decl['resolver']}'"
-                ),
-            };
-            $resolved = $this->policy->resolve_dynamic_option($key, $resolvedValue);
-            if ($resolved === null) {
-                continue;
-            }
-            $this->capture_option_sub_keys(
-                $resolved['name'],
-                [
-                    'class' => $resolved['class'],
-                    'sub_keys' => $resolved['sub_keys'],
-                    'closed_sub_keys' => $resolved['closed_sub_keys'] ?? false,
-                    'autoload' => $resolved['autoload'],
-                ],
-                'dynamic_options',
-                $allOptionValues,
-                $forceUnresolvedRefs,
-                $strictReadOnly,
-                $liveCanonicalNames,
-                $out
-            );
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use (
+                $key, $decl, $dynamicResolverValues, $allOptionValues, $forceUnresolvedRefs, $strictReadOnly,
+                &$liveCanonicalNames, &$out
+            ): void {
+                $resolvedValue = match ($decl['resolver']) {
+                    'active_stylesheet' => array_key_exists('active_stylesheet', $dynamicResolverValues)
+                        ? (string) $dynamicResolverValues['active_stylesheet']
+                        : (string) get_option('stylesheet'),
+                    default => throw new \RuntimeException(
+                        "wprism: dynamic_options.$key declares unsupported resolver '{$decl['resolver']}'"
+                    ),
+                };
+                $resolved = $this->policy->resolve_dynamic_option($key, $resolvedValue);
+                if ($resolved === null) {
+                    return;
+                }
+                $this->capture_option_sub_keys(
+                    $resolved['name'],
+                    [
+                        'class' => $resolved['class'],
+                        'sub_keys' => $resolved['sub_keys'],
+                        'closed_sub_keys' => $resolved['closed_sub_keys'] ?? false,
+                        'autoload' => $resolved['autoload'],
+                    ],
+                    'dynamic_options',
+                    $allOptionValues,
+                    $forceUnresolvedRefs,
+                    $strictReadOnly,
+                    $liveCanonicalNames,
+                    $out
+                );
+            });
         }
 
         foreach (array_keys($allOptionValues) as $name) {
-            $details = $this->policy->option_name_ref_match_details((string) $name);
-            if ($details === null || ($details['rule']['class'] ?? '') !== 'authored') {
-                continue;
-            }
-            $rule = $details['rule'];
-            $m = $details['matches'];
-            $rawId = $m['id'][0] ?? null;
-            $id = Policy::strict_positive_local_id($rawId);
-            if ($id === null) {
-                throw new \RuntimeException(
-                    "wprism: option '$name' captures an invalid local id in option_name_refs; refusing capture"
-                );
-            }
-            $offset = (int) $m['id'][1];
-            $length = strlen((string) $m['id'][0]);
-            $token = $this->tokens->id_to_token($id, $rule['id_kind']);
-            if ($token === null) {
-                if (($mint || $strictReadOnly) && !$forceUnresolvedRefs
-                    && ($this->rowExists)($this->policy, $rule['id_kind'], $id)) {
-                    $this->unscopedOptionNameRefs[] = [
-                        'option' => $name,
-                        'id_kind' => $rule['id_kind'],
-                        'id' => $id,
-                    ];
-                } else {
-                    $this->tokens->warnings[] = "option $name: unmapped {$rule['id_kind']} id $id dropped (option_name_refs)";
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use (
+                $name, $mint, $strictReadOnly, $forceUnresolvedRefs, &$liveCanonicalNames, &$out
+            ): void {
+                $details = $this->policy->option_name_ref_match_details((string) $name);
+                if ($details === null || ($details['rule']['class'] ?? '') !== 'authored') {
+                    return;
                 }
-                continue;
-            }
-            $canonicalName = substr_replace($name, $token, $offset, $length);
-            $row = $this->read_option_row($name);
-            if ($row === null) {
-                continue;
-            }
-            $liveCanonicalNames[$canonicalName] = true;
-            $v = PlainData::decode($row['option_value'], "option $name");
-            PlainData::assert($v, "option $name");
-            ($this->guardSecret)('options', $name, $v, $rule);
-            $v = $this->tokens->struct_capture($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-            $out[$canonicalName] = OptionState::present($v, $row['autoload']);
+                $rule = $details['rule'];
+                $m = $details['matches'];
+                $rawId = $m['id'][0] ?? null;
+                $id = Policy::strict_positive_local_id($rawId);
+                if ($id === null) {
+                    throw new \RuntimeException(
+                        "wprism: option '$name' captures an invalid local id in option_name_refs; refusing capture"
+                    );
+                }
+                $offset = (int) $m['id'][1];
+                $length = strlen((string) $m['id'][0]);
+                $token = $this->tokens->id_to_token($id, $rule['id_kind']);
+                if ($token === null) {
+                    if (($mint || $strictReadOnly) && !$forceUnresolvedRefs
+                        && ($this->rowExists)($this->policy, $rule['id_kind'], $id)) {
+                        $this->unscopedOptionNameRefs[] = [
+                            'option' => $name,
+                            'id_kind' => $rule['id_kind'],
+                            'id' => $id,
+                        ];
+                    } else {
+                        $this->tokens->warnings[] = "option $name: unmapped {$rule['id_kind']} id $id dropped (option_name_refs)";
+                    }
+                    return;
+                }
+                $canonicalName = substr_replace($name, $token, $offset, $length);
+                $row = $this->read_option_row($name);
+                if ($row === null) {
+                    return;
+                }
+                $liveCanonicalNames[$canonicalName] = true;
+                $v = PlainData::decode($row['option_value'], "option $name");
+                PlainData::assert($v, "option $name");
+                ($this->guardSecret)('options', $name, $v, $rule);
+                $v = $this->tokens->struct_capture($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+                $out[$canonicalName] = OptionState::present($v, $row['autoload']);
+            });
         }
 
         foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
-            $row = $this->read_option_row($managedOption);
-            if ($row === null) {
-                continue;
-            }
-            $liveCanonicalNames[$managedOption] = true;
-            $v = PlainData::decode($row['option_value'], "option $managedOption");
-            PlainData::assert($v, "option $managedOption");
-            $v = $managedOption === 'active_plugins'
-                ? array_values(array_map('strval', (array) $v))
-                : (string) $v;
-            $rule = $this->policy->option_rule($managedOption) ?? [];
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$managedOption'");
-            $out[$managedOption] = OptionState::present($v, $row['autoload']);
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($managedOption, &$liveCanonicalNames, &$out): void {
+                $row = $this->read_option_row($managedOption);
+                if ($row === null) {
+                    return;
+                }
+                $liveCanonicalNames[$managedOption] = true;
+                $v = PlainData::decode($row['option_value'], "option $managedOption");
+                PlainData::assert($v, "option $managedOption");
+                $v = $managedOption === 'active_plugins'
+                    ? array_values(array_map('strval', (array) $v))
+                    : (string) $v;
+                $rule = $this->policy->option_rule($managedOption) ?? [];
+                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$managedOption'");
+                $out[$managedOption] = OptionState::present($v, $row['autoload']);
+            });
         }
 
         $previousOptionValues = null;
         foreach ($previousDocument === null ? [] : OptionState::records($previousDocument) as $name => $record) {
-            $bindDynamic = $bindMissingDynamicDesired
-                && ($record['state'] ?? null) === 'present'
-                && $this->policy->dynamic_option_rule_for_prefix((string) $name) !== null
-                && !isset($out[$name]);
-            if ($bindDynamic) {
-                $out[$name] = OptionState::deleted($record);
-                continue;
-            }
-            if (isset($out[$name]) || isset($liveCanonicalNames[$name])) {
-                continue;
-            }
-            if ($record['state'] === 'deleted') {
-                $out[$name] = $record;
-                continue;
-            }
-            $details = str_contains((string) $name, '{{')
-                ? $this->policy->canonical_option_name_ref_details((string) $name)
-                : $this->policy->option_rule_details_for_option(
-                    (string) $name,
-                    $previousOptionValues ??= OptionState::values($previousDocument)
-                );
-            $rule = $details['rule'] ?? [];
-            if ($record['state'] === 'present'
-                && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
-                $out[$name] = OptionState::deleted($record, !empty($rule['deletion_witness']));
-            } else {
-                $out[$name] = OptionState::absent();
-            }
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use (
+                $name, $record, $bindMissingDynamicDesired, $previousDocument,
+                &$previousOptionValues, &$out, $liveCanonicalNames
+            ): void {
+                $bindDynamic = $bindMissingDynamicDesired
+                    && ($record['state'] ?? null) === 'present'
+                    && $this->policy->dynamic_option_rule_for_prefix((string) $name) !== null
+                    && !isset($out[$name]);
+                if ($bindDynamic) {
+                    $out[$name] = OptionState::deleted($record);
+                    return;
+                }
+                if (isset($out[$name]) || isset($liveCanonicalNames[$name])) {
+                    return;
+                }
+                if ($record['state'] === 'deleted') {
+                    $out[$name] = $record;
+                    return;
+                }
+                $details = str_contains((string) $name, '{{')
+                    ? $this->policy->canonical_option_name_ref_details((string) $name)
+                    : $this->policy->option_rule_details_for_option(
+                        (string) $name,
+                        $previousOptionValues ??= OptionState::values($previousDocument)
+                    );
+                $rule = $details['rule'] ?? [];
+                if ($record['state'] === 'present'
+                    && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
+                    $out[$name] = OptionState::deleted($record, !empty($rule['deletion_witness']));
+                } else {
+                    $out[$name] = OptionState::absent();
+                }
+            });
         }
 
         $required = array_fill_keys(array_keys($this->policy->authored_options()), true);
@@ -289,7 +337,8 @@ final class OptionsCapture {
         $v,
         array $rule,
         bool $forceUnresolvedRefs,
-        bool $omitUnsetScalarRef = false
+        bool $omitUnsetScalarRef = false,
+        bool $allowUnmappedIntersectionProjection = false
     ): array {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = StructuredValue::decode($v, $rule, "option $ctx");
@@ -303,6 +352,18 @@ final class OptionsCapture {
             return ['included' => true, 'value' => $this->tokens->plain_data_capture($v)];
         }
         if (!empty($rule['ref'])) {
+            if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
+                $captured = ScalarReferenceIntersection::capture(
+                    $v,
+                    $rule,
+                    static fn(int $id, string $kind): ?string => Ledger::uuid_for($id, Tokens::ledger_kind($kind)),
+                    "option $ctx",
+                    static fn(int $id, string $taxonomy): bool => TermCoordinateWitness::matches($id, $taxonomy),
+                    $allowUnmappedIntersectionProjection,
+                    $this->unmappedTermObserver
+                );
+                return ['included' => $captured !== null, 'value' => $captured];
+            }
             $captured = $this->option_ref_tokens(
                 $ctx,
                 $v,

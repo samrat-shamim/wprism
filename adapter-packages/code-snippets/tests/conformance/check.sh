@@ -89,6 +89,32 @@ PHPEOF
   printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }'
 }
 
+code_snippets_recovery_hash() {
+  local out
+  out=$(wp_conf2 eval '
+    global $wpdb;
+    $state = [];
+    foreach ([
+      "map" => "SELECT uuid,entity_type,id_kind,local_id FROM {$wpdb->prefix}wprism_map ORDER BY uuid,id_kind",
+      "state" => "SELECT uuid,entity_type,content_hash FROM {$wpdb->prefix}wprism_state ORDER BY uuid",
+      "kv" => "SELECT k,v FROM {$wpdb->prefix}wprism_kv ORDER BY k",
+      "snippets" => "SELECT * FROM {$wpdb->prefix}snippets ORDER BY id",
+      "options" => "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (\"code_snippets_settings\",\"code_snippets_version\",\"active_shared_network_snippets\") ORDER BY option_name",
+    ] as $name => $query) {
+      $wpdb->last_error = "";
+      $rows = $wpdb->get_results($query, ARRAY_A);
+      if (!is_array($rows) || $wpdb->last_error !== "") {
+        throw new RuntimeException("Code Snippets recovery observation failed");
+      }
+      $state[$name] = $rows;
+    }
+    echo hash("sha256", wp_json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  ')
+  require_observed_nonempty "Code Snippets recovery storage and identity observation" "$out"
+  [[ "$out" =~ ^[a-f0-9]{64}$ ]] || fail "Code Snippets recovery observation is not a digest: $out"
+  printf '%s\n' "$out"
+}
+
 save_runtime_profile() { # <conf1|conf2> <repository|target>
   local side="$1" profile="$2" repo_var file out
   case "$side" in
@@ -315,8 +341,10 @@ CONFLICT_AFTER=$(observe_code_snippets conf2)
 [ "$(jq -r '.raw_hash' <<<"$CONFLICT_AFTER")" = "$(jq -r '.raw_hash' <<<"$CONFLICT_BEFORE")" ] \
   || fail "unforced Code Snippets conflict partially mutated table/cache/file state"
 
-FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets forced competing-row apply" json "$FORCED"
+# Native count/hash receipts cannot excuse missing intent, PHP diagnostics,
+# or failed canonical verification. Check the full stream before JSON publication.
+capture_wprism_json_checked FORCED "Code Snippets forced competing-row apply" assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json
 jq -e '
   .canary == "clean" and
   (.warnings | any(contains("FORCED conflict"))) and
@@ -349,8 +377,8 @@ require_wprism_answered "Code Snippets zero-change plan" json "$ZERO_PLAN"
 jq -e '
   ([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0
 ' <<<"$ZERO_PLAN" >/dev/null || fail "Code Snippets retry retained repository work: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets zero-change apply" json "$ZERO_APPLY"
+capture_wprism_json_checked ZERO_APPLY "Code Snippets zero-change apply" assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 [ "$(jq -r '.canary' <<<"$ZERO_APPLY")" = clean ] && [ "$(jq '.actions | length' <<<"$ZERO_APPLY")" = 0 ] \
   || fail "Code Snippets zero-change retry fired a provider or dirtied the canary: $ZERO_APPLY"
 pass "same-name target rows do not alias identity; conflicts refuse atomically, forced intent converges with a secret-safe provider receipt, disabled flat files purge, and retry is idempotent"
@@ -411,12 +439,23 @@ wp_conf1 eval '
 rm -f "$BACKUP_FILE"
 pass "snippet deletion refuses at the exact unsupported selector and publishes neither state nor partial tombstone"
 
-# The plugin's opt-in complete uninstall is the opposite lifecycle branch from
-# the retained-state case above: it drops the table, settings, and entire flat
-# tree. A subsequent exact reinstall starts with plugin samples and a primed
-# empty cache; remove those product defaults, publish a new repository intent,
-# and require one forced recovery to reconstruct all mapped identities through
-# the verified provider.
+# The complete-uninstall inverse destroys authored rows, not just derived
+# state. CanonicalLedgerMapGuard therefore requires a database-matched restore;
+# --force-theirs cannot turn retained mappings into replacement-row authority.
+# Back up the disabled-flat-files preimage before enabling files for this probe:
+# a database restore must never be credited with recovering filesystem bytes.
+capture_wprism_json_success COMPLETE_BASE_PLAN "Code Snippets plan before complete uninstall" \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$COMPLETE_BASE_PLAN" >/dev/null \
+  || fail "Code Snippets destructive-uninstall backup did not start from a clean base: $COMPLETE_BASE_PLAN"
+COMPLETE_PREIMAGE=$(observe_code_snippets conf2)
+jq -e '.raw_count == 3 and .flat_enabled == false and .flat_tree == {}' <<<"$COMPLETE_PREIMAGE" >/dev/null \
+  || fail "Code Snippets destructive-uninstall backup cannot recover the current filesystem premise: $COMPLETE_PREIMAGE"
+COMPLETE_PREIMAGE_HASH=$(code_snippets_recovery_hash)
+COMPLETE_BACKUP="$CONF_REPO2/.tmp-code-snippets-complete-uninstall.sql"
+wp_conf2 db export /siterepo/.tmp-code-snippets-complete-uninstall.sql --add-drop-table >/dev/null
+[ -s "$COMPLETE_BACKUP" ] || fail "Code Snippets destructive-uninstall database backup is empty"
+
 wp_conf2 eval 'Code_Snippets\Settings\update_setting("general", "enable_flat_files", true);' >/dev/null
 wp_conf2 eval 'do_action("code_snippets/settings_updated", Code_Snippets\Settings\get_settings_values()); Code_Snippets\Settings\update_setting("general", "complete_uninstall", true);' >/dev/null
 COMPLETE_BEFORE=$(observe_code_snippets conf2)
@@ -431,8 +470,8 @@ wp_conf2 plugin uninstall code-snippets --deactivate >/dev/null
   || fail "Code Snippets complete uninstall retained its flat-file root"
 
 wp_conf2 plugin install "$CS_ARTIFACT" --force >/dev/null
-COMPLETE_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets deploy after complete uninstall" json "$COMPLETE_DEPLOY"
+capture_wprism_json_success COMPLETE_DEPLOY "Code Snippets deploy after complete uninstall" \
+  wp_conf2 wprism deploy --repo=/siterepo --format=json
 wp_conf2 eval '
   foreach (Code_Snippets\get_snippets() as $snippet) {
     if (in_array("sample", (array) $snippet->tags, true)) {
@@ -443,18 +482,60 @@ wp_conf2 eval '
 [ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_snippets' --skip-column-names | tr -d '[:space:]')" = 0 ] \
   || fail "Code Snippets exact reinstall sample cleanup left target rows"
 
+COMPLETE_REFUSAL_HASH=$(code_snippets_recovery_hash)
+capture_wprism_json_refusal COMPLETE_LOST_PLAN "Code Snippets plan after destructive identity loss" \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
+jq -e '
+  .format == "wprism-command-refusal/v1" and .command == "plan" and
+  .reason_code == "canonical_identity_recovery_required"
+' <<<"$COMPLETE_LOST_PLAN" >/dev/null \
+  || fail "Code Snippets destructive-uninstall plan did not refuse missing canonical identities: $COMPLETE_LOST_PLAN"
+[ "$(code_snippets_recovery_hash)" = "$COMPLETE_REFUSAL_HASH" ] \
+  || fail "Code Snippets destructive-uninstall plan mutated retained identities, rows, or settings"
+capture_wprism_json_refusal COMPLETE_LOST_APPLY "Code Snippets forced apply after destructive identity loss" \
+  wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json
+jq -e '
+  .format == "wprism-command-refusal/v1" and .command == "apply" and
+  .reason_code == "canonical_identity_recovery_required"
+' <<<"$COMPLETE_LOST_APPLY" >/dev/null \
+  || fail "Code Snippets destructive-uninstall forced apply created or rebound missing identities: $COMPLETE_LOST_APPLY"
+[ "$(code_snippets_recovery_hash)" = "$COMPLETE_REFUSAL_HASH" ] \
+  || fail "Code Snippets destructive-uninstall forced apply mutated retained identities, rows, or settings"
+[ "$(observe_code_snippets conf2 | jq -c '{raw_count,flat_enabled,flat_tree}')" = '{"raw_count":0,"flat_enabled":false,"flat_tree":{}}' ] \
+  || fail "Code Snippets destructive-uninstall refusal created authored or derived state"
+
+wp_conf2 db import /siterepo/.tmp-code-snippets-complete-uninstall.sql >/dev/null
+[ "$(code_snippets_recovery_hash)" = "$COMPLETE_PREIMAGE_HASH" ] \
+  || fail "Code Snippets database recovery did not restore exact rows, settings, and matched identity history"
+[ "$(observe_code_snippets conf2)" = "$COMPLETE_PREIMAGE" ] \
+  || fail "Code Snippets database recovery did not restore its native runtime preimage"
+capture_wprism_json_success COMPLETE_RESTORED_PLAN "Code Snippets plan after database-matched recovery" \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$COMPLETE_RESTORED_PLAN" >/dev/null \
+  || fail "Code Snippets database-matched recovery retained repository work: $COMPLETE_RESTORED_PLAN"
+capture_wprism_json_checked COMPLETE_RESTORED_APPLY "Code Snippets no-op apply after database-matched recovery" assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$COMPLETE_RESTORED_APPLY" >/dev/null \
+  || fail "Code Snippets database recovery incorrectly required a reconstructive provider: $COMPLETE_RESTORED_APPLY"
+rm -f "$COMPLETE_BACKUP"
+[ ! -e "$COMPLETE_BACKUP" ] || fail "Code Snippets complete-uninstall backup survived cleanup"
+pass "complete uninstall destroys owned table/settings/files; plan and forced apply preserve missing identities, and only the matching database backup restores the native preimage"
+
+# The restored physical identities now authorize a subsequent ordinary update.
+# Credit the provider only with cache/file convergence after this new intent,
+# never with resurrecting authored rows destroyed by native complete uninstall.
 save_runtime_profile conf1 complete-uninstall-recovery
 wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
 git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: recover Code Snippets after complete uninstall'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-COMPLETE_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets plan after complete uninstall" json "$COMPLETE_PLAN"
+capture_wprism_json_success COMPLETE_PLAN "Code Snippets new intent plan after database recovery" \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 jq -e '([.create,.update,.conflict,.collision] | map(length) | add) > 0' <<<"$COMPLETE_PLAN" >/dev/null \
-  || fail "Code Snippets complete uninstall did not surface missing target state: $COMPLETE_PLAN"
-COMPLETE_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets forced recovery after complete uninstall" json "$COMPLETE_APPLY"
+  || fail "Code Snippets post-recovery repository intent did not surface new work: $COMPLETE_PLAN"
+capture_wprism_json_checked COMPLETE_APPLY "Code Snippets new intent apply after database recovery" assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '
   .canary == "clean" and (.actions | length) == 1 and
   .actions[0].source == "provider:code-snippets-state/rebuild_snippet_state" and
@@ -462,15 +543,15 @@ jq -e '
   .actions[0].after.database_hash == .actions[0].after.api_hash and
   .actions[0].after.flat_files_enabled == false and .actions[0].after.flat_file_count == 0
 ' <<<"$COMPLETE_APPLY" >/dev/null \
-  || fail "Code Snippets complete-uninstall recovery lacked a verified default-settings provider receipt: $COMPLETE_APPLY"
+  || fail "Code Snippets post-recovery update lacked a verified disabled-flat-files provider receipt: $COMPLETE_APPLY"
 COMPLETE_RECOVERED=$(observe_code_snippets conf2)
 printf '%s\n' "$COMPLETE_RECOVERED" | jq -e '
   .raw_count == 3 and .api_count == 3 and .sample_count == 0 and
   .runtime_value == "base|complete-uninstall-recovery" and
   .content_marker == true and .flat_enabled == false and .flat_tree == {}
 ' >/dev/null || fail "Code Snippets complete-uninstall recovery did not restore exact native state: $COMPLETE_RECOVERED"
-COMPLETE_RETRY=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Code Snippets plan retry after complete-uninstall recovery" json "$COMPLETE_RETRY"
+capture_wprism_json_success COMPLETE_RETRY "Code Snippets plan retry after complete-uninstall recovery" \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$COMPLETE_RETRY" >/dev/null \
   || fail "Code Snippets complete-uninstall recovery was not idempotent: $COMPLETE_RETRY"
-pass "opt-in complete uninstall removes table/settings/files; exact reinstall, sample cleanup, forced identity recovery, provider verification, and retry restore the repository state"
+pass "new repository intent after database-matched recovery converges through the verified provider without identity replacement, and retry is a no-op"

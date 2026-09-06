@@ -49,6 +49,13 @@ interface AdoptionTransport {
  * run`'s own container-lifecycle chatter, which lands on stderr).
  */
 abstract class Transport implements BoundedControlDriver {
+    private const RAW_CONTROL_FRAME_FORMAT = 'wprism-raw-control-frame/v1';
+    private const RAW_CONTROL_FRAME_MAX_PROGRAM_BYTES = 65536;
+    private const RAW_CONTROL_FRAME_MAX_ARGUMENTS = 256;
+    private const RAW_CONTROL_FRAME_MAX_ARGUMENT_BYTES = 65536;
+    private const RAW_CONTROL_FRAME_MAX_INNER_BYTES = 1048576;
+    private const RAW_CONTROL_FRAME_OUTER_STDERR_BYTES = 65536;
+    private const RAW_CONTROL_FRAME_OVERHEAD_BYTES = 1024;
     private const NANOS_PER_SECOND = 1000000000;
     private const TERMINATION_GRACE_NS = 250000000;
     private const DRAIN_DEADLINE_NS = 2000000000;
@@ -247,6 +254,196 @@ abstract class Transport implements BoundedControlDriver {
             $maxStdoutBytes,
             $maxStderrBytes
         );
+    }
+
+    /**
+     * @param list<string> $arguments
+     * @return array{
+     *   verified:bool,
+     *   exit:int,
+     *   stdout:string,
+     *   stderr:string,
+     *   transport_exit:int,
+     *   transport_stderr:string,
+     *   failure:?string
+     * }
+     */
+    public function captureRawFramed(
+        string $phpTupleProgram,
+        array $arguments,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        if ($phpTupleProgram === ''
+            || strlen($phpTupleProgram) > self::RAW_CONTROL_FRAME_MAX_PROGRAM_BYTES
+            || !array_is_list($arguments)
+            || count($arguments) > self::RAW_CONTROL_FRAME_MAX_ARGUMENTS
+            || $maxStdoutBytes < 1
+            || $maxStdoutBytes > self::RAW_CONTROL_FRAME_MAX_INNER_BYTES
+            || $maxStderrBytes < 1
+            || $maxStderrBytes > self::RAW_CONTROL_FRAME_MAX_INNER_BYTES) {
+            throw new \InvalidArgumentException('framed raw control inputs are outside the reviewed envelope');
+        }
+        $argumentBytes = 0;
+        foreach ($arguments as $argument) {
+            if (!is_string($argument)
+                || str_contains($argument, "\0")) {
+                throw new \InvalidArgumentException('framed raw control argument is outside the reviewed envelope');
+            }
+            $argumentBytes += strlen($argument);
+            if ($argumentBytes > self::RAW_CONTROL_FRAME_MAX_ARGUMENT_BYTES) {
+                throw new \InvalidArgumentException('framed raw control arguments exceed the reviewed envelope');
+            }
+        }
+
+        $nonce = bin2hex(random_bytes(16));
+        $format = var_export(self::RAW_CONTROL_FRAME_FORMAT, true);
+        $wrapper = '$frameFormat = ' . $format . ";\n" . <<<'PHP'
+$nonce = (string) ($argv[1] ?? '');
+$maxStdoutBytes = filter_var($argv[2] ?? null, FILTER_VALIDATE_INT);
+$maxStderrBytes = filter_var($argv[3] ?? null, FILTER_VALIDATE_INT);
+if (preg_match('/^[a-f0-9]{32}$/D', $nonce) !== 1
+    || !is_int($maxStdoutBytes) || $maxStdoutBytes < 1
+    || !is_int($maxStderrBytes) || $maxStderrBytes < 1) {
+    exit(64);
+}
+$arguments = array_slice($argv, 4);
+$operation = static function (array $arguments): array {
+PHP;
+        $wrapper .= "\n" . $phpTupleProgram . "\n";
+        $wrapper .= <<<'PHP'
+};
+
+@ini_set('display_errors', '0');
+@ini_set('log_errors', '0');
+error_reporting(E_ALL);
+$priorLevel = ob_get_level();
+ob_start();
+set_error_handler(static function (int $severity): bool {
+    if ((error_reporting() & $severity) === 0) {
+        return false;
+    }
+    throw new ErrorException('framed raw control program emitted a PHP diagnostic', 0, $severity);
+});
+try {
+    $tuple = $operation($arguments);
+    $leaked = ob_get_clean();
+} catch (Throwable $failure) {
+    unset($failure);
+    $leaked = '';
+    while (ob_get_level() > $priorLevel) {
+        $chunk = ob_get_clean();
+        if (is_string($chunk)) {
+            $leaked = $chunk . $leaked;
+        }
+    }
+    $tuple = ['exit' => 255, 'stderr' => 'framed raw control program failed', 'stdout' => ''];
+} finally {
+    restore_error_handler();
+}
+
+$keys = is_array($tuple) ? array_keys($tuple) : [];
+sort($keys, SORT_STRING);
+if (!is_string($leaked) || $leaked !== ''
+    || $keys !== ['exit', 'stderr', 'stdout']
+    || !is_int($tuple['exit'] ?? null)
+    || $tuple['exit'] < 0 || $tuple['exit'] > 255
+    || !is_string($tuple['stdout'] ?? null)
+    || !is_string($tuple['stderr'] ?? null)
+    || strlen($tuple['stdout']) > $maxStdoutBytes
+    || strlen($tuple['stderr']) > $maxStderrBytes) {
+    $tuple = ['exit' => 255, 'stderr' => 'framed raw control program returned an invalid tuple', 'stdout' => ''];
+}
+
+$frame = [
+    'exit' => $tuple['exit'],
+    'format' => $frameFormat,
+    'nonce' => $nonce,
+    'stderr_base64' => base64_encode($tuple['stderr']),
+    'stdout_base64' => base64_encode($tuple['stdout']),
+];
+$encoded = json_encode($frame, JSON_UNESCAPED_SLASHES);
+if (!is_string($encoded)) {
+    exit(65);
+}
+echo $encoded;
+PHP;
+
+        $command = 'php -r ' . escapeshellarg($wrapper)
+            . ' ' . escapeshellarg($nonce)
+            . ' ' . escapeshellarg((string) $maxStdoutBytes)
+            . ' ' . escapeshellarg((string) $maxStderrBytes);
+        foreach ($arguments as $argument) {
+            $command .= ' ' . escapeshellarg($argument);
+        }
+        // This redirect lives inside the raw target snippet, so PHP engine or
+        // program stderr contaminates the exact frame and fails closed while
+        // Docker/SSH lifecycle stderr remains on the outer transport pipe.
+        $command .= ' 2>&1';
+        $encodedBytes = 4 * (
+            intdiv($maxStdoutBytes + 2, 3)
+            + intdiv($maxStderrBytes + 2, 3)
+        );
+        $frameLimit = self::RAW_CONTROL_FRAME_OVERHEAD_BYTES + $encodedBytes;
+        $outer = $this->captureRawBounded(
+            $command,
+            $timeoutMilliseconds,
+            $frameLimit,
+            self::RAW_CONTROL_FRAME_OUTER_STDERR_BYTES
+        );
+        $invalid = static fn(string $failure): array => [
+            'verified' => false,
+            'exit' => 255,
+            'stdout' => '',
+            'stderr' => '',
+            'transport_exit' => (int) ($outer['exit'] ?? 255),
+            'transport_stderr' => (string) ($outer['stderr'] ?? ''),
+            'failure' => $failure,
+        ];
+        if (($outer['exit'] ?? 255) !== 0
+            || !is_string($outer['stdout'] ?? null)
+            || !is_string($outer['stderr'] ?? null)) {
+            return $invalid('outer_failure');
+        }
+        try {
+            $frame = json_decode($outer['stdout'], true, 32, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $failure) {
+            unset($failure);
+            return $invalid('invalid_frame');
+        }
+        if (!is_array($frame)
+            || array_keys($frame) !== ['exit', 'format', 'nonce', 'stderr_base64', 'stdout_base64']
+            || !is_int($frame['exit'] ?? null)
+            || $frame['exit'] < 0 || $frame['exit'] > 255
+            || ($frame['format'] ?? null) !== self::RAW_CONTROL_FRAME_FORMAT
+            || !is_string($frame['nonce'] ?? null)
+            || !hash_equals($nonce, $frame['nonce'])
+            || !is_string($frame['stdout_base64'] ?? null)
+            || !is_string($frame['stderr_base64'] ?? null)) {
+            return $invalid('invalid_frame');
+        }
+        $canonical = json_encode($frame, JSON_UNESCAPED_SLASHES);
+        $stdout = base64_decode($frame['stdout_base64'], true);
+        $stderr = base64_decode($frame['stderr_base64'], true);
+        if (!is_string($canonical)
+            || !hash_equals($canonical, $outer['stdout'])
+            || !is_string($stdout) || !is_string($stderr)
+            || base64_encode($stdout) !== $frame['stdout_base64']
+            || base64_encode($stderr) !== $frame['stderr_base64']
+            || strlen($stdout) > $maxStdoutBytes
+            || strlen($stderr) > $maxStderrBytes) {
+            return $invalid('invalid_frame');
+        }
+        return [
+            'verified' => true,
+            'exit' => $frame['exit'],
+            'stdout' => $stdout,
+            'stderr' => $stderr,
+            'transport_exit' => $outer['exit'],
+            'transport_stderr' => $outer['stderr'],
+            'failure' => null,
+        ];
     }
 
     /** @return array{exit:int, stdout:string, stderr:string} */

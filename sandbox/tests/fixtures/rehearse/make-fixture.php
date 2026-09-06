@@ -18,7 +18,9 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/cli/src/Contract/ProjectionVocabulary.php';
+require_once dirname(__DIR__, 4) . '/cli/src/Plan/PlanContract.php';
 
+use WPrism\Orchestrator\PlanContract;
 use WPrism\Orchestrator\ProjectionVocabulary;
 
 $out = $argv[1] ?? '';
@@ -263,6 +265,13 @@ $surfaces = [
 ];
 
 $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR;
+PlanContract::requireComplete($plan, 'rehearse fixture');
+$categoryViolations = PlanContract::categorySummaryViolations($plan['category_summary'] ?? null);
+if ($categoryViolations !== []) {
+    throw new RuntimeException(
+        'rehearse fixture: invalid category summary (' . implode(', ', $categoryViolations) . ')'
+    );
+}
 file_put_contents($out . '/plan.json', json_encode($plan, $flags) . "\n");
 file_put_contents($out . '/surfaces.json', json_encode($surfaces, $flags) . "\n");
 echo "rehearse fixture written to $out\n";

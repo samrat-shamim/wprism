@@ -14,7 +14,6 @@ require_once $repoRoot . '/agent/src/Kernel/Canon.php';
 require_once $repoRoot . '/agent/src/Policy/Policy.php';
 require_once $repoRoot . '/agent/src/Capture/CaptureSafetyGates.php';
 require_once $repoRoot . '/agent/src/Capture/EntityMetaCapture.php';
-require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/contact-form-7.php';
 
 use WPrism\CaptureSafetyGates;
 use WPrism\EntityMetaCapture;

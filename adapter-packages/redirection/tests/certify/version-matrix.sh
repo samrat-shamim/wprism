@@ -159,6 +159,7 @@ wp2 wprism deploy --repo=/siterepo
 prepare_redirection_boundary_target
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
 wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+assert_version_matrix_apply_ready
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at redirection $REDIRECTION_VERSION"
 check_redirection_boundary_content

@@ -1,0 +1,7 @@
+{
+    "format": "wprism-adapter-external-evidence/v1",
+    "tests": {
+        "regress-rank-math-yoast-incompatibility": "integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh",
+        "regress-woocommerce-rewrite-coinstall": "integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh"
+    }
+}

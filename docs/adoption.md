@@ -22,9 +22,25 @@ The target needs PHP 8+ with Sodium and `fsync()`, a working `wp` command,
 `tar`, and a WordPress install. It does **not**
 need Git. The SSH account must be able to write:
 
-- WordPress's actual `WPMU_PLUGIN_DIR` (discovered with `wp eval`, never
-  guessed from `wp_path`);
+- WordPress's verified control-plane directory; initial adoption discovers
+  the standard `wp-content/mu-plugins` layout through an isolated WordPress
+  bootstrap, never by trusting a configured path alone;
 - the environment's configured `repo_path`.
+
+An absent `repo_path` is not clear recovery state. Initial adoption must prove
+that the repository, prior agent/loader, durable control, and transaction
+authority are all absent, with ordinary accessible ancestors. It repeats that
+proof before staging and rechecks the publication boundary under the agent
+generation writer lock. A lost repository beside an existing WPrism control
+plane remains a recovery refusal; do not create an empty replacement to bypass
+it. Initial SSH and local discovery require the standard content/MU layout and
+refuse an explicit `WPMU_PLUGIN_DIR`, relocated `WP_CONTENT_DIR`, or `SUNRISE`.
+The existing-repository SSH update path retains its normal recovery preflight.
+Initial probes suppress WordPress cron within their own process, so they do not
+write its transient or start background loopback work. An explicitly false
+`DISABLE_WP_CRON` in `wp-config.php` prevents that isolation and refuses initial
+adoption; remove the redundant definition or set it to `true` before retrying.
+The adoption command does not edit `wp-config.php`.
 
 Configure the target in `site.wprism.json` or the machine-local,
 gitignored `.wprism-envs.json`:
@@ -60,7 +76,7 @@ Local delivery is a privileged opt-in and must live in untracked
 
 That exact closed object authorizes only the mechanism. Checked-in repository
 configuration cannot self-label it machine-local. `wprism driver-capabilities`
-remains target-free; `wprism adopt` separately emits a read-only eligibility
+remains target-free; `wprism adopt` separately evaluates a read-only eligibility
 report and refuses before archive allocation or target writes unless every
 target check passes. Docker has no adoption capability at this version.
 
@@ -136,13 +152,16 @@ cli/wprism adopt production
 
 Adoption performs these operations:
 
-1. negotiates explicit transport authority; for local targets, proves a
-   normalized, disjoint, ordinary, writable filesystem topology and a wholly
-   absent prior WPrism agent/loader/adapter-library/rollback authority without
-   writes;
-2. verifies reachability and installed WordPress; local adoption discovers the
-   standard `WPMU_PLUGIN_DIR` through a plugin-free control bootstrap, while
-   SSH preserves its existing target-discovered path contract;
+1. negotiates explicit transport authority and checks external recovery debt;
+   a genuinely absent repository requires positive initial-bootstrap authority
+   rather than an exception to the recovery fence. Local targets additionally
+   retain their initial-only eligibility requirement;
+2. verifies reachability and installed single-site WordPress; initial adoption discovers
+   the standard `WPMU_PLUGIN_DIR` through a plugin-free control bootstrap and
+   proves a normalized, disjoint, ordinary, writable filesystem topology. Its
+   pre-write WordPress probes also shadow existing MU code; the single-site
+   check never falls back to loading that code before installation.
+   Existing-repository SSH updates retain their target-discovered path contract;
 3. assembles `adapter-packages/*/package/` and `platform/adapter-library/`
    into staging's `agent/adapter-library/`, then sends one archive containing
    exactly the assembled `agent/` and public recovery-runtime trees;
@@ -198,6 +217,24 @@ overlapping operators. If the host process is killed so abruptly that
 `.wprism-adopt-lock` remains, adoption fails loudly and requires operator
 inspection rather than guessing whether the interrupted release should be
 committed or restored.
+
+The first release carrying the agent-generation fence cannot retroactively
+lock a PHP or WP-CLI process that already loaded the prior five-line MU loader.
+Adopt therefore recognizes that one legacy loader by its exact SHA-256 and
+refuses before upload or target mutation. Hold traffic, stop or drain every
+process that could have loaded the old loader, keep the target quiescent until
+the command returns, and make the one-time boundary explicit:
+
+```sh
+cli/wprism adopt production --attest-legacy-loader-quiesced
+```
+
+The flag is rejected on a fresh target, an already-fenced target, or any
+lookalike/custom loader. The host binds its decision to the exact probed loader
+hash, and the target repeats that probe under the exclusive generation lock
+before copying authority or moving a live control-plane path. An interrupted
+cutover retains the hash and attestation in its transaction evidence. Later
+fenced-to-fenced updates need no attestation.
 
 The control root holds `target.json`, `target.lock`, immutable public keys,
 and the installed runtime. Receipts and signed event chains live beside it at
@@ -507,6 +544,20 @@ anything out of service. It then proves WordPress still loads and that
 `WPRISM_AGENT_VERSION` is absent before committing removal. A stale plan or failed
 verification restores all three live surfaces; the complete archive remains as
 operator evidence.
+
+Offboarding the exact pre-fence loader has the same one-time process boundary.
+After holding traffic and draining every PHP/WP-CLI process that could have
+loaded it, keep the target quiescent through completion and run:
+
+```sh
+cli/wprism unadopt production --archive-to=/srv/client-handoff/wprism-control-2026-08-29 \
+  --attest-legacy-loader-quiesced
+```
+
+Without that flag, no archive or transaction path is created and no live byte
+moves. A successful legacy offboarding records the exact loader state and the
+quiescence attestation in `receipt.json`; the flag is rejected for a fenced or
+foreign loader.
 
 Offboarding never removes `site.wprism.json`, `code/`, `media/`, `state/`, Git
 history or attributes, or the MU directory's `wprism-control/` durable revocation

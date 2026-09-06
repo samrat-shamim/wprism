@@ -15,6 +15,12 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SANDBOX="$ROOT/sandbox"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$SANDBOX/lib/pair_db.sh"
+pair_db_select_engine
+[ "$WPRISM_DB_ENGINE" = mariadb ] \
+  || fail "rehearsal containment reference-provider evidence requires MariaDB; got WPRISM_DB_ENGINE=$WPRISM_DB_ENGINE"
+
 PAIR=$([ "$TOPOLOGY_ONLY" -eq 1 ] && printf containprobe || printf containlive)
 PORT1=9340
 PORT2=9341
@@ -36,7 +42,6 @@ export WPRISM_CLI_IMAGE="${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}"
 export WPRISM_SHARED_DB_PORT="$SHARED_DB_PORT"
 
 pass() { printf 'ok: %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pair_wp() {
   local side=$1
   shift

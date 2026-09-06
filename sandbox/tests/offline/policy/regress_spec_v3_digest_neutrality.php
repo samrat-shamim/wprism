@@ -7,8 +7,8 @@
  * compiled artifact bind. This suite names the current product baseline as
  * literals: it does not retain a prior-product transition or silently compare
  * two fresh derivations. A package change must therefore re-pin the exact
- * affected digest, manifest hash, registry address, and frozen-policy
- * snapshot deliberately.
+ * affected digest, compatible-world manifest hashes, registry address, and
+ * frozen-policy snapshots deliberately.
  */
 declare(strict_types=1);
 
@@ -35,10 +35,12 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-const BASELINE_FIXTURE_SHA256 = '8faff36093691b5d0193020c9ace02b7f459d5032cc95ccecca067dd2f628fe7';
-const ALL_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
-const REGISTRY_SHA256 = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
-const SNAPSHOT_SHA256 = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
+const BASELINE_FIXTURE_SHA256 = '06cc60a9e831115ba8806c02d70d7e86b0f47e1ea6295744b9437f8d4fb7224a';
+const RANK_WORLD_MANIFEST_HASH = '79b9d1cefcd7756ee845f888e5ca90b8a172053710617b6e3d03218dc9a76b9e';
+const YOAST_WORLD_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
+const REGISTRY_SHA256 = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'c2ce88f5164a59e0ecd307ba35bb322b3b9edff72d5569c06138643dafc72aa6';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
@@ -51,31 +53,54 @@ wprism_check_same(
     'the baseline fixture itself is byte-pinned, so changing its exact maps is a visible re-pin'
 );
 $baseline = Canon::decode(Canon::read_file($fixturePath));
-wprism_check_same('wprism-greenfield-identity/v1', $baseline['format'] ?? null, 'the baseline declares its WPrism-only format');
-wprism_check_same(ALL_MANIFEST_HASH, $baseline['pin_sets']['all-17']['manifest_hash'] ?? null, 'the all-manifest baseline is the explicit current address');
+wprism_check_same('wprism-greenfield-identity/v2', $baseline['format'] ?? null, 'the baseline declares its WPrism-only format');
+wprism_check_same(RANK_WORLD_MANIFEST_HASH, $baseline['pin_sets']['rank-world']['manifest_hash'] ?? null, 'the Rank-compatible maximal world has an explicit current address');
+wprism_check_same(YOAST_WORLD_MANIFEST_HASH, $baseline['pin_sets']['yoast-world']['manifest_hash'] ?? null, 'the Yoast-compatible maximal world has an explicit current address');
 wprism_check_same(REGISTRY_SHA256, $baseline['registry_sha256'] ?? null, 'the registry baseline is the explicit current address');
-wprism_check_same(SNAPSHOT_SHA256, $baseline['snapshot_sha256'] ?? null, 'the frozen-policy snapshot baseline is the explicit current address');
+wprism_check_same(RANK_WORLD_SNAPSHOT_SHA256, $baseline['pin_sets']['rank-world']['snapshot_sha256'] ?? null, 'the Rank-compatible frozen-policy snapshot has an explicit current address');
+wprism_check_same(YOAST_WORLD_SNAPSHOT_SHA256, $baseline['pin_sets']['yoast-world']['snapshot_sha256'] ?? null, 'the Yoast-compatible frozen-policy snapshot has an explicit current address');
 
-// The order of this set is part of the exported policy snapshot and therefore
-// its hash. Do not sort it: a pin-order change is an identity change that this
-// suite must expose rather than normalize away.
-$allPins = $baseline['pin_sets']['all-17']['pins'] ?? null;
-wprism_check(is_array($allPins) && array_is_list($allPins), 'the all-manifest baseline carries one ordered pin list');
-if (!is_array($allPins)) {
-    throw new RuntimeException('baseline all-17 pins are unavailable');
+// Pin order is part of each exported policy snapshot. Do not sort the world
+// lists themselves: an order change is an identity change this suite exposes.
+$rankPins = $baseline['pin_sets']['rank-world']['pins'] ?? null;
+$yoastPins = $baseline['pin_sets']['yoast-world']['pins'] ?? null;
+wprism_check(is_array($rankPins) && array_is_list($rankPins), 'the Rank-compatible world carries one ordered pin list');
+wprism_check(is_array($yoastPins) && array_is_list($yoastPins), 'the Yoast-compatible world carries one ordered pin list');
+if (!is_array($rankPins) || !is_array($yoastPins)) {
+    throw new RuntimeException('baseline compatible-world pins are unavailable');
 }
+$baselineNames = array_keys((array) ($baseline['adapter_digests'] ?? []));
+wprism_check_same(array_values(array_diff($baselineNames, ['yoast'])), $rankPins, 'the Rank-compatible world is exactly all shipped adapters except Yoast');
+wprism_check_same(array_values(array_diff($baselineNames, ['rank-math'])), $yoastPins, 'the Yoast-compatible world is exactly all shipped adapters except Rank Math');
+wprism_check_same(17, count($rankPins), 'the Rank-compatible maximal world contains 17 adapters');
+wprism_check_same(17, count($yoastPins), 'the Yoast-compatible maximal world contains 17 adapters');
+$worldUnion = array_values(array_unique(array_merge($rankPins, $yoastPins)));
+sort($worldUnion, SORT_STRING);
+wprism_check_same($baselineNames, $worldUnion, 'the two compatible worlds jointly cover all shipped adapters');
+wprism_check_same(['rank-math'], array_values(array_diff($rankPins, $yoastPins)), 'only Rank Math distinguishes the Rank-compatible world');
+wprism_check_same(['yoast'], array_values(array_diff($yoastPins, $rankPins)), 'only Yoast distinguishes the Yoast-compatible world');
 
 echo "\nPART 1 — exact adapter identity map\n";
-$allPolicy = Policy::load(null, $allPins, adapterLibrary: $adapterLibrary);
+$worldPolicies = [
+    'rank-world' => Policy::load(null, $rankPins, adapterLibrary: $adapterLibrary),
+    'yoast-world' => Policy::load(null, $yoastPins, adapterLibrary: $adapterLibrary),
+];
 $observedDigests = [];
-foreach (ArtifactPolicyIdentity::resolved_adapters($allPolicy) as $row) {
-    $observedDigests[(string) $row['name']] = (string) $row['digest'];
+foreach ($worldPolicies as $world => $policy) {
+    foreach (ArtifactPolicyIdentity::resolved_adapters($policy) as $row) {
+        $name = (string) $row['name'];
+        $digest = (string) $row['digest'];
+        if (isset($observedDigests[$name]) && $observedDigests[$name] !== $digest) {
+            throw new RuntimeException("adapter '$name' has inconsistent identity across compatible world '$world'");
+        }
+        $observedDigests[$name] = $digest;
+    }
 }
 ksort($observedDigests, SORT_STRING);
 wprism_check_same(
     $baseline['adapter_digests'] ?? null,
     $observedDigests,
-    'all 17 shipped WPrism adapter digests exactly match the greenfield baseline'
+    'the union of both valid maximal worlds exactly matches all 18 shipped adapter digests'
 );
 wprism_check_same(
     array_keys($baseline['adapter_digests'] ?? []),
@@ -119,11 +144,17 @@ wprism_check_same(
     $observedPinHashes,
     'every representative repository pin map exactly binds its current WPrism manifest hash'
 );
-wprism_check_same(
-    ALL_MANIFEST_HASH,
-    ArtifactPolicyIdentity::manifest_hash($allPolicy),
-    'the ordered all-17 pin map binds the supplied current all-manifest hash'
-);
+$worldManifestHashes = [
+    'rank-world' => RANK_WORLD_MANIFEST_HASH,
+    'yoast-world' => YOAST_WORLD_MANIFEST_HASH,
+];
+foreach ($worldManifestHashes as $world => $expectedHash) {
+    wprism_check_same(
+        $expectedHash,
+        ArtifactPolicyIdentity::manifest_hash($worldPolicies[$world]),
+        "the ordered $world pin map binds its supplied current manifest hash"
+    );
+}
 
 echo "\nPART 3 — exact reviewed-registry and snapshot maps\n";
 wprism_check_same(
@@ -131,11 +162,17 @@ wprism_check_same(
     ManifestDispositions::load_library($adapterLibrary)->sha256(),
     'the reviewed disposition registry exactly matches the current WPrism address every host contract pins'
 );
-wprism_check_same(
-    SNAPSHOT_SHA256,
-    hash('sha256', Canon::encode($allPolicy->export_snapshot())),
-    'the ordered all-17 frozen policy snapshot exactly matches the current WPrism address'
-);
+$worldSnapshotHashes = [
+    'rank-world' => RANK_WORLD_SNAPSHOT_SHA256,
+    'yoast-world' => YOAST_WORLD_SNAPSHOT_SHA256,
+];
+foreach ($worldSnapshotHashes as $world => $expectedHash) {
+    wprism_check_same(
+        $expectedHash,
+        hash('sha256', Canon::encode($worldPolicies[$world]->export_snapshot())),
+        "the ordered $world frozen policy snapshot exactly matches its current WPrism address"
+    );
+}
 
 echo "\nPART 4 — mutated platform boundaries refuse\n";
 $scratch = $repo . '/sandbox/tmp/wprism-greenfield-identity-mixed';

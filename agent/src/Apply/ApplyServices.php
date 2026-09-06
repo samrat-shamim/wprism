@@ -232,6 +232,7 @@ final class ApplyServices {
             $this->callbacks->taxonomyOwnership,
             $this->callbacks->renewPromotionLock,
             $this->callbacks->lockDeleteGuards,
+            $this->callbacks->deletionDatabaseProfile,
             $this->callbacks->recheckDeleteGuard,
             $this->callbacks->verifyDeleteCommit,
             $this->callbacks->endDeleteTransaction

@@ -3,8 +3,12 @@
 A manifest is how WPrism learns what one plugin's state *means*: which keys are
 portable authored intent, which are environment-local noise, which hold entity
 references that must be rewritten across environments, and which tables it may
-touch at all. The engine holds no plugin names and no plugin logic — every
-plugin-specific fact lives in a manifest.
+touch at all. The engine holds no plugin-specific storage or repair branch —
+every behavioral fact lives in a capsule. It does carry one generated list of
+the names shipped in the trusted library, used only to reserve those identities
+from out-of-tree namespace squatting. That list is derived from the package
+tree by `tools/shipped-identity-inventory.php`; it is not plugin logic or a
+second catalog an author maintains.
 
 This guide is the authoring loop. The normative format is
 [spec/repo-format.md § Adapter manifests (package format)](../../spec/repo-format.md#adapter-manifests-package-format),
@@ -37,8 +41,15 @@ adapter-packages/<name>/
       regenerators/<name>.php        # \WPrism\Regenerators\<Name>
       providers/<id>.php             # \WPrism\Providers\<Id>
   tests/                             # offline/live/certify/conformance evidence
-  fixtures/
+    offline/regress_<name>_*.php
+    conformance/{entry.json,seed.sh,check.sh}
+    certify/version-matrix.sh
+  fixtures/                          # capsule-owned historical/probe inputs
   evidence/
+    artifacts.lock.json              # exact official artifact URLs + sha256
+    production-readiness.json        # all 12 hostile scenario families
+    target-observation-premises.tsv  # ratchet for live observations/fixtures
+    external-tests.json              # optional integration-scenario citations
 
 platform/adapter-library/
   core/{manifest,disposition}.json
@@ -135,21 +146,34 @@ implementations can no longer share one manifest revision's identity.
 > `agent/src` class file. `manifest_rows()` folds manifest JSON bytes,
 > disposition bytes, and the sha256 of the named hook files — nothing else.
 
+After an intentional shipped-byte edit, measure the changed identities before
+updating the current literal baselines in `regress_disposition_split.php`,
+`regress_spec_v3_digest_neutrality.php` and their
+`sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json` fixture.
+Re-pin only measured changed addresses, including the fixture's own byte hash;
+leave historical transitions and frozen executable-debt hashes untouched.
+A provider-only edit can move its adapter and compatible manifest hashes while
+leaving manifest JSON, the disposition registry and policy snapshots unchanged.
+Run both identity owners before the aggregate: capsule validation does not
+replace those cross-library identity checks.
+
 ## The minimal worked example
 
-[`adapter-packages/contact-form-7/package/manifest.json`](../../adapter-packages/contact-form-7/package/manifest.json) is about
-as small as a real adapter gets. Stripped of its notes, it is six keys:
+[`adapter-packages/classic-editor/package/manifest.json`](../../adapter-packages/classic-editor/package/manifest.json)
+is the current honest minimal product adapter. Stripped of its evidence notes,
+it is a plugin boundary plus two authored options:
 
 ```json
 {
   "spec_version": 2,
-  "name": "contact-form-7",
-  "plugin": "contact-form-7/wp-contact-form-7.php",
-  "version_range": {"min": "6.0.0", "max": "7.0.0"},
+  "name": "classic-editor",
+  "option_autoload": "preserve",
+  "plugin": "classic-editor/classic-editor.php",
+  "version_range": {"min": "1.7.0", "max": "1.7.1"},
   "notes": ["…"],
-  "post_meta": {
-    "_form": {"class": "authored"},
-    "_hash": {"class": "authored"}
+  "options": {
+    "classic-editor-allow-users": {"class": "authored"},
+    "classic-editor-replace": {"class": "authored"}
   }
 }
 ```
@@ -162,13 +186,11 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   are deliberately staging an older manifest across an engine move. Ask the
   engine rather than guessing: `wprism manifest-validate --emit-schema` prints the
   accepted set in `spec_window`, measured from the shipped refusal.
-- **Two defaults apply, and they are not the same number.** Every shipped
-  manifest today declares `2` (`N-1`) — inspect
-  `adapter-packages/*/package/manifest.json` and see zero
-  exceptions — because AGENTS.md rule 2 makes editing a working manifest's
-  bytes an adapter-identity move: nobody bumps the integer just to bump it, so
-  the library sits one behind `WPRISM_SPEC_VERSION` until an adapter has an actual
-  reason to move. A **new out-of-tree manifest** should declare `3` if and only
+- **Two defaults apply, and they are not the same number.** Existing shipped
+  manifests legitimately span `2` (`N-1`) and `3` (`N`) because AGENTS.md rule
+  2 makes changing a working manifest's version an adapter-identity move:
+  nobody bumps the integer without using a new primitive. A **new out-of-tree
+  manifest** should declare `3` if and only
   if it wants a post-v3 primitive (`engine_features` and the sections it
   claims — [see below](#the-grammar-document)). Every feature is load-bearing:
   removing it must make the section it admits refuse. Site certification uses
@@ -185,10 +207,30 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   unbounded form, because an unbounded claim is not certifiable. Two pinned
   manifests naming the same plugin with different ranges is also refused
   outright: manifest precedence must never depend on pin order.
-- `notes` is where the *evidence* for every rule lives. Read CF7's: each entry
+- `notes` is where the *reasoning* for every rule lives. Read Classic Editor's:
+  each entry
   names what was verified live, against which version, through which code
-  path. That is the standard. A rule without an evidence note is a guess with
-  better formatting.
+  path. Executable evidence lives in the capsule's tests and evidence records;
+  the note connects those observations to the declaration. A rule without that
+  connection is a guess with better formatting.
+
+### Environment intent must have a provisioning path
+
+For a top-level `options.<name>.class: "env"` rule, `required: true` promises
+an operator-supplied intended value through public `wprism env-set --stdin`.
+That command accepts a whole scalar string, not a structured plugin settings
+blob: overwriting the parent would destroy its authored and target-local
+siblings. `OptionGrammar` therefore refuses `required: true` together with
+nonempty `sub_keys` before target contact.
+
+A plugin-managed structured parent needs `required: false` and evidence that
+its native activation or installation path populates it; each sub-key keeps
+its own classification. Redirection's native `red_set_options()` /
+`Red_Options::save()` lifecycle is one measured example. Do not lower a required
+flag merely to silence a live warning, auto-bind ambient values as intent, or
+teach the scalar provisioning command to replace a structured object. If a
+genuinely operator-required structured value has no safe provisioning path,
+that is a product-boundary gap to design and test before claiming support.
 
 ### Finding the two versions the range names
 
@@ -282,6 +324,48 @@ than in a static key list,
 [`adapter-packages/acf/package/manifest.json`](../../adapter-packages/acf/package/manifest.json) is
 the reference.
 
+### One stored number, multiple native keyspaces
+
+Trace every native writer and reader of a reference option. One value may be
+consumed as both `term_id` and `term_taxonomy_id`; observing that those numbers
+happen to coincide on a fresh site is not evidence that they share a keyspace.
+WooCommerce's `default_product_cat` is the concrete case: its installer and
+batch assignment use TT ids, while its admin and default-term APIs use term ids.
+
+For this modeled coordinate pair, declare `scalar-reference-intersection/v1`
+and one exact authored option with `ref: "term"`,
+`ref_same_local_id_as: ["tt"]`, and required `ref_taxonomy: "product_cat"`.
+The engine checks physical rows, canonical taxonomy, and both identity bindings;
+canonical state still contains the ordinary term token. A default whose two
+native interpretations disagree refuses. A force flag cannot make that value
+portable. Neither an interpreter nor an authored site override may replace this
+static value contract; a whole-option runtime/derived exclusion relinquishes
+propagation, and an env exclusion makes provisioning operator-owned instead.
+
+Test an actually changed default, equal default coordinates with *other* terms
+divergent, wrong-category collisions, missing/partial maps, physical-table drift,
+and fresh activation before identity minting. The last case has a narrow
+options-only lifecycle projection for a physically valid tuple with both mappings
+absent, bound to the desired-state handoff. Ordinary capture, production export,
+and read-only explain must not use that projection; test an excluded taxonomy
+too, where the full entity walk cannot supply the identity guard.
+
+Also exercise first Apply against the installer's unmapped default, without
+seeding a synthetic identity map. Ordinary planning can compare that reference
+using the unique desired taxonomy/slug/parent identity witnessed during its full
+target snapshot. This comparison writes no identity and omits no authored
+option: the plan still reports a collision unless term adoption was explicitly
+requested. The authored transaction must install both coordinates and verify
+the physical tuple again before materializing the option. Partial maps, a UUID
+already live elsewhere, ambiguous natural keys, and failed reads still refuse.
+Production export and read-only explain continue to require durable identities.
+The shared product regression is
+`sandbox/tests/offline/apply/regress_plan_reference_adoption.php`; adapter live
+evidence must also prove native behavior after adoption and a fixed-point retry.
+Do not align all fixture ids or filter warnings to turn the unsupported domain
+into a positive case. See
+[the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
+
 ### Deleting what you author
 
 Authoring a post type does not make its rows deletable through WPrism. A capture
@@ -360,6 +444,74 @@ the ordinary InnoDB, covering-index, row-lock, and reference-clearance proof.
 Required absence, mixed modes for one table, malformed declarations, census
 errors, and near matches all refuse.
 
+#### Active executable owners and successful deletion evidence
+
+A complete database guard list still says nothing about code that can create a
+new reverse reference through a delete hook. For a plugin-owned selector whose
+safety depends on the exact active executable set, declare
+`"executable_owner_boundary": "all_active_owners"` and bind the declaring
+plugin or theme to its reviewed `wprism-executable-tree/v1` identities in
+`executable_owner_identities`. The WooCommerce `post:product` declaration is
+the reference implementation.
+
+This boundary is intentionally conjunctive. Every active plugin must have a
+pinned adapter declaration for that same selector, and every active plugin,
+theme, MU plugin, and drop-in must have an exact
+`wprism-deletion-owner-agreements/v2` site agreement for its live tree. A site
+agreement cannot manufacture adapter authority for a plugin. Do not copy a
+selector into another adapter merely to make a combination test pass: that
+declaration requires its own source audit of reverse references, hook effects,
+and exact executable identities, and it changes the adapter's fleet-visible
+digest.
+
+Generate each reviewed identity through the target's bounded engine observer,
+not a package-local filesystem walker:
+
+```sh
+wp wprism executable-owner-observe --owner=plugin:woocommerce/woocommerce.php
+wp wprism executable-owner-observe --owner=theme:storefront
+```
+
+The command returns only canonical `{owner, code_identity}` JSON for that one
+caller-selected owner. It cannot enumerate required owners, add a rationale,
+write site policy, satisfy an adapter declaration, or grant deletion authority.
+The author must still derive the complete active roster, review every tree,
+and construct the closed v2 agreement explicitly.
+
+Direct `wp wprism apply --with-deletes` cannot mint the signed external-writer
+exclusion required for destructive work. It is a refusal-only test surface:
+assert `deletion_writer_exclusion_required` and byte-for-byte target
+preservation there. A successful deletion proof must use `wprism promote
+<env> --with-deletes` on an adopted target with the complete checkpoint,
+code-release, upload, effect, and exclusion recovery profile. The shared SSH
+adoption harness admits one tracked adapter or participant-declared integration
+scenario extension through `WPRISM_SSH_ADOPT_EXTENSION`; source
+`sandbox/tests/lib/ssh_adopt_extension.sh` and reuse its closed helpers:
+`wprism_ssh_install_certified_plugin`, `wprism_ssh_stage_code_inventory`,
+`wprism_ssh_stage_generation_releases`,
+`wprism_ssh_publish_post_tombstone`, and
+`wprism_ssh_enroll_full_recovery`. They resolve package- or
+scenario-participant artifact locks, reject partial active-code inventories,
+derive generations from signed authority, and ask `Deletion` to author the
+canonical tombstone; they never mint policy, owner agreements, or promotion
+authority. Keep exact plugin initialization, pins/policy, semantic preimages,
+and postconditions in the extension. Docker scenarios, whose transport has no
+recovery handoff, should prove opposed load order, round trip, and no-mutation
+refusal rather than pretending a direct destructive apply can succeed.
+
+That transaction proof includes the *incoming* foreign-key graph, not only
+keys visible inside the WordPress schema. A child table in another schema can
+receive `CASCADE` or `SET NULL` writes when WPrism changes its visible parent,
+even when ordinary `REFERENTIAL_CONSTRAINTS` rows are hidden from the WordPress
+account. The platform therefore declares the scoped
+`complete-innodb-foreign-key-census/v1` profile: MySQL 8.4 uses
+`INNODB_FOREIGN`, MariaDB 11 uses `INNODB_SYS_FOREIGN`, and both require a
+direct global `PROCESS` grant. `wprism doctor` warns when that mutation
+authority is absent; read-only authoring/capture remains available, while an
+actual transactional database mutation refuses before its first write. Do not
+work around the warning with a same-schema `SELECT` grant or a partial
+constraint query; neither can prove that the hidden child does not exist.
+
 The proposal is deliberately *not* a manifest fragment. It carries no
 `cascades` — the report refuses one by name — proposes nothing, and declares
 `authority: false`, because a covering index is a necessary condition for a
@@ -412,12 +564,43 @@ is gone**: a manifest declaring it, even as an empty list and even inside a
 frozen policy snapshot, is refused at load — porting an older manifest starts
 there.
 
-Both kinds may declare `triggers` and `effects`. `triggers` uses the same
-canonical-surface grammar apply projects from authored work
-(`(post|term|table|option|entity):<name>`); omit it and the action is unscoped,
-firing for any non-empty surface set, while a read-only apply fires nothing.
+Both kinds may declare `triggers` and `effects`. `triggers` normally uses the
+same exact canonical-surface grammar apply projects from authored work
+(`(post|term|table|option|entity):<name>`). A manifest declaring
+`post-kind-action-trigger/v1` may additionally use `post:*`, which matches only
+concrete `post:<type>` surfaces and gives an entity-scoped provider the concrete
+kind/id rows, never the wildcard. Use that bounded trigger when the plugin owns
+the same derived behavior for every registered CPT and an enumerated list would
+silently miss future or site-defined types. It grants no term, table, option or
+`entity:` authority; a provider declaring durable batch-context channels must
+still use exact post-type triggers because marker ownership is per concrete
+type. Omit `triggers` and the action is unscoped, firing for any non-empty
+surface set, while a read-only apply fires nothing.
 `effects` feeds the bounded-reversibility inventory; omitting it records an
 explicit irreversible fallback row rather than silently claiming reversibility.
+
+Treat a trigger list as a dependency-closure claim, not a performance hint.
+List triggers only when every input capable of changing the derived output is
+inside that closed surface set. Native permalink or routing work commonly
+depends on options, terms, authors, every registered post type, and plugin
+callbacks; a partial `post:*` list is then false. Omit `triggers` so every
+non-empty authored apply repairs the projection, and make the provider's
+bounded readback witness those effective inputs. Scoped apply admits that
+global action only when it is `kind:provider`, its declaration and effects are
+already hashed by the scope contract, and the exact capability successfully
+negotiates an operation-bound invoke/reconcile contract. Untriggered native
+actions and legacy providers still refuse before mutation.
+
+Assert that boundary at its two public projections. The scope contract's
+`potential_actions[].declaration` carries the provider, capability and effects;
+the scoped plan intentionally carries only
+`selected_actions[].{manifest,index,declaration_hash}`. Derive that hash with
+`Canon::encode()` over the contract declaration and compare the complete
+three-field plan row. Requiring private provider fields in the plan both tests
+a shape the product does not publish and misses the actual declaration hash.
+When a live harness loads `Canon`, resolve it from the runner-exported
+`PAIR_SOURCE_ROOT`; `WPRISM_SOURCE_ROOT` is only an optional caller override and
+is not part of the conformance-hook environment contract.
 
 ### Providers
 
@@ -434,6 +617,15 @@ identity. `"source": "plugin"` is advertised by the installed plugin itself
 through the `wprism_providers` filter and trusted as part of it; that file is
 deliberately *not* digest-bound, because the installed plugin — checked against
 `version_range` — is its identity anchor.
+
+Every manifest-shipped provider, interpreter, and regenerator crosses the same
+engine loader. It derives path, expected class, component hash, and adapter hash
+from the already validated artifact-identity row; refuses symlinks, byte/stat
+drift, preloaded or autoload-substituted symbols, and normalized PHP class-name
+collisions; and invalidates an enabled opcode cache before the one permitted
+load. Do not `require` another package executable or recreate these checks in
+adapter code. Put shared loading mechanics in that engine boundary and keep the
+runtime file to its declared plugin semantics.
 
 A provider may additionally declare `"requires"`, a closed object naming the
 environment its executable half needs before the engine will load it:
@@ -597,18 +789,395 @@ loss nobody can attribute.
 
 A capability's own database reads are the read twin of the engine's mutation
 path (`\WPrism\Db`), and share its discipline. WordPress's `wpdb` read methods
-return an empty-looking value on a failed query rather than throwing —
-`get_var()` returns `false`, and the `get_col`/`get_row`/`get_results` shape
-collapses to a non-array — so a capability that trusted the bare return could
-clear a `verified: true` receipt on a query that never ran. Route every
+return an empty-looking value on a failed query rather than throwing:
+`get_var()`/`get_row()` return `null`, while core `get_col()`/`get_results()`
+return an empty array after `query()` reset `last_result`; compatible drivers
+may additionally return a non-array failure shape. A capability that trusted
+only the bare value could therefore clear a `verified: true` receipt on a query
+that never ran. Route every
 decision-making read through
 `\WPrism\ProviderSdk::checked_get_var|checked_get_col|checked_get_row|checked_get_results($sql, $context)`,
-which clears `last_error`, runs the read, and fails on both the read's own
-failure shape *and* any driver error — never trust an empty result as
-convergence. Like `Db`, the `$context` is operation-level, never value-level:
+which first applies the engine's closed SQL lexer and refuses mutation verbs,
+multiple statements, comments, output/file functions, variable assignment, and
+unreviewed stored/UDF calls before `wpdb` transport. It then clears
+`last_error`, runs the read, and fails on both the read's own failure shape
+*and* any driver error — never trust an empty result as convergence. Like `Db`,
+the `$context` is operation-level, never value-level:
 `last_error` and the rendered SQL can echo option/meta payloads, so the SDK
 keeps the SQL and the driver text out of its failure and names only your
 context. Keep values out of your own messages the same way.
+
+Put related reads inside
+`ProviderSdk::database_read_contract_snapshot($context, $read)`. The engine
+derives its physical read profile from the capability's already-validated
+`reads` and `writes` surfaces, starts one server-enforced read-only consistent
+snapshot, and refuses a query outside that profile. If the projection needs
+only part of the declared profile, use
+`database_read_snapshot($context, $physicalTables, $read)`; the explicit list
+must be a subset of the active contract and is a narrowing, never adapter-minted
+authority. Use the checked read methods *inside* either callback. Bare checked
+reads retain failure and non-mutation hygiene for identity-pinned existing
+providers, but do not establish a snapshot or a table boundary and are not
+sufficient for new provider evidence. Construction is not authority: only the
+exact runtime object returned by the engine's digest/provenance loader can
+activate either database scope; a direct, cloned, or unserialized runtime cannot
+reuse its declaration to mint a profile.
+
+One native database callback is limited to 1,024 statements, 16 MiB of total
+rendered SQL, and 1 MiB per statement. Engine transaction controls do not
+consume that callback budget. Capture partitions its separately bounded core
+entity/option/chunk work inside the same snapshot. Authored Apply uses the same
+engine machinery per adoption, entity phase, option record, widget allocation,
+and regeneration-context record inside its one transaction. An options document
+is a carrier, not one callback: its records retain independent budgets. Shared
+admission, final certification, COMMIT and recovery keep their aggregate limits;
+work partitioning grants no extra table, transport or transaction authority.
+The opaque partition authority is returned only to the transaction owner.
+Providers do not receive that authority
+and must not use the engine's work-partition APIs. Calling or reentering a core
+helper from native code does not replenish the callback's quota; an oversized
+operation needs a genuinely bounded semantic design, not a counter reset.
+
+Audit native API reads with cold caches as well as warm ones before narrowing
+that table list. For example, WordPress's `url_to_postid()` creates a `WP_Query`
+that can prime post metadata: an id-only answer still needs `postmeta` read
+authority. A native lookup can also create, update or delete transient rows;
+its name does not make it read-only. Declare those physical dependencies in
+the adapter; never widen the engine's table gate to accommodate an incomplete
+profile. Exact `option:` surfaces admit leading underscores (private options,
+transients and shadow keys), with the same 128-byte bound and no wildcards;
+the other four surface namespaces keep their existing first-byte grammar.
+
+When declared plugin tables may legitimately be absent, use
+`ProviderSdk::database_schema_snapshot($context, $physicalTables, $read)`.
+The engine first discovers exact presence inside an empty read-only profile,
+then proves every present table is InnoDB and brackets the callback with the
+same complete presence map. The callback receives that map and gains read
+authority only for tables proved present. Inside a fresh observer the API
+reuses the already-established complete read-only contract profile; it never
+nests a transaction or reuses a writable/narrower profile. Keep column and
+index expectations in the adapter—the engine owns topology consistency, not a
+third party's schema semantics.
+
+Do not spell an exact presence probe as raw `SHOW TABLES LIKE '$table'` (or
+`SHOW TABLE STATUS LIKE '$table'`): `_` and `%` are LIKE wildcards. Bind
+`$wpdb->esc_like($table)` through `%s`; the profile gate decodes only that
+exact wpdb spelling back to a physical identifier. The closed SHOW grammar
+admits only the reviewed table-presence and table-metadata forms (`CREATE
+TABLE`, `COLUMNS`, `FULL COLUMNS`, `INDEX`, and the primary-key `KEYS` probe).
+A database operand in `SHOW ... FROM database` is never table authority. The
+engine also proves a byte-safe `character_set_client` from the server's
+`CHARACTER_SETS.MAXLEN` metadata (single-byte sets plus the exact UTF-8
+families) and a compatible `sql_mode` before every profile, including a
+zero-table profile, so provider code must not issue `SET` or try to establish
+its own lexer premises.
+
+Provider DML follows the same rule. Wrap one atomic native operation in
+`ProviderSdk::database_write_contract_transaction($context, $write,
+$classifyPhysicalPostimage)`. The engine derives the complete read/write
+profile, owns the session identity, isolation, transaction controls, rollback,
+and ambiguous-commit settlement, and invokes the classifier in a fresh
+read-only snapshot only when the commit outcome needs physical proof. The
+classifier returns exactly `DATABASE_POSTIMAGE_APPLIED`,
+`DATABASE_POSTIMAGE_NOT_APPLIED`, or `DATABASE_POSTIMAGE_UNKNOWN`; partial or
+unreadable state is recovery debt. Inside `$write`, use only the SDK's typed
+mutation methods (`database_delete()` or `database_delete_all()` today), each
+of which rechecks active transaction authority and writable-table membership.
+If the plugin operation needs another mutation shape, add that generic typed
+operation to the SDK and its engine tests first. Never send raw DML, call
+`Db::start*()`, or author `START`/`COMMIT`/`ROLLBACK` in a package executable.
+
+#### Fresh-process capabilities
+
+Use `manifest-provider-fresh-process/v1` only when a site-wide, idempotent
+plugin operation depends on a newly bootstrapped WordPress runtime and cannot
+be proved in the applying process. The provider remains the owner of the
+plugin-specific call and its complete value-level projection. The engine owns
+everything reusable: the WP-CLI command, process/session lifetime, canonical
+stdin and receipt transport, one absolute deadline, frozen policy authority,
+identity revalidation, cache fencing, database isolation, recovery posture,
+and retry boundary. Adapter code must not create a process, construct a command,
+parse transport, or issue transaction-control SQL.
+
+Failed child transport is private evidence, not an empty generic error. The
+shared bounded process lifecycle retains its status and independently named
+stdout/stderr through `PrivateEvidenceException`; the provider dispatcher
+emits a distinct request-hashed failure document using the existing bounded
+Throwable graph. Neither a zero exit nor a failure document can satisfy the
+success receipt grammar. Public command refusals and recovery requirements
+remain unchanged. The private recorder still owns its field/graph limits,
+binary encoding, original byte counts/hashes and explicit truncation markers:
+an incomplete diagnostic is not an exact-cause certificate. Do not add a
+plugin-owned subprocess logger or publish opaque child output to recover a
+missing cause.
+
+The same rule applies to engine-owned native children. `rewrite.flush` uses
+the shared rejected-capture helper for unknown exit statuses, warnings and
+malformed or invalid receipts, and retains a launch exception privately. Its
+reviewed native-error whitelist, receipt grammar and public sentences remain
+separate from transport diagnostics. Test raw whitespace and binary streams,
+field truncation with original hashes, parser causes and the real CLI private
+writer; also prove a rejected post-mutation receipt does not trigger another
+native invocation or masquerade as a rollback. Reuse this engine mechanism
+instead of putting another child logger in a plugin executable.
+
+Typed engine refusals can retain private causes without changing their class,
+code, standard previous chain or operator sentence. The callback-free
+`PrivateEvidenceCarrierException` base binds those causes once through final
+engine methods; the private recorder must never duck-call a similarly named
+method on an arbitrary plugin throwable. The native database boundary retains
+its exact rejected SQL and physical-table profile through this channel before
+rethrowing the same isolation refusal. Use that evidence to identify a missing
+semantic read, not to widen the profile speculatively or publish SQL publicly.
+The existing query refusal, poisoned state and rollback authority remain the
+gate; diagnostic retention grants no additional table access.
+
+Native route reads include cold-cache dependencies. Rank Math's four-plugin
+lane retained WordPress's exact `update_meta_cache('term')` query, exposing an
+omitted `termmeta` read. The capsule declares that table and folds all four
+metadata columns into its existing bounded dependency projection; that read
+admission alone grants no new write authority.
+Test both cold and warm cache paths, duplicate and unrelated rows, failed and
+oversized reads, and dependency changes during mutation and between independent
+boots. A cache-priming read never authorizes a metadata or option write. A
+post-commit observer mismatch is recovery debt, not evidence that the completed
+mutation or a competing writer rolled back.
+
+Separate native computation from durable evidence. The measured Rank/Woo
+lookup also writes two exact transient options, so its native source/edge
+expectation and complete edge/count/marker verification run inside the
+existing authorized write transaction. The mutation receipt retains its full
+native-computation hash and two-pass idempotence proof. Read-only preimages,
+ambiguous-commit classification, post-commit readback and the second fresh boot
+use only complete bounded database projections; they do not call route,
+eligibility, cache-backed option or plugin settings APIs. Rank's factual source
+witness includes every post, even inaccessible types, so the observer never
+borrows a writer-selected identity list. This explicitly separates two claims:
+native correctness was proved at mutation time, while the later observer
+proves durable input/output equality. It does not claim to recompute arbitrary
+filter behavior in a future request.
+
+Named option effects are still mapped to physical table authority, not SQL
+row-key grants. A provider needing a native cache write must declare its exact
+cache effects and prove all unrelated option bytes remain unchanged in the
+transaction. Do not exclude a cache prefix or use a collation-sensitive SQL
+predicate to hide nearby names. The Rank provider binds every option and
+non-marker post-meta row and excludes only its two exact reviewed cache names
+and one exact marker key. SQL checkpoints cover the database effects; external
+object-cache/filter effects retain their explicit non-rollback declaration.
+Test cold, warm, partial, expired, repeatedly evicted and external-cache paths,
+hostile callbacks in every read-only phase, unrelated-row drift, ambiguous
+commits and cross-boot drift. Warming a fixture is not a cache authority model.
+
+`adapter-package-validate` is a static regression guard for that boundary in
+package runtime PHP. It refuses known direct process, transaction, raw-DML and
+include spellings, but it is not a hostile-PHP sandbox; digest review and
+trusted package provenance are the executable trust boundary. A small
+path-and-SHA-pinned registry lets unchanged shipped legacy adapters keep
+running until their owner is recertified. The sole runtime exception is also
+loader-object-, capability-, digest-, API- and exact-statement-bound; it exists
+only for WooCommerce's frozen named mutex calls. Debt rows are not authoring
+examples or reusable API. If you touch one, migrate it to the named engine
+boundary and remove its row. Never refresh the recorded hash.
+
+The manifest must declare both `manifest-provider-runtime/v1` and
+`manifest-provider-fresh-process/v1`. On the manifest-sourced provider, add a
+sorted, unique `fresh_process_capabilities` list. Every named capability must
+exist in `capabilities` and `contracts`, have `scope: "site"`, declare
+`idempotent: true`, and fit the engine's fixed timeout ceiling. Its runtime
+implements the normal `invoke_<capability>()` mutation plus
+`observe_fresh_postimage_<capability>()` and
+`project_fresh_postimage_<capability>()`. Keep all three hooks narrowly about
+plugin semantics; if another adapter could reuse a line without knowing the
+plugin, that line belongs in the engine or SDK.
+
+The engine runs two independent WordPress boots under one deadline. The first
+invokes the provider mutation and projects the claimed complete postimage. The
+second invokes no provider mutation: it runs the observer callback under the
+canonical `$wpdb` read-only boundary and independently projects durable state.
+The parent accepts success only when those projections are exactly equal.
+Before both boots it flushes the parent's persistent object cache, and each
+child revalidates the compiled artifact, adapter digest, shipped disposition,
+provider source, plugin lifecycle/version, capability, and authored arguments.
+A timeout, parent death, warning on stderr, malformed or noncanonical envelope,
+identity drift, or projection mismatch is recovery debt rather than a retryable
+success.
+
+The observer boundary is database-specific, not a general PHP sandbox. It
+prevents writes only through the canonical `$wpdb` transport and grants only
+the tables implied by declared `option:*` and `table:*` surfaces. Filesystem,
+object-cache, network, alternate-database, and plugin-bootstrap effects remain
+the adapter's declared recovery obligations; never use them as proof. Do not
+use cache-backed helpers such as `get_option()` for durable evidence. Read an
+option with `ProviderSdk::checked_durable_option()`, which performs an exact,
+bounded size/hash preflight, rejects duplicate and collation-alias rows, and
+decodes serialized plain data without constructing classes. Put related table
+reads inside one SDK-managed consistent snapshot.
+
+For generated files, use `ProviderSdk::filesystem_tree_snapshot()` for a
+confined, entry/depth/byte-bounded observation with full second-pass byte
+verification. Parse a digest-witnessed PHP return-literal through
+`ProviderSdk::php_literal_data()`; never include a target-generated index
+to inspect it. A plugin's public reconstruction/deletion API remains plugin
+semantics, covered by its declared irreversible filesystem effect and exact
+postcondition tests. The observer is not a mutation lock or a rollback
+promise. A future generic filesystem mutation API needs declarative path
+authority and engine-discoverable durable recovery, not just an opaque
+`provider_resource` token.
+
+A fresh-process package test must cover more than the happy child exit. Exercise
+distinct mutation and observer process identities, idempotent replay, exact
+postimage mismatch, a poisoned parent cache before each boot, and cache-flush
+`false`, non-boolean, and throw outcomes before both phases. Also cover DML and
+transaction-control refusal in the observer, malformed/noncanonical transport,
+deadline expiry, parent death with descendants, source/digest/disposition/plugin
+identity drift between negotiation and execution, and the recovery-required
+result when mutation completed but observation did not. The real-process suite
+must prove these through separate PHP boots; fakes alone cannot establish the
+fresh-runtime claim. Include at least one participant-declared composition
+scenario when another adapter can share the same trigger, table, lifecycle, or
+plugin-incompatibility boundary.
+
+### Schema settlement is a host deploy phase
+
+Strict target observation never invents a table that the target does not
+already have. If a supported plugin creates an authored table only after a
+module is enabled, declare that prerequisite with `schema-settlement/v1`; do
+not make observation fabricate an empty table, hide the absence in an apply
+provider, or overload lifecycle settlement with DDL.
+
+A schema action is a provider action with the exact phase-specific members
+below. Rank Math's declaration is the worked example (abridged to one table):
+
+```json
+{
+  "args": [],
+  "capability": "prepare_schema",
+  "effects": [
+    {
+      "id": "rank-math-schema-redirections",
+      "kind": "database",
+      "mode": "restorable",
+      "selector": {
+        "scope": "database_checkpoint",
+        "type": "table",
+        "value": "rank_math_redirections"
+      }
+    }
+  ],
+  "kind": "provider",
+  "phase": "schema_settle",
+  "prepares": ["rank_math_redirections"],
+  "provider": "rank-math-state",
+  "readiness": "inspect_schema"
+}
+```
+
+The manifest must declare `schema-settlement/v1`. `args` is exactly `[]`;
+`triggers` is forbidden; `prepares` is a non-empty, sorted, duplicate-free list
+of tables declared by that manifest; and `readiness` names a second capability
+on the same provider. When the provider declares manifest-owned contracts, the
+readiness contract has `args: []`, `idempotent: true`, `scope: "site"`, reads
+exactly `table:<name>` for every prepared table, and writes nothing. The
+preparation contract is also argument-free, idempotent, and site-scoped; both
+its `reads` and `writes` lists equal those same prepared table surfaces. These
+manifest-owned facts are rejected offline rather than deferred to a live
+provider. Plugin-sourced providers advertise independently, so the identical
+contract is enforced during live negotiation. Every prepared table has exactly
+one matching effect: `kind: "database"`,
+`mode: "restorable"`, and a `database_checkpoint` table selector. Two pinned
+manifests cannot both acquire schema-settlement authority over the same table.
+
+This phase runs only through host `wprism deploy`; direct `wp wprism deploy`
+refuses it. The host checks plugin lifecycle and schema readiness without
+mutating, then takes and authenticates the exact database checkpoint. Before
+the first lifecycle/provider mutation, the host publishes an external ordered
+provider intent covering every applicable phase (for Rank Math,
+`lifecycle-retire`, `lifecycle-activate`, `schema-settle`, and
+`lifecycle-settle`). When code staging is required, it precedes that intent and
+uses its own checkpoint/session receipt. Each fresh lifecycle/provider phase
+then runs under the existing durable promotion session, advancing the intent
+atomically after successful completion. An
+interrupted or failed phase leaves visible recovery debt that fences ordinary
+policy loads and host mutation (including adopt, unadopt, and checkpoint prune)
+until recovery restores the bound checkpoint. Recovery admits only the exact
+retained checkpoint named by that debt; a retry cannot silently continue from
+an unrecorded phase or select a different signed/retained row.
+
+Exercise that recovery path, not only the failing provider call. Inject one
+preparation failure after the checkpoint and durable schema intent exist, run
+host `wprism recover` for the exact retained id, and prove the pre-checkpoint
+plugin state plus both database-local and external debt are restored exactly.
+If that fixture changes an authored value to manufacture its pre-checkpoint
+state, establish the change through capture, commit, and apply. A direct target
+edit is ordinary drift after recovery, and the product must refuse to overwrite
+it rather than letting the fixture disguise that refusal as failed recovery.
+An offline boundary fixture must feed recovery the bytes the agent actually
+writes: `SchemaSettlementIntent` persists `Canon::encode()` output (sorted,
+pretty JSON with one trailing LF), while recovery's own control records use a
+different compact canonical codec. Constructing the fixture with the consumer
+codec can make an impossible byte shape pass offline while every real recovery
+refuses before database reset.
+
+The checkpoint is bound to the database selected before mutation. The host
+asks the isolated control plane for a credential-free digest of `DB_HOST`,
+`DB_NAME`, and `$table_prefix`, makes the isolated `db export -` process recheck
+that digest, and authenticates it as the first encrypted checkpoint record.
+Recovery authenticates the complete ciphertext and compares the current
+wp-config target before aborting or acquiring any lease; recovery begin,
+reset/import, schema settlement, and lifecycle settlement recheck the same
+digest in their own processes. External intents retain only the digest, never
+database coordinates or credentials. A checkpoint created before this target
+binding existed refuses honestly instead of restoring through a compatibility
+fallback.
+
+The readiness and prepare capabilities return `before` and `after` maps keyed
+exactly by `prepares`. A readiness row is `{present, schema_hash}` and must be
+unchanged across the read-only call. A prepare row is
+`{present, schema_hash, row_count, rows_sha256}`. An existing table must remain
+byte/content/structure identical. A previously absent table must become present
+with `row_count: 0`: schema settlement is create-only and may not seed authored
+rows. If durable plugin identity or state proves that a missing table once
+existed, readiness refuses before the lease and checkpoint instead of treating
+loss as an installation opportunity.
+
+`rows_sha256` is a complete witness, not a sample. A multi-query witness must be
+one coherent repeatable-read snapshot and must refuse a storage engine that
+cannot provide it. Providers for tables with unbounded payload columns must
+first enforce database-side row, per-row-byte, and total-byte limits, reapply
+the per-row bound inside every value-bearing query, then hash deterministic
+fixed-size primary-key keyset chunks whose worst-case page size is intentional.
+Do not materialize the whole table to count or hash it, and do not cap a query
+in a way that makes rows beyond the cap invisible. The
+[`rank-math-state.php`](../../adapter-packages/rank-math/package/runtime/providers/rank-math-state.php)
+provider demonstrates the bounded implementation and its package-local suite
+proves mutation beyond the first chunk changes the witness.
+
+### Declaring a plugin incompatibility
+
+When two plugin adapters describe independently valid state models that cannot
+safely coexist—such as competing SEO suites claiming the same conceptual site
+authority—declare the boundary rather than choosing a winner by pin or plugin
+load order. The declaring manifest opts into `plugin-incompatibility/v1` and
+adds `incompatible_plugins`, a non-empty, sorted, duplicate-free list of exact
+WordPress plugin basenames:
+
+```json
+{
+  "engine_features": ["plugin-incompatibility/v1", "spec-window/v1"],
+  "incompatible_plugins": ["wordpress-seo/wp-seo.php"],
+  "plugin": "seo-by-rank-math/rank-math.php"
+}
+```
+
+Only a plugin-owning manifest may declare the section, and it cannot name its
+own basename. One side's declaration is sufficient: if any pinned manifest
+claims the named plugin, the shared policy finalizer emits the same refusal in
+either pin order before compilation, capture publication, promotion leases,
+lifecycle hooks, or providers. This is a non-surface compatibility constraint,
+not an operator composition override; the remedy is to pin only one adapter.
+Use a participant-declared integration scenario to prove both orders against
+the exact supported plugin artifacts.
 
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,
@@ -627,8 +1196,7 @@ exposed on its own so you can iterate on a declaration in seconds instead of
 reinstalling an agent to find out you transposed a letter.
 
 ```sh
-wprism manifest-validate .
-wprism manifest-validate . --manifest=contact-form-7
+wprism manifest-validate . --manifest=contact-form-7 --pins=core,contact-form-7
 wprism manifest-validate . --pins=core,woocommerce --format=json
 wprism manifest-validate . --site=/path/to/site-repo
 wprism manifest-validate ./untrusted-adapter-package --no-code
@@ -637,11 +1205,16 @@ wprism manifest-validate ./untrusted-adapter-package --no-code
 It needs no environment, no database, and no docker. The `.` above is the source
 tree containing `adapter-packages/` and `platform/adapter-library/`. Every
 manifest is loaded on its own first — so one broken file does not hide the
-verdict on the other nine — and then the requested pin set is co-loaded, which
+verdict on the other manifests — and then the requested pin set is co-loaded, which
 is the only way the cross-manifest guards run at all (one owner per declared
 name, overlapping option namespaces, conflicting plugin claims, duplicate
 provider ids, duplicate table `id_kind`s). `--manifest` narrows what is checked
-individually; `--pins`/`--all` choose the co-loaded set. A declared
+individually; `--pins`/`--all` choose the co-loaded set. Name the adapter's
+intended composition explicitly during iteration, as the first command does.
+With neither flag, or with `--all`, the command deliberately asks whether every
+adapter in the library can share one policy; that broader question may refuse
+when two adapters declare a supported incompatibility rather than reporting a
+catalog defect. A declared
 `interpreter` or `regen_dependency.regenerator` is resolved too: the named file
 must exist under the declaring package's `runtime/interpreters/` or
 `runtime/regenerators/` directory and must
@@ -789,7 +1362,7 @@ implements is refused as unimplemented rather than admitted as forward-looking.
 The document's own `engine_features` block is the authoritative, live list —
 read `engine_features.implemented` rather than trusting a count written on this
 page, because a feature ships by adding an `IMPLEMENTED_FEATURES` row, not by
-editing this paragraph. Seven are implemented as of this engine: `spec-window/v1`
+editing this paragraph. The current entries include `spec-window/v1`, which
 claims `engine_features` itself, so declaring it is what lets you declare the
 list at all; `attr-id-codecs/v1` claims `attr_id_codecs`, the byte-exact
 block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
@@ -811,7 +1384,7 @@ widens a value vocabulary inside a section that already exists, legitimate
 under § v3.3's growth rule. A record whose addressed `declaration_evidence` is
 later deleted refuses at load, which is the point.
 
-**Before declaring any of the eight**, verify that the adapter actually uses
+**Before declaring any feature**, verify that the adapter actually uses
 the primitive and know that the declaration moves this adapter's manifest bytes,
 digest, and pins. Declare `spec-window/v1` with it because that feature admits
 the `engine_features` channel itself. The signer classifies feature-claimed keys
@@ -895,11 +1468,124 @@ plugin faithfully.
 8. Co-load the adapter with common adjacent manifests and exercise the plugins
    together, not merely as isolated installs. Enable optional modules through
    the plugin's native lifecycle before probing their tables: writing an option
-   can select a module without running its installer. Include a hostile
+   can select a module without running its installer. Then read both the raw
+   persisted selection and the plugin's registered/active-module API in a fresh
+   process. A lifecycle helper may accept an unknown identifier and persist a
+   convincing option value even though no module exists. Include a hostile
    schema-driven field whose physical key matches another adapter's static
    declaration; capture must refuse multiple owners independent of pin order.
    Preserve target-only queue jobs and plugin state through apply, then prove a
    repeat plan is unchanged and inspect real front-end output.
+
+   Prove the hostile-state premise after the seeding request has shut down and
+   before attributing a later delta to WPrism. A plugin may cache an option
+   during bootstrap and rewrite it at `shutdown`, so an in-request `get_option`
+   is not a durability witness. WP-CLI 2.12.0 also matches `--skip-plugins`
+   against directory slugs: Rank Math's slug is `seo-by-rank-math`, not its
+   `seo-by-rank-math/rank-math.php` basename. That wrong argument left the
+   plugin active in the original fixture; the already-instantiated notification
+   center then rewrote the option after the apparently successful echo. Seed
+   through the plugin's native API where one exists, read the premise back in
+   an independent process with an exact, proved skip selector, and run an
+   ordinary control boot. Rank Math 1.0.277.2's valid persistent notification
+   survives that control; if another plugin legitimately advances its state,
+   record the native lifecycle outcome rather than weakening a real
+   stable-runtime preservation assertion. A `runtime` classification protects
+   target-owned state from canonical capture and apply; it does not override
+   the plugin's own activation semantics. Keep those claims separate in
+   evidence: prove the pre-lifecycle value survives recovery, assert the exact
+   post-activation outcome and carry that outcome through state-only apply.
+   Then seed a new runtime witness to prove retirement, uninstall, missing code
+   and inactive reinstall leave it untouched before reactivation reproduces —
+   and the following apply preserves — the plugin's native outcome.
+
+   Keep native storage shape distinct from canonical artifact grammar.
+   WordPress's [deactivate_plugins()](https://developer.wordpress.org/reference/functions/deactivate_plugins/)
+   removes numeric slots without reindexing `active_plugins`; deactivating the
+   first or middle plugin therefore leaves a legitimate sparse array. Exercise
+   that raw postimage through host lifecycle preflight and the locked baseline
+   writer. Do not reindex the fixture's option to make the engine accept it.
+   The native observation boundary projects plugin iteration order without
+   changing stored bytes; desired artifact rosters remain canonical lists.
+
+   Native names are not necessarily adapter identifiers either. WordPress's
+   [WP_Rewrite::add_endpoint()](https://developer.wordpress.org/reference/classes/wp_rewrite/add_endpoint/)
+   registers the endpoint name as a query variable; WooCommerce 11.0.1 uses
+   `wc/file/transient`. A provider's serialized route-dependency witness must
+   retain those opaque string bytes, order and duplicates, with explicit count
+   and per-name byte bounds. Do not sanitize, skip or impose a manifest-ID
+   regex on native names merely being observed. Pin the registered example,
+   exact limits, malformed types and byte-sensitive drift through the provider
+   path. Keep this semantic observation with its adapter; process execution,
+   transaction authority and snapshot machinery remain engine-owned.
+
+   Derive each phase's isolation oracle from its declared effects, not from
+   the assumption that all pre-Apply state is immutable. Rank Math declares
+   `rebuild_all_link_state` during `lifecycle_settle`: with its link counter
+   disabled, the correct postimage has no link rows, counts or processed
+   markers. Compare the complete native observation after changing only those
+   exact expected fields; never mask whole products, plugins or metadata
+   prefixes. If a later Apply also claims stale-state repair, re-seed checked
+   stale projections after the lifecycle assertion and independently verify
+   that preimage before Apply. A prior phase's successful cleanup otherwise
+   makes the later cleanup assertion vacuous.
+
+   Establish local-identity divergence explicitly for every mapped table. Two
+   fresh plugin tables commonly allocate primary key `1` on both sites, so
+   equal ids prove no rebinding at all and prior scratch history can make a
+   weak fixture pass accidentally. Put the hostile side in a disjoint sequence
+   range before inserting its row, then assert both the range and unequal ids.
+   Once a natural-key row is mapped, a duplicate can refuse through the generic
+   typed-ledger guard rather than an adapter-specific table diagnostic. Pin the
+   `identity contradiction`, entity kind, existing local id, and rejected local
+   id; a loose search for “duplicate” misses the actual fail-closed boundary.
+   For an expected `--format=json` refusal, use the shared
+   `capture_wprism_json_refusal` helper before `jq`. It proves that WPrism
+   answered, requires the non-zero exit, and returns only the final JSON line;
+   preceding diagnostics remain visible on stderr. Its output variable may use
+   any shell identifier except the reserved `__wprism_capture_` prefix.
+   `require_wprism_answered` validates a mixed stream but does not remove
+   Compose's preceding `Container ... Creating` diagnostics from that variable.
+   If the public envelope sets `details_redacted: true`, assert the public
+   redaction and its `.wprism/refusals/` pointer separately from the cause.
+   Retain private diagnostics for native `wp wprism apply` as well as host
+   deploy: the latter's successful lifecycle capture does not cover a later
+   Apply failure. Use `sandbox/tests/lib/private_command_capture.sh` to collect
+   the bounded fresh delta before caller assertions or disposable teardown,
+   with the owner binding its exact native transport and command inventory.
+   A diagnostic-only record remains unverified; expected-cause acceptance
+   still requires the separate exact profile below. Never expose the private
+   cause publicly or call a diagnostic failure a product rollback.
+   Inspect private records from a standalone, non-WordPress process running as
+   the target CLI identity: the store is intentionally `0700`/`0600`, so host
+   traversal that happens to work through Docker Desktop is not portable to a
+   native-Linux bind mount. Snapshot the command-scoped record names immediately
+   before the invocation, set-difference them against the names afterward,
+   require exactly one appended record, and validate its
+   `wprism-private-refusal-evidence/v2` completeness witnesses plus the exact
+   root cause. Reuse `sandbox/tests/lib/PrivateRefusalReceipt.php` with a
+   caller-declared graph profile; do not grow a capsule-owned private-store
+   parser. Bind the source or target CLI service explicitly for each call.
+   A host deploy is a mixed phase stream, not a standalone agent JSON answer:
+   its transport-detail renderer sends the refusal to stderr and may append
+   the private-evidence hint after it. Test the complete phase/envelope trace
+   through the real renderer instead of assuming that the last line is JSON.
+   Explicit force flags may add a typed override envelope and an outer private
+   warning node before the original cause. Derive that graph through actual
+   preparation/reporting, and bind its native identities to checked fixture
+   context; the override category alone is not evidence of the inner blocker.
+   Before any assertion can trigger disposable-target teardown, retain the
+   shared reader's bounded diagnostic delta in a private sink. Its explicit
+   `verified:false` marker must never satisfy the separate exact-cause check.
+   Do not clear prior evidence or select by timestamp/mtime: both
+   can make a failed invocation appear proved by a stale record. The private
+   sentence is deliberately absent from host output; grepping that stream for
+   it tests against the disclosure boundary rather than the refusal that
+   occurred. Apply this split to every redacted host preflight, including
+   lifecycle and missing-code refusals: pin the public command/reason/redaction
+   envelope and phase prefix, then prove the exact cause only through the new
+   command-scoped private record. A generic public refusal by itself does not
+   establish which private safety gate fired.
 9. When a hostile target needs local mapped identities before first apply,
    never mint them by capturing against the source repository: its canonical
    UUIDs have no target ledger yet. Use a disposable policy root narrowed to
@@ -917,6 +1603,29 @@ plugin faithfully.
    disposable projection becomes the target's three-way base and the real
    first apply can correctly report a false-for-the-scenario conflict as soon
    as quiesced global state is restored.
+
+   Distinguish minting identity from restoring an existing embedded UUID's
+   ledger tuple. Ordinary `plan` uses the maintenance-aware snapshot: it may
+   repair those tuples and prune stale maps, but it does not mint missing
+   post/term UUID metadata or a last-synced state hash. Strict explain/export
+   observations have a different, zero-write contract. A test that clears a
+   map must freeze the exact recoverable tuples beforehand, prove only that
+   repair occurred, and repeat the plan with unchanged native and ledger
+   witnesses. Keep ledger-only widget identities out of the recoverable set;
+   their lost UUIDs cannot be reconstructed from native metadata. See the
+   final fresh-target check in `sandbox/conformance/checks/core.sh`.
+
+   A table hash can reject a mutation but cannot explain it after the pair is
+   destroyed. Retain bounded native rows and their complete transport privately
+   before equality assertions, then recompute the published count/hash witness
+   from those retained rows. Reuse the shared private capture transport; keep
+   the table set and semantic acceptance with the fixture owner. Core's final
+   plan check retains four snapshots in a `0700` directory with `0600` streams
+   under the checkout's host-only `sandbox/tmp/`. Never put private host
+   evidence in a site-repository bind tree: pair handback intentionally broadens
+   that tree's permissions and reset removes its contents. Verify retention
+   after cleanup, not just before it. Its diagnostic-only record is not a passing certificate;
+   a malformed, warning-bearing, oversized or mismatched observation refuses.
 
 ### Getting the harness those tests need
 
@@ -943,6 +1652,14 @@ interprets your SQL against them, and any statement it cannot interpret throws
 `\LogicException` naming that statement. A hand-rolled fake answers `null`
 instead, which pushes your suite down a "no row" branch your real database
 never takes — every assertion after that point is green for the wrong reason.
+
+Seed storage engines, columns and indexes explicitly when a product gate needs
+those facts: row existence does not prove transactional storage. Every opt-in
+read projection, including metadata, must traverse the same query authority,
+error injection and logging as an ordinary read. A fixture shortcut before that
+boundary can hide a real profile refusal. Pair a refused-read callback spy with
+a healthy case that invokes the same spy; a counter that never runs proves
+nothing about where the refusal happened.
 
 The kit is assembled from the live files on every run and never stored as a
 second copy, so re-assemble from a newer checkout rather than patching a file
@@ -1123,7 +1840,7 @@ Move the emitted JSON into `adapter-packages/<name>/package/manifest.json`, add 
 `version_range`, and the evidence notes by hand, and drop the now-redundant
 site-local rules from `site.wprism.json`. Run
 `php tools/adapter-package-validate.php --adapter=<name>` and
-`wprism manifest-validate . --manifest=<name>` on the result before going
+`php cli/wprism manifest-validate . --manifest=<name> --pins=core,<name>` on the result before going
 further — see [Checking the grammar offline](#checking-the-grammar-offline);
 the hand-added parts are exactly the ones no export path checked.
 
@@ -1430,14 +2147,20 @@ generated page can print it.
 
 ### Adding a shipped adapter
 
-Nothing here is an allowlist edit; every step is data or a convention-named
-file.
+There is no hand-maintained adapter-name allowlist. The runtime reservation
+list is generated from the same package tree and byte-checked at release, so a
+new capsule does require regenerating that projection but never copying its
+slug into engine policy by hand. The permanent `id_kind` floor is different:
+if the manifest introduces a new `tables.*.id_kind`, add it to
+`IdentityNamespaces::GRANDFATHERED_ID_KINDS` in review because old customer
+branches can retain that bare value even after a future adapter leaves the
+library.
 
 1. **Create the capsule and write its manifest** at
-   `adapter-packages/<name>/package/manifest.json`. `php
-   tools/adapter-package-validate.php --adapter=<name>` closes the package
-   convention and `php cli/wprism manifest-validate . --manifest=<name>` runs the
-   engine's real validators offline, with no WordPress or environment.
+   `adapter-packages/<name>/package/manifest.json`. While the capsule is
+   incomplete, iterate with `php cli/wprism manifest-validate .
+   --manifest=<name> --pins=core,<name>`; the complete package validator intentionally refuses a
+   half-authored disposition/evidence boundary.
 2. **Add the reviewed entry** at
    `adapter-packages/<name>/package/disposition.json`, with a
    `reason` a human wrote. Coverage is exact, so this is not optional
@@ -1445,26 +2168,230 @@ file.
 3. **Add deterministic offline coverage** under `tests/offline/`, then run
    `php tools/adapter-package-tests.php --adapter=<name>`. Package discovery is
    the wiring; do not add a Makefile leaf or edit the generated corpus.
-4. **Add the conformance checks inside the capsule.** Add
-   `tests/conformance/entry.json` (the entry declares the pin set, artifacts,
-   and state the round trip must preserve), plus convention-named `seed.sh`,
-   `postdeploy.sh`, `postapply.sh`, or `check.sh` hooks as needed. Pin every
-   plugin artifact version and SHA-256 in `evidence/artifacts.lock.json`. Run
-   it with:
+4. **Add the mandatory exact-artifact evidence boundary.** Pin every exercised
+   admitted and refusal artifact URL/version/SHA-256 in
+   `evidence/artifacts.lock.json`, and
+   own the fresh-install, adjacent-version, in-range upgrade, and out-of-range
+   refusal workflow at `tests/certify/version-matrix.sh`. The normal driver is:
 
    ```sh
+   candidate_sha=$(git rev-parse HEAD)
+   WPRISM_SOURCE_ROOT=$(pwd) \
+   VMATRIX_EXPECTED_SOURCE_SHA=$candidate_sha VMATRIX_MANIFEST=<name> \
+   VMATRIX_PAIR=<private-pair> VMATRIX_PORT1=<even-port> VMATRIX_PORT2=<next-port> \
+   bash sandbox/tests/certify/certify_version_matrix.sh
+   ```
+
+   A matrix may reuse its capsule's conformance hooks, so its wrapper must
+   supply the same role-based hook ABI: `wp_conf1`/`wp_conf2` for WordPress
+   commands; both drivers centrally supply `host_wprism conf1|conf2 <verb> ...`
+   for orchestrator commands. Keep reusable hooks on those role names;
+   concrete pair names, environment ids, registry paths, and Docker transport
+   belong to the driver. A driver-private host wrapper can make standalone
+   conformance green and then die with `command not found` when the
+   exact-version driver sources the identical hook.
+
+   The driver also owns caller-local infrastructure context. Before starting
+   a pair, pin source mounts with `pair_identity_export_source_mounts()` and
+   select the database with `pair_db_select_engine()` from `lib/pair_db.sh`.
+   Both standard drivers do this. A new direct-Compose harness must do so in
+   its parent shell; a `pair.sh` child cannot export back to it. Shared `.env`
+   never carries database authority, and multi-engine drivers finish each
+   cell's owned teardown before changing the selected engine. Plugin hooks
+   inherit this context and must not choose infrastructure themselves.
+
+   A direct live driver must work in a pristine worktree, not only one where
+   another sweep already created `sandbox/siterepo`. Shared lease acquisition
+   prepares that worktree's empty site parent before resolving its physical
+   address; this creates no pair child or database and grants no cleanup
+   authority until the complete lease census passes. Observation and release
+   remain read-only with respect to missing context. Exercise an absent root,
+   a distinct canonical lease store, and a non-directory root in shared harness
+   tests; never add adapter-specific directory creation to hide a lease bug.
+
+   Positive round trips must also provision the three required core bindings.
+   `establish_core_environment_bindings` in `sandbox/conformance/asserts.sh`
+   takes a WP runner, repository, and the driver's expected `admin_email`,
+   `home`, and `siteurl` literals. It refuses a mismatching live fixture before
+   binding those values through public `env-set --stdin`; it never adopts
+   arbitrary nonempty values as intent. Conformance binds after source seed
+   and target clone; `clone_case_target` reestablishes both matrix roles after
+   every repository reset. Missing-binding negative tests and plugin-specific
+   or protected-post environment choices remain explicitly fixture-owned.
+
+   Immediately after each positive matrix apply writes `VMATRIX_APPLY_LOG`,
+   call `assert_version_matrix_apply_ready` before another command can reuse
+   that log. For a separately captured JSON apply, call
+   `capture_wprism_json_checked APPLY_JSON <label> assert_wprism_apply_ready <command...>`.
+   The shared assertion examines the complete stdout/stderr capture before
+   the helper publishes JSON; checking only its last line loses stderr-only
+   required-environment warnings. Use `assert_wprism_json_required_environment`
+   for a terminal scoped replay whose verification is deliberately null, and
+   retain its separate no-work/terminal-receipt assertions. Plain
+   `capture_wprism_json_success` remains transport-only. The capture helper retains
+   refusal envelopes and diagnostic bytes, but rejects a zero-exit answer
+   carrying a PHP runtime diagnostic, including startup warnings and parse
+   errors, before publishing the JSON value. Printing that diagnostic and then
+   returning PASS is not positive evidence. These checks reject
+   missing **required** bindings and failed canonical verification; the human
+   matrix path retains the engine's post-verification clean-canary result.
+   Do not require the aggregate `plan.env_missing` count to be zero across
+   adapters: optional plugin environment rows legitimately contribute to it.
+   Nor is an empty `warnings` array a universal first-apply invariant: that
+   existing wire field also carries adoption and verified action receipts.
+   Actual `env_missing:` diagnostics must not be accepted as green evidence.
+
+   Apply the same full-stream rule to native JSON observations, seed receipts,
+   route probes and successful host deploy/settlement. Validate diagnostics and
+   exit status before selecting JSON or trusting phase/native-state comparisons.
+   Reuse the shared JSON capture or diagnostic assertion, not a last-line pipe.
+   Exercise the actual helper or acceptance block with valid output plus a
+   zero-exit PHP warning on each stream, retaining a healthy control. Correct
+   payloads do not make ignored diagnostics into valid evidence.
+
+   Prove a coherent **source** at the actual Capture boundary, after all native
+   authoring lifecycle work. In the Rank Math/ACF/Polylang/Woo combination,
+   fresh raw metadata and API readbacks showed that Polylang post-meta sync
+   already copied the English ACF value to German before Capture. Disabling
+   sync preserved distinct values; re-enabling it and saving through Woo
+   propagated a common value. Exercise both valid intents through the round
+   trip, including a different target setting. A successful setter or one
+   Action Scheduler assertion does not prove the rest of the source graph.
+
+   Native authoring has ordering too: new post types and language rewrite
+   configuration must be prepared before a native link index is treated as
+   ready. The same source-only diagnostic had three correct internal URLs
+   with unresolved targets. Soft rewrite preparation, a fresh request and
+   native Rank processing resolved every edge, changing only targets/counts
+   in the complete source observation. This is fixture manufacture, not an
+   engine cache warm-up or a recovery-observer workaround. Retain bounded
+   private source observations across pair cleanup, verify raw rows alongside
+   plugin APIs, and refuse incoherence before capture. Derive incoming counts
+   from the entire explicitly checked fixture graph: a third CPT linking to
+   the English product contributes just as the German product does. Apply and
+   retry must use that same complete graph oracle.
+
+   Rendered language identifiers are not interchangeable with WordPress
+   locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`
+   while Open Graph retains `en_US`/`de_DE`; regional variants change that
+   native rule. Assert the exact fixture's complete alternate map, and refuse
+   duplicate or malformed language tags before projection can discard them.
+
+   Fixture repair must obey the pinned native API contract too. ACF 6.8.7
+   deletes by field ID/key/name, not its returned field array, and reports
+   `true` without checking `wp_delete_post` success. Before removal, prove
+   the exact owned field and physical row; afterward, check bounded physical
+   absence before restoring metadata. A fresh Capture must still reproduce
+   the complete original canonical tree. Test failed deletion and failed
+   readback separately so a successful-looking helper cannot hide either.
+
+   A complete-row read window must control its test-owned background writers,
+   not hide their rows. Core's retained native evidence localized one
+   unexpected difference to `_transient_doing_cron.option_value`; its fresh-map
+   comparison now uses `sandbox/tests/lib/wordpress_cron_window.sh` before the
+   first baseline boot through the repeated read. The shared helper proves an
+   owner-scoped `DISABLE_WP_CRON` MU guard in the selected site's native PHP and
+   removes it outside WordPress on every exit. This is test infrastructure,
+   not engine behavior or a generic promise of database quiescence: an already
+   running worker, another writer or lazy expiration can still change rows and
+   must still fail the comparison. Keep every option row in the witness, and
+   retain negative controls for an actual cron-row write through the guard and
+   a durable option change. Do not add transient exclusions, cache warm-ups or
+   production special cases to make a read-only assertion pass.
+
+   The source-SHA binding is part of the evidence. A green run against another
+   checkout is not evidence for the candidate. The package validator requires
+   this matrix for every certified plugin adapter, requires every active pin to
+   appear in its executable source, and checks that `certified-boundary` pins
+   are inside `version_range` while `refusal-fixture` pins are outside it.
+
+   This is test provenance, not a runtime zip allowlist. Runtime compatibility
+   is the manifest's half-open version interval; WordPress exposes a plugin
+   version, not the original archive bytes. Keep the interval no wider than the
+   behavior the pinned artifacts justify, and never claim that a live plugin
+   directory is byte-identical to a WordPress.org zip. If byte identity ever
+   becomes a product requirement, it needs a separately designed shipped code
+   identity contract rather than reading authoring evidence at runtime.
+5. **Add the conformance checks inside the capsule.** Add
+   `tests/conformance/entry.json` (the entry declares the pin set, artifacts,
+   and state the round trip must preserve), and the mandatory `seed.sh` and
+   `check.sh`. Add `postdeploy.sh`/`postapply.sh` only at the lifecycle seam
+   their names describe. Run the candidate-bound gate from its exact commit:
+
+   ```sh
+   candidate_sha=$(git rev-parse HEAD)
+   WPRISM_SOURCE_ROOT=$(pwd) \
+   CONF_EXPECTED_SOURCE_SHA=$candidate_sha CONF_PAIR=<private-pair> \
+   CONF1_PORT=<even-port> CONF2_PORT=<next-port> \
    bash sandbox/conformance/run.sh <name>
    ```
+
+   Conformance hooks run in child Bash processes after the runner has fetched,
+   digest-verified, and installed every `entry.json` artifact. That child ABI
+   intentionally exposes the scoped, read-only `artifact_library_jq` helpers,
+   not `fetch_artifact`: fetching owns the runner's array-safe Compose topology,
+   which cannot cross the child boundary. A lifecycle reinstall resolves its
+   exact SHA-256 from `artifact_library_jq`, constructs the corresponding
+   `/artifacts-cache/<kind>-<slug>-<version>-<sha256>.zip` path, verifies that
+   cached file through the target process, and only then installs it. Never
+   fetch again from a hook; doing so can both fail with `command not found` and
+   hide loss of the cache premise established during setup.
 
    A `certified` entry whose manifest declares a `plugin` must cite
    `conformance-<name>` in its `evidence.tests`, and that citation is only
    discoverable if
    `adapter-packages/<name>/tests/conformance/entry.json` exists —
    `sandbox/tests/offline/policy/regress_manifest_dispositions.php` proves both offline.
-5. **Render and validate the aggregate** without checking it in:
+6. **Ratchet live premises and production readiness.** Every non-empty target
+   observation or fixture-id assertion in conformance/version-matrix sources
+   belongs in `evidence/target-observation-premises.tsv`; package validation
+   checks both directions and its exact count header. Account for all twelve
+   scenario families in `evidence/production-readiness.json`, citing the exact
+   package, shared-engine, or participant-owned scenario gates. A missing
+   primitive is `blocked`; missing coverage is `gaps`; neither may be hidden as
+   `not_applicable`. See
+   [the production-readiness contract](../agents/adapter-production-readiness.md).
+7. **Own combinations at the participant boundary.** When two or more adapters
+   interact, create `integration-scenarios/<scenario>/scenario.json` with a
+   sorted `participants` list and convention-named gates under
+   `tests/{offline,live,certify,spike}/`. Cite those gates from the adapter's
+   `evidence/external-tests.json`; the key must equal the gate basename with
+   underscores changed to hyphens. This keeps a cross-adapter assertion out of
+   every participant capsule while making changes to any named participant
+   select the scenario automatically. Exercise both pin orders and every
+   structurally distinct plugin load order needed by the claim, target-only
+   neighbor state, ownership collisions, native frontend/API behavior, provider
+   failure/retry, recapture, and the final no-op where they are structurally
+   relevant. Two opposing orders are pairwise-complete for a set of movable
+   plugins; test every permutation only when higher-order sequence behavior is
+   part of the claim or plugin implementation. Install or activation order is
+   not proof of load order: WordPress and plugins may rewrite
+   `active_plugins` (Polylang deliberately forces itself first). After all exact
+   artifacts are active, persist each claimed test-owned sequence and read it
+   back in a new request before exercising product behavior. Preserve and state
+   any plugin-enforced precedence instead of claiming a permutation the native
+   runtime makes impossible.
+8. **Close and generate the package boundary.** Run the full validator only
+   after the files above exist, then refresh the runtime name projection:
+
+   ```sh
+   php tools/adapter-package-validate.php --adapter=<name>
+   php tools/adapter-package-tests.php --adapter=<name>
+   php tools/shipped-identity-inventory.php
+   php tools/classmap-generate.php
+   php tools/offline-corpus.php
+   ```
+
+   A new `id_kind` also moves the hand-reviewed permanent floor described at
+   the start of this section. Re-measure explicit aggregate baselines such as
+   effect-declaration coverage; do not replace behavioral numbers with a
+   directory count merely to make the gate green.
+9. **Render and validate the aggregate** without checking it in:
 
    ```sh
    php tools/capability-doc.php render > sandbox/tmp/capabilities.md
+   composer check
+   make regress-offline-all
    make release-gate
    ```
 

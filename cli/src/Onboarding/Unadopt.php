@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/Transport.php';
+require_once __DIR__ . '/AgentGenerationFence.php';
 
 /** Ownership-checked, evidence-preserving removal of the adopted control plane. */
 final class Unadopt {
@@ -24,6 +25,10 @@ final class Unadopt {
         }
         self::assertDisjointArchive($archive, $repo, $mu);
 
+        $loaderProbeBefore = AgentGenerationFence::inspectInstalledLoader(
+            $transport,
+            $mu . '/wprism-loader.php'
+        );
         $probe = $transport->captureRaw(self::probeScript($mu, $repo, $archive));
         if ($probe['exit'] !== 0) {
             $detail = trim($probe['stderr'] !== '' ? $probe['stderr'] : $probe['stdout']);
@@ -52,6 +57,18 @@ final class Unadopt {
             && preg_match('/^[a-f0-9]{64}$/D', $rows['site_identity']) !== 1) {
             throw new \RuntimeException('wprism: unadopt ownership probe returned a malformed site boundary');
         }
+        $loaderProbeAfter = AgentGenerationFence::inspectInstalledLoader(
+            $transport,
+            $mu . '/wprism-loader.php'
+        );
+        if ($loaderProbeBefore !== $loaderProbeAfter) {
+            throw new \RuntimeException('wprism: installed loader generation changed during unadopt planning');
+        }
+        if ($loaderProbeAfter['state'] === 'foreign') {
+            throw new \RuntimeException(
+                'wprism: the MU loader destination is occupied by a non-WPrism file; refusing unadopt'
+            );
+        }
 
         $plan = [
             'format' => self::PLAN_FORMAT,
@@ -64,6 +81,8 @@ final class Unadopt {
                 ['kind' => 'file', 'name' => 'loader', 'path' => $mu . '/wprism-loader.php', 'sha256' => $rows['loader_sha256']],
                 ['kind' => 'directory', 'name' => 'control', 'path' => $repo . '/.wprism', 'sha256' => $rows['control_sha256']],
             ],
+            'loader_generation_fence' => $loaderProbeAfter['state'],
+            'loader_content_sha256' => $loaderProbeAfter['sha256'],
             'preserved_in_place' => [
                 $repo . '/site.wprism.json',
                 $repo . '/code',
@@ -84,7 +103,11 @@ final class Unadopt {
      * @param array<string,mixed> $reviewedPlan
      * @return array{exit:int,phase:string,stdout:string,stderr:string,receipt?:array<string,mixed>}
      */
-    public static function execute(AdoptionTransport $transport, array $reviewedPlan): array {
+    public static function execute(
+        AdoptionTransport $transport,
+        array $reviewedPlan,
+        bool $legacyLoaderQuiesced = false
+    ): array {
         $expectedDigest = (string) ($reviewedPlan['digest'] ?? '');
         $archive = (string) ($reviewedPlan['archive'] ?? '');
         $fresh = self::plan($transport, $archive);
@@ -94,15 +117,31 @@ final class Unadopt {
                 'target control-plane or repository evidence changed after review; request and confirm a fresh unadopt plan'
             );
         }
+        try {
+            $legacyLoaderTransition = AgentGenerationFence::authorizeLoaderTransition(
+                [
+                    'state' => (string) ($fresh['loader_generation_fence'] ?? ''),
+                    'sha256' => (string) ($fresh['loader_content_sha256'] ?? ''),
+                ],
+                $legacyLoaderQuiesced
+            );
+        } catch (\Throwable $error) {
+            return self::failure('agent generation migration', $error->getMessage());
+        }
         $mu = (string) $fresh['mu_plugins'];
         $repo = (string) $fresh['repository'];
         $token = bin2hex(random_bytes(12));
-        $receipt = self::receipt($fresh);
+        $receipt = self::receipt($fresh, $legacyLoaderTransition);
         $receiptBytes = self::encode($receipt);
         $staged = false;
         $interrupted = null;
         try {
-            $stage = $transport->captureRaw(self::stageScript($fresh, $token, $receiptBytes));
+            $stage = $transport->captureRaw(self::stageScript(
+                $fresh,
+                $token,
+                $receiptBytes,
+                $legacyLoaderQuiesced
+            ));
             if ($stage['exit'] !== 0) {
                 return self::fromTransport('archive and stage', $stage);
             }
@@ -163,11 +202,13 @@ final class Unadopt {
     }
 
     /** @param array<string,mixed> $plan @return array<string,mixed> */
-    private static function receipt(array $plan): array {
+    private static function receipt(array $plan, bool $legacyLoaderTransition = false): array {
         return [
             'format' => self::RECEIPT_FORMAT,
             'agent_version' => $plan['agent_version'],
             'archive' => $plan['archive'],
+            'legacy_loader_quiescence_attested' => $legacyLoaderTransition,
+            'loader_generation_fence' => $plan['loader_generation_fence'],
             'plan_digest' => $plan['digest'],
             'preserved_in_place' => $plan['preserved_in_place'],
             'repository' => $plan['repository'],
@@ -220,7 +261,12 @@ final class Unadopt {
     }
 
     /** @param array<string,mixed> $plan */
-    private static function stageScript(array $plan, string $token, string $receiptBytes): string {
+    private static function stageScript(
+        array $plan,
+        string $token,
+        string $receiptBytes,
+        bool $legacyLoaderQuiesced = false
+    ): string {
         $q = static fn(string $value): string => escapeshellarg($value);
         $mu = (string) $plan['mu_plugins'];
         $repo = (string) $plan['repository'];
@@ -237,12 +283,15 @@ final class Unadopt {
             . 'fingerprint() { php -r ' . $q($fingerprint) . ' "$1" "$2"; }' . "\n"
             . 'expected_agent=' . $q($agentHash) . '; expected_loader=' . $q($loaderHash)
                 . '; expected_control=' . $q($controlHash) . "\n"
-            . 'success=0; moved_agent=0; moved_loader=0; moved_control=0' . "\n"
+            . 'success=0; moved_agent=0; moved_loader=0; moved_control=0; lock_acquired=0; generation_locked=0; generation_pending=0' . "\n"
+            . AgentGenerationFence::shellHelpers()
             . 'finish() { rc=$?; set +e; if [ "$success" -ne 1 ]; then failed=0; '
                 . 'if [ "$moved_control" -eq 1 ]; then [ ! -e "$control" ] && [ ! -L "$control" ] && [ "$(fingerprint "$control_old" directory)" = "$expected_control" ] && mv "$control_old" "$control" || failed=1; fi; '
                 . 'if [ "$moved_agent" -eq 1 ]; then [ ! -e "$agent" ] && [ ! -L "$agent" ] && [ "$(fingerprint "$agent_old" directory)" = "$expected_agent" ] && mv "$agent_old" "$agent" || failed=1; fi; '
                 . 'if [ "$moved_loader" -eq 1 ]; then [ ! -e "$loader" ] && [ ! -L "$loader" ] && [ "$(fingerprint "$loader_old" file)" = "$expected_loader" ] && mv "$loader_old" "$loader" || failed=1; fi; '
-                . 'if [ "$failed" -eq 0 ]; then rm -rf "$lock"; else echo "wprism unadopt: rollback retained exact backups and lock for operator recovery" >&2; rc=1; fi; '
+                . 'if [ "$failed" -eq 0 ] && [ "$generation_pending" -eq 1 ]; then generation_lock_release 1 || failed=1; fi; '
+                . 'if [ "$generation_locked" -eq 1 ]; then generation_lock_release 0 || failed=1; fi; '
+                . 'if [ "$failed" -eq 0 ] && [ "$lock_acquired" -eq 1 ]; then rm -rf "$lock"; elif [ "$failed" -ne 0 ]; then echo "wprism unadopt: rollback retained exact backups and lock for operator recovery" >&2; rc=1; fi; '
                 . 'echo "wprism unadopt: archive retained at $archive" >&2; fi; exit "$rc"; }' . "\n"
             . 'trap finish EXIT' . "\n"
             . 'for path in "$archive" "$agent_old" "$loader_old" "$control_old" "$lock"; do [ ! -e "$path" ] && [ ! -L "$path" ] || { echo "transaction path collision: $path" >&2; exit 1; }; done' . "\n"
@@ -250,7 +299,7 @@ final class Unadopt {
                 . '&& [ "$(fingerprint "$loader" file)" = "$expected_loader" ] '
                 . '&& [ "$(fingerprint "$control" directory)" = "$expected_control" ] '
                 . '|| { echo "reviewed control-plane bytes changed before archive" >&2; exit 1; }' . "\n"
-            . 'mkdir "$lock"; mkdir "$txn"; printf "%s\\n" "$token" > "$txn/token"; printf "%s\\n" "$archive" > "$txn/archive"' . "\n"
+            . 'mkdir "$lock"; lock_acquired=1; mkdir "$txn"; printf "%s\\n" "$token" > "$txn/token"; printf "%s\\n" "$archive" > "$txn/archive"' . "\n"
             . 'mkdir "$archive"; chmod 700 "$archive"; mkdir "$archive/mu-plugins" "$archive/repository"' . "\n"
             . 'cp -Rp "$agent" "$archive/mu-plugins/wprism"; cp -p "$loader" "$archive/mu-plugins/wprism-loader.php"; cp -Rp "$control" "$archive/repository/.wprism"' . "\n"
             . '[ "$(fingerprint "$archive/mu-plugins/wprism" directory)" = "$expected_agent" ] '
@@ -259,7 +308,20 @@ final class Unadopt {
                 . '|| { echo "archive copy did not preserve the reviewed control-plane bytes" >&2; exit 1; }' . "\n"
             . 'printf %s ' . $q($receiptBytes) . ' > "$archive/receipt.json"; chmod 600 "$archive/receipt.json"; sync' . "\n"
             . 'printf "%s\\n" "$expected_agent" > "$txn/agent.sha256"; printf "%s\\n" "$expected_loader" > "$txn/loader.sha256"; printf "%s\\n" "$expected_control" > "$txn/control.sha256"; : > "$txn/archive-ready"; sync' . "\n"
+            . 'generation_lock_acquire 0' . "\n"
+            . AgentGenerationFence::migrationAssertionShell(
+                [
+                    'state' => (string) $plan['loader_generation_fence'],
+                    'sha256' => (string) $plan['loader_content_sha256'],
+                ],
+                $legacyLoaderQuiesced
+            )
+            . '[ "$(fingerprint "$agent" directory)" = "$expected_agent" ] '
+                . '&& [ "$(fingerprint "$loader" file)" = "$expected_loader" ] '
+                . '&& [ "$(fingerprint "$control" directory)" = "$expected_control" ] '
+                . '|| { echo "reviewed control-plane bytes changed while waiting for the agent generation fence" >&2; exit 1; }' . "\n"
             . 'mv "$loader" "$loader_old"; moved_loader=1; mv "$agent" "$agent_old"; moved_agent=1; mv "$control" "$control_old"; moved_control=1; : > "$txn/staged"; sync' . "\n"
+            . 'generation_lock_release 1' . "\n"
             . 'success=1; echo wprism-unadopt-staged';
     }
 
@@ -279,6 +341,9 @@ final class Unadopt {
             . 'agent="$mu/wprism"; loader="$mu/wprism-loader.php"; control="$repo/.wprism"; lock="$mu/.wprism-unadopt-lock"; txn="$lock/transaction"' . "\n"
             . 'agent_old="$mu/.wprism-unadopt-agent-$token"; loader_old="$mu/.wprism-loader-unadopt-$token"; control_old="$repo/.wprism-unadopt-$token"' . "\n"
             . 'fingerprint() { php -r ' . $q($fingerprint) . ' "$1" "$2"; }' . "\n"
+            . 'generation_locked=0; generation_pending=0' . "\n"
+            . AgentGenerationFence::shellHelpers()
+            . "trap 'generation_lock_release 0' EXIT\n"
             . '[ -d "$txn" ] && [ ! -L "$txn" ] && [ -f "$txn/staged" ] && [ ! -L "$txn/staged" ] || { echo "staged unadopt journal is missing or unsafe" >&2; exit 1; }' . "\n"
             . '[ ! -e "$agent" ] && [ ! -L "$agent" ] && [ ! -e "$loader" ] && [ ! -L "$loader" ] && [ ! -e "$control" ] && [ ! -L "$control" ] || { echo "a live control-plane path reappeared before commit" >&2; exit 1; }' . "\n"
             . '[ "$(fingerprint "$agent_old" directory)" = ' . $q($agentHash) . ' ] '
@@ -291,7 +356,9 @@ final class Unadopt {
                 . '&& [ "$(cat "$archive/receipt.json")" = ' . $q(rtrim($receiptBytes, "\n")) . ' ] '
                 . '|| { echo "selected evidence archive changed before commit" >&2; exit 1; }' . "\n"
             . self::siteAssertionShell($repo, $siteIdentity, $fingerprint, $q)
-            . 'rm -rf "$control_old" "$agent_old"; rm -f "$loader_old"; rm -rf "$lock"; sync; echo wprism-unadopt-complete';
+            . 'generation_lock_acquire 1' . "\n"
+            . 'rm -rf "$control_old" "$agent_old"; rm -f "$loader_old"' . "\n"
+            . 'generation_lock_release 1; trap - EXIT; rm -rf "$lock"; sync; echo wprism-unadopt-complete';
     }
 
     /** @param array<string,mixed> $plan */
@@ -308,11 +375,15 @@ final class Unadopt {
             . 'agent="$mu/wprism"; loader="$mu/wprism-loader.php"; control="$repo/.wprism"; lock="$mu/.wprism-unadopt-lock"; txn="$lock/transaction"' . "\n"
             . 'agent_old="$mu/.wprism-unadopt-agent-$token"; loader_old="$mu/.wprism-loader-unadopt-$token"; control_old="$repo/.wprism-unadopt-$token"' . "\n"
             . 'fingerprint() { php -r ' . $q($fingerprint) . ' "$1" "$2"; }' . "\n"
+            . 'generation_locked=0; generation_pending=0' . "\n"
+            . AgentGenerationFence::shellHelpers()
+            . "trap 'generation_lock_release 0' EXIT\n"
             . '[ -d "$txn" ] && [ ! -L "$txn" ] && [ -f "$txn/staged" ] && [ ! -L "$txn/staged" ] || { echo "unadopt rollback journal is missing or unsafe" >&2; exit 1; }' . "\n"
+            . 'generation_lock_acquire 1' . "\n"
             . '[ ! -e "$control" ] && [ "$(fingerprint "$control_old" directory)" = ' . $q($controlHash) . ' ] && mv "$control_old" "$control" || { echo "control evidence changed before rollback" >&2; exit 1; }' . "\n"
             . '[ ! -e "$agent" ] && [ "$(fingerprint "$agent_old" directory)" = ' . $q($agentHash) . ' ] && mv "$agent_old" "$agent" || { echo "agent changed before rollback" >&2; exit 1; }' . "\n"
             . '[ ! -e "$loader" ] && [ "$(fingerprint "$loader_old" file)" = ' . $q($loaderHash) . ' ] && mv "$loader_old" "$loader" || { echo "loader changed before rollback" >&2; exit 1; }' . "\n"
-            . 'rm -rf "$lock"; sync; echo wprism-unadopt-rolled-back';
+            . 'generation_lock_release 1; trap - EXIT; rm -rf "$lock"; sync; echo wprism-unadopt-rolled-back';
     }
 
     /** @param array<string,mixed> $plan @param array{exit:int,stdout:string,stderr:string} &$failure */

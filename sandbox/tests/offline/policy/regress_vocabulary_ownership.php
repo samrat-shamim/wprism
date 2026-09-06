@@ -67,137 +67,20 @@ function sanitize_title($s) {
     return strtolower(trim((string) $s));
 }
 
-/**
- * Stands in for exactly the six query shapes the two groups at the end of
- * this file issue — read by reading agent/src/{Ledger,Snapshot}.php directly,
- * the discipline regress_block_refs.php's own FakeWpdb docblock states, NOT a
- * general SQL engine. Rows are read-only here (nothing in this file inserts or
- * updates an authored row); wprism_map is the only thing that changes, because
- * capture mints identity as a side effect of the derivation being tested.
- */
-final class FakeWpdb {
-    public $prefix = 'wp_';
-    public $last_error = '';
-    /** @var array<string, array<int, string>> id_kind => [local_id => uuid] */
-    public $identity = [];
-    /** @var array<string, array<int, string>> id_kind => [local_id => entity_type] */
-    public $identityType = [];
-    /** @var array<string, array{columns: array<string,string>, rows: list<array<string,mixed>>}> */
-    public $tables = [];
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
-    public function prepare($query, ...$args) {
-        if (count($args) === 1 && is_array($args[0])) {
-            $args = $args[0];
-        }
-        return ['__prepared' => true, 'sql' => $query, 'args' => $args];
-    }
-
-    public function get_var($prepared) {
-        [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SHOW TABLES LIKE')) {
-            $unprefixed = $this->strip_prefix((string) $args[0]);
-            return isset($this->tables[$unprefixed]) ? (string) $args[0] : null;
-        }
-        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'wprism_map')) {
-            [$uuid, $kind] = $args;
-            foreach ($this->identity[$kind] ?? [] as $localId => $u) {
-                if ($u === $uuid) {
-                    return $localId;
-                }
-            }
-            return null;
-        }
-        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'wprism_map')) {
-            [$kind, $localId] = $args;
-            return $this->identity[$kind][(int) $localId] ?? null;
-        }
-        // Snapshot::find_collision()'s natural-key lookup: one projected
-        // column, one AND-joined equality predicate per identity component,
-        // in declared order — matched positionally against prepare()'s args.
-        if (preg_match('/^SELECT `([^`]+)` FROM `([^`]+)` WHERE (.+) LIMIT 1$/s', trim($sql), $m)) {
-            $rows = $this->tables[$this->strip_prefix($m[2])]['rows'] ?? [];
-            preg_match_all('/`([^`]+)` = %[ds]/', $m[3], $cols);
-            foreach ($rows as $row) {
-                $hit = true;
-                foreach ($cols[1] as $i => $col) {
-                    if ((string) ($row[$col] ?? '') !== (string) ($args[$i] ?? '')) {
-                        $hit = false;
-                        break;
-                    }
-                }
-                if ($hit) {
-                    return $row[$m[1]] ?? null;
-                }
-            }
-            return null;
-        }
-        throw new \RuntimeException("FakeWpdb::get_var: unrecognized query shape: $sql");
-    }
-
-    public function get_row($prepared, $output = ARRAY_A) {
-        [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'wprism_map')) {
-            [$uuid, $kind] = $args;
-            foreach ($this->identity[$kind] ?? [] as $localId => $candidate) {
-                if ($candidate === $uuid) {
-                    return ['entity_type' => $this->identityType[$kind][$localId] ?? '', 'local_id' => $localId];
-                }
-            }
-            return null;
-        }
-        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'wprism_map')) {
-            [$kind, $localId] = $args;
-            $localId = (int) $localId;
-            return isset($this->identity[$kind][$localId])
-                ? [
-                    'uuid' => $this->identity[$kind][$localId],
-                    'entity_type' => $this->identityType[$kind][$localId] ?? '',
-                ]
-                : null;
-        }
-        throw new \RuntimeException("FakeWpdb::get_row: unrecognized query shape: $sql");
-    }
-
-    public function get_results($prepared, $output = ARRAY_A) {
-        [$sql, ] = $this->unwrap($prepared);
-        $sql = trim($sql);
-        if (preg_match('/^SHOW COLUMNS FROM `([^`]+)`/', $sql, $m)) {
-            $out = [];
-            foreach ($this->tables[$this->strip_prefix($m[1])]['columns'] ?? [] as $name => $type) {
-                $out[] = ['Field' => $name, 'Type' => $type];
-            }
-            return $out;
-        }
-        if (preg_match('/^SELECT \* FROM `([^`]+)` ORDER BY/', $sql, $m)) {
-            return $this->tables[$this->strip_prefix($m[1])]['rows'] ?? [];
-        }
-        throw new \RuntimeException("FakeWpdb::get_results: unrecognized query shape: $sql");
-    }
-
-    public function query($prepared) {
-        [$sql, $args] = $this->unwrap($prepared);
-        if (str_starts_with(trim($sql), 'INSERT INTO') && str_contains($sql, 'wprism_map')) {
-            [$uuid, $entityType, $kind, $localId] = $args;
-            $this->identity[$kind][(int) $localId] = $uuid;
-            $this->identityType[$kind][(int) $localId] = $entityType;
-            return 1;
-        }
-        return 1; // no other mutation is reachable from this file's paths
-    }
-
-    private function strip_prefix(string $prefixed): string {
-        return str_starts_with($prefixed, $this->prefix) ? substr($prefixed, strlen($this->prefix)) : $prefixed;
-    }
-
-    private function unwrap($prepared): array {
-        return is_array($prepared) && ($prepared['__prepared'] ?? false)
-            ? [$prepared['sql'], $prepared['args']]
-            : [(string) $prepared, []];
-    }
-}
-
-$wpdb = new FakeWpdb();
-$GLOBALS['wpdb'] = $wpdb;
+$wpdb = \WPrismTest\FakeWpdb::install()
+    ->enableInformationSchema()
+    ->setColumns('wprism_map', [
+        'uuid' => 'char(36)',
+        'entity_type' => 'varchar(64)',
+        'id_kind' => 'varchar(32)',
+        'local_id' => 'bigint unsigned',
+    ])
+    ->setUniqueKey('wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wprism_map', 'InnoDB');
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
@@ -220,6 +103,7 @@ use WPrism\Snapshot;
 use WPrism\Tokens;
 use WPrism\Uuid;
 use WPrismTest\FrozenPolicy;
+use WPrismTest\FakeWpdb;
 
 if (!defined('WPRISM_SPEC_VERSION')) {
     define('WPRISM_SPEC_VERSION', 2);
@@ -1037,22 +921,26 @@ echo "\n== S3: the CAPTURE direction — identity derived off a live row, with t
 
 /** The two fixture tables, at a chosen pair of local ids, with an empty ledger. */
 function seed_agency(FakeWpdb $wpdb, int $roomId, int $slotId, string $slotCode = 'morning'): void {
-    $wpdb->identity = [];
-    $wpdb->identityType = [];
-    $wpdb->tables = [
-        'acme_a_rooms' => [
-            'columns' => ['room_id' => 'bigint(20) unsigned', 'room_code' => 'varchar(64)'],
-            'rows' => [['room_id' => $roomId, 'room_code' => 'studio-one']],
-        ],
-        'acme_b_slots' => [
-            'columns' => [
-                'slot_id' => 'bigint(20) unsigned',
-                'room_id' => 'bigint(20) unsigned',
-                'slot_code' => 'varchar(64)',
-            ],
-            'rows' => [['slot_id' => $slotId, 'room_id' => $roomId, 'slot_code' => $slotCode]],
-        ],
-    ];
+    $wpdb
+        ->seedTable('wprism_map', [])
+        ->setColumns('acme_a_rooms', [
+            'room_id' => 'bigint(20) unsigned',
+            'room_code' => 'varchar(64)',
+        ])
+        ->seedTable('acme_a_rooms', [[
+            'room_id' => $roomId,
+            'room_code' => 'studio-one',
+        ]])
+        ->setColumns('acme_b_slots', [
+            'slot_id' => 'bigint(20) unsigned',
+            'room_id' => 'bigint(20) unsigned',
+            'slot_code' => 'varchar(64)',
+        ])
+        ->seedTable('acme_b_slots', [[
+            'slot_id' => $slotId,
+            'room_id' => $roomId,
+            'slot_code' => $slotCode,
+        ]]);
 }
 
 /** @return array<string,array> captured entity by table name */
@@ -1095,7 +983,11 @@ check(
 );
 
 seed_agency($wpdb, 7, 3);
-$wpdb->tables['acme_b_slots']['rows'][0]['room_id'] = 99; // a parent outside capture scope
+$wpdb->seedTable('acme_b_slots', [[
+    'slot_id' => 3,
+    'room_id' => 99,
+    'slot_code' => 'morning',
+]]); // a parent outside capture scope
 expect_throw(
     fn() => capture_agency($policy),
     "identity.mode=natural_key column 'room_id' holds unmanaged acme_room ref 99",
@@ -1148,14 +1040,19 @@ check(
     Snapshot::find_collision($policy, $slotEntity, [], $noTree) === null,
     'with no repository tree to consult, the ledger-only behavior that shipped before is unchanged'
 );
-$wpdb->identity['acme_room'] = [12 => $roomUuid];
+$wpdb->seedTable('wprism_map', [[
+    'uuid' => $roomUuid,
+    'entity_type' => 'acme_a_rooms',
+    'id_kind' => 'acme_room',
+    'local_id' => 12,
+]]);
 $mapped = [];
 check(
     Snapshot::find_collision($policy, $slotEntity, [], $mapped) === 4,
     'and an already-MAPPED parent resolves straight out of the ledger, with no tree and no recursion'
 );
 seed_agency($wpdb, 12, 4);
-$wpdb->tables['acme_a_rooms']['rows'] = []; // the parent genuinely does not exist here
+$wpdb->seedTable('acme_a_rooms', []); // the parent genuinely does not exist here
 $orphan = [];
 check(
     Snapshot::find_collision($policy, $slotEntity, $tree, $orphan) === null,
@@ -1175,11 +1072,19 @@ $linkPolicy = load_pair(manifest_b(['tables' => manifest_b()['tables'] + ['acme_
     'refs' => [['column' => 'tt_id', 'kind' => 'tt']],
     'identity' => ['mode' => 'natural_key', 'columns' => ['tt_id', 'code']],
 ]]]));
-$wpdb->identity = ['term_taxonomy' => [5 => $ttUuid]];
-$wpdb->tables['acme_b_links'] = [
-    'columns' => ['link_id' => 'bigint(20) unsigned', 'tt_id' => 'bigint(20) unsigned', 'code' => 'varchar(64)'],
-    'rows' => [['link_id' => 1, 'tt_id' => 5, 'code' => 'x']],
-];
+$wpdb
+    ->seedTable('wprism_map', [[
+        'uuid' => $ttUuid,
+        'entity_type' => 'term_taxonomy',
+        'id_kind' => 'term_taxonomy',
+        'local_id' => 5,
+    ]])
+    ->setColumns('acme_b_links', [
+        'link_id' => 'bigint(20) unsigned',
+        'tt_id' => 'bigint(20) unsigned',
+        'code' => 'varchar(64)',
+    ])
+    ->seedTable('acme_b_links', [['link_id' => 1, 'tt_id' => 5, 'code' => 'x']]);
 $ttCache = [];
 check(
     Snapshot::find_collision($linkPolicy, [

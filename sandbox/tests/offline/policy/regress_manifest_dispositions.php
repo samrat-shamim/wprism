@@ -17,6 +17,7 @@ require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require __DIR__ . '/../../../../cli/src/Transport/CodeDeploy.php';
+require __DIR__ . '/../../../../tools/src/AdapterPackageValidator.php';
 
 use WPrism\AdapterRegistry;
 use WPrism\AdapterLibrary;
@@ -26,6 +27,7 @@ use WPrism\Policy;
 use WPrism\RepositoryCompiler;
 use WPrism\Orchestrator\CodeDeploy;
 use WPrism\Orchestrator\PlanSummary;
+use WPrism\Tooling\AdapterPackageValidator;
 
 final class WP_CLI {
     public static array $lines = [];
@@ -279,34 +281,15 @@ foreach ($data['manifests'] as $name => $entry) {
 
 echo "\n== evidence references and policy readiness ==\n";
 function subject_test_is_discoverable(string $repo, string $test, string $name): bool {
-    if ($test === "conformance-$name") {
-        return is_file("$repo/adapter-packages/$name/tests/conformance/entry.json")
-            || is_file("$repo/sandbox/conformance/entries/$name.json");
+    if (in_array($name, ['core', 'fse'], true)) {
+        return ($test === "conformance-$name" && is_file("$repo/sandbox/conformance/entries/$name.json"))
+            || ($name === 'core' && $test === 'multisite-refusal');
     }
-    if ($test === 'exact-artifact-version-matrix' || ($test === 'multisite-refusal' && $name === 'core')) {
-        return true;
+    static $available = [];
+    if (!isset($available[$name])) {
+        $available[$name] = array_fill_keys(AdapterPackageValidator::discoverableEvidence($repo, $name), true);
     }
-    if ($test === 'regress-polylang-production-readiness') {
-        return is_file("$repo/adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php");
-    }
-    if ($test === 'regress-polylang-multisite-refusal') {
-        return is_file("$repo/adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh");
-    }
-    if ($test === 'regress-polylang-tec-rewrite-coinstall') {
-        return is_file(
-            "$repo/integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/"
-            . 'regress_polylang_tec_rewrite_coinstall.sh'
-        );
-    }
-    // A third arm used to fall back to sandbox/certification/tests/$test.sh.
-    // That whole directory went with the certification-evidence apparatus, so
-    // the fallback could only ever return false — it read as a real lookup
-    // while being an unconditional refusal, which is the trap this deletes.
-    // The two arms above answer every evidence kind the certified set cites
-    // today. A new KIND of id is undiscoverable until this function learns
-    // where that kind lives, and the callers below say so by name rather than
-    // the suite quietly passing on a path nobody maintains.
-    return false;
+    return isset($available[$name][$test]);
 }
 foreach ($data['manifests'] as $name => $entry) {
     if ($entry['status'] !== 'certified') { continue; }

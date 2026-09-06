@@ -18,6 +18,9 @@ if (!$canonWasPreloaded && !class_exists(ManifestDispositions::class, false)) {
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/Policy.php';
 }
+if (!class_exists(ManifestExecutableLoader::class, false)) {
+    require_once __DIR__ . '/../Kernel/ManifestExecutableLoader.php';
+}
 // WP-2.8: state_site_hash() names this grammar's site key directly. Guarded
 // the same way its neighbours are, because the stubbed refusal path above can
 // leave a Policy stub in place that never loaded the real grammar; the file
@@ -141,6 +144,75 @@ final class ArtifactPolicyIdentity {
 
     public static function manifest_hash(Policy $policy): string {
         return hash('sha256', Canon::encode(self::manifest_rows($policy)));
+    }
+
+    /**
+     * Resolve one manifest-shipped PHP component from the exact identity row
+     * compilation and pinning already consume. Runtime loaders must use this
+     * descriptor rather than independently rediscovering a path or digest.
+     *
+     * @return array{
+     *     adapter:string,
+     *     adapter_sha256:string,
+     *     class:string,
+     *     file:string,
+     *     id:string,
+     *     kind:'interpreters'|'providers'|'regenerators',
+     *     sha256:?string
+     * }
+     */
+    public static function runtime_component_descriptor(
+        Policy $policy,
+        string $adapter,
+        string $kind,
+        string $id
+    ): array {
+        if (!in_array($kind, ['interpreters', 'providers', 'regenerators'], true)) {
+            throw new \RuntimeException("wprism: unknown adapter runtime kind '$kind'");
+        }
+        $class = ManifestExecutableLoader::className($kind, $id);
+        foreach (self::manifest_rows($policy) as $row) {
+            if (($row['name'] ?? null) !== $adapter) {
+                continue;
+            }
+            $sha256 = null;
+            $found = false;
+            if ($kind === 'interpreters') {
+                $entry = $row['interpreter'] ?? null;
+                if (is_array($entry) && ($entry['name'] ?? null) === $id) {
+                    $sha256 = is_string($entry['sha256'] ?? null) ? $entry['sha256'] : null;
+                    $found = true;
+                }
+            } else {
+                $entries = $kind === 'providers'
+                    ? (array) ($row['providers'] ?? [])
+                    : (array) ($row['regenerators'] ?? []);
+                $nameKey = $kind === 'providers' ? 'id' : 'name';
+                foreach ($entries as $entry) {
+                    if (!is_array($entry) || ($entry[$nameKey] ?? null) !== $id) {
+                        continue;
+                    }
+                    $sha256 = is_string($entry['sha256'] ?? null) ? $entry['sha256'] : null;
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                throw new \RuntimeException(
+                    "wprism: adapter '$adapter' identity declares no $kind component '$id'"
+                );
+            }
+            return [
+                'adapter' => $adapter,
+                'adapter_sha256' => hash('sha256', Canon::encode($row)),
+                'class' => $class,
+                'file' => $policy->adapter_runtime_path($adapter, $kind, $id),
+                'id' => $id,
+                'kind' => $kind,
+                'sha256' => $sha256,
+            ];
+        }
+        throw new \RuntimeException("wprism: adapter identity has no manifest '$adapter'");
     }
 
     /**

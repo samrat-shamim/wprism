@@ -59,7 +59,11 @@ final class AdapterChangeScopeCliTest extends TestCase
             . "adapter: acf\n"
             . "command: php tools/adapter-package-tests.php --adapter=acf\n"
             . "reason: single_adapter\n"
-            . "owner: adapter adapter-packages/acf adapter-packages/acf/manifest.json\n",
+            . "owner: adapter adapter-packages/acf adapter-packages/acf/manifest.json\n"
+            . "scenario-gate: rank-math-commerce-multilingual bash integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh\n"
+            . "scenario-gate: rank-math-commerce-multilingual bash integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh\n"
+            . "scenario-gate: rank-math-commerce-multilingual php integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php\n"
+            . "scenario-gate: rank-math-commerce-multilingual php integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php\n",
             $result['stdout']
         );
     }
@@ -80,10 +84,25 @@ final class AdapterChangeScopeCliTest extends TestCase
         );
         self::assertSame('single_adapter', $decision['reason_code']);
         self::assertSame(['woocommerce'], $decision['classification']['adapters']);
-        self::assertSame(['woocommerce-rewrite-coinstall'], $decision['classification']['scenarios']);
+        self::assertSame(
+            ['rank-math-commerce-multilingual', 'woocommerce-rewrite-coinstall'],
+            $decision['classification']['scenarios']
+        );
+        self::assertSame(
+            ['bash', 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh'],
+            $decision['scenario_gates'][0]['command']
+        );
+        self::assertSame(
+            ['bash', 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh'],
+            $decision['scenario_gates'][1]['command']
+        );
+        self::assertSame(
+            ['php', 'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php'],
+            $decision['scenario_gates'][3]['command']
+        );
         self::assertSame(
             ['bash', 'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh'],
-            $decision['scenario_gates'][0]['command']
+            $decision['scenario_gates'][4]['command']
         );
     }
 

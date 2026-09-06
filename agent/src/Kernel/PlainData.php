@@ -14,6 +14,23 @@ final class PlainData {
     public const MAX_DEPTH = 256;
 
     /**
+     * Native PHP sequences may retain holes after unset(); keys are storage
+     * positions, not a reason to reorder values or rewrite their source row.
+     * This tests only key shape. Callers still own byte/count bounds, value
+     * grammar, ordering and duplicate policy; canonical wire lists stay lists.
+     *
+     * @param array<mixed> $value
+     */
+    public static function has_nonnegative_integer_keys(array $value): bool {
+        foreach ($value as $key => $_value) {
+            if (!is_int($key) || $key < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Decode one storage value while preserving WordPress scalar semantics.
      *
      * Non-serialized strings are returned byte-for-byte unchanged. Serialized

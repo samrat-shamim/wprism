@@ -258,6 +258,60 @@ final class HarnessLibTest extends TestCase
         );
     }
 
+    public function testSelectOrderPositionsResolveProjectionBeforeLimiting(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_probe', [
+            ['id' => 2, 'score' => 5, 'label' => 'Zulu'],
+            ['id' => 3, 'score' => 9, 'label' => 'Alpha'],
+            ['id' => 1, 'score' => 5, 'label' => 'Beta'],
+        ])->setColumns('wp_probe', ['label' => 'text', 'id' => 'bigint', 'score' => 'int']);
+
+        // SELECT * follows recorded column order, not the first fixture row
+        // or an assumption that position 1 means the primary key.
+        self::assertSame(['Alpha', 'Beta', 'Zulu'], $db->get_col('SELECT * FROM wp_probe ORDER BY 1'));
+        self::assertSame(
+            [['measure' => '9', 'id' => '3'], ['measure' => '5', 'id' => '1']],
+            $db->get_results('SELECT score AS measure,id FROM wp_probe ORDER BY 1 DESC,2 ASC LIMIT 2', ARRAY_A)
+        );
+        self::assertSame(['3', '1', '2'], $db->get_col('SELECT id,label FROM wp_probe ORDER BY 2'));
+        self::assertSame(['9', '5'], $db->get_col('SELECT DISTINCT score FROM wp_probe ORDER BY 1 DESC'));
+        $db->seedTable('wp_probe', []);
+        self::assertSame([], $db->get_results('SELECT * FROM wp_probe ORDER BY 1', ARRAY_A));
+    }
+
+    #[DataProvider('unsupportedOrderPositionProvider')]
+    public function testOrderPositionsRefuseUnmodeledOrInvalidScopes(string $sql): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_probe', [])->setColumns('wp_probe', ['id' => 'int']);
+        $db->seedTable('wp_lookup', [])->setColumns('wp_lookup', ['id' => 'int']);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('FakeWpdb: unsupported SQL');
+        $db->query($sql);
+    }
+
+    public static function unsupportedOrderPositionProvider(): array
+    {
+        return [
+            ['SELECT id FROM wp_probe ORDER BY 0'],
+            ['SELECT id FROM wp_probe ORDER BY -1'],
+            ['SELECT id FROM wp_probe ORDER BY 1.0'],
+            ['SELECT id FROM wp_probe ORDER BY 2'],
+            ['SELECT * FROM wp_probe ORDER BY 2'],
+            ['SELECT foreign_table.* FROM wp_probe ORDER BY 1'],
+            ['SELECT id FROM wp_probe ORDER BY BINARY 1'],
+            ['SELECT BINARY id FROM wp_probe ORDER BY 1'],
+            ['SELECT LENGTH(id) AS width FROM wp_probe ORDER BY 1'],
+            ['SELECT id,1 AS constant FROM wp_probe ORDER BY 1'],
+            ['SELECT COUNT(*) FROM wp_probe ORDER BY 1'],
+            ['SELECT 1 ORDER BY 1'],
+            ['SELECT p.id FROM wp_probe p LEFT JOIN wp_lookup l ON p.id = l.id ORDER BY 1'],
+            ['UPDATE wp_probe SET id = 2 ORDER BY 1'],
+            ['DELETE FROM wp_probe ORDER BY 1'],
+        ];
+    }
+
     public function testSelectCountAggregatesMatchedRows(): void
     {
         $db = $this->seededDb();
@@ -352,6 +406,355 @@ final class HarnessLibTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('unsupported opt-in information_schema shape');
         $db->get_results('SELECT * FROM information_schema.STATISTICS WHERE TABLE_NAME = \'wp_options\'');
+    }
+
+    /** @return array<string,array{string}> */
+    public static function metadataProjectionQueries(): array
+    {
+        return [
+            'tables' => ["SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('wp_options') ORDER BY TABLE_NAME ASC"],
+            'columns' => ["SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' ORDER BY TABLE_NAME, ORDINAL_POSITION"],
+            'column length' => ["SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_options' AND COLUMN_NAME = 'option_name'"],
+            'trigger count' => ["SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_TABLE = 'wp_options'"],
+            'trigger privileges' => ['SELECT scope_type, table_name FROM information_schema.USER_PRIVILEGES WHERE direct_trigger_grants = 1'],
+            'primary keys' => ["SHOW KEYS FROM `wp_options` WHERE Key_name = 'PRIMARY'"],
+        ];
+    }
+
+    public function testShowIndexFiltersOnlyRecordedMetadata(): void
+    {
+        $db = FakeWpdb::install()->seedTable('wp_comments', []);
+        $primary = ['Key_name' => 'PRIMARY', 'Column_name' => 'comment_ID', 'Seq_in_index' => 1];
+        $secondary = ['Key_name' => 'comment_post_ID', 'Column_name' => 'comment_post_ID', 'Seq_in_index' => 1];
+        $db->setIndexes('wp_comments', [$primary, $secondary]);
+        foreach (['KEYS', 'INDEX', 'INDEXES'] as $variant) {
+            self::assertSame([array_replace($primary, ['Seq_in_index' => '1'])],
+                $db->get_results("SHOW $variant FROM `wp_comments` WHERE Key_name = 'PRIMARY'", ARRAY_A));
+            self::assertSame([array_replace($secondary, ['Seq_in_index' => '1'])],
+                $db->get_results("SHOW $variant FROM `wp_comments` WHERE Key_name <> 'PRIMARY' AND Seq_in_index = 1", ARRAY_A));
+            self::assertSame([], $db->get_results("SHOW $variant FROM `wp_comments` WHERE Key_name = 'absent'", ARRAY_A));
+        }
+        $db->setIndexes('wp_comments', []);
+        self::assertSame([], $db->get_results("SHOW KEYS FROM `wp_comments` WHERE Key_name = 'PRIMARY'", ARRAY_A));
+        $db->seedTable('wp_posts', [['ID' => 1]])->setPrimaryKey('wp_posts', 'ID');
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('without a recorded index fixture');
+        $db->get_results("SHOW KEYS FROM `wp_posts` WHERE Key_name = 'PRIMARY'", ARRAY_A);
+    }
+
+    #[DataProvider('metadataProjectionQueries')]
+    public function testMetadataProjectionUsesTheOrdinaryReadPipeline(string $sql): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema()
+            ->seedTable('wp_options', [])
+            ->setColumns('wp_options', ['option_name' => 'varchar(191)'])
+            ->setIndexes('wp_options', [['Key_name' => 'PRIMARY', 'Column_name' => 'option_id', 'Seq_in_index' => 1]])
+            ->setTableEngine('wp_options', 'InnoDB');
+        $observed = [];
+        $db->onQuery(static function (string $query, string $method) use (&$observed): null {
+            $observed[] = [$query, $method];
+            return null;
+        });
+        $db->last_error = 'stale metadata error';
+        $rows = $db->get_results($sql, ARRAY_A);
+        self::assertNotEmpty($rows, 'the positive metadata premise must contain actual projected evidence');
+        self::assertSame('', $db->last_error);
+        self::assertSame([[$sql, 'get_results']], $observed);
+        self::assertSame([$sql], $db->queries());
+        self::assertSame((string) reset($rows[0]), $db->get_var($sql));
+        self::assertSame([[$sql, 'get_results'], [$sql, 'get_var']], $observed);
+
+        $db->failNextQuery('metadata-read-canary', $sql);
+        self::assertSame([], $db->get_results($sql, ARRAY_A));
+        self::assertSame('metadata-read-canary', $db->last_error);
+        $db->failNextQuery('metadata-scalar-canary', $sql);
+        self::assertNull($db->get_var($sql));
+        self::assertSame('metadata-scalar-canary', $db->last_error);
+        $db->returnNextGetResultsAs(false, $sql);
+        self::assertFalse($db->get_results($sql, ARRAY_A));
+        self::assertSame('', $db->last_error);
+        self::assertSame(5, count($observed), 'every read reaches driver interception exactly once');
+    }
+
+    #[DataProvider('metadataProjectionQueries')]
+    public function testMetadataCannotBypassTheInstalledQueryGate(string $sql): void
+    {
+        $db = FakeWpdb::install()->enableInformationSchema()
+            ->seedTable('wp_options', [])
+            ->setIndexes('wp_options', [['Key_name' => 'PRIMARY', 'Column_name' => 'option_id', 'Seq_in_index' => 1]])
+            ->setColumns('wp_options', ['option_name' => 'varchar(191)']);
+        $driverReads = 0;
+        $db->onQuery(static function () use (&$driverReads): null {
+            ++$driverReads;
+            return null;
+        });
+        $framesPresent = array_key_exists('wp_current_filter', $GLOBALS);
+        $frames = $GLOBALS['wp_current_filter'] ?? null;
+        $hooksPresent = array_key_exists('wp_filter', $GLOBALS);
+        $hooks = $GLOBALS['wp_filter'] ?? null;
+        // The fake delegates to engine-installed hook objects, not WpStore's
+        // ordinary callback registry. Exercise that transport seam directly;
+        // the Ledger/profile regression supplies the actual engine authority.
+        $gate = new class() {
+            public bool $refuse = false;
+            public int $reads = 0;
+
+            public function hook_name(): string
+            {
+                return 'query';
+            }
+
+            /** @param array{string} $arguments */
+            public function apply_filters(string $query, array $arguments): string
+            {
+                ++$this->reads;
+                if ($this->refuse) {
+                    throw new \RuntimeException('metadata query gate refused');
+                }
+                return $query;
+            }
+        };
+        $GLOBALS['wp_filter'] = ['query' => $gate];
+        $GLOBALS['wp_current_filter'] = [];
+        try {
+            self::assertNotEmpty($db->get_results($sql));
+            self::assertNotNull($db->get_var($sql));
+            self::assertSame(2, $gate->reads, 'healthy metadata reaches the installed gate once per read');
+            self::assertSame(2, $driverReads);
+            $db->resetLog();
+            $driverReads = 0;
+            $gate->refuse = true;
+            foreach (['get_results', 'get_var'] as $method) {
+                $caught = null;
+                try {
+                    $db->$method($sql);
+                } catch (\RuntimeException $failure) {
+                    $caught = $failure;
+                }
+                self::assertNotNull($caught, 'metadata projection skipped its installed query gate');
+                self::assertSame('metadata query gate refused', $caught->getMessage());
+            }
+            self::assertSame(4, $gate->reads);
+        } finally {
+            // This test owns no Db transaction to settle the WordPress stack.
+            // Preserve the fake's real exceptional-dispatch behavior; fixture
+            // teardown restores only the exact frames it observed at entry.
+            if ($hooksPresent) {
+                $GLOBALS['wp_filter'] = $hooks;
+            } else {
+                unset($GLOBALS['wp_filter']);
+            }
+            if ($framesPresent) {
+                $GLOBALS['wp_current_filter'] = $frames;
+            } else {
+                unset($GLOBALS['wp_current_filter']);
+            }
+        }
+        self::assertSame(0, $driverReads, 'query authority refuses before any schema answer is manufactured');
+        self::assertSame([], $db->queries());
+    }
+
+    /** @return array<string,string> */
+    private static function fullApplyProjectionPost(): array
+    {
+        return [
+            'ID' => '7', 'post_author' => '3', 'post_date' => '', 'post_date_gmt' => '',
+            'post_content' => 'native body', 'post_title' => 'Attachment title', 'post_excerpt' => '',
+            'post_status' => 'inherit', 'comment_status' => 'closed', 'ping_status' => 'closed',
+            'post_password' => '', 'post_name' => 'attachment-7', 'post_modified' => '',
+            'post_modified_gmt' => '', 'post_parent' => '0', 'menu_order' => '0',
+            'post_type' => 'attachment', 'post_mime_type' => 'image/png',
+        ];
+    }
+
+    private function fullApplyProjectionDb(): FakeWpdb
+    {
+        return FakeWpdb::install()->enableFullApplySqlExtensions()
+            ->seedTable('wp_posts', [self::fullApplyProjectionPost()])
+            ->seedTable('wp_postmeta', [[
+                'meta_id' => 1, 'post_id' => 7, 'meta_key' => '_wprism_uuid',
+                'meta_value' => '11111111-1111-7111-8111-111111111111',
+            ]])
+            ->seedTable('wp_options', [['option_name' => 'authored-setting', 'option_value' => '9']])
+            ->seedTable('wp_wprism_kv', [['k' => 'attachment_fs:7', 'v' => 'fixture']])
+            ->seedTable('wp_terms', [])
+            ->seedTable('wp_term_taxonomy', []);
+    }
+
+    /** @return array<string,array{string,string,list<array<string,?string>>}> */
+    public static function fullApplyReadProjectionQueries(): array
+    {
+        $post = self::fullApplyProjectionPost();
+        $bytesSql = 'OCTET_LENGTH(CAST(ID AS CHAR)) + OCTET_LENGTH(CAST(post_author AS CHAR)) '
+            . "+ OCTET_LENGTH(COALESCE(post_date,'')) + OCTET_LENGTH(COALESCE(post_date_gmt,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_content,'')) + OCTET_LENGTH(COALESCE(post_title,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_excerpt,'')) + OCTET_LENGTH(COALESCE(post_status,'')) "
+            . "+ OCTET_LENGTH(COALESCE(comment_status,'')) + OCTET_LENGTH(COALESCE(ping_status,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_password,'')) + OCTET_LENGTH(COALESCE(post_name,'')) "
+            . "+ OCTET_LENGTH(COALESCE(post_modified,'')) + OCTET_LENGTH(COALESCE(post_modified_gmt,'')) "
+            . '+ OCTET_LENGTH(CAST(post_parent AS CHAR)) + OCTET_LENGTH(CAST(menu_order AS CHAR)) '
+            . "+ OCTET_LENGTH(COALESCE(post_type,'')) + OCTET_LENGTH(COALESCE(post_mime_type,''))";
+        $postBytes = (string) array_sum(array_map(strlen(...), $post));
+        $nameBytes = strlen('authored-setting');
+        return [
+            'canonical post witness' => ['get_row',
+                "SELECT p.ID, p.post_type, pm.meta_value AS wprism_uuid FROM wp_posts p LEFT JOIN wp_postmeta pm ON pm.post_id = p.ID AND pm.meta_key = '_wprism_uuid' WHERE p.ID = 7 ORDER BY pm.meta_id ASC LIMIT 1",
+                [['ID' => '7', 'post_type' => 'attachment', 'wprism_uuid' => '11111111-1111-7111-8111-111111111111']],
+            ],
+            'attachment marker' => ['get_results',
+                "SELECT k, OCTET_LENGTH(v) AS v_bytes, CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= 512 THEN v ELSE NULL END AS bounded_v FROM `wp_wprism_kv` WHERE LOWER(LEFT(k, 14)) = 'attachment_fs:' ORDER BY BINARY k ASC LIMIT 2",
+                [['k' => 'attachment_fs:7', 'v_bytes' => '7', 'bounded_v' => 'fixture']],
+            ],
+            'post stats' => ['get_results',
+                'SELECT COUNT(*) AS row_count, COALESCE(SUM(' . $bytesSql . '), 0) AS total_bytes, COALESCE(MAX(' . $bytesSql . "), 0) AS max_row_bytes FROM wp_posts WHERE (post_type = 'attachment' AND post_status = 'inherit')",
+                [['row_count' => '1', 'total_bytes' => $postBytes, 'max_row_bytes' => $postBytes]],
+            ],
+            'option stats' => ['get_results',
+                'SELECT COUNT(*) AS row_count, COALESCE(SUM(OCTET_LENGTH(option_name) + OCTET_LENGTH(option_value)), 0) AS total_bytes, COALESCE(MAX(OCTET_LENGTH(option_name)), 0) AS max_name_bytes, COALESCE(MAX(CHAR_LENGTH(option_name)), 0) AS max_name_characters, COALESCE(MAX(OCTET_LENGTH(option_value)), 0) AS max_value_bytes FROM wp_options',
+                [['row_count' => '1', 'total_bytes' => (string) ($nameBytes + 1),
+                    'max_name_bytes' => (string) $nameBytes, 'max_name_characters' => (string) $nameBytes,
+                    'max_value_bytes' => '1']],
+            ],
+            'post groups' => ['get_results',
+                "SELECT post_type, COUNT(*) AS entities FROM wp_posts WHERE (post_status IN ('publish','draft','pending','private','future') OR (post_type = 'attachment' AND post_status = 'inherit')) GROUP BY post_type ORDER BY post_type ASC LIMIT 4097",
+                [['post_type' => 'attachment', 'entities' => '1']],
+            ],
+            'post list' => ['get_results',
+                "SELECT ID, post_author, post_date, post_date_gmt, post_content, post_title, post_excerpt, post_status, comment_status, ping_status, post_password, post_name, post_modified, post_modified_gmt, post_parent, menu_order, post_type, post_mime_type FROM wp_posts WHERE (post_type = 'attachment' AND post_status = 'inherit') ORDER BY ID ASC LIMIT 1000001",
+                [$post],
+            ],
+            'empty native menu inventory' => ['get_results',
+                "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent FROM wp_terms t JOIN wp_term_taxonomy tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC",
+                [],
+            ],
+        ];
+    }
+
+    /** @param list<array<string,?string>> $rows */
+    #[DataProvider('fullApplyReadProjectionQueries')]
+    public function testFullApplyReadProjectionUsesTheOrdinaryPipeline(string $method, string $sql, array $rows): void
+    {
+        $db = $this->fullApplyProjectionDb();
+        $expected = $method === 'get_row' ? ($rows[0] ?? null) : $rows;
+        $observed = [];
+        $db->onQuery(static function (string $query, string $entrypoint) use (&$observed): null {
+            $observed[] = [$query, $entrypoint];
+            return null;
+        });
+        $db->last_error = 'stale full-read error';
+        self::assertSame($expected, $db->$method($sql, ARRAY_A));
+        self::assertSame('', $db->last_error);
+        self::assertSame([[$sql, $method]], $observed);
+        self::assertSame([$sql], $db->queries());
+        self::assertSame($sql, $db->last_query);
+        self::assertSame(count($rows), $db->num_rows);
+
+        $db->failNextQuery('full-read-canary', $sql);
+        self::assertSame($method === 'get_row' ? null : [], $db->$method($sql, ARRAY_A));
+        self::assertSame('full-read-canary', $db->last_error);
+        self::assertSame(0, $db->num_rows);
+        self::assertSame($expected, $db->$method($sql, ARRAY_A));
+        self::assertSame('', $db->last_error, 'the first healthy read clears the prior failure');
+
+        $override = $method === 'get_row' ? ['compatible' => 'driver'] : [['compatible' => 'driver']];
+        if ($method === 'get_row') {
+            $db->returnNextGetRowAs($override, $sql);
+        } else {
+            $db->returnNextGetResultsAs($override, $sql);
+        }
+        self::assertSame($override, $db->$method($sql, ARRAY_A));
+        self::assertSame($expected, $db->$method($sql, ARRAY_A), 'a driver return override is consumed exactly once');
+        self::assertSame(array_fill(0, 5, [$sql, $method]), $observed);
+        self::assertSame(array_fill(0, 5, $sql), $db->queries());
+        foreach ($method === 'get_row' ? [null, (object) ['compatible' => 'driver']] : [null, false] as $abnormal) {
+            if ($method === 'get_row') {
+                $db->returnNextGetRowAs($abnormal, $sql);
+            } else {
+                $db->returnNextGetResultsAs($abnormal, $sql);
+            }
+            self::assertSame($abnormal, $db->$method($sql, ARRAY_A));
+            self::assertSame(count($rows), $db->num_rows, 'return-shape mutation happens after the real read');
+            self::assertSame('', $db->last_error);
+            self::assertSame($expected, $db->$method($sql, ARRAY_A));
+        }
+        self::assertSame(array_fill(0, 9, [$sql, $method]), $observed);
+        self::assertSame(array_fill(0, 9, $sql), $db->queries());
+    }
+
+    /** @param list<array<string,?string>> $rows */
+    #[DataProvider('fullApplyReadProjectionQueries')]
+    public function testFullApplyReadProjectionCannotSkipTheInstalledGate(string $method, string $sql, array $rows): void
+    {
+        $db = $this->fullApplyProjectionDb();
+        $expected = $method === 'get_row' ? ($rows[0] ?? null) : $rows;
+        $driverReads = 0;
+        $db->onQuery(static function () use (&$driverReads): null {
+            ++$driverReads;
+            return null;
+        });
+        $framesPresent = array_key_exists('wp_current_filter', $GLOBALS);
+        $frames = $GLOBALS['wp_current_filter'] ?? null;
+        $hooksPresent = array_key_exists('wp_filter', $GLOBALS);
+        $hooks = $GLOBALS['wp_filter'] ?? null;
+        $gate = new class() {
+            public bool $refuse = false;
+            public ?string $replacement = null;
+            public int $reads = 0;
+
+            public function hook_name(): string
+            {
+                return 'query';
+            }
+
+            /** @param array{string} $arguments */
+            public function apply_filters(string $query, array $arguments): string
+            {
+                ++$this->reads;
+                if ($this->refuse) {
+                    throw new \RuntimeException('full-read query gate refused');
+                }
+                return $this->replacement ?? $query;
+            }
+        };
+        $GLOBALS['wp_filter'] = ['query' => $gate];
+        $GLOBALS['wp_current_filter'] = [];
+        try {
+            self::assertSame($expected, $db->$method($sql, ARRAY_A));
+            self::assertSame(1, $gate->reads, 'even the exact empty-menu projection must traverse a live gate');
+            self::assertSame(1, $driverReads);
+            $gate->replacement = 'SELECT option_name FROM wp_options';
+            self::assertSame($method === 'get_row'
+                ? ['option_name' => 'authored-setting'] : [['option_name' => 'authored-setting']],
+                $db->$method($sql, ARRAY_A), 'the projected answer belongs to the filtered SQL, not the original shortcut');
+            self::assertSame($gate->replacement, $db->last_query);
+            self::assertSame(2, $gate->reads);
+            self::assertSame(2, $driverReads);
+            $db->resetLog();
+            $driverReads = 0;
+            $gate->refuse = true;
+            $caught = null;
+            try {
+                $db->$method($sql, ARRAY_A);
+            } catch (\RuntimeException $failure) {
+                $caught = $failure;
+            }
+            self::assertNotNull($caught, 'a full read manufactured evidence before its installed authority');
+            self::assertSame('full-read query gate refused', $caught->getMessage());
+            self::assertSame(3, $gate->reads);
+        } finally {
+            if ($hooksPresent) {
+                $GLOBALS['wp_filter'] = $hooks;
+            } else {
+                unset($GLOBALS['wp_filter']);
+            }
+            if ($framesPresent) {
+                $GLOBALS['wp_current_filter'] = $frames;
+            } else {
+                unset($GLOBALS['wp_current_filter']);
+            }
+        }
+        self::assertSame(0, $driverReads, 'authority must refuse before driver interception or projection');
+        self::assertSame([], $db->queries());
     }
 
     public function testFullApplySqlExtensionsRefuseWithoutExplicitOptIn(): void
@@ -867,6 +1270,48 @@ final class HarnessLibTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage("table 'wp_options' was never seeded");
         $db->get_var('SELECT option_value FROM wp_options WHERE option_id = 1');
+    }
+
+    public function testLikeExplicitEscapeUsesTheDeclaredCharacter(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_kv', [
+            ['k' => 'a', 'v' => 'rank_math%'],
+            ['k' => 'b', 'v' => 'rankXmath%'],
+            ['k' => 'c', 'v' => 'rank\\math%'],
+            ['k' => 'd', 'v' => 'rank_math9'],
+            ['k' => 'e', 'v' => 'rank!math%'],
+        ]);
+        self::assertSame(['a'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank!_math!%', '!'
+        )));
+        self::assertSame(['a'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank\\_math\\%', '\\'
+        )));
+        self::assertSame(['c'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank\\math%', ''
+        )));
+        self::assertSame(['e'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v LIKE %s ESCAPE %s', 'rank!!math!%', '!'
+        )));
+        self::assertSame(['b', 'c', 'd', 'e'], $db->get_col($db->prepare(
+            'SELECT k FROM wp_kv WHERE v NOT LIKE %s ESCAPE %s ORDER BY k', 'rank!_math!%', '!'
+        )));
+    }
+
+    #[DataProvider('unsupportedLikeEscapeProvider')]
+    public function testLikeEscapeRefusesUnsupportedLiteralsEvenWithoutRows(string $escape): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_kv', [])->setColumns('wp_kv', ['v' => 'text']);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('LIKE ESCAPE requires');
+        $db->get_results("SELECT v FROM wp_kv WHERE v LIKE '%' ESCAPE " . $escape, ARRAY_A);
+    }
+
+    public static function unsupportedLikeEscapeProvider(): array
+    {
+        return [["'ab'"], ["'é'"], ['v'], ['NULL'], ['1']];
     }
 
     /**

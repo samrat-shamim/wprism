@@ -1,6 +1,9 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
@@ -772,7 +775,7 @@ final class SidebarState {
     }
 
     /** Phase 1: allocate collision-free target-local counters for every desired widget. */
-    public static function ensure_widgets(Policy $policy, array $tree): void {
+    public static function ensure_widgets(Policy $policy, array $tree, ?DatabaseWorkAuthority $workAuthority = null): void {
         $declared = $policy->widget_types();
         $options = self::load_locked_sidebar_state($declared)['widgets'];
         $used = [];
@@ -784,20 +787,22 @@ final class SidebarState {
                 continue;
             }
             foreach ((array) ($entity['data']['widgets'] ?? []) as $widget) {
-                $type = (string) ($widget['type'] ?? '');
-                $uuid = (string) ($widget['uuid'] ?? '');
-                $kind = self::kind($type);
-                $local = Ledger::id_for($uuid, $kind);
-                if ($local !== null) {
+                DatabaseQueryIsolation::work_unit($workAuthority, function () use ($widget, &$used): void {
+                    $type = (string) ($widget['type'] ?? '');
+                    $uuid = (string) ($widget['uuid'] ?? '');
+                    $kind = self::kind($type);
+                    $local = Ledger::id_for($uuid, $kind);
+                    if ($local !== null) {
+                        $used[$type][$local] = true;
+                        return;
+                    }
+                    $local = 1;
+                    while (isset($used[$type][$local])) {
+                        $local++;
+                    }
                     $used[$type][$local] = true;
-                    continue;
-                }
-                $local = 1;
-                while (isset($used[$type][$local])) {
-                    $local++;
-                }
-                $used[$type][$local] = true;
-                Ledger::set($uuid, 'widget', $kind, $local);
+                    Ledger::set($uuid, 'widget', $kind, $local);
+                });
             }
         }
     }
@@ -1044,10 +1049,16 @@ final class SidebarState {
             $type = self::type_from_kind($row['id_kind']);
             if ($type !== null && isset($policy->widget_types()[$type])
                 && !isset($options[$type][$row['local_id']])) {
-                Db::query($wpdb->prepare(
-                    "DELETE FROM {$wpdb->prefix}wprism_map WHERE uuid = %s AND id_kind = %s",
-                    $row['uuid'], $row['id_kind']
-                ), 'ledger prune dead widget identity');
+                Db::mutation(
+                    "DELETE FROM {$wpdb->prefix}wprism_map",
+                    $wpdb->prepare(
+                        'uuid = %s AND id_kind = %s',
+                        $row['uuid'],
+                        $row['id_kind']
+                    ),
+                    '',
+                    'ledger prune dead widget identity'
+                );
             }
         }
     }

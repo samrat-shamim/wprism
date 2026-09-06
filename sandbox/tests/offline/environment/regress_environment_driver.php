@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../../../cli/src/Refresh/Refresh.php';
 require_once __DIR__ . '/../../../../cli/src/Command/EnvironmentCommandPreflight.php';
 
 use WPrism\Orchestrator\CodeDeploy;
+use WPrism\Orchestrator\BoundedControlDriver;
 use WPrism\Orchestrator\DockerTransport;
 use WPrism\Orchestrator\Doctor;
 use WPrism\Orchestrator\DriverCapability;
@@ -25,6 +26,7 @@ use WPrism\Orchestrator\LocalTransport;
 use WPrism\Orchestrator\Refresh;
 use WPrism\Orchestrator\SshTransport;
 use WPrism\Orchestrator\ScopeCommand;
+use WPrism\Orchestrator\Transport;
 
 function fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -49,8 +51,11 @@ function required_capabilities(DriverCapabilityReport $report): array {
     );
 }
 
-final class RecordingDriver implements EnvironmentDriver {
+final class RecordingDriver implements BoundedControlDriver {
     public int $targetCalls = 0;
+    public bool $frameVerified = true;
+    /** @var ?array{exit:int,stdout:string,stderr:string} */
+    public ?array $rawResult = null;
 
     public function name(): string { return 'recording'; }
     public function driverId(): string { return 'recording'; }
@@ -58,11 +63,46 @@ final class RecordingDriver implements EnvironmentDriver {
     public function describe(): string { return 'recording driver'; }
     public function captureRaw(string $script): array {
         $this->targetCalls++;
-        return ['exit' => 97, 'stdout' => '', 'stderr' => 'unexpected target call'];
+        return $this->rawResult
+            ?? ['exit' => 97, 'stdout' => '', 'stderr' => 'unexpected target call'];
+    }
+    public function captureRawBounded(
+        string $script,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return $this->captureRaw($script);
+    }
+    public function captureRawFramed(
+        string $phpTupleProgram,
+        array $arguments,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        $raw = $this->captureRaw($phpTupleProgram);
+        return [
+            'verified' => $this->frameVerified,
+            'exit' => $raw['exit'],
+            'stdout' => $raw['stdout'],
+            'stderr' => $raw['stderr'],
+            'transport_exit' => 0,
+            'transport_stderr' => '',
+            'failure' => null,
+        ];
     }
     public function captureWp(array $wpArgs): array {
         $this->targetCalls++;
         return ['exit' => 98, 'stdout' => '', 'stderr' => 'unexpected target call'];
+    }
+    public function captureWpBounded(
+        array $wpArgs,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return $this->captureWp($wpArgs);
     }
     public function streamWp(array $wpArgs): int {
         $this->targetCalls++;
@@ -79,6 +119,60 @@ final class RecordingDriver implements EnvironmentDriver {
             $operation,
             [DriverCapability::ATTACH => true, DriverCapability::WP_CONTROL => true]
         );
+    }
+}
+
+/** The real frame parser with controllable outer-transport behavior. */
+final class FramedTransportProbe extends Transport {
+    public string $mode = 'clean';
+
+    public function __construct() {
+        parent::__construct('framed-probe', [
+            'transport' => 'fixture',
+            'repo_path' => '/fixture/repo',
+        ]);
+    }
+
+    public function describe(): string { return 'framed transport probe'; }
+    protected function wpCommand(array $wpArgs): string { return 'false'; }
+    protected function rawCommand(string $script): string {
+        if ($this->mode === 'outer-noise') {
+            return $script
+                . '; wprism_frame_status=$?; printf "compose lifecycle noise\\n" >&2; '
+                . 'exit $wprism_frame_status';
+        }
+        if ($this->mode === 'outer-overflow') {
+            return "php -r 'echo str_repeat(\"x\", 65536);'";
+        }
+        return $script;
+    }
+
+    public function captureRawBounded(
+        string $script,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        $result = parent::captureRawBounded(
+            $script,
+            $timeoutMilliseconds,
+            $maxStdoutBytes,
+            $maxStderrBytes
+        );
+        if ($this->mode === 'malformed') {
+            $result['stdout'] = '{';
+        } elseif ($this->mode === 'truncated') {
+            $result['stdout'] = substr($result['stdout'], 0, 16);
+        } elseif ($this->mode === 'duplicate') {
+            $result['stdout'] .= $result['stdout'];
+        } elseif ($this->mode === 'wrong-nonce') {
+            $frame = json_decode($result['stdout'], true, 32, JSON_THROW_ON_ERROR);
+            $frame['nonce'] = str_repeat('0', 32);
+            $result['stdout'] = json_encode($frame, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        } elseif ($this->mode === 'outer-failure') {
+            $result['exit'] = 9;
+        }
+        return $result;
     }
 }
 
@@ -140,7 +234,11 @@ assert_true(!$dockerExec->capabilityReport('adopt')->ready(), 'container driver 
 assert_true($ssh->capabilityReport('adopt')->ready(), 'SSH adoption path did not declare its actual upload/bootstrap support');
 pass('driver-specific bootstrap support is explicit and truthful');
 
-$rawOnly = [DriverCapability::ATTACH => true, DriverCapability::RAW_CONTROL => true];
+$rawOnly = [
+    DriverCapability::ATTACH => true,
+    DriverCapability::BOUNDED_CONTROL => true,
+    DriverCapability::RAW_CONTROL => true,
+];
 $releaseStatus = DriverCapabilityReport::forDriver(
     'raw-only',
     'raw-only',
@@ -156,10 +254,10 @@ $releasePrepare = DriverCapabilityReport::forDriver(
 assert_true($releaseStatus->ready(), 'release status incorrectly requires a reachable WordPress control path');
 assert_true(!$releasePrepare->ready(), 'release prepare no longer requires its WordPress planning surface');
 assert_true(
-    required_capabilities($releaseStatus) === ['control.raw', 'environment.attach'],
-    'release status does not demand exactly attach plus raw target control'
+    required_capabilities($releaseStatus) === ['control.bounded', 'control.raw', 'environment.attach'],
+    'release status does not demand exactly attach plus framed raw target control'
 );
-pass('release status remains available over raw control while release prepare still requires WordPress');
+pass('release status remains available over framed raw control while release prepare still requires WordPress');
 
 $first = $local->capabilityReport('promote')->toArray();
 $second = $local->capabilityReport('promote')->toArray();
@@ -201,6 +299,152 @@ foreach ($boundaries as [$method, $index]) {
     assert_true($type->getName() === EnvironmentDriver::class, $method->getName() . ' still depends on a concrete transport');
 }
 pass('core doctor, compile, refresh, and rebase workflows depend on the narrow driver interface');
+
+$frameProgram = <<<'PHP'
+return ['exit' => 0, 'stderr' => '', 'stdout' => 'clear'];
+PHP;
+$frameProbe = new FramedTransportProbe();
+$frameProbe->mode = 'outer-noise';
+$framed = $frameProbe->captureRawFramed($frameProgram, [], 30000, 32, 128);
+assert_true(
+    $framed['verified'] === true
+        && $framed['exit'] === 0
+        && $framed['stdout'] === 'clear'
+        && $framed['stderr'] === ''
+        && $framed['transport_exit'] === 0
+        && $framed['transport_stderr'] === "compose lifecycle noise\n",
+    'framed raw control did not separate exact target bytes from successful outer transport diagnostics'
+);
+
+foreach (['malformed', 'truncated', 'duplicate', 'wrong-nonce', 'outer-failure', 'outer-overflow'] as $mode) {
+    $frameProbe->mode = $mode;
+    $rejected = $frameProbe->captureRawFramed($frameProgram, [], 30000, 32, 128);
+    assert_true(
+        $rejected['verified'] === false
+            && $rejected['exit'] === 255
+            && in_array($rejected['failure'], ['invalid_frame', 'outer_failure'], true),
+        "$mode framed raw control response was not rejected"
+    );
+}
+$frameProbe->mode = 'clean';
+$diagnostic = $frameProbe->captureRawFramed(
+    'trigger_error("target warning", E_USER_WARNING); ' . $frameProgram,
+    [],
+    30000,
+    32,
+    128
+);
+assert_true(
+    $diagnostic['verified'] === true
+        && $diagnostic['exit'] === 255
+        && $diagnostic['stdout'] === ''
+        && $diagnostic['stderr'] === 'framed raw control program failed'
+        && $diagnostic['transport_stderr'] === '',
+    'a target PHP diagnostic escaped into the accepted outer transport channel'
+);
+$directStderr = $frameProbe->captureRawFramed(
+    'fwrite(STDERR, "target stderr\\n"); ' . $frameProgram,
+    [],
+    30000,
+    32,
+    128
+);
+assert_true(
+    $directStderr['verified'] === false
+        && $directStderr['exit'] === 255
+        && $directStderr['transport_stderr'] === ''
+        && $directStderr['failure'] === 'invalid_frame',
+    'target-authored stderr was mistaken for ignorable outer transport diagnostics'
+);
+
+foreach ([
+    'argument count' => array_fill(0, 257, 'x'),
+    'aggregate argument bytes' => [str_repeat('x', 32769), str_repeat('y', 32768)],
+] as $label => $arguments) {
+    try {
+        $frameProbe->captureRawFramed($frameProgram, $arguments, 30000, 32, 128);
+        fail("framed raw control accepted excessive $label");
+    } catch (InvalidArgumentException $failure) {
+        assert_true(
+            str_contains($failure->getMessage(), 'reviewed envelope'),
+            "framed raw control returned the wrong excessive-$label refusal"
+        );
+    }
+}
+
+$frameRepo = sys_get_temp_dir() . '/wprism-framed-fence-' . bin2hex(random_bytes(8));
+if (!mkdir($frameRepo, 0700, true)) {
+    fail('could not create framed recovery-fence fixture');
+}
+$frameProbe->mode = 'outer-noise';
+$clearFence = CodeDeploy::externalRecoveryFence($frameProbe, $frameRepo);
+assert_true(($clearFence['state'] ?? null) === 'clear', 'outer transport noise changed an exact clear fence');
+if (!mkdir($frameRepo . '/.wprism/control', 0700, true)) {
+    fail('could not create framed recovery control fixture');
+}
+file_put_contents($frameRepo . '/.wprism/control/checkpoint-recovery-intent.json', '{}');
+$checkpointFence = CodeDeploy::externalRecoveryFence($frameProbe, $frameRepo);
+assert_true(
+    ($checkpointFence['state'] ?? null) === 'checkpoint_recovery',
+    'outer transport noise changed an exact checkpoint-recovery fence'
+);
+unlink($frameRepo . '/.wprism/control/checkpoint-recovery-intent.json');
+file_put_contents($frameRepo . '/.wprism/control/provider-settlement-intent.json', '{}');
+$providerFence = CodeDeploy::externalRecoveryFence($frameProbe, $frameRepo);
+assert_true(
+    ($providerFence['state'] ?? null) === 'provider_settlement',
+    'outer transport noise changed an exact provider-settlement fence'
+);
+unlink($frameRepo . '/.wprism/control/provider-settlement-intent.json');
+rmdir($frameRepo . '/.wprism/control');
+rmdir($frameRepo . '/.wprism');
+rmdir($frameRepo);
+pass('nonce-bound bounded frames separate outer diagnostics and reject malformed, duplicated, truncated, failed, noisy-target, and oversized results');
+
+foreach ([
+    'clear' => [['exit' => 0, 'stdout' => 'clear', 'stderr' => ''], 'clear'],
+    'checkpoint' => [[
+        'exit' => 75,
+        'stdout' => '',
+        'stderr' => 'incomplete checkpoint recovery is active',
+    ], 'checkpoint_recovery'],
+    'provider' => [[
+        'exit' => 75,
+        'stdout' => '',
+        'stderr' => 'incomplete provider settlement is active',
+    ], 'provider_settlement'],
+    'extra stdout' => [[
+        'exit' => 75,
+        'stdout' => "unexpected\n",
+        'stderr' => 'incomplete provider settlement is active',
+    ], 'unsafe'],
+    'trailing newline' => [[
+        'exit' => 0,
+        'stdout' => "clear\n",
+        'stderr' => '',
+    ], 'unsafe'],
+    'unknown exit' => [[
+        'exit' => 76,
+        'stdout' => '',
+        'stderr' => 'incomplete checkpoint recovery is active',
+    ], 'unsafe'],
+] as $label => [$raw, $expectedState]) {
+    $fenceDriver = new RecordingDriver();
+    $fenceDriver->rawResult = $raw;
+    $fence = CodeDeploy::externalRecoveryFence($fenceDriver, '/fixture/repo');
+    assert_true(
+        ($fence['state'] ?? null) === $expectedState && $fenceDriver->targetCalls === 1,
+        "$label external-recovery tuple did not map through the closed fence vocabulary"
+    );
+}
+$unverifiedDriver = new RecordingDriver();
+$unverifiedDriver->rawResult = ['exit' => 0, 'stdout' => 'clear', 'stderr' => ''];
+$unverifiedDriver->frameVerified = false;
+assert_true(
+    CodeDeploy::externalRecoveryFence($unverifiedDriver, '/fixture/repo')['state'] === 'unsafe',
+    'an exact inner tuple without a verified frame was admitted'
+);
+pass('external recovery classification admits only exact clear/checkpoint/provider tuples');
 
 /** @return array{exit:int,stdout:string,stderr:string} */
 function invoke_cli(array $args): array {
@@ -281,6 +525,11 @@ assert_true(
     'public refusal did not name the exact missing bootstrap capability'
 );
 assert_true(!file_exists($tmp . '/repo'), 'denied public workflow mutated its target path');
+
+// The recovery fence owns a real adopted-target filesystem boundary even in
+// this transport-only fixture. Create it only after the denied-adopt proof so
+// the later successful forwarding cases exercise a truthful clear fence.
+mkdir($tmp . '/repo', 0700, true);
 
 // issue #3344 contract evidence is only truthful when the host path cannot boot
 // arbitrary plugins/themes/ordinary MU code before the agent compiles its
@@ -395,6 +644,7 @@ unlink($scopeArgs);
 unlink($fakeWp);
 rmdir($fakeBin);
 unlink($envsFile);
+rmdir($tmp . '/repo');
 rmdir($tmp);
 pass('public JSON/human paths share the report and refuse before target mutation');
 
@@ -460,6 +710,20 @@ foreach ($verbsNeedingEnv as $verb) {
     $reachedPreflight++;
     try {
         $requirements->invoke(null, $verb);
+        $report = $local->capabilityReport($verb);
+        $expectedRecoveryControl = !in_array($verb, ['doctor', 'status'], true);
+        assert_true(
+            $report->requiresRecoveryControl() === $expectedRecoveryControl,
+            "$verb recovery-fence capability predicate drifted from public dispatch"
+        );
+        $required = required_capabilities($report);
+        if ($expectedRecoveryControl) {
+            assert_true(
+                in_array(DriverCapability::RAW_CONTROL, $required, true)
+                    && in_array(DriverCapability::BOUNDED_CONTROL, $required, true),
+                "$verb can cross the recovery fence without framed raw control"
+            );
+        }
     } catch (\Throwable $t) {
         $unknown[] = $verb . ' (' . $t->getMessage() . ')';
     }
@@ -475,11 +739,11 @@ assert_true(
 );
 assert_true(
     $requirements->invoke(null, 'explain') === $requirements->invoke(null, 'plan'),
-    'explain must demand exactly the attach + wp-cli control capabilities plan requires'
+    'explain must demand exactly the same workflow and recovery control as plan'
 );
 assert_true(
     $requirements->invoke(null, 'lint') === $requirements->invoke(null, 'coverage'),
-    'lint must demand exactly the attach + wp-cli control capabilities of other read-only scans'
+    'lint must demand exactly the same workflow and recovery control as other read-only scans'
 );
 pass('every cli/wprism verb reaching the driver preflight resolves through requirements()');
 

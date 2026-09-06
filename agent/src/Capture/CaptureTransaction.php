@@ -1,12 +1,18 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
+
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/TransientDbException.php';
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/TableSchema.php';
 require_once __DIR__ . '/../Publication/Publish.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Repository/SchemaSettlementIntent.php';
 
 /**
  * Owns capture's consistent-read transaction and replay-safety boundary.
@@ -34,23 +40,14 @@ final class CaptureTransaction {
      * and that path reads only options, reference-triage rows, and the ledger.
      */
     public static function assert_engine_support(Policy $policy, bool $optionsOnly = false): void {
+        SchemaSettlementIntent::assert_no_incomplete();
         if ($optionsOnly) {
             self::assert_options_engine_support($policy);
             return;
         }
 
         global $wpdb;
-        $prefix = $wpdb->prefix;
-        $tables = [
-            $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy,
-            $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options, $wpdb->users,
-            $wpdb->usermeta,
-            $prefix . 'wprism_map', $prefix . 'wprism_state', $prefix . 'wprism_kv',
-        ];
-        foreach (array_keys($policy->declared_tables()) as $name) {
-            $tables[] = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', $name);
-        }
-        $tables = array_values(array_unique($tables));
+        $tables = self::database_profile($policy)->readable_tables();
 
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
         $wpdb->last_error = '';
@@ -105,26 +102,7 @@ final class CaptureTransaction {
     /** Validate only the tables read by the lifecycle options handoff. */
     private static function assert_options_engine_support(Policy $policy): void {
         global $wpdb;
-        $prefix = $wpdb->prefix;
-        $tables = [
-            $wpdb->postmeta, $wpdb->termmeta, $wpdb->posts, $wpdb->terms,
-            $wpdb->term_taxonomy, $wpdb->options,
-            $prefix . 'wprism_map', $prefix . 'wprism_state', $prefix . 'wprism_kv',
-        ];
-        $refKinds = array_fill_keys(array_map(
-            static fn(array $rule): string => (string) ($rule['id_kind'] ?? ''),
-            $policy->option_name_ref_rules()
-        ), true);
-        foreach ($policy->declared_tables() as $name => $declaration) {
-            if (!isset($refKinds[(string) ($declaration['id_kind'] ?? '')])) {
-                continue;
-            }
-            $tables[] = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
-        }
-        $tables = array_values(array_unique(array_filter(
-            $tables,
-            static fn($table): bool => (string) $table !== ''
-        )));
+        $tables = self::database_profile($policy, true)->readable_tables();
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -189,6 +167,10 @@ final class CaptureTransaction {
     /**
      * Run one candidate build inside a coherent InnoDB snapshot.
      *
+     * This callback is an engine orchestration boundary, never a provider or
+     * native hook: its exact work authority is passed only to core semantic
+     * readers/publishers. They do not forward it to their native callbacks.
+     *
      * The callback may report its publication phase through the by-reference
      * array. Once `filesystem_swapped` is true, this method never replays it.
      *
@@ -197,14 +179,15 @@ final class CaptureTransaction {
      * makes this public class safe on its own and closes the time-of-check gap
      * immediately before the transaction begins.
      *
-     * @param callable():mixed $fn
+     * @param callable(DatabaseWorkAuthority):mixed $fn
      * @param ?array<string,mixed> $phase
      */
     public static function run(
         Policy $policy,
         callable $fn,
         ?array &$phase = null,
-        bool $optionsOnly = false
+        bool $optionsOnly = false,
+        bool $readOnly = false
     ) {
         $phase ??= [];
         $attempt = 0;
@@ -228,9 +211,20 @@ final class CaptureTransaction {
                 // one exact server transaction. A false client result after
                 // an applied START is safe only because that active state is
                 // positively proven on the same connection.
-                Db::start_consistent_snapshot('capture transaction start');
+                $profile = self::database_profile($policy, $optionsOnly, $readOnly);
+                if ($profile->is_read_only()) {
+                    $workAuthority = Db::start_read_only_consistent_snapshot(
+                        'capture transaction start',
+                        $profile
+                    );
+                } else {
+                    $workAuthority = Db::start_consistent_snapshot('capture transaction start', $profile);
+                }
                 $transactionOpen = true;
-                $result = $fn();
+                $result = DatabaseQueryIsolation::with_engine_work_units(
+                    $workAuthority,
+                    static fn(): mixed => $fn($workAuthority)
+                );
                 if (isset($phase['state_dir'], $phase['intent'])
                     && is_string($phase['state_dir']) && is_array($phase['intent'])) {
                     // The durable `committing` marker is written before the
@@ -337,6 +331,98 @@ final class CaptureTransaction {
         }
     }
 
+    /**
+     * Bind the complete physical query surface before capture code or plugin
+     * filters run. Options-only and strict observation cannot mint identity;
+     * ordinary capture may repair the two embedded identities and ledger.
+     */
+    public static function database_profile(
+        Policy $policy,
+        bool $optionsOnly = false,
+        bool $readOnly = false
+    ): NativeDatabaseProfile {
+        global $wpdb;
+        $prefix = $wpdb->prefix;
+        if ($optionsOnly) {
+            $tables = [
+                $wpdb->postmeta,
+                $wpdb->termmeta,
+                $wpdb->posts,
+                $wpdb->terms,
+                $wpdb->term_taxonomy,
+                $wpdb->options,
+                $prefix . 'wprism_map',
+                $prefix . 'wprism_state',
+                $prefix . 'wprism_kv',
+            ];
+            $refKinds = array_fill_keys(array_map(
+                static fn(array $rule): string => (string) ($rule['id_kind'] ?? ''),
+                $policy->option_name_ref_rules()
+            ), true);
+            foreach ($policy->declared_tables() as $name => $declaration) {
+                if (isset($refKinds[(string) ($declaration['id_kind'] ?? '')])) {
+                    $table = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+                    if (self::declared_table_exists($table)) {
+                        $tables[] = $table;
+                    }
+                }
+            }
+            $tables = array_values(array_unique(array_filter(
+                $tables,
+                static fn($table): bool => is_string($table) && $table !== ''
+            )));
+            return NativeDatabaseProfile::read_only($tables);
+        }
+
+        $tables = [
+            $wpdb->posts,
+            $wpdb->postmeta,
+            $wpdb->terms,
+            $wpdb->term_taxonomy,
+            $wpdb->term_relationships,
+            $wpdb->termmeta,
+            $wpdb->options,
+            $wpdb->users,
+            $wpdb->usermeta,
+            $prefix . 'wprism_map',
+            $prefix . 'wprism_state',
+            $prefix . 'wprism_kv',
+        ];
+        // Snapshot repeats each declared-table probe after START before it
+        // reads schema. An absent preimage therefore needs presence-only
+        // authority; adding it to $tables would instead grant row reads for a
+        // physical table this boundary never proved exists or uses InnoDB.
+        $presenceReads = [];
+        foreach (array_keys($policy->declared_tables()) as $name) {
+            $table = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+            $presenceReads[] = $table;
+            if (self::declared_table_exists($table)) {
+                $tables[] = $table;
+            }
+        }
+        $tables = array_values(array_unique($tables));
+        if ($readOnly) {
+            return NativeDatabaseProfile::schema_read_only($tables, $presenceReads);
+        }
+        return new NativeDatabaseProfile($tables, [
+            $wpdb->postmeta,
+            $wpdb->termmeta,
+            $prefix . 'wprism_map',
+            $prefix . 'wprism_state',
+            $prefix . 'wprism_kv',
+        ], $presenceReads);
+    }
+
+    /** Match Snapshot's optional-table behavior without authorizing an alias. */
+    private static function declared_table_exists(string $table): bool {
+        global $wpdb;
+        $found = $wpdb->get_var($wpdb->prepare(
+            'SHOW TABLES LIKE %s',
+            $wpdb->esc_like($table)
+        ));
+        return is_string($found) && hash_equals($table, $found);
+    }
+
     /** Build the stable machine-readable refusal for every uncertain COMMIT. */
     public static function commit_outcome_uncertain(
         string $operatorMessage,
@@ -369,7 +455,12 @@ final class CaptureTransaction {
         if ($err === '') {
             return;
         }
-        if (stripos($err, 'Deadlock found') !== false || stripos($err, 'Lock wait timeout') !== false) {
+        if (stripos($err, 'Deadlock found') !== false) {
+            throw new DeadlockTransactionAbortedException(
+                "wprism: database deadlock aborted the transaction at $where"
+            );
+        }
+        if (stripos($err, 'Lock wait timeout') !== false) {
             throw new TransientDbException("wprism: transient DB contention at $where");
         }
         throw new \RuntimeException("wprism: unexpected SQL error at $where");

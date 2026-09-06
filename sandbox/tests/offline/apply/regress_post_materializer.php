@@ -171,7 +171,13 @@ $planEnvironmentSource = (string) file_get_contents(
 $identityLockPosition = strpos($requestCoordinatorSource, 'ProtectedPostIdentity::lock(');
 $intendedValuePosition = strpos($requestCoordinatorSource, 'EnvironmentValues::set($repo, $name, $value);');
 $check(
-    str_contains($protectedIdentitySource, 'DeleteGuardEvaluator::assert_innodb_tables([')
+    !str_contains($protectedIdentitySource, 'DeleteGuardEvaluator::assert_innodb_tables([')
+        && str_contains($requestCoordinatorSource, 'new NativeDatabaseProfile([')
+        && str_contains($requestCoordinatorSource, '$wpdb->prefix . \'wprism_map\'')
+        && str_contains($requestCoordinatorSource, '$wpdb->postmeta,')
+        && str_contains($requestCoordinatorSource, '$wpdb->terms,')
+        && str_contains($requestCoordinatorSource, '$wpdb->termmeta,')
+        && str_contains($requestCoordinatorSource, '], [$wpdb->posts])')
         && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_composite_unique_lock_index(') === 1
         && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_lock_index(') === 2
         && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::bounded_prefix_lock_index(') === 2
@@ -184,10 +190,11 @@ $check(
         && str_contains($protectedIdentitySource, 'self::locked_live_owner_ids(')
         && str_contains($protectedIdentitySource, 'EXISTS (SELECT 1 FROM {$wpdb->posts} gpo')
         && str_contains($protectedIdentitySource, 'EXISTS (SELECT 1 FROM {$wpdb->terms} gto')
-        && str_contains($protectedIdentitySource, 'CONNECTION_ID() = %s AND @@in_transaction = 1')
+        && str_contains($protectedIdentitySource, 'CONNECTION_ID() = %s')
+        && str_contains($protectedIdentitySource, 'BINARY @wprism_tx_session = BINARY %s')
         && str_contains($protectedIdentitySource, 'BINARY post_password = BINARY %s')
-        && str_contains($protectedIdentitySource, 'Db::transaction_connection_id('),
-    'protected-post provisioning proves transactional tables/indexes and locks the map, metadata ranges, and live-owner rows or gaps'
+        && str_contains($protectedIdentitySource, 'Db::transaction_authority('),
+    'protected-post provisioning binds storage proof in Db, then locks indexes, map, metadata ranges, and live-owner rows or gaps'
 );
 $identityAssertion = new ReflectionMethod(ProtectedPostIdentity::class, 'assert_locked_global_identity');
 $canonicalIdentityRow = [
@@ -240,7 +247,8 @@ $check(
     is_int($identityLockPosition)
         && is_int($intendedValuePosition)
         && $identityLockPosition < $intendedValuePosition
-        && str_contains($requestCoordinatorSource, "Db::start_repeatable_read('env-set protected post transaction start')")
+        && str_contains($requestCoordinatorSource, "'env-set protected post transaction start',")
+        && str_contains($requestCoordinatorSource, 'new NativeDatabaseProfile([')
         && str_contains($requestCoordinatorSource, 'DeleteGuardEvaluator::begin_authored_transaction();')
         && str_contains($requestCoordinatorSource, 'DeleteGuardEvaluator::end_authored_transaction();')
         && str_contains($requestCoordinatorSource, 'ProtectedPostIdentity::update_password(')

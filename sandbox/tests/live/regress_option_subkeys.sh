@@ -162,6 +162,8 @@ wp2() { wp_env 2 "$@"; }
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 normalize_repo_permissions() {
   local host_uid host_gid

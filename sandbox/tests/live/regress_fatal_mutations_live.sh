@@ -23,6 +23,8 @@ export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. sandbox/lib/pair_db.sh
+pair_db_select_engine
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp1_fail() {
   local contexts="$1"; shift

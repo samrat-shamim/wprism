@@ -1,0 +1,62 @@
+# format wprism-target-observation-premises/v1
+# expected observations=51 fixtures=8
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math source native observation'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math target native observation'
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math zero-change plan' json
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math zero-change apply' json
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math scoped provider plan' json
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math scoped provider apply' json
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math scoped terminal replay' json
+observation	tests/conformance/check.sh	capture_wprism_json_refusal SCHEMA_OUT 'Rank Math unsupported custom schema capture'
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math duplicate natural identity plan' human
+observation	tests/conformance/check.sh	capture_wprism_json_refusal DELETE_OUT 'Rank Math unsupported redirection deletion capture'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math applied revision before provider fault'
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math injected provider callback refusal' human
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math retry after callback repair' json
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math competing metadata plan' json
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math unforced competing metadata apply' human
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math forced metadata conflict' json
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math authored schema loss refusal' human
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math authored schema private refusal baseline'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math authored schema private refusal receipt'
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math injected host schema provider refusal' human
+observation	tests/conformance/check.sh	capture_wprism_json_checked SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math recovered notification before repaired activation'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math native activation notification outcome'
+observation	tests/conformance/check.sh	capture_wprism_json_checked RESTORE 'Rank Math canonical verification after lifecycle recovery'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math pre-uninstall runtime notification seed'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math pre-uninstall runtime notification premise'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math retired runtime notification'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math missing-code private refusal baseline'
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math deploy with code absent' human
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math missing-code private refusal receipt'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math reinstalled-inactive runtime notification'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math reinstall activation notification outcome'
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math final zero plan' json
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty 'Rank Math hostile target'
+observation	tests/conformance/seed.sh	require_observed_nonempty 'Rank Math native module readiness'
+observation	tests/conformance/seed.sh	require_observed_nonempty 'Rank Math source seed'
+observation	tests/conformance/seed.sh	require_observed_nonempty 'Rank Math source frontend'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_checked RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix boundary apply'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_checked RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math upgrade source native module readiness'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math upgrade target native module readiness'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math virgin-target private refusal baseline'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math virgin-target private refusal receipt'
+observation	tests/certify/version-matrix.sh	require_wprism_answered 'Rank Math virgin-target strict plan' json
+observation	tests/certify/version-matrix.sh	[[ "$NEGATIVE_BEFORE" =~ ^[a-f0-9]{64}$ ]]
+observation	tests/certify/version-matrix.sh	assert_rank_math_below_range_refusal "$NEGATIVE_RC" "$NEGATIVE_OUT" "$PAIR"
+observation	tests/certify/version-matrix.sh	rank_math_assert_release 'Rank Math below-range preimage' wp1 "$PAIR" inactive 1.0.276
+observation	tests/certify/version-matrix.sh	rank_math_assert_release 'Rank Math below-range postimage' wp1 "$PAIR" inactive 1.0.276
+observation	tests/certify/version-matrix.sh	rank_math_assert_release "$label preimage" "$wp_command" "$pair" active "$previous"
+observation	tests/certify/version-matrix.sh	rank_math_assert_release "$label postimage" "$wp_command" "$pair" active "$version"
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Rank Math below-range private baseline'
+fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_ID TARGET_ID
+fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_REDIR TARGET_REDIR
+fixture	tests/conformance/check.sh	require_fixture_ids DUPLICATE_ID
+fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_DELETE_REDIR
+fixture	tests/conformance/postdeploy.sh	require_fixture_ids SOURCE_ID TARGET_ID
+fixture	tests/certify/version-matrix.sh	require_fixture_values INSTALLED_2
+fixture	tests/certify/version-matrix.sh	require_fixture_values NEGATIVE_INSTALLED
+fixture	tests/certify/version-matrix.sh	require_fixture_ids UPGRADE_POST

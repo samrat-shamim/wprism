@@ -970,6 +970,60 @@ PHP);
     }
 
     /**
+     * The loader's pending marker is created beside the DEPLOYED loader by the
+     * adoption/unadoption transaction. Its source-tree resolution under
+     * `agent/` is therefore absent by contract, but that exact classification
+     * must not turn every absent loader-adjacent path into a blind spot.
+     */
+    public function testThePlanExemptsTheGenerationWriterMarkerButNotAnUnrelatedAgentTarget(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        self::write($root . '/agent/wprism-loader.php', <<<'PHP'
+<?php
+
+$pending = __DIR__ . '/.wprism-generation-writer-pending';
+$bogus = __DIR__ . '/.not-a-real-loader-target';
+echo "$pending $bogus\n";
+PHP);
+        self::assertFileDoesNotExist($root . '/agent/.wprism-generation-writer-pending');
+        self::assertFileDoesNotExist($root . '/agent/.not-a-real-loader-target');
+
+        [$status, $output] = $this->runTool($root, '--plan', '--map=' . $this->writeMap($root, []));
+
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('1 unprovable site(s)', $output);
+        self::assertStringNotContainsString('.wprism-generation-writer-pending', $output);
+        self::assertStringContainsString('.not-a-real-loader-target', $output);
+    }
+
+    /**
+     * The legacy loader is copied byte-for-byte to the MU-plugin directory;
+     * resolving its `__DIR__` in the fixture store is a category error. The
+     * exclusion is deliberately one file wide: an adjacent fixture with the
+     * same absent include remains observable in the same plan.
+     */
+    public function testThePlanExcludesOnlyTheRelocatedLegacyLoaderFixture(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        $legacy = <<<'PHP'
+<?php
+
+require_once __DIR__ . '/wprism/wprism.php';
+PHP;
+        self::write($root . '/sandbox/tests/fixtures/legacy-wprism-loader.php', $legacy);
+        self::write($root . '/sandbox/tests/fixtures/lookalike-loader.php', $legacy);
+        self::assertFileDoesNotExist($root . '/sandbox/tests/fixtures/wprism/wprism.php');
+
+        [$status, $output] = $this->runTool($root, '--plan', '--map=' . $this->writeMap($root, []));
+
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('1 unprovable site(s)', $output);
+        self::assertStringNotContainsString('legacy-wprism-loader.php:', $output);
+        self::assertStringContainsString('lookalike-loader.php:', $output);
+        self::assertStringContainsString('sandbox/tests/fixtures/wprism/wprism.php', $output);
+    }
+
+    /**
      * PHP variables are function-scoped; this scan is file-scoped.
      *
      * `cli/src/Adapter/AdapterDraft.php` binds `$repo = dirname(__DIR__, 3)` in

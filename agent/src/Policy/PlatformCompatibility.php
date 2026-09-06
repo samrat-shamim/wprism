@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/DatabaseLockBoundary.php';
 
 /**
  * Fail-closed runtime gate for the one shipped platform boundary.
@@ -49,6 +50,18 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * `platform/adapter-library/capabilities/platform.json` says so where a
  * reviewer will see it.
  *
+ * The database declaration also names one scoped mutation prerequisite: a
+ * complete InnoDB foreign-key census. Ordinary INFORMATION_SCHEMA constraint
+ * views are privilege-filtered, so absence there cannot prove that a table in
+ * another schema will not receive a CASCADE/SET NULL write. MySQL 8.4 exposes
+ * the complete graph through INNODB_FOREIGN and MariaDB 11 through
+ * INNODB_SYS_FOREIGN; both vendor interfaces require the global PROCESS
+ * privilege. This class validates that exact engine/source contract, while
+ * DatabaseLockBoundary proves the live grant and census only when a
+ * transactional database mutation is attempted. It deliberately is not a
+ * prerequisite of this pre-policy gate: Policy::load() also serves read-only
+ * capture, assessment and review paths, none of which needs mutation authority.
+ *
  * The filesystem axis is a filesystem-capability profile, not an OS-name proxy
  * for a particular mount. It admits only the Linux and Darwin families that
  * exercised the shipped code and requires the exact functions the durable
@@ -56,15 +69,19 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * same-directory operations before authored mutation; this early gate stops
  * a process that cannot possibly provide those semantics from reaching them.
  * The separate process axis closes over every primitive used by the bounded
- * child lifecycle and the exact executable shell it replaces itself with.
+ * child lifecycle, the exact executable shell it replaces itself with, and
+ * disabled WP-CLI OPcache. The loader must execute the directory fence before
+ * replaceable agent bytes; an OPcache hit could return stale bytecode without
+ * consulting that directory generation, so it is not a supported CLI mode.
  * Runtime descriptor, deadline, exit, and process-group cleanup witnesses
  * remain the transport's responsibility; this gate proves the prerequisites
  * exist before policy load can reach any caller.
  */
 final class PlatformCompatibility {
+    private const DATABASE_FOREIGN_KEY_CENSUS_SCOPE = 'transactional-database-mutation';
     private const FILESYSTEM_PROFILE = 'local-posix-atomic-rename-flock-fsync/v1';
     private const FILESYSTEM_FUNCTIONS = ['chmod', 'flock', 'fsync', 'lstat', 'rename'];
-    private const PROCESS_PROFILE = 'local-posix-process-group-exec/v1';
+    private const PROCESS_PROFILE = 'local-posix-process-group-exec-no-cli-opcache/v1';
     private const PROCESS_FUNCTIONS = [
         'passthru',
         'posix_kill',
@@ -81,7 +98,7 @@ final class PlatformCompatibility {
      *   php:string,
      *   database:array{engine:string,version:string},
      *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
-     *   process:array{functions:array<string,bool>,os_family:string,shell:array{executable:bool,path:string}},
+     *   process:array{functions:array<string,bool>,os_family:string,shell:array{executable:bool,path:string},wp_cli_opcache_enabled:bool},
      *   wordpress:string,
      *   site_mode:string
      * }
@@ -138,6 +155,7 @@ final class PlatformCompatibility {
                     'executable' => function_exists('is_executable') && @is_executable(self::PROCESS_SHELL),
                     'path' => self::PROCESS_SHELL,
                 ],
+                'wp_cli_opcache_enabled' => self::wp_cli_opcache_enabled(),
             ],
             'wordpress' => $wordpress,
             'site_mode' => function_exists('is_multisite') && is_multisite() ? 'multisite' : 'single-site',
@@ -150,7 +168,7 @@ final class PlatformCompatibility {
      *   php:string,
      *   database:array{engine:string,version:string},
      *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
-     *   process:array{functions:array<string,bool>,os_family:string,shell:array{executable:bool,path:string}},
+     *   process:array{functions:array<string,bool>,os_family:string,shell:array{executable:bool,path:string},wp_cli_opcache_enabled:bool},
      *   wordpress:string,
      *   site_mode:string
      * } $facts
@@ -309,6 +327,15 @@ final class PlatformCompatibility {
                 'the exact shell required by bounded WP-CLI process-group execution is unavailable'
             );
         }
+        if ($process['wp_cli_opcache_enabled']) {
+            $diagnostics[] = self::diagnostic(
+                'platform_process_cli_opcache_unsupported',
+                'process.wp_cli_opcache_enabled',
+                'true',
+                'false',
+                'WP-CLI OPcache can execute bytecode from outside the locked agent generation'
+            );
+        }
 
         $wordpress = (string) $facts['wordpress'];
         $wordpressBoundary = $compatibility['wordpress'];
@@ -386,6 +413,8 @@ final class PlatformCompatibility {
         sort($processFunctionKeys, SORT_STRING);
         $processShellKeys = is_array($processShell) ? array_keys($processShell) : [];
         sort($processShellKeys, SORT_STRING);
+        $processKeys = is_array($process) ? array_keys($process) : [];
+        sort($processKeys, SORT_STRING);
         if (!is_string($facts['php'] ?? null) || $facts['php'] === ''
             || !is_array($database)
             || !in_array($database['engine'] ?? null, ['MariaDB', 'MySQL'], true)
@@ -400,6 +429,7 @@ final class PlatformCompatibility {
             || !is_array($filesystemFunctions) || array_is_list($filesystemFunctions)
             || $functionKeys !== self::FILESYSTEM_FUNCTIONS
             || !is_array($process) || array_is_list($process)
+            || $processKeys !== ['functions', 'os_family', 'shell', 'wp_cli_opcache_enabled']
             || !is_string($process['os_family'] ?? null)
             || $process['os_family'] === ''
             || strlen($process['os_family']) > 32
@@ -411,6 +441,7 @@ final class PlatformCompatibility {
             || !is_string($processShell['path'] ?? null)
             || $processShell['path'] === ''
             || strlen($processShell['path']) > 4096
+            || !is_bool($process['wp_cli_opcache_enabled'] ?? null)
             || !is_string($facts['wordpress'] ?? null) || $facts['wordpress'] === ''
             || !in_array($facts['site_mode'] ?? null, ['single-site', 'multisite'], true)) {
             throw self::probe_refusal('platform');
@@ -451,7 +482,7 @@ final class PlatformCompatibility {
     private static function valid_process_axis(array $process): bool {
         $keys = array_keys($process);
         sort($keys, SORT_STRING);
-        return $keys === ['note', 'os_families', 'profile', 'required_functions', 'shell']
+        return $keys === ['note', 'os_families', 'profile', 'required_functions', 'shell', 'wp_cli_opcache_enabled']
             && ($process['profile'] ?? null) === self::PROCESS_PROFILE
             && is_string($process['note'] ?? null)
             && trim($process['note']) !== ''
@@ -461,7 +492,18 @@ final class PlatformCompatibility {
             && is_array($process['required_functions'] ?? null)
             && array_is_list($process['required_functions'])
             && $process['required_functions'] === self::PROCESS_FUNCTIONS
-            && ($process['shell'] ?? null) === self::PROCESS_SHELL;
+            && ($process['shell'] ?? null) === self::PROCESS_SHELL
+            && ($process['wp_cli_opcache_enabled'] ?? null) === false;
+    }
+
+    /** OPcache outside WP-CLI cannot cache this loader's command process. */
+    private static function wp_cli_opcache_enabled(): bool {
+        if (!(defined('WP_CLI') && WP_CLI)) {
+            return false;
+        }
+        $configured = ini_get('opcache.enable_cli');
+        return is_string($configured)
+            && in_array(strtolower(trim($configured)), ['1', 'on', 'true', 'yes'], true);
     }
 
     /**
@@ -543,10 +585,13 @@ final class PlatformCompatibility {
      * The database axis is an engine-keyed map of ranges, and the shape rules
      * are what stop a second engine being smuggled in as a range that belongs
      * to the first. `engines` must be a non-empty object of non-empty string
-     * keys, and every value exactly {max, min} — no stray key, because nothing
-     * else validates an engine entry (tools/capability-doc.php:200-207 checks
-     * only the axis's own top-level keys) and a `verified`-looking extra key
-     * would read as an exercised-series claim this gate never evaluates.
+     * keys, and every value exactly {max, min} — no stray key, because a
+     * `verified`-looking extra key would read as an exercised-series claim this
+     * gate never evaluates. The sibling foreign_key_census profile is equally
+     * closed: every admitted engine maps to the one vendor-documented InnoDB
+     * metadata source the mutation boundary understands, and PROCESS is global
+     * because a same-schema grant cannot reveal a child table in another
+     * schema.
      *
      * The pre-map two-key {engine, min, max} shape has no acceptance path:
      * under a per-engine claim, a boundary that names one engine and one bare
@@ -556,8 +601,15 @@ final class PlatformCompatibility {
      * @param array<string,mixed> $database
      */
     private static function valid_database_axis(array $database): bool {
+        $keys = array_keys($database);
+        sort($keys, SORT_STRING);
         $engines = $database['engines'] ?? null;
-        if (!is_array($engines) || $engines === [] || array_is_list($engines)) {
+        $census = $database['foreign_key_census'] ?? null;
+        if ($keys !== ['engines', 'foreign_key_census', 'note']
+            || !is_string($database['note'] ?? null)
+            || trim($database['note']) === ''
+            || !is_array($engines) || $engines === [] || array_is_list($engines)
+            || !is_array($census) || array_is_list($census)) {
             return false;
         }
         foreach ($engines as $engine => $range) {
@@ -572,6 +624,31 @@ final class PlatformCompatibility {
             $keys = array_keys($range);
             sort($keys, SORT_STRING);
             if ($keys !== ['max', 'min'] || !self::valid_range($range)) {
+                return false;
+            }
+        }
+
+        $censusKeys = array_keys($census);
+        sort($censusKeys, SORT_STRING);
+        $sources = $census['metadata_sources'] ?? null;
+        $engineProfile = DatabaseLockBoundary::foreign_key_metadata_profile();
+        $engineSources = $engineProfile['metadata_sources'];
+        $engineNames = array_keys($engines);
+        sort($engineNames, SORT_STRING);
+        $sourceNames = is_array($sources) ? array_keys($sources) : [];
+        sort($sourceNames, SORT_STRING);
+        if ($censusKeys !== ['metadata_sources', 'profile', 'required_global_privilege', 'scope']
+            || ($census['profile'] ?? null) !== $engineProfile['profile']
+            || ($census['required_global_privilege'] ?? null) !== $engineProfile['required_global_privilege']
+            || ($census['scope'] ?? null) !== self::DATABASE_FOREIGN_KEY_CENSUS_SCOPE
+            || !is_array($sources) || array_is_list($sources)
+            || $engineNames !== $sourceNames) {
+            return false;
+        }
+        foreach ($sources as $engine => $source) {
+            if (!is_string($engine)
+                || !is_string($source)
+                || ($engineSources[$engine] ?? null) !== $source) {
                 return false;
             }
         }

@@ -65,7 +65,7 @@ done
 docker exec "$DB" mariadb-admin ping -h 127.0.0.1 -uroot -proot-pass --silent >/dev/null 2>&1 \
   || fail "database never became ready"
 docker exec "$DB" mariadb -uroot -proot-pass -e \
-  "CREATE DATABASE targetwp; GRANT ALL ON targetwp.* TO 'wordpress'@'%'; FLUSH PRIVILEGES;"
+  "CREATE DATABASE targetwp; GRANT ALL ON targetwp.* TO 'wordpress'@'%'; GRANT PROCESS ON *.* TO 'wordpress'@'%'; FLUSH PRIVILEGES;"
 # The SSH estate installs WordPress from wp.org; without a version it floats to
 # whatever core is current that day and silently leaves the exercised platform
 # boundary (measured 2026-08-24: `wp core download` fetched 7.1 while the claim

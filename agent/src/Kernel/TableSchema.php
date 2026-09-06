@@ -133,7 +133,10 @@ final class TableSchema {
         global $wpdb;
         $t = preg_replace('/[^A-Za-z0-9_]/', '', $table);
         $prefixed = $wpdb->prefix . $t;
-        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+        if (!$wpdb->get_var($wpdb->prepare(
+            'SHOW TABLES LIKE %s',
+            $wpdb->esc_like($prefixed)
+        ))) {
             return null;
         }
         $rows = $wpdb->get_results("SHOW COLUMNS FROM `$prefixed`", ARRAY_A) ?: [];

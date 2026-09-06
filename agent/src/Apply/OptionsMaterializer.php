@@ -1,6 +1,9 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
@@ -8,6 +11,9 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
+require_once __DIR__ . '/../Kernel/TermCoordinateWitness.php';
+require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
@@ -135,7 +141,8 @@ final class OptionsMaterializer {
         array $document,
         bool $withDeletes,
         array &$warnings,
-        ?array $classificationDocument = null
+        ?array $classificationDocument = null,
+        ?DatabaseWorkAuthority $workAuthority = null
     ): void {
         // issue #3263: an interpreter-classified option (ACF's options-page
         // fields) needs the same document-sourced sibling map (the shadow
@@ -158,76 +165,78 @@ final class OptionsMaterializer {
         }
         $allOptions = OptionState::classification_values($classificationDocument);
         foreach ($writeRecords as $name => $record) {
-            if ($record['state'] === 'absent') {
-                continue; // explicit no-value/no-delete intent; target row is untouched
-            }
-            [$realName, $rule, $ruleSource] = $this->option_apply_target((string) $name, $allOptions);
-            if ($record['state'] === 'deleted') {
-                if (!$withDeletes) {
-                    throw new \RuntimeException("wprism: internal invariant: option tombstone '$name' reached apply without --with-deletes");
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($name, $record, $allOptions, $withDeletes, &$warnings): void {
+                if ($record['state'] === 'absent') {
+                    return; // explicit no-value/no-delete intent; target row is untouched
                 }
-                global $wpdb;
-                // wp_options normally compares option_name case-insensitively.
-                // Lock the complete equality range and require its one row to
-                // be byte-identical before issuing the equality DELETE; this
-                // makes both the populated row and the absent gap authoritative
-                // and prevents a tombstone for `foo` from deleting `Foo`.
-                $locked = CacheInvalidationTransaction::lock_option_row(
-                    $realName,
-                    'authored option deletion'
+                [$realName, $rule, $ruleSource] = $this->option_apply_target((string) $name, $allOptions);
+                if ($record['state'] === 'deleted') {
+                    if (!$withDeletes) {
+                        throw new \RuntimeException("wprism: internal invariant: option tombstone '$name' reached apply without --with-deletes");
+                    }
+                    global $wpdb;
+                    // wp_options normally compares option_name case-insensitively.
+                    // Lock the complete equality range and require its one row to
+                    // be byte-identical before issuing the equality DELETE; this
+                    // makes both the populated row and the absent gap authoritative
+                    // and prevents a tombstone for `foo` from deleting `Foo`.
+                    $locked = CacheInvalidationTransaction::lock_option_row(
+                        $realName,
+                        'authored option deletion'
+                    );
+                    if ($locked !== null) {
+                        Db::delete($wpdb->options, ['option_name' => $realName], null, 'apply delete authored option');
+                    }
+                    CacheInvalidationTransaction::queue_option($realName, 'authored option deletion');
+                    if (CacheInvalidationTransaction::lock_option_row(
+                        $realName,
+                        'authored option deletion readback'
+                    ) !== null) {
+                        throw new \RuntimeException('wprism: authored option deletion retained the exact locked row');
+                    }
+                    return;
+                }
+                $v = $record['value'];
+                $autoload = (string) $record['autoload'];
+                OptionState::assert_rule_autoload($rule, $autoload, "repository option '$name'");
+                // option_name_refs (task #93) — MUST run before the ordinary
+                // option_rule($name) lookup below, unconditionally: a token-
+                // form key like "woocommerce_flat_rate_{{wc_zone_method:...}}
+                // _settings" matches no manifest's exact "options" map entry,
+                // so option_rule() would return null -> an empty rule -> the
+                // ordinary generic write path below, which would silently
+                // upsert a REAL wp_options row whose NAME contains literal
+                // "{{...}}" bytes — not a crash, a silent corruption of the
+                // target's own options table. Detecting and detokenizing first
+                // is what this task's own design review specifically flagged.
+                if (str_contains($name, '{{')) {
+                    $vv = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                    $this->fieldMaterializer->upsert_option($realName, $this->fieldMaterializer->option_wire_value($vv), $autoload);
+                    return;
+                }
+                if (($rule['class'] ?? '') === 'managed') {
+                    // active_plugins/template/stylesheet (docs/code-half.md
+                    // §3.1): writing these via raw $wpdb would make WordPress believe
+                    // a plugin/theme is active while skipping every activation-hook
+                    // side effect that makes it actually work — activate_plugin()/
+                    // switch_theme() exist for exactly that reason. Deploy::run()
+                    // (`wp wprism deploy`) is the ONLY place these are ever reconciled,
+                    // deliberately outside this canary-armed apply.
+                    return;
+                }
+                if (!empty($rule['sub_keys'])) {
+                    // issue #3233: SUB-KEY-LEVEL merge into the live blob, never a
+                    // whole-value replace — see apply_option_sub_keys()'s own
+                    // docblock for the full rationale.
+                    $this->apply_option_sub_keys($name, $v, $rule, $ruleSource, $autoload, $warnings);
+                    return;
+                }
+                $this->fieldMaterializer->upsert_option(
+                    $name,
+                    $this->fieldMaterializer->option_wire_value($this->apply_value($name, $v, $rule)),
+                    $autoload
                 );
-                if ($locked !== null) {
-                    Db::delete($wpdb->options, ['option_name' => $realName], null, 'apply delete authored option');
-                }
-                CacheInvalidationTransaction::queue_option($realName, 'authored option deletion');
-                if (CacheInvalidationTransaction::lock_option_row(
-                    $realName,
-                    'authored option deletion readback'
-                ) !== null) {
-                    throw new \RuntimeException('wprism: authored option deletion retained the exact locked row');
-                }
-                continue;
-            }
-            $v = $record['value'];
-            $autoload = (string) $record['autoload'];
-            OptionState::assert_rule_autoload($rule, $autoload, "repository option '$name'");
-            // option_name_refs (task #93) — MUST run before the ordinary
-            // option_rule($name) lookup below, unconditionally: a token-
-            // form key like "woocommerce_flat_rate_{{wc_zone_method:...}}
-            // _settings" matches no manifest's exact "options" map entry,
-            // so option_rule() would return null -> an empty rule -> the
-            // ordinary generic write path below, which would silently
-            // upsert a REAL wp_options row whose NAME contains literal
-            // "{{...}}" bytes — not a crash, a silent corruption of the
-            // target's own options table. Detecting and detokenizing first
-            // is what this task's own design review specifically flagged.
-            if (str_contains($name, '{{')) {
-                $vv = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $this->fieldMaterializer->upsert_option($realName, $this->fieldMaterializer->option_wire_value($vv), $autoload);
-                continue;
-            }
-            if (($rule['class'] ?? '') === 'managed') {
-                // active_plugins/template/stylesheet (docs/code-half.md
-                // §3.1): writing these via raw $wpdb would make WordPress believe
-                // a plugin/theme is active while skipping every activation-hook
-                // side effect that makes it actually work — activate_plugin()/
-                // switch_theme() exist for exactly that reason. Deploy::run()
-                // (`wp wprism deploy`) is the ONLY place these are ever reconciled,
-                // deliberately outside this canary-armed apply.
-                continue;
-            }
-            if (!empty($rule['sub_keys'])) {
-                // issue #3233: SUB-KEY-LEVEL merge into the live blob, never a
-                // whole-value replace — see apply_option_sub_keys()'s own
-                // docblock for the full rationale.
-                $this->apply_option_sub_keys($name, $v, $rule, $ruleSource, $autoload, $warnings);
-                continue;
-            }
-            $this->fieldMaterializer->upsert_option(
-                $name,
-                $this->fieldMaterializer->option_wire_value($this->apply_value($name, $v, $rule)),
-                $autoload
-            );
+            });
         }
     }
 
@@ -362,6 +371,19 @@ final class OptionsMaterializer {
      * path.
      */
     private function apply_value(string $ctx, $v, array $rule) {
+        if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
+            return ScalarReferenceIntersection::apply(
+                $v,
+                $rule,
+                fn(string $uuid, string $kind): ?int => $this->tokens->bound_token_id(
+                    (string) IdentityTokenCodec::encode($kind, $uuid)
+                ),
+                "option $ctx",
+                static fn(int $id, string $taxonomy): bool => TermCoordinateWitness::matches(
+                    $id, $taxonomy, Db::transaction_authority('authored scalar reference intersection')
+                )
+            );
+        }
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
             return StructuredValue::encode($v, $rule, $ctx);

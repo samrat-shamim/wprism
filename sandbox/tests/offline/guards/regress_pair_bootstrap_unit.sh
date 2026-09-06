@@ -104,6 +104,25 @@ if [ -n "${WPRISM_PAIR_TEST_ARTIFACT_CACHE:-}" ]; then
   done
 fi
 
+# lease-batch-acquire's real database census and ordinary pair lifecycle SQL
+# share pair_db_sql(). Model the census markers exactly; every other admin
+# statement remains a successful no-op as it was before this branch existed.
+if [ "${1:-}" = exec ]; then
+  sql="$(cat 2>/dev/null || true)"
+  if grep -Fq '__WPRISM_PAIR_SCHEMA_COUNT__' <<<"$sql"; then
+    rows="${WPRISM_PAIR_TEST_SCHEMAS:-}"
+    count="$(printf '%s\n' "$rows" | awk 'NF { count++ } END { print count + 0 }')"
+    printf 'wprism_pair_schema_count\n__WPRISM_PAIR_SCHEMA_COUNT__:%s\n' "$count"
+    if [ "$count" -gt 0 ]; then
+      printf 'wprism_pair_schema_found\n'
+      while IFS= read -r schema; do
+        [ -n "$schema" ] && printf '__WPRISM_PAIR_SCHEMA_FOUND__:%s\n' "$schema"
+      done <<<"$rows"
+    fi
+  fi
+  exit 0
+fi
+
 if [ "${WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF:-0}" = 1 ]; then
   case " $* " in
     *" run --rm -u root --mount "*)
@@ -216,7 +235,34 @@ elif [ "${1:-}" = ps ]; then
     printf 'fake docker ps failure\n' >&2
     exit 29
   fi
-  printf '%s\n' "${WPRISM_PAIR_TEST_CONTAINERS:-}"
+  if [ "${WPRISM_PAIR_TEST_FAIL_RAW_CENSUS:-}" = container ] && [[ " $* " == *" --filter label=com.docker.compose.project="* ]]; then
+    printf 'fake raw container census failure\n' >&2
+    exit 48
+  fi
+  if [ -n "${WPRISM_PAIR_TEST_RAW_CONTAINER_PROJECT:-}" ] \
+      && [[ " $* " == *" --filter label=com.docker.compose.project=wprism-${WPRISM_PAIR_TEST_RAW_CONTAINER_PROJECT} "* ]]; then
+    printf 'deadc0ffee01\n'
+  else
+    printf '%s\n' "${WPRISM_PAIR_TEST_CONTAINERS:-}"
+  fi
+elif [ "${1:-}" = volume ] && [ "${2:-}" = ls ]; then
+  if [ "${WPRISM_PAIR_TEST_FAIL_RAW_CENSUS:-}" = volume ]; then
+    printf 'fake raw volume census failure\n' >&2
+    exit 49
+  fi
+  if [ -n "${WPRISM_PAIR_TEST_RAW_VOLUME_PROJECT:-}" ] \
+      && [[ " $* " == *" --filter label=com.docker.compose.project=wprism-${WPRISM_PAIR_TEST_RAW_VOLUME_PROJECT} "* ]]; then
+    printf 'wprism_%s_orphan\n' "$WPRISM_PAIR_TEST_RAW_VOLUME_PROJECT"
+  fi
+elif [ "${1:-}" = network ] && [ "${2:-}" = ls ]; then
+  if [ "${WPRISM_PAIR_TEST_FAIL_RAW_CENSUS:-}" = network ]; then
+    printf 'fake raw network census failure\n' >&2
+    exit 50
+  fi
+  if [ -n "${WPRISM_PAIR_TEST_RAW_NETWORK_PROJECT:-}" ] \
+      && [[ " $* " == *" --filter label=com.docker.compose.project=wprism-${WPRISM_PAIR_TEST_RAW_NETWORK_PROJECT} "* ]]; then
+    printf 'deadc0ffee02\n'
+  fi
 elif [ "${1:-}" = compose ] && [ "${2:-}" = ls ]; then
   if [ "${WPRISM_PAIR_TEST_FAIL_LIVE:-0}" = 1 ]; then
     printf 'fake compose ls failure\n' >&2
@@ -243,6 +289,11 @@ elif [ "${1:-}" = compose ]; then
     previous="$arg"
   done
   if [ "$has_up" = 1 ] && [ "$has_wp1" = 1 ] && [ "$has_wp2" = 1 ] && \
+     [ "${WPRISM_PAIR_TEST_FAIL_WEB_UP:-0}" = 1 ]; then
+    printf 'fake partial web up failure\n' >&2
+    exit 61
+  fi
+  if [ "$has_up" = 1 ] && [ "$has_wp1" = 1 ] && [ "$has_wp2" = 1 ] && \
      [ -n "${WPRISM_PAIR_TEST_LIVE_FILE:-}" ]; then
     printf '[{"ConfigFiles":"/fake/pair.yml","Name":"%s"}]\n' "$project" > "$WPRISM_PAIR_TEST_LIVE_FILE"
   fi
@@ -259,6 +310,20 @@ write_fake_git() {
   cat > "$fake_bin/git" <<'FAKE_GIT'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = -C ]; then
+  requested="${2:?}"
+  shift 2
+  if [ "${1:-}" = rev-parse ]; then
+    case " $* " in
+      *" --show-toplevel "*) (cd "$requested" && pwd -P); exit $? ;;
+      *" --path-format=absolute --git-common-dir "*)
+        printf '%s/.git\n' "${WPRISM_PAIR_TEST_CANONICAL_ROOT:?}"
+        exit 0
+        ;;
+    esac
+  fi
+  exit 1
+fi
 if [ "${1:-}" = rev-parse ]; then
   printf '%s/.git\n' "${WPRISM_PAIR_TEST_CANONICAL_ROOT:?}"
   exit 0
@@ -466,6 +531,403 @@ copy_artifact_library_runtime() { # copy_artifact_library_runtime <case-root>
     "$case_root/platform/artifact-library/artifacts.lock.json"
 }
 
+run_pair_lease_namespace_case() {
+  local label=pair_lease_namespace case_root="$TMP/pair-lease-namespace"
+  local fake_bin="$case_root/fake-bin" pair_tool="$case_root/sandbox/bin/pair.sh"
+  local log="$case_root/docker.log" owner_start token owner_token contender_token output schema
+  local real_ln real_ps real_rm foreign_tool rollback_token pristine_tool pristine_token
+  local lease_dir="$case_root/sandbox/siterepo/.pair-leases"
+  mkdir -p "$case_root/sandbox/bin" "$fake_bin"
+  copy_pair_launcher "$case_root/sandbox/bin"
+  write_fake_docker "$fake_bin"
+  write_fake_git "$fake_bin"
+  cat > "$fake_bin/lsof" <<'FAKE_LSOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case " $* " in
+  *" -iTCP:${WPRISM_PAIR_TEST_LISTEN_PORT:-absent} "*) exit 0 ;;
+esac
+exit 1
+FAKE_LSOF
+  real_ln="$(PATH="$ORIGINAL_PATH" command -v ln)"
+  real_ps="$(PATH="$ORIGINAL_PATH" command -v ps)"
+  real_rm="$(PATH="$ORIGINAL_PATH" command -v rm)"
+  cat > "$fake_bin/ln" <<'FAKE_LN'
+#!/usr/bin/env bash
+set -euo pipefail
+destination=''
+for argument in "$@"; do destination="$argument"; done
+if [[ "$destination" == */.pair-leases/*.json ]] && [ -n "${WPRISM_PAIR_TEST_LN_FAIL_AT:-}" ]; then
+  count=0
+  [ ! -f "${WPRISM_PAIR_TEST_LN_STATE:?}" ] || count="$(cat "$WPRISM_PAIR_TEST_LN_STATE")"
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$WPRISM_PAIR_TEST_LN_STATE"
+  [ "$count" -ne "$WPRISM_PAIR_TEST_LN_FAIL_AT" ] || exit 73
+fi
+exec "${WPRISM_PAIR_TEST_REAL_LN:?}" "$@"
+FAKE_LN
+  cat > "$fake_bin/rm" <<'FAKE_RM'
+#!/usr/bin/env bash
+set -euo pipefail
+destination=''
+for argument in "$@"; do destination="$argument"; done
+if [ -n "${WPRISM_PAIR_TEST_RM_FAIL_PATH:-}" ] \
+    && [ "$destination" = "$WPRISM_PAIR_TEST_RM_FAIL_PATH" ]; then
+  exit 74
+fi
+exec "${WPRISM_PAIR_TEST_REAL_RM:?}" "$@"
+FAKE_RM
+  cat > "$fake_bin/ps" <<'FAKE_PS'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *" -p ${WPRISM_PAIR_TEST_UNOBSERVABLE_PID:-none} "* ]]; then
+  exit 2
+fi
+exec "${WPRISM_PAIR_TEST_REAL_PS:?}" "$@"
+FAKE_PS
+  chmod +x "$fake_bin/lsof" "$fake_bin/ln" "$fake_bin/rm" "$fake_bin/ps" "$pair_tool"
+  : > "$log"
+  export PATH="$fake_bin:$ORIGINAL_PATH"
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+    WPRISM_PAIR_TEST_FAIL_WEB_UP=0 WPRISM_PAIR_TEST_SCHEMAS='' WPRISM_PAIR_TEST_LISTEN_PORT='' \
+    WPRISM_PAIR_TEST_RAW_CONTAINER_PROJECT='' WPRISM_PAIR_TEST_RAW_VOLUME_PROJECT='' \
+    WPRISM_PAIR_TEST_RAW_NETWORK_PROJECT='' WPRISM_PAIR_TEST_FAIL_RAW_CENSUS='' \
+    WPRISM_PAIR_TEST_REAL_LN="$real_ln" WPRISM_PAIR_TEST_REAL_PS="$real_ps" \
+    WPRISM_PAIR_TEST_REAL_RM="$real_rm" WPRISM_PAIR_TEST_RM_FAIL_PATH='' \
+    WPRISM_PAIR_TEST_LN_FAIL_AT='' WPRISM_PAIR_TEST_LN_STATE="$case_root/ln-state" \
+    WPRISM_PAIR_TEST_UNOBSERVABLE_PID=''
+
+  owner_start="$(
+    source "$ROOT/sandbox/lib/pair_lease.sh"
+    TZ=Pacific/Auckland pair_lease_owner_start "$$"
+  )"
+  [ -n "$owner_start" ] || fail "$label: could not identify this test process"
+  [ "$owner_start" = "$(
+    source "$ROOT/sandbox/lib/pair_lease.sh"
+    TZ=America/Los_Angeles pair_lease_owner_start "$$"
+  )" ] || fail "$label: lease owner start identity changes with the caller timezone"
+  token="$(
+    # shellcheck source=../../../lib/pair_lease.sh
+    source "$ROOT/sandbox/lib/pair_lease.sh"
+    pair_lease_token "$$" "$owner_start"
+  )"
+  contender_token="$(
+    source "$ROOT/sandbox/lib/pair_lease.sh"
+    pair_lease_token "$$" "$owner_start"
+  )"
+  [[ "$token" =~ ^[a-f0-9]{32}$ && "$contender_token" =~ ^[a-f0-9]{32}$ && "$token" != "$contender_token" ]] \
+    || fail "$label: lease tokens are not collision-resistant 32-hex identities"
+
+  for schema in container volume network; do
+    case "$schema" in
+      container) export WPRISM_PAIR_TEST_RAW_CONTAINER_PROJECT=rawcontainer ;;
+      volume) export WPRISM_PAIR_TEST_RAW_VOLUME_PROJECT=rawvolume ;;
+      network) export WPRISM_PAIR_TEST_RAW_NETWORK_PROJECT=rawnetwork ;;
+    esac
+    output="$case_root/raw-$schema.txt"
+    if "$pair_tool" lease-batch-acquire "$token" "$$" "$owner_start" "raw$schema" 9430 9431 \
+        >"$output" 2>&1; then
+      fail "$label: orphan raw Docker $schema crossed lease admission"
+    fi
+    grep -Fq "pair 'raw$schema' has existing raw Docker resources labeled" "$output" \
+      || fail "$label: raw Docker $schema produced the wrong refusal: $(cat "$output")"
+    [ ! -e "$lease_dir/raw$schema.json" ] \
+      || fail "$label: raw Docker $schema refusal published a lease"
+    export WPRISM_PAIR_TEST_RAW_CONTAINER_PROJECT='' WPRISM_PAIR_TEST_RAW_VOLUME_PROJECT='' \
+      WPRISM_PAIR_TEST_RAW_NETWORK_PROJECT=''
+  done
+  export WPRISM_PAIR_TEST_FAIL_RAW_CENSUS=network
+  output="$case_root/raw-census-failure.txt"
+  if "$pair_tool" lease-batch-acquire "$token" "$$" "$owner_start" censusfailure 9430 9431 \
+      >"$output" 2>&1; then
+    fail "$label: failed raw Docker census was interpreted as absence"
+  fi
+  grep -Fq "could not census raw Docker resources for pair 'censusfailure'" "$output" \
+    || fail "$label: failed raw Docker census produced the wrong refusal: $(cat "$output")"
+  export WPRISM_PAIR_TEST_FAIL_RAW_CENSUS=''
+  pass "$label: raw container, volume and network label census refuses orphans and observation failure"
+
+  for schema in wp_orphan1 wp_orphan2; do
+    export WPRISM_PAIR_TEST_SCHEMAS="$schema"
+    output="$case_root/$schema.txt"
+    if "$pair_tool" lease-batch-acquire "$token" "$$" "$owner_start" orphan 9400 9401 \
+        >"$output" 2>&1; then
+      fail "$label: orphan schema $schema was adopted"
+    fi
+    grep -Fq "pair database schema already exists ($schema); pair namespace is not empty" "$output" \
+      || fail "$label: orphan schema $schema produced the wrong refusal: $(cat "$output")"
+    [ ! -e "$lease_dir/orphan.json" ] \
+      || fail "$label: orphan schema refusal published a destructive lease"
+  done
+  export WPRISM_PAIR_TEST_SCHEMAS=''
+  pass "$label: either exact orphan schema refuses before lease publication"
+
+  export WPRISM_PAIR_TEST_SCHEMAS='wp_batchb2'
+  output="$case_root/batch-orphan.txt"
+  if "$pair_tool" lease-batch-acquire "$token" "$$" "$owner_start" \
+      batcha 9410 9411 batchb 9412 9413 >"$output" 2>&1; then
+    fail "$label: a later request's orphan schema admitted a partial batch"
+  fi
+  [ ! -e "$lease_dir/batcha.json" ] && [ ! -e "$lease_dir/batchb.json" ] \
+    || fail "$label: batch publication was visible before every schema passed its census"
+  export WPRISM_PAIR_TEST_SCHEMAS=''
+  pass "$label: the complete batch passes its database census before any lease is published"
+
+  rm -f -- "$WPRISM_PAIR_TEST_LN_STATE"
+  export WPRISM_PAIR_TEST_LN_FAIL_AT=2
+  output="$case_root/second-publication-failure.txt"
+  if "$pair_tool" lease-batch-acquire "$token" "$$" "$owner_start" \
+      publishone 9440 9441 publishtwo 9442 9443 >"$output" 2>&1; then
+    fail "$label: injected second lease publication unexpectedly succeeded"
+  fi
+  grep -Fq 'could not publish complete pair lease batch; this acquisition retained no lease' "$output" \
+    || fail "$label: second-publication failure produced the wrong refusal: $(cat "$output")"
+  [ ! -e "$lease_dir/publishone.json" ] && [ ! -e "$lease_dir/publishtwo.json" ] \
+    || fail "$label: second-publication failure retained a partial lease batch"
+  if find "$lease_dir" -maxdepth 1 -type d -name ".lease-${token}.*" | grep -q .; then
+    fail "$label: second-publication rollback retained private staging"
+  fi
+  export WPRISM_PAIR_TEST_LN_FAIL_AT=''
+  pass "$label: an injected second publication failure rolls back every record in this acquisition"
+
+  rollback_token="$(
+    source "$ROOT/sandbox/lib/pair_lease.sh"
+    pair_lease_token "$$" "$owner_start"
+  )"
+  rm -f -- "$WPRISM_PAIR_TEST_LN_STATE"
+  export WPRISM_PAIR_TEST_LN_FAIL_AT=2
+  export WPRISM_PAIR_TEST_RM_FAIL_PATH="$lease_dir/retainone.json"
+  output="$case_root/publication-rollback-failure.txt"
+  if "$pair_tool" lease-batch-acquire "$rollback_token" "$$" "$owner_start" \
+      retainone 9446 9447 retaintwo 9448 9449 >"$output" 2>&1; then
+    fail "$label: publication plus rollback-unlink injection unexpectedly succeeded"
+  fi
+  grep -Fq "rollback retained cleanup authority for token $rollback_token at: $lease_dir/retainone.json" "$output" \
+    || fail "$label: rollback-unlink failure hid retained cleanup authority: $(cat "$output")"
+  [ -e "$lease_dir/retainone.json" ] && [ ! -e "$lease_dir/retaintwo.json" ] \
+    || fail "$label: rollback-unlink fixture did not retain exactly the first published record"
+  if find "$lease_dir" -maxdepth 1 -type d -name ".lease-${rollback_token}.*" | grep -q .; then
+    fail "$label: rollback-unlink failure retained private staging in addition to explicit authority"
+  fi
+  export WPRISM_PAIR_TEST_LN_FAIL_AT='' WPRISM_PAIR_TEST_RM_FAIL_PATH=''
+  "$real_rm" -f -- "$lease_dir/retainone.json"
+  pass "$label: failed rollback names the exact retained token and cleanup-authority record"
+
+  mkdir -p "$case_root/sandbox/siterepo"
+  : > "$case_root/sandbox/siterepo/.marked1.needs-install"
+  output="$case_root/marker.txt"
+  if "$pair_tool" lease-batch-acquire "$token" "$$" "$owner_start" marked 9402 9403 \
+      >"$output" 2>&1; then
+    fail "$label: existing needs-install marker was adopted"
+  fi
+  grep -Fq "pair 'marked' has existing site state at $case_root/sandbox/siterepo/.marked1.needs-install" "$output" \
+    || fail "$label: install marker produced the wrong refusal: $(cat "$output")"
+  [ -e "$case_root/sandbox/siterepo/.marked1.needs-install" ] \
+    && [ ! -e "$lease_dir/marked.json" ] \
+    || fail "$label: marker refusal mutated the marker or published a lease"
+  pass "$label: install markers remain foreign state and are never cleanup-adopted"
+
+  owner_token="$token"
+  "$pair_tool" lease-batch-acquire "$owner_token" "$$" "$owner_start" owned 9404 9405 \
+    >"$case_root/owner.txt" 2>&1 \
+    || { cat "$case_root/owner.txt" >&2; fail "$label: empty namespace did not acquire"; }
+  jq -e --arg token "$owner_token" --arg root "$case_root/sandbox/siterepo" '
+    .token == $token and .ports == [9404,9405]
+    and .db_engine == "mariadb" and .db_container == "wprism-shared-db"
+    and .site_root == $root
+  ' \
+    "$lease_dir/owned.json" >/dev/null \
+    || fail "$label: published lease does not bind token, ports, selected database and physical site root"
+
+  output="$case_root/reused-token.txt"
+  if "$pair_tool" lease-batch-acquire "$owner_token" "$$" "$owner_start" reused 9444 9445 \
+      >"$output" 2>&1; then
+    fail "$label: one token was reused across two acquisitions"
+  fi
+  grep -Fq "pair lease token $owner_token is already active; tokens cannot be reused" "$output" \
+    || fail "$label: token reuse produced the wrong refusal: $(cat "$output")"
+  [ ! -e "$lease_dir/reused.json" ] \
+    || fail "$label: token reuse published another cleanup authority record"
+  pass "$label: one collision-resistant token identifies exactly one acquisition"
+
+  : > "$log"
+  output="$case_root/wrong-engine-release.txt"
+  if WPRISM_DB_ENGINE=mysql WPRISM_PAIR_LEASE_TOKEN="$owner_token" \
+      "$pair_tool" lease-batch-release "$owner_token" >"$output" 2>&1; then
+    fail "$label: a MariaDB lease was released through the MySQL lane"
+  fi
+  grep -Fq 'selected database mysql/wprism-shared-mysql, but the lease is bound to mariadb/wprism-shared-db' "$output" \
+    || fail "$label: wrong-engine release produced the wrong refusal: $(cat "$output")"
+  ! grep -Fq 'docker <exec>' "$log" \
+    || fail "$label: wrong-engine release reached database mutation before context refusal"
+  [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: wrong-engine release removed the lease"
+
+  foreign_tool="$case_root/foreign/sandbox/bin/pair.sh"
+  mkdir -p "$case_root/foreign/sandbox/bin" "$case_root/foreign/sandbox/siterepo"
+  copy_pair_launcher "$case_root/foreign/sandbox/bin"
+  chmod +x "$foreign_tool"
+  : > "$log"
+  output="$case_root/wrong-root-release.txt"
+  if WPRISM_DB_ENGINE=mariadb WPRISM_PAIR_LEASE_TOKEN="$owner_token" \
+      "$foreign_tool" lease-batch-release "$owner_token" >"$output" 2>&1; then
+    fail "$label: a lease was released from a different physical worktree site root"
+  fi
+  grep -Fq "but the lease is bound to $case_root/sandbox/siterepo; refusing before mutation" "$output" \
+    || fail "$label: wrong-root release produced the wrong refusal: $(cat "$output")"
+  ! grep -Fq 'docker <exec>' "$log" \
+    || fail "$label: wrong-root release reached database mutation before context refusal"
+  [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: wrong-root release removed the lease"
+  pass "$label: database lane and physical worktree root are release authority, checked before mutation"
+
+  # The canonical lease store already exists, while this distinct worktree
+  # has never run pair up. A fixture that pre-creates both roots misses the
+  # real first leased-run failure before any pair namespace was acquired.
+  pristine_tool="$case_root/pristine/sandbox/bin/pair.sh"
+  mkdir -p "$case_root/pristine/sandbox/bin"
+  copy_pair_launcher "$case_root/pristine/sandbox/bin"
+  chmod +x "$pristine_tool"
+  [ ! -e "$case_root/pristine/sandbox/siterepo" ] \
+    || fail "$label: pristine worktree already has its site root"
+  output="$case_root/pristine-release.txt"
+  if "$pristine_tool" lease-batch-release "$owner_token" >"$output" 2>&1; then
+    fail "$label: missing-context release accepted another worktree's authority"
+  fi
+  [ ! -e "$case_root/pristine/sandbox/siterepo" ] && [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: read-only release created missing context or removed another lease"
+  pristine_token="$(
+    source "$ROOT/sandbox/lib/pair_lease.sh"
+    pair_lease_token "$$" "$owner_start"
+  )"
+  "$pristine_tool" lease-batch-acquire "$pristine_token" "$$" "$owner_start" pristine 9454 9455 \
+    >"$case_root/pristine-acquire.txt" 2>&1 \
+    || { cat "$case_root/pristine-acquire.txt" >&2; fail "$label: pristine worktree could not acquire before its first pair up"; }
+  jq -e --arg token "$pristine_token" --arg root "$case_root/pristine/sandbox/siterepo" '
+    .token == $token and .ports == [9454,9455] and .site_root == $root
+    and .db_engine == "mariadb" and .db_container == "wprism-shared-db"
+  ' "$lease_dir/pristine.json" >/dev/null \
+    || fail "$label: first lease did not bind the separate physical site root"
+  [ -d "$case_root/pristine/sandbox/siterepo" ] \
+    && [ ! -e "$case_root/pristine/sandbox/siterepo/pristine1" ] \
+    && [ ! -e "$case_root/pristine/sandbox/siterepo/pristine2" ] \
+    || fail "$label: parent preparation created pair-owned children before up"
+  "$pristine_tool" lease-batch-release "$pristine_token" >"$case_root/pristine-release-ok.txt" 2>&1 \
+    || { cat "$case_root/pristine-release-ok.txt" >&2; fail "$label: empty pristine lease did not release"; }
+  [ ! -e "$lease_dir/pristine.json" ] && [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: pristine release removed the wrong cleanup authority"
+  rmdir "$case_root/pristine/sandbox/siterepo"
+  printf 'foreign non-directory site root\n' > "$case_root/pristine/sandbox/siterepo"
+  output="$case_root/pristine-file-root.txt"
+  if "$pristine_tool" lease-batch-acquire "$pristine_token" "$$" "$owner_start" pristine 9454 9455 \
+      >"$output" 2>&1; then
+    fail "$label: a non-directory site root crossed lease acquisition"
+  fi
+  grep -Fq "could not prepare the current sandbox's pair site root" "$output" \
+    && [ "$(cat "$case_root/pristine/sandbox/siterepo")" = 'foreign non-directory site root' ] \
+    && [ ! -e "$lease_dir/pristine.json" ] && [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: failed parent preparation hid its cause, changed foreign bytes or published authority"
+  pass "$label: first worktree acquisition prepares only its exact parent; read-only release and non-directory refusals preserve authority"
+
+  TZ=Asia/Tokyo "$pair_tool" capacity >"$case_root/capacity-cross-tz.json" 2>&1 \
+    || fail "$label: a live owner became unobservable after the caller timezone changed"
+  [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: timezone-dependent owner identity pruned a live lease"
+
+  jq '.owner_pid = 2147483647 | .owner_start = "dead-owner" | .token = "dddddddddddddddddddddddddddddddd" | .ports = [9450,9451]' \
+    "$lease_dir/owned.json" > "$lease_dir/deadowner.json"
+  "$pair_tool" capacity >"$case_root/capacity-dead-owner.json" 2>&1 \
+    || fail "$label: positively dead lease owner made capacity unobservable"
+  [ ! -e "$lease_dir/deadowner.json" ] \
+    || fail "$label: positively dead lease owner was not pruned"
+
+  jq '.owner_pid = 2147483646 | .owner_start = "unobservable-owner" | .token = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" | .ports = [9452,9453]' \
+    "$lease_dir/owned.json" > "$lease_dir/unobservable.json"
+  export WPRISM_PAIR_TEST_UNOBSERVABLE_PID=2147483646
+  output="$case_root/capacity-unobservable-owner.txt"
+  if "$pair_tool" capacity >"$output" 2>&1; then
+    fail "$label: unobservable lease owner was treated as dead"
+  fi
+  grep -Fq 'could not observe pair lease owner PID 2147483646 safely' "$output" \
+    || fail "$label: unobservable owner produced the wrong refusal: $(cat "$output")"
+  [ -e "$lease_dir/unobservable.json" ] \
+    || fail "$label: observation failure pruned a potentially live lease"
+  export WPRISM_PAIR_TEST_UNOBSERVABLE_PID=''
+  "$pair_tool" capacity >"$case_root/capacity-prune-unobservable.json" 2>&1 \
+    || fail "$label: formerly unobservable dead lease did not become prunable"
+  [ ! -e "$lease_dir/unobservable.json" ] \
+    || fail "$label: positively dead owner remained after observation recovered"
+  pass "$label: UTC owner identity survives TZ changes, prunes only positive death, and fails closed on observation errors"
+
+  export WPRISM_PAIR_TEST_SCHEMAS='wp_owned1'
+  output="$case_root/release-with-schema.txt"
+  if "$pair_tool" lease-batch-release "$owner_token" >"$output" 2>&1; then
+    fail "$label: release discarded authority while an owned schema remained"
+  fi
+  grep -Fq 'pair database schema already exists (wp_owned1); pair namespace is not empty' "$output" \
+    || fail "$label: release schema recensus produced the wrong refusal: $(cat "$output")"
+  [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: failed cleanup recensus removed the lease"
+  export WPRISM_PAIR_TEST_SCHEMAS=''
+  pass "$label: final release rechecks database absence and retains authority on failure"
+
+  output="$case_root/name-contender.txt"
+  if "$pair_tool" lease-batch-acquire "$contender_token" "$$" "$owner_start" owned 9406 9407 \
+      >"$output" 2>&1; then
+    fail "$label: competing lease acquired the same pair name"
+  fi
+  grep -Fq "pair 'owned' is already leased" "$output" \
+    || fail "$label: name contender produced the wrong refusal: $(cat "$output")"
+
+  output="$case_root/port-contender.txt"
+  if "$pair_tool" lease-batch-acquire "$contender_token" "$$" "$owner_start" other 9404 9405 \
+      >"$output" 2>&1; then
+    fail "$label: competing lease acquired the same pair ports"
+  fi
+  grep -Fq 'pair lease request collides on port 9404' "$output" \
+    || fail "$label: port contender produced the wrong refusal: $(cat "$output")"
+
+  export WPRISM_PAIR_TEST_LISTEN_PORT=9408
+  output="$case_root/listener.txt"
+  if "$pair_tool" lease-batch-acquire "$contender_token" "$$" "$owner_start" listener 9408 9409 \
+      >"$output" 2>&1; then
+    fail "$label: a listening port crossed lease admission"
+  fi
+  grep -Fq 'pair lease port 9408 is already listening' "$output" \
+    || fail "$label: listening port produced the wrong refusal: $(cat "$output")"
+  export WPRISM_PAIR_TEST_LISTEN_PORT=''
+  pass "$label: competing name, reserved ports, and active listeners all refuse under one lease lock"
+
+  export WPRISM_PAIR_LEASE_TOKEN="$owner_token" WPRISM_PAIR_TEST_FAIL_WEB_UP=1
+  output="$case_root/partial-up.txt"
+  if "$pair_tool" up owned 9404 9405 --headless >"$output" 2>&1; then
+    fail "$label: injected partial up unexpectedly succeeded"
+  fi
+  grep -Fq 'fake partial web up failure' "$output" \
+    || fail "$label: injected up did not reach the post-schema/pre-visible failure: $(cat "$output")"
+  [ -d "$case_root/sandbox/siterepo/owned1" ] && [ -d "$case_root/sandbox/siterepo/owned2" ] \
+    || fail "$label: partial up did not create the cleanup-owned roots"
+  [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: partial up prematurely released its namespace lease"
+
+  export WPRISM_PAIR_TEST_FAIL_WEB_UP=0
+  "$pair_tool" destroy owned >"$case_root/destroy.txt" 2>&1 \
+    || { cat "$case_root/destroy.txt" >&2; fail "$label: partial up destroy failed"; }
+  [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: destroy released the caller-owned lease before cleanup verification"
+  find "$case_root/sandbox/siterepo/owned1" "$case_root/sandbox/siterepo/owned2" -depth -delete
+  "$pair_tool" lease-batch-release "$owner_token" >"$case_root/release.txt" 2>&1 \
+    || { cat "$case_root/release.txt" >&2; fail "$label: checked lease release failed"; }
+  [ ! -e "$lease_dir/owned.json" ] \
+    || fail "$label: lease remained after verified partial-up teardown"
+  pass "$label: a partial up remains cleanup-owned through destroy/root removal and releases the lease last"
+  unset WPRISM_PAIR_LEASE_TOKEN
+}
+
 run_case() {
   local label="$1" pair="$2" codebind="$3" git_mode="${4:-canonical}"
   local artifacts="${5:-0}" wordpress_offline="${6:-0}"
@@ -475,6 +937,7 @@ run_case() {
   local up_args=(up "$pair" 9911 9912 --headless)
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   canonical_root="$case_root/canonical"
+  mkdir -p "$canonical_root"
   copy_pair_launcher "$case_root/sandbox/bin"
   copy_artifact_library_runtime "$case_root"
   if [ -n "${WPRISM_PAIR_TEST_LOCK_OVERRIDE:-}" ]; then
@@ -906,9 +1369,13 @@ run_start_safe_case() {
     || fail "$label did not complete after Compose start became visible"
   grep -F "<-p> <wprism-$pair> <-f> <pair.yml> <start>" "$log" >/dev/null \
     || fail "$label did not issue the expected Compose start operation"
-  assert_file_contains "$log" "docker <compose> <-p> <wprism-db> <-f> <db.yml> <up> <-d>" \
-    "$label did not preserve the shared-DB prerequisite"
-  pass "$label: in-budget start keeps DB readiness and Compose visibility behind reservation"
+  assert_file_contains "$log" "docker <compose> <-p> <wprism-db> <-f> <db.yml> <up> <-d> <--no-recreate>" \
+    "$label did not preserve the non-recreating shared-DB prerequisite"
+  if grep -F "docker <compose> <-p> <wprism-db> <-f> <db.yml>" "$log" \
+      | grep -F "<--force-recreate>" >/dev/null; then
+    fail "$label allowed ordinary pair lifecycle to replace the fleet-shared database"
+  fi
+  pass "$label: in-budget start keeps DB readiness and a non-recreating Compose prerequisite behind reservation"
 }
 
 run_start_budget_override_case() {
@@ -2128,6 +2595,9 @@ run_live_query_failure_case
 
 say "concurrent pair budget reservation (fake compose; no Docker/DB)"
 run_concurrent_budget_race_case
+
+say "atomic pair lease owns the complete disposable namespace (fake compose/DB)"
+run_pair_lease_namespace_case
 
 say "portable zombie detection for SIGKILL cancellation (no Docker/DB)"
 run_pid_running_zombie_case

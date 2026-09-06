@@ -1,0 +1,20 @@
+{
+    "format": "wprism-adapter-release-list/v1",
+    "recorded_at": "2026-08-27",
+    "releases": [
+        {
+            "archive_root": "seo-by-rank-math",
+            "sha256": "5252b6e233fe6fe73e69b57fbb039b50140bb5f12438da0ada1c2a973a99f83d",
+            "url": "https://downloads.wordpress.org/plugin/seo-by-rank-math.1.0.276.zip",
+            "version": "1.0.276"
+        },
+        {
+            "archive_root": "seo-by-rank-math",
+            "sha256": "7fb596fad0b82ef4c2a5fede32aa91f0b645658027c20ac2ffa5cd5979eea616",
+            "url": "https://downloads.wordpress.org/plugin/seo-by-rank-math.1.0.277.zip",
+            "version": "1.0.277"
+        }
+    ],
+    "slug": "seo-by-rank-math",
+    "source": "api.wordpress.org/plugins/info/1.2 identified Rank Math SEO 1.0.277 as the current stable artifact with 4,000,000 active installs on 2026-08-27. Both listed ZIPs were fetched from downloads.wordpress.org in that site-authoring exercise and hashed locally; no digest was inferred from a release label."
+}

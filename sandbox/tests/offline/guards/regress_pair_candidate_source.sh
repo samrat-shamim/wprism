@@ -35,6 +35,9 @@
 #   - an ungated run from a copy of pair.sh outside any checkout still works,
 #     because the gate reports when it is off and never adds a failure mode;
 #   - teardown (stop/destroy) stays ungated, so cleanup can never be blocked.
+#   - the env-set live entrypoint requires caller-owned pair/port/SHA inputs,
+#     pins this worktree for direct Compose, and publishes PASS only after
+#     exact pair, repository and private-scratch cleanup succeeds.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
@@ -659,8 +662,11 @@ run_version_matrix_passthrough_case() {
     "$label: certify_version_matrix.sh does not plumb VMATRIX_EXPECTED_SOURCE_SHA through to pair.sh"
   assert_before "$matrix" \
     'export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
+    'if declare -F version_matrix_preflight >/dev/null'
+  assert_before "$matrix" \
+    'export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
     'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"'
-  pass "$label: exact-artifact matrix binds its candidate before pair startup"
+  pass "$label: exact-artifact matrix binds its candidate before capsule preflight and pair startup"
 }
 
 run_parallel_compose_source_pin_case() {
@@ -679,7 +685,10 @@ run_parallel_compose_source_pin_case() {
   done
 
   (
-    unset PAIR_SOURCE_ROOT WPRISM_AGENT_SRC WPRISM_ADAPTER_PACKAGES_SRC WPRISM_PLATFORM_SRC
+    export PAIR_SOURCE_ROOT="$TMP/poisoned-prior-worktree"
+    export WPRISM_AGENT_SRC="$PAIR_SOURCE_ROOT/agent"
+    export WPRISM_ADAPTER_PACKAGES_SRC="$PAIR_SOURCE_ROOT/adapter-packages"
+    export WPRISM_PLATFORM_SRC="$PAIR_SOURCE_ROOT/platform"
     export WPRISM_SOURCE_ROOT="$ROOT"
     # shellcheck source=../../../lib/pair_identity.sh
     source "$identity"
@@ -694,7 +703,16 @@ run_parallel_compose_source_pin_case() {
     [ "$WPRISM_ADAPTER_PACKAGES_SRC" = "$ROOT/adapter-packages" ]
     [ "$WPRISM_PLATFORM_SRC" = "$ROOT/platform" ]
   ) || fail "$label: caller-local candidate mounts did not survive a stale shared environment record"
-  pass "$label: common adapter evidence lanes keep candidate mounts process-local across parallel pair teardown"
+  if (
+    unset WPRISM_SOURCE_ROOT
+    export PAIR_SOURCE_ROOT="$TMP/poisoned-prior-worktree"
+    # shellcheck source=../../../lib/pair_identity.sh
+    source "$identity"
+    pair_identity_export_source_mounts
+  ) >/dev/null 2>&1; then
+    fail "$label: an inherited non-worktree PAIR_SOURCE_ROOT bypassed source validation"
+  fi
+  pass "$label: explicit source replaces poisoned cache, while cache-only selection is revalidated"
 }
 
 run_multisite_passthrough_case() {
@@ -714,8 +732,96 @@ run_multisite_passthrough_case() {
   pass "$label: multisite refusal binds its candidate before pair mutation"
 }
 
+run_env_set_live_ownership_contract_case() {
+  local label=env_set_live_ownership
+  local harness="$ROOT/sandbox/tests/live/regress_env_set.sh"
+  local ownership="$ROOT/sandbox/tests/lib/pair_live_ownership.sh"
+  local makefile="$ROOT/Makefile"
+
+  assert_file_contains "$harness" 'PAIR="${ENV_SET_PAIR:-}"' \
+    "$label: pair name is not an explicit caller allocation"
+  assert_file_contains "$harness" '[[ "$PAIR" =~ ^[a-z][a-z0-9]{2,23}$ ]]' \
+    "$label: pair allocation does not retain a collision-resistant bounded namespace"
+  assert_file_contains "$harness" 'db|sandbox) fail' \
+    "$label: pair allocation can claim a namespace reserved by the shared launcher"
+  assert_file_contains "$harness" 'PORT1_RAW="${ENV_SET_PORT1:-}"' \
+    "$label: first port is not an explicit caller allocation"
+  assert_file_contains "$harness" 'PORT2_RAW="${ENV_SET_PORT2:-}"' \
+    "$label: second port is not an explicit caller allocation"
+  assert_file_contains "$harness" 'PORT1 % 2 == 0 && PORT2 == PORT1 + 1' \
+    "$label: allocated ports are not constrained to an even/successor pair"
+  assert_file_contains "$harness" '[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]' \
+    "$label: live evidence does not require one exact candidate SHA"
+  assert_file_contains "$harness" '[ "$EXPECTED_SHA" = "$SOURCE_SHA" ]' \
+    "$label: expected SHA is not compared with this checkout"
+  assert_file_contains "$harness" 'export WPRISM_SOURCE_ROOT="$REPO_ROOT"' \
+    "$label: linked-worktree source is not selected explicitly"
+  assert_file_contains "$harness" '. "$REPO_ROOT/sandbox/tests/lib/pair_live_ownership.sh"' \
+    "$label: caller bypasses the shared live-pair ownership state machine"
+  assert_file_contains "$ownership" 'pair_identity_export_source_mounts' \
+    "$label: shared state machine can fall back to concurrently rewritten .env mounts"
+  assert_file_contains "$harness" "WPRISM_DB_ENGINE='mariadb' WPRISM_DB_HOST='wprism-shared-db'" \
+    "$label: ambient MySQL selection can split pair.sh lifecycle from direct MariaDB Compose calls"
+
+  assert_file_contains "$harness" 'chosen env-set scratch target already exists' \
+    "$label: private registry/diagnostic targets are not absence-checked"
+  assert_file_contains "$harness" 'TMP_ROOT="$PAIR_LIVE_OWNERSHIP_TMP_ROOT"' \
+    "$label: registry/diagnostics do not use the state-machine-owned scratch root"
+  assert_file_contains "$harness" 'env-set registry mode is not 0600' \
+    "$label: private registry mode is not verified"
+  assert_file_contains "$ownership" 'if mode="$(stat -f '\''%Lp'\'' "$path" 2>/dev/null)"; then' \
+    "$label: BSD mode probe does not branch without leaking failed GNU-stat stdout"
+  assert_file_contains "$ownership" 'elif mode="$(stat -c '\''%a'\'' "$path" 2>/dev/null)"; then' \
+    "$label: GNU mode probe is not a quiet fallback"
+  assert_file_lacks "$ownership" "stat -f '%Lp' \"\$path\" 2>/dev/null || stat -c" \
+    "$label: failed BSD stat output can still contaminate GNU mode readback"
+  assert_file_contains "$harness" 'host_wprism_env_set() { "$WPRISM_CLI" --envs-file="$ENVS_FILE" "$@"; }' \
+    "$label: host calls do not use the test-owned explicit registry"
+  assert_file_lacks "$harness" '.wprism-envs.json' \
+    "$label: harness still overwrites the checkout-wide machine registry"
+  assert_file_lacks "$harness" '/tmp/wprism_' \
+    "$label: diagnostics still collide in fixed global temporary files"
+  assert_file_lacks "$harness" 'bash bin/pair.sh reset "$PAIR"' \
+    "$label: fresh lease-owned allocation still destroys state through reset"
+
+  assert_file_contains "$harness" "pair_live_ownership_prepare \"\$PAIR\" \"\$PORT1\" \"\$PORT2\"" \
+    "$label: caller does not register its exact allocation with shared cleanup"
+  assert_file_contains "$harness" 'pair_live_ownership_acquire mariadb' \
+    "$label: caller does not acquire a MariaDB-bound namespace"
+  assert_file_contains "$harness" 'pair_live_ownership_up --headless' \
+    "$label: caller bypasses lease-gated startup"
+  assert_before "$harness" 'pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2"' \
+    'pair_live_ownership_acquire mariadb'
+  assert_before "$harness" 'pair_live_ownership_acquire mariadb' \
+    'pair_live_ownership_up --headless'
+  assert_file_lacks "$harness" 'cleanup() {' \
+    "$label: caller retained a divergent local ownership state machine"
+  pass "$label: failed acquisition cannot arm cleanup; successful complete-namespace ownership precedes startup"
+
+  assert_file_contains "$ownership" 'pair_live_ownership_remove_pair_roots' \
+    "$label: shared cleanup does not own exact repository-root removal"
+  assert_file_contains "$ownership" 'pair_live_ownership_remove_scratch' \
+    "$label: shared cleanup does not own exact private-scratch removal"
+  assert_file_contains "$ownership" 'lease-batch-release' \
+    "$label: shared cleanup does not cross the checked release boundary"
+  assert_file_contains "$harness" "pair_live_ownership_complete '✔ REGRESS_ENV_SET PASSED'" \
+    "$label: semantic body does not hand its sole PASS to shared cleanup"
+  [ "$(grep -Fc '✔ REGRESS_ENV_SET PASSED' "$harness")" -eq 1 ] \
+    || fail "$label: final PASS must have exactly one cleanup-owned emission"
+  pass "$label: verified pair/root/scratch/database teardown and final lease release are the only route to PASS"
+
+  for variable in ENV_SET_PAIR ENV_SET_PORT1 ENV_SET_PORT2 WPRISM_EXPECTED_SOURCE_SHA; do
+    assert_file_contains "$makefile" "@test -n \"\$($variable)\"" \
+      "$label: Make entrypoint does not require $variable"
+  done
+  assert_file_contains "$makefile" \
+    'ENV_SET_PAIR="$(ENV_SET_PAIR)" ENV_SET_PORT1="$(ENV_SET_PORT1)" ENV_SET_PORT2="$(ENV_SET_PORT2)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_env_set.sh' \
+    "$label: Make entrypoint does not pass the four explicit allocations to the live gate"
+  pass "$label: direct Make entrypoint documents and enforces the allocation boundary"
+}
+
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" "$ROOT/sandbox/tests/certify/certify_version_matrix.sh" "$ROOT/sandbox/tests/live/regress_multisite_refusal.sh" "$ROOT/adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh" "$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh" \
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" "$ROOT/sandbox/tests/certify/certify_version_matrix.sh" "$ROOT/sandbox/tests/live/regress_multisite_refusal.sh" "$ROOT/sandbox/tests/live/regress_env_set.sh" "$ROOT/adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh" "$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh" \
   "$ROOT/sandbox/tests/offline/guards/regress_pair_candidate_source.sh"
 command -v git >/dev/null 2>&1 || fail "git is required for the linked-worktree fixture"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"' \
@@ -782,5 +888,8 @@ run_parallel_compose_source_pin_case
 
 say "multisite refusal plumbs MULTISITE_EXPECTED_SOURCE_SHA before pair mutation"
 run_multisite_passthrough_case
+
+say "env-set live evidence owns its candidate, allocations and cleanup"
+run_env_set_live_ownership_contract_case
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_CANDIDATE_SOURCE PASSED\033[0m\n'

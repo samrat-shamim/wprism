@@ -277,6 +277,8 @@ check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifa
   pii_revision=$(git -C "$target_repo" rev-parse HEAD)
   pii_apply_log="$target_repo/.tmp-woo-pii-apply.log"
   wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$pii_revision" --force-theirs >"$pii_apply_log" 2>&1
+  assert_no_php_diagnostics "WooCommerce $version WPRA-019 apply" "$pii_apply_log"
+  assert_wprism_required_environment "WooCommerce $version WPRA-019 apply" human "$(<"$pii_apply_log")"
   grep -q 'canary clean' "$pii_apply_log" || fail "WooCommerce $version WPRA-019 apply was not canary-clean"
   target_applied=$(woocommerce_native_pii_fingerprints wp2)
   [ "$target_applied" = "$source_native" ] \
@@ -744,6 +746,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail 'WooCommerce exact 11.0.0 apply canary was not clean after downgrade re-baseline'
   target_price=$(wp2 eval '
@@ -833,7 +836,7 @@ check_woocommerce_product_deletion() { # <exact-version>
   local product order lookup_before lookup_after product_file product_uuid expected_hash expected_revision source_path backup
   local before_tree after_tree before_head after_head before_origin after_origin plan_rc apply_rc plan_out apply_out retry
   local disposable_sku disposable_slug disposable_source disposable_target disposable_file disposable_uuid
-  local revision delete_file delete_plan delete_apply final_plan final_diff residue
+  local revision delete_file delete_plan delete_apply final_plan final_diff residue creation_apply
 
   # First prove the ordinary guard posture on a product referenced by a native
   # HPOS order.  The plan must describe the blocked deletion, and apply must
@@ -927,7 +930,9 @@ echo $product->get_id();')
   "${GIT1[@]}" push -q origin main
   git -C "$repo" pull -q origin main
   revision=$(git -C "$repo" rev-parse HEAD)
-  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  capture_wprism_json_success creation_apply 'WooCommerce disposable product creation apply' \
+    wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" --format=json
+  assert_wprism_apply_ready 'WooCommerce disposable product creation apply' "$creation_apply"
   disposable_target=$(wp2 eval '$id=(int) wc_get_product_id_by_sku('"'"$disposable_sku"'"'); echo $id;')
   require_fixture_ids disposable_target
 
@@ -1025,7 +1030,9 @@ echo $parentId . "|" . $variationId;')
   "${GIT1[@]}" push -q origin main
   git -C "$repo" pull -q origin main
   revision=$(git -C "$repo" rev-parse HEAD)
-  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  capture_wprism_json_success creation_apply 'WooCommerce disposable variation creation apply' \
+    wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" --format=json
+  assert_wprism_apply_ready 'WooCommerce disposable variation creation apply' "$creation_apply"
   variation_parent_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')
   variation_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')
   require_fixture_ids variation_parent_target variation_target
@@ -1095,103 +1102,54 @@ SELECT
 }
 
 woocommerce_deletion_owner_agreements() {
-  wp1 eval '
-$themes = array_values(array_unique([get_stylesheet(), get_template()]));
-sort($themes, SORT_STRING);
-$contentRoot = realpath(WP_CONTENT_DIR);
-if (!is_string($contentRoot) || $contentRoot === "") {
-    throw new RuntimeException("WPRA-019 theme identity cannot resolve WP_CONTENT_DIR");
-}
-$owners = [];
-foreach ($themes as $theme) {
-    if (!is_string($theme) || preg_match("/^[A-Za-z0-9._-]{1,128}$/D", $theme) !== 1) {
-        throw new RuntimeException("WPRA-019 theme owner is malformed");
-    }
-    $canonicalRoot = "themes/" . $theme;
-    $root = WP_CONTENT_DIR . "/" . $canonicalRoot;
-    $resolved = realpath($root);
-    if (!is_string($resolved) || $resolved !== $contentRoot . "/" . $canonicalRoot || is_link($root)) {
-        throw new RuntimeException("WPRA-019 theme owner escapes its canonical root");
-    }
-    $files = [];
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
-    foreach ($iterator as $entry) {
-        if (!$entry instanceof SplFileInfo) {
-            throw new RuntimeException("WPRA-019 theme entry is uninspectable");
-        }
-        $path = $entry->getPathname();
-        $stat = lstat($path);
-        $kind = is_array($stat) ? (((int) $stat["mode"]) & 0170000) : 0;
-        if ($kind === 0040000) { continue; }
-        if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-            throw new RuntimeException("WPRA-019 theme tree contains a nonregular entry");
-        }
-        $relative = str_replace("\\", "/", substr($path, strlen($root) + 1));
-        $files[] = ["path" => $relative, "sha256" => hash_file("sha256", $path)];
-    }
-    usort($files, static fn(array $left, array $right): int => strcmp($left["path"], $right["path"]));
-    $payload = [
-        "files" => $files,
-        "format" => "wprism-executable-tree/v1",
-        "root" => $canonicalRoot,
-    ];
-    $owners[] = [
-        "owner" => "theme:" . $theme,
-        "code_identity" => [
-            "format" => "wprism-executable-tree/v1",
-            "root" => $canonicalRoot,
-            "sha256" => hash("sha256", \WPrism\Canon::encode($payload)),
-        ],
-        "rationale" => "Exact active theme code reviewed: it persists no Woo product or variation reverse-reference identity.",
-    ];
-}
-$plugin = "woocommerce/woocommerce.php";
-$canonicalRoot = "plugins/woocommerce";
-$root = WP_PLUGIN_DIR . "/woocommerce";
-$resolved = realpath($root);
-if (!is_string($resolved) || $resolved !== $contentRoot . "/" . $canonicalRoot
-    || is_link($root) || !is_file(WP_PLUGIN_DIR . "/" . $plugin)) {
-    throw new RuntimeException("WPRA-019 WooCommerce owner escapes its canonical plugin root");
-}
-$files = [];
-$iterator = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-    RecursiveIteratorIterator::SELF_FIRST
-);
-foreach ($iterator as $entry) {
-    if (!$entry instanceof SplFileInfo) {
-        throw new RuntimeException("WPRA-019 WooCommerce entry is uninspectable");
-    }
-    $path = $entry->getPathname();
-    $stat = lstat($path);
-    $kind = is_array($stat) ? (((int) $stat["mode"]) & 0170000) : 0;
-    if ($kind === 0040000) { continue; }
-    if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-        throw new RuntimeException("WPRA-019 WooCommerce tree contains a nonregular entry");
-    }
-    $relative = str_replace("\\", "/", substr($path, strlen($root) + 1));
-    $files[] = ["path" => $relative, "sha256" => hash_file("sha256", $path)];
-}
-usort($files, static fn(array $left, array $right): int => strcmp($left["path"], $right["path"]));
-$payload = [
-    "files" => $files,
-    "format" => "wprism-executable-tree/v1",
-    "root" => $canonicalRoot,
-];
-$owners[] = [
-    "owner" => "plugin:" . $plugin,
-    "code_identity" => [
-        "format" => "wprism-executable-tree/v1",
-        "root" => $canonicalRoot,
-        "sha256" => hash("sha256", \WPrism\Canon::encode($payload)),
-    ],
-    "rationale" => "Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.",
-];
-echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-'
+  local active_themes observation owner_row stylesheet template theme
+  local executable_owners='[]'
+  stylesheet="$(wp1 option get stylesheet)" \
+    || fail "WooCommerce $WOO_VERSION could not observe its active stylesheet"
+  template="$(wp1 option get template)" \
+    || fail "WooCommerce $WOO_VERSION could not observe its active template"
+  active_themes="$(printf '%s\n' "$stylesheet" "$template" | LC_ALL=C sort -u)" \
+    || fail "WooCommerce $WOO_VERSION could not order its active theme roster"
+  [ -n "$active_themes" ] \
+    || fail "WooCommerce $WOO_VERSION observed an empty active theme roster"
+  while IFS= read -r theme; do
+    [[ "$theme" =~ ^[A-Za-z0-9._-]{1,128}$ ]] && [ "$theme" != '.' ] && [ "$theme" != '..' ] \
+      || fail "WooCommerce $WOO_VERSION observed a malformed active theme owner"
+    observation="$(wp1 wprism executable-owner-observe "--owner=theme:$theme")" \
+      || fail "WooCommerce $WOO_VERSION could not observe exact theme:$theme code"
+    owner_row="$(jq -ce --arg owner "theme:$theme" --arg root "themes/$theme" \
+      --arg rationale 'Exact active theme code reviewed: it persists no Woo product or variation reverse-reference identity.' '
+        if keys == ["code_identity", "owner"]
+          and .owner == $owner
+          and .code_identity.format == "wprism-executable-tree/v1"
+          and .code_identity.root == $root
+          and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+        then . + {rationale: $rationale}
+        else error("noncanonical executable owner observation")
+        end
+      ' <<<"$observation")" \
+      || fail "WooCommerce $WOO_VERSION received malformed theme:$theme code identity"
+    executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+      || fail "WooCommerce $WOO_VERSION could not assemble theme:$theme agreement"
+  done <<<"$active_themes"
+
+  observation="$(wp1 wprism executable-owner-observe '--owner=plugin:woocommerce/woocommerce.php')" \
+    || fail "WooCommerce $WOO_VERSION could not observe exact WooCommerce code"
+  owner_row="$(jq -ce --arg rationale \
+    'Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.' '
+      if keys == ["code_identity", "owner"]
+        and .owner == "plugin:woocommerce/woocommerce.php"
+        and .code_identity.format == "wprism-executable-tree/v1"
+        and .code_identity.root == "plugins/woocommerce"
+        and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+      then . + {rationale: $rationale}
+      else error("noncanonical executable owner observation")
+      end
+    ' <<<"$observation")" \
+    || fail "WooCommerce $WOO_VERSION received malformed WooCommerce code identity"
+  executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+    || fail "WooCommerce $WOO_VERSION could not assemble its WooCommerce agreement"
+  printf '%s\n' "$executable_owners"
 }
 
 VMATRIX_PLUGIN_SLUG=woocommerce
@@ -1333,6 +1291,7 @@ EOF
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
   WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
@@ -1382,6 +1341,7 @@ EOF
     woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
     UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)

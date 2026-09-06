@@ -35,6 +35,8 @@ cd "$(dirname "$0")/../.."   # -> sandbox/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 PAIR=asub3222tr
 P1=8918

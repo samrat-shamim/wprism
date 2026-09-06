@@ -35,7 +35,7 @@ final class Db {
     public static int $rollbacks = 0;
     public static bool $failCommit = false;
     public static bool $terminalCommitFailure = false;
-    public static function start(string $context): void { self::$snapshot = Ledger::$rows; }
+    public static function start(string $context, mixed $profile): void { self::$snapshot = Ledger::$rows; }
     public static function commit(string $context): void {
         self::$commits++;
         if (self::$terminalCommitFailure) {
@@ -59,6 +59,7 @@ final class Db {
 }
 
 $root = getenv('WPRISM_ROOT');
+$GLOBALS['wpdb'] = (object) ['prefix' => 'wp_'];
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Code/Code.php";
 

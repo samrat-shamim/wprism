@@ -8,7 +8,7 @@
  * ---------------------
  * `manifests/dispositions.json` was 302 lines, 37,707 bytes and 16 entries in
  * one file; the current library has one package-local disposition per adapter
- * plus `platform/adapter-library/core/disposition.json` — 17 subjects in all.
+ * plus `platform/adapter-library/core/disposition.json` — 18 subjects in all.
  * That is a
  * relocation of bytes AGENTS.md rule 2 calls adapter identity:
  * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
@@ -16,18 +16,20 @@
  * one-byte canonical difference in one document would move that adapter's
  * digest, every `site.wprism.json` content pin naming it, and — through
  * `manifest_hash` — every compiled artifact in the field. The WPrism
- * greenfield baseline below pins the current 17-subject set explicitly, so a
- * split-induced byte change is still a measured fleet-visible failure.
+ * greenfield baseline below pins the current 18-subject identity map through
+ * two maximal compatible 17-subject policy worlds, so a split-induced byte
+ * change is still a measured fleet-visible failure.
  *
  * THE GATE ASSERTION, AND WHY IT IS NOT A TAUTOLOGY
  * ------------------------------------------------
- * PART 1 pins the current WPrism 17-subject digests, `manifest_hash` and
- * `registry_sha256` as LITERALS captured from this greenfield tree, through
- * the product path a deployed site uses. Recomputing both sides of an equality
- * would prove nothing — it would hold whatever the split did to the bytes —
- * so the expected values are frozen text in this file and the comparison is
- * against the engine. The older split-transition values remain below as
- * historical exact maps; they are not the current baseline.
+ * PART 1 pins the current WPrism 18-subject digest union, each compatible
+ * world's `manifest_hash` and snapshot, and `registry_sha256` as LITERALS
+ * captured from this greenfield tree, through the product path a deployed
+ * site uses. Recomputing both sides of an equality would prove nothing — it
+ * would hold whatever the split did to the bytes — so the expected values are
+ * frozen text in this file and the comparison is against the engine. The
+ * older split-transition values remain below as historical exact maps; they
+ * are not the current baseline.
  *
  * PART 2 is what makes that comparison a measurement. It enumerates the
  * canonical-encoding hazards a relocation of JSON can introduce and measures
@@ -160,8 +162,9 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * Rule 2 makes each of those historical transitions fleet-visible BY DESIGN.
  *
  * The frozen map and these overlays remain historical evidence only. The
- * current WPrism gate is the explicit 17-subject map below; it does not infer
- * an unmoved or moved count from the pre-split capture.
+ * current WPrism gate is the explicit 18-subject map below, observed as the
+ * union of two valid maximal policy worlds; it does not infer an unmoved or
+ * moved count from the pre-split capture.
  */
 const SPLIT_REVIEWED_MOVED_ADAPTERS = [
     'code-snippets',
@@ -267,6 +270,42 @@ const SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS = [
 const SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH = 'ebf0a904a8fa73b72c0b9a0dad58016a7ad640d18177ab2829c74f0ddcd38502';
 const SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA = '938b9214d772604a1aab3574e4b447d362d5a7c4aac6938035c3c52aab9adaeb';
 
+/** The prior Rank Math identity, retained because moving schema establishment before observation is fleet-visible. */
+const WPRISM_PRE_SCHEMA_SETTLEMENT_RANK_MATH_DIGEST = 'd1824bb11311adcae5e780ae5d67f8279ea1c3f2dd2d9885797f2d2cad5a726e';
+const WPRISM_PRE_SCHEMA_SETTLEMENT_MANIFEST_HASH = '56d2f33bf18edabfb3e83699406bb289eab27f321ab55544eca4ea80da676eea';
+const WPRISM_PRE_SCHEMA_SETTLEMENT_REGISTRY_SHA = '6fea0ec625cfde7b271fcc55e1610008784994c08a81df0f3ef4cb3172bcd147';
+const WPRISM_PRE_SCHEMA_SETTLEMENT_SNAPSHOT_SHA = '378c41299b4a3a7dab67ff7f0c5007ae907d8dbd6051edc2de1705c8d795a937';
+
+/** The prior Rank Math baseline, retained because closing native callback/readback authority moves shipped bytes. */
+const WPRISM_PRE_RANK_MATH_HARDENING_DIGEST = '16b935f76aee22e2a709c138ef90a8c942e5a89842c9fe392d9025824dba6bff';
+const WPRISM_PRE_RANK_MATH_HARDENING_MANIFEST_HASH = 'c90f7a6ccf5722acf10cbb6ea2fc7592488bfd15ec70c6bafa07f18ce77c162d';
+const WPRISM_PRE_RANK_MATH_HARDENING_SNAPSHOT_SHA = '6214faf30fc56e65a5108256d89db3713227f21b38bf5241be54ca86049e3010';
+
+/** The prior Rank Math baseline, retained because replacing stale-parent verification moves shipped bytes. */
+const WPRISM_PRE_STABLE_READBACK_RANK_MATH_DIGEST = '887d618c304363dbc31f0904652a44e5d9b150d9bddde6a81ae0dab8b6c59238';
+const WPRISM_PRE_STABLE_READBACK_MANIFEST_HASH = 'e2fa3b32f8096a42fab5d8d81a25547328d8ae59cde3968dd8e2b47b8e929dd1';
+const WPRISM_PRE_STABLE_READBACK_SNAPSHOT_SHA = 'cf6167b6066448bf678f337256c8ffe4e49716ce67fda63d0a693ae6a38cb0d4';
+
+/** The prior Rank Math baseline, retained because engine-owned fresh-process observation moves shipped bytes. */
+const WPRISM_PRE_FRESH_PROCESS_RANK_MATH_DIGEST = '3e72a78a5780a39f78ad7359b02ba2aea3d1385723afec40202405eb916ac454';
+const WPRISM_PRE_FRESH_PROCESS_MANIFEST_HASH = '8eb6f947081fd0de2834d21c1495a660565f6715a5bac369e826fed10234283e';
+const WPRISM_PRE_FRESH_PROCESS_SNAPSHOT_SHA = '84c6eb649fa8dda4a52e6c1b539c5e651abf1dec7d7dbdf4265fbf8471a33e4d';
+
+/** Native query-name observation changes only Rank's provider bytes, not the claim registry or policy snapshot. */
+const WPRISM_PRE_NATIVE_QUERY_NAMES_RANK_MATH_DIGEST = '0d25239e1ef81b66f446260b55e83745a8c53f10e23d7854bb41c1e13d804bc8';
+const WPRISM_PRE_NATIVE_QUERY_NAMES_MANIFEST_HASH = '9acae1d6eb62273b9e92717ebfa97993367c636a23b3b41a9824af1fff5af06d';
+
+/** Declared term-meta reads change Rank's manifest, provider and compatible policy snapshot, not the registry. */
+const WPRISM_PRE_NATIVE_TERM_META_RANK_MATH_DIGEST = 'c4a5cc259a772312224a7fc29b68d52df40d4c6f0baecafd0385959db7d567d6';
+const WPRISM_PRE_NATIVE_TERM_META_MANIFEST_HASH = '2c68ffb2aa973b0b2bc25e1254c8cb60c00a8f7a06e2c269929ea077fab920d7';
+const WPRISM_PRE_NATIVE_TERM_META_SNAPSHOT_SHA = '67eca63f8b2deafaa933f1349d71cbef481bbe2209cbf2e90ff5133bbb805676';
+
+// The native-cache authority and factual observer are an intentional capsule
+// identity change. Preserve the immediately preceding deployed pin values.
+const WPRISM_PRE_DURABLE_OBSERVER_RANK_DIGEST = '82bf25b2f69967e9dc7106050b64e466d609c73cc13a129bd3141d7fba1e3c29';
+const WPRISM_PRE_DURABLE_OBSERVER_MANIFEST_HASH = '27fa8f6f8276c05f6faea27c6dc9282079e9af5891837b5c7058bdbf7fc8e897';
+const WPRISM_PRE_DURABLE_OBSERVER_SNAPSHOT_SHA = 'b25d11ced4a164d196a1e18d17f3d5388de370df98ac0fa4a8fbc937104cab77';
+
 /**
  * The duplicate durable-context declaration correction changes only the
  * WooCommerce manifest row. Preserve the immediately preceding fleet-visible
@@ -277,6 +316,9 @@ const PRE_CONTEXT_CHANNEL_WOOCOMMERCE_DIGEST = '62331a62fe4a934d4ec6a82ac9266508
 const PRE_CONTEXT_CHANNEL_MANIFEST_HASH = '66e76a18e9731c2f2b85a9023f816b53d6c5ef4ddb5ed4e4ba826f3e4b3d7c08';
 const PRE_CONTEXT_CHANNEL_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
 const PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA = '0c861c30900f044571821184dd865d2666540634a8b885bd52fda71330a5ccc7';
+const POST_CONTEXT_CHANNEL_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
+const POST_CONTEXT_CHANNEL_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
+const POST_CONTEXT_CHANNEL_SNAPSHOT_SHA = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
 
 /**
  * The current WPrism greenfield baseline. Unlike the historical split
@@ -289,24 +331,27 @@ const WPRISM_CURRENT_DIGESTS = [
     'acf' => 'c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d',
     'advanced-editor-tools' => 'cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
-    'code-snippets' => 'ca66c5959ea2fa0d0fc39b6d5d2f3da0a866c728bd8eb2b9c0d942455054fc04',
+    'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
-    'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
+    'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
+    'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
-    'woocommerce' => 'c66724d62f9410b43208b172ebdf95f6a5003b81a00dd6137401da4ae5cc94e3',
+    'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
-const WPRISM_CURRENT_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
-const WPRISM_CURRENT_SNAPSHOT_SHA = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '79b9d1cefcd7756ee845f888e5ca90b8a172053710617b6e3d03218dc9a76b9e';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
+const WPRISM_CURRENT_REGISTRY_SHA = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'c2ce88f5164a59e0ecd307ba35bb322b3b9edff72d5569c06138643dafc72aa6';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -314,12 +359,29 @@ wprism_check(
     'the shipped library loads its reviewed claim source from the per-subject directory'
 );
 $shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
-$shippedPolicy = Policy::load(null, $shippedNames, adapterLibrary: $adapterLibrary);
+$rankWorldPins = array_values(array_diff($shippedNames, ['yoast']));
+$yoastWorldPins = array_values(array_diff($shippedNames, ['rank-math']));
+$shippedPolicies = [
+    'rank-world' => Policy::load(null, $rankWorldPins, adapterLibrary: $adapterLibrary),
+    'yoast-world' => Policy::load(null, $yoastWorldPins, adapterLibrary: $adapterLibrary),
+];
 $observed = [];
-foreach (ArtifactPolicyIdentity::resolved_adapters($shippedPolicy) as $row) {
-    $observed[(string) $row['name']] = (string) $row['digest'];
+foreach ($shippedPolicies as $world => $policy) {
+    foreach (ArtifactPolicyIdentity::resolved_adapters($policy) as $row) {
+        $name = (string) $row['name'];
+        $digest = (string) $row['digest'];
+        if (isset($observed[$name]) && $observed[$name] !== $digest) {
+            throw new RuntimeException("adapter '$name' has inconsistent identity across compatible world '$world'");
+        }
+        $observed[$name] = $digest;
+    }
 }
 ksort($observed, SORT_STRING);
+$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins)));
+sort($worldUnion, SORT_STRING);
+wprism_check_same($shippedNames, $worldUnion, 'the two maximal compatible worlds jointly cover every shipped subject');
+wprism_check_same(['rank-math'], array_values(array_diff($rankWorldPins, $yoastWorldPins)), 'the Rank-compatible world differs only by Rank Math');
+wprism_check_same(['yoast'], array_values(array_diff($yoastWorldPins, $rankWorldPins)), 'the Yoast-compatible world differs only by Yoast');
 wprism_check_same(
     array_keys(SPLIT_REVIEWED_MOVED_DIGESTS),
     SPLIT_REVIEWED_MOVED_ADAPTERS,
@@ -494,10 +556,12 @@ wprism_check_same(
     'the bounded lifecycle-migration settlement provider changes only WooCommerce and preserves the ninth '
     . 'transition as a separate reviewed identity'
 );
-$preContextChannelDigests = WPRISM_CURRENT_DIGESTS;
+$postContextChannelDigests = WPRISM_CURRENT_DIGESTS;
+unset($postContextChannelDigests['rank-math']);
+$preContextChannelDigests = $postContextChannelDigests;
 $preContextChannelDigests['woocommerce'] = PRE_CONTEXT_CHANNEL_WOOCOMMERCE_DIGEST;
 $contextChannelMovedNames = [];
-foreach (WPRISM_CURRENT_DIGESTS as $name => $digest) {
+foreach ($postContextChannelDigests as $name => $digest) {
     if ($preContextChannelDigests[$name] !== $digest) {
         $contextChannelMovedNames[] = $name;
     }
@@ -510,8 +574,82 @@ wprism_check_same(
 );
 wprism_check_same(
     PRE_CONTEXT_CHANNEL_REGISTRY_SHA,
-    WPRISM_CURRENT_REGISTRY_SHA,
+    POST_CONTEXT_CHANNEL_REGISTRY_SHA,
     'the manifest-only durable-context correction leaves the reviewed disposition registry byte-identical'
+);
+wprism_check(
+    PRE_CONTEXT_CHANNEL_MANIFEST_HASH !== POST_CONTEXT_CHANNEL_MANIFEST_HASH
+        && PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA !== POST_CONTEXT_CHANNEL_SNAPSHOT_SHA,
+    'the historical Rank-free 17-adapter durable-context correction re-pins its manifest and snapshot while preserving its registry'
+);
+wprism_check(
+    POST_CONTEXT_CHANNEL_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH,
+    'the Code Snippets SDK migration intentionally re-pins the Rank-free world as well as the Rank Math world'
+);
+wprism_check(
+    POST_CONTEXT_CHANNEL_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA
+        && POST_CONTEXT_CHANNEL_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    'the current Yoast-compatible snapshot still moves with the full reviewed registry after Rank Math disposition changes'
+);
+wprism_check(
+    WPRISM_PRE_SCHEMA_SETTLEMENT_RANK_MATH_DIGEST !== WPRISM_CURRENT_DIGESTS['rank-math']
+        && WPRISM_PRE_SCHEMA_SETTLEMENT_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_SCHEMA_SETTLEMENT_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA
+        && WPRISM_PRE_SCHEMA_SETTLEMENT_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    'the historical pre-observation schema-settlement addresses are distinct from the current Rank-compatible baseline'
+);
+wprism_check(
+    WPRISM_PRE_RANK_MATH_HARDENING_DIGEST !== WPRISM_CURRENT_DIGESTS['rank-math']
+        && WPRISM_PRE_RANK_MATH_HARDENING_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_RANK_MATH_HARDENING_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    'the historical pre-hardening Rank Math addresses are distinct from the current Rank-compatible baseline'
+);
+wprism_check(
+    WPRISM_PRE_STABLE_READBACK_RANK_MATH_DIGEST !== WPRISM_CURRENT_DIGESTS['rank-math']
+        && WPRISM_PRE_STABLE_READBACK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_STABLE_READBACK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    'the historical stale-parent verification addresses are distinct from the stable-readback baseline'
+);
+wprism_check(
+    WPRISM_PRE_FRESH_PROCESS_RANK_MATH_DIGEST !== WPRISM_CURRENT_DIGESTS['rank-math']
+        && WPRISM_PRE_FRESH_PROCESS_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_FRESH_PROCESS_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    'the historical applying-parent readback addresses are distinct from the fresh-process observation baseline'
+);
+wprism_check_same(
+    ['rank-math'],
+    array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+        'rank-math' => WPRISM_PRE_NATIVE_QUERY_NAMES_RANK_MATH_DIGEST,
+    ]))),
+    'bounded opaque native query-name observation moves only Rank Math from the preceding shipped identity map'
+);
+wprism_check(
+    WPRISM_PRE_NATIVE_QUERY_NAMES_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH,
+    'the native query-name provider correction deliberately re-pins the Rank-compatible compiled manifest identity'
+);
+wprism_check_same(
+    ['rank-math'],
+    array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+        'rank-math' => WPRISM_PRE_NATIVE_TERM_META_RANK_MATH_DIGEST,
+    ]))),
+    'the native term-meta declaration and complete witness move only the Rank Math adapter identity'
+);
+wprism_check(
+    WPRISM_PRE_NATIVE_TERM_META_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_NATIVE_TERM_META_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    'the explicit new read declaration moves its compiled manifest and frozen policy snapshot together'
+);
+wprism_check_same(
+    ['rank-math'],
+    array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+        'rank-math' => WPRISM_PRE_DURABLE_OBSERVER_RANK_DIGEST,
+    ]))),
+    'native cache effects and factual readback move only the Rank Math capsule identity'
+);
+wprism_check(
+    WPRISM_PRE_DURABLE_OBSERVER_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_DURABLE_OBSERVER_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    'the effect and observation contract change explicitly re-pins compiled and frozen-policy identities'
 );
 wprism_check_same(
     WPRISM_CURRENT_DIGESTS,
@@ -531,10 +669,14 @@ wprism_check_same(
     'and the current identity set is exactly the explicit WPrism baseline, including the shipped Redirection subject'
 );
 wprism_check_same(
-    WPRISM_CURRENT_MANIFEST_HASH,
-    ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over the current 17 pins — the number a compiled artifact binds — is pinned to the WPrism '
-    . 'greenfield source rather than derived from a stale split-era count'
+    WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH,
+    ArtifactPolicyIdentity::manifest_hash($shippedPolicies['rank-world']),
+    'and manifest_hash over the maximal Rank-compatible pins is pinned to the WPrism greenfield source'
+);
+wprism_check_same(
+    WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH,
+    ArtifactPolicyIdentity::manifest_hash($shippedPolicies['yoast-world']),
+    'and manifest_hash over the maximal Yoast-compatible pins is independently pinned to the WPrism greenfield source'
 );
 wprism_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
@@ -548,15 +690,21 @@ wprism_check(
         && SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH !== SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH
         && SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH !== SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH
         && PRE_CONTEXT_CHANNEL_MANIFEST_HASH !== SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH
-        && WPRISM_CURRENT_MANIFEST_HASH !== PRE_CONTEXT_CHANNEL_MANIFEST_HASH
-        && WPRISM_CURRENT_MANIFEST_HASH !== SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH
+        && WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH !== PRE_CONTEXT_CHANNEL_MANIFEST_HASH
+        && WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH !== SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA
         && SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA !== SPLIT_REVIEWED_SNAPSHOT_SHA
         && PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA
-        && WPRISM_CURRENT_SNAPSHOT_SHA !== PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA
+        && POST_CONTEXT_CHANNEL_MANIFEST_HASH !== PRE_CONTEXT_CHANNEL_MANIFEST_HASH
+        && POST_CONTEXT_CHANNEL_SNAPSHOT_SHA !== PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA
+        && WPRISM_PRE_RANK_MATH_HARDENING_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_RANK_MATH_HARDENING_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
+        && WPRISM_PRE_STABLE_READBACK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+        && WPRISM_PRE_STABLE_READBACK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
         && WPRISM_CURRENT_REGISTRY_SHA !== SPLIT_REVIEWED_REGISTRY_SHA
-        && WPRISM_CURRENT_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA,
+        && WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA
+        && WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '
     . 'around them are re-pins a reviewer must read rather than restatements of the frozen constants'
 );
@@ -567,16 +715,20 @@ wprism_check_same(
     . 'documents to exactly one WPrism registry (WP-4.5 is the rider that narrows this to per-subject addressing)'
 );
 wprism_check_same(
-    WPRISM_CURRENT_SNAPSHOT_SHA,
-    hash('sha256', Canon::encode($shippedPolicy->export_snapshot())),
-    'and the current policy snapshot — which carries the whole registry as `dispositions` — is pinned to the same '
-    . 'explicit WPrism baseline'
+    WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
+    hash('sha256', Canon::encode($shippedPolicies['rank-world']->export_snapshot())),
+    'and the Rank-compatible policy snapshot, including the whole registry, is pinned to its explicit baseline'
+);
+wprism_check_same(
+    WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    hash('sha256', Canon::encode($shippedPolicies['yoast-world']->export_snapshot())),
+    'and the Yoast-compatible policy snapshot, including the same registry, is independently pinned'
 );
 // The relocation must also be invisible in the other direction: bytes frozen
 // before it still reconstruct a policy, through the validator that reads them.
 // Taken over a ONE-PIN policy because a snapshot's manifest list is checked
-// against the site's own pins (Policy.php:653-655), and the 16-pin policy above
-// was loaded without a site file to state them.
+// against the site's own pins (Policy.php:653-655), and the maximal policies
+// above were loaded without a site file to state them.
 $corePolicy = Policy::load(null, ['core'], adapterLibrary: $adapterLibrary);
 wprism_check_same(
     ArtifactPolicyIdentity::manifest_hash($corePolicy),
@@ -618,7 +770,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(18, $documentCount, 'the reviewed source is 18 documents: 17 subjects and the profiles map');
+wprism_check_same(19, $documentCount, 'the reviewed source is 19 documents: 18 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,
@@ -978,7 +1130,7 @@ wprism_check(
         $refusal(static function () use ($strayName): void {
             ManifestDispositions::load($strayName)?->data();
         }),
-        "is not named for a canonical adapter slug"
+        'is not named for a canonical adapter slug'
     ),
     'a document not named for a canonical adapter slug refuses rather than being skipped — reviewed bytes with no '
     . 'subject are the authoring half of the coverage rule'
@@ -988,7 +1140,7 @@ wprism_check(
         $refusal(static function () use ($goodProfile): void {
             ManifestDispositions::load($goodProfile)?->entry('profiles');
         }),
-        "is the reserved name of the profiles document"
+        'is the reserved name of the profiles document'
     ),
     "'profiles' is reserved: an adapter of that name would be its own profiles map, so it refuses by name"
 );

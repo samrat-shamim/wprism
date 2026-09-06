@@ -11,7 +11,11 @@
  */
 declare(strict_types=1);
 
+$tmp = sys_get_temp_dir() . '/wprism-full-apply-' . bin2hex(random_bytes(6));
 define('ABSPATH', __DIR__ . '/../../../../');
+define('WP_CONTENT_DIR', $tmp . '/target/wp-content');
+define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
+define('WPMU_PLUGIN_DIR', WP_CONTENT_DIR . '/mu-plugins');
 
 require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 
@@ -190,10 +194,19 @@ require_once __DIR__ . '/../../../../agent/wprism.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php';
 
 use WPrism\ApplyRequestCoordinator;
+use WPrism\ApplyServices;
+use WPrism\ApplyWorkset;
+use WPrism\AuthoredTransactionRequest;
 use WPrism\Canon;
+use WPrism\DatabaseQueryIsolation;
+use WPrism\DeleteGuardLockCoordinator;
+use WPrism\DeleteGuardReferenceScanner;
+use WPrism\DeletionAuthority;
 use WPrism\Ledger;
 use WPrism\Policy;
+use WPrism\PromotionLock;
 use WPrism\RepositoryCompiler;
+use WPrism\Snapshot;
 use WPrismTest\FakeWpdb;
 use WPrismTest\WpStore;
 
@@ -227,10 +240,14 @@ function full_apply_attachment_core_columns(): array {
     ];
 }
 
-$tmp = sys_get_temp_dir() . '/wprism-full-apply-' . bin2hex(random_bytes(6));
 $repo = $tmp . '/repo';
 mkdir($repo . '/state/posts/attachment', 0777, true);
 mkdir($repo . '/media', 0777, true);
+mkdir(WP_CONTENT_DIR . '/themes/fixture-theme', 0777, true);
+file_put_contents(
+    WP_CONTENT_DIR . '/themes/fixture-theme/style.css',
+    "/*\nTheme Name: Full Apply Fixture\nVersion: 1.0.0\n*/\n"
+);
 $repo = (string) realpath($repo);
 $GLOBALS['full_apply_repo'] = $repo;
 register_shutdown_function(static function () use ($tmp): void {
@@ -297,6 +314,9 @@ $store = WpStore::reset()->seedOptions([
     'home' => 'https://full-apply.example.test',
     'siteurl' => 'https://full-apply.example.test',
     'admin_email' => 'admin@full-apply.example.test',
+    'active_plugins' => [],
+    'stylesheet' => 'fixture-theme',
+    'template' => 'fixture-theme',
 ]);
 $store->ensureUploadDir();
 $wpdb = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions();
@@ -306,6 +326,11 @@ foreach (full_apply_attachment_core_columns() as $table => $columns) {
         array_fill_keys(explode(',', $columns), 'longtext')
     )->setTableEngine('wp_' . $table, 'InnoDB');
 }
+$wpdb->seedTable('wp_options', [
+    ['option_id' => 1, 'option_name' => 'active_plugins', 'option_value' => 'a:0:{}', 'autoload' => 'yes'],
+    ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'fixture-theme', 'autoload' => 'yes'],
+]);
 $index = static function (string $name, int $unique, int $seq, string $column, ?int $subPart = null): array {
     return [
         'Key_name' => $name, 'Non_unique' => $unique, 'Seq_in_index' => $seq,
@@ -446,6 +471,360 @@ wprism_check(is_file($store->uploadBaseDir . '/2026/08/recovery-note-1x1.png'), 
 wprism_check(Ledger::kv_get('apply_in_progress') !== null, 'convergence refusal retains the durable incomplete-apply marker');
 wprism_check(Ledger::kv_get('applied_revision') === null, 'convergence refusal does not advance applied revision');
 wprism_check(count(array_filter($wpdb->rows('wp_wprism_kv'), static fn(array $row): bool => str_starts_with((string) ($row['k'] ?? ''), 'attachment_fs:'))) === 0, 'native rebuild clears the attachment filesystem marker before convergence verification');
+
+// Exercise the deletion profile through Apply's real composition root. A
+// required runtime table must refuse before START, while an optional runtime
+// table stays presence-only; a stale locked witness followed by a retry on
+// the same service graph proves the coordinator's finally callback reset it.
+$deletionPolicy = clone $policy;
+$coreManifestFound = false;
+foreach ($deletionPolicy->manifests as &$manifest) {
+    if (($manifest['name'] ?? null) !== 'core') continue;
+    $coreManifestFound = true;
+    $manifest['tables']['profile_required_refs'] = ['class' => 'runtime'];
+    $manifest['tables']['profile_optional_refs'] = ['class' => 'runtime'];
+    $manifest['deletions']['post:post']['guards'] = [
+        [
+            'column' => 'post_id',
+            'id_kind' => 'post',
+            'reason' => 'required composition references',
+            'source_id_kind' => 'post',
+            'source_pk' => 'ref_id',
+            'table' => 'profile_required_refs',
+        ],
+        [
+            'column' => 'post_id',
+            'id_kind' => 'post',
+            'reason' => 'optional composition references',
+            'table' => 'profile_optional_refs',
+            'table_absence' => 'empty',
+        ],
+    ];
+}
+unset($manifest);
+wprism_check($coreManifestFound, 'composition fixture found the pinned core deletion declaration');
+$deletionCompiled = RepositoryCompiler::compile($repo, $deletionPolicy);
+
+$compositionReflection = new ReflectionClass(ApplyRequestCoordinator::class);
+$compositionApply = $compositionReflection->newInstanceWithoutConstructor();
+$compositionConstructor = $compositionReflection->getConstructor();
+if ($compositionConstructor === null) throw new RuntimeException('ApplyRequestCoordinator constructor is absent');
+$compositionConstructor->invoke($compositionApply, $repo, $deletionPolicy, $deletionCompiled);
+
+$writerVerifications = 0;
+$writerWitness = [
+    'active' => true,
+    'allow_deletes' => true,
+    'artifact_hash' => $deletionCompiled->artifact_hash(),
+    'exclusion_state' => 'held',
+    'format' => 'wprism-scoped-promotion-witness/v1',
+    'generation' => 7,
+    'ok' => true,
+    'owner' => 'apply-composition-offline',
+    'receipt_format' => 'wprism-scoped-promotion-receipt/v1',
+    'receipt_id' => str_repeat('r', 32),
+    'receipt_payload_sha256' => str_repeat('b', 64),
+    'recovery_ready' => true,
+    'scope_hash' => str_repeat('c', 64),
+    'signing_key_id' => 'apply-composition-test',
+    'state' => 'promoting',
+    'target_id' => str_repeat('t', 32),
+    'terminal' => false,
+];
+$compositionGuard = new DeleteGuardLockCoordinator(
+    $deletionPolicy,
+    new DeleteGuardReferenceScanner($deletionPolicy),
+    Snapshot::row_tables($deletionPolicy),
+    static function (array $binding) use (&$writerVerifications): array {
+        ++$writerVerifications;
+        return $binding;
+    }
+);
+$compositionGuard->bind_writer_exclusion($writerWitness);
+$compositionReflection->getProperty('deleteGuardCoordinator')->setValue(
+    $compositionApply,
+    $compositionGuard
+);
+$compositionServices = $compositionReflection->getProperty('services')->getValue($compositionApply);
+if (!$compositionServices instanceof ApplyServices) {
+    throw new RuntimeException('ApplyRequestCoordinator did not compose ApplyServices');
+}
+$compositionExecutor = $compositionServices->authored_transaction_executor();
+
+$deleteUuid = '22222222-2222-4222-8222-222222222222';
+$wpdb->seedTable('wp_posts', array_merge($wpdb->rows('wp_posts'), [[
+    'ID' => 77,
+    'post_parent' => 0,
+    'post_type' => 'post',
+]]));
+$wpdb->setIndexes('wp_posts', [
+    $index('PRIMARY', 0, 1, 'ID'),
+    $index('post_name', 1, 1, 'post_name'),
+    $index('post_parent', 1, 1, 'post_parent'),
+    $index('post_type', 1, 1, 'post_type'),
+]);
+$wpdb->seedTable('wp_wprism_map', array_merge($wpdb->rows('wp_wprism_map'), [[
+    'uuid' => $deleteUuid,
+    'entity_type' => 'post',
+    'id_kind' => 'post',
+    'local_id' => 77,
+]]));
+$deleteRow = [
+    'deletion_kind' => 'post',
+    'deletion_type' => 'post',
+    'type' => 'post',
+    'uuid' => $deleteUuid,
+    'guard_witnesses' => [
+        '0' => hash('sha256', Canon::encode([])),
+        '1' => hash('sha256', Canon::encode([
+            'format' => 'wprism-delete-guard-witness/v2',
+            'rows' => [],
+            'state' => 'absent',
+            'table' => 'wp_profile_optional_refs',
+        ])),
+    ],
+];
+$compositionRequestFor = static function (array $row) use ($deleteUuid): AuthoredTransactionRequest {
+    return new AuthoredTransactionRequest(
+        workset: new ApplyWorkset(
+            plan: ['adopt' => [], 'deleted' => []],
+            tree: [],
+            work: [],
+            deleteWork: [$row],
+            deleteUuids: [$deleteUuid => true],
+            guardRepairUuids: [],
+            compiledDeletions: [
+                $deleteUuid => ['data' => ['kind' => 'post', 'type' => 'post']],
+            ]
+        ),
+        deletionAuthority: new DeletionAuthority(
+            execute: true,
+            withDeletes: true,
+            forceReferenced: false
+        ),
+        scoped: false,
+        scopeContract: null,
+        performTransaction: true,
+        defaultAuthor: null,
+        commitScopedAuthoring: null,
+        rollbackScopedAuthoring: null
+    );
+};
+$compositionRequest = $compositionRequestFor($deleteRow);
+
+$promotionOwner = 'apply-composition-profile';
+$promotionArtifact = $deletionCompiled->artifact_hash();
+$compositionReflection->getProperty('promotionOwner')->setValue($compositionApply, $promotionOwner);
+$compositionReflection->getProperty('promotionArtifact')->setValue($compositionApply, $promotionArtifact);
+$promotionAcquired = false;
+$profileFailure = null;
+$profileAdmissionFailure = null;
+$resetFailure = null;
+$compositionFailure = null;
+$compositionResult = null;
+$compositionQueries = [];
+$compositionWarnings = [];
+try {
+    PromotionLock::acquire_apply_preflight($promotionOwner, $promotionArtifact);
+    $promotionAcquired = true;
+
+    $wpdb->resetLog();
+    try {
+        $compositionExecutor->execute($compositionRequest, $compositionWarnings);
+    } catch (Throwable $failure) {
+        $profileFailure = $failure;
+    }
+    $refusedQueries = $wpdb->queries();
+    wprism_check(
+        $profileFailure !== null
+            && str_contains($profileFailure->getMessage(), "required guard table 'wp_profile_required_refs' is absent"),
+        'required guard absence refuses the composed apply transaction'
+    );
+    wprism_check(
+        !in_array('START TRANSACTION', $refusedQueries, true)
+            && !in_array('START TRANSACTION WITH CONSISTENT SNAPSHOT', $refusedQueries, true),
+        'required guard absence is resolved before any authored START'
+    );
+    wprism_check(
+        !DatabaseQueryIsolation::is_active()
+            && count(array_filter($wpdb->rows('wp_posts'), static fn(array $row): bool => ($row['ID'] ?? null) === 77)) === 1,
+        'pre-START refusal restores query isolation and leaves the target row untouched'
+    );
+
+    $wpdb->seedTable('wp_profile_required_refs', [])
+        ->setColumns('wp_profile_required_refs', [
+            'ref_id' => 'bigint unsigned',
+            'post_id' => 'bigint unsigned',
+        ])
+        ->setIndexes('wp_profile_required_refs', [
+            $index('PRIMARY', 0, 1, 'ref_id'),
+            $index('post_id', 1, 1, 'post_id'),
+        ])
+        ->setTableEngine('wp_profile_required_refs', 'InnoDB');
+
+    // The selection callback now holds a topology snapshot, but Db can still
+    // refuse while admitting that profile after START. AuthoredTransactionExecutor
+    // has not set its own transactionStarted flag in that interval, so the
+    // unconditional end callback is the only reset path for a reused graph.
+    $wpdb->setTableEngine('wp_profile_required_refs', 'MyISAM');
+    $wpdb->resetLog();
+    try {
+        $compositionExecutor->execute($compositionRequest, $compositionWarnings);
+    } catch (Throwable $failure) {
+        $profileAdmissionFailure = $failure;
+    }
+    $profileAdmissionQueries = $wpdb->queries();
+    wprism_check(
+        $profileAdmissionFailure !== null
+            && str_contains($profileAdmissionFailure->getMessage(), 'InnoDB required')
+            && in_array('START TRANSACTION', $profileAdmissionQueries, true)
+            && in_array('ROLLBACK AND NO CHAIN NO RELEASE', $profileAdmissionQueries, true)
+            && !DatabaseQueryIsolation::is_active(),
+        'profile-admission failure after START is settled by Db before authored transaction ownership begins'
+    );
+    $wpdb->setTableEngine('wp_profile_required_refs', 'InnoDB');
+
+    // A stale planning witness fails only after the profile has been selected
+    // and START has succeeded. The following correct request on this exact
+    // executor is therefore load-bearing proof of the finally/reset callback.
+    $staleDeleteRow = $deleteRow;
+    $staleDeleteRow['guard_witnesses']['0'] = str_repeat('0', 64);
+    $wpdb->resetLog();
+    try {
+        $compositionExecutor->execute(
+            $compositionRequestFor($staleDeleteRow),
+            $compositionWarnings
+        );
+    } catch (Throwable $failure) {
+        $resetFailure = $failure;
+    }
+    $resetQueries = $wpdb->queries();
+    wprism_check(
+        $resetFailure !== null
+            && str_contains($resetFailure->getMessage(), 'deletion guard witness changed after planning'),
+        'stale guard evidence refuses after the composed transaction selected its profile'
+    );
+    wprism_check(
+        in_array('START TRANSACTION', $resetQueries, true)
+            && in_array('ROLLBACK AND NO CHAIN NO RELEASE', $resetQueries, true)
+            && !DatabaseQueryIsolation::is_active()
+            && count(array_filter($wpdb->rows('wp_posts'), static fn(array $row): bool => ($row['ID'] ?? null) === 77)) === 1,
+        'the in-transaction refusal rolls back and clears its query/profile boundary before reuse'
+    );
+
+    $wpdb->resetLog();
+    try {
+        $compositionResult = $compositionExecutor->execute($compositionRequest, $compositionWarnings);
+    } catch (Throwable $failure) {
+        $compositionFailure = $failure;
+    }
+    $compositionQueries = $wpdb->queries();
+} finally {
+    // The shared fake intentionally keeps PromotionLease's JSON-qualified
+    // release mutation outside its generic SQL grammar. This process-local
+    // fixture only needs to relinquish the advisory fence after exercising
+    // the real heartbeat callback; its isolated store dies with this leaf.
+    if ($promotionAcquired) \WPrism\ProcessFence::release();
+}
+
+if ($compositionFailure !== null) {
+    wprism_check_detail(get_class($compositionFailure) . ': ' . $compositionFailure->getMessage());
+    if ($compositionFailure->getPrevious() !== null) {
+        wprism_check_detail('previous: ' . get_class($compositionFailure->getPrevious()) . ': ' . $compositionFailure->getPrevious()->getMessage());
+    }
+}
+wprism_check(
+    $compositionFailure === null
+        && is_array($compositionResult)
+        && $compositionResult['attachment_ids'] === [],
+    'the same composed services/executor graph succeeds after its failed transaction is reset'
+);
+wprism_check(
+    !DatabaseQueryIsolation::is_active()
+        && count(array_filter($wpdb->rows('wp_posts'), static fn(array $row): bool => ($row['ID'] ?? null) === 77)) === 0
+        && in_array("deleted post $deleteUuid", $compositionWarnings, true),
+    'successful composed execution deletes the row and restores the query-filter boundary'
+);
+
+$queryIndex = static function (array $queries, callable $matches, int $after = -1): ?int {
+    foreach ($queries as $offset => $query) {
+        if ($offset > $after && $matches($query)) return $offset;
+    }
+    return null;
+};
+$requiredProfileAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => $query === 'SELECT 1 FROM `wp_profile_required_refs` LIMIT 0'
+);
+$startAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => $query === 'START TRANSACTION'
+);
+$requiredAdmissionAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => $query === 'SELECT 1 FROM `wp_profile_required_refs` LIMIT 0',
+    $startAt ?? -1
+);
+$requiredRecensusAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => $query === 'SELECT 1 FROM `wp_profile_required_refs` LIMIT 0',
+    $requiredAdmissionAt ?? -1
+);
+$requiredLockAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => str_contains($query, 'FROM `wp_profile_required_refs` FORCE INDEX (`post_id`)')
+        && str_ends_with($query, ' FOR UPDATE'),
+    $requiredRecensusAt ?? -1
+);
+$postDeleteAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => str_starts_with($query, 'DELETE FROM `wp_posts`'),
+    $requiredLockAt ?? -1
+);
+$childLockAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => $query === 'SELECT ID, post_type FROM wp_posts FORCE INDEX (`post_parent`) '
+        . 'WHERE post_parent = 77 ORDER BY ID ASC LIMIT 100001 FOR UPDATE',
+    $requiredLockAt ?? -1
+);
+$commitAt = $queryIndex(
+    $compositionQueries,
+    static fn(string $query): bool => $query === 'COMMIT AND NO CHAIN NO RELEASE',
+    $postDeleteAt ?? -1
+);
+$optionalPresenceOffsets = array_keys(array_filter(
+    $compositionQueries,
+    static fn(string $query): bool => $query === 'SELECT 1 FROM `wp_profile_optional_refs` LIMIT 0'
+));
+$optionalProfileAt = $optionalPresenceOffsets === [] ? null : min($optionalPresenceOffsets);
+$optionalCommitAt = $optionalPresenceOffsets === [] ? null : max($optionalPresenceOffsets);
+wprism_check(
+    $requiredProfileAt !== null
+        && $startAt !== null
+        && $requiredAdmissionAt !== null
+        && $requiredRecensusAt !== null
+        && $requiredLockAt !== null
+        && $childLockAt !== null
+        && $postDeleteAt !== null
+        && $optionalProfileAt !== null
+        && $optionalCommitAt !== null
+        && $commitAt !== null
+        && $optionalProfileAt < $startAt
+        && $requiredProfileAt < $startAt
+        && $startAt < $requiredAdmissionAt
+        && $requiredAdmissionAt < $requiredRecensusAt
+        && $requiredRecensusAt < $requiredLockAt
+        && $requiredLockAt < $childLockAt
+        && $childLockAt < $postDeleteAt
+        && $postDeleteAt < $optionalCommitAt
+        && $optionalCommitAt < $commitAt,
+    'composed apply profiles before START, admits the required table, locks guards, recenses optional absence, then commits'
+);
+wprism_check(
+    !in_array('SELECT 1 FROM `wp_profile_optional_refs` LIMIT 1', $compositionQueries, true)
+        && $writerVerifications >= 6,
+    'absent optional storage is never admitted as a readable table and external deletion authority spans every destructive frontier'
+);
 
 if (wprism_check_failed() > 0) {
     exit(1);

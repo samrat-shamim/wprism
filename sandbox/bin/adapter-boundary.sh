@@ -79,6 +79,8 @@ cd "$(dirname "$0")/.."   # -> sandbox/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 command -v jq >/dev/null || fail "jq required"
 
@@ -337,6 +339,8 @@ probe_release() { # <version>
     record_outcome "$version" boot-fatal "seed hook $SEED_FN failed: $(tail -n 3 "$log" | tr '\n' ' ')"
     return 0
   fi
+  establish_core_environment_bindings wp1 /siterepo admin@example.test \
+    "http://localhost:$PORT1" "http://localhost:$PORT1"
 
   if ! wp1 wprism capture --repo=/siterepo >"$log" 2>&1; then
     record_outcome "$version" round-trip-diverges "capture refused: $(tail -n 3 "$log" | tr '\n' ' ')"
@@ -348,6 +352,8 @@ probe_release() { # <version>
 
   git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
   chmod 0777 "siterepo/${PAIR}2"
+  establish_core_environment_bindings wp2 /siterepo admin@example.test \
+    "http://localhost:$PORT2" "http://localhost:$PORT2"
   if ! wp2 plugin install "$artifact2" >"$log" 2>&1; then
     record_outcome "$version" boot-fatal "target install failed: $(tail -n 3 "$log" | tr '\n' ' ')"
     return 0
@@ -364,6 +370,11 @@ probe_release() { # <version>
   fi
   if ! grep -q 'canary clean' "$log"; then
     record_outcome "$version" round-trip-diverges "apply canary was not clean"
+    return 0
+  fi
+  if ! (assert_wprism_required_environment 'boundary apply' human "$(<"$log")") \
+      >"$RUN_TMP/environment-check.log" 2>&1; then
+    record_outcome "$version" round-trip-diverges "apply did not prove all required environment bindings"
     return 0
   fi
   if ! wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final" >"$log" 2>&1; then

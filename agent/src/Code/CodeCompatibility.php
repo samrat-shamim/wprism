@@ -782,6 +782,32 @@ final class CodeCompatibility {
      * which plugin/theme files are discoverable and how values are cleaned.
      */
     public static function header_value(string $path, string $header): ?string {
+        $values = self::header_values($path, [$header]);
+        return $values === null ? null : ($values[$header] ?? null);
+    }
+
+    /**
+     * Read several headers from the same bounded byte sample. Promotion uses
+     * this to prevent existence and version facts from straddling a file
+     * replacement between two otherwise-valid reads.
+     *
+     * @param list<string> $headers
+     * @return ?array<string,?string>
+     */
+    public static function header_values(string $path, array $headers): ?array {
+        if (!array_is_list($headers)
+            || $headers === []
+            || count($headers) > 32
+            || count(array_unique($headers, SORT_STRING)) !== count($headers)) {
+            throw new \InvalidArgumentException('code header roster is malformed');
+        }
+        foreach ($headers as $header) {
+            if (!is_string($header)
+                || preg_match('/^[A-Za-z][A-Za-z0-9 ._-]{0,63}$/D', $header) !== 1) {
+                throw new \InvalidArgumentException('code header roster is malformed');
+            }
+        }
+        clearstatcache(true, $path);
         $bytes = @file_get_contents($path, false, null, 0, 8192);
         if ($bytes === false) {
             return null;
@@ -790,17 +816,23 @@ final class CodeCompatibility {
         // block, line, shell, or PHP comments (including an opening <?php),
         // and values are cleaned exactly like _cleanup_header_comment().
         $bytes = str_replace("\r", "\n", $bytes);
-        $pattern = '/^(?:[ \t]*<\?php)?[ \t\/*#@]*'
-            . preg_quote($header, '/') . ':(.*)$/mi';
-        if (!preg_match($pattern, $bytes, $m) || !$m[1]) {
-            return null;
+        $values = [];
+        foreach ($headers as $header) {
+            $pattern = '/^(?:[ \t]*<\?php)?[ \t\/*#@]*'
+                . preg_quote($header, '/') . ':(.*)$/mi';
+            if (!preg_match($pattern, $bytes, $match) || !isset($match[1]) || $match[1] === '') {
+                $values[$header] = null;
+                continue;
+            }
+            $value = preg_replace('/\s*(?:\*\/|\?>).*/', '', (string) $match[1]);
+            if ($value === null) {
+                $values[$header] = null;
+                continue;
+            }
+            $value = trim($value);
+            $values[$header] = $value === '' ? null : $value;
         }
-        $value = preg_replace('/\s*(?:\*\/|\?>).*/', '', (string) $m[1]);
-        if ($value === null) {
-            return null;
-        }
-        $value = trim($value);
-        return $value === '' ? null : $value;
+        return $values;
     }
 
     private static function safe_relative(string $path): bool {

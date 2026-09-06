@@ -204,7 +204,14 @@ function own_ideal_demo_paths(array $session, array $fields): array {
     return $session;
 }
 
-/** @return array{driver:IdealOnboardingTransport,target:string,remote:string,workspace:string} */
+function ideal_file_remote_url(string $path): string {
+    if (!str_starts_with($path, '/')) {
+        throw new RuntimeException('local Git LFS fixture requires an absolute remote path');
+    }
+    return 'file://' . $path;
+}
+
+/** @return array{driver:IdealOnboardingTransport,target:string,remote:string,url:string,workspace:string} */
 function ideal_handoff_fixture(string $tmp, string $label, ?Closure $afterRaw = null, string $branch = 'develop'): array {
     $target = $tmp . '/' . $label . '-target';
     $remote = $tmp . '/' . $label . '-remote.git';
@@ -237,7 +244,13 @@ function ideal_handoff_fixture(string $tmp, string $label, ?Closure $afterRaw = 
     if ($exit !== 0) {
         throw new RuntimeException("could not connect handoff fixture $label");
     }
-    return ['driver' => $driver, 'target' => $target, 'remote' => $remote, 'workspace' => $workspace];
+    return [
+        'driver' => $driver,
+        'target' => $target,
+        'remote' => $remote,
+        'url' => ideal_file_remote_url($remote),
+        'workspace' => $workspace,
+    ];
 }
 
 function ideal_push_remote_ref(string $tmp, string $remote, string $label, string $ref): string {
@@ -279,8 +292,11 @@ $immutableSource = $tmp . '/immutable-distribution';
 mkdir($immutableSource . '/agent', 0700, true);
 mkdir($immutableSource . '/recovery', 0700, true);
 mkdir($immutableSource . '/agent/src/nested', 0700, true);
+mkdir($immutableSource . '/agent/src/Recovery', 0700, true);
 file_put_contents($immutableSource . '/agent/runtime.php', "<?php\n");
 file_put_contents($immutableSource . '/agent/src/nested/runtime.php', "<?php\n");
+file_put_contents($immutableSource . '/agent/src/Recovery/DatabaseTargetIdentity.php', "<?php\n");
+file_put_contents($immutableSource . '/agent/src/Recovery/RetainedCheckpointCipher.php', "<?php\n");
 file_put_contents($immutableSource . '/recovery/runtime.php', "<?php\n");
 chmod($immutableSource . '/agent/src/nested', 0500);
 chmod($immutableSource . '/agent/src', 0500);
@@ -666,6 +682,7 @@ wprism_check_same([], $preflightMutations, 'handoff preflight failure occurs bef
 
 $targetRepo = $tmp . '/target-repository';
 $bareRemote = $tmp . '/published.git';
+$bareRemoteUrl = ideal_file_remote_url($bareRemote);
 $handoffWorkspace = $tmp . '/handoff-workspace';
 foreach ([$targetRepo, $targetRepo . '/code', $targetRepo . '/state', $targetRepo . '/media'] as $directory) {
     mkdir($directory, 0700);
@@ -702,7 +719,7 @@ chdir($handoffWorkspace);
 ob_start();
 $handoffExit = OnboardCommand::run(
     $handoffDriver,
-    ['--yes', '--git-url=' . $bareRemote],
+    ['--yes', '--git-url=' . $bareRemoteUrl],
     dirname(__DIR__, 4),
     [
         'adopt' => static fn(EnvironmentDriver $driver, array $args, string $root): int => 0,
@@ -903,7 +920,7 @@ foreach ([
     ['git', '-C', $tagSource, 'add', 'tagged'],
     ['git', '-C', $tagSource, '-c', 'user.name=test', '-c', 'user.email=test@example.test', 'commit', '-m', 'tag only'],
     ['git', '-C', $tagSource, 'tag', 'v1'],
-    ['git', '-C', $tagSource, 'push', $tagFixture['remote'], 'refs/tags/v1'],
+    ['git', '-C', $tagSource, 'push', $tagFixture['url'], 'refs/tags/v1'],
 ] as $command) {
     $result = IdealOnboardingTransport::process($command);
     if ($result['exit'] !== 0) {
@@ -916,7 +933,7 @@ chdir($tagFixture['workspace']);
 ob_start();
 $tagExit = OnboardCommand::run(
     $tagFixture['driver'],
-    ['--git-url=' . $tagFixture['remote']],
+    ['--git-url=' . $tagFixture['url']],
     dirname(__DIR__, 4),
     [
         'adopt' => static function () use (&$tagMutations): int { $tagMutations[] = 'adopt';
@@ -940,13 +957,13 @@ foreach ([
     'handoff-custom' => 'refs/custom/owned',
 ] as $label => $foreignRef) {
     $remoteRefFixture = ideal_handoff_fixture($tmp, $label);
-    $foreignRevision = ideal_push_remote_ref($tmp, $remoteRefFixture['remote'], $label, $foreignRef);
+    $foreignRevision = ideal_push_remote_ref($tmp, $remoteRefFixture['url'], $label, $foreignRef);
     $remoteRefCwd = getcwd();
     chdir($remoteRefFixture['workspace']);
     ob_start();
     $remoteRefExit = OnboardCommand::run(
         $remoteRefFixture['driver'],
-        ['--handoff-only', '--git-url=' . $remoteRefFixture['remote']],
+        ['--handoff-only', '--git-url=' . $remoteRefFixture['url']],
         dirname(__DIR__, 4)
     );
     ob_end_clean();
@@ -970,14 +987,14 @@ chdir($postPreflightFixture['workspace']);
 ob_start();
 $postPreflightExit = OnboardCommand::run(
     $postPreflightFixture['driver'],
-    ['--git-url=' . $postPreflightFixture['remote']],
+    ['--git-url=' . $postPreflightFixture['url']],
     dirname(__DIR__, 4),
     [
         'adopt' => static fn(): int => 0,
         'assess' => static function () use ($tmp, $postPreflightFixture): int {
             ideal_push_remote_ref(
                 $tmp,
-                $postPreflightFixture['remote'],
+                $postPreflightFixture['url'],
                 'post-preflight-injected',
                 'refs/tags/appeared-after-preflight'
             );
@@ -1006,7 +1023,7 @@ chdir($unrelatedFixture['workspace']);
 ob_start();
 $unrelatedExit = OnboardCommand::run(
     $unrelatedFixture['driver'],
-    ['--git-url=' . $unrelatedFixture['remote']],
+    ['--git-url=' . $unrelatedFixture['url']],
     dirname(__DIR__, 4),
     [
         'adopt' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'adopt';
@@ -1033,7 +1050,7 @@ chdir($registryRaceFixture['workspace']);
 ob_start();
 $registryRaceExit = OnboardCommand::run(
     $registryRaceFixture['driver'],
-    ['--git-url=' . $registryRaceFixture['remote']],
+    ['--git-url=' . $registryRaceFixture['url']],
     dirname(__DIR__, 4),
     [
         'adopt' => static fn(): int => 0,
@@ -1076,7 +1093,7 @@ chdir($commitFixture['workspace']);
 ob_start();
 $commitExit = OnboardCommand::run(
     $commitFixture['driver'],
-    ['--handoff-only', '--git-url=' . $commitFixture['remote']],
+    ['--handoff-only', '--git-url=' . $commitFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1100,7 +1117,7 @@ chdir($stagedTargetFixture['workspace']);
 ob_start();
 $stagedTargetExit = OnboardCommand::run(
     $stagedTargetFixture['driver'],
-    ['--handoff-only', '--git-url=' . $stagedTargetFixture['remote']],
+    ['--handoff-only', '--git-url=' . $stagedTargetFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1131,7 +1148,7 @@ chdir($historyFixture['workspace']);
 ob_start();
 $historyExit = OnboardCommand::run(
     $historyFixture['driver'],
-    ['--handoff-only', '--git-url=' . $historyFixture['remote']],
+    ['--handoff-only', '--git-url=' . $historyFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1168,7 +1185,7 @@ $targetRefsAfterBadUrl = IdealOnboardingTransport::process([
 ob_start();
 $correctedExit = OnboardCommand::run(
     $corrected['driver'],
-    ['--handoff-only', '--git-url=' . $corrected['remote']],
+    ['--handoff-only', '--git-url=' . $corrected['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1200,7 +1217,7 @@ chdir($exactRetry['workspace']);
 ob_start();
 $exactFirstExit = OnboardCommand::run(
     $exactRetry['driver'],
-    ['--handoff-only', '--git-url=' . $exactRetry['remote']],
+    ['--handoff-only', '--git-url=' . $exactRetry['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1208,7 +1225,7 @@ file_put_contents($exactRetry['workspace'] . '/.wprism-envs.json', $exactRegistr
 ob_start();
 $exactSecondExit = OnboardCommand::run(
     $exactRetry['driver'],
-    ['--handoff-only', '--git-url=' . $exactRetry['remote']],
+    ['--handoff-only', '--git-url=' . $exactRetry['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1222,7 +1239,7 @@ $pushUrlFixture = ideal_handoff_fixture($tmp, 'push-url');
 $wrongPushRemote = $tmp . '/wrong-push.git';
 IdealOnboardingTransport::process(['git', 'init', '--bare', '--initial-branch=main', $wrongPushRemote]);
 foreach ([
-    ['git', '-C', $pushUrlFixture['target'], 'remote', 'add', 'origin', $pushUrlFixture['remote']],
+    ['git', '-C', $pushUrlFixture['target'], 'remote', 'add', 'origin', $pushUrlFixture['url']],
     ['git', '-C', $pushUrlFixture['target'], 'remote', 'set-url', '--push', 'origin', $wrongPushRemote],
 ] as $command) {
     $result = IdealOnboardingTransport::process($command);
@@ -1235,7 +1252,7 @@ chdir($pushUrlFixture['workspace']);
 ob_start();
 $pushUrlExit = OnboardCommand::run(
     $pushUrlFixture['driver'],
-    ['--handoff-only', '--git-url=' . $pushUrlFixture['remote']],
+    ['--handoff-only', '--git-url=' . $pushUrlFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1250,7 +1267,7 @@ $localPushUrlFixture = ideal_handoff_fixture($tmp, 'local-push-url');
 $localWrongPush = $tmp . '/local-wrong-push.git';
 IdealOnboardingTransport::process(['git', 'init', '--bare', '--initial-branch=main', $localWrongPush]);
 foreach ([
-    ['git', '-C', $localPushUrlFixture['workspace'], 'remote', 'add', 'origin', $localPushUrlFixture['remote']],
+    ['git', '-C', $localPushUrlFixture['workspace'], 'remote', 'add', 'origin', $localPushUrlFixture['url']],
     ['git', '-C', $localPushUrlFixture['workspace'], 'remote', 'set-url', '--push', 'origin', $localWrongPush],
 ] as $command) {
     $result = IdealOnboardingTransport::process($command);
@@ -1263,7 +1280,7 @@ chdir($localPushUrlFixture['workspace']);
 ob_start();
 $localPushExit = OnboardCommand::run(
     $localPushUrlFixture['driver'],
-    ['--handoff-only', '--git-url=' . $localPushUrlFixture['remote']],
+    ['--handoff-only', '--git-url=' . $localPushUrlFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1282,7 +1299,7 @@ wprism_check_same(
 );
 
 $raceTarget = $tmp . '/receipt-race-target';
-$raceRemote = $tmp . '/receipt-race-remote.git';
+$raceRemote = ideal_file_remote_url($tmp . '/receipt-race-remote.git');
 $raceInjected = false;
 $raceHook = static function (string $script, array $result) use ($raceTarget, $raceRemote, &$raceInjected): void {
     if ($raceInjected || !str_contains($result['stdout'], 'WPRISM_HANDOFF ')) {
@@ -1307,7 +1324,7 @@ chdir($raceFixture['workspace']);
 ob_start();
 $raceExit = OnboardCommand::run(
     $raceFixture['driver'],
-    ['--handoff-only', '--git-url=' . $raceFixture['remote']],
+    ['--handoff-only', '--git-url=' . $raceFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1316,7 +1333,7 @@ $raceBranch = IdealOnboardingTransport::process(['git', '-C', $raceFixture['work
 ob_start();
 $raceRetry = OnboardCommand::run(
     $raceFixture['driver'],
-    ['--handoff-only', '--git-url=' . $raceFixture['remote']],
+    ['--handoff-only', '--git-url=' . $raceFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();
@@ -1351,7 +1368,7 @@ chdir($localRaceFixture['workspace']);
 ob_start();
 $localRaceExit = OnboardCommand::run(
     $localRaceFixture['driver'],
-    ['--handoff-only', '--git-url=' . $localRaceFixture['remote']],
+    ['--handoff-only', '--git-url=' . $localRaceFixture['url']],
     dirname(__DIR__, 4)
 );
 ob_end_clean();

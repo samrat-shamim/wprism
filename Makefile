@@ -8,7 +8,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-attestation regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
-.PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
+.PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database regress-database-boundary-live
 .PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-closed-top-level-keys regress-structured-evidence
 .PHONY: regress-spec-v3-digest-neutrality regress-spec-migration-verbs
 
@@ -20,23 +20,29 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-init-command regress-init-contract regress-wprism-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live regress-local-verified-rollback-live
 .PHONY: regress-identity-token-codec
-.PHONY: regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-proof-legacy-pair
+.PHONY: regress-live-pair-ownership regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-proof-legacy-pair
 .PHONY: regress-text-tokenizer
 .PHONY: regress-structured-reference-codec
 .PHONY: regress-url-query-reference-codec
+.PHONY: regress-rank-math-commerce-multilingual regress-rank-math-yoast-incompatibility
 .PHONY: regress-lint-primitives
 .PHONY: regress-pending-queue-ownership
 .PHONY: regress-block-reference-scanner
 .PHONY: regress-menu-reference-scanner
 .PHONY: regress-serialized-term-description-scanner
 .PHONY: regress-shortcode-reference-scanner
-.PHONY: regress-promotion-abort-reason
+.PHONY: regress-promotion-abort-reason regress-promotion-begin-atomicity
 .PHONY: regress-control-plane-seams regress-code-descriptor-compiler regress-agent-src-requires regress-wp-cli-child-process regress-target-observation-premises regress-live-exit-code-contract
-.PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-code-config-grammar regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver
+.PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-code-config-grammar regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-scalar-reference-intersection regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver
 .PHONY: regress-delete-guard-value-codec
 .PHONY: regress-delete-guard-evaluator
+.PHONY: regress-executable-tree-identity
+.PHONY: regress-php-literal-data
+.PHONY: regress-db-transaction-authority regress-provider-database-session regress-provider-operation-process
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
 .PHONY: regress-full-apply-attachment-recovery
+.PHONY: regress-plugin-incompatibility
+.PHONY: regress-ssh-adopt-extension
 
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-adapter-plugin-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-stage-unchanged-skip regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-transport regress-local-verified-rollback regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-import code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
@@ -67,7 +73,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-adapter-package-current-paths \
 	regress-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
 	regress-post-field-classification regress-init-contract regress-wprism-init regress-reference-contract \
-	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
+	regress-refresh-export-unit regress-ledger-read-only-schema regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
 	release-gate
@@ -329,6 +335,17 @@ regress-core-scope-platform:
 regress-core-scope-database:
 	bash sandbox/tests/live/regress_core_scope_database.sh
 
+# Exact-source generic database boundary proof on MariaDB and MySQL: the
+# product read snapshot retains/releases its LIMIT-0 metadata lock, rejects an
+# executable SQL SECURITY DEFINER view without invoking its function, and on
+# MariaDB refuses NEXT/PREVIOUS VALUE FOR without moving the sequence.
+regress-database-boundary-live:
+	@test -n "$(DATABASE_BOUNDARY_PAIR)" || { echo 'DATABASE_BOUNDARY_PAIR is required; choose an unused collision-resistant lowercase pair name' >&2; exit 2; }
+	@test -n "$(DATABASE_BOUNDARY_PORT1)" || { echo 'DATABASE_BOUNDARY_PORT1 is required; choose an unused even port >=8900' >&2; exit 2; }
+	@test -n "$(DATABASE_BOUNDARY_PORT2)" || { echo 'DATABASE_BOUNDARY_PORT2 is required; choose DATABASE_BOUNDARY_PORT1 + 1' >&2; exit 2; }
+	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	DATABASE_BOUNDARY_PAIR="$(DATABASE_BOUNDARY_PAIR)" DATABASE_BOUNDARY_PORT1="$(DATABASE_BOUNDARY_PORT1)" DATABASE_BOUNDARY_PORT2="$(DATABASE_BOUNDARY_PORT2)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_database_boundary_live.sh
+
 regress-attachment-portability:
 	bash sandbox/tests/live/regress_attachment_portability.sh
 
@@ -392,8 +409,8 @@ regress-manifest-dispositions:
 # WP-4.4 (spec § v3.4): the reviewed claim source moved from one
 # manifests/dispositions.json to one document per subject under
 # manifests/dispositions/, and NOT ONE ADAPTER DIGEST MOVED. The historical
-# pre-split tree had 16 subjects; the current WPrism baseline has 17 and is
-# pinned separately. The suite pins the historical 16-subject digests,
+# pre-split tree had 16 subjects; the current WPrism baseline has 18 and is
+# pinned through two compatible worlds. The suite pins the historical 16-subject digests,
 # manifest_hash and registry_sha256 as literals captured from that tree;
 # measures each enumerated Canon-encoding hazard (a nested list re-ordered and
 # a UTF-8 reason re-composed MOVE a digest; map key order does not; int/float is
@@ -405,7 +422,7 @@ regress-disposition-split:
 
 # WP-4.6 (spec § v3.5): a spec_version 3 adapter narrows its capability claim to
 # the boundary cells it was exercised on; a WIDER cell refuses by name; the key
-# is inert at v2, so all 17 currently shipped claims stay byte-identical; and every
+# is inert at v2, so all currently shipped claims stay byte-identical; and every
 # load-time refusal in PlatformCompatibility::assert_supported() -- all five
 # axes, #560's process axis included -- still fires with a narrowing adapter
 # projected, because narrowing scopes the CLAIM and not the runtime.
@@ -432,7 +449,7 @@ regress-topology-gate:
 	php sandbox/tests/offline/policy/regress_topology_gate.php
 
 # The v3 static dry run: what each candidate spec-v3 rule would refuse today,
-# measured against all 17 shipped manifests plus the synthetic estate, with
+# measured against every shipped manifest plus the synthetic estate, with
 # every rule input read from the shipped constants the v3 code will consult.
 regress-spec-v3-dry-run:
 	php sandbox/tests/offline/policy/regress_spec_v3_dry_run.php
@@ -448,10 +465,10 @@ regress-spec-v3-dry-run:
 regress-spec-v3-document:
 	php sandbox/tests/offline/policy/regress_spec_v3_document.php
 
-# WP-4.12 -- THE FLIP's current WPrism identity baseline. The current 17
-# subject digests, manifest_hash values for seven representative pin sets,
-# registry address and frozen-policy snapshot are compared against the explicit
-# greenfield fixture (the fixture and its sha256 are literals in the suite).
+# WP-4.12 -- THE FLIP's current WPrism identity baseline. The current 18
+# subject digests, manifest_hash values for eight representative pin sets,
+# registry address and two compatible-world snapshots are compared against the
+# explicit greenfield fixture (the fixture and its sha256 are literals in the suite).
 # The suite also proves the platform-only mutation refusals: a hand-mixed bundle
 # (v3 agent, v2 platform.json) refuses at the shipped platform_boundary sentence.
 regress-spec-v3-digest-neutrality:
@@ -489,7 +506,7 @@ regress-closed-top-level-keys:
 # WPRISM_SPEC_VERSION left at 3 and asserted in the same run. Walks the three
 # verdicts on a section v3 did not have (admitted / refused by FEATURE name /
 # refused as a typo), the section's own closed grammar, and both halves of the
-# deferral: the shipped library cannot adopt it without moving 17 digests, so
+# deferral: the shipped library cannot adopt it without moving 18 digests, so
 # the prose grep in regress_shipped_option_declarations.php stays and the schema
 # check covers fixtures and out-of-tree adapters.
 regress-structured-evidence:
@@ -651,6 +668,7 @@ release-gate:
 	php tools/engine-gap-doc.php --check
 	php tools/wire-surface.php --check
 	php tools/api-surface.php --check
+	php tools/shipped-identity-inventory.php --check
 	php tools/classmap-generate.php --check
 	php tools/offline-corpus.php --check
 	php tools/adapter-kit.php --check
@@ -778,6 +796,9 @@ regress-action-scope:
 
 regress-provider-contract:
 	php sandbox/tests/offline/adapter/regress_provider_contract.php
+
+regress-provider-option-surfaces:
+	php sandbox/tests/offline/adapter/regress_provider_option_surfaces.php
 
 # issue #3338: the structured native-action vocabulary and the plugin-owned
 # provider contract. One target, two harnesses (see the wrapper's header):
@@ -1120,6 +1141,21 @@ regress-code-config-grammar:
 regress-agent-src-requires:
 	php sandbox/tests/offline/guards/regress_agent_src_requires.php
 
+# The shared database boundary must distinguish physical session generations,
+# settle replayed data-free controls, and retain the original transaction's
+# savepoint witness across ambiguous responses on both supported SQL engines.
+regress-db-transaction-authority:
+	php sandbox/tests/offline/guards/regress_db_transaction_authority.php
+
+# Provider callbacks use the engine-owned database and process boundaries;
+# these suites pin settlement and the fixed digest-bound child protocol rather
+# than allowing adapter capsules to grow their own transaction/process loops.
+regress-provider-database-session:
+	php sandbox/tests/offline/guards/regress_provider_database_session.php
+
+regress-provider-operation-process:
+	php sandbox/tests/offline/guards/regress_provider_operation_process.php
+
 regress-code-descriptor-unit:
 	bash sandbox/tests/offline/code-half/regress_code_descriptor_unit.sh
 
@@ -1216,6 +1252,10 @@ regress-delete-authorization-receipt:
 # existing reflection-based coverage of the same methods through Apply.
 regress-apply-planner:
 	php sandbox/tests/offline/apply/regress_apply_planner.php
+
+.PHONY: regress-plan-reference-adoption
+regress-plan-reference-adoption:
+	php sandbox/tests/offline/apply/regress_plan_reference_adoption.php
 
 regress-table-graph:
 	php sandbox/tests/offline/repository/regress_table_graph.php
@@ -1345,6 +1385,10 @@ regress-attachment-materializer:
 regress-full-apply-attachment-recovery:
 	php sandbox/tests/offline/apply/regress_full_apply_attachment_recovery.php
 
+.PHONY: regress-authored-work-units
+regress-authored-work-units:
+	php sandbox/tests/offline/apply/regress_authored_work_units.php
+
 # issue #3347 slice 10: ensure_post_row() moved from Apply.php into a new
 # PostMaterializer.php (the "posts" entity materializer target seam),
 # constructed from (Tokens) -- no Policy, matching AttachmentMaterializer's
@@ -1405,6 +1449,12 @@ regress-delete-guard-value-codec:
 # and mutation authority.
 regress-delete-guard-evaluator:
 	php sandbox/tests/offline/apply/regress_delete_guard_evaluator.php
+
+regress-executable-tree-identity:
+	php sandbox/tests/offline/apply/regress_executable_tree_identity.php
+
+regress-php-literal-data:
+	php sandbox/tests/offline/guards/regress_php_literal_data.php
 
 # issue #3348 slice 2: CompiledRepository/RepositoryCompilationException moved
 # out of RepositoryCompiler.php into their own CompiledArtifact.php (the
@@ -1654,6 +1704,27 @@ regress-lifecycle-executor:
 regress-cli-json-refusals:
 	php sandbox/tests/offline/cli/regress_cli_json_refusals.php
 
+# Standalone test evidence: one fresh private graph, never an inferred cause.
+.PHONY: regress-private-refusal-receipt
+regress-private-refusal-receipt:
+	php sandbox/tests/offline/guards/regress_private_refusal_receipt.php
+
+.PHONY: regress-private-command-capture
+regress-private-command-capture:
+	php sandbox/tests/offline/guards/regress_private_command_capture.php
+
+# One scalar must satisfy every declared local-id consumer without guessing.
+.PHONY: regress-scalar-reference-intersection
+regress-scalar-reference-intersection:
+	php sandbox/tests/offline/reference-scope/regress_scalar_reference_intersection.php
+
+.PHONY: regress-core-conformance-evidence
+regress-core-conformance-evidence:
+	php sandbox/tests/offline/guards/regress_core_conformance_evidence.php
+
+regress-wordpress-cron-window:
+	php sandbox/tests/offline/guards/regress_wordpress_cron_window.php
+
 # The lock/concurrency and repository-state refusals an orchestrator meets on
 # capture/plan/apply/deploy each reach --format=json as their own reason code
 # instead of `<command>_failed` + details_redacted, produced by the real
@@ -1770,6 +1841,12 @@ regress-deploy-command:
 # checkpoint_listing_malformed. Pure fakes; no target contact.
 regress-deploy-checkpoint:
 	php sandbox/tests/offline/recovery/regress_deploy_checkpoint.php
+
+# The external settlement-debt check precedes every durable write under the
+# target advisory fence, and the new lease/session pair commits atomically.
+# FakeWpdb injects a failure between those two writes and proves full rollback.
+regress-promotion-begin-atomicity:
+	php sandbox/tests/offline/recovery/regress_promotion_begin_atomicity.php
 
 # issue #3514's retention half: promote and deploy each retain an unbounded
 # whole-DB dump under .wprism/checkpoints and nothing ever removed one.
@@ -2155,12 +2232,6 @@ regress-body-ref-grammar:
 regress-wpforms-lite-adapter:
 	php sandbox/tests/offline/adapter/regress_wpforms_lite_adapter.php
 
-# Rank Math SEO 1.0.277 authored through the decentralized site-adapter path:
-# the exact fixture boundary, redirection natural identity, unsupported custom
-# schema, and recorded single-adapter plus multi-plugin outcome evidence.
-regress-rank-math-adapter:
-	php sandbox/tests/offline/adapter/regress_rank_math_adapter.php
-
 # The `taxonomy_delete_scope_exercise` primitive, run rather than asserted: the
 # adversarial matrix tools/engine-gaps.json demands before a post-type adapter
 # carrying an authored taxonomy may claim a deletion selector. Four cases over
@@ -2379,6 +2450,9 @@ regress-repository-reference-graph-validator:
 regress-repository-portable-shape-validator:
 	php sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php
 
+regress-repository-scalar-reference-intersection:
+	php sandbox/tests/offline/repository/regress_repository_scalar_reference_intersection.php
+
 regress-repository-menu-location-validator:
 	php sandbox/tests/offline/repository/regress_repository_menu_location_validator.php
 
@@ -2502,6 +2576,12 @@ regress-ssh-rollback-certification:
 regress-pair-bootstrap-unit:
 	bash sandbox/tests/offline/guards/regress_pair_bootstrap_unit.sh
 
+# Direct live suites share one engine/root-bound lease and cleanup state
+# machine. This fake-launcher leaf proves failure/partial-up/sequential-engine
+# transitions without allocating Docker resources.
+regress-live-pair-ownership:
+	bash sandbox/tests/offline/guards/regress_live_pair_ownership.sh
+
 # issue #3355: direct offline characterization of the extracted pair-budget
 # resource lock. The lifecycle/bootstrap suite remains the broader facade
 # proof; this target keeps the crash-safe lock boundary independently loaded.
@@ -2548,17 +2628,44 @@ regress-pair-candidate-source:
 
 # issue #3343: a production refresh is an observation boundary, not a capture
 # variant. This focused no-WordPress harness proves the exporter's
-# SELECT-only ledger validation, mutation prohibition, and semantic-record
+# read-only ledger validation, mutation prohibition, and semantic-record
 # envelope without needing a sandbox database.
 regress-refresh-export-unit:
 	php sandbox/tests/offline/refresh/regress_refresh_export_unit.php
+
+# The actual refresh snapshot/table gate, explicit SHOW schema facts and
+# failure/shape/session controls; no information_schema authority is added.
+regress-ledger-read-only-schema:
+	php sandbox/tests/offline/refresh/regress_ledger_read_only_schema.php
+
+.PHONY: regress-refresh-reference-projection
+regress-refresh-reference-projection:
+	php sandbox/tests/offline/refresh/regress_refresh_reference_projection.php
 
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-collision:
 	bash sandbox/tests/live/regress_collision.sh
 
 regress-env-set:
-	bash sandbox/tests/live/regress_env_set.sh
+	@test -n "$(ENV_SET_PAIR)" || { echo 'ENV_SET_PAIR is required; choose an unused collision-resistant lowercase pair name' >&2; exit 2; }
+	@test -n "$(ENV_SET_PORT1)" || { echo 'ENV_SET_PORT1 is required; choose an unused even port >=8900' >&2; exit 2; }
+	@test -n "$(ENV_SET_PORT2)" || { echo 'ENV_SET_PORT2 is required; choose ENV_SET_PORT1 + 1' >&2; exit 2; }
+	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	ENV_SET_PAIR="$(ENV_SET_PAIR)" ENV_SET_PORT1="$(ENV_SET_PORT1)" ENV_SET_PORT2="$(ENV_SET_PORT2)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_env_set.sh
+
+regress-rank-math-commerce-multilingual:
+	@test -n "$(RANK_MATH_COMBO_PAIR)" || { echo 'RANK_MATH_COMBO_PAIR is required; choose an unused collision-resistant lowercase pair name' >&2; exit 2; }
+	@test -n "$(RANK_MATH_COMBO_PORT1)" || { echo 'RANK_MATH_COMBO_PORT1 is required; choose an unused even port >=8900' >&2; exit 2; }
+	@test -n "$(RANK_MATH_COMBO_PORT2)" || { echo 'RANK_MATH_COMBO_PORT2 is required; choose RANK_MATH_COMBO_PORT1 + 1' >&2; exit 2; }
+	@test -n "$(RANK_MATH_COMBO_EXPECTED_SOURCE_SHA)" || { echo 'RANK_MATH_COMBO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	RANK_MATH_COMBO_PAIR="$(RANK_MATH_COMBO_PAIR)" RANK_MATH_COMBO_PORT1="$(RANK_MATH_COMBO_PORT1)" RANK_MATH_COMBO_PORT2="$(RANK_MATH_COMBO_PORT2)" RANK_MATH_COMBO_EXPECTED_SOURCE_SHA="$(RANK_MATH_COMBO_EXPECTED_SOURCE_SHA)" bash integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh
+
+regress-rank-math-yoast-incompatibility:
+	@test -n "$(RANK_MATH_YOAST_PAIR)" || { echo 'RANK_MATH_YOAST_PAIR is required; choose an unused collision-resistant lowercase pair name' >&2; exit 2; }
+	@test -n "$(RANK_MATH_YOAST_PORT1)" || { echo 'RANK_MATH_YOAST_PORT1 is required; choose an unused even port >=8900' >&2; exit 2; }
+	@test -n "$(RANK_MATH_YOAST_PORT2)" || { echo 'RANK_MATH_YOAST_PORT2 is required; choose RANK_MATH_YOAST_PORT1 + 1' >&2; exit 2; }
+	@test -n "$(RANK_MATH_YOAST_EXPECTED_SOURCE_SHA)" || { echo 'RANK_MATH_YOAST_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	RANK_MATH_YOAST_PAIR="$(RANK_MATH_YOAST_PAIR)" RANK_MATH_YOAST_PORT1="$(RANK_MATH_YOAST_PORT1)" RANK_MATH_YOAST_PORT2="$(RANK_MATH_YOAST_PORT2)" RANK_MATH_YOAST_EXPECTED_SOURCE_SHA="$(RANK_MATH_YOAST_EXPECTED_SOURCE_SHA)" bash integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh
 
 regress-option-ref-scope:
 	bash sandbox/tests/live/regress_option_ref_scope.sh
@@ -2633,6 +2740,16 @@ regress-scoped-promote-unit:
 regress-ssh-adopt-evidence-retention:
 	php sandbox/tests/offline/guards/regress_ssh_adopt_evidence_retention.php
 
+# Shared extension primitives are exercised against a translated private
+# remote tree: exact code/theme staging, certified-artifact digest refusal,
+# bounded generation publication, and collision-safe tombstone cleanup.
+regress-ssh-adopt-extension:
+	bash sandbox/tests/offline/guards/regress_ssh_adopt_extension.sh
+
+.PHONY: regress-core-ssh-deletion-contract
+regress-core-ssh-deletion-contract:
+	php sandbox/tests/offline/guards/regress_core_ssh_deletion_contract.php
+
 # issue #3344: host/agent scope transport boundary — canonical compact request
 # forwarding, refusal before target contact, and ordinary unscoped passthrough.
 regress-scope-wire:
@@ -2689,6 +2806,13 @@ regress-ssh-adopt:
 	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
 	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
 	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_ssh_adopt.sh
+
+.PHONY: regress-core-ssh-deletion
+regress-core-ssh-deletion:
+	@test -n "$(ADOPT_FIXTURE)" || { echo 'ADOPT_FIXTURE is required; choose an unused lowercase fixture name' >&2; exit 2; }
+	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
+	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
+	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_core_ssh_deletion.sh
 
 certify-ssh-adoption-roundtrip:
 	bash sandbox/tests/certify/certify_ssh_adoption_roundtrip.sh
@@ -2754,6 +2878,7 @@ regress-live-list:
 	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact offline core per run: CORE_DATA_BOUNDARY_WORDPRESS/_IMAGE, default 7.1; re-run per exercised series)"
 	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 x PHP 8.3/8.4 matrix, a below-range 6.8.3 refusal and a past-the-maximum PHP 8.5 refusal)"
 	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
+	@echo "  regress-database-boundary-live            own disposable pair (parameterized: DATABASE_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; MariaDB/MySQL LIMIT-0 metadata lock + no-definer-invocation view proof + MariaDB sequence refusal)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
@@ -2780,7 +2905,9 @@ regress-live-list:
 	@echo "  regress-acf-term-options-fields           pair asub3263 (parameterized: PAIR/PORT1/PORT2)"
 	@echo "  regress-collision                         legacy docker-compose.yml --profile fx"
 	@echo "  regress-entity-type-width                 pair amergety"
-	@echo "  regress-env-set                           pair asnapenvset"
+	@echo "  regress-env-set                           explicit ENV_SET_PAIR/ENV_SET_PORT1/ENV_SET_PORT2 + WPRISM_EXPECTED_SOURCE_SHA (leased complete namespace; verified teardown/release before PASS)"
+	@echo "  regress-rank-math-commerce-multilingual   explicit RANK_MATH_COMBO_PAIR/RANK_MATH_COMBO_PORT1/RANK_MATH_COMBO_PORT2/RANK_MATH_COMBO_EXPECTED_SOURCE_SHA (leased namespace; two complete plugin-order legs; one owned reset; verified release)"
+	@echo "  regress-rank-math-yoast-incompatibility   explicit RANK_MATH_YOAST_PAIR/RANK_MATH_YOAST_PORT1/RANK_MATH_YOAST_PORT2/RANK_MATH_YOAST_EXPECTED_SOURCE_SHA (leased namespace; both refusal orders; verified release)"
 	@echo "  regress-option-ref-scope                  legacy docker-compose.yml --profile r1b"
 	@echo "  regress-pmpro-composite-ref               pair asnaprt"
 	@echo "  regress-woocommerce-rewrite-coinstall     own disposable pair (parameterized: WOO_REWRITE_COINSTALL_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; Woo 11.0.1 + Yoast 28.3 + Polylang 3.8.6 + TEC 6.17.2 product routes and refusal/retry)"
@@ -2790,6 +2917,7 @@ regress-live-list:
 	@echo "  regress-snapshot-meta                     pair w1a"
 	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
 	@echo "  regress-ssh-adopt                         explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/WPRISM_EXPECTED_SOURCE_SHA standalone SSH scoped-promotion path"
+	@echo "  regress-core-ssh-deletion                 explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/WPRISM_EXPECTED_SOURCE_SHA signed core deletion, FK refusal and retry"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
@@ -2852,15 +2980,15 @@ regress-adapter-package-current-paths:
 # flat identity spaces, and the CLOSED grandfather list under it. At
 # spec_version 3 an out-of-tree adapter name is <vendor>-<name> and its provider
 # ids sit in that same namespace, which is what gives an authority's
-# `adapter_names: ["<vendor>-*"]` scope (WP-4.8) something to bind; the 17
-# shipped names and 20 id_kinds are enumerated in agent/src, never under an
+# `adapter_names: ["<vendor>-*"]` scope (WP-4.8) something to bind; the shipped
+# names and permanent id_kind floor are enumerated in agent/src, never under an
 # adapter package or platform-library package where rule 2 would make them an
 # adapter-digest input. The suite
 # proves the rule is inert below v3 while the current spec-3 engine enforces it, that
-# `acme-cache` and `zeta-cache` coexist in one pin set while all 17 shipped
+# `acme-cache` and `zeta-cache` coexist in one pin set while all shipped
 # names load unchanged, that the uniqueness and case-folding refusals did not
 # move, and -- by driving `tools/wire-surface.php --check` against a fixture
-# library carrying an eighteenth unprefixed name -- that the release gate
+# library carrying an additional unprefixed name -- that the release gate
 # refuses one. `id_kind` gets no rule at all: R-17 forbids it.
 regress-identity-namespaces:
 	php sandbox/tests/offline/guards/regress_identity_namespaces.php
@@ -2877,6 +3005,13 @@ regress-identity-namespaces:
 # after one of its manifests is unpinned -- refusing by name.
 regress-plugin-claim-resolution:
 	php sandbox/tests/offline/guards/regress_plugin_claim_resolution.php
+
+# A manifest-owned exact-plugin incompatibility is grammar, not plugin logic:
+# malformed declarations refuse locally and a conflicting pin set refuses in
+# the shared policy finalizer with the same verdict in both pin orders, before
+# any transaction or recovery state can be created.
+regress-plugin-incompatibility:
+	php sandbox/tests/offline/policy/regress_plugin_incompatibility.php
 
 # WP-2.6: the adapter test kit. Adopt assembles the package library into the
 # staged agent and tars exactly `agent recovery`, so sandbox/ -- where the ability to PROVE

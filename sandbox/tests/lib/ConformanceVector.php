@@ -216,6 +216,7 @@ final class ConformanceVector
             }
             $rows = $withRows ? (array) ($document['rows'][$table] ?? []) : [];
             $wpdb->seedTable('wp_' . $table, array_values($rows));
+            $wpdb->setTableEngine('wp_' . $table, 'InnoDB');
             $columns = [];
             foreach ((array) ($facts['columns'] ?? []) as $column => $shape) {
                 $columns[(string) $column] = (string) ($shape['type'] ?? '');
@@ -236,6 +237,7 @@ final class ConformanceVector
         }
 
         $wpdb->seedTable('wp_wprism_map', $withRows ? array_values((array) $document['ledger']['wprism_map']) : []);
+        $wpdb->setTableEngine('wp_wprism_map', 'InnoDB');
         $wpdb->setColumns('wp_wprism_map', self::LEDGER_MAP_COLUMNS);
         // Both of Ledger's declared keys: `Ledger::set()` writes ON DUPLICATE
         // KEY UPDATE, and FakeWpdb refuses that statement outright unless the
@@ -244,6 +246,7 @@ final class ConformanceVector
         $wpdb->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind']);
 
         $wpdb->seedTable('wp_wprism_state', []);
+        $wpdb->setTableEngine('wp_wprism_state', 'InnoDB');
         $wpdb->setColumns('wp_wprism_state', [
             'content_hash' => 'char(64)',
             'entity_type' => 'varchar(64)',
@@ -252,10 +255,11 @@ final class ConformanceVector
         $wpdb->setUniqueKey('wp_wprism_state', ['uuid']);
 
         $wpdb->seedTable('wp_wprism_kv', []);
+        $wpdb->setTableEngine('wp_wprism_kv', 'InnoDB');
         $wpdb->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
         $wpdb->setUniqueKey('wp_wprism_kv', ['k']);
 
-        return $wpdb;
+        return $wpdb->enableInformationSchema();
     }
 
     /**

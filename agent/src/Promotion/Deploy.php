@@ -5,11 +5,16 @@ require_once __DIR__ . '/../Code/CodeCompatibility.php';
 require_once __DIR__ . '/DeployPlanner.php';
 require_once __DIR__ . '/LifecycleExecutor.php';
 require_once __DIR__ . '/LifecyclePlanner.php';
+require_once __DIR__ . '/CodeBaselinePublication.php';
 require_once __DIR__ . '/StateHandoffVerifier.php';
 // WP-2.8: run()'s blocking filter and its reporting loop both name the
 // graduated verdict by constant rather than by a second copy of the string.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
+require_once __DIR__ . '/../Kernel/ExactOptionReader.php';
+require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
+require_once __DIR__ . '/../Recovery/DatabaseTargetIdentity.php';
+require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
 
 /**
  * docs/code-half.md §3.4/§6: reconciles active_plugins/template/
@@ -64,19 +69,20 @@ final class Deploy {
     }
 
     /**
-     * Thin compatibility facade over LifecyclePlanner::record_code_versions()
-     * (issue #3350 slice 6) — kept so this method's existing internal call site
-     * (run(), unchanged) needs no edit while this decomposition proceeds.
-     *
-     * issue #3507 removed the one external caller: capture now goes through
-     * LifecyclePlanner::observe_code_versions(), which writes the baseline
-     * only when there is nothing to accept. run()'s own call at :472 is
-     * therefore the only unconditional re-baseline left in the product, and
-     * it is entitled to be one — it runs after this verb's refuse-or-force
-     * gate (:203-210, :221-224), which is the consent capture never had.
+     * A host deployment runs retirement and activation in fresh processes.
+     * Retirement is an intermediate recovery boundary, not acceptance of the
+     * temporarily inactive code set; only activate (or a monolithic all pass)
+     * may publish the terminal baseline consumed by the next drift check.
      */
-    public static function record_code_versions(Policy $policy): void {
-        LifecyclePlanner::record_code_versions($policy);
+    private static function record_code_versions_after_lifecycle_phase(
+        array $desired,
+        string $lifecyclePhase,
+        ?string $expectedObservationSha256
+    ): void {
+        if ($lifecyclePhase === 'retire') {
+            return;
+        }
+        CodeBaselinePublication::publish_terminal($desired, $expectedObservationSha256);
     }
 
     /**
@@ -98,11 +104,74 @@ final class Deploy {
      */
     public static function run(string $repo, array $opts = []): array {
         $repo = rtrim($repo, '/');
+        $checkpoint = (string) ($opts['checkpoint'] ?? '');
+        if ($checkpoint === '') {
+            return self::run_authorized($repo, $opts);
+        }
+        $compiled = (string) ($opts['compiled'] ?? '');
+        $owner = (string) ($opts['promotion_owner'] ?? '');
+        $artifactHash = (string) ($opts['artifact_hash'] ?? '');
+        $lifecyclePhase = (string) ($opts['lifecycle_phase'] ?? 'all');
+        if ($compiled === ''
+            || $owner === ''
+            || preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1
+            || !in_array($lifecyclePhase, ['retire', 'activate'], true)) {
+            throw new \RuntimeException(
+                'wprism: provider-backed lifecycle continuation identity is malformed'
+            );
+        }
+        return ProviderSettlementIntent::with_phase(
+            $repo,
+            $compiled,
+            $checkpoint,
+            $owner,
+            $artifactHash,
+            'lifecycle-' . $lifecyclePhase,
+            static function (array $intent) use ($repo, $checkpoint, $opts): array {
+                $verification = RetainedCheckpointCipher::verify($repo, $checkpoint);
+                if (!hash_equals(
+                    (string) ($intent['checkpoint']['cipher_sha256'] ?? ''),
+                    (string) ($verification['cipher_sha256'] ?? '')
+                )) {
+                    throw new \RuntimeException(
+                        'wprism: lifecycle continuation checkpoint identity changed'
+                    );
+                }
+                DatabaseTargetIdentity::assertWordPressConfig(
+                    (string) ($verification['database_target_sha256'] ?? '')
+                );
+                return self::run_authorized($repo, $opts);
+            }
+        );
+    }
+
+    /** @return array{activated:string[], deactivated:string[], theme_switched:?string, active_plugins_order_corrected:bool, code_mismatch:array, reconciled_code_mismatch:array, external_side_effects:string[], warnings:string[]} */
+    private static function run_authorized(string $repo, array $opts): array {
+        $repo = rtrim($repo, '/');
         $adapterLibrary = $opts['adapter_library'] ?? null;
         if ($adapterLibrary !== null && !$adapterLibrary instanceof AdapterLibrary) {
             throw new \InvalidArgumentException('adapter_library must be a WPrism\\AdapterLibrary');
         }
         $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
+        $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
+        self::assert_materializing_continuation($opts, $continuation);
+        self::assert_state_handoff_continuation($opts, $continuation);
+        $lifecyclePhase = self::lifecycle_phase($opts, $continuation);
+        $expectedCodeBoundary = (string) ($opts['expected_code_boundary'] ?? '');
+        $expectedCodeFindings = (string) ($opts['expected_code_findings'] ?? '');
+        $hostReportedCodeFindings = !empty($opts['host_reported_code_findings']);
+        if (($expectedCodeBoundary === '') !== ($expectedCodeFindings === '')
+            || ($expectedCodeBoundary !== ''
+            && (!$continuation
+                || !empty($opts['materializing_code'])
+                || preg_match('/^[a-f0-9]{64}$/D', $expectedCodeBoundary) !== 1
+                || preg_match('/^[a-f0-9]{64}$/D', $expectedCodeFindings) !== 1))) {
+            throw new \RuntimeException('wprism: deploy expected code evidence is malformed or out of context');
+        }
+        if ($hostReportedCodeFindings && $expectedCodeBoundary === '') {
+            throw new \RuntimeException('wprism: host-reported code findings require bound evidence');
+        }
+        self::assert_direct_provider_boundary($policy, $lifecyclePhase);
         $compiledPath = (string) ($opts['compiled'] ?? '');
         $compiled = $compiledPath !== ''
             ? RepositoryCompiler::read_artifact($compiledPath, $policy)
@@ -115,11 +184,7 @@ final class Deploy {
         Ledger::ensure();
         $promotionOwner = PromotionLock::owner($opts);
         $promotionArtifact = $compiled->artifact_hash();
-        $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
         $expectedArtifact = (string) ($opts['artifact_hash'] ?? '');
-        self::assert_materializing_continuation($opts, $continuation);
-        self::assert_state_handoff_continuation($opts, $continuation);
-        $lifecyclePhase = self::lifecycle_phase($opts, $continuation);
         if (($continuation && $expectedArtifact === '')
             || ($expectedArtifact !== ''
                 && (!preg_match('/^[0-9a-f]{64}$/', $expectedArtifact)
@@ -198,18 +263,9 @@ final class Deploy {
         // and is reported below on every run.
         $blockingMismatch = array_values(array_filter(
             $mismatch,
-            fn($r) => !in_array(
-                $r['issue'],
-                [
-                    'inactive_in_environment',
-                    'unexpected_active_plugin',
-                    'active_plugin_order_mismatch',
-                    'template_mismatch',
-                    'code_revision_stale',
-                    VersionEvidenceGrammar::VERDICT,
-                ],
-                true
-            )
+            fn($r) => !LifecyclePlanner::is_lifecycle_issue((string) $r['issue'])
+                && $r['issue'] !== 'code_revision_stale'
+                && $r['issue'] !== VersionEvidenceGrammar::VERDICT
         ));
         if ($blockingMismatch && empty($opts['force_code_mismatch'])) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $blockingMismatch));
@@ -233,6 +289,19 @@ final class Deploy {
                 . 'Reconcile the environment to a known version first, or pass --force-code-drift to proceed anyway.'
             );
         }
+        if ($expectedCodeBoundary !== '') {
+            $phaseObservation = LifecyclePlanner::deployment_phase_observation(
+                $lockedPolicy,
+                $desired,
+                !empty($opts['force_code_mismatch'])
+            );
+            if (!hash_equals($expectedCodeBoundary, $phaseObservation['code_boundary_sha256'])
+                || !hash_equals($expectedCodeFindings, $phaseObservation['findings_sha256'])) {
+                throw new \RuntimeException(
+                    'wprism: installed code or its reportable findings changed after host preflight; retry deploy'
+                );
+            }
+        }
 
         self::require_plugin_admin_functions();
         // Architecture Rulings §1 (report-not-hide): the finding itself is
@@ -243,7 +312,11 @@ final class Deploy {
         // revision_stale_warnings() explains why that copy was never
         // reporting new information in the one context it fired.
         $warnings = self::revision_stale_warnings($revisionMismatch, $stagedMaterialization);
-        if ($drift && !empty($opts['force_code_drift'])) {
+        // A host deploy runs retire then activate in separate processes. The
+        // first phase reports the explicit override; repeating the identical
+        // warning during activation would turn one operator decision into two
+        // apparent findings. A direct/all deploy still reports here once.
+        if ($drift && !empty($opts['force_code_drift']) && !$hostReportedCodeFindings) {
             foreach ($drift as $r) {
                 $warnings[] = 'FORCED past code_drift: ' . $r['message'];
             }
@@ -260,16 +333,18 @@ final class Deploy {
         // theme switch ..." message below, once activation actually reaches
         // them; double-reporting the same finding under two different
         // messages would be noise, not signal.
-        foreach (array_filter($blockingMismatch, fn($r) => $r['issue'] === 'outside_version_range') as $r) {
-            $warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
-        }
-        // WP-2.8: the graduated verdict is reported on EVERY run, forced or
-        // not — it is read out of $mismatch rather than $blockingMismatch,
-        // which no longer contains it. A verdict that stopped a refusal and
-        // then said nothing would be the silent pass this mechanism refuses to
-        // be; the message carries the per-release evidence and its limits.
-        foreach (array_filter($mismatch, fn($r) => $r['issue'] === VersionEvidenceGrammar::VERDICT) as $r) {
-            $warnings[] = 'GRADUATED outside_version_range: ' . $r['message'];
+        if (!$hostReportedCodeFindings) {
+            foreach (array_filter($blockingMismatch, fn($r) => $r['issue'] === 'outside_version_range') as $r) {
+                $warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
+            }
+            // WP-2.8: the graduated verdict is reported on EVERY run, forced or
+            // not — it is read out of $mismatch rather than $blockingMismatch,
+            // which no longer contains it. A verdict that stopped a refusal and
+            // then said nothing would be the silent pass this mechanism refuses to
+            // be; the message carries the per-release evidence and its limits.
+            foreach (array_filter($mismatch, fn($r) => $r['issue'] === VersionEvidenceGrammar::VERDICT) as $r) {
+                $warnings[] = 'GRADUATED outside_version_range: ' . $r['message'];
+            }
         }
         $activated = [];
         $deactivated = [];
@@ -319,6 +394,20 @@ final class Deploy {
         $templateMismatch = $desiredStylesheet !== null
             && $desiredTemplate !== null
             && get_option('template') !== $desiredTemplate;
+
+        if ($expectedCodeBoundary !== '') {
+            $phaseObservation = LifecyclePlanner::deployment_phase_observation(
+                $lockedPolicy,
+                $desired,
+                !empty($opts['force_code_mismatch'])
+            );
+            if (!hash_equals($expectedCodeBoundary, $phaseObservation['code_boundary_sha256'])
+                || !hash_equals($expectedCodeFindings, $phaseObservation['findings_sha256'])) {
+                throw new \RuntimeException(
+                    'wprism: installed code or its reportable findings changed before lifecycle mutation; retry deploy'
+                );
+            }
+        }
 
         if ($lifecyclePhase === 'activate' && $toDeactivate) {
             throw new \RuntimeException(
@@ -501,15 +590,17 @@ final class Deploy {
             }
         }
 
-        // Re-baseline unconditionally: whatever's active NOW (post-
-        // reconciliation, whether clean or forced-through) becomes the new
-        // "last known good" — the same versions a --force-code-drift run
-        // just accepted are exactly what should stop being flagged on the
-        // NEXT run. Runs regardless of whether $drift/$mismatch fired, same
-        // as code_mismatch's own findings don't gate whether reconciliation
-        // proceeds once past the refuse-gate above.
+        // Re-baseline after terminal reconciliation: whatever's active NOW
+        // (whether clean or forced-through) becomes the new "last known
+        // good". A split retire pass is not terminal and must preserve the
+        // pre-deploy bytes; otherwise activate mistakes the intermediate
+        // inactive set for a trusted observation and refuses its own work.
         PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-verify');
-        self::record_code_versions($policy);
+        self::record_code_versions_after_lifecycle_phase(
+            $desired,
+            $lifecyclePhase,
+            $expectedCodeBoundary === '' ? null : $expectedCodeBoundary
+        );
 
         $remainingMismatch = array_merge(
             self::code_mismatch($policy, $desired),
@@ -536,16 +627,7 @@ final class Deploy {
             'code_mismatch' => $remainingMismatch,
             'reconciled_code_mismatch' => array_values(array_filter(
                 $mismatch,
-                fn($r) => in_array(
-                    $r['issue'],
-                    [
-                        'inactive_in_environment',
-                        'unexpected_active_plugin',
-                        'active_plugin_order_mismatch',
-                        'template_mismatch',
-                    ],
-                    true
-                )
+                fn($r) => LifecyclePlanner::is_lifecycle_issue((string) $r['issue'])
                     && !in_array($r, $remainingMismatch, true)
             )),
             'code_drift' => $drift,
@@ -662,6 +744,19 @@ final class Deploy {
             );
         }
         return $phase;
+    }
+
+    /** Host-owned provider phases require the retained checkpoint and process ordering the direct target verb lacks. */
+    private static function assert_direct_provider_boundary(Policy $policy, string $lifecyclePhase): void {
+        if ($lifecyclePhase !== 'all'
+            || ($policy->schema_settle_actions() === []
+                && $policy->lifecycle_settle_actions() === [])) {
+            return;
+        }
+        throw new \RuntimeException(
+            'wprism: direct target deploy cannot run host-owned provider settlement; '
+            . "invoke host 'wprism deploy <env>' so its checkpoint and fresh-process ordering are enforced"
+        );
     }
 
     /**
@@ -861,12 +956,18 @@ final class Deploy {
     }
 
     /**
-     * Public: LifecyclePlanner.php's code_mismatch()/code_drift()/
-     * record_code_versions() (issue #3350 slice 6) share this accessor too.
+     * Public: LifecyclePlanner.php's code_mismatch()/code_drift() and provider
+     * negotiation share this accessor too.
      * @return string[]
      */
-    public static function current_active_plugins(): array {
-        $raw = get_option('active_plugins');
+    public static function current_active_plugins(bool $durable = false): array {
+        $raw = $durable
+            ? ExactOptionReader::read_plain(
+                'active_plugins',
+                [],
+                'plugin runtime active-plugin identity'
+            )
+            : get_option('active_plugins');
         return is_array($raw) ? array_values(array_map('strval', $raw)) : [];
     }
 
@@ -875,7 +976,8 @@ final class Deploy {
      * read through the exact primitives code_mismatch() above uses:
      * validate_plugin() for existence (WordPress's own validation primitive,
      * correct for both `slug/slug.php` and legacy single-file plugins),
-     * get_option('active_plugins') for the lifecycle state, and WordPress's
+     * get_option('active_plugins') for the ordinary lifecycle state (or the
+     * exact physical option row for a fresh-process identity replay), and WordPress's
      * plugin-header parser for the installed version.
      *
      * Public because issue #3338's provider negotiation asks the same question
@@ -887,13 +989,13 @@ final class Deploy {
      *
      * @return array{installed:bool, active:bool, version:string}
      */
-    public static function plugin_runtime_state(string $plugin): array {
+    public static function plugin_runtime_state(string $plugin, bool $durable = false): array {
         self::require_plugin_admin_functions();
         $installed = !is_wp_error(validate_plugin($plugin));
         $all = $installed ? get_plugins() : [];
         return [
             'installed' => $installed,
-            'active' => in_array($plugin, self::current_active_plugins(), true),
+            'active' => in_array($plugin, self::current_active_plugins($durable), true),
             'version' => (string) ($all[$plugin]['Version'] ?? ''),
         ];
     }
@@ -917,8 +1019,8 @@ final class Deploy {
      * already uses for wp-admin/includes/{image,file,media}.php before
      * calling wp_generate_attachment_metadata().
      *
-     * Public: LifecyclePlanner.php's code_mismatch()/code_drift()/
-     * record_code_versions() (issue #3350 slice 6) share this guard too.
+     * Public: LifecyclePlanner.php's code_mismatch()/code_drift() and provider
+     * negotiation share this guard too.
      */
     public static function require_plugin_admin_functions(): void {
         if (!function_exists('validate_plugin')) {

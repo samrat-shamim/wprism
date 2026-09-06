@@ -50,15 +50,34 @@ if [ "$first" = wprism ] && [ "$second" = code-preflight ]; then
   exit 0
 fi
 
+if [ "$first" = wprism ] && [ "$second" = lifecycle-status ]; then
+  required=false
+  reasons='[]'
+  if [ "${FAKE_LIFECYCLE_CHANGE_REQUIRED:-0}" = 1 ]; then
+    required=true
+    reasons='["inactive_in_environment"]'
+  fi
+  printf '%s\n' '{"baseline_state":"exact","code_boundary_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","code_drift":[],"findings_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","format":"wprism-lifecycle-status/v2","observation_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","reasons":'"$reasons"',"required":'"$required"',"warnings":[]}'
+  exit 0
+fi
+
 # The product connects `db export -` directly to this authenticated sealer.
 # Cipher behavior has its PHP regression; this phase fake preserves the
 # no-plaintext path and the sealer's atomic output contract.
+if [ "$first" = wprism ] && [ "$second" = checkpoint-target ]; then
+  printf '%s\n' '{"database_target_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","format":"wprism-database-target/v1"}'
+  exit 0
+fi
+
 if [ "$first" = wprism ] && [ "$second" = checkpoint-seal ]; then
   output=''
+  database_target=''
   for arg in "${args[@]}"; do
     [[ "$arg" == --output=* ]] && output="${arg#--output=}"
+    [[ "$arg" == --database-target-sha256=* ]] && database_target="${arg#--database-target-sha256=}"
   done
   [ -n "$output" ] || exit 16
+  [ "$database_target" = dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd ] || exit 17
   cat > "$output"
   exit 0
 fi
@@ -75,10 +94,14 @@ if [ "$first" = wprism ] && [ "$second" = compile ]; then
     exit 6
   fi
   artifact_hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  effects=''
+  if [ "${FAKE_SCHEMA_DECLARED:-0}" = 1 ]; then
+    effects=',"effects_inventory":[{"phase":"schema-settle"}]'
+  fi
   if [ "${FAKE_CODE_ENABLED:-0}" = 1 ]; then
-    summary='{"artifact_hash":"'"$artifact_hash"'","code":{"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","format":1,"layout":"wp-content"}}'
+    summary='{"artifact_hash":"'"$artifact_hash"'","code":{"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","format":1,"layout":"wp-content"}'"$effects"'}'
   else
-    summary='{"artifact_hash":"'"$artifact_hash"'"}'
+    summary='{"artifact_hash":"'"$artifact_hash"'"'"$effects"'}'
   fi
   for arg in "${args[@]}"; do
     if [[ "$arg" == --out=* ]]; then
@@ -184,6 +207,16 @@ assert_runtime_call() {
     && "$call" != *"--skip-plugins"* \
     && "$call" != *"--skip-themes"* ]] \
     || fail "$label incorrectly skipped the WordPress runtime it must reconcile"
+}
+assert_database_checkpoint_call() {
+  local call="$1" label="$2"
+  [[ "$call" == *"--exec="* \
+    && "$call" == *"DatabaseTargetIdentity::fromWordPressConfig"* \
+    && "$call" == *"require_recovery_intent"* \
+    && "$call" == *"--skip-plugins"* \
+    && "$call" == *"--skip-themes"* \
+    && "$call" == *"db export -"* ]] \
+    || fail "$label did not use the isolated preflight-bound database export"
 }
 assert_same_artifact_and_owner() {
   local first="$1"; shift
@@ -340,7 +373,7 @@ mapfile -t CALLS < "$LOG"
 [[ "${CALLS[3]}" == *"wprism apply"* ]] || fail "state-only phase 4 was not apply"
 assert_control_call "${CALLS[0]}" "legacy compile"
 assert_control_call "${CALLS[1]}" "legacy promotion-begin"
-assert_runtime_call "${CALLS[2]}" "legacy checkpoint"
+assert_database_checkpoint_call "${CALLS[2]}" "legacy checkpoint"
 assert_runtime_call "${CALLS[3]}" "state-only apply"
 assert_begin_matches_mutations "${CALLS[1]}" "${CALLS[3]}"
 [[ "${CALLS[3]}" == *"--force-unresolved-refs"* ]] \
@@ -358,6 +391,27 @@ if has "${CALLS[*]}" 'promotion-abort'; then
   fail "successful legacy promotion invoked compensating abort"
 fi
 pass "state-only artifact acquires lease -> checkpoint -> apply with no extension hooks"
+
+# A phase-owning state-only adapter cannot load its schema provider while the
+# plugin is inactive. Promote detects that through the isolated lifecycle
+# preflight and sends the operator through host deploy before it asks an
+# ordinary WordPress process for schema readiness.
+run_promote 0 env FAKE_SCHEMA_DECLARED=1 FAKE_LIFECYCLE_CHANGE_REQUIRED=1
+[ "$CODE" -ne 0 ] || fail "inactive state-only adapter unexpectedly entered promotion"
+mapfile -t CALLS < "$LOG"
+[ "${#CALLS[@]}" -eq 1 ] && [[ "${CALLS[0]}" == *"wprism compile"* ]] \
+  || fail "inactive state-only refusal crossed the compile-only target boundary"
+mapfile -t TRACED_CALLS < "$TRACE"
+[ "${#TRACED_CALLS[@]}" -eq 2 ] \
+  && [[ "${TRACED_CALLS[1]}" == *"wprism lifecycle-status"* ]] \
+  || fail "inactive state-only refusal did not use exactly compile -> lifecycle-status"
+assert_control_call "${TRACED_CALLS[1]}" "state-only lifecycle preflight"
+has "$OUT" "run host 'wprism deploy <env>'" \
+  || fail "inactive state-only refusal did not name the one host remediation"
+if has "${TRACED_CALLS[*]}" 'schema-status'; then
+  fail "inactive state-only promotion tried to load schema authority before activation"
+fi
+pass "inactive state-only adapter refuses promotion before provider load with host deploy remediation"
 
 # Code-enabled artifacts add exactly two agent phases, all tied to the same
 # frozen artifact and owner. The lifecycle flag is intentionally scoped only
@@ -377,7 +431,7 @@ mapfile -t CALLS < "$LOG"
 [[ "${CALLS[8]}" == *"wprism apply"* ]] || fail "code path phase 9 was not apply"
 assert_control_call "${CALLS[0]}" "code compile"
 assert_control_call "${CALLS[1]}" "code promotion-begin"
-assert_runtime_call "${CALLS[2]}" "code checkpoint"
+assert_database_checkpoint_call "${CALLS[2]}" "code checkpoint"
 assert_control_call "${CALLS[3]}" "code stage"
 assert_runtime_call "${CALLS[4]}" "code retirement"
 assert_runtime_call "${CALLS[5]}" "code activation"
@@ -409,17 +463,22 @@ fi
 pass "code artifact sequences begin -> checkpoint -> stage -> retire -> activate -> settle -> finalize -> apply"
 
 mapfile -t TRACED_CALLS < "$TRACE"
-[ "${#TRACED_CALLS[@]}" -eq 11 ] || fail "code path expected compile/preflight, the sealed checkpoint pipeline, and later mutation calls"
+[ "${#TRACED_CALLS[@]}" -eq 12 ] || fail "code path expected compile/preflight, target-bound sealed checkpoint pipeline, and later mutation calls"
 [[ "${TRACED_CALLS[0]}" == *"wprism compile"* \
   && "${TRACED_CALLS[1]}" == *"wprism code-preflight"* \
-  && "${TRACED_CALLS[2]}" == *"wprism promotion-begin"* ]] \
+  && "${TRACED_CALLS[2]}" == *"wprism promotion-begin"* \
+  && "${TRACED_CALLS[3]}" == *"wprism checkpoint-target"* ]] \
   || fail "code target-runtime preflight did not run after compile and before promotion-begin"
 assert_control_call "${TRACED_CALLS[1]}" "promotion target-runtime preflight"
-[ "$(call_artifact "${TRACED_CALLS[1]}")" = "$(call_artifact "${TRACED_CALLS[5]}")" ] \
+[ "$(call_artifact "${TRACED_CALLS[1]}")" = "$(call_artifact "${TRACED_CALLS[6]}")" ] \
   || fail "promotion preflight and code-stage did not inspect one frozen artifact"
 [ "$(call_hash "${TRACED_CALLS[1]}")" = "$(call_hash "${TRACED_CALLS[2]}")" ] \
   || fail "promotion preflight and promotion-begin did not bind one artifact hash"
-pass "code target-runtime preflight is control-plane, immutable, and before lease/checkpoint"
+[[ "${TRACED_CALLS[4]} ${TRACED_CALLS[5]}" == *"db export"* \
+  && "${TRACED_CALLS[4]} ${TRACED_CALLS[5]}" == *"wprism checkpoint-seal"* \
+  && "${TRACED_CALLS[4]} ${TRACED_CALLS[5]}" == *"--database-target-sha256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"* ]] \
+  || fail "checkpoint export and sealer were not fenced to the preflight database target"
+pass "code target-runtime and database-target preflights are control-plane, immutable, and before their mutation boundaries"
 
 # A repository can carry a code descriptor while this particular artifact is
 # content-only. The target's payload-verifying preflight is the authority; an
@@ -436,9 +495,11 @@ if grep -Eq 'code-stage|code-finalize|lifecycle-phase' "$LOG"; then
   fail "THE property: unchanged code still invoked stage/finalize or extension lifecycle hooks"
 fi
 mapfile -t TRACED_CALLS < "$TRACE"
-[ "${#TRACED_CALLS[@]}" -eq 6 ] || fail "content-only path omitted compile/preflight/sealing or added a mutation"
+[ "${#TRACED_CALLS[@]}" -eq 8 ] || fail "content-only path omitted compile/preflight/lifecycle-status/target-bound sealing or added a mutation"
 [[ "${TRACED_CALLS[1]}" == *"wprism code-preflight"* ]] \
   || fail "content-only decision did not come from target code preflight"
+[[ "${TRACED_CALLS[2]}" == *"wprism lifecycle-status"* ]] \
+  || fail "content-only promotion did not prove the target lifecycle already exact"
 has "$OUT" 'promote complete: content apply; code lifecycle hooks not run' \
   || fail "content-only completion did not disclose the hook-free path"
 pass "unchanged verified code revision makes content promotion lifecycle-hook-free"

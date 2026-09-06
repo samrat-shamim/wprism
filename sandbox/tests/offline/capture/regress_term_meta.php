@@ -40,6 +40,8 @@ function maybe_serialize($value) {
 }
 function wp_cache_delete($key, string $group = ''): bool { return false; }
 
+require __DIR__ . '/../../lib/wp_stubs.php';
+require __DIR__ . '/../../lib/FakeWpdb.php';
 require __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
@@ -56,6 +58,9 @@ use WPrism\Apply;
 use WPrism\EntityMetaCapture;
 use WPrism\Policy;
 use WPrism\Tokens;
+use WPrism\Db;
+use WPrism\NativeDatabaseProfile;
+use WPrismTest\FakeWpdb;
 
 final class TermMetaFakeWpdb {
     public string $prefix = 'wp_';
@@ -226,12 +231,30 @@ $policy->site = ['policy' => ['term_meta' => [
     'runtime_counter' => ['class' => 'runtime'],
 ]]];
 
-$wpdb = new TermMetaFakeWpdb();
-$wpdb->uuidById = [41 => $uuid];
-$wpdb->idByUuid = [$uuid => 41];
-$wpdb->rows = [
+$wpdb = FakeWpdb::install()
+    ->seedTable('wp_termmeta', [
     ['meta_id' => 1, 'term_id' => 7, 'meta_key' => 'thumbnail_id', 'meta_value' => '41'],
-];
+    ])
+    ->setColumns('wp_termmeta', [
+        'meta_id' => 'bigint unsigned', 'term_id' => 'bigint unsigned',
+        'meta_key' => 'varchar(255)', 'meta_value' => 'longtext',
+    ])
+    ->setIndexes('wp_termmeta', [[
+        'Key_name' => 'term_id', 'Column_name' => 'term_id', 'Seq_in_index' => 1,
+        'Sub_part' => null, 'Non_unique' => 1, 'Index_type' => 'BTREE',
+    ]])
+    ->setTableEngine('wp_termmeta', 'InnoDB')
+    ->seedTable('wp_wprism_map', [[
+        'uuid' => $uuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 41,
+    ]])
+    ->setColumns('wp_wprism_map', [
+        'uuid' => 'varchar(36)', 'entity_type' => 'varchar(64)',
+        'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
+    ])
+    ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wp_wprism_map', 'InnoDB')
+    ->enableInformationSchema();
 
 $sourceTokens = new Tokens();
 $capture = capture_instance($policy, $sourceTokens);
@@ -243,25 +266,31 @@ assertion($store && $canonical === '{{post:' . $uuid . '}}', 'capture tokenizes 
 
 $wprism_test_home = 'https://target.example.test';
 $targetTokens = new Tokens();
-$wpdb->uuidById = [88 => $uuid];
-$wpdb->idByUuid = [$uuid => 88];
-$wpdb->rows = [
+$wpdb->seedTable('wp_wprism_map', [[
+    'uuid' => $uuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 88,
+]]);
+$wpdb->seedTable('wp_termmeta', [
     ['meta_id' => 10, 'term_id' => 9, 'meta_key' => 'thumbnail_id', 'meta_value' => '999'],
     ['meta_id' => 11, 'term_id' => 9, 'meta_key' => 'old_authored', 'meta_value' => 'remove-me'],
     ['meta_id' => 12, 'term_id' => 9, 'meta_key' => 'runtime_counter', 'meta_value' => 'runtime-bytes'],
     ['meta_id' => 13, 'term_id' => 9, 'meta_key' => 'undeclared_plugin_key', 'meta_value' => "opaque\0bytes"],
-];
+])->setAutoIncrement('wp_termmeta', 14, 'meta_id');
 $apply = new \WPrism\ApplyFieldMaterializer($policy, $targetTokens);
 $cache = \WPrism\CacheInvalidationTransaction::class;
 $cache::begin();
+Db::start_repeatable_read(
+    'term-meta materializer fixture transaction start',
+    new NativeDatabaseProfile(['wp_termmeta', 'wp_wprism_map'], ['wp_termmeta'])
+);
 $apply->begin_authored_transaction();
 $apply->reconcile_authored_term_meta(9, ['thumbnail_id' => $canonical]);
+Db::commit('term-meta materializer fixture transaction commit');
 $cache::finish();
 $apply->end_authored_transaction();
 $cache::end();
 
 $byKey = [];
-foreach ($wpdb->rows as $row) $byKey[$row['meta_key']] = $row['meta_value'];
+foreach ($wpdb->rows('wp_termmeta') as $row) $byKey[$row['meta_key']] = $row['meta_value'];
 assertion(($byKey['thumbnail_id'] ?? null) === '88', 'apply resolves the token to the target attachment id');
 assertion(!array_key_exists('old_authored', $byKey), 'apply deletes an authored key omitted from canonical term meta');
 assertion(($byKey['runtime_counter'] ?? null) === 'runtime-bytes', 'apply preserves runtime termmeta byte-for-byte');

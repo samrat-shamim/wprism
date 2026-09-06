@@ -16,7 +16,22 @@ if (!defined('WPRISM_SPEC_VERSION')) {
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
+$GLOBALS['wprism_woo_multisite_fixture'] = false;
+if (!function_exists('is_multisite')) {
+    function is_multisite(): bool {
+        return ($GLOBALS['wprism_woo_multisite_fixture'] ?? false) === true;
+    }
+}
 $root = dirname(__DIR__, 4);
+// Counterfactuals load one complete runtime/library tree, never mixed class
+// files from two physical checkouts with conflicting explicit dependencies.
+if (isset($argv[1])) {
+    $priorRoot = realpath($argv[1]);
+    if (!is_string($priorRoot) || !is_file($priorRoot . '/agent/src/Delete/ExecutableOwnerBoundary.php')) {
+        throw new RuntimeException('deletion-owner counterfactual runtime is unavailable');
+    }
+    $root = $priorRoot;
+}
 $executableOwnerFixture = sys_get_temp_dir() . '/wprism-woo-owners-' . bin2hex(random_bytes(8));
 mkdir($executableOwnerFixture . '/mu-plugins', 0777, true);
 mkdir($executableOwnerFixture . '/themes/twentytwentyfive', 0777, true);
@@ -75,7 +90,7 @@ require $root . '/agent/src/Grammar/Shortcodes.php';
 require $root . '/agent/src/Kernel/Canary.php';
 require $root . '/agent/src/Repository/IdentityNotes.php';
 require $root . '/agent/src/Repository/Snapshot.php';
-require $root . '/agent/src/Kernel/TransientDbException.php';
+require_once $root . '/agent/src/Kernel/TransientDbException.php';
 require $root . '/agent/src/Publication/Publish.php';
 require_once $root . '/agent/src/Kernel/PersonalData.php';
 require $root . '/agent/src/Promotion/PromotionLock.php';
@@ -91,6 +106,19 @@ require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Delete/DeleteGuardValueCodec.php';
 require_once $root . '/agent/src/Delete/ExecutableOwnerBoundary.php';
 require_once $root . '/agent/src/Apply/Apply.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+
+if (!function_exists('apply_filters')) {
+    /** Minimal WordPress query-filter dispatch needed by the shared wpdb fake. */
+    function apply_filters(string $hookName, mixed $value, mixed ...$args): mixed {
+        $hook = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter'][$hookName] ?? null)
+            : null;
+        return is_object($hook) && method_exists($hook, 'apply_filters')
+            ? $hook->apply_filters($value, array_merge([$value], $args))
+            : $value;
+    }
+}
 
 use WPrism\Deletion;
 use WPrism\DeleteGuardValueCodec;
@@ -110,41 +138,6 @@ function check(bool $condition, string $message): void {
         echo "FAIL: $message\n";
         $failures++;
     }
-}
-
-/** @return array{format:string,root:string,sha256:string} */
-function woo_fixture_code_identity(string $absoluteRoot, string $canonicalRoot): array {
-    $files = [];
-    if (is_file($absoluteRoot)) {
-        $files[] = [
-            'path' => basename($canonicalRoot),
-            'sha256' => hash_file('sha256', $absoluteRoot),
-        ];
-    } else {
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($absoluteRoot, FilesystemIterator::SKIP_DOTS)
-        );
-        foreach ($iterator as $entry) {
-            if (!$entry instanceof SplFileInfo || !$entry->isFile() || $entry->isLink()) {
-                continue;
-            }
-            $files[] = [
-                'path' => str_replace('\\', '/', substr($entry->getPathname(), strlen($absoluteRoot) + 1)),
-                'sha256' => hash_file('sha256', $entry->getPathname()),
-            ];
-        }
-    }
-    usort($files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
-    $payload = [
-        'files' => $files,
-        'format' => 'wprism-executable-tree/v1',
-        'root' => $canonicalRoot,
-    ];
-    return [
-        'format' => 'wprism-executable-tree/v1',
-        'root' => $canonicalRoot,
-        'sha256' => hash('sha256', \WPrism\Canon::encode($payload)),
-    ];
 }
 
 /** @return array<string,mixed> */
@@ -190,22 +183,70 @@ function woo_writer_verifier(bool &$held, int &$verifications): Closure {
     };
 }
 
+/** Start the exact authored-profile subset exercised by this capsule's guards. */
+function woo_begin_guard_transaction(
+    \WPrism\DeleteGuardLockCoordinator $coordinator,
+    array $deleteWork
+): void {
+    woo_begin_selected_guard_transaction(
+        $coordinator->transaction_database_profile($deleteWork)
+    );
+}
+
+/** @param array{read_tables:list<string>,table_presence_reads:list<string>} $scope */
+function woo_begin_selected_guard_transaction(array $scope): void {
+    global $wpdb;
+    $readTables = array_values(array_unique(array_merge(
+        [
+            (string) $wpdb->options,
+            (string) $wpdb->postmeta,
+            (string) $wpdb->prefix . 'wprism_map',
+        ],
+        $scope['read_tables']
+    )));
+    sort($readTables, SORT_STRING);
+    \WPrism\Db::start_repeatable_read(
+        'Woo deletion-authority profiled transaction',
+        \WPrism\NativeDatabaseProfile::schema_read_only(
+            $readTables,
+            $scope['table_presence_reads']
+        )
+    );
+    \WPrism\DeleteGuardEvaluator::begin_authored_transaction();
+}
+
+/** Settle one successful fixture START and clear all transaction evidence. */
+function woo_end_guard_transaction(\WPrism\DeleteGuardLockCoordinator $coordinator): void {
+    try {
+        \WPrism\Db::rollback('Woo deletion-authority profiled transaction rollback');
+    } finally {
+        \WPrism\DeleteGuardEvaluator::end_authored_transaction();
+        $coordinator->end_writer_exclusion_transaction();
+    }
+}
+
+/** Clear process-local evidence after the database commit is proven. */
+function woo_end_committed_guard_transaction(
+    \WPrism\DeleteGuardLockCoordinator $coordinator
+): void {
+    \WPrism\DeleteGuardEvaluator::end_authored_transaction();
+    $coordinator->end_writer_exclusion_transaction();
+}
+
 /** Minimal target seam for Apply::count_guard_refs()'s manifest guard branches. */
-final class WooDeletionFakeWpdb {
-    public string $prefix = 'wp_';
-    public string $postmeta = 'wp_postmeta';
-    public string $options = 'wp_options';
-    public string $last_error = '';
+final class WooDeletionFakeWpdb extends \WPrismTest\FakeWpdb {
+    public string $sitemeta = 'wp_sitemeta';
+    public int $siteid = 1;
     public string $transactionIsolation = 'REPEATABLE-READ';
     public string $legacyIsolation = 'REPEATABLE-READ';
     public bool $modernIsolationError = false;
     public bool $engineIntrospectionError = false;
     public bool $optionScanError = false;
-    public bool $metadataProbeError = false;
+    public ?string $metadataProbeErrorTable = null;
+    public ?string $presenceProbeErrorTable = null;
+    public int $presenceProbeErrorCode = 1105;
     public bool $ledgerReadError = false;
     public ?string $guardReadErrorTable = null;
-    public bool $savepointExists = false;
-    public int $insert_id = 0;
     private ?int $warningCode = null;
     /** @var list<string> */
     public array $lockingQueries = [];
@@ -216,11 +257,18 @@ final class WooDeletionFakeWpdb {
     /** @var list<string> */
     public array $topologyQueries = [];
     /** @var list<string> */
+    public array $presenceQueries = [];
+    /** @var list<string> */
     public array $events = [];
+    /** @var list<string> exact profile/transaction phases for public-boundary assertions */
+    public array $boundaryTrace = [];
     /** @var array<string,string|null> */
     public array $tableEngines = [
         'wp_postmeta' => 'InnoDB',
         'wp_options' => 'InnoDB',
+        'wp_wprism_map' => 'InnoDB',
+        'wp_woocommerce_shipping_zone_methods' => 'InnoDB',
+        'wp_sitemeta' => 'InnoDB',
     ];
     /** @var array<string,list<array<string,mixed>>> */
     public array $indexRows = [
@@ -233,6 +281,11 @@ final class WooDeletionFakeWpdb {
             'Key_name' => 'option_name', 'Seq_in_index' => '1',
             'Column_name' => 'option_name', 'Sub_part' => null,
             'Non_unique' => '0', 'Index_type' => 'BTREE', 'Visible' => 'YES',
+        ]],
+        'wp_sitemeta' => [[
+            'Key_name' => 'site_id', 'Seq_in_index' => '1',
+            'Column_name' => 'site_id', 'Sub_part' => null,
+            'Non_unique' => '1', 'Index_type' => 'BTREE', 'Visible' => 'YES',
         ]],
     ];
     /** @var array<string,int> */
@@ -251,12 +304,30 @@ final class WooDeletionFakeWpdb {
     ];
     /** @var list<string> */
     public array $activationQueries = [];
+    /** @var list<string> */
+    public array $networkActivationQueries = [];
+    /** @var list<array{meta_id:string,meta_key:string,meta_value:string}> */
+    public array $networkActivationRows = [];
+    public ?string $networkActivationValueBytesOverride = null;
     /** @var array<int,array<string,mixed>> */
     public array $shippingMethodRows = [];
     /** @var list<array<string,mixed>> */
     public array $insertedShippingMethodRows = [];
 
-    public function prepare(string $sql, ...$args): string {
+    public function __construct() {
+        parent::__construct();
+        parent::seedTable('woocommerce_shipping_zone_methods', [])
+            ->setPrimaryKey('woocommerce_shipping_zone_methods', 'instance_id')
+            ->setColumns('woocommerce_shipping_zone_methods', [
+                'instance_id' => 'bigint(20) unsigned',
+                'zone_id' => 'bigint(20) unsigned',
+                'method_id' => 'varchar(64)',
+                'method_order' => 'bigint(20) unsigned',
+                'is_enabled' => 'tinyint(1)',
+            ]);
+    }
+
+    public function prepare(string $sql, mixed ...$args): string {
         foreach ($args as $arg) {
             $replacement = is_int($arg)
                 ? (string) $arg
@@ -266,7 +337,19 @@ final class WooDeletionFakeWpdb {
         return $sql;
     }
 
-    public function get_var(string $sql) {
+    public function get_var(string $sql, int $x = 0, int $y = 0): ?string {
+        if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode'
+            || $sql === 'SELECT @@SESSION.character_set_client AS character_set_client'
+            || $sql === 'SELECT MAXLEN FROM information_schema.CHARACTER_SETS '
+                . 'WHERE CHARACTER_SET_NAME = @@SESSION.character_set_client'
+            || $sql === 'SELECT CURRENT_USER()'
+            || $sql === 'SELECT VERSION()'
+            || $sql === 'SELECT DATABASE()'
+            || $sql === 'SELECT CAST(CONVERT(DATABASE() USING filename) AS BINARY)'
+            || str_contains($sql, 'SELECT COUNT(*) FROM information_schema.TRIGGERS')) {
+            return parent::get_var($sql, $x, $y);
+        }
+        $sql = $this->filteredQuery($sql);
         if ($sql === 'SELECT @@in_transaction') {
             return '1';
         }
@@ -281,6 +364,34 @@ final class WooDeletionFakeWpdb {
             return $this->legacyIsolation;
         }
         if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT 0$/D', $sql, $match) === 1) {
+            // Presence and metadata-lock boundaries intentionally issue the
+            // same zero-row SQL. Classify by the engine caller so this fake
+            // can inject failures into one boundary without weakening either.
+            $metadataLockProbe = false;
+            foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8) as $frame) {
+                if (($frame['class'] ?? '') === \WPrism\DatabaseLockBoundary::class
+                    && ($frame['function'] ?? '') === 'acquire_table_metadata_lock') {
+                    $metadataLockProbe = true;
+                    break;
+                }
+            }
+            if ($metadataLockProbe) {
+                $this->metadataQueries[] = $sql;
+                $this->events[] = 'metadata';
+                if ($this->metadataProbeErrorTable === $match[1]) {
+                    $this->last_error = 'simulated metadata probe failure';
+                }
+                return null;
+            }
+            $this->presenceQueries[] = $sql;
+            $this->boundaryTrace[] = 'presence:' . $match[1]
+                . ':' . ($this->activeTransactionIsolation() === null ? 'idle' : 'transaction')
+                . ':' . (\WPrism\DatabaseQueryIsolation::has_bound_profile() ? 'profiled' : 'unprofiled');
+            if ($this->presenceProbeErrorTable === $match[1]) {
+                $this->last_error = 'simulated exact presence failure';
+                $this->warningCode = $this->presenceProbeErrorCode;
+                return null;
+            }
             if (array_key_exists($match[1], $this->tableEngines)) {
                 $this->last_error = '';
                 $this->warningCode = null;
@@ -288,12 +399,13 @@ final class WooDeletionFakeWpdb {
             }
             $this->last_error = 'simulated absent table';
             $this->warningCode = 1146;
-            return false;
+            return null;
         }
         if (str_contains($sql, 'SELECT 1 FROM `')) {
             $this->metadataQueries[] = $sql;
             $this->events[] = 'metadata';
-            if ($this->metadataProbeError) {
+            if ($this->metadataProbeErrorTable !== null
+                && str_contains($sql, "`{$this->metadataProbeErrorTable}`")) {
                 $this->last_error = 'simulated metadata probe failure';
             }
             return null;
@@ -325,14 +437,15 @@ final class WooDeletionFakeWpdb {
             $m
         )) {
             $id = (int) $m[1];
-            return isset($this->shippingMethodRows[$id]) ? $id : null;
+            return isset($this->shippingMethodRows[$id]) ? (string) $id : null;
         }
         if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
             if ($this->ledgerReadError) {
                 $this->last_error = 'simulated ledger lookup failure';
                 return null;
             }
-            return $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
+            $id = $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
+            return $id === null ? null : (string) $id;
         }
         if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $sql, $m)) {
             return $this->idToUuid[$m[1] . ':' . $m[2]] ?? null;
@@ -340,7 +453,21 @@ final class WooDeletionFakeWpdb {
         return null;
     }
 
-    public function get_row(string $sql, $format = null): ?array {
+    public function get_row(string $sql, string $format = OBJECT, int $y = 0): array|object|null {
+        if (str_starts_with($sql, 'SELECT CONNECTION_ID() AS connection_id, ')) {
+            return parent::get_row($sql, $format, $y);
+        }
+        $sql = $this->filteredQuery($sql);
+        if (preg_match('/^SHOW CREATE TABLE `([A-Za-z0-9_]+)`$/D', $sql, $match) === 1) {
+            $table = $match[1];
+            $this->presenceQueries[] = $sql;
+            if (!array_key_exists($table, $this->tableEngines)) {
+                $this->last_error = 'simulated absent table';
+                return null;
+            }
+            $row = [$table, "CREATE TABLE `$table` (`fixture_id` bigint) ENGINE=InnoDB"];
+            return $format === OBJECT ? (object) $row : $row;
+        }
         if (preg_match(
             "/SELECT entity_type, local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/",
             $sql,
@@ -380,31 +507,69 @@ final class WooDeletionFakeWpdb {
         return 1;
     }
 
-    public function query(string $sql): int|false {
-        if (str_starts_with($sql, 'SAVEPOINT `')) {
-            $this->savepointExists = true;
-            return 0;
+    public function query(string $sql): int|bool {
+        if (str_starts_with($sql, 'START TRANSACTION')) {
+            $this->boundaryTrace[] = 'start';
+        } elseif (str_starts_with($sql, 'COMMIT')) {
+            $this->boundaryTrace[] = 'commit';
+        } elseif (str_starts_with($sql, 'ROLLBACK')) {
+            $this->boundaryTrace[] = 'rollback';
         }
-        if (str_starts_with($sql, 'RELEASE SAVEPOINT `')) {
-            if (!$this->savepointExists) {
-                $this->last_error = 'SAVEPOINT does not exist';
-                return false;
+        if (str_starts_with($sql, 'INSERT INTO `wp_woocommerce_shipping_zone_methods`')) {
+            $result = parent::query($sql);
+            if ($result !== false) {
+                foreach (parent::rows('woocommerce_shipping_zone_methods') as $row) {
+                    $id = (int) ($row['instance_id'] ?? 0);
+                    if ($id <= 0 || isset($this->shippingMethodRows[$id])) {
+                        continue;
+                    }
+                    foreach (['instance_id', 'zone_id', 'method_order', 'is_enabled'] as $column) {
+                        if (array_key_exists($column, $row)) {
+                            $row[$column] = (int) $row[$column];
+                        }
+                    }
+                    $this->shippingMethodRows[$id] = $row;
+                    $this->insertedShippingMethodRows[] = $row;
+                    $this->insert_id = $id;
+                }
             }
-            $this->savepointExists = false;
-            return 0;
+            return $result;
         }
+        if (preg_match(
+            '/^(?:SET @wprism_tx_session = |SET TRANSACTION |START TRANSACTION|SAVEPOINT `|'
+                . 'RELEASE SAVEPOINT `|ROLLBACK TO SAVEPOINT `|COMMIT(?: |$)|ROLLBACK(?: |$))/',
+            $sql
+        ) === 1) {
+            return parent::query($sql);
+        }
+        $this->filteredQuery($sql);
         return 1;
     }
 
-    public function get_results(string $sql, $format = null): array {
+    public function get_results(string $sql, string $format = OBJECT): array|false|null {
+        $metadataSql = strtolower($sql);
+        if ((str_contains($metadataSql, 'information_schema.user_privileges')
+                && (str_contains($metadataSql, 'direct_trigger_grants')
+                    || str_contains($metadataSql, "privilege_type = 'process'")))
+            || (str_contains($metadataSql, 'information_schema.tables')
+                && str_contains($metadataSql, "'innodb_foreign'"))
+            || str_contains($metadataSql, 'information_schema.innodb_foreign')
+            || str_contains($metadataSql, 'information_schema.innodb_sys_foreign')) {
+            return parent::get_results($sql, $format);
+        }
         if ($sql === 'SHOW WARNINGS') {
+            if ($this->warningCode === null) {
+                return parent::get_results($sql, $format);
+            }
+            $this->filteredQuery($sql);
             $this->last_error = '';
-            return $this->warningCode === null ? [] : [[
+            return [[
                 'Level' => 'Error',
                 'Code' => $this->warningCode,
                 'Message' => 'simulated absent table',
             ]];
         }
+        $sql = $this->filteredQuery($sql);
         if ($this->optionScanError && str_contains($sql, 'SELECT `option_name` FROM `wp_options`')) {
             $this->last_error = 'simulated option scan failure';
             return [];
@@ -452,9 +617,41 @@ final class WooDeletionFakeWpdb {
                 return [['option_name' => $name, 'option_value' => $value]];
             }
         }
+        if (str_contains($sql, 'FROM `wp_sitemeta` FORCE INDEX')
+            && str_contains($sql, "meta_key = 'active_sitewide_plugins'")) {
+            $this->networkActivationQueries[] = $sql;
+            if (str_contains($sql, 'OCTET_LENGTH(meta_value) AS meta_value_bytes')) {
+                return array_map(
+                    fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                        'meta_value_bytes' => $this->networkActivationValueBytesOverride
+                            ?? (string) strlen($row['meta_value']),
+                    ],
+                    $this->networkActivationRows
+                );
+            }
+            if (str_contains($sql, 'SHA2(meta_value, 256) AS meta_value_sha256')) {
+                return array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                        'meta_value_sha256' => hash('sha256', $row['meta_value']),
+                    ],
+                    $this->networkActivationRows
+                );
+            }
+            if (str_contains($sql, 'SELECT meta_id, meta_key, meta_value')) {
+                return $this->networkActivationRows;
+            }
+            throw new RuntimeException('unexpected network activation query shape');
+        }
         if (str_contains($sql, 'FOR UPDATE')) {
             $this->lockingQueries[] = $sql;
             $this->events[] = 'locking';
+            if (preg_match('/\bFROM\s+`([A-Za-z0-9_]+)`/Di', $sql, $match) === 1) {
+                $this->boundaryTrace[] = 'lock:' . $match[1];
+            }
         }
         if ($this->guardReadErrorTable !== null
             && str_contains($sql, "FROM `{$this->guardReadErrorTable}`")) {
@@ -468,6 +665,19 @@ final class WooDeletionFakeWpdb {
             return $this->optionRows;
         }
         return [];
+    }
+
+    /** Dispatch through the installed transaction-local query gate. */
+    private function filteredQuery(string $sql): string {
+        $gate = is_array($GLOBALS['wp_filter'] ?? null)
+            ? ($GLOBALS['wp_filter']['query'] ?? null)
+            : null;
+        if (($GLOBALS['wpdb'] ?? null) === $this
+            && is_object($gate)
+            && method_exists($gate, 'hook_name')) {
+            $sql = apply_filters('query', $sql);
+        }
+        return $this->remove_placeholder_escape($sql);
     }
 }
 
@@ -553,14 +763,12 @@ $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $adapterLibrary = new ReflectionProperty(Policy::class, 'adapterLibrary');
 $adapterLibrary->setValue($policy, \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 $policy->manifests = [$fixtureManifest];
-$fixtureThemeIdentity = woo_fixture_code_identity(
-    WP_CONTENT_DIR . '/themes/twentytwentyfive',
-    'themes/twentytwentyfive'
-);
-$fixturePluginIdentity = woo_fixture_code_identity(
-    WP_PLUGIN_DIR . '/woocommerce',
-    'plugins/woocommerce'
-);
+$fixtureThemeIdentity = \WPrism\ExecutableOwnerBoundary::observe_owner(
+    'theme:twentytwentyfive'
+)['code_identity'];
+$fixturePluginIdentity = \WPrism\ExecutableOwnerBoundary::observe_owner(
+    'plugin:woocommerce/woocommerce.php'
+)['code_identity'];
 foreach (['post:product', 'post:product_variation'] as $selector) {
     $policy->manifests[0]['deletions'][$selector]['executable_owner_identities'] = [
         'plugin:woocommerce/woocommerce.php' => [$fixturePluginIdentity],
@@ -794,7 +1002,7 @@ check($screenClean("wprism: option_name_refs rule for option 'woocommerce_flat_r
 // shaped variant, or the pin above would pass vacuously.
 check(!$screenClean("wprism: option '/Users/alice/.aws/credentials' matches a malformed option_name_refs namespace"),
     'issue #3403 self-test: a path-shaped option_name_ref message would be caught by this pin');
-check(!$screenClean("wprism: option_name_refs owner leaked token sk_live_0123456789abcdef in its match"),
+check(!$screenClean('wprism: option_name_refs owner leaked token sk_live_0123456789abcdef in its match'),
     'issue #3403 self-test: a credential-shaped option_name_ref message would be caught by this pin');
 
 $rows = Snapshot::row_tables($policy);
@@ -903,14 +1111,14 @@ foreach (['11.0.0' => false, '11.0.1' => false, '10.9.4' => true, '11.0.2' => tr
             && ($row['path'] ?? '') === 'plugins/woocommerce/woocommerce.php'
     ));
     check(($outside !== []) === $refused,
-        "the executable code-source gate " . ($refused ? 'refuses' : 'admits') . " exact WooCommerce $version");
+        'the executable code-source gate ' . ($refused ? 'refuses' : 'admits') . " exact WooCommerce $version");
 }
 unlink($compatibilityPlugin);
 rmdir(dirname($compatibilityPlugin));
 rmdir($compatibilityRoot . '/plugins');
 rmdir($compatibilityRoot);
 check(str_contains((string) file_get_contents($root . '/agent/src/Adapter/Providers.php'),
-    "\$provider->invoke(\$capability, \$args)"),
+    '$provider->invoke($capability, $args)'),
     'provider capabilities are invoked through the engine contract, never as an engine-executed string');
 // The retired channel ran every payload in a freshly launched WP-CLI process
 // (cold runtime caches by construction). Providers run IN-PROCESS, so the
@@ -965,10 +1173,14 @@ if (!function_exists('get_transient')) {
         return false;
     }
 }
-require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php';
-$cacheProvider = new \WPrism\Providers\WoocommerceCache(
-    $policy->provider_declarations()['woocommerce-cache']
-);
+// This fixture does not boot a WordPress plugin lifecycle, so cross the
+// engine's private manifest-provider loader join directly. It retains the
+// production digest/class checks and is the only path that may mint the
+// validated capability authority required by ManifestProviderRuntime.
+$manifestProviderLoader = new ReflectionMethod(\WPrism\Providers::class, 'manifest_provider');
+$cacheProvider = $manifestProviderLoader->invoke(null, $policy, $cacheProviderDeclaration);
+check($cacheProvider instanceof \WPrism\Providers\WoocommerceCache,
+    'Woo cache fixture resolves through the engine-owned manifest-provider loader');
 check($cacheProvider->identity() === [
     'id' => 'woocommerce-cache',
     'plugin' => 'woocommerce/woocommerce.php',
@@ -1057,44 +1269,288 @@ check(
         ),
     'the shipped product stock-notification guard binds the exact absence-means-empty topology and remains non-forceable when present'
 );
-$runtimeGuardManifest = $shippedPolicy->manifests[0];
+$runtimeGuardManifest = $policy->manifests[0];
 $runtimeGuardManifest['deletions']['post:product']['guards'] = [$reservedStockGuard];
-$runtimeGuardPolicy = clone $shippedPolicy;
+$runtimeGuardPolicy = clone $policy;
 $runtimeGuardPolicy->manifests = [$runtimeGuardManifest];
+$profileManifest = $policy->manifests[0];
+$profileManifest['deletions']['post:product']['guards'] = [
+    $productMetaGuard,
+    $stockNotificationGuards['post:product'],
+];
+$profilePolicy = clone $policy;
+$profilePolicy->manifests = [$profileManifest];
+$productDeleteUuids = [$childUuid => true];
+$productDeletions = [
+    $childUuid => ['data' => ['kind' => 'post', 'type' => 'product']],
+];
+$newProfileCoordinator = static function () use ($profilePolicy): \WPrism\DeleteGuardLockCoordinator {
+    $writerHeld = true;
+    $verifications = 0;
+    $coordinator = new \WPrism\DeleteGuardLockCoordinator(
+        $profilePolicy,
+        new \WPrism\DeleteGuardReferenceScanner($profilePolicy),
+        Snapshot::row_tables($profilePolicy),
+        woo_writer_verifier($writerHeld, $verifications)
+    );
+    $coordinator->bind_writer_exclusion(woo_writer_witness());
+    return $coordinator;
+};
+$profileDeleteRow = static function (\WPrism\DeleteGuardLockCoordinator $coordinator) use (
+    $productMetaGuard,
+    $stockNotificationGuards,
+    $childUuid,
+    $productDeleteUuids,
+    $productDeletions
+): array {
+    $witnesses = [];
+    foreach ([$productMetaGuard, $stockNotificationGuards['post:product']] as $index => $guard) {
+        $finding = $coordinator->count(
+            $guard,
+            $childUuid,
+            $productDeleteUuids,
+            $productDeletions
+        );
+        $witnesses[(string) $index] = $finding['witness'];
+    }
+    return [
+        'deletion_kind' => 'post',
+        'deletion_type' => 'product',
+        'type' => 'product',
+        'uuid' => $childUuid,
+        'guard_witnesses' => $witnesses,
+    ];
+};
+
+$profileCoordinator = $newProfileCoordinator();
+$profileRow = $profileDeleteRow($profileCoordinator);
+$fakeWpdb->presenceQueries = [];
+$fakeWpdb->metadataQueries = [];
+$fakeWpdb->engineQueries = [];
+$fakeWpdb->lockingQueries = [];
+$fakeWpdb->boundaryTrace = [];
+$profileScope = null;
+$profileCommitted = false;
+$profileTransactionStarted = false;
+$optionalProfilePresenceCount = static fn(): int => count(array_filter(
+    $fakeWpdb->presenceQueries,
+    static fn(string $query): bool =>
+        $query === 'SELECT 1 FROM `wp_wc_stock_notifications` LIMIT 0'
+));
+$profileSelectionPresenceCount = null;
+$profileAdmissionPresenceCount = null;
+$profileCommitPresenceCount = null;
+try {
+    $profileScope = $profileCoordinator->transaction_database_profile([$profileRow]);
+    $profileSelectionPresenceCount = $optionalProfilePresenceCount();
+    woo_begin_selected_guard_transaction($profileScope);
+    $profileTransactionStarted = true;
+    $profileCoordinator->lock_and_revalidate(
+        [$profileRow],
+        $productDeleteUuids,
+        $productDeletions,
+        [],
+        []
+    );
+    $profileAdmissionPresenceCount = $optionalProfilePresenceCount();
+    $profileCoordinator->assert_writer_exclusion_commit_boundary();
+    $profileCommitPresenceCount = $optionalProfilePresenceCount();
+    \WPrism\Db::commit('Woo required-and-optional guard profile commit');
+    $profileCommitted = true;
+} finally {
+    if ($profileCommitted) {
+        woo_end_committed_guard_transaction($profileCoordinator);
+    } elseif ($profileTransactionStarted) {
+        woo_end_guard_transaction($profileCoordinator);
+    } else {
+        $profileCoordinator->end_writer_exclusion_transaction();
+    }
+}
+check(
+    $profileCommitted
+        && $profileScope === [
+            'read_tables' => ['wp_options', 'wp_postmeta'],
+            'table_presence_reads' => ['wp_wc_stock_notifications'],
+        ]
+        && array_filter(
+            $fakeWpdb->metadataQueries,
+            static fn(string $query): bool => str_contains($query, 'wc_stock_notifications')
+        ) === []
+        && count(array_filter(
+            $fakeWpdb->presenceQueries,
+            static fn(string $query): bool =>
+                $query === 'SELECT 1 FROM `wp_wc_stock_notifications` LIMIT 0'
+        )) === 4,
+    'authored apply profiles a present required guard, keeps an absent optional guard presence-only, and commits after exact recensus'
+);
+$profileBoundaryTrace = array_values(array_filter(
+    $fakeWpdb->boundaryTrace,
+    static fn(string $event): bool => in_array($event, [
+        'presence:wp_wc_stock_notifications:idle:unprofiled',
+        'start',
+        'presence:wp_wc_stock_notifications:transaction:profiled',
+        'lock:wp_postmeta',
+        'commit',
+    ], true)
+));
+$expectedProfileBoundaryTrace = [
+    'presence:wp_wc_stock_notifications:idle:unprofiled',
+    'start',
+    'presence:wp_wc_stock_notifications:transaction:profiled',
+    'lock:wp_postmeta',
+    'presence:wp_wc_stock_notifications:transaction:profiled',
+    'presence:wp_wc_stock_notifications:transaction:profiled',
+    'commit',
+];
+if ($profileBoundaryTrace !== $expectedProfileBoundaryTrace) {
+    echo 'diagnostic: profile boundary trace=' . json_encode($profileBoundaryTrace) . "\n";
+}
+check(
+    $profileBoundaryTrace === $expectedProfileBoundaryTrace,
+    'optional guard absence is proven once before START, once after profile admission, and once after its guard lock immediately before COMMIT'
+);
+check(
+    $profileSelectionPresenceCount === 1
+        && $profileAdmissionPresenceCount === 3
+        && $profileCommitPresenceCount === 4,
+    'phase-local probe counts pin profile selection, admission/scanner verification, and final commit recensus independently'
+);
+
+$guardlessManifest = $profileManifest;
+$guardlessManifest['deletions']['post:product']['guards'] = [];
+$guardlessPolicy = clone $policy;
+$guardlessPolicy->manifests = [$guardlessManifest];
+$guardlessWriterHeld = true;
+$guardlessVerifications = 0;
+$guardlessCoordinator = new \WPrism\DeleteGuardLockCoordinator(
+    $guardlessPolicy,
+    new \WPrism\DeleteGuardReferenceScanner($guardlessPolicy),
+    Snapshot::row_tables($guardlessPolicy),
+    woo_writer_verifier($guardlessWriterHeld, $guardlessVerifications)
+);
+$guardlessCoordinator->bind_writer_exclusion(woo_writer_witness());
+$guardlessRow = [
+    'deletion_kind' => 'post',
+    'deletion_type' => 'product',
+    'type' => 'product',
+    'uuid' => $childUuid,
+    'guard_witnesses' => [],
+];
+$guardlessProfileRefused = false;
+$guardlessStarted = false;
+try {
+    woo_begin_selected_guard_transaction([
+        'read_tables' => [],
+        'table_presence_reads' => [],
+    ]);
+    $guardlessStarted = true;
+    $guardlessCoordinator->lock_and_revalidate(
+        [$guardlessRow],
+        $productDeleteUuids,
+        $productDeletions,
+        [],
+        []
+    );
+} catch (Throwable $failure) {
+    $guardlessProfileRefused = str_contains(
+        $failure->getMessage(),
+        'deletion database profile was not selected for this work'
+    );
+} finally {
+    if ($guardlessStarted) {
+        woo_end_guard_transaction($guardlessCoordinator);
+    } else {
+        $guardlessCoordinator->end_writer_exclusion_transaction();
+    }
+}
+check(
+    $guardlessProfileRefused && $guardlessVerifications === 0,
+    'guardless executable-owned deletion cannot bind owner rows before selecting its exact coordinator profile'
+);
+
+$appearedBeforeLockCoordinator = $newProfileCoordinator();
+$appearedBeforeLockRow = $profileDeleteRow($appearedBeforeLockCoordinator);
+$appearedBeforeLockScope = $appearedBeforeLockCoordinator->transaction_database_profile(
+    [$appearedBeforeLockRow]
+);
+$fakeWpdb->tableEngines['wp_wc_stock_notifications'] = 'InnoDB';
+$appearedBeforeLockStarted = false;
+$appearedBeforeLockRefused = false;
+try {
+    woo_begin_selected_guard_transaction($appearedBeforeLockScope);
+    $appearedBeforeLockStarted = true;
+    $appearedBeforeLockCoordinator->lock_and_revalidate(
+        [$appearedBeforeLockRow],
+        $productDeleteUuids,
+        $productDeletions,
+        [],
+        []
+    );
+} catch (Throwable $failure) {
+    $appearedBeforeLockRefused = str_contains(
+        $failure->getMessage(),
+        'guard-table topology changed before transaction admission'
+    );
+} finally {
+    if ($appearedBeforeLockStarted) {
+        woo_end_guard_transaction($appearedBeforeLockCoordinator);
+    } else {
+        $appearedBeforeLockCoordinator->end_writer_exclusion_transaction();
+    }
+    unset($fakeWpdb->tableEngines['wp_wc_stock_notifications']);
+}
+check(
+    $appearedBeforeLockRefused,
+    'an optional guard table appearing after profile selection is refused before its first guard-row lock'
+);
+
+$appearedBeforeCommitCoordinator = $newProfileCoordinator();
+$appearedBeforeCommitRow = $profileDeleteRow($appearedBeforeCommitCoordinator);
+$appearedBeforeCommitStarted = false;
+$appearedBeforeCommitRefused = false;
+$reorderedAdmissionRefused = false;
+try {
+    woo_begin_guard_transaction($appearedBeforeCommitCoordinator, [$appearedBeforeCommitRow]);
+    $appearedBeforeCommitStarted = true;
+    $appearedBeforeCommitCoordinator->lock_and_revalidate(
+        [$appearedBeforeCommitRow],
+        $productDeleteUuids,
+        $productDeletions,
+        [],
+        []
+    );
+    try {
+        $appearedBeforeCommitCoordinator->lock_and_revalidate([], [], [], [], []);
+    } catch (Throwable $failure) {
+        $reorderedAdmissionRefused = str_contains(
+            $failure->getMessage(),
+            'deletion database profile was not selected for this work'
+        );
+    }
+    $fakeWpdb->tableEngines['wp_wc_stock_notifications'] = 'InnoDB';
+    $appearedBeforeCommitCoordinator->assert_writer_exclusion_commit_boundary();
+} catch (Throwable $failure) {
+    $appearedBeforeCommitRefused = str_contains($failure->getMessage(), 'appeared before commit');
+} finally {
+    if ($appearedBeforeCommitStarted) {
+        woo_end_guard_transaction($appearedBeforeCommitCoordinator);
+    } else {
+        $appearedBeforeCommitCoordinator->end_writer_exclusion_transaction();
+    }
+    unset($fakeWpdb->tableEngines['wp_wc_stock_notifications']);
+}
+check(
+    $reorderedAdmissionRefused && $appearedBeforeCommitRefused,
+    'a reordered admission cannot erase the pre-COMMIT recensus that refuses an appearing absence-means-empty table'
+);
+
 $runtimeGuardCoordinator = new \WPrism\DeleteGuardLockCoordinator(
     $runtimeGuardPolicy,
     new \WPrism\DeleteGuardReferenceScanner($runtimeGuardPolicy),
     Snapshot::row_tables($runtimeGuardPolicy),
     static fn(array $binding): array => $binding
 );
-$absenceTables = new ReflectionProperty(\WPrism\DeleteGuardLockCoordinator::class, 'absenceEmptyTables');
-$absenceTables->setValue($runtimeGuardCoordinator, ['wp_wc_stock_notifications' => true]);
-$fakeWpdb->topologyQueries = [];
-$absentCommitReachedWriterGate = false;
-try {
-    $runtimeGuardCoordinator->assert_writer_exclusion_commit_boundary();
-} catch (Throwable $failure) {
-    $absentCommitReachedWriterGate = !str_contains($failure->getMessage(), 'appeared before commit');
-}
-check(
-    $absentCommitReachedWriterGate
-        && count($fakeWpdb->topologyQueries) === 1
-        && str_contains($fakeWpdb->topologyQueries[0], "TABLE_NAME IN ('wp_wc_stock_notifications')"),
-    'the final commit boundary re-censuses the exact absence-means-empty table before checking writer exclusion'
-);
-$fakeWpdb->tableEngines['wp_wc_stock_notifications'] = 'InnoDB';
-$appearedBeforeCommitRefused = false;
-try {
-    $runtimeGuardCoordinator->assert_writer_exclusion_commit_boundary();
-} catch (Throwable $failure) {
-    $appearedBeforeCommitRefused = str_contains($failure->getMessage(), 'appeared before commit');
-}
-check(
-    $appearedBeforeCommitRefused,
-    'an absence-means-empty table that appears before commit rolls the destructive boundary closed'
-);
-unset($fakeWpdb->tableEngines['wp_wc_stock_notifications']);
-$absenceTables->setValue($runtimeGuardCoordinator, []);
+$runtimeGuardCoordinator->bind_writer_exclusion(woo_writer_witness());
 $fakeWpdb->tableEngines['wp_wc_reserved_stock'] = 'InnoDB';
 $fakeWpdb->indexRows['wp_wc_reserved_stock'] = [[
     'Key_name' => 'product_id', 'Seq_in_index' => '1',
@@ -1148,23 +1604,22 @@ $fakeWpdb->last_error = '';
 $fakeWpdb->lockingQueries = [];
 $finalGuardMutationCount = 0;
 $finalGuardRefused = false;
-\WPrism\DeleteGuardEvaluator::begin_authored_transaction();
+woo_begin_guard_transaction(
+    $runtimeGuardCoordinator,
+    [$runtimeGuardRow]
+);
 try {
-    $runtimeGuardWarnings = [];
-    $runtimeGuardCoordinator->recheck(
-        $runtimeGuardRow,
+    $runtimeGuardCoordinator->lock_and_revalidate(
+        [$runtimeGuardRow],
         [$childUuid => true],
         [$childUuid => ['data' => ['kind' => 'post', 'type' => 'product']]],
-        true,
         [],
-        [],
-        true,
-        $runtimeGuardWarnings
+        []
     );
     $finalGuardMutationCount++;
 } catch (RuntimeException $failure) {
     $finalGuardRefused = str_contains($failure->getMessage(), 'simulated unreadable Woo runtime guard')
-        && str_contains($failure->getMessage(), 'not forceable');
+        && str_contains($failure->getMessage(), 'deletion guard lock refused');
 }
 \WPrism\DeleteGuardEvaluator::end_authored_transaction();
 check($finalGuardRefused
@@ -1173,7 +1628,8 @@ check($finalGuardRefused
         $fakeWpdb->lockingQueries,
         static fn(string $query): bool => str_contains($query, 'wp_wc_reserved_stock')
     )) === 1,
-    'force cannot cross an unreadable shipped Woo runtime guard in the final locked race window');
+    'force cannot cross an unreadable shipped Woo runtime guard at transaction admission');
+woo_end_guard_transaction($runtimeGuardCoordinator);
 $preparationSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyPreparationCoordinator.php');
 check(str_contains(
     $preparationSource,
@@ -1222,7 +1678,12 @@ check(
 // The destructive boundary must inventory code that can execute outside the
 // Woo plugin itself. Its three option facts are direct FOR UPDATE reads, and
 // exact site-owned agreements are the only usable path for themes/MU/drop-ins.
+\WPrism\Db::start_repeatable_read(
+    'Woo executable-owner fixture transaction',
+    \WPrism\NativeDatabaseProfile::read_only([$fakeWpdb->options])
+);
 \WPrism\DeleteGuardEvaluator::begin_authored_transaction();
+$fakeWpdb->activationQueries = [];
 $boundaryWork = [[
     'deletion_kind' => 'post',
     'deletion_type' => 'product',
@@ -1235,6 +1696,91 @@ check(count($fakeWpdb->activationQueries) === 6
         static fn(string $query): bool => str_contains($query, 'FOR UPDATE')
     )) === 6,
     'executable-owner boundary binds active_plugins, stylesheet, and template through direct locked reads');
+// Exercise the public locked boundary on native post-deactivation storage.
+// Deletion binds a SET of owners (legacy duplicates intentionally collapse),
+// unlike lifecycle's duplicate-free ordered roster. Only key-shape machinery
+// is shared; neither policy may be widened by the other consumer's contract.
+$activationPreimage = $fakeWpdb->activationOptions;
+$nativeOwnerRosters = [
+    'dense' => ['woocommerce/woocommerce.php'],
+    'first-removed' => [1 => 'woocommerce/woocommerce.php'],
+    'middle-removed' => [0 => 'woocommerce/woocommerce.php', 2 => 'woocommerce/woocommerce.php'],
+    'ordered-sparse' => [9 => 'woocommerce/woocommerce.php', 2 => 'woocommerce/woocommerce.php', PHP_INT_MAX => 'woocommerce/woocommerce.php'],
+];
+foreach ($nativeOwnerRosters as $case => $roster) {
+    $fakeWpdb->activationOptions['active_plugins'] = serialize($roster);
+    $rawBefore = $fakeWpdb->activationOptions;
+    $fakeWpdb->activationQueries = [];
+    $accepted = false;
+    try {
+        $nativeBoundary = new \WPrism\ExecutableOwnerBoundary($policy);
+        $nativeBoundary->bind($boundaryWork);
+        $nativeBoundary->assert_unchanged();
+        $accepted = true;
+    } catch (Throwable $failure) {
+        // The assertion names the native shape, not a convenient decoder call.
+    }
+    check($accepted, "locked native $case roster binds and rechecks reviewed executable owners");
+    check($rawBefore === $fakeWpdb->activationOptions,
+        "$case owner observation preserves every native activation byte");
+    check($fakeWpdb->activationQueries !== [] && count(array_filter($fakeWpdb->activationQueries,
+        static fn(string $query): bool => str_contains($query, 'FOR UPDATE'))) === count($fakeWpdb->activationQueries),
+        "$case owner roster stays inside the direct locked activation read path");
+}
+$invalidOwnerRosters = [
+    'associative' => ['plugin' => 'woocommerce/woocommerce.php'],
+    'negative-key' => [-1 => 'woocommerce/woocommerce.php'],
+    'noncanonical-numeric-key' => ['01' => 'woocommerce/woocommerce.php'],
+    'numeric-value' => [2 => 17], 'nested-value' => [2 => []], 'empty-value' => [2 => ''],
+    'unsafe-owner' => [2 => '../woocommerce/woocommerce.php'],
+    'unreviewed-owner' => [0 => 'woocommerce/woocommerce.php', 2 => 'acme-extension/acme.php'],
+    'too-many-positions' => array_fill(1, 4097, 'woocommerce/woocommerce.php'),
+];
+foreach ($invalidOwnerRosters as $case => $roster) {
+    $fakeWpdb->activationOptions['active_plugins'] = serialize($roster);
+    $rawBefore = $fakeWpdb->activationOptions;
+    $failure = null;
+    try {
+        (new \WPrism\ExecutableOwnerBoundary($policy))->bind($boundaryWork);
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    check($failure instanceof RuntimeException,
+        "locked native $case roster cannot acquire deletion-owner authority");
+    check($rawBefore === $fakeWpdb->activationOptions,
+        "$case refusal preserves every native activation byte");
+    if ($case === 'unreviewed-owner') {
+        check($failure instanceof \WPrism\CommandRefusalException
+            && $failure->reasonCode === 'deletion_executable_owner_boundary'
+            && ($failure->diagnostics[0]['owner'] ?? null) === 'plugin:acme-extension/acme.php',
+            'a sparse position cannot hide an unreviewed executable owner behind a generic storage-shape refusal');
+    }
+}
+// A new owner after binding still refuses even if both stored shapes are
+// legitimate native sequences. Reindexing alone moves no owner-set authority.
+$fakeWpdb->activationOptions['active_plugins'] = serialize([1 => 'woocommerce/woocommerce.php']);
+$nativeRecheck = new \WPrism\ExecutableOwnerBoundary($policy);
+$recheckReady = true;
+try {
+    $nativeRecheck->bind($boundaryWork);
+} catch (Throwable $failure) {
+    $recheckReady = false;
+}
+check($recheckReady, 'the sparse owner-set change control reaches its real bound preimage');
+if ($recheckReady) {
+    $fakeWpdb->activationOptions['active_plugins'] = serialize(['woocommerce/woocommerce.php']);
+    $nativeRecheck->assert_unchanged();
+    check(true, 'native reindexing alone does not change the transaction-bound owner set');
+    $fakeWpdb->activationOptions['active_plugins'] = serialize([1 => 'woocommerce/woocommerce.php', 5 => 'acme-extension/acme.php']);
+    $changedRefused = false;
+    try {
+        $nativeRecheck->assert_unchanged();
+    } catch (\WPrism\CommandRefusalException $refusal) {
+        $changedRefused = $refusal->reasonCode === 'deletion_executable_owner_changed';
+    }
+    check($changedRefused, 'a new sparse executable owner cannot enter already-bound deletion work');
+}
+$fakeWpdb->activationOptions = $activationPreimage;
 $ownerBoundaryTokens = token_get_all((string) file_get_contents(
     $root . '/agent/src/Delete/ExecutableOwnerBoundary.php'
 ));
@@ -1260,10 +1806,9 @@ try {
 check($modifiedDeclaredPluginRefused,
     'a same-name and same-version modified adapter-declared plugin tree refuses before deletion');
 
-$modifiedPluginIdentity = woo_fixture_code_identity(
-    WP_PLUGIN_DIR . '/woocommerce',
-    'plugins/woocommerce'
-);
+$modifiedPluginIdentity = \WPrism\ExecutableOwnerBoundary::observe_owner(
+    'plugin:woocommerce/woocommerce.php'
+)['code_identity'];
 foreach ($policy->site['policy']['deletion_owner_agreements']['selectors'] as &$selectorAgreement) {
     foreach ($selectorAgreement['owners'] as &$ownerAgreement) {
         if (($ownerAgreement['owner'] ?? null) === 'plugin:woocommerce/woocommerce.php') {
@@ -1313,71 +1858,6 @@ file_put_contents(WPMU_PLUGIN_DIR . '/wprism-loader-dependency.inc', "<?php // d
 check($trustedLoaderDependencyRefused,
     'the implicitly trusted WPrism MU loader cannot bypass a changed executable dependency in its bound root');
 
-// Empty directories do not enter the identity payload, but they must still
-// consume a finite traversal budget. Pin both the recursion-depth and shared
-// entry-count refusals without manufacturing a 100k-entry test tree.
-$ownerBoundaryReflection = new ReflectionClass(\WPrism\ExecutableOwnerBoundary::class);
-$treeIdentityMethod = $ownerBoundaryReflection->getMethod('tree_identity');
-$deepThemeRoot = WP_CONTENT_DIR . '/themes/deep-owner-fixture';
-mkdir($deepThemeRoot, 0777, true);
-$deepCursor = $deepThemeRoot;
-for ($depth = 0; $depth < 130; $depth++) {
-    $deepCursor .= '/d';
-    mkdir($deepCursor);
-}
-$deepTreeRefused = false;
-try {
-    $treeIdentityMethod->invoke(null, $deepThemeRoot, 'themes/deep-owner-fixture');
-} catch (RuntimeException $failure) {
-    $deepTreeRefused = $failure->getMessage()
-        === 'wprism: executable owner tree exceeds its depth bound';
-}
-check($deepTreeRefused,
-    'executable-owner identity refuses an excessive empty-directory depth before unbounded traversal');
-
-$entryThemeRoot = WP_CONTENT_DIR . '/themes/entry-owner-fixture';
-mkdir($entryThemeRoot, 0777, true);
-file_put_contents($entryThemeRoot . '/functions.php', "<?php // entry-bound fixture\n");
-$walkTreeMethod = $ownerBoundaryReflection->getMethod('walk_tree');
-$entryRows = [];
-$entryBytes = 0;
-$entryCount = (int) $ownerBoundaryReflection->getConstant('MAX_TREE_ENTRIES');
-$entryTreeRefused = false;
-try {
-    $walkTreeMethod->invokeArgs(null, [
-        $entryThemeRoot,
-        '',
-        &$entryRows,
-        &$entryBytes,
-        &$entryCount,
-        0,
-    ]);
-} catch (RuntimeException $failure) {
-    $entryTreeRefused = $failure->getMessage()
-        === 'wprism: executable owner tree exceeds its entry bound';
-}
-check($entryTreeRefused && $entryRows === [] && $entryBytes === 0,
-    'every traversed executable-owner entry, including directories, shares one finite budget');
-$ownerBoundarySource = (string) file_get_contents(
-    $root . '/agent/src/Delete/ExecutableOwnerBoundary.php'
-);
-$phpFilesStart = strpos($ownerBoundarySource, 'private static function php_files(');
-$phpFilesEnd = $phpFilesStart === false
-    ? false
-    : strpos($ownerBoundarySource, 'private static function assert_plugin_owner(', $phpFilesStart);
-$phpFilesSource = $phpFilesStart !== false && $phpFilesEnd !== false
-    ? substr($ownerBoundarySource, $phpFilesStart, $phpFilesEnd - $phpFilesStart)
-    : '';
-$muBudgetCheck = strpos($phpFilesSource, 'self::consume_tree_entry($entries);');
-$muPhpFilter = strpos($phpFilesSource, "str_ends_with(strtolower(\$entry), '.php')");
-check(str_contains($phpFilesSource, '@opendir($root)')
-    && str_contains($phpFilesSource, 'readdir($handle)')
-    && !str_contains($phpFilesSource, 'scandir(')
-    && $muBudgetCheck !== false
-    && $muPhpFilter !== false
-    && $muBudgetCheck < $muPhpFilter,
-    'MU owner discovery streams entries and charges non-PHP names before roster filtering');
-
 $fakeWpdb->activationOptions['active_plugins'] = serialize([
     'woocommerce/woocommerce.php',
     'acme-extension/acme.php',
@@ -1395,10 +1875,9 @@ check($foreignPluginRefused,
 $pluginAgreementPolicy = clone $policy;
 $pluginAgreementPolicy->site['policy']['deletion_owner_agreements']['selectors'][0]['owners'][] = [
     'owner' => 'plugin:acme-extension/acme.php',
-    'code_identity' => woo_fixture_code_identity(
-        WP_PLUGIN_DIR . '/acme-extension',
-        'plugins/acme-extension'
-    ),
+    'code_identity' => \WPrism\ExecutableOwnerBoundary::observe_owner(
+        'plugin:acme-extension/acme.php'
+    )['code_identity'],
     'rationale' => 'A site file may not grant plugin deletion authority.',
 ];
 $pluginAgreementRefused = false;
@@ -1566,6 +2045,241 @@ foreach (['blog-deleted.php', 'blog-inactive.php', 'blog-suspended.php'] as $sta
 }
 $fakeWpdb->activationOptions['stylesheet'] = 'twentytwentyfive';
 $fakeWpdb->activationOptions['template'] = 'twentytwentyfive';
+\WPrism\DeleteGuardEvaluator::end_authored_transaction();
+\WPrism\Db::rollback('Woo executable-owner fixture transaction rollback');
+
+// The platform currently refuses multisite earlier, but this lower boundary
+// must still declare every table it locks; otherwise later platform support
+// would silently execute the network-activation read outside its DB profile.
+$multisiteManifest = $policy->manifests[0];
+$multisiteManifest['deletions']['post:product']['guards'] = [];
+$multisitePolicy = clone $policy;
+$multisitePolicy->manifests = [$multisiteManifest];
+$multisiteWork = [[
+    'deletion_kind' => 'post',
+    'deletion_type' => 'product',
+    'type' => 'product',
+    'uuid' => $childUuid,
+    'guard_witnesses' => [],
+]];
+$multisiteCoordinator = new \WPrism\DeleteGuardLockCoordinator(
+    $multisitePolicy,
+    new \WPrism\DeleteGuardReferenceScanner($multisitePolicy),
+    Snapshot::row_tables($multisitePolicy),
+    static fn(array $binding): array => $binding
+);
+$multisiteCoordinator->bind_writer_exclusion(woo_writer_witness());
+$GLOBALS['wprism_woo_multisite_fixture'] = true;
+$fakeWpdb->networkActivationQueries = [];
+$fakeWpdb->networkActivationRows = [[
+    'meta_id' => '1',
+    'meta_key' => 'active_sitewide_plugins',
+    'meta_value' => serialize(['woocommerce/woocommerce.php' => 1770000000]),
+]];
+$multisiteScope = $multisiteCoordinator->transaction_database_profile($multisiteWork);
+$multisiteStarted = false;
+try {
+    woo_begin_selected_guard_transaction($multisiteScope);
+    $multisiteStarted = true;
+    $multisiteCoordinator->lock_and_revalidate(
+        $multisiteWork,
+        [$childUuid => true],
+        [$childUuid => ['data' => ['kind' => 'post', 'type' => 'product']]],
+        [],
+        []
+    );
+} finally {
+    if ($multisiteStarted) {
+        woo_end_guard_transaction($multisiteCoordinator);
+    } else {
+        $multisiteCoordinator->end_writer_exclusion_transaction();
+    }
+    $GLOBALS['wprism_woo_multisite_fixture'] = false;
+}
+check(
+    $multisiteScope === [
+        'read_tables' => ['wp_options', 'wp_sitemeta'],
+        'table_presence_reads' => [],
+    ]
+        && count($fakeWpdb->networkActivationQueries) === 3
+        && array_reduce(
+            $fakeWpdb->networkActivationQueries,
+            static fn(bool $ok, string $query): bool => $ok && str_contains($query, 'FOR UPDATE'),
+            true
+        ),
+    'the executable-owner profile admits its exact multisite activation table before the bounded network locks'
+);
+
+/**
+ * @param list<array{meta_id:string,meta_key:string,meta_value:string}> $rows
+ * @return array{failure:?Throwable,queries:int}
+ */
+$exerciseMultisiteActivationRows = static function (
+    array $rows,
+    ?string $valueBytesOverride = null
+) use ($multisitePolicy, $multisiteWork, $fakeWpdb, $childUuid): array {
+    $coordinator = new \WPrism\DeleteGuardLockCoordinator(
+        $multisitePolicy,
+        new \WPrism\DeleteGuardReferenceScanner($multisitePolicy),
+        Snapshot::row_tables($multisitePolicy),
+        static fn(array $binding): array => $binding
+    );
+    $coordinator->bind_writer_exclusion(woo_writer_witness());
+    $GLOBALS['wprism_woo_multisite_fixture'] = true;
+    $fakeWpdb->networkActivationRows = $rows;
+    $fakeWpdb->networkActivationValueBytesOverride = $valueBytesOverride;
+    $fakeWpdb->networkActivationQueries = [];
+    $started = false;
+    $failure = null;
+    try {
+        $scope = $coordinator->transaction_database_profile($multisiteWork);
+        woo_begin_selected_guard_transaction($scope);
+        $started = true;
+        $coordinator->lock_and_revalidate(
+            $multisiteWork,
+            [$childUuid => true],
+            [$childUuid => ['data' => ['kind' => 'post', 'type' => 'product']]],
+            [],
+            []
+        );
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    } finally {
+        if ($started) {
+            woo_end_guard_transaction($coordinator);
+        } else {
+            $coordinator->end_writer_exclusion_transaction();
+        }
+        $GLOBALS['wprism_woo_multisite_fixture'] = false;
+        $fakeWpdb->networkActivationValueBytesOverride = null;
+    }
+    return ['failure' => $failure, 'queries' => count($fakeWpdb->networkActivationQueries)];
+};
+
+$duplicateNetworkRows = $exerciseMultisiteActivationRows([
+    [
+        'meta_id' => '1',
+        'meta_key' => 'active_sitewide_plugins',
+        'meta_value' => serialize(['woocommerce/woocommerce.php' => 1770000000]),
+    ],
+    [
+        'meta_id' => '2',
+        'meta_key' => 'active_sitewide_plugins',
+        'meta_value' => serialize(['woocommerce/woocommerce.php' => 1770000000]),
+    ],
+]);
+check(
+    $duplicateNetworkRows['failure'] instanceof RuntimeException
+        && str_contains($duplicateNetworkRows['failure']->getMessage(), 'could not bind network plugin activation')
+        && $duplicateNetworkRows['queries'] === 1,
+    'duplicate network activation rows refuse at the bounded size witness before payload transfer'
+);
+
+$oversizedNetworkRow = $exerciseMultisiteActivationRows([[
+    'meta_id' => '1',
+    'meta_key' => 'active_sitewide_plugins',
+    'meta_value' => serialize(['woocommerce/woocommerce.php' => 1770000000]),
+]], '16777217');
+check(
+    $oversizedNetworkRow['failure'] instanceof RuntimeException
+        && str_contains($oversizedNetworkRow['failure']->getMessage(), 'ambiguous or oversized')
+        && $oversizedNetworkRow['queries'] === 1,
+    'oversized network activation metadata refuses before its LONGTEXT payload crosses the driver'
+);
+
+$malformedNetworkRow = $exerciseMultisiteActivationRows([[
+    'meta_id' => '1',
+    'meta_key' => 'active_sitewide_plugins',
+    'meta_value' => 'not-a-serialized-owner-map',
+]]);
+check(
+    $malformedNetworkRow['failure'] instanceof RuntimeException
+        && str_contains($malformedNetworkRow['failure']->getMessage(), 'malformed serialized activation facts')
+        && $malformedNetworkRow['queries'] === 3,
+    'malformed network activation bytes refuse only after matching their size and hash witnesses'
+);
+
+$networkDriftCoordinator = new \WPrism\DeleteGuardLockCoordinator(
+    $multisitePolicy,
+    new \WPrism\DeleteGuardReferenceScanner($multisitePolicy),
+    Snapshot::row_tables($multisitePolicy),
+    static fn(array $binding): array => $binding
+);
+$networkDriftCoordinator->bind_writer_exclusion(woo_writer_witness());
+$GLOBALS['wprism_woo_multisite_fixture'] = true;
+$fakeWpdb->networkActivationRows = [[
+    'meta_id' => '1',
+    'meta_key' => 'active_sitewide_plugins',
+    'meta_value' => serialize(['woocommerce/woocommerce.php' => 1770000000]),
+]];
+$fakeWpdb->networkActivationQueries = [];
+$networkDriftStarted = false;
+$networkDriftRefused = false;
+try {
+    $networkDriftScope = $networkDriftCoordinator->transaction_database_profile($multisiteWork);
+    woo_begin_selected_guard_transaction($networkDriftScope);
+    $networkDriftStarted = true;
+    $networkDriftCoordinator->lock_and_revalidate(
+        $multisiteWork,
+        [$childUuid => true],
+        [$childUuid => ['data' => ['kind' => 'post', 'type' => 'product']]],
+        [],
+        []
+    );
+    $fakeWpdb->networkActivationRows[0]['meta_value'] = serialize([
+        'acme-extension/acme.php' => 1770000001,
+    ]);
+    $warnings = [];
+    $networkDriftCoordinator->recheck(
+        $multisiteWork[0],
+        [$childUuid => true],
+        [$childUuid => ['data' => ['kind' => 'post', 'type' => 'product']]],
+        false,
+        [],
+        [],
+        true,
+        $warnings
+    );
+} catch (\WPrism\CommandRefusalException $failure) {
+    $networkDriftRefused = $failure->reasonCode === 'deletion_executable_owner_changed';
+} finally {
+    if ($networkDriftStarted) {
+        woo_end_guard_transaction($networkDriftCoordinator);
+    } else {
+        $networkDriftCoordinator->end_writer_exclusion_transaction();
+    }
+    $GLOBALS['wprism_woo_multisite_fixture'] = false;
+}
+check(
+    $networkDriftRefused && count($fakeWpdb->networkActivationQueries) === 6,
+    'network activation drift is re-read through bounded witnesses and refused at the delete boundary'
+);
+$fakeWpdb->networkActivationRows = [];
+
+$unsafeMultisiteCoordinator = new \WPrism\DeleteGuardLockCoordinator(
+    $multisitePolicy,
+    new \WPrism\DeleteGuardReferenceScanner($multisitePolicy),
+    Snapshot::row_tables($multisitePolicy),
+    static fn(array $binding): array => $binding
+);
+$unsafeMultisiteCoordinator->bind_writer_exclusion(woo_writer_witness());
+$GLOBALS['wprism_woo_multisite_fixture'] = true;
+$savedSitemeta = $fakeWpdb->sitemeta;
+$fakeWpdb->sitemeta = 'wp_unsafe-sitemeta';
+$unsafeMultisiteRefused = false;
+try {
+    $unsafeMultisiteCoordinator->transaction_database_profile($multisiteWork);
+} catch (Throwable $failure) {
+    $unsafeMultisiteRefused = str_contains($failure->getMessage(), 'unsafe table identifier');
+} finally {
+    $unsafeMultisiteCoordinator->end_writer_exclusion_transaction();
+    $fakeWpdb->sitemeta = $savedSitemeta;
+    $GLOBALS['wprism_woo_multisite_fixture'] = false;
+}
+check(
+    $unsafeMultisiteRefused,
+    'an unsafe multisite activation-table identity is refused while selecting the pre-START profile'
+);
 
 $applyWriterHeld = true;
 $applyWriterVerifications = 0;
@@ -1905,8 +2619,6 @@ $metaRaceApply = new \WPrism\DeleteGuardLockCoordinator(
     woo_writer_verifier($metaWriterHeld, $metaWriterVerifications)
 );
 $metaRaceApply->bind_writer_exclusion(woo_writer_witness());
-$lockAndRevalidate = new ReflectionMethod(\WPrism\DeleteGuardLockCoordinator::class, 'lock_and_revalidate');
-$deleteGuardEngines = new ReflectionMethod(\WPrism\DeleteGuardLockCoordinator::class, 'assert_guard_engines');
 $fakeWpdb->metaRows = [[
     'guard_id' => 200,
     'source_id' => 7,
@@ -1917,8 +2629,8 @@ $fakeWpdb->lockingQueries = [];
 $fakeWpdb->metadataQueries = [];
 $fakeWpdb->engineQueries = [];
 $fakeWpdb->topologyQueries = [];
+$fakeWpdb->presenceQueries = [];
 $fakeWpdb->events = [];
-\WPrism\DeleteGuardEvaluator::begin_authored_transaction();
 $plannedMeta = $countGuard->invoke(
     $metaRaceApply,
     $metaGuard,
@@ -1928,6 +2640,7 @@ $plannedMeta = $countGuard->invoke(
     $treeWithRef,
     []
 );
+$fakeWpdb->presenceQueries = [];
 $metaRaceRow = [
     'deletion_kind' => 'post',
     'deletion_type' => 'product_variation',
@@ -1935,10 +2648,10 @@ $metaRaceRow = [
     'uuid' => $childUuid,
     'guard_witnesses' => ['0' => $plannedMeta['witness']],
 ];
+woo_begin_guard_transaction($metaRaceApply, [$metaRaceRow]);
 $metaLockSafe = true;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
+    $metaRaceApply->lock_and_revalidate(
         [$metaRaceRow],
         [$childUuid => true],
         $deletions,
@@ -1950,19 +2663,27 @@ try {
 }
 check($metaLockSafe && count($fakeWpdb->lockingQueries) > 0,
     'metadata guard locks its indexed current-read range before phase-2 repair');
-check(count($fakeWpdb->engineQueries) === 2
-    && count($fakeWpdb->topologyQueries) === 3
+$profileCompositionAccepted = count($fakeWpdb->engineQueries) === 1
+    && $fakeWpdb->topologyQueries === []
     && $fakeWpdb->metadataQueries === [
-        'SELECT 1 FROM `wp_options` LIMIT 1',
-        'SELECT 1 FROM `wp_postmeta` LIMIT 1',
+        'SELECT 1 FROM `wp_options` LIMIT 0',
+        'SELECT 1 FROM `wp_postmeta` LIMIT 0',
+        'SELECT 1 FROM `wp_wprism_map` LIMIT 0',
     ]
-    && str_contains($fakeWpdb->engineQueries[0], "TABLE_NAME IN ('wp_options')")
-    && str_contains($fakeWpdb->engineQueries[1], "TABLE_NAME IN ('wp_postmeta')")
-    && !str_contains($fakeWpdb->engineQueries[1], 'wp_comments'),
-    'deletion guard accepts InnoDB activation/guard tables and introspects only its exact prefixed scopes');
+    && str_contains(
+        $fakeWpdb->engineQueries[0],
+        "TABLE_NAME IN ('wp_options','wp_postmeta','wp_wprism_map')"
+    )
+    && !str_contains($fakeWpdb->engineQueries[0], 'wp_comments')
+    && count(array_filter(
+        $fakeWpdb->presenceQueries,
+        static fn(string $query): bool => $query === 'SELECT 1 FROM `wp_postmeta` LIMIT 0'
+    )) === 3;
+check($profileCompositionAccepted,
+    'the composed profile admits only the exact InnoDB activation and guard tables');
 check($fakeWpdb->events === [
-    'topology', 'metadata', 'engine', 'topology', 'metadata', 'engine', 'topology', 'locking',
-], 'deletion boundary binds plan topology, locks activation facts, and re-censuses before its first guard row lock');
+    'metadata', 'metadata', 'metadata', 'engine', 'locking',
+], 'deletion boundary snapshots topology before START, establishes its profile, then re-censuses before the first guard row lock');
 
 // Guard rechecks precede context capture, so filesystem owners need one more
 // census at the exact row-delete boundary. Introduce a drop-in after a real
@@ -1989,7 +2710,7 @@ try {
     $lateOwnerRefused = $refusal->reasonCode === 'deletion_executable_owner_changed';
 }
 unlink(WP_CONTENT_DIR . '/blog-suspended.php');
-$metaRaceApply->end_writer_exclusion_transaction();
+woo_end_guard_transaction($metaRaceApply);
 $transactionExecutorSource = (string) file_get_contents(
     $root . '/agent/src/Apply/AuthoredTransactionExecutor.php'
 );
@@ -2009,16 +2730,18 @@ check(
 // After the exact topology census identifies a present guard table, metadata
 // locking is the first physical-table gate. No engine or guard-row read may be
 // issued after the database says that lock boundary could not be acquired.
-$fakeWpdb->metadataProbeError = true;
+$fakeWpdb->metadataProbeErrorTable = 'wp_postmeta';
 $fakeWpdb->last_error = '';
 $fakeWpdb->metadataQueries = [];
 $fakeWpdb->engineQueries = [];
 $fakeWpdb->lockingQueries = [];
 $fakeWpdb->events = [];
 $metadataProbeRefused = false;
+$metadataProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
+    woo_begin_guard_transaction($metaRaceApply, [$metaRaceRow]);
+    $metadataProfileStarted = true;
+    $metaRaceApply->lock_and_revalidate(
         [$metaRaceRow],
         [$childUuid => true],
         $deletions,
@@ -2028,16 +2751,21 @@ try {
 } catch (Throwable $e) {
     $metadataProbeRefused = str_contains($e->getMessage(), 'unable to acquire metadata lock')
         && str_contains($e->getMessage(), 'simulated metadata probe failure');
+} finally {
+    if ($metadataProfileStarted) {
+        woo_end_guard_transaction($metaRaceApply);
+    } else {
+        $metaRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 check(
     $metadataProbeRefused
-        && $fakeWpdb->events === ['topology', 'metadata']
+        && $fakeWpdb->events === ['metadata', 'metadata']
         && $fakeWpdb->engineQueries === []
         && $fakeWpdb->lockingQueries === [],
-    'deletion guard fails closed on a metadata-lock error after topology but before engine or row-lock reads'
+    'deletion profile fails closed on a guard-table metadata-lock error before engine or row-lock reads'
 );
-$fakeWpdb->metadataProbeError = false;
+$fakeWpdb->metadataProbeErrorTable = null;
 $fakeWpdb->last_error = '';
 
 // Storage-engine support is part of the lock contract, not a best-effort
@@ -2047,83 +2775,93 @@ $tableEngineBeforeRefusals = $fakeWpdb->tableEngines;
 $fakeWpdb->tableEngines['wp_postmeta'] = 'MyISAM';
 $fakeWpdb->lockingQueries = [];
 $myisamRefused = false;
+$myisamProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
-        [$metaRaceRow],
-        [$childUuid => true],
-        $deletions,
-        $treeWithRef,
-        []
-    );
+    woo_begin_guard_transaction($metaRaceApply, [$metaRaceRow]);
+    $myisamProfileStarted = true;
 } catch (Throwable $e) {
     $myisamRefused = str_contains(strtoupper($e->getMessage()), 'MYISAM')
         && str_contains($e->getMessage(), 'InnoDB required');
+} finally {
+    if ($myisamProfileStarted) {
+        woo_end_guard_transaction($metaRaceApply);
+    } else {
+        $metaRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 check($myisamRefused && $fakeWpdb->lockingQueries === [],
-    'deletion guard refuses MyISAM before issuing any locking query');
+    'deletion profile refuses MyISAM before issuing any locking query');
 
 $fakeWpdb->tableEngines['wp_postmeta'] = null;
 $fakeWpdb->lockingQueries = [];
 $nullEngineRefused = false;
+$nullEngineProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
-        [$metaRaceRow],
-        [$childUuid => true],
-        $deletions,
-        $treeWithRef,
-        []
-    );
+    woo_begin_guard_transaction($metaRaceApply, [$metaRaceRow]);
+    $nullEngineProfileStarted = true;
 } catch (Throwable $e) {
     $nullEngineRefused = str_contains($e->getMessage(), 'NULL/unknown');
+} finally {
+    if ($nullEngineProfileStarted) {
+        woo_end_guard_transaction($metaRaceApply);
+    } else {
+        $metaRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 check($nullEngineRefused && $fakeWpdb->lockingQueries === [],
-    'deletion guard refuses a null/unknown storage engine before locking');
+    'deletion profile refuses a null/unknown storage engine before locking');
 
 unset($fakeWpdb->tableEngines['wp_postmeta']);
 $fakeWpdb->lockingQueries = [];
 $missingEngineRowRefused = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
-        [$metaRaceRow],
-        [$childUuid => true],
-        $deletions,
-        $treeWithRef,
-        []
-    );
+    $metaRaceApply->transaction_database_profile([$metaRaceRow]);
 } catch (Throwable $e) {
     $missingEngineRowRefused = str_contains($e->getMessage(), 'required guard table')
         && str_contains($e->getMessage(), 'is absent')
         && str_contains($e->getMessage(), 'wp_postmeta');
+} finally {
+    $metaRaceApply->end_writer_exclusion_transaction();
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 check($missingEngineRowRefused && $fakeWpdb->lockingQueries === [],
-    'deletion guard refuses required physical table absence before engine or row locking');
+    'deletion profile refuses required physical table absence before START or row locking');
 
 $fakeWpdb->tableEngines = $tableEngineBeforeRefusals;
-$fakeWpdb->engineIntrospectionError = true;
+$fakeWpdb->presenceProbeErrorTable = 'wp_postmeta';
+$fakeWpdb->presenceProbeErrorCode = 1105;
 $fakeWpdb->lockingQueries = [];
 $introspectionRefused = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
-        [$metaRaceRow],
-        [$childUuid => true],
-        $deletions,
-        $treeWithRef,
-        []
-    );
+    $metaRaceApply->transaction_database_profile([$metaRaceRow]);
 } catch (Throwable $e) {
-    $introspectionRefused = str_contains($e->getMessage(), 'exact guard-table topology census failed')
-        && str_contains($e->getMessage(), 'simulated information_schema failure');
+    $introspectionRefused = str_contains($e->getMessage(), 'exact absence confirmation failed')
+        && str_contains($e->getMessage(), 'server code 1105');
+} finally {
+    $metaRaceApply->end_writer_exclusion_transaction();
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 check($introspectionRefused && $fakeWpdb->lockingQueries === [],
-    'deletion guard refuses a failed exact topology census before locking');
+    'deletion profile refuses an ambiguous exact-name probe before START or locking');
+$fakeWpdb->presenceProbeErrorTable = null;
+$fakeWpdb->last_error = '';
+
+$fakeWpdb->engineIntrospectionError = true;
+$engineProfileRefused = false;
+$engineProfileStarted = false;
+try {
+    woo_begin_guard_transaction($metaRaceApply, [$metaRaceRow]);
+    $engineProfileStarted = true;
+} catch (Throwable $e) {
+    $engineProfileRefused = str_contains($e->getMessage(), 'storage-engine introspection failed')
+        && str_contains($e->getMessage(), 'simulated information_schema failure');
+} finally {
+    if ($engineProfileStarted) {
+        woo_end_guard_transaction($metaRaceApply);
+    } else {
+        $metaRaceApply->end_writer_exclusion_transaction();
+    }
+}
+check($engineProfileRefused && $fakeWpdb->lockingQueries === [],
+    'deletion profile refuses unreadable storage-engine evidence before guard locking');
 $fakeWpdb->engineIntrospectionError = false;
 $fakeWpdb->last_error = '';
 
@@ -2134,18 +2872,20 @@ $savedPrefix = $fakeWpdb->prefix;
 $savedEngines = $fakeWpdb->tableEngines;
 $fakeWpdb->prefix = 'custom_';
 $fakeWpdb->tableEngines = ['custom_postmeta' => 'InnoDB'];
-$fakeWpdb->engineQueries = [];
 $prefixedEngineAccepted = true;
+$prefixedProfile = null;
 try {
-    $deleteGuardEngines->invoke($metaRaceApply, [$metaRaceRow]);
+    $prefixedProfile = $metaRaceApply->transaction_database_profile([$metaRaceRow]);
 } catch (Throwable $e) {
     $prefixedEngineAccepted = false;
+} finally {
+    $metaRaceApply->end_writer_exclusion_transaction();
 }
 check($prefixedEngineAccepted
-    && count($fakeWpdb->engineQueries) === 1
-    && str_contains($fakeWpdb->engineQueries[0], "TABLE_NAME IN ('custom_postmeta')")
-    && !str_contains($fakeWpdb->engineQueries[0], "'postmeta'"),
-    'deletion guard engine gate resolves prefixed guard table names authoritatively');
+    && is_array($prefixedProfile)
+    && in_array('custom_postmeta', $prefixedProfile['read_tables'] ?? [], true)
+    && !in_array('postmeta', $prefixedProfile['read_tables'] ?? [], true),
+    'deletion profile resolves the prefixed guard-table identity before START');
 $fakeWpdb->prefix = $savedPrefix;
 $fakeWpdb->tableEngines = $savedEngines;
 
@@ -2168,25 +2908,28 @@ $scopeApply = new \WPrism\DeleteGuardLockCoordinator(
     Snapshot::row_tables($scopePolicy),
     woo_writer_verifier($scopeWriterHeld, $scopeWriterVerifications)
 );
-$fakeWpdb->engineQueries = [];
+$scopeApply->bind_writer_exclusion(woo_writer_witness());
 $scopeAccepted = true;
+$scopeProfile = null;
 try {
-    $deleteGuardEngines->invoke($scopeApply, [$metaRaceRow, $metaRaceRow]);
+    $scopeProfile = $scopeApply->transaction_database_profile([$metaRaceRow, $metaRaceRow]);
 } catch (Throwable $e) {
     $scopeAccepted = false;
+} finally {
+    $scopeApply->end_writer_exclusion_transaction();
 }
 check($scopeAccepted
-    && count($fakeWpdb->engineQueries) === 1
-    && str_contains($fakeWpdb->engineQueries[0], "TABLE_NAME IN ('wp_options','wp_postmeta')")
-    && !str_contains($fakeWpdb->engineQueries[0], 'wp_comments'),
-    'deletion guard engine scope is deduplicated and deterministically sorted per current delete work');
+    && ($scopeProfile['read_tables'] ?? null) === ['wp_options', 'wp_postmeta'],
+    'deletion profile scope is deduplicated and deterministically sorted per current delete work');
 
 $savedMetaIndexes = $fakeWpdb->indexRows['wp_postmeta'];
 $fakeWpdb->indexRows['wp_postmeta'] = [];
 $unindexedRefused = false;
+$unindexedProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
+    woo_begin_guard_transaction($metaRaceApply, [$metaRaceRow]);
+    $unindexedProfileStarted = true;
+    $metaRaceApply->lock_and_revalidate(
         [$metaRaceRow],
         [$childUuid => true],
         $deletions,
@@ -2195,17 +2938,24 @@ try {
     );
 } catch (Throwable $e) {
     $unindexedRefused = str_contains($e->getMessage(), 'no complete indexed lock boundary');
+} finally {
+    if ($unindexedProfileStarted) {
+        woo_end_guard_transaction($metaRaceApply);
+    } else {
+        $metaRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 $fakeWpdb->indexRows['wp_postmeta'] = $savedMetaIndexes;
 check($unindexedRefused,
     'metadata deletion guard refuses an unindexed lock boundary instead of claiming race safety');
 
 $fakeWpdb->metaRows[0]['meta_value'] = serialize([99]);
 $metaUpdateRefused = false;
+$metaUpdateProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
+    woo_begin_guard_transaction($metaRaceApply, [$metaRaceRow]);
+    $metaUpdateProfileStarted = true;
+    $metaRaceApply->lock_and_revalidate(
         [$metaRaceRow],
         [$childUuid => true],
         $deletions,
@@ -2214,8 +2964,13 @@ try {
     );
 } catch (Throwable $e) {
     $metaUpdateRefused = str_contains($e->getMessage(), 'witness changed after planning');
+} finally {
+    if ($metaUpdateProfileStarted) {
+        woo_end_guard_transaction($metaRaceApply);
+    } else {
+        $metaRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 check($metaUpdateRefused,
     'concurrent grouped-child metadata update is refused before authored repair');
 
@@ -2237,9 +2992,11 @@ $fakeWpdb->metaRows = [[
     'meta_value' => serialize([42]),
 ]];
 $insertRefused = false;
+$insertProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $metaRaceApply,
+    woo_begin_guard_transaction($metaRaceApply, [$insertRaceRow]);
+    $insertProfileStarted = true;
+    $metaRaceApply->lock_and_revalidate(
         [$insertRaceRow],
         [$childUuid => true],
         $deletions,
@@ -2248,8 +3005,13 @@ try {
     );
 } catch (Throwable $e) {
     $insertRefused = str_contains($e->getMessage(), 'witness changed after planning');
+} finally {
+    if ($insertProfileStarted) {
+        woo_end_guard_transaction($metaRaceApply);
+    } else {
+        $metaRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$metaRaceApply->end_writer_exclusion_transaction();
 check($insertRefused,
     'metadata reference inserted after the plan is refused by the locked witness boundary');
 
@@ -2292,9 +3054,11 @@ $optionRaceRow = [
     'guard_witnesses' => ['0' => $optionPlanned['witness']],
 ];
 $optionLockSafe = true;
+$optionLockProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $optionRaceApply,
+    woo_begin_guard_transaction($optionRaceApply, [$optionRaceRow]);
+    $optionLockProfileStarted = true;
+    $optionRaceApply->lock_and_revalidate(
         [$optionRaceRow],
         [$methodUuid => true],
         [$methodUuid => ['data' => ['kind' => 'table', 'type' => 'woocommerce_shipping_zone_methods']]],
@@ -2303,15 +3067,22 @@ try {
     );
 } catch (Throwable $e) {
     $optionLockSafe = false;
+} finally {
+    if ($optionLockProfileStarted) {
+        woo_end_guard_transaction($optionRaceApply);
+    } else {
+        $optionRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$optionRaceApply->end_writer_exclusion_transaction();
 check($optionLockSafe,
     'option-name guard locks the indexed option-name range before deleting settings');
 $fakeWpdb->optionRows[0]['option_value'] = serialize(['title' => 'Changed concurrently']);
 $optionUpdateRefused = false;
+$optionUpdateProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $optionRaceApply,
+    woo_begin_guard_transaction($optionRaceApply, [$optionRaceRow]);
+    $optionUpdateProfileStarted = true;
+    $optionRaceApply->lock_and_revalidate(
         [$optionRaceRow],
         [$methodUuid => true],
         [$methodUuid => ['data' => ['kind' => 'table', 'type' => 'woocommerce_shipping_zone_methods']]],
@@ -2320,8 +3091,13 @@ try {
     );
 } catch (Throwable $e) {
     $optionUpdateRefused = str_contains($e->getMessage(), 'witness changed after planning');
+} finally {
+    if ($optionUpdateProfileStarted) {
+        woo_end_guard_transaction($optionRaceApply);
+    } else {
+        $optionRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$optionRaceApply->end_writer_exclusion_transaction();
 check($optionUpdateRefused,
     'concurrent shipping-method settings change is refused before option deletion');
 $fakeWpdb->optionRows = [];
@@ -2343,9 +3119,11 @@ $fakeWpdb->optionRows = [[
     'autoload' => 'yes',
 ]];
 $optionInsertRefused = false;
+$optionInsertProfileStarted = false;
 try {
-    $lockAndRevalidate->invoke(
-        $optionRaceApply,
+    woo_begin_guard_transaction($optionRaceApply, [$optionInsertRaceRow]);
+    $optionInsertProfileStarted = true;
+    $optionRaceApply->lock_and_revalidate(
         [$optionInsertRaceRow],
         [$methodUuid => true],
         [$methodUuid => ['data' => ['kind' => 'table', 'type' => 'woocommerce_shipping_zone_methods']]],
@@ -2354,8 +3132,13 @@ try {
     );
 } catch (Throwable $e) {
     $optionInsertRefused = str_contains($e->getMessage(), 'witness changed after planning');
+} finally {
+    if ($optionInsertProfileStarted) {
+        woo_end_guard_transaction($optionRaceApply);
+    } else {
+        $optionRaceApply->end_writer_exclusion_transaction();
+    }
 }
-$optionRaceApply->end_writer_exclusion_transaction();
 check($optionInsertRefused,
     'shipping-method settings option inserted after the plan is refused by the locked range');
 $planHash = new ReflectionMethod(\WPrism\ApplyPlanner::class, 'plan_precondition_hash');

@@ -9,6 +9,8 @@ declare(strict_types=1);
  * exact host retry. A profile-less completed ordinary residue with no lease
  * is replaced only through PromotionLock's fresh fenced acquire path, while
  * scoped mismatches and lifecycle ambiguity must never be silently replaced.
+ * Storage/query authority is exercised with real Db/Ledger and the shared
+ * FakeWpdb in regress_promotion_begin_atomicity.php, not this semantic seam.
  * The Apply checks use reflection because these are pre-mutation gates; no
  * WordPress bootstrap, database, cache backend, or Docker target is needed
  * to prove their closed selection vocabulary.
@@ -136,8 +138,21 @@ namespace WPrism {
             return $GLOBALS['wpdb']->execute($sql);
         }
 
-        public static function start(string $context = 'transaction start'): void {
+        public static function start(
+            string $context,
+            NativeDatabaseProfile $profile
+        ): void {
             ScopedPromotionTargetLedger::start();
+        }
+
+        public static function mutation(
+            string $head,
+            string $condition,
+            string $tail,
+            string $context,
+            array $readTables = []
+        ): int {
+            return $GLOBALS['wpdb']->executeMutation($head, $condition, $tail);
         }
 
         public static function commit(string $context = 'transaction commit'): void {
@@ -171,7 +186,6 @@ namespace WPrism {
 
 namespace {
     use WPrism\Apply;
-    use WPrism\CommandRefusalException;
     use WPrism\PromotionLock;
     use WPrism\ScopedPromotionAuthority;
     use WPrism\VerifiedPromotionAuthority;
@@ -187,7 +201,7 @@ namespace {
     final class ScopedPromotionTargetFakeWpdb {
         public string $prefix = 'wp_';
         public string $dbname = 'wprism_scoped_promotion_target_test';
-        public string|false|null $wprismKvEngine = 'InnoDB';
+        public string $last_error = '';
         private int $connection = 4401;
         private bool $fenceHeld = false;
 
@@ -200,21 +214,6 @@ namespace {
                 return (string) $this->connection;
             }
             [$template, $args] = $this->decode($query);
-            if (str_contains($template, 'information_schema.TABLES')) {
-                if (!ScopedPromotionTargetLedger::transactionOpen()
-                    || ScopedPromotionTargetLedger::$transactionReadKeys !== [
-                        'promotion_lock',
-                        'promotion_session',
-                    ]) {
-                    throw new RuntimeException(
-                        'engine assertion must follow transaction-bound promotion lock/session reads'
-                    );
-                }
-                if (($args[0] ?? null) !== $this->prefix . 'wprism_kv') {
-                    throw new RuntimeException('unexpected promotion-lock engine table query');
-                }
-                return $this->wprismKvEngine;
-            }
             if (str_contains($template, 'GET_LOCK')) {
                 $this->fenceHeld = true;
                 return '1';
@@ -296,6 +295,30 @@ namespace {
                 return 0;
             }
             throw new RuntimeException('unexpected promotion-lock mutation query');
+        }
+
+        public function executeMutation(string $head, string $condition, string $tail): int {
+            [$headTemplate, $headArgs] = $this->decodeFragment($head);
+            [$conditionTemplate, $conditionArgs] = $this->decodeFragment($condition);
+            [$tailTemplate, $tailArgs] = $this->decodeFragment($tail);
+            $template = $headTemplate
+                . ($conditionTemplate === '' ? '' : ' WHERE ' . $conditionTemplate)
+                . ($tailTemplate === '' ? '' : ' ' . $tailTemplate);
+            return $this->execute('wprism-test-sql:' . base64_encode(serialize([
+                $template,
+                array_merge($headArgs, $conditionArgs, $tailArgs),
+            ])));
+        }
+
+        /** @return array{0:string,1:list<mixed>} */
+        private function decodeFragment(string $fragment): array {
+            if ($fragment === '') {
+                return ['', []];
+            }
+            if (!str_starts_with($fragment, 'wprism-test-sql:')) {
+                return [$fragment, []];
+            }
+            return $this->decode($fragment);
         }
 
         /** @return array{0:string,1:list<mixed>} */
@@ -617,11 +640,11 @@ namespace {
     );
     $replacementStorageOffset = strpos(
         $acquireInternalSource,
-        'self::assert_transactional_replacement_storage();'
+        'new NativeDatabaseProfile([$ledgerTable], [$ledgerTable])'
     );
     $replacementTransactionStartOffset = strpos(
         $acquireInternalSource,
-        "Db::start('scoped ordinary session replacement transaction start')"
+        "'scoped ordinary session replacement transaction start',"
     );
     $replacementLockReadOffset = strpos($acquireInternalSource, '$before = self::current();');
     $replacementSessionReadOffset = strpos($acquireInternalSource, '$existingSession = self::current_session(');
@@ -630,12 +653,11 @@ namespace {
             && $replacementTransactionStartOffset !== false
             && $replacementLockReadOffset !== false
             && $replacementSessionReadOffset !== false
-            && $replacementTransactionStartOffset < $replacementLockReadOffset
+            && $replacementTransactionStartOffset < $replacementStorageOffset
+            && $replacementStorageOffset < $replacementLockReadOffset
             && $replacementLockReadOffset < $replacementSessionReadOffset
-            && $replacementSessionReadOffset < $replacementStorageOffset
-            && str_contains($lockSource, 'information_schema.TABLES')
-            && str_contains($lockSource, "strcasecmp(\$engine, 'InnoDB')"),
-        'ordinary-session replacement checks exact InnoDB storage only after transaction-bound lock/session reads'
+            && !str_contains($acquireInternalSource, 'self::assert_transactional_replacement_storage();'),
+        'ordinary-session replacement delegates exact read/write storage authority to Db before its handoff reads'
     );
     $second = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $check(
@@ -752,29 +774,6 @@ namespace {
         'promotion_session' => json_encode($ordinaryCompletedSession, JSON_THROW_ON_ERROR),
     ];
     $ordinaryCompletedBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
-    $ordinaryReplacementTransactionStarts = ScopedPromotionTargetLedger::$transactionStarts;
-    $ordinaryReplacementTransactionRollbacks = ScopedPromotionTargetLedger::$transactionRollbacks;
-    $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
-    $GLOBALS['wpdb']->wprismKvEngine = 'MyISAM';
-    $expect(
-        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
-        'requires an InnoDB wprism_kv table',
-        'nontransactional wprism_kv refuses ordinary-session replacement before any handoff mutation'
-    );
-    $check(
-        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryCompletedBytes
-            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
-            && !ScopedPromotionTargetLedger::transactionOpen()
-            && ScopedPromotionTargetLedger::$transactionStarts === $ordinaryReplacementTransactionStarts + 1
-            && ScopedPromotionTargetLedger::$transactionRollbacks === $ordinaryReplacementTransactionRollbacks + 1
-            && ScopedPromotionTargetLedger::$lastTransactionReadKeys === [
-                'promotion_lock',
-                'promotion_session',
-            ]
-            && ScopedPromotionTargetLedger::$promotionLockWrites === $ordinaryReplacementLockWrites,
-        'nontransactional storage refusal rolls back its metadata-locked reads without changing the ordinary session or lock'
-    );
-    $GLOBALS['wpdb']->wprismKvEngine = 'InnoDB';
     $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
     ScopedPromotionTargetLedger::$failNextPromotionSessionUpsert = true;
     $expect(
@@ -1246,7 +1245,7 @@ namespace {
     );
     $authoritySource = (string) file_get_contents("$root/agent/src/Promotion/ScopedPromotionAuthority.php");
     $check(
-        str_contains($authoritySource, "& 0777) !== 0600")
+        str_contains($authoritySource, '& 0777) !== 0600')
             && str_contains($authoritySource, 'scoped promotion control configuration is not protected mode 0600'),
         'target witness refuses an installed trust-root file whose protected mode changed'
     );
@@ -1371,7 +1370,7 @@ namespace {
             );
         }
     };
-    $taxonomyGate = new class {
+    $taxonomyGate = new class() {
         public function invoke(mixed $_, array $work, array $tree, array $deletions): bool {
             return \WPrism\NativeRebuildExecutor::needs_taxonomy_recount($work, $tree, $deletions);
         }

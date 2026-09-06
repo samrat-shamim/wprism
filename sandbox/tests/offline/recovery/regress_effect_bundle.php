@@ -5,7 +5,7 @@ declare(strict_types=1);
 // refusal, receipt-bound outbox prevention, exact actual-effect reconciliation,
 // and fresh-process inverse verification for a real lifecycle fixture.
 
-define('WPRISM_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 3);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Code/Code.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
@@ -41,6 +41,7 @@ $pair = sodium_crypto_sign_keypair(); $secret = sodium_crypto_sign_secretkey($pa
 try {
     mkdir($tmp, 0700, true);
     $manifest = [
+        'engine_features' => ['schema-settlement/v1', 'spec-window/v1'],
         'lifecycle_effects' => [
             ['id' => 'probe-http', 'kind' => 'http', 'mode' => 'prevented', 'prevention' => 'receipt_outbox', 'selector' => ['scope' => 'external', 'type' => 'url_prefix', 'value' => 'https://wprism-promotion-probe.invalid/']],
             ['adapter' => ['id' => 'fixture-file', 'inverse' => 'restore-bytes', 'inverse_inputs' => ['path', 'prior_sha256'], 'verifier' => 'fresh-readback', 'verifier_inputs' => ['path', 'prior_sha256'], 'version' => '1.0.0'], 'id' => 'probe-file', 'kind' => 'filesystem', 'mode' => 'reversible', 'selector' => ['scope' => 'external', 'type' => 'path', 'value' => 'wp-content/uploads/wprism-promotion-probe.txt']],
@@ -49,18 +50,21 @@ try {
         'providers' => [[
             'id' => 'effect-probe-settlement', 'version' => '1.0.0', 'source' => 'plugin',
             'plugin' => 'wprism-promotion-probe/wprism-promotion-probe.php',
-            'capabilities' => ['settle_effect_probe'],
+            'capabilities' => ['inspect_effect_schema', 'prepare_effect_schema', 'settle_effect_probe'],
         ]],
+        'tables' => ['effect_probe_projection' => ['class' => 'derived']],
         'actions' => [
             ['kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'wprism_probe_rebuild'], 'effects' => [['id' => 'probe-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]]],
             ['kind' => 'provider', 'phase' => 'lifecycle_settle', 'provider' => 'effect-probe-settlement', 'capability' => 'settle_effect_probe', 'args' => [], 'effects' => [['id' => 'probe-settle-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]]],
+            ['kind' => 'provider', 'phase' => 'schema_settle', 'prepares' => ['effect_probe_projection'], 'provider' => 'effect-probe-settlement', 'capability' => 'prepare_effect_schema', 'readiness' => 'inspect_effect_schema', 'args' => [], 'effects' => [['id' => 'probe-schema-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'effect_probe_projection']]]],
         ],
-        'spec_version' => 2, 'version_range' => ['max' => '2.0.0', 'min' => '1.0.0'],
+        'spec_version' => WPRISM_SPEC_VERSION, 'version_range' => ['max' => '2.0.0', 'min' => '1.0.0'],
     ];
     $inventory = eb_policy($manifest)->effects_inventory();
-    eb_ok(count($inventory) === 9
-        && count(array_filter($inventory, fn($row) => ($row['phase'] ?? '') === 'lifecycle-settle')) === 1,
-        'compiled inventory includes lifecycle, lifecycle-settle, rebuild-action, and engine-owned effects deterministically');
+    eb_ok(count($inventory) === 10
+        && count(array_filter($inventory, fn($row) => ($row['phase'] ?? '') === 'lifecycle-settle')) === 1
+        && count(array_filter($inventory, fn($row) => ($row['phase'] ?? '') === 'schema-settle')) === 1,
+        'compiled inventory includes lifecycle, lifecycle-settle, schema-settle, rebuild-action, and engine-owned effects deterministically');
     $missing = $manifest; unset($missing['lifecycle_effects']);
     $missingRows = eb_policy($missing)->effects_inventory();
     eb_ok(count(array_filter($missingRows, fn($r) => ($r['effect']['mode'] ?? '') === 'irreversible')) === 1, 'undeclared lifecycle effects become explicit automatic-profile blockers');
@@ -121,7 +125,9 @@ try {
     $controllerHost = $tmp . '/controller-host'; $controllerRoot = $controllerHost . '/.wprism/control';
     $controllerInitial = RollbackControl::initialize($controllerRoot); RollbackControl::installPublicKey($controllerRoot, $keyId, base64_encode($public));
     $runtime = $controllerRoot . '/recovery-runtime'; mkdir($runtime, 0700, true);
-    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $file) copy(dirname(__DIR__, 4) . '/recovery/' . $file, $runtime . '/' . $file);
+    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php','ProviderSettlementIntent.php','CheckpointRecoveryIntent.php'] as $file) copy(dirname(__DIR__, 4) . '/recovery/' . $file, $runtime . '/' . $file);
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/DatabaseTargetIdentity.php', $runtime . '/DatabaseTargetIdentity.php');
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/RetainedCheckpointCipher.php', $runtime . '/RetainedCheckpointCipher.php');
     $controllerSite = $controllerHost; eb_write($controllerSite . '/wp-content/uploads/wprism-promotion-probe.txt', "controller prior\n");
     $controllerState = $tmp . '/controller-effects'; $controllerExclusion = $tmp . '/controller-exclusion.json';
     $controllerConfig = ['adapters' => $adapters, 'checkpoint_provider' => [PHP_BINARY, $checkpoint], 'effect_provider' => [PHP_BINARY, $provider, $controllerState, $controllerSite], 'exclusion_provider' => [PHP_BINARY, $exclusion, $controllerExclusion], 'format' => 'wprism-recovery-config/v1', 'timeout_seconds' => 5];
@@ -132,6 +138,6 @@ try {
     $authority = new RollbackAuthority($transport);
     eb_refuses(fn() => $authority->claim(['code_release_metadata_sha256' => hash('sha256', 'controller-code-release-metadata'), 'effect_inventory' => $inventory, 'lifecycle_receipts_sha256' => hash('sha256', 'caller-owned')], 'controller-worker', '2020-02-01T00:00:00Z'), 'controller refuses caller-owned lifecycle receipt hash when effect provider is configured');
     $claim = $authority->claim(['adapter_versions_sha256' => hash('sha256', 'adapters'), 'artifact_hash' => hash('sha256', 'controller-artifact'), 'claim_ttl_seconds' => 60, 'code_release_metadata_sha256' => hash('sha256', 'controller-code-release-metadata'), 'effect_inventory' => $inventory, 'encryption_key_id' => 'manual-key', 'owner' => 'controller:effect-test', 'prior_code_descriptor_sha256' => hash('sha256', 'code'), 'resources_inventory_sha256' => hash('sha256', 'resources'), 'retention_until' => '2020-02-02T00:00:00Z', 'uploads_inventory_sha256' => hash('sha256', 'uploads')], 'controller-worker', '2020-02-01T00:00:00Z');
-    eb_ok(($claim['status']['state'] ?? '') === 'prepared' && ($claim['receipt']['lifecycle_receipts_sha256'] ?? '') !== hash('sha256', 'caller-owned') && ($controllerInitial['target_id'] ?? '') === ($claim['receipt']['target_id'] ?? ''), 'SSH controller binds provider-owned prepared effect evidence before signed receipt publication');
+    eb_ok(($claim['status']['state'] ?? '') === 'prepared' && ($claim['receipt']['lifecycle_receipts_sha256'] ?? '') !== hash('sha256', 'caller-owned') && ($controllerInitial['target_id'] ?? '') === ($claim['receipt']['target_id'] ?? ''), 'SSH controller accepts schema-settle inventory and binds provider-owned prepared effect evidence before signed receipt publication');
     echo "PASS: rollback effect contracts are bounded, preflighted, reconciled, prevented, and freshly reversible\n";
 } finally { sodium_memzero($secret); eb_remove($tmp); }

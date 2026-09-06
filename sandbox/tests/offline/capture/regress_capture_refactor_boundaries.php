@@ -163,6 +163,8 @@ $expectedApi = [
         $parameter('planObservations', '?array', false, null, true),
         // Observe AS a named environment binding — the rehearsal target rebind off its restored source snapshot (grind_adoption A6).
         $parameter('binding', '?array', false),
+        // First-apply comparison accepts a natural-key witness, never publication authority; all strict/export signatures remain unchanged.
+        $parameter('unmappedTermObserver', '?Closure', false),
     ]],
     'snapshot_read_only' => ['array', [
         $parameter('repo', 'string'),
@@ -298,7 +300,8 @@ foreach ([
     $order[] = (int) $offset;
 }
 $check($order === array_values($order) && $order === array_unique($order)
-    && $order === (function (array $positions): array { sort($positions); return $positions; })($order),
+    && $order === (function (array $positions): array { sort($positions);
+    return $positions; })($order),
     'candidate construction preserves its identity/entity/gate ordering');
 
 $widgetReferenceScan = strpos($candidateBuild, '$this->portableWidgetReferenceScan(');
@@ -346,14 +349,17 @@ $check(str_contains($identity, 'public function ensurePost(')
 // default WordPress metadata collation is case-insensitive, so an alias must
 // be observed in the same equality set and refused rather than ignored/minted
 // over; a failed compact read likewise cannot become "identity absent".
+require_once "$root/sandbox/tests/lib/wp_stubs.php";
 require_once "$root/sandbox/tests/lib/FakeWpdb.php";
 $identityDb = static function (array $postmeta): \WPrismTest\FakeWpdb {
     $db = new \WPrismTest\FakeWpdb();
-    $db->seedTable('wp_postmeta', $postmeta);
+    $db->seedTable('wp_postmeta', $postmeta)
+        ->setTableEngine('wp_postmeta', 'InnoDB');
     $db->seedTable('wp_wprism_map', [])
+        ->setTableEngine('wp_wprism_map', 'InnoDB')
         ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
         ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
-    return $db;
+    return $db->enableInformationSchema();
 };
 $canonicalUuid = '11111111-1111-7111-8111-111111111111';
 $GLOBALS['wpdb'] = $identityDb([[
@@ -435,7 +441,7 @@ $check(str_contains($term, '$this->entityMetaCapture->termMetaByKey(')
     'term collaborator owns term/meta/relationship projection');
 
 $check(str_contains($snapshot, 'Ledger::assert_read_only_schema()')
-    && !str_contains($snapshot, "Snapshot::repair_truncated_entity_types(")
+    && !str_contains($snapshot, 'Snapshot::repair_truncated_entity_types(')
     && str_contains($snapshot, '$capture->build('),
     'snapshot service keeps strict reads separate from maintenance-aware observation');
 $transactionStart = strpos($workflow, '$build = self::runInConsistentSnapshot(');
@@ -461,7 +467,8 @@ foreach ([
 }
 $check(
     !in_array(false, $protocolOffsets, true)
-        && $protocolOffsets === (function (array $positions): array { sort($positions); return $positions; })($protocolOffsets),
+        && $protocolOffsets === (function (array $positions): array { sort($positions);
+        return $positions; })($protocolOffsets),
     'publication protocol preserves intent, swap, ledger, commit-marker, and transaction-return ordering'
 );
 $beginIntentOffset = strpos($transactionProtocol, 'Publish::begin_intent(');

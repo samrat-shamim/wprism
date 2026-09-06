@@ -93,6 +93,13 @@ GUARD_WHATS=(
   'require_observed_nonempty "conf2 wp_wprism_state content_hash (force-theirs-only deletion-conflict base baseline)"'
   'require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target)"'
   'require_observed_nonempty "conf2 wp_wprism_state content_hash (force-theirs-only deletion-conflict base)"'
+  'require_observed_nonempty "core direct-deletion native and ledger baseline"'
+  'require_observed_nonempty "core direct-deletion native and ledger readback"'
+  'require_observed_nonempty "conf2 Home after missing-exclusion refusal"'
+  'require_observed_nonempty "conf2 locally edited post after missing-exclusion refusal"'
+  'require_observed_nonempty "conf2 branch-conflicted attachment after missing-exclusion refusal"'
+  'require_observed_nonempty "core unmapped target native and ledger baseline"'
+  'require_observed_nonempty "core unmapped target native and ledger readback"'
 )
 for what in "${GUARD_WHATS[@]}"; do
   grep -Fq "$what" "$CORE" \
@@ -107,9 +114,8 @@ grep -Fq '[ "$SOURCE_LOCAL" != '\''__wprism_missing__'\'' ]' "$CORE" \
 pass "Ledger null mappings retain the engine accusation while compose-empty observations remain infrastructure failures"
 
 # Negative pins — the exact unguarded inline shapes the fix removed must not
-# reappear. These are scoped to the guarded sites only (the rollback-alpha/beta
-# existence compares at the end of core.sh and the `[ -z "$(…)" ]` deletion
-# checks are deliberately NOT guarded, so they must stay matchable by name).
+# reappear. Direct deletion now proves refusal and preservation; there are no
+# expected-empty post observations exempted as successful unsigned deletes.
 FORBIDDEN_INLINE=(
   '[ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" ='
   '[ "$(wp_conf2 db query "SELECT content_hash'

@@ -12,6 +12,7 @@ define('WP_CONTENT_DIR', $target);
 define('WP_PLUGIN_DIR', $target . '/plugins');
 define('WPMU_PLUGIN_DIR', $target . '/mu-plugins');
 function get_theme_root(): string { return WP_CONTENT_DIR . '/themes'; }
+if (!defined('ARRAY_A')) { define('ARRAY_A', 'ARRAY_A'); }
 
 final class FakeWpdbCompleted {
     public string $prefix = 'wp_';
@@ -25,9 +26,10 @@ final class FakeWpdbCompleted {
         }
         return $sql;
     }
-    public function get_var(string $sql): ?string {
+    public function get_row(string $sql, mixed $output): ?array {
         if (preg_match("/WHERE k = '([^']*)'/", $sql, $m)) {
-            return $this->rows[$m[1]] ?? null;
+            $key = $m[1];
+            return isset($this->rows[$key]) ? ['k' => $key, 'v' => $this->rows[$key]] : null;
         }
         return null;
     }

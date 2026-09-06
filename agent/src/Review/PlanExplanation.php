@@ -1,6 +1,9 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
+
 /**
  * Stable, value-free explanation of one entity row in a freshly-observed plan.
  *
@@ -590,15 +593,13 @@ final class PlanExplanation {
 
     /** @param list<array<string,mixed>> $actions @param list<string> $surfaces */
     private static function actions(array $actions, array $surfaces): array {
-        $surfaceSet = array_fill_keys($surfaces, true);
         $out = [];
         foreach ($actions as $action) {
             $triggers = array_values(array_map('strval', (array) ($action['triggers'] ?? [])));
             $unscoped = !array_key_exists('triggers', $action);
             $matched = $unscoped
                 ? $surfaces
-                : array_values(array_filter($triggers, static fn(string $s): bool => isset($surfaceSet[$s])));
-            sort($matched, SORT_STRING);
+                : ActionTriggerMatcher::matching_surfaces($triggers, $surfaces);
             if (!$unscoped && $matched === []) {
                 continue;
             }
@@ -608,7 +609,9 @@ final class PlanExplanation {
                 'manifest' => self::safeName((string) ($action['manifest'] ?? '?')),
                 'declaration_index' => $index,
                 'source' => self::actionSource($action),
-                'trigger_mode' => $unscoped ? 'unscoped' : 'exact',
+                'trigger_mode' => $unscoped
+                    ? 'unscoped'
+                    : (in_array(ActionTriggerMatcher::POST_KIND_TRIGGER, $triggers, true) ? 'bounded_post_kind' : 'exact'),
                 'matched_surfaces' => $matched,
                 'readiness' => 'not_checked',
             ];

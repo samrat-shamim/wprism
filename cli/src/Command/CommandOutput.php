@@ -38,8 +38,8 @@ final class CommandOutput {
      * assess), so an unclassified Throwable arrives as `details_redacted:
      * true` and nothing else (issue #3404) — the operator never ran a human-mode
      * command they could reread. The agent writes that sentence privately
-     * under the target repository's `.wprism/refusals/` (agent/src/Command/
-     * Cli.php record_private_refusal_evidence); this one stderr line, emitted
+     * under the target repository's `.wprism/refusals/` (agent/src/Kernel/
+     * PrivateRefusalEvidence.php); this one stderr line, emitted
      * only when a stream is such an envelope, tells the operator so. The
      * envelope on stdout is untouched.
      */
@@ -56,7 +56,7 @@ final class CommandOutput {
                 : 'agent';
             return "wprism: the target's $command refusal was redacted for machine output;"
                 . " its private operator evidence is under the target site repository's .wprism/refusals/"
-                . ' (a JSON record per redacted refusal: reason code, throwable class, message, cause chain)';
+                . ' (a bounded v2 JSON graph with explicit completeness and truncation witnesses)';
         }
         return null;
     }

@@ -45,6 +45,16 @@ function healthy_doctor_process_facts(): array {
             'proc_terminate' => true,
         ],
         'shell' => ['executable' => true, 'path' => '/bin/sh'],
+        'wp_cli_opcache_enabled' => false,
+    ];
+}
+
+/** @return array{direct_global_process:bool,metadata_source:string,metadata_source_readable:bool} */
+function healthy_doctor_database_mutation_facts(string $engine = 'mariadb'): array {
+    return [
+        'direct_global_process' => true,
+        'metadata_source' => $engine === 'mariadb' ? 'INNODB_SYS_FOREIGN' : 'INNODB_FOREIGN',
+        'metadata_source_readable' => true,
     ];
 }
 
@@ -126,6 +136,7 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
+                'database_mutation' => healthy_doctor_database_mutation_facts(),
                 'filesystem' => [
                     'directory_separator' => '/',
                     'os_family' => 'Linux',
@@ -165,6 +176,7 @@ class AdoptableDoctorDriver extends HealthyDoctorDriver implements AdoptionTrans
     public function capabilityReport(string $operation): DriverCapabilityReport {
         $supported = [
             DriverCapability::ATTACH => true,
+            DriverCapability::BOUNDED_CONTROL => true,
             DriverCapability::RAW_CONTROL => true,
             DriverCapability::WP_CONTROL => true,
         ];
@@ -225,6 +237,7 @@ $compatibilityCase = static function (array $override): array {
         'php' => '8.3.33',
         'db_version' => '11.8.8',
         'db_engine' => 'mariadb',
+        'database_mutation' => healthy_doctor_database_mutation_facts(),
         'filesystem' => [
             'directory_separator' => '/',
             'os_family' => 'Linux',
@@ -236,6 +249,11 @@ $compatibilityCase = static function (array $override): array {
     ];
     foreach ($override as $key => $value) {
         $facts[$key] = $value;
+    }
+    if (array_key_exists('db_engine', $override)
+        && !array_key_exists('database_mutation', $override)
+        && is_string($facts['db_engine'])) {
+        $facts['database_mutation'] = healthy_doctor_database_mutation_facts($facts['db_engine']);
     }
     $driver = new HealthyDoctorDriver();
     $driver->factsResult = [
@@ -295,6 +313,49 @@ foreach ([
         "$label renders its exact passing platform row"
     );
 }
+
+$missingProcessAuthority = $compatibilityCase(['database_mutation' => [
+    'direct_global_process' => false,
+    'metadata_source' => 'INNODB_SYS_FOREIGN',
+    'metadata_source_readable' => false,
+]]);
+assert_doctor_command(
+    $missingProcessAuthority['exit'] === 0,
+    'missing PROCESS authority does not turn the scoped mutation prerequisite into a blanket read-only refusal'
+);
+assert_doctor_command(
+    str_contains($missingProcessAuthority['output'], '[WARN] transactional database mutation (mariadb)')
+        && str_contains($missingProcessAuthority['output'], 'requires direct `GRANT PROCESS ON *.*` authority')
+        && str_contains($missingProcessAuthority['output'], 'schema/table SELECT grants cannot reveal a cascading child in another schema')
+        && str_contains($missingProcessAuthority['output'], 'every transactional database mutation will refuse before its first write')
+        && str_contains($missingProcessAuthority['output'], 'direct global PROCESS is missing'),
+    'doctor names the exact scoped grant, hidden cross-schema hazard, and fail-closed mutation outcome'
+);
+
+$unreadableMysqlSource = $compatibilityCase([
+    'db_engine' => 'mysql',
+    'db_version' => '8.4.3',
+    'database_mutation' => [
+        'direct_global_process' => true,
+        'metadata_source' => 'INNODB_FOREIGN',
+        'metadata_source_readable' => false,
+    ],
+]);
+assert_doctor_command(
+    $unreadableMysqlSource['exit'] === 0
+        && str_contains($unreadableMysqlSource['output'], '[WARN] transactional database mutation (mysql)')
+        && str_contains($unreadableMysqlSource['output'], 'information_schema.INNODB_FOREIGN')
+        && str_contains($unreadableMysqlSource['output'], 'the metadata source was not readable'),
+    'doctor diagnoses the MySQL 8.4 source independently of the direct PROCESS row'
+);
+
+$unknownMutationFacts = $compatibilityCase(['database_mutation' => null]);
+assert_doctor_command(
+    $unknownMutationFacts['exit'] === 0
+        && str_contains($unknownMutationFacts['output'], '[WARN] transactional database mutation (unknown)')
+        && str_contains($unknownMutationFacts['output'], 'read-only workflows remain available'),
+    'an unreadable mutation probe is loud but does not erase read-only product availability'
+);
 
 foreach ([
     'PHP below minimum' => [['php' => '8.2.99'], '[FAIL] PHP version (8.2.99)'],
@@ -431,6 +492,15 @@ assert_doctor_command(
         && str_contains($nonExecutableShell['output'], 'shell is not executable'),
     'doctor blocks the exact /bin/sh path when it is not executable'
 );
+$enabledOpcacheFacts = $healthyProcessFacts;
+$enabledOpcacheFacts['wp_cli_opcache_enabled'] = true;
+$enabledOpcache = $compatibilityCase(['process' => $enabledOpcacheFacts]);
+assert_doctor_command(
+    $enabledOpcache['exit'] === 1
+        && str_contains($enabledOpcache['output'], '[FAIL] process group profile (Linux)')
+        && str_contains($enabledOpcache['output'], 'opcache.enable_cli is enabled'),
+    'doctor blocks WP-CLI OPcache before adoption can claim a generation-fenced process'
+);
 $windowsProcessFacts = $healthyProcessFacts;
 $windowsProcessFacts['os_family'] = 'Windows';
 $windowsProcess = $compatibilityCase(['process' => $windowsProcessFacts]);
@@ -447,6 +517,7 @@ $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode(
     'php' => '8.3.33',
     'db_version' => '11.8.8',
     'db_engine' => 'mariadb',
+    'database_mutation' => healthy_doctor_database_mutation_facts(),
     'filesystem' => [
         'directory_separator' => '/',
         'os_family' => 'Linux',
@@ -601,6 +672,18 @@ assert_doctor_command(
         && !str_contains($truncatedProcessProbe['output'], 'process group profile ('),
     'a baseline missing the exact process-function roster is malformed before any healthy target is judged'
 );
+$truncatedForeignKeyCensus = $shippedBaseline;
+unset($truncatedForeignKeyCensus['database']['foreign_key_census']);
+$truncatedForeignKeyCensusProbe = $baselineProbe($truncatedForeignKeyCensus);
+assert_doctor_command(
+    $truncatedForeignKeyCensusProbe['exit'] === 1
+        && str_contains(
+            $truncatedForeignKeyCensusProbe['output'],
+            '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — baseline file missing or malformed'
+        )
+        && !str_contains($truncatedForeignKeyCensusProbe['output'], 'transactional database mutation ('),
+    'a baseline missing the scoped FK-census profile is malformed before any target privilege is judged'
+);
 $missingShellBaseline = $shippedBaseline;
 unset($missingShellBaseline['process']['shell']);
 $missingShellProbe = $baselineProbe($missingShellBaseline);
@@ -645,7 +728,7 @@ assert_doctor_command($missingDockerAgentExit === 1, 'missing agent remains bloc
 assert_doctor_command(
     str_contains($missingDockerAgentOutput, "host-side wprism adopt is unavailable for driver 'healthy-fixture'")
         && str_contains($missingDockerAgentOutput, "install or mount the WPrism agent through that environment's control plane")
-        && !str_contains($missingDockerAgentOutput, "next step: wprism adopt"),
+        && !str_contains($missingDockerAgentOutput, 'next step: wprism adopt'),
     'non-adoptable doctor directs the operator to the environment control plane instead of an impossible adopt command'
 );
 
@@ -663,6 +746,7 @@ $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'php' => '8.3.33',
     'db_version' => null,
     'db_engine' => null,
+    'database_mutation' => null,
     'filesystem' => [
         'directory_separator' => '/',
         'os_family' => 'Linux',
@@ -731,11 +815,14 @@ assert_doctor_command(str_contains($rendered, 'recommended setting missing'), 'r
 // around the whole snippet — the obvious naive composition — emits
 // {"agent":null,…} and fails this block.
 //
-// A two-method duck type, deliberately not sandbox/tests/lib's FakeWpdb:
+// A two-method duck type plus wpdb's public error slot, deliberately not
+// sandbox/tests/lib's FakeWpdb:
 // that class is a SQL interpreter for agent-side suites, ships no
 // db_server_info() at all, and offers no seam for a throwing db_version() —
 // the only two behaviours this block needs.
 final class ThrownDbWpdb {
+    public string $last_error = '';
+
     public function db_version(): string {
         throw new RuntimeException('MySQL server has gone away');
     }
@@ -760,6 +847,10 @@ assert_doctor_command(($facts['php'] ?? null) === PHP_VERSION, 'a throwing $wpdb
 assert_doctor_command(($facts['wp'] ?? null) === '7.0.3', 'a throwing $wpdb sank the WordPress version field');
 assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');
 assert_doctor_command(($facts['db_engine'] ?? null) === 'mariadb', 'the sibling database field did not answer independently of the thrown one');
+assert_doctor_command(
+    array_key_exists('database_mutation', $facts) && $facts['database_mutation'] === null,
+    'a failed scoped mutation probe leaves its own null sentinel without sinking sibling platform facts'
+);
 $expectedProcessFunctions = [];
 foreach (['passthru', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_get_status', 'proc_open', 'proc_terminate'] as $function) {
     $expectedProcessFunctions[$function] = function_exists($function);
@@ -772,8 +863,9 @@ assert_doctor_command(
             'executable' => function_exists('is_executable') && @is_executable('/bin/sh'),
             'path' => '/bin/sh',
         ],
+        'wp_cli_opcache_enabled' => false,
     ],
-    'the production SITE_FACTS snippet emits every process primitive and the exact executable-shell witness'
+    'the production SITE_FACTS snippet emits process primitives, the exact shell, and the WP-CLI OPcache witness'
 );
 // The topology field is computed with function_exists() rather than a bare
 // call: this snippet also runs under the isolated control bootstrap, where

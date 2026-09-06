@@ -31,13 +31,6 @@ final class RebuildActionNegotiator {
             self::assert_scoped_promotion_selection($selectedActions, $work, $deleteWork, $tree);
         }
         if ($scoped) {
-            foreach ($selectedActions as $action) {
-                if (!array_key_exists('triggers', $action)) {
-                    throw new \RuntimeException(
-                        'wprism: scoped apply refused before target mutation — an untriggered global action has no bounded scope authority'
-                    );
-                }
-            }
             foreach ($work as $entry) {
                 $entity = $tree[(string) ($entry['uuid'] ?? '')] ?? null;
                 $postType = is_array($entity) && ($entity['type'] ?? '') === 'post'
@@ -87,6 +80,9 @@ final class RebuildActionNegotiator {
             );
         }
         if ($scoped) {
+            self::assert_scoped_action_authority($selectedActions, $negotiation, 'apply');
+        }
+        if ($scoped) {
             foreach ($selectedActions as $action) {
                 if (($action['kind'] ?? '') !== 'provider') {
                     continue;
@@ -116,6 +112,38 @@ final class RebuildActionNegotiator {
                 'scoped_capabilities' => (array) ($negotiation['scoped_capabilities'] ?? []),
             ],
         ];
+    }
+
+    /**
+     * An untriggered action is globally selected, but that does not make its
+     * effects unbounded once the scope contract has hashed its declaration,
+     * effects and exact provider capability. Admit only the provider form
+     * whose operation receipt and reconciliation contract negotiated here;
+     * native actions and legacy providers retain the historical refusal.
+     *
+     * @param list<array<string,mixed>> $selectedActions
+     * @param array<string,mixed> $negotiation
+     */
+    public static function assert_scoped_action_authority(
+        array $selectedActions,
+        array $negotiation,
+        string $operation
+    ): void {
+        foreach ($selectedActions as $action) {
+            if (array_key_exists('triggers', $action)) {
+                continue;
+            }
+            $provider = (string) ($action['provider'] ?? '');
+            $capability = (string) ($action['capability'] ?? '');
+            if (($action['kind'] ?? '') === 'provider'
+                && isset($negotiation['scoped_capabilities'][$provider][$capability])) {
+                continue;
+            }
+            throw new \RuntimeException(
+                "wprism: scoped $operation refused before target mutation — an untriggered global action "
+                . 'requires a successfully negotiated operation-bound provider reconciliation contract'
+            );
+        }
     }
 
     /** @param list<array<string,mixed>> $selectedActions */

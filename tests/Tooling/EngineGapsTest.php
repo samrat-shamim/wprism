@@ -21,9 +21,9 @@ use RuntimeException;
  *     the same gap differently, and the ranking then counts two ones instead of
  *     one two.
  *   - a declared primitive nothing demands is a wish, not a measurement.
- *   - a lifecycle disagreement (an `open` primitive demanded by a row marked
- *     `closed`) means the ledger is describing a gap that shipped, or claiming
- *     one that did not.
+ *   - a lifecycle/layer disagreement means the ledger is describing a closed
+ *     coordinate on work that did not ship, or treating remaining adapter work
+ *     as though the generic platform facility were still missing.
  *   - a `closed_by` path that left the tree turns a closure into a story about
  *     code nobody can open.
  *   - a coordinate head no manifest declares is not a grammar coordinate at all.
@@ -134,30 +134,67 @@ final class EngineGapsTest extends TestCase
         self::assertTrue(true, 'the committed ledger passes every cross-check');
     }
 
-    /**
-     * The property the whole ledger exists for: duplicate demand across
-     * candidates is ONE primitive with N candidates, and the ranking is sorted
-     * by that N. Asserted against the real data rather than a fixture so the
-     * ledger cannot quietly become a list of ones.
-     */
+    /** Duplicate demand is one ranked primitive row with N unique candidates. */
     public function testDemandRankingCollapsesDuplicateDemandAndLeadsWithIt(): void
     {
-        $demand = gap_open_demand(self::ledger());
+        $ledger = self::ledger();
+        $sourceCandidate = null;
+        $sourceCoordinate = null;
+        foreach ($ledger['candidates'] as $candidate) {
+            foreach ($candidate['coordinates'] as $coordinate) {
+                if (!gap_coordinate_closed($coordinate)) {
+                    $sourceCandidate = (string) $candidate['candidate'];
+                    $sourceCoordinate = $coordinate;
+                    break 2;
+                }
+            }
+        }
+        self::assertNotNull($sourceCoordinate, 'the committed ledger has no open coordinate to aggregate');
+        self::assertNotNull($sourceCandidate, 'the committed open coordinate has no candidate owner');
+        $probe = $ledger['candidates'][0];
+        $probe['candidate'] = 'Aggregation probe';
+        $probe['blocked_adapters'] = ['aggregation-probe'];
+        $probe['coordinates'] = [$sourceCoordinate, $sourceCoordinate];
+        $ledger['candidates'][] = $probe;
+
+        $demand = gap_open_demand($ledger);
         self::assertNotSame([], $demand);
         $counts = array_map(static fn (array $row): int => count($row['candidates']), $demand);
         $sorted = $counts;
         rsort($sorted);
         self::assertSame($sorted, $counts, 'the open-demand table is not ordered most-blocking first');
-        self::assertGreaterThan(
-            1,
-            $counts[0],
-            'no primitive is demanded by more than one candidate; the vocabulary is not collapsing duplicate demand'
-        );
+
+        $primitive = (string) $sourceCoordinate['primitive_required'];
+        $aggregated = array_values(array_filter(
+            $demand,
+            static fn (array $row): bool => $row['primitive'] === $primitive
+        ));
+        self::assertCount(1, $aggregated, 'shared demand was split into more than one primitive row');
+        $expectedCandidates = [$sourceCandidate, 'Aggregation probe'];
+        sort($expectedCandidates, SORT_STRING);
         self::assertSame(
-            count($demand[0]['candidates']),
-            count(array_unique($demand[0]['candidates'])),
-            'the leading primitive counts the same candidate twice'
+            $expectedCandidates,
+            $aggregated[0]['candidates'],
+            'two candidates demanding one primitive were not collapsed into one ranked row'
         );
+        foreach ($demand as $row) {
+            self::assertSame(
+                count($row['candidates']),
+                count(array_unique($row['candidates'])),
+                "primitive '{$row['primitive']}' counts the same candidate twice"
+            );
+        }
+    }
+
+    public function testCurrentDispositionRefusesAStalePromotionBlocker(): void
+    {
+        $ledger = self::ledger();
+        $ledger['candidates'][0]['disposition'] = 'promotion_blocked';
+        $ledger['candidates'][0]['blocked_adapters'] = ['code-snippets'];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("'code-snippets' is promotion_blocked");
+        gap_assert_current_dispositions($ledger, gap_library(self::repoRoot()));
     }
 
     public function testRefusesAnOutOfVocabularyPrimitive(): void
@@ -190,6 +227,36 @@ final class EngineGapsTest extends TestCase
             }
         }
         $this->assertRefuses($ledger, 'a closed coordinate demands a shipped primitive');
+    }
+
+    public function testOpenCoordinateOnShippedFacilityMustBeClassifiedAsAdapterWork(): void
+    {
+        $ledger = self::ledger();
+        foreach ($ledger['candidates'] as $i => $row) {
+            foreach ($row['coordinates'] as $j => $coordinate) {
+                if (($coordinate['blocker_layer'] ?? null) === 'adapter') {
+                    unset($ledger['candidates'][$i]['coordinates'][$j]['blocker_layer']);
+                    $this->assertRefuses($ledger, 'mark blocker_layer adapter');
+                    return;
+                }
+            }
+        }
+        self::fail('fixture has no adapter-layer blocker');
+    }
+
+    public function testClosedCoordinateCannotRetainAStaleBlockerLayer(): void
+    {
+        $ledger = self::ledger();
+        foreach ($ledger['candidates'] as $i => $row) {
+            foreach ($row['coordinates'] as $j => $coordinate) {
+                if (isset($coordinate['closed_by'])) {
+                    $ledger['candidates'][$i]['coordinates'][$j]['blocker_layer'] = 'adapter';
+                    $this->assertRefuses($ledger, 'is closed and must not retain blocker_layer');
+                    return;
+                }
+            }
+        }
+        self::fail('fixture has no closed coordinate');
     }
 
     public function testRefusesClosureEvidenceThatLeftTheTree(): void

@@ -2,18 +2,23 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 // issue #3383: receipt bounding screens provider strings through the same
 // public-output authority the JSON refusal envelope uses, so there is one
 // secret grammar in this engine rather than a second one written here. Pulled
 // in the way CommandRefusal.php pulls in Secrets.php — this file's callers all
 // load it directly, so it cannot rely on someone else having loaded the screen.
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
 // The engine's own reading of the surfaces a capability declared, which is
 // what turns invoke()'s `verified === true` gate from a claim into a check.
 // Required here for the same reason as the two above: every caller of this
 // file loads it directly, so it cannot assume someone else loaded the observer.
 require_once __DIR__ . '/ProviderSurfaces.php';
 require_once __DIR__ . '/ManifestProviderRuntime.php';
+require_once __DIR__ . '/../Kernel/ManifestExecutableLoader.php';
+require_once __DIR__ . '/../Kernel/ExactOptionReader.php';
+require_once __DIR__ . '/../Kernel/ExactOptionWriter.php';
 
 /**
  * Provider contract: discovery, negotiation, and invocation of executable
@@ -38,6 +43,32 @@ require_once __DIR__ . '/ManifestProviderRuntime.php';
  * target with a warning attached.
  */
 final class Providers {
+    /**
+     * Contracts keyed by the exact manifest runtime object the engine loaded.
+     *
+     * Construction is intentionally not authority: provider package code can
+     * instantiate its own runtime (and PHP can clone or unserialize one), but
+     * only manifest_provider() crosses the digest/provenance loader and can
+     * populate this private registry. Weak object keys prevent both lifetime
+     * leaks and spl_object_id reuse from transferring authority to a later
+     * object.
+     *
+     * @var null|\WeakMap<ManifestProviderRuntime,array<string,array<string,mixed>>>
+     */
+    private static ?\WeakMap $manifestRuntimeContracts = null;
+
+    /**
+     * Loader-derived identity for every manifest-sourced provider, including
+     * pre-contract legacy runtimes. This is separate from declarations: only
+     * the exact object constructed after ManifestExecutableLoader validates
+     * its source bytes can appear here.
+     *
+     * @var null|\WeakMap<object,array{adapter:string,id:string,sha256:string}>
+     */
+    private static ?\WeakMap $manifestProviderIdentities = null;
+    private static ?object $activeProviderInvocation = null;
+    private static ?string $activeProviderCapability = null;
+
     /**
      * Operation-bound scoped effects deliberately use a smaller envelope than
      * a session record.  The session owns authority construction; this seam
@@ -239,6 +270,7 @@ final class Providers {
     private const MAX_SCOPED_EVIDENCE_NODES = 2048;
     private const SCOPED_SECRET_KEY_PATTERN = '/(?:api[_-]?key|authorization|credential|password|passphrase|private[_-]?key|secret|token)/i';
     private const ARG_TYPES = ['bool', 'int', 'list<object>', 'list<string>', 'string'];
+
     /**
      * Types a `list<object>` row FIELD may declare. Deliberately the scalars
      * only: the object grammar is exactly one level deep, so neither a nested
@@ -499,7 +531,15 @@ final class Providers {
             // register its filter while its plugin is inactive, so checking
             // activation first turns "no provider answered" into the accurate
             // "the owning plugin is not active here".
-            $live = Deploy::plugin_runtime_state($plugin);
+            $freshCapabilities = (array) ($declaration['fresh_process_capabilities'] ?? []);
+            $requiresDurableLifecycle = false;
+            foreach ($wantedActions as $wantedAction) {
+                if (in_array((string) ($wantedAction['capability'] ?? ''), $freshCapabilities, true)) {
+                    $requiresDurableLifecycle = true;
+                    break;
+                }
+            }
+            $live = Deploy::plugin_runtime_state($plugin, $requiresDurableLifecycle);
             if (!$live['installed']) {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'missing_plugin',
@@ -546,7 +586,13 @@ final class Providers {
             }
 
             if ($declaration['source'] === 'manifest') {
-                $provider = self::manifest_provider($policy, $declaration);
+                $provider = self::manifest_provider(
+                    $policy,
+                    $declaration,
+                    null,
+                    $live,
+                    $wantedActions
+                );
             } else {
                 if ($pluginSupplied === null) {
                     $pluginSupplied = self::plugin_supplied_providers();
@@ -630,6 +676,71 @@ final class Providers {
                     $problems[] = $problem;
                     $failed = true;
                     continue;
+                }
+                if (array_key_exists('_schema_readiness_tables', $action)) {
+                    $readinessContract = (array) $advertised[$capability];
+                    $requiredSurfaces = array_map(
+                        static fn(string $table): string => 'table:' . $table,
+                        array_values(array_map('strval', (array) $action['_schema_readiness_tables']))
+                    );
+                    $reads = array_values(array_map('strval', (array) ($readinessContract['reads'] ?? [])));
+                    $writes = array_values(array_map('strval', (array) ($readinessContract['writes'] ?? [])));
+                    sort($requiredSurfaces, SORT_STRING);
+                    sort($reads, SORT_STRING);
+                    sort($writes, SORT_STRING);
+                    if (($readinessContract['scope'] ?? null) !== 'site'
+                        || ($readinessContract['args'] ?? null) !== []
+                        || ($readinessContract['idempotent'] ?? null) !== true
+                        || $reads !== $requiredSurfaces
+                        || $writes !== []) {
+                        $problems[] = self::problem(
+                            $id,
+                            $manifest,
+                            $plugin,
+                            'schema_readiness_contract',
+                            'an idempotent argument-free site capability which reads exactly prepares and writes nothing',
+                            ($readinessContract['scope'] ?? '(missing)') . ' scope with non-exact readiness surfaces',
+                            "update provider '$id' capability '$capability' so schema readiness is exact and read-only"
+                        );
+                        $failed = true;
+                        continue;
+                    }
+                }
+                if (($action['phase'] ?? null) === 'schema_settle') {
+                    $schemaContract = (array) $advertised[$capability];
+                    $requiredSurfaces = array_map(
+                        static fn(string $table): string => 'table:' . $table,
+                        array_values(array_map('strval', (array) ($action['prepares'] ?? [])))
+                    );
+                    $reads = array_values(array_map('strval', (array) ($schemaContract['reads'] ?? [])));
+                    $writes = array_values(array_map('strval', (array) ($schemaContract['writes'] ?? [])));
+                    sort($requiredSurfaces, SORT_STRING);
+                    sort($reads, SORT_STRING);
+                    sort($writes, SORT_STRING);
+                    $argumentFinding = ($schemaContract['args'] ?? null) === []
+                        ? 'exact arguments'
+                        : 'non-empty or optional arguments';
+                    $surfaceFinding = $reads === $requiredSurfaces && $writes === $requiredSurfaces
+                        ? 'exact schema surfaces'
+                        : 'non-exact schema surfaces';
+                    if (($schemaContract['scope'] ?? null) !== 'site'
+                        || ($schemaContract['args'] ?? null) !== []
+                        || $reads !== $requiredSurfaces
+                        || $writes !== $requiredSurfaces) {
+                        $problems[] = self::problem(
+                            $id,
+                            $manifest,
+                            $plugin,
+                            'schema_settlement_contract',
+                            'an idempotent argument-free site-scoped capability whose reads and writes exactly equal prepares tables',
+                            ($schemaContract['scope'] ?? '(missing)') . ' scope with '
+                                . $argumentFinding . ' and ' . $surfaceFinding,
+                            "update provider '$id' capability '$capability' so schema settlement is argument-free "
+                                . 'and has exact site scope, reads, and writes'
+                        );
+                        $failed = true;
+                        continue;
+                    }
                 }
                 $problem = self::dual_claimant_problem(
                     $policy,
@@ -1050,11 +1161,24 @@ final class Providers {
         // as `table:`/`post:`/`entity:`.
         $observation = ProviderSurfaces::observation_plan($capabilityDecl);
         $before = ProviderSurfaces::observe($observation['watched'], $id, $capability);
+        $budget = (int) $capabilityDecl['timeout_seconds'];
         $started = microtime(true);
+        $deadlineNanoseconds = hrtime(true) + ($budget * 1000000000);
         try {
-            $receipt = $provider->invoke($capability, $args);
+            $receipt = self::invoke_provider_callback(
+                $provider,
+                $id,
+                $capability,
+                static fn() => $provider instanceof ManifestProviderRuntime
+                    && $provider->uses_fresh_process($capability)
+                        ? $provider->invoke_with_deadline($capability, $args, $deadlineNanoseconds)
+                        : $provider->invoke($capability, $args)
+            );
         } catch (\Throwable $t) {
-            throw new \RuntimeException("wprism: provider '$id' capability '$capability' failed");
+            throw new PrivateEvidenceException(
+                "wprism: provider '$id' capability '$capability' failed",
+                $t
+            );
         }
         $elapsed = microtime(true) - $started;
 
@@ -1072,7 +1196,6 @@ final class Providers {
                 . 'a receipt must prove the state it wrote, not that a call returned'
             );
         }
-        $budget = (int) $capabilityDecl['timeout_seconds'];
         if ($elapsed > $budget) {
             throw new \RuntimeException(
                 "wprism: provider '$id' capability '$capability' overran its declared budget ("
@@ -1472,9 +1595,17 @@ final class Providers {
         self::begin_scoped_operation($id, $capability, $operation);
         $started = microtime(true);
         try {
-            $raw = $provider->invoke_scoped($capability, $args, $operation);
+            $raw = self::invoke_provider_callback(
+                $provider,
+                $id,
+                $capability,
+                static fn() => $provider->invoke_scoped($capability, $args, $operation)
+            );
         } catch (\Throwable $t) {
-            throw new \RuntimeException("wprism: provider '$id' capability '$capability' scoped invocation failed");
+            throw new PrivateEvidenceException(
+                "wprism: provider '$id' capability '$capability' scoped invocation failed",
+                $t
+            );
         }
         $elapsed = microtime(true) - $started;
         self::assert_scoped_budget($id, $capability, $capabilityDecl, $elapsed);
@@ -1529,9 +1660,17 @@ final class Providers {
             throw new \RuntimeException("wprism: provider '$id' capability '$capability' lacks scoped reconciliation support");
         }
         try {
-            $raw = $provider->reconcile_scoped($capability, $args, $operation);
+            $raw = self::invoke_provider_callback(
+                $provider,
+                $id,
+                $capability,
+                static fn() => $provider->reconcile_scoped($capability, $args, $operation)
+            );
         } catch (\Throwable $t) {
-            throw new \RuntimeException("wprism: provider '$id' capability '$capability' scoped reconciliation failed");
+            throw new PrivateEvidenceException(
+                "wprism: provider '$id' capability '$capability' scoped reconciliation failed",
+                $t
+            );
         }
         $after = self::review_scoped_reconcile_response($id, $capability, $operation, $raw);
         $afterHash = self::scoped_evidence_hash($after);
@@ -1568,11 +1707,15 @@ final class Providers {
             'state' => 'intent',
         ];
         $record['receipt_hash'] = self::scoped_hash($record);
-        if (!function_exists('add_option')) {
-            throw new \RuntimeException('wprism: scoped operation receipt storage requires add_option()');
-        }
         $encoded = Canon::encode($record);
-        $added = add_option($key, $encoded, '', 'no');
+        // WordPress 6.9 stores a boolean-false Options API create policy as
+        // `off`; retain that physical postimage without invoking its hooks.
+        $added = ExactOptionWriter::insert_plain_if_absent(
+            $key,
+            $encoded,
+            'off',
+            'scoped operation intent persistence'
+        );
         $readback = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
         if (!$added) {
             if ($readback === null) {
@@ -1882,21 +2025,11 @@ final class Providers {
         string $operationName,
         array $operation
     ): ?array {
-        $database = $GLOBALS['wpdb'] ?? null;
-        if (!is_object($database)
-            || !isset($database->options)
-            || !is_callable([$database, 'prepare'])
-            || !is_callable([$database, 'get_var'])) {
-            throw new \RuntimeException('wprism: scoped operation receipt storage requires a readable WordPress options table');
-        }
-        $database->last_error = '';
-        $raw = $database->get_var($database->prepare(
-            "SELECT option_value FROM {$database->options} WHERE option_name = %s LIMIT 1",
-            $key
-        ));
-        if ($raw === false || (string) ($database->last_error ?? '') !== '') {
-            throw new \RuntimeException('wprism: scoped operation receipt read failed');
-        }
+        $raw = ExactOptionReader::read_plain(
+            $key,
+            null,
+            'scoped operation receipt read'
+        );
         if ($raw === null) {
             return null;
         }
@@ -1907,6 +2040,9 @@ final class Providers {
             $record = Canon::decode($raw);
         } catch (\Throwable $t) {
             throw new \RuntimeException('wprism: scoped operation receipt is malformed; recovery_required');
+        }
+        if (!hash_equals($raw, Canon::encode($record))) {
+            throw new \RuntimeException('wprism: scoped operation receipt is noncanonical; recovery_required');
         }
         return self::assert_scoped_operation_record($record, $owner, $operationName, $operation);
     }
@@ -1922,10 +2058,24 @@ final class Providers {
         string $operationName,
         array $operation
     ): void {
-        if (!function_exists('update_option')) {
-            throw new \RuntimeException('wprism: scoped operation receipt storage requires update_option()');
+        $expected = [
+            'format' => self::SCOPED_OPERATION_RECEIPT_FORMAT,
+            'owner' => $owner,
+            'operation_name' => $operationName,
+            'operation' => $operation,
+            'state' => 'intent',
+        ];
+        $expected['receipt_hash'] = self::scoped_hash($expected);
+        if (!ExactOptionWriter::replace_plain_if_value(
+            $key,
+            Canon::encode($expected),
+            Canon::encode($record),
+            'scoped operation verified receipt persistence'
+        )) {
+            throw new \RuntimeException(
+                "wprism: scoped operation '$owner/$operationName' durable intent changed before completion; recovery_required"
+            );
         }
-        update_option($key, Canon::encode($record), false);
         $readback = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
         if ($readback === null || !hash_equals((string) $record['receipt_hash'], (string) $readback['receipt_hash'])) {
             throw new \RuntimeException('wprism: scoped operation receipt write was not durable');
@@ -2140,15 +2290,131 @@ final class Providers {
     }
 
     /**
-     * Manifest-sourced provider loading — the same trust boundary and
-     * validate/load/instantiate shape as Policy::interpreters()/
-     * regenerators(), deliberately mirrored rather than shared for the same
-     * reason those two are mirrors of each other: the discovery differs (one
-     * interpreter name per manifest; one regenerator name per declaring
-     * post_types entry; here, one class per declared `providers` entry, keyed
-     * by an id that is also the negotiation identity), so a shared helper
-     * would need its own branching and buy nothing over short, independently
-     * readable methods.
+     * Return the canonical contract bound to one exact engine-loaded runtime,
+     * or null when construction did not cross the loader.
+     *
+     * Public only because ManifestProviderRuntime is the other side of this
+     * engine boundary. There is deliberately no public registration seam: an
+     * adapter-authored declaration, a clone, and an unserialized substitute
+     * all remain unable to mint ProviderSdk database authority. The null is
+     * retained by ManifestProviderRuntime only as an occupied non-reentrancy
+     * slot; active_validated_contract() never returns it.
+     *
+     * @return null|array<string,mixed>
+     */
+    public static function bound_manifest_runtime_contract(
+        ManifestProviderRuntime $provider,
+        string $capability
+    ): ?array {
+        $contracts = self::$manifestRuntimeContracts;
+        if ($contracts === null || !isset($contracts[$provider])) {
+            return null;
+        }
+        $contract = $contracts[$provider][$capability] ?? null;
+        if (!is_array($contract)) {
+            throw new \RuntimeException(
+                "wprism: engine-owned manifest-provider contract does not contain capability '$capability'"
+            );
+        }
+        return $contract;
+    }
+
+    /** @param array<string,array<string,mixed>> $contracts */
+    private static function bind_manifest_runtime_contracts(
+        ManifestProviderRuntime $provider,
+        array $contracts
+    ): void {
+        self::$manifestRuntimeContracts ??= new \WeakMap();
+        if (isset(self::$manifestRuntimeContracts[$provider])) {
+            throw new \LogicException('wprism: manifest-provider runtime contract authority was already bound');
+        }
+        self::$manifestRuntimeContracts[$provider] = $contracts;
+    }
+
+    /**
+     * Return loader-derived identity only while the engine is invoking that
+     * exact provider object. There is deliberately no public setter.
+     *
+     * @return null|array{adapter:string,id:string,sha256:string,capability:string}
+     */
+    public static function active_manifest_provider_identity(): ?array {
+        $provider = self::$activeProviderInvocation;
+        $capability = self::$activeProviderCapability;
+        $identities = self::$manifestProviderIdentities;
+        if ($provider === null
+            || $capability === null
+            || $identities === null
+            || !isset($identities[$provider])) {
+            return null;
+        }
+        return $identities[$provider] + ['capability' => $capability];
+    }
+
+    /**
+     * @param array{adapter:string,id:string,sha256:string} $identity
+     */
+    private static function bind_manifest_provider_identity(object $provider, array $identity): void {
+        $keys = array_keys($identity);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['adapter', 'id', 'sha256']
+            || !is_string($identity['adapter'])
+            || !is_string($identity['id'])
+            || !is_string($identity['sha256'])
+            || preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $identity['adapter']) !== 1
+            || preg_match('/^[a-z][a-z0-9_-]*$/D', $identity['id']) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $identity['sha256']) !== 1) {
+            throw new \LogicException('wprism: manifest-provider loader produced a malformed runtime identity');
+        }
+        self::$manifestProviderIdentities ??= new \WeakMap();
+        if (isset(self::$manifestProviderIdentities[$provider])) {
+            throw new \LogicException('wprism: manifest-provider runtime identity was already bound');
+        }
+        self::$manifestProviderIdentities[$provider] = $identity;
+    }
+
+    /**
+     * Keep loader identity live only across the exact engine dispatch. The
+     * global non-reentrancy check prevents a bound provider from delegating
+     * its temporary legacy authority through a nested unbound invocation.
+     *
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    private static function invoke_provider_callback(
+        object $provider,
+        string $providerId,
+        string $capability,
+        callable $callback
+    ): mixed {
+        if (self::$activeProviderInvocation !== null) {
+            throw new \RuntimeException(
+                'wprism: provider handlers cannot re-enter an active engine invocation'
+            );
+        }
+        $identity = self::$manifestProviderIdentities !== null
+            ? (self::$manifestProviderIdentities[$provider] ?? null)
+            : null;
+        if (is_array($identity) && !hash_equals($identity['id'], $providerId)) {
+            throw new \RuntimeException(
+                'wprism: engine-loaded manifest-provider identity disagrees with its invocation'
+            );
+        }
+        self::$activeProviderInvocation = $provider;
+        self::$activeProviderCapability = $capability;
+        try {
+            return $callback();
+        } finally {
+            self::$activeProviderCapability = null;
+            self::$activeProviderInvocation = null;
+        }
+    }
+
+    /**
+     * Manifest-sourced provider discovery remains provider-specific; the
+     * executable path, digest, opcode-cache, symbol occupancy and provenance
+     * checks are shared with interpreters/regenerators by
+     * ManifestExecutableLoader.
      *
      * The declared id resolves through the declaring adapter package, which
      * must define \WPrism\Providers\<CamelCase(id)>. A missing file is a
@@ -2158,7 +2424,13 @@ final class Providers {
      *
      * @param array<string,mixed> $declaration
      */
-    private static function manifest_provider(Policy $policy, array $declaration): object {
+    private static function manifest_provider(
+        Policy $policy,
+        array $declaration,
+        ?string $requiredAdapterDigest = null,
+        ?array $validatedRuntimeState = null,
+        array $selectedActions = []
+    ): object {
         $id = (string) $declaration['id'];
         $manifest = (string) $declaration['manifest'];
         $file = $policy->adapter_runtime_path($manifest, 'providers', $id);
@@ -2175,9 +2447,65 @@ final class Providers {
                     . 'provider code ships with its manifest, not the engine'
             );
         }
-        require_once $file;
-        $class = '\\WPrism\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
-        if (!class_exists($class)) {
+        $realFile = realpath($file);
+        if ($realFile === false) {
+            throw new ProviderPackagingException(
+                $id,
+                $manifest,
+                "wprism: manifest '$manifest' provider '$id' source path cannot be resolved"
+            );
+        }
+        if (!class_exists(ArtifactPolicyIdentity::class, false)) {
+            require_once __DIR__ . '/../Policy/ArtifactPolicyIdentity.php';
+        }
+        $descriptor = ArtifactPolicyIdentity::runtime_component_descriptor(
+            $policy,
+            $manifest,
+            'providers',
+            $id
+        );
+        $adapterDigest = $descriptor['adapter_sha256'];
+        $providerDigest = $descriptor['sha256'];
+        $executionDigest = $requiredAdapterDigest ?? $policy->execution_adapter_digest($manifest);
+        if (!is_string($adapterDigest)
+            || !is_string($providerDigest)
+            || preg_match('/^[a-f0-9]{64}$/D', $providerDigest) !== 1) {
+            throw new ProviderPackagingException(
+                $id,
+                $manifest,
+                "wprism: manifest '$manifest' provider '$id' no longer matches its validated adapter identity"
+            );
+        }
+        // These values are derived only after Policy selected the exact source
+        // and are not manifest-authored grammar. A fresh child binds both so a
+        // same-name provider from different bytes cannot satisfy its receipt.
+        $declaration['_wprism_adapter_digest'] = $executionDigest ?? $adapterDigest;
+        $declaration['_wprism_adapter_library_root'] = $policy->adapter_library()->root();
+        $declaration['_wprism_execution_bound'] = $executionDigest !== null;
+        $declaration['_wprism_execution_identity'] = $policy->execution_artifact_identity();
+        $declaration['_wprism_plugin_runtime'] = $validatedRuntimeState;
+        $declaration['_wprism_policy_snapshot'] = $policy->execution_policy_snapshot()
+            ?? $policy->export_snapshot();
+        $declaration['_wprism_provider_file'] = $realFile;
+        $declaration['_wprism_provider_sha256'] = $providerDigest;
+        if ((array) ($declaration['fresh_process_capabilities'] ?? []) !== []) {
+            if (!class_exists(ProviderOperationProcess::class, false)) {
+                require_once __DIR__ . '/ProviderOperationProcess.php';
+            }
+            ProviderOperationProcess::preflight($declaration, $selectedActions);
+        }
+        try {
+            $class = ManifestExecutableLoader::load($descriptor, $executionDigest);
+        } catch (\RuntimeException $failure) {
+            throw new ProviderPackagingException(
+                $id,
+                $manifest,
+                $failure->getMessage()
+            );
+        }
+        if (!method_exists($class, 'identity')
+            || !method_exists($class, 'capabilities')
+            || !method_exists($class, 'invoke')) {
             throw new ProviderPackagingException(
                 $id,
                 $manifest,
@@ -2195,7 +2523,19 @@ final class Providers {
                 );
             }
             try {
-                return new $class($declaration);
+                $provider = new $class($declaration);
+                if (!$provider instanceof ManifestProviderRuntime) {
+                    throw new \LogicException('manifest runtime subclass check changed during construction');
+                }
+                /** @var array<string,array<string,mixed>> $contracts */
+                $contracts = $declaration['contracts'];
+                self::bind_manifest_provider_identity($provider, [
+                    'adapter' => $manifest,
+                    'id' => $id,
+                    'sha256' => $providerDigest,
+                ]);
+                self::bind_manifest_runtime_contracts($provider, $contracts);
+                return $provider;
             } catch (\Throwable $failure) {
                 throw new ProviderPackagingException(
                     $id,
@@ -2205,7 +2545,103 @@ final class Providers {
                 );
             }
         }
-        return new $class($policy);
+        $provider = new $class($policy);
+        self::bind_manifest_provider_identity($provider, [
+            'adapter' => $manifest,
+            'id' => $id,
+            'sha256' => $providerDigest,
+        ]);
+        return $provider;
+    }
+
+    /**
+     * Revalidate and load one manifest runtime from a frozen parent policy.
+     *
+     * ProviderOperationProcess is the only production caller. Keeping this
+     * closure beside the ordinary loader makes the child traverse the same
+     * package identity code instead of trusting declaration bytes supplied on
+     * stdin or growing a second provider-path algorithm in the transport.
+     */
+    public static function fresh_process_provider(
+        Policy $policy,
+        string $adapter,
+        string $id,
+        string $capability,
+        string $adapterDigest,
+        array $executionIdentity,
+        array $expectedRuntimeState,
+        array $args
+    ): ManifestProviderRuntime {
+        $policy->bind_fresh_execution_identity($executionIdentity);
+        $declaration = $policy->provider_declarations()[$id] ?? null;
+        if (!is_array($declaration)
+            || ($declaration['manifest'] ?? null) !== $adapter
+            || ($declaration['source'] ?? null) !== 'manifest'
+            || !in_array($capability, (array) ($declaration['fresh_process_capabilities'] ?? []), true)) {
+            throw new \RuntimeException(
+                'wprism: fresh-process provider is absent from the revalidated policy contract'
+            );
+        }
+        $authorizedAction = null;
+        foreach (array_merge($policy->actions(), $policy->schema_readiness_actions()) as $action) {
+            if (($action['kind'] ?? null) === 'provider'
+                && ($action['manifest'] ?? null) === $adapter
+                && ($action['provider'] ?? null) === $id
+                && ($action['capability'] ?? null) === $capability
+                && Canon::encode((array) ($action['args'] ?? [])) === Canon::encode($args)) {
+                $authorizedAction = $action;
+                break;
+            }
+        }
+        if ($authorizedAction === null) {
+            throw new \RuntimeException(
+                'wprism: fresh-process provider arguments are absent from the frozen action policy'
+            );
+        }
+        $runtimeKeys = array_keys($expectedRuntimeState);
+        sort($runtimeKeys, SORT_STRING);
+        if ($runtimeKeys !== ['active', 'installed', 'version']
+            || !is_bool($expectedRuntimeState['active'] ?? null)
+            || !is_bool($expectedRuntimeState['installed'] ?? null)
+            || !is_string($expectedRuntimeState['version'] ?? null)) {
+            throw new \RuntimeException('wprism: fresh-process provider runtime identity is malformed');
+        }
+        $live = Deploy::plugin_runtime_state((string) $declaration['plugin'], true);
+        if (($live['installed'] ?? null) !== true
+            || ($live['active'] ?? null) !== true
+            || $live['installed'] !== $expectedRuntimeState['installed']
+            || $live['active'] !== $expectedRuntimeState['active']
+            || $live['version'] !== $expectedRuntimeState['version']) {
+            throw new \RuntimeException(
+                'wprism: fresh-process provider owner changed after parent negotiation'
+            );
+        }
+        $range = $declaration['version_range'] ?? null;
+        if (is_array($range)
+            && ($live['version'] === ''
+                || !Deploy::in_range($live['version'], (string) $range['min'], (string) $range['max']))) {
+            throw new \RuntimeException(
+                'wprism: fresh-process provider owner is outside its frozen adapter version range'
+            );
+        }
+        if (self::requirement_problem($declaration, $live) !== null) {
+            throw new \RuntimeException(
+                'wprism: fresh-process provider environment no longer satisfies its frozen requirements'
+            );
+        }
+        $provider = self::manifest_provider(
+            $policy,
+            $declaration,
+            $adapterDigest,
+            $live,
+            [$authorizedAction]
+        );
+        if (!$provider instanceof ManifestProviderRuntime) {
+            throw new \RuntimeException(
+                'wprism: fresh-process provider did not resolve to its declarative runtime'
+            );
+        }
+        return $provider;
     }
 
     /**
@@ -2413,7 +2849,8 @@ final class Providers {
                     . 'make it idempotent or stop declaring it from an action'
             );
         }
-        if (($decl['scope'] ?? null) === 'entity') {
+        if (($decl['scope'] ?? null) === 'entity'
+            && ($action['phase'] ?? null) !== 'schema_settle') {
             // Entity scope is only meaningful when the engine can actually
             // assemble a batch: the batch rows come from applied work whose
             // canonical surface matches the action's own triggers, and only
@@ -2444,6 +2881,16 @@ final class Providers {
                     );
                 }
             }
+        }
+        if ((array) ($decl['context'] ?? []) !== []
+            && in_array(ActionTriggerMatcher::POST_KIND_TRIGGER, (array) ($action['triggers'] ?? []), true)) {
+            return self::problem(
+                $id, $manifest, $plugin, 'post_kind_trigger_context_unsupported',
+                "exact post:<type> triggers on capability '$capability' when it declares mutation context",
+                'bounded post:* trigger combined with durable mutation context',
+                'use exact post-type triggers for a context-bearing capability so one dispatcher owns each '
+                    . 'regen_pending / deletion / reparent marker keyspace, or drop the context channels'
+            );
         }
         try {
             self::validate_args((array) ($action['args'] ?? []), $decl['args'], "manifest '$manifest' action args");

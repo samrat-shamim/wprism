@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/PrivateRefusalEvidence.php';
 // The topology gate the Policy-free verbs below call directly. Required here
 // rather than left to agent/wprism.php's bootstrap order, exactly like
 // CommandRefusal.php above: the offline refusal suites load this file against
@@ -18,13 +19,18 @@ require_once __DIR__ . '/../Review/PlanView.php';
 // a leaf grammar file that requires nothing of its own.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/../Adapter/LifecycleSettlement.php';
+require_once __DIR__ . '/../Adapter/SchemaSettlement.php';
 require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
+require_once __DIR__ . '/../Recovery/DatabaseTargetIdentity.php';
+require_once __DIR__ . '/../Kernel/CheckpointRecoveryIntent.php';
+require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
 require_once __DIR__ . '/../Promotion/AuthorizedReleaseRepository.php';
+require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 
 use WP_CLI;
 
 /**
- * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
+ * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|code-baseline-accept|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|executable-owner-observe|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'wprism-command-refusal/v1';
@@ -41,7 +47,16 @@ final class Cli {
      * may contribute public evidence.
      */
     private static function halt_json_failure(\Throwable $t, array $assoc, string $command): void {
+        $privateEvidence = PrivateRefusalEvidence::graph($t);
         if (!isset($assoc['json']) && ($assoc['format'] ?? '') !== 'json') {
+            if (self::private_refusal_evidence_required($t, $privateEvidence, false)) {
+                self::record_private_refusal_evidence(
+                    $t,
+                    $assoc,
+                    $command,
+                    self::private_refusal_reason_code($t, $command)
+                );
+            }
             return;
         }
 
@@ -146,11 +161,13 @@ final class Cli {
             ];
         }
 
+        $serializationRedacted = false;
         $encoded = json_encode(
             $payload,
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         );
         if ($encoded === false) {
+            $serializationRedacted = true;
             // Keep the one-value stdout contract even if an established typed
             // diagnostic contains a value PHP cannot serialize (for example
             // INF).  The fallback is deliberately constant and secret-free.
@@ -159,30 +176,22 @@ final class Cli {
                 . '","error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
                 . '"message":"structured refusal serialization failed","remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
         }
-        if (($payload['details_redacted'] ?? false) === true) {
-            self::record_private_refusal_evidence($t, $assoc, $command, (string) $payload['error']);
+        if (self::private_refusal_evidence_required(
+            $t,
+            $privateEvidence,
+            ($payload['details_redacted'] ?? false) === true || $serializationRedacted
+        )) {
+            self::record_private_refusal_evidence(
+                $t,
+                $assoc,
+                $command,
+                (string) $payload['error']
+            );
         }
         WP_CLI::line($encoded);
         WP_CLI::halt(1);
     }
 
-    /**
-     * Where "inspect private operator evidence" points.
-     *
-     * A redacted envelope is the whole machine answer, and the doctrine
-     * (issue #3404) is that the operator reruns in human mode to read the
-     * sentence — but the orchestrator itself is a machine caller: a
-     * rehearsal's promotion runs the target's apply in --format=json, so an
-     * unclassified Throwable there reached nobody. grind_adoption A6
-     * (docs/grind/adoption.md) lost a rehearsal to `apply_failed` twice
-     * before the sentence could be read on a kept pair. So the redacted
-     * chain (class, message, file:line, causes) is written under the
-     * repository's private, gitignored `.wprism/` — next to the promotion
-     * checkpoints — as `.wprism/refusals/<utc>-<command>-<pid>.json`. The
-     * envelope stays byte-identical; the record is best-effort (no repo, no
-     * writable directory → nothing written, never a second failure), carries
-     * no trace, and is 0600 like every other private artifact there.
-     */
     /**
      * The repository inode `init` started against, or null (issue #3516).
      *
@@ -213,19 +222,36 @@ final class Cli {
      */
     private static bool $initRepositoryWasWPrismAtEntry = false;
 
+    /** Run one metadata read without handing a diagnostic warning to the host. */
+    private static function refusal_lstat(string $path): array|false {
+        set_error_handler(static fn(): bool => true);
+        try {
+            return lstat($path);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     /** dev:ino of an ordinary, non-symlinked directory, or null. */
     private static function directory_identity(string $path): ?string {
         $path = rtrim($path, '/');
-        if ($path === '' || is_link($path) || !is_dir($path)) {
+        if ($path === '') {
             return null;
         }
-        clearstatcache(true, $path);
-        $stat = @lstat($path);
-        return $stat === false ? null : $stat['dev'] . ':' . $stat['ino'];
+        try {
+            clearstatcache(true, $path);
+            $stat = self::refusal_lstat($path);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (!is_array($stat) || (((int) ($stat['mode'] ?? 0)) & 0170000) !== 0040000) {
+            return null;
+        }
+        return (string) $stat['dev'] . ':' . (string) $stat['ino'];
     }
 
     /**
-     * Whether a redacted refusal may write its private evidence into $repo.
+     * Whether a refusal may write its private evidence into $repo.
      *
      * issue #3516. The recorder used to resolve `--repo` lexically at refusal
      * time and `mkdir(0700, recursive)` its way to `.wprism/refusals` in whatever
@@ -235,7 +261,7 @@ final class Cli {
      * swapped-in symlink it planted it OUTSIDE the repository altogether
      * (regress_wprism_init's post-proposal swap cases, live 2026-08-21).
      *
-     * Three conditions, each closing one of those doors:
+     * Four conditions, each closing one of those doors:
      *
      * 1. The path is an ordinary directory WPrism is not following a link to.
      *    Nothing else in the code half follows a symlinked repository root
@@ -250,19 +276,21 @@ final class Cli {
      *    WPrism repository yet, and its evidence is the sealed attempt journal);
      *    an init recovering an interrupted attempt in a real repository still
      *    records, which is the init refusal actually worth reading.
+     * 4. The exact root and repository-qualifier inodes remain bound through
+     *    the kernel writer. Eligibility is one witness, never a boolean that a
+     *    later snapshot could accidentally apply to a replacement path.
      *
      * Skipping is silent and carries no second failure, exactly as every other
-     * best-effort path here does: the envelope is unchanged and still says
-     * `details_redacted`, and the operator's documented remedy -- rerun in
-     * human mode -- is unaffected.
+     * best-effort path here does: the public envelope and human sentence stay
+     * unchanged while the kernel recorder either writes privately or skips.
+     *
+     * @return ?array{root_identity:string,qualifier_path:string,qualifier_identity:string,qualifier_type:string}
      */
-    private static function refusal_evidence_repository(string $repo, string $command): bool {
-        $identity = self::directory_identity($repo);
-        if ($identity === null) {
-            return false;
-        }
-        if (!self::is_wprism_repository($repo)) {
-            return false;
+    private static function refusal_evidence_repository(string $repo, string $command): ?array {
+        $rootIdentity = self::directory_identity($repo);
+        $qualifier = self::wprism_repository_qualifier($repo);
+        if ($rootIdentity === null || $qualifier === null) {
+            return null;
         }
         if ($command === 'init') {
             // Both entry-time facts, not one of each: the directory must still
@@ -270,11 +298,25 @@ final class Cli {
             // repository before init touched it (issue #3522). A fresh init
             // satisfies neither half of that by publishing its own marker
             // mid-command.
-            return self::$initRepositoryIdentityAtEntry !== null
-                && self::$initRepositoryIdentityAtEntry === $identity
-                && self::$initRepositoryWasWPrismAtEntry;
+            if (self::$initRepositoryIdentityAtEntry === null
+                || self::$initRepositoryIdentityAtEntry !== $rootIdentity
+                || !self::$initRepositoryWasWPrismAtEntry) {
+                return null;
+            }
         }
-        return true;
+        // The witness is one operation, not a boolean followed by a fresh root
+        // snapshot. Re-read both nodes before returning so a replacement can
+        // never inherit the earlier eligibility decision.
+        if (self::directory_identity($repo) !== $rootIdentity
+            || self::qualifier_identity($qualifier['path'], $qualifier['type']) !== $qualifier['identity']) {
+            return null;
+        }
+        return [
+            'root_identity' => $rootIdentity,
+            'qualifier_path' => $qualifier['path'],
+            'qualifier_identity' => $qualifier['identity'],
+            'qualifier_type' => $qualifier['type'],
+        ];
     }
 
     /**
@@ -284,49 +326,105 @@ final class Cli {
      * symlink.
      */
     private static function is_wprism_repository(string $repo): bool {
-        $root = rtrim($repo, '/');
-        $site = $root . '/site.wprism.json';
-        $wprism = $root . '/.wprism';
-        return (!is_link($site) && is_file($site)) || (!is_link($wprism) && is_dir($wprism));
+        return self::wprism_repository_qualifier($repo) !== null;
     }
 
+    /** @return ?array{path:string,identity:string,type:string} */
+    private static function wprism_repository_qualifier(string $repo): ?array {
+        $root = rtrim($repo, '/');
+        if ($root === '') {
+            return null;
+        }
+        $site = $root . '/site.wprism.json';
+        $wprism = $root . '/.wprism';
+        try {
+            clearstatcache(true, $wprism);
+            $controlStat = self::refusal_lstat($wprism);
+            if (is_array($controlStat)) {
+                if ((((int) ($controlStat['mode'] ?? 0)) & 0170000) !== 0040000) {
+                    // A regular site marker cannot bless a link or another
+                    // pre-existing control-path shape.
+                    return null;
+                }
+                return [
+                    'path' => $wprism,
+                    'identity' => (string) $controlStat['dev'] . ':' . (string) $controlStat['ino'],
+                    'type' => 'control',
+                ];
+            }
+            clearstatcache(true, $site);
+            $siteStat = self::refusal_lstat($site);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (!is_array($siteStat) || (((int) ($siteStat['mode'] ?? 0)) & 0170000) !== 0100000) {
+            return null;
+        }
+        return [
+            'path' => $site,
+            'identity' => (string) $siteStat['dev'] . ':' . (string) $siteStat['ino'],
+            'type' => 'site',
+        ];
+    }
+
+    private static function qualifier_identity(string $path, string $type): ?string {
+        try {
+            clearstatcache(true, $path);
+            $stat = self::refusal_lstat($path);
+        } catch (\Throwable) {
+            return null;
+        }
+        $expectedType = $type === 'site' ? 0100000 : ($type === 'control' ? 0040000 : 0);
+        if (!is_array($stat) || $expectedType === 0
+            || (((int) ($stat['mode'] ?? 0)) & 0170000) !== $expectedType) {
+            return null;
+        }
+        return (string) $stat['dev'] . ':' . (string) $stat['ino'];
+    }
+
+    /** @param array{traversal:array<string,mixed>} $evidence */
+    private static function private_refusal_evidence_required(
+        \Throwable $t,
+        array $evidence,
+        bool $publicDetailsRedacted
+    ): bool {
+        $traversal = $evidence['traversal'];
+        return $publicDetailsRedacted
+            || (int) ($traversal['private_edges'] ?? 0) > 0
+            || ($traversal['scan_complete'] ?? true) !== true
+            || ($t instanceof CommandRefusalException
+                && ($t->getPrevious() !== null || $t->getMessage() !== $t->publicMessage));
+    }
+
+    private static function private_refusal_reason_code(\Throwable $t, string $command): string {
+        return $t instanceof CommandRefusalException
+            ? $t->reasonCode
+            : str_replace('-', '_', $command) . '_failed';
+    }
+
+    /**
+     * Cross the public/private diagnostic edge only after command-level
+     * repository eligibility has passed. The kernel service binds the exact
+     * root inode again and owns the bounded graph's 0600, no-follow store.
+     */
     private static function record_private_refusal_evidence(
         \Throwable $t,
         array $assoc,
         string $command,
         string $reasonCode
     ): void {
-        $repo = $assoc['repo'] ?? null;
-        if (!is_string($repo) || !self::refusal_evidence_repository($repo, $command)) {
-            return;
-        }
-        $dir = rtrim($repo, '/') . '/.wprism/refusals';
-        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
-            return;
-        }
-        $chain = [];
-        for ($cause = $t, $depth = 0; $cause !== null && $depth < 8; $cause = $cause->getPrevious(), $depth++) {
-            $chain[] = [
-                'class' => get_class($cause),
-                'message' => $cause->getMessage(),
-                'file' => $cause->getFile(),
-                'line' => $cause->getLine(),
-            ];
-        }
-        $record = json_encode([
-            'format' => 'wprism-private-refusal-evidence/v1',
-            'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
-            'command' => $command,
-            'reason_code' => $reasonCode,
-            'throwable' => $chain,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-        if ($record === false) {
-            return;
-        }
-        $path = $dir . '/' . gmdate('Ymd-His') . '-' . preg_replace('/[^a-z0-9_-]+/', '-', $command)
-            . '-' . getmypid() . '.json';
-        if (@file_put_contents($path, $record . "\n", LOCK_EX) !== false) {
-            @chmod($path, 0600);
+        try {
+            $repo = $assoc['repo'] ?? null;
+            if (!is_string($repo)) {
+                return;
+            }
+            $repositoryWitness = self::refusal_evidence_repository($repo, $command);
+            if ($repositoryWitness === null) {
+                return;
+            }
+            PrivateRefusalEvidence::record($repo, $repositoryWitness, $t, $command, $reasonCode);
+        } catch (\Throwable) {
+            // Private diagnostics are never allowed to replace public output.
         }
     }
 
@@ -359,6 +457,17 @@ final class Cli {
             throw new \InvalidArgumentException('adapter_library must be a WPrism\\AdapterLibrary');
         }
         return $assoc['adapter_library'];
+    }
+
+    /** A safety override is authority only in WP-CLI's exact valueless form. */
+    private static function bare_boolean_flag(array $assoc, string $flag): bool {
+        if (!array_key_exists($flag, $assoc)) {
+            return false;
+        }
+        if ($assoc[$flag] !== true) {
+            throw new \InvalidArgumentException("--$flag is a valueless flag and does not accept '=value'");
+        }
+        return true;
     }
 
     /**
@@ -430,6 +539,7 @@ final class Cli {
             'apply' => 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase',
             'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
             'code-preflight' => 'correct the staged plugin/theme runtime header or target PHP/WordPress evidence before beginning promotion',
+            'code-baseline-accept' => "run the host 'wprism deploy <env>' workflow with the exact frozen artifact and explicit --force-code-drift consent",
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
             'refresh-export' => 'inspect private operator evidence, then complete or recover the interrupted apply, promotion lease, identity, or code receipt before observing production again',
@@ -624,6 +734,110 @@ final class Cli {
     }
 
     /**
+     * Read-only lifecycle and code-baseline preflight for the host deployment
+     * orchestrator. The two work axes remain separate in the v2 result.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed artifact hash.
+     * [--force-code-mismatch] : Report lifecycle work despite code blockers.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand lifecycle-status
+     */
+    public function lifecycle_status($args, $assoc) {
+        $summary = null;
+        try {
+            SiteTopology::assert_single_site();
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--repo');
+            $compiledPath = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--artifact-hash');
+            $policy = Policy::load((string) $repo);
+            $compiled = RepositoryCompiler::read_artifact((string) $compiledPath, $policy);
+            if (!is_string($artifactHash)
+                || preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1
+                || !hash_equals($artifactHash, $compiled->artifact_hash())) {
+                throw new \RuntimeException('wprism: lifecycle-status artifact does not match the host-compiled artifact hash');
+            }
+            $summary = LifecyclePlanner::deployment_status(
+                $policy,
+                $compiled,
+                self::bare_boolean_flag($assoc, 'force-code-mismatch')
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'lifecycle-status');
+            WP_CLI::error($t->getMessage());
+        }
+        if (is_array($summary)) {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+        }
+    }
+
+    /**
+     * Accept already-installed plugin/theme versions as the new drift
+     * baseline. This internal host phase runs through the isolated control
+     * plane, takes its own transient target fence, and fires no lifecycle or
+     * provider hooks.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed artifact hash.
+     * --operation-id=<token> : Host run identity used for durable replay.
+     * --expected-observation-sha256=<sha256> : Exact lifecycle-status observation.
+     * --expected-baseline-state=<state> : Accepts absent or drift.
+     * [--force-code-mismatch] : Proceed despite compatible-policy blockers already reviewed by the host.
+     * --force-code-drift : Explicitly accept every re-observed drift finding.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand code-baseline-accept
+     */
+    public function code_baseline_accept($args, $assoc) {
+        $summary = null;
+        try {
+            // Keep the isolated acceptance stack out of ordinary command
+            // bootstrap. It closes over Deploy/Ledger and is needed only by
+            // this host-only verb; eager loading widens every Policy-free
+            // command's runtime and manifest-validator boundary.
+            if (!class_exists(CodeBaselineAcceptance::class, false)) {
+                require_once __DIR__ . '/../Promotion/CodeBaselineAcceptance.php';
+            }
+            $repo = $assoc['repo']
+                ?? throw CommandRefusalException::invalidArgument('code-baseline-accept', '--repo');
+            $compiledPath = $assoc['compiled']
+                ?? throw CommandRefusalException::invalidArgument('code-baseline-accept', '--compiled');
+            $artifactHash = $assoc['artifact-hash']
+                ?? throw CommandRefusalException::invalidArgument('code-baseline-accept', '--artifact-hash');
+            $summary = CodeBaselineAcceptance::run(
+                (string) $repo,
+                (string) $compiledPath,
+                (string) $artifactHash,
+                [
+                    'force_code_mismatch' => self::bare_boolean_flag($assoc, 'force-code-mismatch'),
+                    'force_code_drift' => self::bare_boolean_flag($assoc, 'force-code-drift'),
+                    'operation_id' => $assoc['operation-id'] ?? '',
+                    'expected_observation_sha256' => $assoc['expected-observation-sha256'] ?? '',
+                    'expected_baseline_state' => $assoc['expected-baseline-state'] ?? '',
+                ]
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'code-baseline-accept');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(($summary['outcome'] ?? null) === 'initialized'
+            ? 'initialized installed code-version baseline'
+            : 'accepted installed code-version baseline');
+    }
+
+    /**
      * Run every adapter-declared asynchronous lifecycle completion gate for
      * one immutable artifact. The host invokes this only after fresh-process
      * activation and before code-finalize/state apply.
@@ -632,6 +846,8 @@ final class Cli {
      * --repo=<path> : Site repo root.
      * --compiled=<path> : Frozen compiler artifact selected by the host.
      * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--checkpoint=<path>] : Exact authenticated checkpoint for declared provider work.
+     * [--release-on-success] : Release the lease when no later phase follows.
      * [--format=<format>] : Output format. Accepts json.
      *
      * @subcommand lifecycle-settle
@@ -643,11 +859,14 @@ final class Cli {
             $compiled = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--compiled');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--artifact-hash');
             $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--promotion-owner');
+            $checkpoint = (string) ($assoc['checkpoint'] ?? '');
             $summary = LifecycleSettlement::run(
                 (string) $repo,
                 (string) $compiled,
                 (string) $artifactHash,
-                (string) $owner
+                (string) $owner,
+                $checkpoint,
+                !empty($assoc['release-on-success'])
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'lifecycle-settle');
@@ -667,12 +886,118 @@ final class Cli {
     }
 
     /**
+     * Report whether an exact compiled policy needs its separately
+     * checkpointed schema phase before strict planning.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand schema-status
+     */
+    public function schema_status($args, $assoc) {
+        $summary = null;
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('schema-status', '--repo');
+            $compiled = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('schema-status', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('schema-status', '--artifact-hash');
+            $summary = SchemaSettlement::status(
+                (string) $repo,
+                (string) $compiled,
+                (string) $artifactHash,
+                !empty($assoc['presence-only'])
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'schema-status');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Establish adapter-declared table schema under the exact promotion
+     * checkpoint. The host runs this in a fresh ordinary WordPress process so
+     * newly activated plugin code and provider hooks are the executing bytes.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * --promotion-owner=<token> : Required host promotion lease owner.
+     * --checkpoint=<path> : Authenticated pre-phase host checkpoint.
+     * [--after-code-transition] : Require completed retire/activate phases.
+     * [--release-on-success] : Release the lease when no later phase follows.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand schema-settle
+     */
+    public function schema_settle($args, $assoc) {
+        $summary = null;
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--repo');
+            $compiled = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--artifact-hash');
+            $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--promotion-owner');
+            $checkpoint = $assoc['checkpoint'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--checkpoint');
+            $summary = SchemaSettlement::run(
+                (string) $repo,
+                (string) $compiled,
+                (string) $artifactHash,
+                (string) $owner,
+                (string) $checkpoint,
+                !empty($assoc['after-code-transition']),
+                !empty($assoc['release-on-success'])
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'schema-settle');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            '%d schema settlement gate(s) verified across %d table(s)',
+            $summary['actions'],
+            count($summary['tables'])
+        ));
+    }
+
+    /**
+     * Emit the credential-free database coordinate identity which the host
+     * binds into both sides of its checkpoint export pipeline.
+     *
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand checkpoint-target
+     */
+    public function checkpoint_target($args, $assoc) {
+        try {
+            $summary = DatabaseTargetIdentity::summary();
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'checkpoint-target');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
      * Seal a database export arriving on stdin without writing durable
      * plaintext. This is an orchestrator-only pipeline boundary.
      *
      * ## OPTIONS
      * --repo=<path> : Site repo root.
      * --output=<path> : Canonical .wprism/checkpoints/*.sql.enc output.
+     * --database-target-sha256=<sha256> : Preflight identity shared with the export process.
      *
      * @subcommand checkpoint-seal
      */
@@ -680,27 +1005,18 @@ final class Cli {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-seal', '--repo');
             $output = $assoc['output'] ?? throw CommandRefusalException::invalidArgument('checkpoint-seal', '--output');
-            RetainedCheckpointCipher::seal((string) $repo, (string) $output);
-        } catch (\Throwable $t) {
-            WP_CLI::error($t->getMessage());
-        }
-    }
-
-    /**
-     * Authenticate and stream one retained checkpoint to stdout. The caller
-     * pipes it directly into isolated `wp db import -`.
-     *
-     * ## OPTIONS
-     * --repo=<path> : Site repo root.
-     * --input=<path> : Canonical .wprism/checkpoints/*.sql.enc input.
-     *
-     * @subcommand checkpoint-open
-     */
-    public function checkpoint_open($args, $assoc) {
-        try {
-            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--repo');
-            $input = $assoc['input'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--input');
-            RetainedCheckpointCipher::open((string) $repo, (string) $input);
+            $databaseTargetSha256 = $assoc['database-target-sha256']
+                ?? throw CommandRefusalException::invalidArgument(
+                    'checkpoint-seal',
+                    '--database-target-sha256'
+                );
+            DatabaseTargetIdentity::assertWordPressConfig((string) $databaseTargetSha256);
+            RetainedCheckpointCipher::seal(
+                (string) $repo,
+                (string) $output,
+                STDIN,
+                (string) $databaseTargetSha256
+            );
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
@@ -708,14 +1024,17 @@ final class Cli {
 
     /**
      * Acquire the host promotion lease before its database checkpoint. This
-     * is intentionally hash-only: the host has already compiled and verified
-     * the immutable outer artifact, while this command must remain available
-     * to release/recover a lease even if the working repo later changes.
+     * binds the immutable outer artifact and the repository holding external
+     * recovery debt. Lease election and that debt read share one continuously
+     * held target process fence.
      *
      * ## OPTIONS
      * --promotion-owner=<token> : Required internal orchestrator owner token.
      * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
-     * [--repo=<path>] : Internal authorized-release repository path; all four repository options are required together.
+     * --repo=<path> : Required repository containing the external recovery control root.
+     * [--expected-database-target-sha256=<sha256>] : Recovery-only pre-mutation target fence.
+     * [--checkpoint=<path>] : Recovery-only exact retained checkpoint.
+     * [--expected-cipher-sha256=<sha256>] : Recovery-only authenticated ciphertext identity.
      * [--release-operation-id=<id>] : Internal immutable release operation identity.
      * [--expected-source-commit=<oid>] : Internal exact materialized commit.
      * [--expected-source-tree=<oid>] : Internal exact materialized tree.
@@ -726,6 +1045,27 @@ final class Cli {
      */
     public function promotion_begin($args, $assoc) {
         try {
+            $recoveryOptions = [
+                'checkpoint' => $assoc['checkpoint'] ?? null,
+                'expected-cipher-sha256' => $assoc['expected-cipher-sha256'] ?? null,
+                'expected-database-target-sha256' => $assoc['expected-database-target-sha256'] ?? null,
+            ];
+            $presentRecoveryOptions = array_filter(
+                $recoveryOptions,
+                static fn($value): bool => $value !== null
+            );
+            if ($presentRecoveryOptions !== [] && count($presentRecoveryOptions) !== count($recoveryOptions)) {
+                throw new CommandRefusalException(
+                    'promotion_recovery_binding_invalid',
+                    'the checkpoint recovery lease binding is incomplete',
+                    'supply checkpoint, expected-cipher-sha256 and expected-database-target-sha256 together'
+                );
+            }
+            if ($presentRecoveryOptions !== []) {
+                DatabaseTargetIdentity::assertWordPressConfig(
+                    (string) $recoveryOptions['expected-database-target-sha256']
+                );
+            }
             // FIRST, before the argument gates and before Ledger::ensure():
             // the lease row is written to `{$wpdb->prefix}wprism_kv`
             // (agent/src/Promotion/PromotionLease.php:372) and Ledger::ensure() CREATEs four tables on
@@ -743,8 +1083,8 @@ final class Cli {
             // unchanged, because human mode still prints the private message.
             $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--promotion-owner');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--artifact-hash');
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--repo');
             $repositoryOptions = [
-                'repo' => $assoc['repo'] ?? null,
                 'release-operation-id' => $assoc['release-operation-id'] ?? null,
                 'expected-source-commit' => $assoc['expected-source-commit'] ?? null,
                 'expected-source-tree' => $assoc['expected-source-tree'] ?? null,
@@ -759,22 +1099,64 @@ final class Cli {
                     throw new CommandRefusalException(
                         'promotion_repository_binding_invalid',
                         'the authorized release repository binding is incomplete',
-                        'supply repo, release-operation-id, expected-source-commit and expected-source-tree together'
+                        'supply release-operation-id, expected-source-commit and expected-source-tree together'
                     );
                 }
                 $repositoryBinding = AuthorizedReleaseRepository::acquire(
-                    (string) $repositoryOptions['repo'],
+                    (string) $repo,
                     (string) $repositoryOptions['release-operation-id'],
                     (string) $repositoryOptions['expected-source-commit'],
                     (string) $repositoryOptions['expected-source-tree'],
                     (string) $owner
                 );
             }
-            Ledger::ensure();
             if ($repositoryBinding !== null) {
                 $repositoryBinding->assertBound();
             }
-            $summary = PromotionLock::begin((string) $owner, (string) $artifactHash);
+            if ($presentRecoveryOptions === []) {
+                $summary = PromotionLock::begin_with_external_fence(
+                    (string) $owner,
+                    (string) $artifactHash,
+                    static function () use ($repo): void {
+                        CheckpointRecoveryIntent::assert_clear((string) $repo);
+                        ProviderSettlementIntent::assert_clear((string) $repo);
+                    }
+                );
+            } else {
+                $summary = PromotionLock::begin_recovery_with_external_fence(
+                    (string) $owner,
+                    (string) $artifactHash,
+                    static function () use (
+                        $repo,
+                        $recoveryOptions,
+                        $owner,
+                        $artifactHash
+                    ): void {
+                        $verification = RetainedCheckpointCipher::verify(
+                            (string) $repo,
+                            (string) $recoveryOptions['checkpoint']
+                        );
+                        if (!hash_equals(
+                            (string) ($verification['cipher_sha256'] ?? ''),
+                            (string) $recoveryOptions['expected-cipher-sha256']
+                        ) || !hash_equals(
+                            (string) ($verification['database_target_sha256'] ?? ''),
+                            (string) $recoveryOptions['expected-database-target-sha256']
+                        )) {
+                            throw new \RuntimeException(
+                                'wprism: checkpoint recovery lease election authentication changed after host preflight'
+                            );
+                        }
+                        CheckpointRecoveryIntent::assert_initial_recovery(
+                            (string) $repo,
+                            (string) $recoveryOptions['checkpoint'],
+                            (string) $recoveryOptions['expected-cipher-sha256'],
+                            (string) $owner,
+                            (string) $artifactHash
+                        );
+                    }
+                );
+            }
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'promotion-begin');
             WP_CLI::error($t->getMessage());
@@ -917,6 +1299,7 @@ final class Cli {
      * ## OPTIONS
      * --promotion-owner=<token> : Required internal orchestrator owner token.
      * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
+     * [--expected-database-target-sha256=<sha256>] : Recovery-only pre-mutation target fence.
      * [--json] : JSON summary.
      * [--format=<format>] : Output format. Accepts json.
      *
@@ -924,6 +1307,11 @@ final class Cli {
      */
     public function promotion_abort($args, $assoc) {
         try {
+            if (isset($assoc['expected-database-target-sha256'])) {
+                DatabaseTargetIdentity::assertWordPressConfig(
+                    (string) $assoc['expected-database-target-sha256']
+                );
+            }
             // Gated like the other three, deliberately, even though this is the
             // compensating verb: writing `{$wpdb->prefix}wprism_kv` on a network
             // writes it on whichever blog wp-cli bootstrapped, which may be the
@@ -2108,8 +2496,8 @@ final class Cli {
                 'with_deletes' => isset($assoc['with-deletes']),
                 'force_delete_referenced' => isset($assoc['force-delete-referenced']),
                 'force_theirs' => isset($assoc['force-theirs']),
-                'force_code_mismatch' => isset($assoc['force-code-mismatch']),
-                'force_code_drift' => isset($assoc['force-code-drift']),
+                'force_code_mismatch' => self::bare_boolean_flag($assoc, 'force-code-mismatch'),
+                'force_code_drift' => self::bare_boolean_flag($assoc, 'force-code-drift'),
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',
@@ -2330,6 +2718,10 @@ final class Cli {
      * [--promotion-hold] : Internal orchestrator flag; retain the lease for the following apply phase.
      * [--state-handoff] : Internal promote-only flag; bind lifecycle pre/post state hashes for apply.
      * [--lifecycle-phase=<phase>] : Internal host phase. Accepts retire or activate.
+     * [--checkpoint=<path>] : Exact authenticated checkpoint for a provider-backed lifecycle phase.
+     * [--expected-code-boundary=<sha256>] : Internal stable installed-version/baseline digest.
+     * [--expected-code-findings=<sha256>] : Internal digest of the host-rendered finding set.
+     * [--host-reported-code-findings] : Internal witness that the bound findings were rendered before mutation.
      * [--force-unresolved-refs] : Promotion passthrough for lifecycle handoff snapshots.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
@@ -2337,9 +2729,11 @@ final class Cli {
     public function deploy($args, $assoc) {
         $summary = null;
         try {
-            $summary = Deploy::run($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo'), [
-                'force_code_mismatch' => isset($assoc['force-code-mismatch']),
-                'force_code_drift' => isset($assoc['force-code-drift']),
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo');
+            $adapterLibrary = self::internal_adapter_library($assoc);
+            $summary = Deploy::run((string) $repo, [
+                'force_code_mismatch' => self::bare_boolean_flag($assoc, 'force-code-mismatch'),
+                'force_code_drift' => self::bare_boolean_flag($assoc, 'force-code-drift'),
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
@@ -2347,8 +2741,15 @@ final class Cli {
                 'promotion_hold' => isset($assoc['promotion-hold']),
                 'state_handoff' => isset($assoc['state-handoff']),
                 'lifecycle_phase' => $assoc['lifecycle-phase'] ?? 'all',
+                'checkpoint' => $assoc['checkpoint'] ?? '',
+                'expected_code_boundary' => $assoc['expected-code-boundary'] ?? '',
+                'expected_code_findings' => $assoc['expected-code-findings'] ?? '',
+                'host_reported_code_findings' => self::bare_boolean_flag(
+                    $assoc,
+                    'host-reported-code-findings'
+                ),
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
-                'adapter_library' => self::internal_adapter_library($assoc),
+                'adapter_library' => $adapterLibrary,
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'deploy');
@@ -2547,7 +2948,7 @@ final class Cli {
                 (int) $observations
             ));
         }
-        Db::query("TRUNCATE TABLE {$wpdb->prefix}wprism_journal", 'journal truncate');
+        Db::delete_all($wpdb->prefix . 'wprism_journal', 'journal truncate');
         WP_CLI::success('journal truncated');
     }
 
@@ -3394,6 +3795,51 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         WP_CLI::line(rtrim(Canon::encode($pin)));
+    }
+
+    /**
+     * Observe the bounded executable-tree identity for one exact live owner.
+     *
+     * This emits an inert authoring fact. It neither discovers which owners a
+     * deletion policy needs nor records an agreement, rationale, declaration,
+     * or authorization. Those remain separate reviewed policy inputs.
+     *
+     * ## OPTIONS
+     * --owner=<owner> : Exact plugin:, theme:, mu-plugin:, or dropin: owner.
+     *
+     * @subcommand executable-owner-observe
+     */
+    public function executable_owner_observe($args, $assoc) {
+        // Plugin bootstrap may have buffered provenance before this read-only
+        // command runs. Suspend first even for malformed invocations so an
+        // authoring observation cannot publish unrelated journal state.
+        if (!class_exists(Journal::class, false)) {
+            require_once __DIR__ . '/../Repository/Journal.php';
+        }
+        Journal::suspend_for_observation();
+        $observation = [];
+        try {
+            if ($args !== [] || array_diff(array_keys($assoc), ['owner']) !== []) {
+                throw new \RuntimeException(
+                    'wprism: executable-owner-observe accepts only --owner=<canonical-owner>'
+                );
+            }
+            $owner = $assoc['owner'] ?? null;
+            if (!is_string($owner) || $owner === '') {
+                throw new \RuntimeException(
+                    'wprism: executable-owner-observe requires --owner=<canonical-owner>'
+                );
+            }
+            // Lazy but explicit: partial WP-CLI harnesses that never call this
+            // authoring verb need not load the transaction-bound delete graph.
+            if (!class_exists(ExecutableOwnerBoundary::class, false)) {
+                require_once __DIR__ . '/../Delete/ExecutableOwnerBoundary.php';
+            }
+            $observation = ExecutableOwnerBoundary::observe_owner($owner);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        WP_CLI::line(rtrim(Canon::encode($observation)));
     }
 
     /**

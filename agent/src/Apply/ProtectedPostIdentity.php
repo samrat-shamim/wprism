@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
+
+require_once __DIR__ . '/../Kernel/TransactionAuthority.php';
+
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
@@ -90,13 +94,6 @@ final class ProtectedPostIdentity {
         self::assert_inputs($uuid, $expectedPostType);
         global $wpdb;
         $mapTable = $wpdb->prefix . 'wprism_map';
-        DeleteGuardEvaluator::assert_innodb_tables([
-            $mapTable,
-            $wpdb->posts,
-            $wpdb->postmeta,
-            $wpdb->terms,
-            $wpdb->termmeta,
-        ], self::PURPOSE);
         $mapIndex = DeleteGuardEvaluator::full_width_composite_unique_lock_index(
             $mapTable,
             ['uuid', 'id_kind'],
@@ -204,14 +201,14 @@ final class ProtectedPostIdentity {
         string $postType,
         string $oldValue,
         string $value,
-        string $connectionId
+        TransactionAuthority $authority
     ): bool {
         self::assert_inputs($uuid, $postType);
         PostPasswordBinding::assertValue($value);
-        if ($postId < 1 || preg_match('/^[1-9][0-9]*$/D', $connectionId) !== 1) {
+        if ($postId < 1) {
             throw new \RuntimeException('wprism: protected post password update carries malformed identity inputs');
         }
-        self::assert_original_session($connectionId, 'protected post password pre-update continuity');
+        self::assert_original_session($authority, 'protected post password pre-update continuity');
         global $wpdb;
         $mapTable = $wpdb->prefix . 'wprism_map';
         DeleteGuardEvaluator::assert_table_identifiers(
@@ -220,26 +217,33 @@ final class ProtectedPostIdentity {
         );
         $identityPredicate = 'ID = %d AND BINARY post_type = BINARY %s '
             . 'AND BINARY post_password = BINARY %s '
-            . 'AND CONNECTION_ID() = %s AND @@in_transaction = 1 '
+            . 'AND CONNECTION_ID() = %s '
+            . 'AND BINARY @wprism_tx_session = BINARY %s '
             . "AND EXISTS (SELECT 1 FROM `$mapTable` m WHERE BINARY m.uuid = BINARY %s "
             . "AND BINARY m.id_kind = BINARY %s AND m.local_id = {$wpdb->posts}.ID "
             . 'AND BINARY m.entity_type = BINARY %s) '
             . "AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} pm WHERE pm.post_id = {$wpdb->posts}.ID "
             . 'AND BINARY pm.meta_key = BINARY %s AND BINARY pm.meta_value = BINARY %s)';
-        $updated = Db::query($wpdb->prepare(
-            "UPDATE {$wpdb->posts} SET post_password = %s WHERE $identityPredicate",
-            $value,
-            $postId,
-            $postType,
-            $oldValue,
-            $connectionId,
-            $uuid,
-            Ledger::KIND_POST,
-            'post',
-            self::IDENTITY_KEY,
-            $uuid
-        ), 'env-set protected post password');
-        self::assert_original_session($connectionId, 'protected post password post-update continuity');
+        $updated = Db::transactional_mutation(
+            $wpdb->prepare("UPDATE {$wpdb->posts} SET post_password = %s", $value),
+            $wpdb->prepare(
+                $identityPredicate,
+                $postId,
+                $postType,
+                $oldValue,
+                $authority->connection_id(),
+                $authority->session_nonce(),
+                $uuid,
+                Ledger::KIND_POST,
+                'post',
+                self::IDENTITY_KEY,
+                $uuid
+            ),
+            '',
+            $authority,
+            'env-set protected post password'
+        );
+        self::assert_original_session($authority, 'protected post password post-update continuity');
         if (!in_array($updated, [0, 1], true)
             || (!hash_equals($oldValue, $value) && $updated !== 1)) {
             return false;
@@ -253,7 +257,8 @@ final class ProtectedPostIdentity {
             $postId,
             $postType,
             $value,
-            $connectionId,
+            $authority->connection_id(),
+            $authority->session_nonce(),
             $uuid,
             Ledger::KIND_POST,
             'post',
@@ -261,7 +266,7 @@ final class ProtectedPostIdentity {
             $uuid
         ));
         $readError = trim((string) ($wpdb->last_error ?? ''));
-        self::assert_original_session($connectionId, 'protected post password readback continuity');
+        self::assert_original_session($authority, 'protected post password readback continuity');
         return $readError === '' && is_string($confirm) && hash_equals($value, $confirm);
     }
 
@@ -465,15 +470,17 @@ final class ProtectedPostIdentity {
 
     /** @param ?array{post_id:int,post_password:string} $witness @return ?array{post_id:int,post_password:string} */
     private static function confirmed_lock(?array $witness): ?array {
-        Db::transaction_connection_id(self::PURPOSE . ' final session proof');
+        Db::transaction_authority(self::PURPOSE . ' final session proof');
         DeleteGuardEvaluator::assert_transaction_isolation(self::PURPOSE . ' final continuity');
         return $witness;
     }
 
-    private static function assert_original_session(string $connectionId, string $context): void {
-        $current = Db::transaction_connection_id($context);
-        if (!hash_equals($connectionId, $current)) {
-            throw new DatabaseTransactionOutcomeException($context . ' changed database connection');
+    private static function assert_original_session(
+        TransactionAuthority $authority,
+        string $context
+    ): void {
+        if (!$authority->equals(Db::transaction_authority($context))) {
+            throw new DatabaseTransactionOutcomeException($context . ' changed database session authority');
         }
         DeleteGuardEvaluator::assert_transaction_isolation($context);
     }

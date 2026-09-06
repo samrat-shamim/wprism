@@ -34,6 +34,8 @@ cd "$REPO_ROOT/sandbox"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 command -v jq >/dev/null || fail "jq required"
 command -v git >/dev/null || fail "git required"

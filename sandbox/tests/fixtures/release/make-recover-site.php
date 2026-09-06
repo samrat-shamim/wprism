@@ -67,6 +67,9 @@ declare(strict_types=1);
  *                            failure carrying no envelope keeps the constant
  *                            detail (RecoverCommand::STEP_FAILED_DETAIL)
  *   WPRISM_BEGIN_EXIT=<n>       `wprism promotion-begin` exit code (default 0)
+ *   WPRISM_VERIFY_EXIT=<n>      `wprism checkpoint-verify` exit code (default 0)
+ *   WPRISM_PROVIDER_RECOVERY_STATUS=<f> exact external provider debt identity
+ *   WPRISM_RESET_EXIT=<n>       exact `wp db reset --yes` exit code (default 0)
  *   WPRISM_IMPORT_EXIT=<n>      `wp db import` exit code (default 0) — the
  *                            failed-import case the mandatory final abort is
  *                            about
@@ -266,6 +269,37 @@ $action = $argv[1] ?? '';
 $path = (string) getenv('WPRISM_RECOVER_STATUS');
 if ($action === 'audit') {
     $document = ['event_chain_sha256' => str_repeat('cc', 32), 'ok' => true];
+} elseif ($action === 'provider-settlement-recovery-status') {
+    $providerPath = (string) getenv('WPRISM_PROVIDER_RECOVERY_STATUS');
+    if ($providerPath === '') {
+        $document = [
+            'active' => false,
+            'artifact_hash' => null,
+            'checkpoint' => null,
+            'format' => 'wprism-provider-settlement-recovery/v1',
+            'owner' => null,
+        ];
+    } else {
+        $providerRaw = @file_get_contents($providerPath);
+        if (!is_string($providerRaw)) {
+            fwrite(STDERR, "fixture runtime: no provider recovery status document\n");
+            exit(1);
+        }
+        $document = json_decode($providerRaw, true, 32, JSON_THROW_ON_ERROR);
+    }
+} elseif ($action === 'checkpoint-recovery-complete') {
+    $intent = (string) getenv('WPRISM_RECOVERY_INTENT_PATH');
+    $ready = (string) getenv('WPRISM_RECOVERY_DATABASE_READY');
+    if (getenv('WPRISM_TEST_DURABLE_INTENT') === '1') {
+        if ($intent !== '' && is_file($intent) && !unlink($intent)) {
+            fwrite(STDERR, "fixture runtime: could not clear recovery intent\n");
+            exit(1);
+        }
+        if ($ready !== '' && is_file($ready)) {
+            @unlink($ready);
+        }
+    }
+    $document = ['active' => false, 'format' => 'wprism-checkpoint-recovery-status/v1'];
 } else {
     $raw = $path === '' ? false : @file_get_contents($path);
     if (!is_string($raw)) {
@@ -343,6 +377,11 @@ set -u
 printf '%s\n' "$*" >> "$WPRISM_WP_CALLS"
 case " $* " in
   *" wprism promotion-abort "*)
+    if [ "${WPRISM_TEST_DURABLE_INTENT:-0}" = 1 ] \
+      && [ -f "${WPRISM_RECOVERY_INTENT_PATH:-/nonexistent}" ] \
+      && [ ! -f "${WPRISM_RECOVERY_DATABASE_READY:-/nonexistent}" ]; then
+      exit 78
+    fi
     # The agent answers a --format=json refusal with one
     # `wprism-command-refusal/v1` object on STDOUT and exits non-zero
     # (agent/src/Command/Cli.php:145-146). Reproduce exactly that: bytes on
@@ -352,12 +391,69 @@ case " $* " in
     fi
     exit "${WPRISM_ABORT_EXIT:-0}"
     ;;
-  *" wprism promotion-begin "*) exit "${WPRISM_BEGIN_EXIT:-0}" ;;
-  *" wprism checkpoint-open "*) printf '%s\n' '-- authenticated fixture checkpoint'; exit 0 ;;
-  *" db import "*) exit "${WPRISM_IMPORT_EXIT:-0}" ;;
+  *" wprism promotion-begin "*)
+    if [ "${WPRISM_TEST_DURABLE_INTENT:-0}" = 1 ] \
+      && [ -f "${WPRISM_RECOVERY_INTENT_PATH:-/nonexistent}" ] \
+      && [ ! -f "${WPRISM_RECOVERY_DATABASE_READY:-/nonexistent}" ]; then
+      exit 78
+    fi
+    exit "${WPRISM_BEGIN_EXIT:-0}"
+    ;;
+  *"wprismRecoveryPreflight"*)
+    if [ "${WPRISM_TARGET_PREFLIGHT_EXIT:-0}" != 0 ]; then
+      exit "${WPRISM_TARGET_PREFLIGHT_EXIT}"
+    fi
+    printf '%s\n' '{"cipher_sha256":"abababababababababababababababababababababababababababababababab","database_target_sha256":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","format":"wprism-retained-checkpoint-verification/v2"}'
+    exit 0
+    ;;
+  *"CheckpointRecoveryIntent::resume"*)
+    if [ "${WPRISM_VERIFY_EXIT:-0}" != 0 ]; then
+      exit "${WPRISM_VERIFY_EXIT}"
+    fi
+    resumed=false
+    if [ "${WPRISM_TEST_DURABLE_INTENT:-0}" = 1 ]; then
+      encoded="$(printf '%s' "$*" | sed -n "s/.*base64_decode('\([^']*\)'.*/\1/p")"
+      subject="$(php -r '$p=json_decode(base64_decode($argv[1]),true); echo is_array($p) ? ($p["checkpoint"] ?? "") : "";' "$encoded")"
+      if [ -z "$subject" ]; then
+        exit 79
+      fi
+      if [ -f "$WPRISM_RECOVERY_INTENT_PATH" ]; then
+        if [ "$(cat "$WPRISM_RECOVERY_INTENT_PATH")" != "$subject" ]; then
+          exit 79
+        fi
+        resumed=true
+      else
+        printf '%s' "$subject" > "$WPRISM_RECOVERY_INTENT_PATH"
+      fi
+    fi
+    printf '%s\n' "{\"cipher_sha256\":\"abababababababababababababababababababababababababababababababab\",\"database_target_sha256\":\"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"format\":\"wprism-checkpoint-recovery-intent/v1\",\"provider_intent\":false,\"resumed\":${resumed},\"schema_intent\":false}"
+    exit 0
+    ;;
+  *"RetainedCheckpointCipher::open"*) printf '%s\n' '-- authenticated fixture checkpoint'; exit 0 ;;
+  *" db reset --yes "*)
+    if [ "${WPRISM_TEST_DURABLE_INTENT:-0}" = 1 ] && [ -n "${WPRISM_RECOVERY_DATABASE_READY:-}" ]; then
+      rm -f "$WPRISM_RECOVERY_DATABASE_READY"
+    fi
+    exit "${WPRISM_RESET_EXIT:-0}"
+    ;;
+  *" db import "*)
+    status="${WPRISM_IMPORT_EXIT:-0}"
+    if [ "$status" = 0 ] && [ "${WPRISM_TEST_DURABLE_INTENT:-0}" = 1 ]; then
+      : > "$WPRISM_RECOVERY_DATABASE_READY"
+    fi
+    exit "$status"
+    ;;
   *" core is-installed "*) exit 0 ;;
   *is_multisite*)
-    # RecoverCommand's host-side topology probe, asked before step 1.
+    # A post-reset database cannot answer topology. Exact recovery must use
+    # the single-site fact already bound into its durable external intent,
+    # then validate that intent before the next reset.
+    if [ "${WPRISM_TEST_DURABLE_INTENT:-0}" = 1 ] \
+      && [ -f "${WPRISM_RECOVERY_INTENT_PATH:-/nonexistent}" ] \
+      && [ ! -f "${WPRISM_RECOVERY_DATABASE_READY:-/nonexistent}" ]; then
+      exit 78
+    fi
+    # New recovery attempts ask before step 1.
     # WPRISM_TOPOLOGY_EXIT drives the fail-closed "cannot answer" case; the
     # answer itself is printed exactly as `wp eval` would.
     if [ "${WPRISM_TOPOLOGY_EXIT:-0}" != 0 ]; then

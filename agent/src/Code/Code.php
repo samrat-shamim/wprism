@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/CodeDescriptorCompiler.php';
 require_once __DIR__ . '/CodeSourceLock.php';
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/PathSafety.php';
 require_once __DIR__ . '/CodeStageTransaction.php';
 require_once __DIR__ . '/CodeMaterializer.php';
@@ -629,9 +630,13 @@ final class Code {
      * descriptor/history or code_revision without its completed descriptor.
      */
     private static function publish_completed_descriptor(array $descriptor): void {
+        global $wpdb;
         $transactionStarted = false;
         try {
-            Db::start('code ledger transaction start');
+            Db::start(
+                'code ledger transaction start',
+                new NativeDatabaseProfile([], [$wpdb->prefix . 'wprism_kv'])
+            );
             $transactionStarted = true;
             self::write_completed_descriptor($descriptor);
             Db::commit('code ledger transaction commit');

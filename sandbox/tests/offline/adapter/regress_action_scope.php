@@ -140,7 +140,7 @@ $expectThrow = static function (array $badManifest, string $needle, string $labe
 };
 $bad = $manifest;
 $bad['actions'][0]['triggers'] = ['post:*'];
-$expectThrow($bad, 'exact canonical surface', 'wildcard trigger');
+$expectThrow($bad, 'post-kind-action-trigger/v1', 'an undeclared bounded post-kind trigger');
 $bad = $manifest;
 $bad['actions'][0]['triggers'] = ['post:product:42'];
 $expectThrow($bad, 'exact canonical surface', 'id-bearing trigger');

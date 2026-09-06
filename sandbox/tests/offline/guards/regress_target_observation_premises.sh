@@ -67,7 +67,7 @@ source_declares_manifest_participant() { # <file> <adapter-slug>
 
 source_uses_premise_helpers() { # <file>
   load_active_shell_source "$1" || return 1
-  grep -Eq '^[[:space:]]*require_(observed_nonempty|wprism_answered|fixture_ids|fixture_values)([[:space:];&|]|$)' \
+  grep -Eq '^[[:space:]]*(require_(observed_nonempty|wprism_answered|fixture_ids|fixture_values)|capture_wprism_json_(success|refusal))([[:space:];&|]|$)' \
     <<< "$ACTIVE_SHELL_SOURCE"
 }
 
@@ -229,6 +229,15 @@ run_contract_mutation_checks() {
     || { rm -rf "$scratch"; fail "valid package premise contract returned wrong counts: $result"; }
   source_uses_premise_helpers "$source" \
     || { rm -rf "$scratch"; fail 'active premise helper was not discovered'; }
+  local capture_helper=''
+  for capture_helper in capture_wprism_json_success capture_wprism_json_refusal; do
+    printf '%s\n' "$capture_helper OUT \"probe answered\" fake_wprism" > "$source"
+    clear_active_shell_cache
+    source_uses_premise_helpers "$source" \
+      || { rm -rf "$scratch"; fail "$capture_helper was not discovered as a premise helper"; }
+  done
+  printf '%s\n' 'require_observed_nonempty "probe answered" "$out"' > "$source"
+  clear_active_shell_cache
 
   printf '%s\n' ': # require_observed_nonempty "probe answered" "$out"' > "$source"
   clear_active_shell_cache
@@ -497,13 +506,16 @@ OBSERVATIONS=(
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan unforced conflict human view" human'
   'conformance/checks/core.sh|require_wprism_answered "conf1 wprism capture page deletion" json'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan referential page deletion" json'
-  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism apply forced page deletion" json'
+  'conformance/checks/core.sh|core_assert_deletion_exclusion forced-comments "$COMMENT_EXCLUSION_CONTEXT" --with-deletes --force-delete-referenced'
+  'conformance/checks/core.sh|require_wprism_answered "core direct-deletion refusal" json'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan page deletion retry" json'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan guard-blocked deletion conflict" json'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan guard-blocked deletion human view" human'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan local deletion conflict" json'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan local deletion conflict human view" human'
-  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism apply forced local deletion conflict" json'
+  'conformance/checks/core.sh|core_assert_deletion_exclusion forced-conflicts "$LOCAL_EXCLUSION_CONTEXT" --with-deletes --force-theirs'
+  'conformance/checks/core.sh|core_assert_deletion_exclusion forced-conflicts "$BRANCH_EXCLUSION_CONTEXT" --with-deletes --force-theirs'
+  'conformance/checks/core.sh|core_assert_deletion_exclusion forced-conflicts "$RESTORED_EXCLUSION_CONTEXT" --with-deletes --force-theirs'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan branch deletion conflict" json'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan missing guard table" json'
   'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan fresh target deletion interpretation" json'
@@ -555,18 +567,19 @@ for item in "${FIXTURES[@]}"; do
 done
 pass "all ${#FIXTURES[@]} global target fixture reads retain explicit fixture premises"
 
-# Explicit inventory of intentionally empty core observations. These assert
-# absence/cleanliness; requiring non-empty output would invert their meaning.
-grep -Fq '[ -z "$(wp_conf2 post list --post_type=page --name=home --field=ID)" ] || fail "Home page survived exact deletion"' conformance/checks/core.sh \
-  || fail "the expected-empty Home deletion predicate disappeared from the explicit exemption inventory"
+# Missing recovery exclusion preserves existing native posts. These are
+# positive-presence observations, not expected-empty successful-delete
+# exemptions; a dead compose read must fail before its nonmutation compare.
+guard conformance/checks/core.sh 'require_observed_nonempty "conf2 Home after missing-exclusion refusal"'
+guard conformance/checks/core.sh 'require_observed_nonempty "conf2 locally edited post after missing-exclusion refusal"'
+guard conformance/checks/core.sh 'require_observed_nonempty "conf2 branch-conflicted attachment after missing-exclusion refusal"'
+guard conformance/checks/core.sh 'require_observed_nonempty "core direct-deletion native and ledger readback"'
+guard conformance/checks/core.sh 'require_observed_nonempty "core unmapped target native and ledger readback"'
+pass "direct deletion refusal observations retain explicit native/ledger presence premises"
+
+# The remaining expected-empty observations genuinely assert cleanliness.
 grep -Fq 'git -C "$CONF_REPO2" status --porcelain --untracked-files=all' conformance/checks/core.sh \
   || fail "the clean-repository observation exemption lost its direct git status evidence"
-grep -Fq '[ -z "$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID)" ]' conformance/checks/core.sh \
-  || fail "the expected-empty Hello deletion predicate disappeared from the explicit exemption inventory"
-grep -Fq '[ -z "$(wp_conf2 post list --post_type=attachment --name=conformance-logo --field=ID)" ]' conformance/checks/core.sh \
-  || fail "the expected-empty attachment deletion predicate disappeared from the explicit exemption inventory"
-grep -Fq 'rollback-alpha --field=ID)' conformance/checks/core.sh \
-  || fail "the expected-empty rollback deletion predicates disappeared from the explicit exemption inventory"
 grep -Fq 'SELECT uuid FROM wp_wprism_map WHERE uuid' tests/certify/certify_adversarial_matrix.sh \
   || fail "the expected-empty identity-map setup predicate disappeared from the explicit exemption inventory"
 grep -Fq 'git -C siterepo/certmatrix1 status --porcelain -- state' tests/certify/certify_adversarial_matrix.sh \

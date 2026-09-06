@@ -118,6 +118,7 @@ EOF
   postdeploy_pmpro_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at paid-memberships-pro $PMPRO_VERSION"
   pass "deploy + apply succeeded on side 2 (paid-memberships-pro $PMPRO_VERSION, hostile target, canary clean)"
 
@@ -154,6 +155,7 @@ EOF
     git -C "siterepo/${PAIR}2" pull -q origin main
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail 'PMPro 3.8.2 -> 3.8.3 upgrade apply canary was not clean'
     PMPRO_CHECK_VERSION=3.8.3 check_pmpro_content
     unset PMPRO_CHECK_VERSION

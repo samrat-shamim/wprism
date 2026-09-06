@@ -4,6 +4,8 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Kernel/ProcessFence.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
@@ -12,11 +14,11 @@ require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/../Code/Code.php';
 require_once __DIR__ . '/../Delete/Deletion.php';
 require_once __DIR__ . '/../Promotion/Deploy.php';
+require_once __DIR__ . '/../Promotion/CodeBaselineCapture.php';
 require_once __DIR__ . '/../Kernel/Db.php';
 require_once __DIR__ . '/../Repository/Identity.php';
 require_once __DIR__ . '/InitialCaptureBoundary.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
-require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 require_once __DIR__ . '/../Review/Lint.php';
 require_once __DIR__ . '/../Review/LintTrustGate.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -344,7 +346,7 @@ final class CapturePublicationWorkflow {
             // collides with one of THIS build's own writes. In particular,
             // an unsupported deletion must roll back every row mutation made
             // while assembling the refused candidate.
-            $build = self::runInConsistentSnapshot(function () use (
+            $build = self::runInConsistentSnapshot(function (DatabaseWorkAuthority $workAuthority) use (
                 $c, $policy, $repo, $forceUnresolvedRefs, $previous, $previousOptions,
                 $previousUserLogins, $intoRepo, $stateDir,
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
@@ -363,7 +365,7 @@ final class CapturePublicationWorkflow {
                     Ledger::prune_dead_map();
                     $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
                     $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
-                    SidebarState::prune_dead_map($policy);
+                    DatabaseQueryIsolation::work_unit($workAuthority, static fn() => SidebarState::prune_dead_map($policy));
                     // A typed method row may disappear before its instance-
                     // settings option. Keep the option-name identity alive
                     // through this capture so build_options() can still emit
@@ -382,7 +384,8 @@ final class CapturePublicationWorkflow {
                     $previousOptions,
                     $previousUserLogins,
                     $scoped,
-                    $scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null
+                    $scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null,
+                    $workAuthority
                 );
                 Identity::assert_entities_unique($candidate['entities']);
                 $candidate['deletions'] = Deletion::capture_tombstones(
@@ -733,13 +736,7 @@ final class CapturePublicationWorkflow {
                 }
                 if ($intoRepo) {
                     $ledgerEntities = $scoped ? $selectedObserved : $candidate['entities'];
-                    foreach ($ledgerEntities as $e) {
-                        Ledger::set_state_hash(
-                            $e['uuid'],
-                            $e['type'],
-                            hash('sha256', $e['hash_basis'] ?? $e['content'])
-                        );
-                    }
+                    self::recordCapturedStateHashes($ledgerEntities, $workAuthority);
                     if ($scoped && ScopedApply::has_record_scoped_options($scopeContract)) {
                         $options = null;
                         foreach ($candidate['entities'] as $entity) {
@@ -754,7 +751,8 @@ final class CapturePublicationWorkflow {
                         try {
                             $document = Canon::decode((string) ($options['content'] ?? ''));
                             foreach (ScopedApply::option_state_hashes((array) $document, $scopeContract) as $identity => $hash) {
-                                Ledger::set_state_hash($identity, 'option', $hash);
+                                DatabaseQueryIsolation::work_unit($workAuthority, static fn() =>
+                                    Ledger::set_state_hash($identity, 'option', $hash));
                             }
                         } catch (\Throwable $failure) {
                             throw new \RuntimeException('wprism: scoped capture options carrier is malformed before ledger finalization', 0, $failure);
@@ -765,26 +763,34 @@ final class CapturePublicationWorkflow {
                             // This is the only map/state removal in scoped
                             // v1, and its UUID already passed selected-scope,
                             // capability, inbound, and candidate gates.
-                            Ledger::forget((string) $identity);
+                            DatabaseQueryIsolation::work_unit($workAuthority, static fn() => Ledger::forget((string) $identity));
                         }
                     }
                     if (!$scoped) {
-                        Ledger::prune_state(array_merge(
+                        // The old ledger inventory has no admitted row/byte
+                        // frontier. Keep the entire prune one finite unit;
+                        // per-row quotas would authorize an unbounded roster.
+                        DatabaseQueryIsolation::work_unit($workAuthority, static fn() => Ledger::prune_state(array_merge(
                             array_column($candidate['entities'], 'uuid'),
                             array_column($candidate['deletions'], 'uuid')
-                        ));
-                        // issue #3507: capture observes code, it never accepts
-                        // it. The unconditional re-baseline stays deploy's
-                        // alone -- Deploy.php:464-472 reaches
-                        // LifecyclePlanner::record_code_versions() only after
-                        // that verb's own refuse-or-force gate
-                        // (Deploy.php:203-210, :221-224). Capture has no such
-                        // gate, so an unaccepted drift leaves the recorded
-                        // blob byte-identical and every row is reported
-                        // (Architecture Rulings §1, report-not-hide) rather
-                        // than erased by a silent re-baseline that produced
-                        // no output at all.
-                        foreach (LifecyclePlanner::observe_code_versions($c->policy()) as $observed) {
+                        )));
+                        // Capture may initialize or reaffirm an exact baseline,
+                        // but it never consumes drift. CodeBaselineCapture binds
+                        // that decision to the same transaction as the captured
+                        // state and returns every refused row for report-not-hide
+                        // output (Architecture Rulings §1).
+                        if (!$compiledCandidate instanceof CompiledRepository) {
+                            throw new \RuntimeException(
+                                'wprism: capture lost its compiled options carrier before code-baseline publication'
+                            );
+                        }
+                        $capturedTree = $compiledCandidate->tree();
+                        $capturedDesired = isset($capturedTree['options/core'])
+                            ? Deploy::extract_desired(
+                                (array) ($capturedTree['options/core']['data'] ?? [])
+                            )
+                            : [];
+                        foreach (CodeBaselineCapture::observe_or_publish($capturedDesired) as $observed) {
                             $candidate['warnings'][] = (string) $observed['message'] . self::CODE_DRIFT_OBSERVED;
                         }
                     }
@@ -1050,6 +1056,13 @@ final class CapturePublicationWorkflow {
         try {
             ProcessFence::acquire();
         } catch (\Throwable $failure) {
+            // Only GET_LOCK's definite contention result identifies another
+            // writer. Database failure retains the engine's unavailable
+            // refusal instead of telling an idle target to wait indefinitely.
+            if (!$failure instanceof CommandRefusalException
+                || $failure->reasonCode !== 'process_fence_held') {
+                throw $failure;
+            }
             throw self::targetWriterRefusal(
                 'wprism: capture refused because another live target process owns the target-writer fence',
                 $failure
@@ -1079,18 +1092,18 @@ final class CapturePublicationWorkflow {
      * unconditional post-ensure check above.
      */
     private static function assertNoPromotionSessionIfLedgerExists(): void {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $table = $wpdb->prefix . 'wprism_kv';
-        $found = $wpdb->get_var($wpdb->prepare(
-            'SELECT TABLE_NAME FROM information_schema.TABLES '
-            . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
-            $table
-        ));
-        if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException('wprism: capture could not inspect the target ledger boundary');
+        try {
+            $installed = Ledger::kv_table_installed();
+        } catch (\Throwable $failure) {
+            // Capture owns this public refusal text; Ledger supplies only the
+            // checked presence fact shared with lifecycle observation.
+            throw new \RuntimeException(
+                'wprism: capture could not inspect the target ledger boundary',
+                0,
+                $failure
+            );
         }
-        if (is_string($found) && hash_equals($table, $found)) {
+        if ($installed) {
             self::assertNoPromotionSession();
         }
     }
@@ -1107,6 +1120,17 @@ final class CapturePublicationWorkflow {
             $operatorMessage,
             $previous
         );
+    }
+
+    /** Publish each admitted candidate identity in the same capture transaction. */
+    private static function recordCapturedStateHashes(array $entities, DatabaseWorkAuthority $workAuthority): void {
+        foreach ($entities as $entity) {
+            DatabaseQueryIsolation::work_unit($workAuthority, static fn() => Ledger::set_state_hash(
+                $entity['uuid'],
+                $entity['type'],
+                hash('sha256', $entity['hash_basis'] ?? $entity['content'])
+            ));
+        }
     }
 
     private static function runInConsistentSnapshot(

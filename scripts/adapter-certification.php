@@ -171,7 +171,10 @@ function cert_cli_secret_file(string $path): string {
 }
 
 try {
-    [$command, $args] = cert_cli_args($argv);
+    // Certification is a CLI boundary, but register_argc_argv remains a PHP
+    // setting. Missing arguments belong to cert_cli_args()'s refusal grammar.
+    $cliArgv = $_SERVER['argv'] ?? [];
+    [$command, $args] = cert_cli_args(is_array($cliArgv) ? array_map('strval', $cliArgv) : []);
     switch ($command) {
         case 'sign':
             cert_cli_require($args, [

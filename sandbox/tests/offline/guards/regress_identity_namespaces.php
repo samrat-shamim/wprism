@@ -17,16 +17,16 @@
  *
  * The four claims, each asserted below rather than argued:
  *
- *   1. THE LIST IS CLOSED, AND IT IS IN THE RIGHT PLACE. 17 adapter names and
- *      20 `id_kind`s, enumerated in `agent/src` rather than any adapter
+ *   1. THE LIST IS CLOSED, AND IT IS IN THE RIGHT PLACE. 18 adapter names and
+ *      21 `id_kind`s, enumerated in `agent/src` rather than any adapter
  *      package, where AGENTS.md rule 2 would fold them into every adapter's
- *      digest and make an eighteenth adapter invalidate the other seventeen's
+ *      digest and make a nineteenth adapter invalidate the other eighteen's
  *      pins and certificates. `php tools/wire-surface.php --check` (a `make
  *      release-gate` step, register row R-27) asserts both halves; §7 below
- *      drives that gate against a fixture library carrying an EIGHTEENTH
+ *      drives that gate against a fixture library carrying a NINETEENTH
  *      unprefixed name and asserts it refuses by name.
  *   2. IT ENUMERATES RATHER THAN TESTING SHAPE, and the measurement is the
- *      reason: 7 of the 17 shipped names carry no hyphen at all, and 10 more
+ *      reason: 7 of the 18 shipped names carry no hyphen at all, and 11 more
  *      are hyphen-shaped without being vendor-prefixed — `the-events-calendar`
  *      is not vendor `the`. A shape test admits exactly the wrong ones.
  *   3. THE RULE IS v3-GATED AND LIVE NOW. `WPRISM_SPEC_VERSION` is 3 after
@@ -199,7 +199,7 @@ $listFile = (new ReflectionClass(IdentityNamespaces::class))->getFileName();
 wprism_check(
     is_string($listFile) && str_starts_with((string) realpath((string) $listFile), (string) realpath($repo . '/agent/src')),
     'the list is declared under agent/src, where it moves no adapter digest — under an adapter package it would be an '
-    . 'identity input on every adapter row, so an eighteenth adapter would invalidate the other seventeen\'s pins'
+    . 'identity input on every adapter row, so a nineteenth adapter would invalidate the other eighteen\'s pins'
 );
 $underManifests = [];
 foreach ($sourceLibrary->packages() as $package) {
@@ -292,6 +292,7 @@ wprism_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'rank-math',
         'redirection',
         'the-events-calendar',
         'woocommerce',
@@ -323,7 +324,7 @@ wprism_check_same(
 $unprefixed = $namespaceVerdict($manifest('cache', 3), 'cache');
 wprism_check(
     is_string($unprefixed) && str_contains($unprefixed, "the unprefixed name 'cache'")
-        && str_contains($unprefixed, 'closed reserved list of 17 names')
+        && str_contains($unprefixed, 'closed reserved list of 18 names')
         && str_contains($unprefixed, '§ v3.9'),
     'an unprefixed out-of-tree name refuses BY NAME, naming the closed list and the section that decided it'
 );
@@ -344,7 +345,7 @@ wprism_check_same(
 // M2 (G2 review) — THE GRANDFATHER EXEMPTION IS THE NAME'S ALONE.
 //
 // The early return used to sit AHEAD of the provider loop, so a grandfathered
-// name skipped the provider rule entirely: 10 of the 17 shipped names have a
+// name skipped the provider rule entirely: 11 of the 18 shipped names have a
 // vendor half, and an out-of-tree manifest answering one of them could declare
 // provider ids in any vendor's namespace at all — the one door left open in the
 // binding § v3.9 exists to make transitive. Both arms are pinned, because the
@@ -377,7 +378,7 @@ wprism_check_same(
 );
 // The measurement that keeps the second arm honest as the library grows: every
 // shipped provider id is inside its declaring adapter's vendor namespace, or
-// that adapter has no vendor half at all. An eighteenth adapter that broke this
+// that adapter has no vendor half at all. A nineteenth adapter that broke this
 // would make its own reviewed override unloadable at v3 — a reviewed edit, and
 // this is where it is noticed.
 $providerNamespaceMisfits = [];
@@ -404,7 +405,7 @@ wprism_check_same(
     $providerNamespaceMisfits,
     'and the shipped library already satisfies that rule, measured rather than assumed: every provider id an '
     . 'adapter with a vendor half declares sits inside that vendor namespace, so the reviewed override of any '
-    . 'of the 17 loads at v3'
+    . 'of the 18 loads at v3'
 );
 
 $providerRefusal = $namespaceVerdict($manifest('acme-cache', 3, [
@@ -460,7 +461,7 @@ wprism_check_same(
     'and an exact-name scope still works unchanged beside the pattern'
 );
 
-echo "\n== 6. through the real scan: coexistence, the shipped 17, and the unchanged refusals ==\n";
+echo "\n== 6. through the real scan: coexistence, the shipped 18, and the unchanged refusals ==\n";
 
 $siteRepo = static function (string $suffix, array $adapters, array $pins) use ($scratch, $manifest): string {
     $root = $scratch . '/' . $suffix;
@@ -552,7 +553,7 @@ wprism_check_same(
     . 'refuses the rule, because captured state and wprism_map rows embed the bare kind'
 );
 
-echo "\n== 7. the release gate bites: an eighteenth unprefixed name cannot be added quietly ==\n";
+echo "\n== 7. the release gate bites: a nineteenth unprefixed name cannot be added quietly ==\n";
 
 // A fixture library: the four engine trees are symlinked (nothing in them is
 // mutated), while package and platform sources are copied so a new adapter can
@@ -592,7 +593,7 @@ wprism_check_same(
     'the unmutated fixture passes the gate — without this the mutation below would prove nothing'
 );
 
-// The eighteenth. Any shipped manifest copied under a new unprefixed name is
+// The nineteenth. Any shipped manifest copied under a new unprefixed name is
 // enough: what the gate refuses is a library the reviewed list does not match.
 exec(
     'cp -R ' . escapeshellarg($gateRoot . '/adapter-packages/wprism-agency-cpt') . ' '
@@ -602,22 +603,22 @@ exec(
 );
 wprism_check_same(0, $copyCandidate, 'the candidate starts as one complete package capsule');
 $zetaManifest = $gateRoot . '/adapter-packages/zeta/package/manifest.json';
-$eighteenth = Canon::decode(Canon::read_file($zetaManifest));
-$eighteenth['name'] = 'zeta';
-Canon::write_file($zetaManifest, Canon::encode($eighteenth));
+$nineteenth = Canon::decode(Canon::read_file($zetaManifest));
+$nineteenth['name'] = 'zeta';
+Canon::write_file($zetaManifest, Canon::encode($nineteenth));
 $mutated = $runGate($gateRoot);
 wprism_check_same(
     1,
     $mutated['status'],
-    'an eighteenth unprefixed shipped name fails `php tools/wire-surface.php --check`, which `make '
+    'a nineteenth unprefixed shipped name fails `php tools/wire-surface.php --check`, which `make '
     . 'release-gate` runs'
 );
 wprism_check(
     str_contains($mutated['stderr'], 'unlisted [zeta]')
         && str_contains($mutated['stderr'], 'the list is CLOSED (row R-27)')
-        && str_contains($mutated['stderr'], 'agent/src/Adapter/IdentityNamespaces.php'),
-    'and it names the identity, the register row, and the one file a reviewer has to edit to admit it — which '
-    . 'is the reviewed act adding an unprefixed identity is meant to be'
+        && str_contains($mutated['stderr'], 'agent/src/Adapter/ShippedIdentityInventory.php'),
+    'and it names the identity, the register row, and the generated inventory that must be refreshed after '
+    . 'the reviewed act of adding an unprefixed shipped identity'
 );
 ins_remove_tree($gateRoot . '/adapter-packages/zeta');
 

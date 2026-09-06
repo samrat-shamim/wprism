@@ -18,7 +18,8 @@ require_once __DIR__ . '/CodeResolveCommand.php';
 /** Host command boundary for semantic refresh planning and field-diff output. */
 final class RefreshCommand {
     /** @param list<string> $extra */
-    public static function run(EnvironmentDriver $driver, array $extra): int {
+    /** @param null|callable():?int $beforeTarget */
+    public static function run(EnvironmentDriver $driver, array $extra, ?callable $beforeTarget = null): int {
         $json = CommandOutput::wantsAgentRefusalJson('refresh', $extra);
         $fieldDiff = count(array_filter($extra, static fn(string $arg): bool =>
             $arg === '--field-diff' || str_starts_with($arg, '--field-diff='))) > 0;
@@ -49,6 +50,10 @@ final class RefreshCommand {
             $scope = isset($flags['--scope-contract'])
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
+            $fenceRefusal = $beforeTarget === null ? null : $beforeTarget();
+            if (is_int($fenceRefusal)) {
+                return $fenceRefusal;
+            }
             $result = Refresh::refresh($driver, $flags['--production-ref'], $scope, $fieldDiff);
             // Human rows only. On a split repository (code.format 2) this
             // renderer prints one RESOLVED/UNCHANGED line per component

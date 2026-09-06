@@ -1,8 +1,15 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
+
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/ProcessFence.php';
+require_once __DIR__ . '/../Kernel/TransientDbException.php';
 require_once __DIR__ . '/PromotionSessionJournal.php';
 require_once __DIR__ . '/LifecycleJournal.php';
 require_once __DIR__ . '/StateTransitionJournal.php';
@@ -97,6 +104,177 @@ class PromotionLease {
     /** Begin a new multi-process host session; later host phases only continue it. */
     public static function begin(string $owner, string $artifactHash, ?int $ttl = null): array {
         return self::acquire($owner, $artifactHash, 'checkpoint', $ttl, false);
+    }
+
+    /**
+     * Elect an ordinary host session only after a target-local external-debt
+     * check made inside the same continuously held database process fence.
+     * The advisory fence is deliberately acquired before Ledger::ensure() or
+     * any durable lease write: a process death before the external read
+     * completes must not strand a contender's row ahead of the recovery owner.
+     *
+     * @param callable():void $assertExternalAuthority
+     * @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool,session_id:string}
+     */
+    public static function begin_with_external_fence(
+        string $owner,
+        string $artifactHash,
+        callable $assertExternalAuthority,
+        ?int $ttl = null
+    ): array {
+        global $wpdb;
+        self::assert_identity($owner, $artifactHash);
+        self::claim_process_fence();
+        try {
+            $assertExternalAuthority();
+            ProcessFence::assertHeld();
+            Ledger::ensure();
+            self::assert_transactional_promotion_storage();
+            $transactionOpen = false;
+            $commitAttempted = false;
+            try {
+                $ledgerTable = $wpdb->prefix . 'wprism_kv';
+                Db::start(
+                    'promotion begin transaction start',
+                    new NativeDatabaseProfile([$ledgerTable], [$ledgerTable])
+                );
+                $transactionOpen = true;
+                $summary = self::acquire_internal(
+                    $owner,
+                    $artifactHash,
+                    'checkpoint',
+                    $ttl,
+                    false,
+                    true,
+                    null,
+                    false,
+                    false,
+                    true
+                );
+                $commitAttempted = true;
+                try {
+                    Db::commit('promotion begin transaction commit');
+                } catch (DatabaseMutationException|TransientDbException $notCommitted) {
+                    Db::rollback_after_failure(
+                        $notCommitted,
+                        'promotion begin transaction rollback after refused commit'
+                    );
+                    $transactionOpen = false;
+                    $commitAttempted = false;
+                    throw $notCommitted;
+                }
+                $transactionOpen = false;
+                return $summary;
+            } catch (\Throwable $failure) {
+                if ($transactionOpen && !$commitAttempted) {
+                    Db::rollback_after_failure($failure, 'promotion begin transaction rollback');
+                }
+                throw $failure;
+            }
+        } catch (\Throwable $failure) {
+            self::release_process_fence();
+            throw $failure;
+        }
+    }
+
+    /**
+     * Reacquire the exact latest ordinary session for retained-checkpoint
+     * recovery without rotating its generation. The caller authenticates the
+     * external checkpoint/provider authority while the advisory fence is held;
+     * only then may this method recreate the matching durable lease row.
+     *
+     * @param callable():void $assertRecoveryAuthority
+     * @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:true,session_id:string}
+     */
+    public static function begin_recovery_with_external_fence(
+        string $owner,
+        string $artifactHash,
+        callable $assertRecoveryAuthority,
+        ?int $ttl = null
+    ): array {
+        global $wpdb;
+        self::assert_identity($owner, $artifactHash);
+        self::claim_process_fence();
+        try {
+            $assertRecoveryAuthority();
+            ProcessFence::assertHeld();
+            Ledger::ensure();
+            self::assert_transactional_promotion_storage();
+            $session = self::current_session();
+            if ($session === null
+                || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+                || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+                throw new \RuntimeException(
+                    'wprism: checkpoint recovery promotion session was absent or superseded'
+                );
+            }
+            if (($session['profile'] ?? null) === 'scoped-checkpoint-v1') {
+                throw new \RuntimeException(
+                    'wprism: ordinary checkpoint recovery cannot reuse a scoped promotion session'
+                );
+            }
+            if (self::current() !== null) {
+                throw new \RuntimeException(
+                    'wprism: checkpoint recovery requires its exact prior promotion lease cleanup'
+                );
+            }
+            $ttl = self::ttl($ttl);
+            $now = time();
+            $payload = self::payload($owner, $artifactHash, 'checkpoint-recovery', $now, $now + $ttl);
+            $table = $wpdb->prefix . 'wprism_kv';
+            $inserted = Db::mutation(
+                $wpdb->prepare(
+                    "INSERT IGNORE INTO `$table` (k, v) SELECT %s, %s",
+                    self::KEY,
+                    wp_json_encode($payload)
+                ),
+                '',
+                '',
+                'checkpoint recovery promotion lease acquire'
+            );
+            if ((int) $inserted !== 1) {
+                throw new \RuntimeException('wprism: checkpoint recovery lost the promotion lease race');
+            }
+            $current = self::current();
+            if ($current === null
+                || !hash_equals($owner, (string) ($current['owner'] ?? ''))
+                || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
+                || (int) ($current['expires_at'] ?? 0) <= $now) {
+                throw new \RuntimeException('wprism: checkpoint recovery promotion lease readback failed');
+            }
+            self::$leaseSessionOwner = $owner;
+            self::$leaseSessionArtifact = $artifactHash;
+            $current['recovered'] = true;
+            $current['session_id'] = self::normalized_session_id($session);
+            return $current;
+        } catch (\Throwable $failure) {
+            self::release_process_fence();
+            throw $failure;
+        }
+    }
+
+    /**
+     * Run one external publication while proving the exact existing host
+     * session and lease under the same target advisory fence as begin(). The
+     * durable lease remains for the next process; only this connection's fence
+     * is released after the callback.
+     *
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    public static function with_existing_lease_fence(
+        string $owner,
+        string $artifactHash,
+        string $phase,
+        callable $callback
+    ): mixed {
+        self::acquire($owner, $artifactHash, $phase, null, true);
+        try {
+            return $callback();
+        } finally {
+            self::release_process_fence();
+        }
     }
 
     /** Begin or resume one receipt-bound, externally checkpointed promotion. */
@@ -241,6 +419,49 @@ class PromotionLease {
     }
 
     /**
+     * Acquire a transient deploy lease only after external recovery debt is
+     * proved clear beneath the same continuously-held process fence. This is
+     * the baseline-only analogue of begin_with_external_fence(): it publishes
+     * no promotion session because accepting a version observation fires no
+     * lifecycle/provider mutation and has its own atomic replay receipt.
+     *
+     * @param callable():void $assertExternalAuthority
+     * @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool}
+     */
+    public static function acquire_deploy_preflight_with_external_fence(
+        string $owner,
+        string $artifactHash,
+        callable $assertExternalAuthority,
+        ?int $ttl = null
+    ): array {
+        self::assert_identity($owner, $artifactHash);
+        self::claim_process_fence();
+        try {
+            $assertExternalAuthority();
+            ProcessFence::assertHeld();
+            Ledger::ensure();
+            self::assert_transactional_promotion_storage(
+                'code-baseline acceptance requires an InnoDB wprism_kv table; refusing a nontransactional receipt'
+            );
+            return self::acquire_internal(
+                $owner,
+                $artifactHash,
+                'deploy-preflight',
+                $ttl,
+                false,
+                false,
+                null,
+                false,
+                false,
+                true
+            );
+        } catch (\Throwable $failure) {
+            self::release_process_fence();
+            throw $failure;
+        }
+    }
+
+    /**
      * Publish the direct-apply session only after every locked pre-mutation
      * gate has passed.  The continuously held lease/process fence proves no
      * other WPrism writer can replace the boundary between preflight and this
@@ -325,15 +546,29 @@ class PromotionLease {
         bool $publishSession,
         ?array $sessionMetadata = null,
         bool $replaceProfilelessOrdinarySession = false,
-        bool $requireSessionAbsentAfterFence = false
+        bool $requireSessionAbsentAfterFence = false,
+        bool $fenceOwnedByCaller = false
     ): array {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
-        self::claim_process_fence();
+        if ($fenceOwnedByCaller) {
+            ProcessFence::assertHeld();
+        } else {
+            self::claim_process_fence();
+        }
         $replacementTransactionOpen = false;
         try {
             if ($replaceProfilelessOrdinarySession) {
-                Db::start('scoped ordinary session replacement transaction start');
+                $ledgerTable = $wpdb->prefix . 'wprism_kv';
+                // Db proves this exact read/write roster (InnoDB, retained
+                // metadata locks, triggers and FK destinations) before it
+                // binds the query profile. A second information_schema probe
+                // after start() returns escapes that closed authority; the
+                // scoped handoff consumes the core proof for this transaction.
+                Db::start(
+                    'scoped ordinary session replacement transaction start',
+                    new NativeDatabaseProfile([$ledgerTable], [$ledgerTable])
+                );
                 $replacementTransactionOpen = true;
             }
             $ttl = self::ttl($ttl);
@@ -347,7 +582,6 @@ class PromotionLease {
                 );
             }
             if ($replaceProfilelessOrdinarySession) {
-                self::assert_transactional_replacement_storage();
                 if ($before !== null) {
                     throw new \RuntimeException('wprism: scoped promotion begin found a live ordinary target promotion lock');
                 }
@@ -409,9 +643,13 @@ class PromotionLease {
             }
             $payload = self::payload($owner, $artifactHash, $phase, $now, $now + $ttl);
             $table = $wpdb->prefix . 'wprism_kv';
-            $sql = $wpdb->prepare(
-                "INSERT INTO `$table` (k, v) VALUES (%s, %s)
-                 ON DUPLICATE KEY UPDATE v = IF(
+            $head = $wpdb->prepare(
+                "INSERT INTO `$table` (k, v) SELECT %s, %s",
+                self::KEY,
+                wp_json_encode($payload)
+            );
+            $tail = $wpdb->prepare(
+                "ON DUPLICATE KEY UPDATE v = IF(
                     (
                         CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) <= %d
                         AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) <> %s
@@ -423,15 +661,13 @@ class PromotionLease {
                     ),
                     VALUES(v), v
                  )",
-                self::KEY,
-                wp_json_encode($payload),
                 $now,
                 $owner,
                 $now,
                 $owner,
                 $artifactHash
             );
-            Db::query($sql, 'promotion lock acquire');
+            Db::mutation($head, '', $tail, 'promotion lock acquire');
             $current = self::current();
             if ($current === null || !hash_equals($owner, (string) ($current['owner'] ?? ''))) {
                 $heldBy = (string) ($current['owner'] ?? 'unknown');
@@ -519,11 +755,15 @@ class PromotionLease {
                         'scoped ordinary session replacement transaction rollback'
                     );
                 } catch (\Throwable $recoveryFailure) {
-                    self::release_process_fence();
+                    if (!$fenceOwnedByCaller) {
+                        self::release_process_fence();
+                    }
                     throw $recoveryFailure;
                 }
             }
-            self::release_process_fence();
+            if (!$fenceOwnedByCaller) {
+                self::release_process_fence();
+            }
             throw $t;
         }
     }
@@ -566,15 +806,22 @@ class PromotionLease {
             $now + $ttl
         );
         $table = $wpdb->prefix . 'wprism_kv';
-        Db::query($wpdb->prepare(
-            "UPDATE `$table` SET v = %s WHERE k = %s
-             AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
-             AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s",
-            wp_json_encode($payload),
-            self::KEY,
-            $owner,
-            $artifactHash
-        ), 'promotion lock heartbeat');
+        Db::mutation(
+            $wpdb->prepare(
+                "UPDATE `$table` SET v = %s",
+                wp_json_encode($payload)
+            ),
+            $wpdb->prepare(
+                "k = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s",
+                self::KEY,
+                $owner,
+                $artifactHash
+            ),
+            '',
+            'promotion lock heartbeat'
+        );
         $after = self::current();
         if ($after === null
             || !hash_equals($owner, (string) ($after['owner'] ?? ''))
@@ -641,24 +888,34 @@ class PromotionLease {
             }
             $table = $wpdb->prefix . 'wprism_kv';
             if ($current !== null) {
-                Db::query($wpdb->prepare(
-                    "DELETE FROM `$table` WHERE k = %s
-                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
-                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s
-                     AND CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) <= %d",
-                    self::KEY,
-                    $owner,
-                    $artifactHash,
-                    $now
-                ), 'scoped promotion lease expired-generation recovery');
+                Db::mutation(
+                    "DELETE FROM `$table`",
+                    $wpdb->prepare(
+                        "k = %s
+                         AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
+                         AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s
+                         AND CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) <= %d",
+                        self::KEY,
+                        $owner,
+                        $artifactHash,
+                        $now
+                    ),
+                    '',
+                    'scoped promotion lease expired-generation recovery'
+                );
             }
             $ttl = self::ttl($ttl);
             $payload = self::payload($owner, $artifactHash, 'scoped-recovery', $now, $now + $ttl);
-            $inserted = Db::query($wpdb->prepare(
-                "INSERT IGNORE INTO `$table` (k, v) VALUES (%s, %s)",
-                self::KEY,
-                wp_json_encode($payload)
-            ), 'scoped promotion lease recovery acquire');
+            $inserted = Db::mutation(
+                $wpdb->prepare(
+                    "INSERT IGNORE INTO `$table` (k, v) SELECT %s, %s",
+                    self::KEY,
+                    wp_json_encode($payload)
+                ),
+                '',
+                '',
+                'scoped promotion lease recovery acquire'
+            );
             if ((int) $inserted !== 1) {
                 throw new \RuntimeException('wprism: scoped recovery lost the promotion lease race');
             }
@@ -901,20 +1158,25 @@ class PromotionLease {
             }
             self::assert_scoped_profile_session($session, $receiptHash, $scopeHash, $authorityWitness);
             $table = $wpdb->prefix . 'wprism_kv';
-            $deleted = Db::query($wpdb->prepare(
-                "DELETE FROM `$table` WHERE k = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.profile')) = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_receipt_sha256')) = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_scope_hash')) = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_receipt_id')) = %s
-                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_generation')) AS UNSIGNED) = %d
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_target_id')) = %s",
-                'promotion_session', $owner, $artifactHash, 'scoped-checkpoint-v1', $receiptHash,
-                $scopeHash, (string) $authorityWitness['receipt_id'], (int) $authorityWitness['generation'],
-                (string) $authorityWitness['target_id']
-            ), 'scoped promotion session complete');
+            $deleted = Db::mutation(
+                "DELETE FROM `$table`",
+                $wpdb->prepare(
+                    "k = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.profile')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_receipt_sha256')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_scope_hash')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_receipt_id')) = %s
+                     AND CAST(JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_generation')) AS UNSIGNED) = %d
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_target_id')) = %s",
+                    'promotion_session', $owner, $artifactHash, 'scoped-checkpoint-v1', $receiptHash,
+                    $scopeHash, (string) $authorityWitness['receipt_id'], (int) $authorityWitness['generation'],
+                    (string) $authorityWitness['target_id']
+                ),
+                '',
+                'scoped promotion session complete'
+            );
             if ((int) $deleted !== 1) {
                 throw new \RuntimeException('wprism: scoped promotion session completion lost its exact target row');
             }
@@ -930,14 +1192,19 @@ class PromotionLease {
         self::claim_process_fence();
         try {
             $table = $wpdb->prefix . 'wprism_kv';
-            $deleted = Db::query($wpdb->prepare(
-                "DELETE FROM `$table` WHERE k = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s",
-                self::KEY,
-                $owner,
-                $artifactHash
-            ), 'promotion lock release');
+            $deleted = Db::mutation(
+                "DELETE FROM `$table`",
+                $wpdb->prepare(
+                    "k = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s",
+                    self::KEY,
+                    $owner,
+                    $artifactHash
+                ),
+                '',
+                'promotion lock release'
+            );
             if ((int) $deleted !== 1) {
                 throw new \RuntimeException('wprism: promotion lock lost before release; completion refused');
             }
@@ -972,14 +1239,19 @@ class PromotionLease {
             self::assert_abort_ownership($current, $owner, $artifactHash);
 
             $table = $wpdb->prefix . 'wprism_kv';
-            $deleted = Db::query($wpdb->prepare(
-                "DELETE FROM `$table` WHERE k = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
-                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s",
-                self::KEY,
-                $owner,
-                $artifactHash
-            ), 'promotion lock abort');
+            $deleted = Db::mutation(
+                "DELETE FROM `$table`",
+                $wpdb->prepare(
+                    "k = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s",
+                    self::KEY,
+                    $owner,
+                    $artifactHash
+                ),
+                '',
+                'promotion lock abort'
+            );
             if ((int) $deleted === 1) {
                 return [
                     'owner' => $owner,
@@ -1028,9 +1300,9 @@ class PromotionLease {
         // Most failures happen outside a transaction (preconditions,
         // rebuild actions, or probes). Keep their normal WordPress connection
         // alive for shutdown hooks; only cross the independent cleanup
-        // boundary when MariaDB proves this process still owns a transaction.
-        $inTransaction = $wpdb->get_var('SELECT @@in_transaction');
-        if ($inTransaction !== null && (int) $inTransaction === 0) {
+        // boundary when the portable transaction witness proves this process
+        // has no active transaction on the current connection.
+        if (!Db::connection_transaction_active('promotion lock failure cleanup')) {
             self::release($owner, $artifactHash);
             return;
         }
@@ -1291,7 +1563,9 @@ class PromotionLease {
         self::assert_state_transition($transition['entity'], $transition['before_hash'], $transition['after_hash']);
     }
 
-    private static function assert_transactional_replacement_storage(): void {
+    private static function assert_transactional_promotion_storage(
+        string $message = 'promotion begin requires an InnoDB wprism_kv table; refusing a nontransactional session handoff'
+    ): void {
         global $wpdb;
         $table = $wpdb->prefix . 'wprism_kv';
         $engine = $wpdb->get_var($wpdb->prepare(
@@ -1299,7 +1573,7 @@ class PromotionLease {
             $table
         ));
         if (!is_string($engine) || strcasecmp($engine, 'InnoDB') !== 0) {
-            throw new \RuntimeException('wprism: scoped ordinary session replacement requires an InnoDB wprism_kv table; refusing a nontransactional promotion handoff');
+            throw new \RuntimeException('wprism: ' . $message);
         }
     }
 

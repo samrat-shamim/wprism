@@ -159,10 +159,12 @@ try {
     foreach ([
         'CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php',
         'rollback-control.php', 'RecoveryExecutor.php', 'CheckpointBundle.php', 'CodeRelease.php',
-        'UploadBundle.php', 'EffectBundle.php',
+        'UploadBundle.php', 'EffectBundle.php', 'ProviderSettlementIntent.php', 'CheckpointRecoveryIntent.php',
     ] as $file) {
         copy(dirname(__DIR__, 4) . '/recovery/' . $file, $runtimeDir . '/' . $file);
     }
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/DatabaseTargetIdentity.php', $runtimeDir . '/DatabaseTargetIdentity.php');
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/RetainedCheckpointCipher.php', $runtimeDir . '/RetainedCheckpointCipher.php');
 
     // ------------------------------------------------------------ providers
     $checkpointState = $tmp . '/checkpoint-state';
@@ -1027,10 +1029,12 @@ SH;
     foreach ([
         'CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php',
         'rollback-control.php', 'RecoveryExecutor.php', 'CheckpointBundle.php', 'CodeRelease.php',
-        'UploadBundle.php', 'EffectBundle.php',
+        'UploadBundle.php', 'EffectBundle.php', 'ProviderSettlementIntent.php', 'CheckpointRecoveryIntent.php',
     ] as $file) {
         copy(dirname(__DIR__, 4) . '/recovery/' . $file, $compatRuntime . '/' . $file);
     }
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/DatabaseTargetIdentity.php', $compatRuntime . '/DatabaseTargetIdentity.php');
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/RetainedCheckpointCipher.php', $compatRuntime . '/RetainedCheckpointCipher.php');
     rename($compatRuntime . '/rollback-control.php', $compatRuntime . '/rollback-control-current.php');
     lvr_write(
         $compatRuntime . '/rollback-control.php',

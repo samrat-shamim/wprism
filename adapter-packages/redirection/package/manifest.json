@@ -21,9 +21,9 @@
     "options.redirection_options": {
       "evidence": [
         {
-          "locator": "models/options.php Red_Options::IMPORT_EXPORT_KEYS and Red_Options::get_default_options()",
-          "observation": "Redirection 5.9.0 publishes an exact portable import/export key list inside its native options API. Every persisted sibling in the same closed object was classified separately; monitor_post is a local redirection_groups id and is therefore a typed red_group reference rather than copied as a number.",
-          "source": "official Redirection 5.9.0 artifact and dogfood pair redauth, 2026-08-27"
+          "locator": "redirection-admin.php Redirection_Admin::plugin_activated(), redirection-settings.php red_set_options(), models/options.php Red_Options::save()/get_default_options(), and database/schema/latest.php Red_Latest_Database::install()",
+          "observation": "Both hash-pinned official 5.8.1 and 5.9.0 artifacts call red_set_options() during activation; Red_Options::save() builds the complete native default object and persists redirection_options, while database install persists its version through the same path. The structured parent is therefore plugin-populated and required:false, not an operator provisioning slot; every persisted sibling in the closed object remains classified separately, and monitor_post is a typed red_group reference rather than a copied local id.",
+          "source": "official Redirection 5.8.1/5.9.0 artifacts, artifact-lock hashes reverified 2026-09-05; dogfood pair redauth, 2026-08-27"
         }
       ]
     },
@@ -71,7 +71,7 @@
     "redirection_options": {
       "class": "env",
       "closed_sub_keys": true,
-      "required": true,
+      "required": false,
       "sub_keys": {
         "aliases": {"class": "env", "native_default_completion": true},
         "associated_redirect": {"class": "authored"},

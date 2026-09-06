@@ -7,6 +7,7 @@ namespace WPrism\Tooling;
 use WPrism\AdapterLibrary;
 use WPrism\ArtifactPolicyIdentity;
 use WPrism\Canon;
+use WPrism\LegacyRuntimeExecutionDebt;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 use RuntimeException;
@@ -14,6 +15,7 @@ use RuntimeException;
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/AdapterLibrary.php';
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/ArtifactPolicyIdentity.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Policy/LegacyRuntimeExecutionDebt.php';
 require_once __DIR__ . '/ActiveShellSource.php';
 require_once __DIR__ . '/AdapterProductionReadiness.php';
 require_once __DIR__ . '/ArtifactLibrary.php';
@@ -22,13 +24,13 @@ require_once __DIR__ . '/ArtifactLibrary.php';
 final class AdapterPackageValidator
 {
     public const FORMAT = 'wprism-adapter-package-validation/v1';
-    public const RUNTIME_SDK_FORMAT = 'wprism-adapter-runtime-sdk/v1';
+    public const RUNTIME_SDK_FORMAT = 'wprism-adapter-runtime-sdk/v2';
     private const EXTERNAL_EVIDENCE_FORMAT = 'wprism-adapter-external-evidence/v1';
     private const INTEGRATION_SCENARIO_FORMAT = 'wprism-adapter-integration-scenario/v1';
     private const PREMISE_EVIDENCE = 'target-observation-premises.tsv';
 
     /**
-     * Package live tests run from sandbox/, so these three reviewed harness
+     * Package live tests run from sandbox/, so these reviewed harness
      * libraries are the only intentional cwd-relative source dependencies.
      * Package-owned sources use the BASH_SOURCE-relative form enforced below.
      *
@@ -38,6 +40,7 @@ final class AdapterPackageValidator
         'bin/fetch-artifact.sh',
         'conformance/asserts.sh',
         'lib/pair_identity.sh',
+        'lib/pair_db.sh',
     ];
 
     /** @var list<string> */
@@ -81,8 +84,47 @@ final class AdapterPackageValidator
         'WPrism\\Secrets',
         'WPrism\\SidebarState',
         'WPrism\\Tokens',
-        'WPrism\\WpCliChildProcess',
     ];
+
+    /**
+     * Exact, immutable static-regression inventory of runtime infrastructure
+     * which predates the engine-owned provider process/database boundaries.
+     * This lexical check is not a hostile-PHP sandbox; reviewed package
+     * provenance and digest binding are the executable trust boundary. A
+     * listed source may keep only the findings already present in these
+     * reviewed bytes: changing one byte requires migrating the file and
+     * deleting its row, never merely refreshing the hash. This keeps
+     * historical debt from acting as a public SDK or as precedent for a newly
+     * authored adapter.
+     *
+     * @var array<string,array{sha256:string,findings:list<string>,migration:string}>
+     */
+    private const LEGACY_RUNTIME_EXECUTION_DEBT = LegacyRuntimeExecutionDebt::ROWS;
+
+    /** @var list<string> */
+    private const RUNTIME_PROCESS_FUNCTIONS = [
+        'exec',
+        'passthru',
+        'pcntl_exec',
+        'pcntl_fork',
+        'popen',
+        'proc_open',
+        'shell_exec',
+        'system',
+    ];
+
+    /** @var list<string> */
+    private const WPDB_NON_TRANSPORT_METHODS = [
+        'esc_like',
+        'get_blog_prefix',
+        'prepare',
+    ];
+
+    /** @var list<string> */
+    private const RAW_DATABASE_CLASSES = ['mysqli', 'mysqli_stmt', 'pdo', 'wpdb'];
+
+    /** @var list<string> */
+    private const WP_CLI_PROCESS_METHODS = ['launch', 'launch_self', 'run_command', 'runcommand'];
 
     /** @return array{format:string,symbols:list<string>} */
     public static function runtimeSdk(): array
@@ -91,6 +133,81 @@ final class AdapterPackageValidator
             'format' => self::RUNTIME_SDK_FORMAT,
             'symbols' => self::RUNTIME_SDK_SYMBOLS,
         ];
+    }
+
+    /**
+     * Every convention- or scenario-discovered evidence id one capsule owns.
+     *
+     * This is public because package validation and the whole-library
+     * disposition regression answer the same wiring question. Keeping the
+     * discovery here prevents the aggregate gate from growing a second roster
+     * whenever a capsule adds an ordinary test or participant-owned scenario.
+     *
+     * @return list<string>
+     */
+    public static function discoverableEvidence(string $repoRoot, string $slug): array
+    {
+        $root = self::repositoryRoot($repoRoot);
+        if (preg_match('/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D', $slug) !== 1) {
+            throw new RuntimeException("Adapter package slug is not canonical: $slug");
+        }
+        $capsule = $root . '/adapter-packages/' . $slug;
+        if (realpath($capsule) !== $capsule || !is_dir($capsule) || is_link($capsule)) {
+            throw new RuntimeException("Adapter package '$slug' is not an ordinary capsule: $capsule");
+        }
+
+        $available = [];
+        $testsRoot = $capsule . '/tests';
+        if (is_dir($testsRoot)) {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($testsRoot, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $entry) {
+                if (!$entry->isFile() || $entry->isLink()) {
+                    continue;
+                }
+                $relative = substr($entry->getPathname(), strlen($testsRoot) + 1);
+                $parts = explode('/', $relative);
+                $class = $parts[0] ?? '';
+                $basename = $entry->getBasename('.' . $entry->getExtension());
+                $prefix = match ($class) {
+                    'certify' => '(?:certify|regress)',
+                    'spike' => 'spike',
+                    'offline', 'live', 'conformance' => 'regress',
+                    default => null,
+                };
+                if ($prefix !== null
+                    && in_array($entry->getExtension(), ['php', 'sh'], true)
+                    && preg_match('/^' . $prefix . '_[a-z0-9][a-z0-9._-]*$/D', $basename) === 1) {
+                    $available[str_replace('_', '-', $basename)] = true;
+                }
+            }
+        }
+        $conformance = $testsRoot . '/conformance';
+        if (is_file($conformance . '/entry.json')) {
+            $entry = Canon::decode(Canon::read_file($conformance . '/entry.json'));
+            if (!is_array($entry)
+                || ($entry['manifest'] ?? null) !== $slug
+                || !is_array($entry['entry'] ?? null)
+                || !is_file($conformance . '/seed.sh')
+                || !is_file($conformance . '/check.sh')) {
+                throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
+            }
+            $available['conformance-' . $slug] = true;
+        }
+        if (is_file($testsRoot . '/certify/version-matrix.sh')) {
+            $available['exact-artifact-version-matrix'] = true;
+        }
+        foreach (self::externalEvidence($root, $capsule, $slug) as $test => $_path) {
+            if (isset($available[$test])) {
+                throw new RuntimeException("Adapter package '$slug' external evidence collides with local test '$test'");
+            }
+            $available[$test] = true;
+        }
+
+        $tests = array_keys($available);
+        sort($tests, SORT_STRING);
+        return $tests;
     }
 
     /**
@@ -201,6 +318,7 @@ final class AdapterPackageValidator
         }
         self::assertCapsuleNodesAreOrdinary($capsule, $slug);
         $runtimeSymbols = self::declaredRuntimeSymbols($capsule . '/package/runtime');
+        $legacyRuntimeDebt = [];
 
         $scanned = 0;
         foreach ([
@@ -259,13 +377,19 @@ final class AdapterPackageValidator
                 );
                 self::assertRelativeAgentDependencies($root, $agentSource, $capsule, $path, $source, $tests, $slug);
                 if (!$tests && $extension === 'php') {
+                    $legacy = self::assertRuntimeExecutionBoundary($capsule, $path, $source, $slug);
+                    if ($legacy !== null) {
+                        $legacyRuntimeDebt[$legacy] = true;
+                    }
                     self::assertRuntimeSdk($capsule, $path, $source, $slug, $runtimeSymbols);
                 }
                 $scanned++;
             }
         }
+        self::assertCompleteLegacyRuntimeDebt($slug, $legacyRuntimeDebt);
         $checks[] = "dependency-boundary:$scanned";
         $checks[] = 'runtime-sdk:' . self::RUNTIME_SDK_FORMAT;
+        $checks[] = 'runtime-execution-boundary:' . count($legacyRuntimeDebt);
     }
 
     private static function assertShellSourceDependenciesUseRecognizedFiles(
@@ -637,6 +761,621 @@ final class AdapterPackageValidator
         return '/' . implode('/', $normalized);
     }
 
+    /**
+     * Refuse adapter-owned execution/database transport while preserving only
+     * the byte-exact historical files recorded above. The return value lets the
+     * capsule-level caller prove that every registry row was actually visited;
+     * a stale path is debt that silently escaped enforcement and must fail too.
+     */
+    private static function assertRuntimeExecutionBoundary(
+        string $capsule,
+        string $path,
+        string $source,
+        string $slug
+    ): ?string {
+        $key = self::runtimeDebtKey($capsule, $path, $slug);
+        $findings = self::runtimeExecutionFindings($source);
+        $legacy = self::legacyRuntimeDebtRows($slug)[$key] ?? null;
+        if ($legacy === null) {
+            if ($findings === []) {
+                return null;
+            }
+            $finding = array_key_first($findings);
+            $line = $finding === null ? 1 : $findings[$finding];
+            $relative = substr($path, strlen($capsule) + 1);
+            throw new RuntimeException(
+                "Adapter package '$slug' introduces engine-owned runtime machinery '$finding' at "
+                . "$relative:$line; use the manifest runtime and ProviderSdk instead"
+            );
+        }
+
+        $digest = hash('sha256', $source);
+        if (!hash_equals($legacy['sha256'], $digest)) {
+            throw new RuntimeException(
+                "Adapter package '$slug' changed frozen legacy runtime debt at $key; migrate it through "
+                . $legacy['migration'] . ' and remove the reviewed debt row instead of refreshing its hash'
+            );
+        }
+        if (array_keys($findings) !== $legacy['findings']) {
+            throw new RuntimeException(
+                "Adapter package '$slug' frozen legacy runtime findings disagree with the reviewed debt row at $key"
+            );
+        }
+        return $key;
+    }
+
+    /** @param array<string,true> $visited */
+    private static function assertCompleteLegacyRuntimeDebt(string $slug, array $visited): void
+    {
+        $expected = array_keys(self::legacyRuntimeDebtRows($slug));
+        $actual = array_keys($visited);
+        sort($actual, SORT_STRING);
+        if ($actual !== $expected) {
+            $missing = array_values(array_diff($expected, $actual));
+            throw new RuntimeException(
+                "Adapter package '$slug' did not consume its frozen legacy runtime debt row"
+                . ($missing === [] ? '' : ' at ' . implode(', ', $missing))
+            );
+        }
+    }
+
+    /**
+     * Validate the in-code review record before selecting only this capsule's
+     * rows. This is pure constant validation and does not inspect a sibling
+     * capsule, preserving validate()'s one-capsule boundary.
+     *
+     * @return array<string,array{sha256:string,findings:list<string>,migration:string}>
+     */
+    private static function legacyRuntimeDebtRows(string $slug): array
+    {
+        $allowed = [
+            'direct-include',
+            'direct-process',
+            'direct-self-include',
+            'raw-database-transport',
+            'transaction-control',
+            'wp-cli-child-process',
+        ];
+        $paths = array_keys(self::LEGACY_RUNTIME_EXECUTION_DEBT);
+        $sortedPaths = $paths;
+        sort($sortedPaths, SORT_STRING);
+        if ($paths !== $sortedPaths) {
+            throw new RuntimeException('Legacy adapter runtime debt registry paths are not sorted');
+        }
+
+        $selected = [];
+        foreach (self::LEGACY_RUNTIME_EXECUTION_DEBT as $path => $row) {
+            if (preg_match(
+                '~^adapter-packages/(?<slug>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/'
+                    . 'package/runtime/(?:interpreters|providers|regenerators)/'
+                    . '[a-z0-9][a-z0-9._-]*\.php$~D',
+                $path,
+                $match
+            ) !== 1
+                || array_keys($row) !== ['sha256', 'findings', 'migration']
+                || preg_match('/^[a-f0-9]{64}$/D', $row['sha256']) !== 1
+                || !is_array($row['findings'])
+                || !array_is_list($row['findings'])
+                || $row['findings'] === []
+                || array_filter($row['findings'], 'is_string') !== $row['findings']
+                || array_values(array_unique($row['findings'])) !== $row['findings']
+                || array_diff($row['findings'], $allowed) !== []
+                || !is_string($row['migration'])
+                || $row['migration'] === ''
+                || strlen($row['migration']) > 160
+                || preg_match('/[\x00-\x1f\x7f]/', $row['migration']) === 1) {
+                throw new RuntimeException("Legacy adapter runtime debt registry row is malformed: $path");
+            }
+            $sortedFindings = $row['findings'];
+            sort($sortedFindings, SORT_STRING);
+            if ($row['findings'] !== $sortedFindings) {
+                throw new RuntimeException("Legacy adapter runtime debt findings are not sorted: $path");
+            }
+            if ($match['slug'] === $slug) {
+                $selected[$path] = $row;
+            }
+        }
+        return $selected;
+    }
+
+    private static function runtimeDebtKey(string $capsule, string $path, string $slug): string
+    {
+        $prefix = rtrim($capsule, '/') . '/';
+        if (!str_starts_with($path, $prefix)) {
+            throw new RuntimeException("Adapter package '$slug' runtime source escaped its capsule");
+        }
+        return 'adapter-packages/' . $slug . '/' . substr($path, strlen($prefix));
+    }
+
+    /** @return array<string,int> finding => first source line */
+    private static function runtimeExecutionFindings(string $source): array
+    {
+        $tokens = token_get_all($source);
+        $findings = [];
+        $lastLine = 1;
+        $namespace = '';
+        $namespaceStatement = null;
+        $namespaceDepth = 0;
+        $depth = 0;
+        $imports = ['class' => [], 'function' => []];
+        foreach ($tokens as $offset => $token) {
+            if (!is_array($token)) {
+                if ($token === '{') {
+                    $depth++;
+                } elseif ($token === '}') {
+                    $depth--;
+                    if ($depth < $namespaceDepth) {
+                        $namespace = '';
+                        $namespaceDepth = 0;
+                        $imports = ['class' => [], 'function' => []];
+                    }
+                }
+                if ($namespaceStatement !== null && in_array($token, [';', '{'], true)) {
+                    $namespace = strtolower($namespaceStatement);
+                    $namespaceStatement = null;
+                    $namespaceDepth = $depth;
+                    $imports = ['class' => [], 'function' => []];
+                }
+                if ($token === '`') {
+                    $findings['direct-process'] ??= $lastLine;
+                }
+                continue;
+            }
+            [$kind, $bytes, $line] = $token;
+            $lastLine = $line;
+            if (in_array($kind, [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true)) {
+                $depth++;
+            }
+            if ($kind === T_NAMESPACE) {
+                $namespaceStatement = '';
+                continue;
+            }
+            if ($namespaceStatement !== null) {
+                if (in_array($kind, [T_STRING, T_NAME_QUALIFIED], true)) {
+                    $namespaceStatement .= $bytes;
+                }
+                continue;
+            }
+
+            // Trait composition and closure captures are not namespace imports.
+            if ($kind === T_USE && $depth === $namespaceDepth) {
+                $statement = self::runtimeImportStatementAt($tokens, $offset);
+                if ($statement !== null) {
+                    foreach (self::runtimeImports($statement) as $import) {
+                        $symbol = strtolower(ltrim($import['symbol'], '\\'));
+                        $imports[$import['kind']][strtolower($import['alias'])] = $symbol;
+                        if ($import['kind'] === 'class'
+                            && in_array($symbol, self::RAW_DATABASE_CLASSES, true)) {
+                            $findings['raw-database-transport'] ??= $line;
+                        }
+                        if ($import['kind'] === 'class' && $symbol === 'wp_cli') {
+                            $findings['direct-process'] ??= $line;
+                        }
+                        if ($import['kind'] === 'function'
+                            && in_array($symbol, self::RUNTIME_PROCESS_FUNCTIONS, true)) {
+                            $findings['direct-process'] ??= $line;
+                        }
+                        if ($import['kind'] === 'function' && str_starts_with($symbol, 'mysqli_')) {
+                            $findings['raw-database-transport'] ??= $line;
+                        }
+                    }
+                }
+            }
+
+            if (in_array($kind, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
+                $name = strtolower(ltrim($bytes, '\\'));
+                // Bare functions can fall back to PHP globals; classes cannot.
+                // Compare complete symbols so Vendor\PDO is not native PDO.
+                $function = $kind === T_STRING ? ($imports['function'][$name] ?? $name) : $name;
+                $class = $kind === T_NAME_FULLY_QUALIFIED
+                    ? $name
+                    : ($imports['class'][$name] ?? ($namespace === '' ? $name : $namespace . '\\' . $name));
+                if (in_array($function, self::RUNTIME_PROCESS_FUNCTIONS, true)
+                    && self::isDirectFunctionCall($tokens, $offset)) {
+                    $findings['direct-process'] ??= $line;
+                }
+                if (str_starts_with($function, 'mysqli_') && self::isDirectFunctionCall($tokens, $offset)) {
+                    $findings['raw-database-transport'] ??= $line;
+                }
+                if (in_array($class, self::RAW_DATABASE_CLASSES, true)
+                    && self::isRawDatabaseClassUse($tokens, $offset)) {
+                    $findings['raw-database-transport'] ??= $line;
+                }
+                if ($class === 'wp_cli' && self::isWpCliProcessUse($tokens, $offset)) {
+                    $findings['direct-process'] ??= $line;
+                }
+                if ($class === 'wprism\\wpclichildprocess') {
+                    $findings['wp-cli-child-process'] ??= $line;
+                }
+            }
+
+            if ($kind === T_VARIABLE) {
+                $access = self::wpdbMemberAccessAt($tokens, $offset);
+                if ($access !== null
+                    && ($access['member'] === 'dbh'
+                        || ($access['call']
+                            && !in_array($access['member'], self::WPDB_NON_TRANSPORT_METHODS, true)))) {
+                    $findings['raw-database-transport'] ??= $line;
+                }
+            }
+
+            if (in_array($kind, [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)) {
+                $finding = self::includeTargetsCurrentFile($tokens, $offset)
+                    ? 'direct-self-include'
+                    : 'direct-include';
+                $findings[$finding] ??= $line;
+            }
+
+            if (!in_array($kind, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
+                continue;
+            }
+            $fragment = $kind === T_CONSTANT_ENCAPSED_STRING
+                ? self::decodePhpStringLiteral($bytes)
+                : $bytes;
+            foreach (self::dynamicWPrismSymbols($bytes, $kind === T_CONSTANT_ENCAPSED_STRING) as $symbol) {
+                if (strcasecmp($symbol, 'WPrism\\WpCliChildProcess') === 0) {
+                    $findings['wp-cli-child-process'] ??= $line;
+                }
+            }
+            if (self::fragmentHasRawWpdbTransport($fragment)
+                || preg_match(
+                    '/(?:\A|[\'\"])\s*(?:DELETE\s+FROM|INSERT(?:\s+IGNORE)?\s+INTO|REPLACE\s+INTO|'
+                        . 'TRUNCATE(?:\s+TABLE)?|UPDATE\s+[`A-Za-z_$])/i',
+                    $fragment
+                ) === 1) {
+                $findings['raw-database-transport'] ??= $line;
+            }
+            if (self::fragmentHasTransactionControl($fragment)) {
+                $findings['transaction-control'] ??= $line;
+            }
+            if (preg_match('/\b(?:require|require_once|include|include_once)\s*\(?\s*__FILE__\b/i', $fragment) === 1
+                || ($kind === T_CONSTANT_ENCAPSED_STRING
+                    && self::encodedSelfIncludeAt($tokens, $offset, $fragment))) {
+                $findings['direct-self-include'] ??= $line;
+            }
+        }
+        ksort($findings, SORT_STRING);
+        return $findings;
+    }
+
+    private static function fragmentHasTransactionControl(string $fragment): bool
+    {
+        $xid = "(?:'(?:[^'\r\n]|'')*'|\"(?:[^\"\r\n]|\"\")*\"|0x[0-9a-f]+)";
+        $control = '(?:'
+            . 'SET\s+(?:SESSION\s+)?TRANSACTION\b[^\'"\r\n;]*'
+            . '|SET\s+(?:(?:SESSION|LOCAL)\s+|@@(?:SESSION\.|LOCAL\.)?)?AUTOCOMMIT\s*=\s*(?:0|1|ON|OFF)'
+            . '|START\s+TRANSACTION\b[^\'"\r\n;]*'
+            . '|BEGIN(?:\s+WORK)?'
+            . '|(?:RELEASE\s+)?SAVEPOINT\s+[`A-Za-z0-9_$]+'
+            . '|ROLLBACK(?:\s+WORK)?\s+TO(?:\s+SAVEPOINT)?\s+[`A-Za-z0-9_$]+'
+            . '|LOCK\s+TABLES\b[^\'"\r\n;]*|UNLOCK\s+TABLES'
+            . '|XA\s+(?:START|BEGIN|END|PREPARE|COMMIT|ROLLBACK)\s+' . $xid
+                . '(?:\s*,\s*' . $xid . '(?:\s*,\s*\d+)?)?'
+                . '(?:\s+(?:JOIN|RESUME|SUSPEND(?:\s+FOR\s+MIGRATE)?|ONE\s+PHASE))?'
+            . '|XA\s+RECOVER(?:\s+CONVERT\s+XID)?'
+            . '|COMMIT(?:\s+WORK)?(?:\s+AND\s+(?:NO\s+)?CHAIN)?(?:\s+(?:NO\s+)?RELEASE)?'
+            . '|ROLLBACK(?:\s+WORK)?(?:\s+AND\s+(?:NO\s+)?CHAIN)?(?:\s+(?:NO\s+)?RELEASE)?'
+            . '|SELECT\s+(?:GET_LOCK|RELEASE_LOCK)\s*\([^\'"\r\n;]*\)'
+            . ')';
+        return preg_match('/\A\s*' . $control . '\s*;?\s*\z/i', $fragment) === 1
+            || preg_match('/[\'\"]\s*' . $control . '\s*;?\s*[\'\"]/i', $fragment) === 1;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isDirectFunctionCall(array $tokens, int $offset): bool
+    {
+        $next = self::nextSignificantToken($tokens, $offset + 1);
+        if ($next === null || $next['token'] !== '(') {
+            return false;
+        }
+        $previous = self::previousSignificantOffset($tokens, $offset - 1);
+        if ($previous === null) {
+            return true;
+        }
+        $token = $tokens[$previous];
+        return !is_array($token)
+            || !in_array($token[0], [T_DOUBLE_COLON, T_FUNCTION, T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isRawDatabaseClassUse(array $tokens, int $offset): bool
+    {
+        $previous = self::previousSignificantOffset($tokens, $offset - 1);
+        if ($previous !== null
+            && is_array($tokens[$previous])
+            && in_array($tokens[$previous][0], [T_EXTENDS, T_NEW], true)) {
+            return true;
+        }
+        $cursor = self::afterGroupingParentheses($tokens, $offset + 1, self::groupingParenthesesBefore($tokens, $offset));
+        $operator = self::nextSignificantToken($tokens, $cursor);
+        $member = $operator === null ? null : self::nextSignificantToken($tokens, $operator['offset'] + 1);
+        $open = $member === null ? null : self::nextSignificantToken($tokens, $member['offset'] + 1);
+        return $operator !== null && is_array($operator['token'])
+            && $operator['token'][0] === T_DOUBLE_COLON
+            && $member !== null && is_array($member['token'])
+            && $member['token'][0] === T_STRING
+            && $open !== null && $open['token'] === '(';
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function isWpCliProcessUse(array $tokens, int $offset): bool
+    {
+        $wrappers = self::groupingParenthesesBefore($tokens, $offset);
+        $cursor = self::afterGroupingParentheses($tokens, $offset + 1, $wrappers);
+        $operator = self::nextSignificantToken($tokens, $cursor);
+        $method = $operator === null
+            ? null
+            : self::nextSignificantToken($tokens, $operator['offset'] + 1);
+        $open = $method === null
+            ? null
+            : self::nextSignificantToken($tokens, $method['offset'] + 1);
+        if ($operator === null
+            || !is_array($operator['token'])
+            || $operator['token'][0] !== T_DOUBLE_COLON
+            || $method === null
+            || !is_array($method['token'])
+            || $method['token'][0] !== T_STRING
+            || $open === null
+            || $open['token'] !== '(') {
+            return false;
+        }
+        if (in_array(strtolower($method['token'][1]), self::WP_CLI_PROCESS_METHODS, true)) {
+            return true;
+        }
+        if (strtolower($method['token'][1]) !== 'get_runner') {
+            return false;
+        }
+        $close = self::matchingPhpDelimiter($tokens, $open['offset'], '(', ')');
+        if ($close === null) {
+            return false;
+        }
+        $runnerOperator = self::nextSignificantToken(
+            $tokens,
+            self::afterGroupingParentheses($tokens, $close + 1, $wrappers)
+        );
+        $runnerMethod = $runnerOperator === null
+            ? null
+            : self::nextSignificantToken($tokens, $runnerOperator['offset'] + 1);
+        $runnerOpen = $runnerMethod === null
+            ? null
+            : self::nextSignificantToken($tokens, $runnerMethod['offset'] + 1);
+        return $runnerOperator !== null
+            && is_array($runnerOperator['token'])
+            && in_array($runnerOperator['token'][0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)
+            && $runnerMethod !== null
+            && is_array($runnerMethod['token'])
+            && $runnerMethod['token'][0] === T_STRING
+            && in_array(strtolower($runnerMethod['token'][1]), self::WP_CLI_PROCESS_METHODS, true)
+            && $runnerOpen !== null
+            && $runnerOpen['token'] === '(';
+    }
+
+    /**
+     * @param list<array{0:int,1:string,2:int}|string> $tokens
+     * @return array{member:string,call:bool}|null
+     */
+    private static function wpdbMemberAccessAt(array $tokens, int $offset): ?array
+    {
+        $token = $tokens[$offset] ?? null;
+        if (!is_array($token) || $token[0] !== T_VARIABLE) {
+            return null;
+        }
+        $wrappers = self::groupingParenthesesBefore($tokens, $offset);
+        $cursor = $offset + 1;
+        if ($token[1] === '$GLOBALS') {
+            $open = self::nextSignificantToken($tokens, $cursor);
+            $key = $open === null ? null : self::nextSignificantToken($tokens, $open['offset'] + 1);
+            $close = $key === null ? null : self::nextSignificantToken($tokens, $key['offset'] + 1);
+            if ($open === null || $open['token'] !== '['
+                || $key === null || !is_array($key['token'])
+                || $key['token'][0] !== T_CONSTANT_ENCAPSED_STRING
+                || self::decodePhpStringLiteral($key['token'][1]) !== 'wpdb'
+                || $close === null || $close['token'] !== ']') {
+                return null;
+            }
+            $cursor = $close['offset'] + 1;
+        } elseif ($token[1] !== '$wpdb') {
+            return null;
+        }
+
+        for ($depth = 0; $depth < $wrappers; $depth++) {
+            $close = self::nextSignificantToken($tokens, $cursor);
+            if ($close === null || $close['token'] !== ')') {
+                return null;
+            }
+            $cursor = $close['offset'] + 1;
+        }
+
+        $operator = self::nextSignificantToken($tokens, $cursor);
+        $member = $operator === null
+            ? null
+            : self::nextSignificantToken($tokens, $operator['offset'] + 1);
+        if ($operator === null || !is_array($operator['token'])
+            || !in_array($operator['token'][0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)
+            || $member === null || !is_array($member['token'])
+            || $member['token'][0] !== T_STRING) {
+            return null;
+        }
+        $next = self::nextSignificantToken($tokens, $member['offset'] + 1);
+        return [
+            'member' => strtolower($member['token'][1]),
+            'call' => $next !== null && $next['token'] === '(',
+        ];
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function groupingParenthesesBefore(array $tokens, int $offset): int
+    {
+        $count = 0;
+        $cursor = self::previousSignificantOffset($tokens, $offset - 1);
+        while ($cursor !== null && $tokens[$cursor] === '(') {
+            $before = self::previousSignificantOffset($tokens, $cursor - 1);
+            if ($before !== null) {
+                $token = $tokens[$before];
+                if ((is_array($token) && in_array($token[0], [
+                    T_ARRAY,
+                    T_CATCH,
+                    T_EMPTY,
+                    T_EVAL,
+                    T_FOR,
+                    T_FOREACH,
+                    T_IF,
+                    T_ISSET,
+                    T_NAME_FULLY_QUALIFIED,
+                    T_NAME_QUALIFIED,
+                    T_STRING,
+                    T_SWITCH,
+                    T_VARIABLE,
+                    T_WHILE,
+                ], true)) || in_array($token, [')', ']'], true)) {
+                    break;
+                }
+            }
+            $count++;
+            $cursor = $before;
+        }
+        return $count;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function afterGroupingParentheses(array $tokens, int $cursor, int $limit): int
+    {
+        for ($depth = 0; $depth < $limit; $depth++) {
+            $next = self::nextSignificantToken($tokens, $cursor);
+            if ($next === null || $next['token'] !== ')') {
+                break;
+            }
+            $cursor = $next['offset'] + 1;
+        }
+        return $cursor;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function runtimeImportStatementAt(array $tokens, int $offset): ?string
+    {
+        $statement = '';
+        for ($cursor = $offset + 1, $count = count($tokens); $cursor < $count; $cursor++) {
+            $token = $tokens[$cursor];
+            if ($token === '(') {
+                return null;
+            }
+            if ($token === ';') {
+                return trim($statement);
+            }
+            if (is_array($token)) {
+                $statement .= in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)
+                    ? ' '
+                    : $token[1];
+            } else {
+                $statement .= $token;
+            }
+        }
+        return null;
+    }
+
+    /** @return list<array{kind:'class'|'function',symbol:string,alias:string}> */
+    private static function runtimeImports(string $statement): array
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($statement));
+        if (!is_string($normalized) || $normalized === '') {
+            return [];
+        }
+        $kind = 'class';
+        if (preg_match('/^(function|const)\s+(.+)$/Di', $normalized, $match) === 1) {
+            if (strtolower($match[1]) === 'const') {
+                return [];
+            }
+            $kind = 'function';
+            $normalized = $match[2];
+        }
+
+        $imports = [];
+        foreach (self::splitRuntimeImports($normalized) as $part) {
+            $import = $kind === 'function'
+                ? self::exactFunctionImport('function ' . $part)
+                : self::exactClassImport($part);
+            if ($import !== null) {
+                $imports[] = ['kind' => $kind, ...$import];
+            }
+        }
+        return $imports;
+    }
+
+    /** @return list<string> */
+    private static function splitRuntimeImports(string $statement): array
+    {
+        $parts = [];
+        $start = 0;
+        $depth = 0;
+        for ($offset = 0, $length = strlen($statement); $offset < $length; $offset++) {
+            if ($statement[$offset] === '{') {
+                $depth++;
+            } elseif ($statement[$offset] === '}') {
+                $depth--;
+            } elseif ($statement[$offset] === ',' && $depth === 0) {
+                $parts[] = trim(substr($statement, $start, $offset - $start));
+                $start = $offset + 1;
+            }
+        }
+        $parts[] = trim(substr($statement, $start));
+        return array_values(array_filter($parts, static fn(string $part): bool => $part !== ''));
+    }
+
+    private static function fragmentHasRawWpdbTransport(string $fragment): bool
+    {
+        // Encoded child source shares the same receiver parser as live PHP;
+        // a regex-only twin missed parenthesized and nullsafe receivers.
+        $tokens = token_get_all('<?php ' . $fragment);
+        foreach ($tokens as $offset => $token) {
+            if (!is_array($token) || $token[0] !== T_VARIABLE) {
+                continue;
+            }
+            $access = self::wpdbMemberAccessAt($tokens, $offset);
+            if ($access !== null
+                && ($access['member'] === 'dbh'
+                    || ($access['call']
+                        && !in_array($access['member'], self::WPDB_NON_TRANSPORT_METHODS, true)))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function includeTargetsCurrentFile(array $tokens, int $offset): bool
+    {
+        $target = self::nextSignificantToken($tokens, $offset + 1);
+        if ($target !== null && $target['token'] === '(') {
+            $target = self::nextSignificantToken($tokens, $target['offset'] + 1);
+        }
+        return $target !== null
+            && is_array($target['token'])
+            && $target['token'][0] === T_FILE;
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private static function encodedSelfIncludeAt(array $tokens, int $offset, string $fragment): bool
+    {
+        if (!in_array(strtolower(trim($fragment)), ['include', 'include_once', 'require', 'require_once'], true)) {
+            return false;
+        }
+        $dot = self::nextSignificantToken($tokens, $offset + 1);
+        $export = $dot === null ? null : self::nextSignificantToken($tokens, $dot['offset'] + 1);
+        $open = $export === null ? null : self::nextSignificantToken($tokens, $export['offset'] + 1);
+        $file = $open === null ? null : self::nextSignificantToken($tokens, $open['offset'] + 1);
+        return $dot !== null
+            && $dot['token'] === '.'
+            && $export !== null
+            && is_array($export['token'])
+            && $export['token'][0] === T_STRING
+            && strcasecmp($export['token'][1], 'var_export') === 0
+            && $open !== null
+            && $open['token'] === '('
+            && $file !== null
+            && is_array($file['token'])
+            && $file['token'][0] === T_FILE;
+    }
+
     /** @param array<string,true> $runtimeSymbols */
     private static function assertRuntimeSdk(
         string $capsule,
@@ -858,6 +1597,36 @@ final class AdapterPackageValidator
         if (preg_match(
             '/^([A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*)'
                 . '(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/D',
+            $normalized,
+            $match
+        ) !== 1) {
+            return null;
+        }
+        $alias = $match[2] ?? '';
+        if ($alias === '') {
+            $separator = strrpos($match[1], '\\');
+            $alias = $separator === false ? $match[1] : substr($match[1], $separator + 1);
+        }
+        return [
+            'alias' => $alias,
+            'symbol' => $match[1],
+        ];
+    }
+
+    /** @return array{alias:string,symbol:string}|null */
+    private static function exactFunctionImport(string $statement): ?array
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($statement));
+        if (!is_string($normalized)) {
+            return null;
+        }
+        if (preg_match('/^function\s+(.+)$/Di', $normalized, $function) !== 1) {
+            return null;
+        }
+        $normalized = 'function ' . ltrim($function[1], '\\');
+        if (preg_match(
+            '/^function\s+([A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*)'
+                . '(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/Di',
             $normalized,
             $match
         ) !== 1) {
@@ -1901,6 +2670,13 @@ final class AdapterPackageValidator
         array $runtimeSymbols
     ): void {
         if (in_array($symbol, self::RUNTIME_SDK_SYMBOLS, true)
+            || (strcasecmp($symbol, 'WPrism\\WpCliChildProcess') === 0
+                && self::isGrandfatheredRuntimeFinding(
+                    $capsule,
+                    $path,
+                    $slug,
+                    'wp-cli-child-process'
+                ))
             || (isset($runtimeSymbols[$symbol]) && substr_count($symbol, '\\') >= 2)) {
             return;
         }
@@ -1909,6 +2685,21 @@ final class AdapterPackageValidator
             "Adapter package '$slug' depends on non-SDK WPrism symbol '$symbol' at $relative:$line; "
             . 'allowed surface is ' . self::RUNTIME_SDK_FORMAT
         );
+    }
+
+    private static function isGrandfatheredRuntimeFinding(
+        string $capsule,
+        string $path,
+        string $slug,
+        string $finding
+    ): bool {
+        $key = self::runtimeDebtKey($capsule, $path, $slug);
+        $row = self::legacyRuntimeDebtRows($slug)[$key] ?? null;
+        if ($row === null || !in_array($finding, $row['findings'], true)) {
+            return false;
+        }
+        $digest = hash_file('sha256', $path);
+        return is_string($digest) && hash_equals($row['sha256'], $digest);
     }
 
     private static function assertNoGlobalLibrarySelection(
@@ -2041,7 +2832,7 @@ final class AdapterPackageValidator
                     throw new RuntimeException("Adapter package '$slug' cannot read premise source " . $entry->getPathname());
                 }
                 if (preg_match(
-                    '/\brequire_(?:observed_nonempty|wprism_answered|fixture_ids|fixture_values)\b/',
+                    '/\b(?:require_(?:observed_nonempty|wprism_answered|fixture_ids|fixture_values)|capture_wprism_json_(?:success|refusal))\b/',
                     ActiveShellSource::source($source)
                 ) === 1) {
                     $needsContract = true;
@@ -2298,43 +3089,7 @@ final class AdapterPackageValidator
             throw new RuntimeException("Adapter package '$slug' disposition evidence tests are malformed");
         }
 
-        $available = [];
-        $testsRoot = $capsule . '/tests';
-        if (is_dir($testsRoot)) {
-            $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($testsRoot, \FilesystemIterator::SKIP_DOTS)
-            );
-            foreach ($iterator as $entry) {
-                if (!$entry->isFile()) {
-                    continue;
-                }
-                $basename = $entry->getBasename('.' . $entry->getExtension());
-                if (preg_match('/^(?:regress|certify|spike)_[a-z0-9][a-z0-9._-]*$/D', $basename) === 1) {
-                    $available[str_replace('_', '-', $basename)] = true;
-                }
-            }
-        }
-        $conformance = $testsRoot . '/conformance';
-        if (is_file($conformance . '/entry.json')) {
-            $entry = Canon::decode(Canon::read_file($conformance . '/entry.json'));
-            if (!is_array($entry)
-                || ($entry['manifest'] ?? null) !== $slug
-                || !is_array($entry['entry'] ?? null)
-                || !is_file($conformance . '/seed.sh')
-                || !is_file($conformance . '/check.sh')) {
-                throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
-            }
-            $available['conformance-' . $slug] = true;
-        }
-        if (is_file($testsRoot . '/certify/version-matrix.sh')) {
-            $available['exact-artifact-version-matrix'] = true;
-        }
-        foreach (self::externalEvidence($root, $capsule, $slug) as $test => $_path) {
-            if (isset($available[$test])) {
-                throw new RuntimeException("Adapter package '$slug' external evidence collides with local test '$test'");
-            }
-            $available[$test] = true;
-        }
+        $available = array_fill_keys(self::discoverableEvidence($root, $slug), true);
 
         $normalized = [];
         foreach ($tests as $test) {
@@ -2379,6 +3134,9 @@ final class AdapterPackageValidator
                     "Adapter package '$slug' artifact evidence must own exactly its manifest plugin '$subject'"
                 );
             }
+            if (($disposition['status'] ?? null) === 'certified') {
+                self::certifiedArtifactBoundary($root, $slug, $manifest, $artifacts['plugins'][$subject]);
+            }
         }
         AdapterProductionReadiness::record(
             $root,
@@ -2389,6 +3147,131 @@ final class AdapterPackageValidator
         );
         $checks[] = 'artifact-evidence';
         $checks[] = 'production-readiness';
+    }
+
+    /**
+     * @param array<string,mixed> $manifest
+     * @param array<string,array<string,string>> $versions
+     */
+    private static function certifiedArtifactBoundary(
+        string $root,
+        string $slug,
+        array $manifest,
+        array $versions
+    ): void {
+        $matrix = $root . '/adapter-packages/' . $slug . '/tests/certify/version-matrix.sh';
+        if (!is_file($matrix) || is_link($matrix) || realpath($matrix) !== $matrix) {
+            throw new RuntimeException(
+                "Certified adapter package '$slug' must own tests/certify/version-matrix.sh"
+            );
+        }
+        $range = $manifest['version_range'] ?? null;
+        if (!is_array($range)
+            || !is_string($range['min'] ?? null)
+            || !is_string($range['max'] ?? null)) {
+            throw new RuntimeException(
+                "Certified adapter package '$slug' must declare one plugin version_range"
+            );
+        }
+        $source = file_get_contents($matrix);
+        if ($source === false) {
+            throw new RuntimeException("Certified adapter package '$slug' cannot read its version matrix");
+        }
+        $active = self::certifiedArtifactEvidenceSource($root, $slug, $matrix, $source);
+        $certified = 0;
+        $refusals = 0;
+        foreach ($versions as $version => $entry) {
+            $inside = version_compare($version, $range['min'], '>=')
+                && version_compare($version, $range['max'], '<');
+            $role = $entry['role'] ?? null;
+            if ($role === 'certified-boundary') {
+                $certified++;
+                if (!$inside) {
+                    throw new RuntimeException(
+                        "Adapter package '$slug' pins certified boundary $version outside its declared version_range"
+                    );
+                }
+            } elseif ($role === 'refusal-fixture') {
+                $refusals++;
+                if ($inside) {
+                    throw new RuntimeException(
+                        "Adapter package '$slug' pins refusal fixture $version inside its declared version_range"
+                    );
+                }
+            }
+            $quoted = preg_quote($version, '/');
+            if (preg_match('/(?<![A-Za-z0-9._-])' . $quoted . '(?![A-Za-z0-9._-])/', $active) !== 1) {
+                throw new RuntimeException(
+                    "Adapter package '$slug' artifact pin $version is absent from active certified workflow source"
+                );
+            }
+        }
+        if ($certified === 0 || $refusals === 0) {
+            throw new RuntimeException(
+                "Certified adapter package '$slug' needs at least one in-range certified boundary and one out-of-range refusal fixture"
+            );
+        }
+    }
+
+    private static function certifiedArtifactEvidenceSource(
+        string $root,
+        string $slug,
+        string $matrix,
+        string $matrixSource
+    ): string {
+        $sources = [ActiveShellSource::source($matrixSource)];
+        $tests = $root . '/adapter-packages/' . $slug . '/tests';
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($tests, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $entry) {
+            if (!$entry->isFile() || $entry->isLink() || $entry->getPathname() === $matrix) {
+                continue;
+            }
+            $extension = strtolower($entry->getExtension());
+            if (!in_array($extension, ['php', 'sh'], true)) {
+                continue;
+            }
+            $source = file_get_contents($entry->getPathname());
+            if ($source === false) {
+                throw new RuntimeException(
+                    "Certified adapter package '$slug' cannot read artifact evidence source " . $entry->getPathname()
+                );
+            }
+            $sources[] = $extension === 'sh' ? ActiveShellSource::source($source) : self::activePhpSource($source);
+        }
+        $capsule = $root . '/adapter-packages/' . $slug;
+        foreach (self::externalEvidence($root, $capsule, $slug) as $relative) {
+            $path = $root . '/' . $relative;
+            $source = file_get_contents($path);
+            if ($source === false) {
+                throw new RuntimeException(
+                    "Certified adapter package '$slug' cannot read external artifact evidence source $path"
+                );
+            }
+            $sources[] = str_ends_with($path, '.sh')
+                ? ActiveShellSource::source($source)
+                : self::activePhpSource($source);
+        }
+
+        return implode("\n", $sources);
+    }
+
+    /** Comments are documentation, never executable evidence that an artifact pin is exercised. */
+    private static function activePhpSource(string $source): string
+    {
+        $active = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                $active .= $token[1];
+                continue;
+            }
+            $active .= $token;
+        }
+        return $active;
     }
 
     private static function assertReadinessEvidenceOwnership(

@@ -1,6 +1,15 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
+
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+require_once __DIR__ . '/../Kernel/NativeTableDefinition.php';
+require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
+require_once __DIR__ . '/../Kernel/TransactionAuthority.php';
+
 /**
  * Per-environment ledger: typed identity map (uuid, entity_type, id_kind) -> local id,
  * canonical-content hashes at last sync (the 3-way base), and a small kv store.
@@ -79,39 +88,64 @@ final class Ledger {
         $w = self::ENTITY_TYPE_WIDTH;
         $kw = self::ID_KIND_WIDTH;
         $tw = self::TABLE_IDENTIFIER_WIDTH;
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_map (
-            uuid CHAR(36) NOT NULL,
-            entity_type VARCHAR($w) NOT NULL,
-            id_kind VARCHAR($kw) NOT NULL,
-            local_id BIGINT UNSIGNED NOT NULL,
-            PRIMARY KEY (uuid, id_kind),
-            UNIQUE KEY kind_local (id_kind, local_id)
-        ) $charset", 'ledger schema create wprism_map');
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_state (
-            uuid VARCHAR(64) NOT NULL,
-            entity_type VARCHAR($w) NOT NULL,
-            content_hash CHAR(64) NOT NULL,
-            PRIMARY KEY (uuid)
-        ) $charset", 'ledger schema create wprism_state');
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_kv (
-            k VARCHAR(191) NOT NULL,
-            v LONGTEXT NULL,
-            PRIMARY KEY (k)
-        ) $charset", 'ledger schema create wprism_kv');
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_journal (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            t DATETIME NOT NULL,
-            op VARCHAR(8) NOT NULL,
-            tbl VARCHAR($tw) NOT NULL,
-            item VARCHAR(191) NOT NULL DEFAULT '',
-            surface VARCHAR(32) NOT NULL,
-            actor BIGINT UNSIGNED NOT NULL DEFAULT 0,
-            caps VARCHAR(64) NOT NULL DEFAULT '',
-            hook VARCHAR(191) NOT NULL DEFAULT '',
-            proposal VARCHAR(16) NOT NULL,
-            PRIMARY KEY (id),
-            KEY tbl_item (tbl, item)
-        ) $charset", 'ledger schema create wprism_journal');
+        Db::ensure_tables([
+            $p . 'wprism_map' => new NativeTableDefinition([
+                'uuid' => ['type' => 'char', 'length' => 36, 'nullable' => false],
+                'entity_type' => ['type' => 'varchar', 'length' => $w, 'nullable' => false],
+                'id_kind' => ['type' => 'varchar', 'length' => $kw, 'nullable' => false],
+                'local_id' => ['type' => 'bigint', 'unsigned' => true, 'nullable' => false],
+            ], ['uuid', 'id_kind'], [
+                'kind_local' => ['id_kind', 'local_id'],
+            ]),
+            $p . 'wprism_state' => new NativeTableDefinition([
+                'uuid' => ['type' => 'varchar', 'length' => 64, 'nullable' => false],
+                'entity_type' => ['type' => 'varchar', 'length' => $w, 'nullable' => false],
+                'content_hash' => ['type' => 'char', 'length' => 64, 'nullable' => false],
+            ], ['uuid']),
+            $p . 'wprism_kv' => new NativeTableDefinition([
+                'k' => ['type' => 'varchar', 'length' => 191, 'nullable' => false],
+                'v' => ['type' => 'longtext', 'nullable' => true],
+            ], ['k']),
+            $p . 'wprism_journal' => new NativeTableDefinition([
+                'id' => [
+                    'type' => 'bigint',
+                    'unsigned' => true,
+                    'auto_increment' => true,
+                    'nullable' => false,
+                ],
+                't' => ['type' => 'datetime', 'nullable' => false],
+                'op' => ['type' => 'varchar', 'length' => 8, 'nullable' => false],
+                'tbl' => ['type' => 'varchar', 'length' => $tw, 'nullable' => false],
+                'item' => [
+                    'type' => 'varchar',
+                    'length' => 191,
+                    'nullable' => false,
+                    'default' => '',
+                ],
+                'surface' => ['type' => 'varchar', 'length' => 32, 'nullable' => false],
+                'actor' => [
+                    'type' => 'bigint',
+                    'unsigned' => true,
+                    'nullable' => false,
+                    'default' => 0,
+                ],
+                'caps' => [
+                    'type' => 'varchar',
+                    'length' => 64,
+                    'nullable' => false,
+                    'default' => '',
+                ],
+                'hook' => [
+                    'type' => 'varchar',
+                    'length' => 191,
+                    'nullable' => false,
+                    'default' => '',
+                ],
+                'proposal' => ['type' => 'varchar', 'length' => 16, 'nullable' => false],
+            ], ['id'], [], [
+                'tbl_item' => ['tbl', 'item'],
+            ]),
+        ], $charset, 'ledger schema');
         self::migrate_widen_entity_type();
         self::migrate_widen_id_kind();
     }
@@ -123,7 +157,7 @@ final class Ledger {
      * export: CREATE/ALTER would turn an observation request into a repair.
      * This helper therefore proves that the three ledger tables the export
      * consumes already exist with the minimum schema that makes their
-     * uniqueness promises meaningful, using information_schema SELECTs only.
+     * uniqueness promises meaningful, using exact-table SHOW metadata reads.
      * A stale deployment must be repaired through the ordinary capture gate;
      * an export has no authority to make it look current.
      */
@@ -145,17 +179,30 @@ final class Ledger {
             $wpdb->prefix . 'wprism_state',
             $wpdb->prefix . 'wprism_kv',
         ];
-        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
-        $columns = self::checked_get_results($wpdb->prepare(
-            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH\n"
-            . 'FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() '
-            . "AND TABLE_NAME IN ($placeholders)",
-            ...$tables
-        ), 'read-only ledger schema inventory');
-
+        // The snapshot's native profile grants these three physical tables,
+        // not information_schema. SHOW keeps the proof inside that same
+        // session and table authority; it must not become an unchecked
+        // pre-transaction census or a reason to widen the profile grammar.
         $byTable = [];
-        foreach ($columns as $column) {
-            $byTable[(string) $column['TABLE_NAME']][(string) $column['COLUMN_NAME']] = $column;
+        foreach ($tables as $table) {
+            if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
+                throw new \RuntimeException('wprism: ledger read failed: read-only ledger schema inventory');
+            }
+            $columns = self::read_only_schema_rows(
+                "SHOW FULL COLUMNS FROM `$table`",
+                'read-only ledger schema inventory'
+            );
+            foreach ($columns as $column) {
+                $field = $column['Field'] ?? null;
+                $type = $column['Type'] ?? null;
+                if (!is_string($field) || $field === '' || strlen($field) > 256
+                    || str_contains($field, "\0") || !is_string($type)
+                    || $type === '' || strlen($type) > 65535
+                    || isset($byTable[$table][$field])) {
+                    throw new \RuntimeException('wprism: ledger read failed: read-only ledger schema inventory');
+                }
+                $byTable[$table][$field] = strtolower($type);
+            }
         }
         $need = [
             $wpdb->prefix . 'wprism_map' => ['uuid' => 36, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'id_kind' => self::ID_KIND_WIDTH, 'local_id' => 0],
@@ -164,33 +211,66 @@ final class Ledger {
         ];
         foreach ($need as $table => $fields) {
             foreach ($fields as $field => $minimum) {
-                $row = $byTable[$table][$field] ?? null;
-                if (!is_array($row)) {
+                $type = $byTable[$table][$field] ?? null;
+                if ($type === null) {
                     throw new \RuntimeException("wprism: refresh export refused — required ledger table/column '$table.$field' is missing; run the existing capture gate to provision or repair it");
                 }
                 if ($field === 'local_id') {
-                    $type = strtolower((string) ($row['COLUMN_TYPE'] ?? ''));
-                    if (!str_contains($type, 'bigint') || !str_contains($type, 'unsigned')) {
+                    // Numeric display width is not storage capacity. MySQL's
+                    // Numeric Data Type Syntax permits widths through 255;
+                    // both that spelling and newer width-free SHOW output
+                    // retain the same unsigned BIGINT identity range.
+                    if (preg_match('/^bigint(?:\((0|[1-9][0-9]{0,2})\))? unsigned(?: zerofill)?$/D', $type, $display) !== 1
+                        || (isset($display[1]) && (int) $display[1] > 255)) {
                         throw new \RuntimeException("wprism: refresh export refused — ledger column '$table.$field' is not an unsigned BIGINT identity");
                     }
                     continue;
                 }
-                $length = (int) ($row['CHARACTER_MAXIMUM_LENGTH'] ?? 0);
+                $length = self::read_only_column_width($type);
                 if ($length < $minimum) {
                     throw new \RuntimeException("wprism: refresh export refused — ledger column '$table.$field' is narrower than the supported durable identity schema");
                 }
             }
         }
 
-        $indexes = self::checked_get_results($wpdb->prepare(
-            "SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME\n"
-            . 'FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() '
-            . "AND TABLE_NAME IN ($placeholders) ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
-            ...$tables
-        ), 'read-only ledger index inventory');
         $byIndex = [];
-        foreach ($indexes as $index) {
-            $byIndex[(string) $index['TABLE_NAME']][(string) $index['INDEX_NAME']][] = $index;
+        foreach ($tables as $table) {
+            $indexes = self::read_only_schema_rows("SHOW INDEX FROM `$table`", 'read-only ledger index inventory');
+            foreach ($indexes as $index) {
+                $name = $index['Key_name'] ?? null;
+                $sequence = $index['Seq_in_index'] ?? null;
+                $nonUnique = $index['Non_unique'] ?? null;
+                $field = $index['Column_name'] ?? null;
+                if (!is_string($name) || $name === '' || strlen($name) > 256
+                    || str_contains($name, "\0")
+                    || (array_key_exists('Table', $index) && $index['Table'] !== $table)
+                    || !in_array($nonUnique, [0, 1, '0', '1'], true)
+                    || (!is_int($sequence) && !is_string($sequence))
+                    || preg_match('/^[1-9][0-9]?$/D', (string) $sequence) !== 1
+                    || (int) $sequence > 64
+                    || ($field !== null && (!is_string($field) || $field === '' || strlen($field) > 256))
+                    || !array_key_exists('Sub_part', $index)
+                    || ($index['Sub_part'] !== null
+                        && ((!is_int($index['Sub_part']) && !is_string($index['Sub_part']))
+                            || preg_match('/^[1-9][0-9]{0,4}$/D', (string) $index['Sub_part']) !== 1
+                            || (int) $index['Sub_part'] > 65535))
+                    || isset($byIndex[$table][$name][(int) $sequence])) {
+                    throw new \RuntimeException('wprism: ledger read failed: read-only ledger index inventory');
+                }
+                $byIndex[$table][$name][(int) $sequence] = [
+                    'field' => $field,
+                    'non_unique' => (int) $nonUnique,
+                    'prefix' => $index['Sub_part'],
+                ];
+            }
+            foreach ($byIndex[$table] ?? [] as $name => $rows) {
+                ksort($rows, SORT_NUMERIC);
+                if (array_keys($rows) !== range(1, count($rows))
+                    || count(array_unique(array_column($rows, 'non_unique'))) !== 1) {
+                    throw new \RuntimeException('wprism: ledger read failed: read-only ledger index inventory');
+                }
+                $byIndex[$table][$name] = array_values($rows);
+            }
         }
         foreach ([
             [$wpdb->prefix . 'wprism_map', ['uuid', 'id_kind']],
@@ -200,10 +280,11 @@ final class Ledger {
         ] as [$table, $fields]) {
             $found = false;
             foreach ($byIndex[$table] ?? [] as $rows) {
-                if ((int) ($rows[0]['NON_UNIQUE'] ?? 1) !== 0) {
+                if ($rows[0]['non_unique'] !== 0
+                    || array_filter($rows, static fn(array $row): bool => $row['prefix'] !== null) !== []) {
                     continue;
                 }
-                if (array_column($rows, 'COLUMN_NAME') === $fields) {
+                if (array_column($rows, 'field') === $fields) {
                     $found = true;
                     break;
                 }
@@ -216,9 +297,59 @@ final class Ledger {
             }
         }
 
-        // This SELECT-only structural pass catches accidental/manual table
+        // This observation-only structural pass catches accidental/manual table
         // edits before individual content rows are trusted below.
         self::assert_read_only_map_inventory();
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function read_only_schema_rows(string $sql, string $context): array {
+        try {
+            $rows = self::checked_get_results($sql, $context);
+        } catch (\mysqli_sql_exception $failure) {
+            // Db's strict transport prevents wpdb reconnect/replay. Retain
+            // its original driver evidence privately without substituting
+            // database values for the ledger's existing read-failure text.
+            throw new \RuntimeException("wprism: ledger read failed: $context", 0, $failure);
+        }
+        // SHOW has no LIMIT in the admitted grammar. Bound its complete
+        // result before interpreting facts: at most 1,024 column/index parts,
+        // 32 attributes per row and 4 MiB including non-authoritative defaults
+        // and comments. No extra metadata query escapes the active profile.
+        if (!array_is_list($rows) || count($rows) > 1024) {
+            throw new \RuntimeException("wprism: ledger read failed: $context");
+        }
+        $bytes = 0;
+        foreach ($rows as $row) {
+            if (!is_array($row) || array_is_list($row) || count($row) > 32) {
+                throw new \RuntimeException("wprism: ledger read failed: $context");
+            }
+            foreach ($row as $key => $value) {
+                if (!is_string($key) || strlen($key) > 64
+                    || ($value !== null && !is_string($value) && !is_int($value))) {
+                    throw new \RuntimeException("wprism: ledger read failed: $context");
+                }
+                $bytes += strlen($key) + strlen((string) $value);
+                if ($bytes > 4194304) {
+                    throw new \RuntimeException("wprism: ledger read failed: $context");
+                }
+            }
+        }
+        return $rows;
+    }
+
+    private static function read_only_column_width(string $type): int {
+        if (preg_match('/^(var)?(?:char|binary)\(([1-9][0-9]{0,4})\)$/D', $type, $match) === 1) {
+            $maximum = $match[1] === 'var' ? 65535 : 255;
+            return (int) $match[2] <= $maximum ? (int) $match[2] : 0;
+        }
+        return match ($type) {
+            'tinytext', 'tinyblob' => 255,
+            'text', 'blob' => 65535,
+            'mediumtext', 'mediumblob' => 16777215,
+            'longtext', 'longblob' => 4294967295,
+            default => 0,
+        };
     }
 
     /**
@@ -295,8 +426,11 @@ final class Ledger {
             $table
         ), 'schema width lookup for wprism_map.id_kind');
         if ($len !== null && (int) $len < $width) {
-            Db::query(
-                "ALTER TABLE `$table` MODIFY COLUMN id_kind VARCHAR($width) NOT NULL",
+            Db::ensure_varchar_column_width(
+                $table,
+                'id_kind',
+                $width,
+                false,
                 'ledger migrate widen wprism_map.id_kind'
             );
         }
@@ -322,8 +456,11 @@ final class Ledger {
                 $p . $table
             ), "schema width lookup for $table.entity_type");
             if ($len !== null && (int) $len < $w) {
-                Db::query(
-                    "ALTER TABLE `{$p}{$table}` MODIFY COLUMN entity_type VARCHAR($w) NOT NULL",
+                Db::ensure_varchar_column_width(
+                    $p . $table,
+                    'entity_type',
+                    $w,
+                    false,
                     "ledger migrate widen $table.entity_type"
                 );
             }
@@ -385,22 +522,27 @@ final class Ledger {
                 . "refusing to retype it as $entityType"
             );
         }
-        Db::query($wpdb->prepare(
+        Db::mutation($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}wprism_map (uuid, entity_type, id_kind, local_id)
-             VALUES (%s, %s, %s, %d)
-             ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)",
+             SELECT %s, %s, %s, %d",
             $uuid, $entityType, $kind, $localId
-        ), 'ledger upsert identity');
+        ), '', 'ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)', 'ledger upsert identity');
     }
 
     public static function forget(string $uuid): void {
         global $wpdb;
-        Db::query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}wprism_map WHERE uuid = %s", $uuid
-        ), 'ledger forget identity');
-        Db::query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}wprism_state WHERE uuid = %s", $uuid
-        ), 'ledger forget state hash');
+        Db::mutation(
+            "DELETE FROM {$wpdb->prefix}wprism_map",
+            $wpdb->prepare('uuid = %s', $uuid),
+            '',
+            'ledger forget identity'
+        );
+        Db::mutation(
+            "DELETE FROM {$wpdb->prefix}wprism_state",
+            $wpdb->prepare('uuid = %s', $uuid),
+            '',
+            'ledger forget state hash'
+        );
     }
 
     public static function state_hash(string $uuid): ?string {
@@ -412,12 +554,11 @@ final class Ledger {
 
     public static function set_state_hash(string $uuid, string $entityType, string $hash): void {
         global $wpdb;
-        Db::query($wpdb->prepare(
+        Db::mutation($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}wprism_state (uuid, entity_type, content_hash)
-             VALUES (%s, %s, %s)
-             ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type), content_hash = VALUES(content_hash)",
+             SELECT %s, %s, %s",
             $uuid, $entityType, $hash
-        ), 'ledger upsert state hash');
+        ), '', 'ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type), content_hash = VALUES(content_hash)', 'ledger upsert state hash');
     }
 
     /** @return array<string, array{entity_type: string, content_hash: string}> keyed by uuid */
@@ -455,9 +596,12 @@ final class Ledger {
         $keep = array_fill_keys($keepUuids, true);
         foreach (self::all_state() as $uuid => $_) {
             if (!isset($keep[$uuid])) {
-                Db::query($wpdb->prepare(
-                    "DELETE FROM {$wpdb->prefix}wprism_state WHERE uuid = %s", $uuid
-                ), 'ledger prune state hash');
+                Db::mutation(
+                    "DELETE FROM {$wpdb->prefix}wprism_state",
+                    $wpdb->prepare('uuid = %s', $uuid),
+                    '',
+                    'ledger prune state hash'
+                );
             }
         }
     }
@@ -474,20 +618,31 @@ final class Ledger {
     public static function prune_dead_map(): void {
         global $wpdb;
         $p = $wpdb->prefix;
-        Db::query(
-            "DELETE m FROM {$p}wprism_map m LEFT JOIN {$wpdb->posts} po ON po.ID = m.local_id
-             WHERE m.id_kind = '" . self::KIND_POST . "' AND po.ID IS NULL",
-            'ledger prune dead post identities'
+        $map = "`{$p}wprism_map`";
+        Db::mutation(
+            "DELETE FROM $map",
+            "id_kind = '" . self::KIND_POST . "' AND NOT EXISTS ("
+                . "SELECT 1 FROM `{$wpdb->posts}` po WHERE po.`ID` = $map.`local_id`)",
+            '',
+            'ledger prune dead post identities',
+            [$wpdb->posts]
         );
-        Db::query(
-            "DELETE m FROM {$p}wprism_map m LEFT JOIN {$wpdb->terms} t ON t.term_id = m.local_id
-             WHERE m.id_kind = '" . self::KIND_TERM . "' AND t.term_id IS NULL",
-            'ledger prune dead term identities'
+        Db::mutation(
+            "DELETE FROM $map",
+            "id_kind = '" . self::KIND_TERM . "' AND NOT EXISTS ("
+                . "SELECT 1 FROM `{$wpdb->terms}` t WHERE t.`term_id` = $map.`local_id`)",
+            '',
+            'ledger prune dead term identities',
+            [$wpdb->terms]
         );
-        Db::query(
-            "DELETE m FROM {$p}wprism_map m LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = m.local_id
-             WHERE m.id_kind = '" . self::KIND_TT . "' AND tt.term_taxonomy_id IS NULL",
-            'ledger prune dead term-taxonomy identities'
+        Db::mutation(
+            "DELETE FROM $map",
+            "id_kind = '" . self::KIND_TT . "' AND NOT EXISTS ("
+                . "SELECT 1 FROM `{$wpdb->term_taxonomy}` tt "
+                . "WHERE tt.`term_taxonomy_id` = $map.`local_id`)",
+            '',
+            'ledger prune dead term-taxonomy identities',
+            [$wpdb->term_taxonomy]
         );
     }
 
@@ -520,11 +675,12 @@ final class Ledger {
     public static function prune_dead_table_map(array $tables, array $preserveLocalIds = []): void {
         global $wpdb;
         $p = $wpdb->prefix;
+        $map = "`{$p}wprism_map`";
         foreach ($tables as $idKind => $decl) {
             $table = preg_replace('/[^A-Za-z0-9_]/', '', $decl['table']);
             $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
             if (!self::checked_get_var(
-                $wpdb->prepare('SHOW TABLES LIKE %s', $p . $table),
+                $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($p . $table)),
                 'typed identity table lookup'
             )) {
                 continue; // plugin's table not present on this environment — nothing to reconcile
@@ -540,13 +696,20 @@ final class Ledger {
                 }
             }
             $keepClause = $keep
-                ? ' AND m.local_id NOT IN (' . implode(',', array_keys($keep)) . ')'
+                ? ' AND local_id NOT IN (' . implode(',', array_keys($keep)) . ')'
                 : '';
-            Db::query($wpdb->prepare(
-                "DELETE m FROM {$p}wprism_map m LEFT JOIN `{$p}{$table}` src ON src.`{$pk}` = m.local_id
-                 WHERE m.id_kind = %s AND src.`{$pk}` IS NULL$keepClause",
-                $idKind
-            ), "ledger prune dead $table identities");
+            $source = "`{$p}{$table}`";
+            Db::mutation(
+                "DELETE FROM $map",
+                $wpdb->prepare(
+                    "id_kind = %s$keepClause AND NOT EXISTS ("
+                        . "SELECT 1 FROM $source src WHERE src.`{$pk}` = $map.`local_id`)",
+                    $idKind
+                ),
+                '',
+                "ledger prune dead $table identities",
+                [$p . $table]
+            );
         }
     }
 
@@ -566,8 +729,9 @@ final class Ledger {
         if ($componentBits <= 0 || $componentBits > 31) {
             throw new \RuntimeException('wprism: invalid composite identity component width for ledger pruning');
         }
-        $componentMask = (1 << $componentBits) - 1;
+        $componentModulus = 1 << $componentBits;
         $p = $wpdb->prefix;
+        $map = "`{$p}wprism_map`";
         foreach ($tables as $idKind => $decl) {
             $rawTable = $decl['table'] ?? null;
             $rawColumns = $decl['columns'] ?? null;
@@ -591,43 +755,187 @@ final class Ledger {
                 );
             }
             if (!self::checked_get_var(
-                $wpdb->prepare('SHOW TABLES LIKE %s', $p . $table),
+                $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($p . $table)),
                 'composite typed identity table lookup'
             )) {
                 continue;
             }
-            Db::query($wpdb->prepare(
-                "DELETE m FROM {$p}wprism_map m LEFT JOIN `{$p}{$table}` src
-                 ON src.`{$columns[0]}` = (m.local_id >> $componentBits)
-                 AND src.`{$columns[1]}` = (m.local_id & $componentMask)
-                 WHERE m.id_kind = %s AND src.`{$columns[0]}` IS NULL",
-                $idKind
-            ), "ledger prune dead $table composite identities");
+            $source = "`{$p}{$table}`";
+            Db::mutation(
+                "DELETE FROM $map",
+                $wpdb->prepare(
+                    "id_kind = %s AND NOT EXISTS (SELECT 1 FROM $source src "
+                        . "WHERE src.`{$columns[0]}` = ($map.`local_id` >> $componentBits) "
+                        . "AND src.`{$columns[1]}` = ($map.`local_id` % $componentModulus))",
+                    $idKind
+                ),
+                '',
+                "ledger prune dead $table composite identities",
+                [$p . $table]
+            );
         }
     }
 
     public static function kv_get(string $k): ?string {
         global $wpdb;
-        return self::checked_get_var($wpdb->prepare(
-            "SELECT v FROM {$wpdb->prefix}wprism_kv WHERE k = %s", $k
+        $row = self::checked_get_row($wpdb->prepare(
+            "SELECT k, v FROM {$wpdb->prefix}wprism_kv WHERE k = %s", $k
         ), 'key/value lookup');
+        return self::checked_kv_value($row, $k, 'key/value lookup');
+    }
+
+    /**
+     * Read-only existence fact for first-install observers of the KV store.
+     *
+     * A missing table is a legitimate virgin-site state; a privilege-hidden,
+     * shadowed, failed, or malformed probe is not. Callers still choose
+     * explicitly whether absence is meaningful before using kv_get().
+     */
+    public static function kv_table_installed(): bool {
+        global $wpdb;
+        $table = $wpdb->prefix . 'wprism_kv';
+        try {
+            return DatabaseTablePresence::base_table_exists($table);
+        } catch (DatabaseTablePresenceException $failure) {
+            throw new \RuntimeException(
+                'wprism: ledger read failed: key/value table presence lookup',
+                0,
+                $failure
+            );
+        }
+    }
+
+    /**
+     * Lock one exact key/gap on the caller's original transaction session.
+     *
+     * WordPress may reconnect and replay a failed SELECT. The SQL predicate
+     * makes that replay return no authority on the replacement autocommit
+     * session; the post-query continuity proof then refuses the operation.
+     */
+    public static function kv_get_for_update(
+        string $k,
+        string $lockIndex,
+        TransactionAuthority $authority
+    ): ?string {
+        global $wpdb;
+        if (preg_match('/^[A-Za-z0-9_$]{1,64}$/D', $lockIndex) !== 1) {
+            throw new \InvalidArgumentException('key/value locking lookup carries a malformed index');
+        }
+        self::assert_transaction_authority($authority, 'key/value locking lookup preflight');
+        $row = self::checked_get_row($wpdb->prepare(
+            "SELECT k, v FROM {$wpdb->prefix}wprism_kv FORCE INDEX (`$lockIndex`)
+             WHERE k = %s AND CONNECTION_ID() = %s
+             AND BINARY @wprism_tx_session = BINARY %s
+             FOR UPDATE",
+            $k,
+            $authority->connection_id(),
+            $authority->session_nonce()
+        ), 'key/value locking lookup');
+        self::assert_transaction_authority($authority, 'key/value locking lookup postflight');
+        return self::checked_kv_value($row, $k, 'key/value locking lookup');
+    }
+
+    /**
+     * Atomically publish a bounded KV row set only on the locked transaction
+     * session. The session predicates live in the mutation itself: a wpdb
+     * reconnect may replay it, but can never turn it into an autocommit write.
+     *
+     * @param array<string,string> $rows
+     */
+    public static function kv_set_transactional(
+        array $rows,
+        TransactionAuthority $authority
+    ): void {
+        global $wpdb;
+        if ($rows === [] || count($rows) > 64) {
+            throw new \InvalidArgumentException(
+                'transactional key/value rows must contain between 1 and 64 entries'
+            );
+        }
+        foreach ($rows as $key => $value) {
+            if (!is_string($key) || $key === '' || strlen($key) > 191 || !is_string($value)) {
+                throw new \InvalidArgumentException('transactional key/value rows are malformed');
+            }
+        }
+        if ($rows === []) {
+            throw new \InvalidArgumentException('transactional key/value rows cannot be empty');
+        }
+        self::assert_transaction_authority($authority, 'transactional key/value publication preflight');
+        $ordered = [];
+        foreach ($rows as $key => $value) {
+            $ordered[] = ['k' => $key, 'v' => $value];
+        }
+        Db::transactional_upsert_rows(
+            $wpdb->prefix . 'wprism_kv',
+            $ordered,
+            ['v'],
+            $authority,
+            'transactional ledger key/value publication'
+        );
+        self::assert_transaction_authority($authority, 'transactional key/value publication postflight');
+    }
+
+    /** Delete one durable key only inside the exact authored transaction. */
+    public static function kv_delete_transactional(
+        string $k,
+        TransactionAuthority $authority
+    ): void {
+        global $wpdb;
+        if ($k === '' || strlen($k) > 191) {
+            throw new \InvalidArgumentException('transactional key/value deletion carries a malformed key');
+        }
+        self::assert_transaction_authority($authority, 'transactional key/value deletion preflight');
+        Db::transactional_mutation(
+            "DELETE FROM {$wpdb->prefix}wprism_kv",
+            $wpdb->prepare('k = %s', $k),
+            '',
+            $authority,
+            'transactional ledger key/value deletion'
+        );
+        self::assert_transaction_authority($authority, 'transactional key/value deletion postflight');
     }
 
     public static function kv_set(string $k, string $v): void {
         global $wpdb;
-        Db::query($wpdb->prepare(
-            "INSERT INTO {$wpdb->prefix}wprism_kv (k, v) VALUES (%s, %s)
-             ON DUPLICATE KEY UPDATE v = VALUES(v)",
+        Db::mutation($wpdb->prepare(
+            "INSERT INTO {$wpdb->prefix}wprism_kv (k, v) SELECT %s, %s",
             $k, $v
-        ), 'ledger upsert key/value');
+        ), '', 'ON DUPLICATE KEY UPDATE v = VALUES(v)', 'ledger upsert key/value');
     }
 
     public static function kv_delete(string $k): void {
         global $wpdb;
-        Db::query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}wprism_kv WHERE k = %s",
-            $k
-        ), 'ledger delete key/value');
+        Db::mutation(
+            "DELETE FROM {$wpdb->prefix}wprism_kv",
+            $wpdb->prepare('k = %s', $k),
+            '',
+            'ledger delete key/value'
+        );
+    }
+
+    private static function assert_transaction_authority(
+        TransactionAuthority $expected,
+        string $context
+    ): void {
+        if (!$expected->equals(Db::transaction_authority($context))) {
+            throw new DatabaseTransactionOutcomeException($context . ' changed database session authority');
+        }
+    }
+
+    /** A present SQL NULL is corrupt durable evidence, never key absence. */
+    private static function checked_kv_value(?array $row, string $key, string $context): ?string {
+        if ($row === null) {
+            return null;
+        }
+        $keys = array_keys($row);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['k', 'v']
+            || !is_string($row['k'])
+            || !hash_equals($key, $row['k'])
+            || !is_string($row['v'])) {
+            throw new \RuntimeException("wprism: ledger read failed: $context returned malformed key/value evidence");
+        }
+        return $row['v'];
     }
 
     /**

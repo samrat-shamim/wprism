@@ -148,7 +148,8 @@ EOF
   wp2 wprism deploy --repo=/siterepo
   postdeploy_ninja_forms_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at ninja-forms $NINJA_VERSION"
   pass "deploy + apply succeeded on side 2 (ninja-forms $NINJA_VERSION, canary clean)"
 
@@ -202,6 +203,7 @@ EOF
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'Ninja Forms 3.4.34.2 -> 3.14.11 apply canary was not clean'
     grep -q 'provider capability fired: ninja-forms-form-cache@2.2.0 rebuild_form_caches' "$VMATRIX_APPLY_LOG" \

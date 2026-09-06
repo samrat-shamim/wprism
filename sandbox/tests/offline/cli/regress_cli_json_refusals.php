@@ -143,7 +143,26 @@ namespace WPrism {
     }
 
     final class Deploy {
+        public static int $calls = 0;
+
         public static function run($repo, array $options): array {
+            self::$calls++;
+            return [];
+        }
+    }
+
+    /**
+     * Keep the isolated host acceptance backend behind Cli's argument and
+     * refusal boundary. Loading its production graph would replace this
+     * command-level probe's planted Policy double with the concrete class.
+     */
+    final class CodeBaselineAcceptance {
+        public static function run(
+            string $repo,
+            string $compiledPath,
+            string $artifactHash,
+            array $options = []
+        ): array {
             return [];
         }
     }
@@ -166,6 +185,10 @@ namespace WPrism {
 
     final class Policy {
         public static ?\Throwable $failure = null;
+        /** @var list<array<string,mixed>> */
+        public static array $schemaActions = [];
+        /** @var list<array<string,mixed>> */
+        public static array $lifecycleActions = [];
 
         // Keep the test double's call boundary aligned with Policy::load().
         // lint() passes the object-only adapter library by name, so omitting
@@ -177,12 +200,18 @@ namespace WPrism {
             bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
             ?string $adapterRepo = null,
             ?AdapterLibrary $adapterLibrary = null
-        ): array {
+        ): self {
             if (self::$failure !== null) {
                 throw self::$failure;
             }
-            return [];
+            return new self();
         }
+
+        /** @return list<array<string,mixed>> */
+        public function schema_settle_actions(): array { return self::$schemaActions; }
+
+        /** @return list<array<string,mixed>> */
+        public function lifecycle_settle_actions(): array { return self::$lifecycleActions; }
     }
 
     /**
@@ -363,6 +392,7 @@ namespace {
     $commands = [
         'compile' => 'compile',
         'code_preflight' => 'code-preflight',
+        'code_baseline_accept' => 'code-baseline-accept',
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
         'init' => 'init',
@@ -845,12 +875,392 @@ namespace {
     $evidenceFiles = glob($evidenceRepo . '/.wprism/refusals/*-capture-*.json') ?: [];
     check(count($evidenceFiles) === 1, 'exactly one private evidence record is written under <repo>/.wprism/refusals/');
     $evidenceRecord = json_decode((string) file_get_contents($evidenceFiles[0] ?? ''), true);
-    check(($evidenceRecord['format'] ?? null) === 'wprism-private-refusal-evidence/v1', 'the record names its private format');
+    check(($evidenceRecord['format'] ?? null) === 'wprism-private-refusal-evidence/v2', 'the record names its bounded private graph format');
+    $repoRoot = dirname(__DIR__, 4);
+    $privateEvidenceDocs = (string) file_get_contents($repoRoot . '/spec/repo-format.md')
+        . (string) file_get_contents($repoRoot . '/cli/README.md');
+    check(
+        substr_count($privateEvidenceDocs, 'wprism-private-refusal-evidence/v2') === 2
+            && !str_contains($privateEvidenceDocs, 'wprism-private-refusal-evidence/v1')
+            && preg_match('/maximum 256\s+scanned nodes/', $privateEvidenceDocs) === 1
+            && preg_match('/caps\s+graph node JSON at 131,072/', $privateEvidenceDocs) === 1
+            && str_contains($privateEvidenceDocs, 'stored reversibly as base64'),
+        'the operator and wire contracts both name v2 graph, edge, field, and aggregate bounds'
+    );
     check(($evidenceRecord['command'] ?? null) === 'capture' && ($evidenceRecord['reason_code'] ?? null) === 'capture_failed', 'the record binds command and reason code');
     check(($evidenceRecord['throwable'][0]['message'] ?? null) === 'wprism: required manifest action failed with sk_live_EVIDENCESENTENCE', 'the record carries the primary sentence verbatim');
     check(($evidenceRecord['throwable'][1]['message'] ?? null) === 'provider capability failed: X-Amz-Signature=EVIDENCECAUSE', 'the record carries the cause chain');
+    check(
+        ($evidenceRecord['throwable'][1]['message_encoding'] ?? null) === 'utf-8'
+            && ($evidenceRecord['throwable'][1]['message_truncated'] ?? null) === false
+            && ($evidenceRecord['throwable'][1]['message_original_bytes'] ?? null)
+                === strlen($evidenceCause->getMessage())
+            && ($evidenceRecord['throwable'][1]['message_sha256'] ?? null)
+                === hash('sha256', $evidenceCause->getMessage()),
+        'a small cause stays exact while carrying its byte length and digest witness'
+    );
+    check(
+        ($evidenceRecord['traversal']['scan_complete'] ?? null) === true
+            && ($evidenceRecord['traversal']['record_complete'] ?? null) === true
+            && ($evidenceRecord['traversal']['cycle_edges'] ?? null) === 0
+            && ($evidenceRecord['traversal']['truncated_pending_edges'] ?? null) === 0,
+        'a short ordinary cause chain records an explicit complete traversal witness'
+    );
     check(($evidenceRecord['throwable'][0]['class'] ?? null) === 'RuntimeException' && is_int($evidenceRecord['throwable'][0]['line'] ?? null), 'the record names class and origin line');
     check((fileperms($evidenceFiles[0]) & 0777) === 0600, 'the record is private (0600) like every other .wprism/ artifact');
+
+    // An opaque provider cause cannot use RuntimeException::$previous: PHP's
+    // default string rendering recursively prints that chain, so a log of the
+    // otherwise-safe wrapper would expose plugin credentials or target data.
+    // PrivateEvidenceException keeps the ordinary Throwable surface closed;
+    // this one recorder is the deliberate, 0600-only crossing point.
+    $providerEvidenceRepo = sys_get_temp_dir() . '/wprism-cli-provider-refusal-evidence-' . bin2hex(random_bytes(6));
+    mkdir($providerEvidenceRepo, 0700, true);
+    file_put_contents($providerEvidenceRepo . '/site.wprism.json', "{}\n");
+    $opaqueProviderCause = new RuntimeException(
+        "provider failed with X-Amz-Signature=PRIVATE_PROVIDER_CAUSE\nPRIVATE_PROVIDER_CAUSE_LINE"
+    );
+    $privateProviderWrapper = new \WPrism\PrivateEvidenceException(
+        "wprism: provider 'probe' capability 'repair' failed",
+        $opaqueProviderCause
+    );
+    $providerDispatchFailure = new RuntimeException(
+        "wprism: required manifest action 'provider:probe/repair' failed — "
+            . $privateProviderWrapper->getMessage(),
+        0,
+        $privateProviderWrapper
+    );
+    check(
+        !str_contains((string) $providerDispatchFailure, 'PRIVATE_PROVIDER_CAUSE'),
+        'ordinary Throwable rendering cannot cross the provider private-evidence boundary'
+    );
+    \WPrism\Capture::$failure = $providerDispatchFailure;
+    $providerEvidenceEnvelope = invoke_json(
+        static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json'])
+    );
+    check(
+        ($providerEvidenceEnvelope['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($providerEvidenceEnvelope), 'PRIVATE_PROVIDER_CAUSE'),
+        'provider private evidence leaves the public refusal envelope unchanged and secret-free'
+    );
+    $providerEvidenceFiles = glob($providerEvidenceRepo . '/.wprism/refusals/*-capture-*.json') ?: [];
+    $providerEvidenceRecord = json_decode((string) file_get_contents($providerEvidenceFiles[0] ?? ''), true);
+    check(
+        count($providerEvidenceFiles) === 1
+            && ($providerEvidenceRecord['throwable'][0]['message'] ?? null)
+                === $providerDispatchFailure->getMessage()
+            && ($providerEvidenceRecord['throwable'][1]['message'] ?? null)
+                === $privateProviderWrapper->getMessage()
+            && ($providerEvidenceRecord['throwable'][2]['message'] ?? null)
+                === $opaqueProviderCause->getMessage(),
+        'the private refusal record crosses the wrapper and retains the exact provider cause'
+    );
+    check(
+        (fileperms($providerEvidenceFiles[0]) & 0777) === 0600,
+        'provider cause evidence retains the refusal store private mode'
+    );
+
+    // PHP permits exception messages with arbitrary bytes. A JSON replacement
+    // character would destroy the diagnostic while claiming it was not
+    // truncated, so a non-UTF-8 retained prefix has an explicit reversible
+    // base64 encoding and still hashes the complete original value.
+    $binaryMessage = "provider binary prefix-\xff-suffix";
+    $binaryFailure = new \WPrism\PrivateEvidenceException(
+        'safe binary provider boundary',
+        new RuntimeException($binaryMessage)
+    );
+    $binaryBefore = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    \WPrism\Capture::$failure = $binaryFailure;
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    $binaryAfter = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    $binaryFiles = array_values(array_diff($binaryAfter, $binaryBefore));
+    $binaryRecord = json_decode((string) file_get_contents($binaryFiles[0] ?? ''), true);
+    $binaryNode = $binaryRecord['throwable'][1] ?? [];
+    check(
+        count($binaryFiles) === 1
+            && ($binaryNode['message_encoding'] ?? null) === 'base64'
+            && ($binaryNode['message_truncated'] ?? null) === false
+            && ($binaryNode['message_original_bytes'] ?? null) === strlen($binaryMessage)
+            && ($binaryNode['message_sha256'] ?? null) === hash('sha256', $binaryMessage)
+            && base64_decode((string) ($binaryNode['message'] ?? ''), true) === $binaryMessage,
+        'a short non-UTF-8 provider message is retained reversibly and never mislabeled as exact UTF-8'
+    );
+
+    $findPrivateRecord = static function (string $repo, string $needle): ?array {
+        foreach (glob($repo . '/.wprism/refusals/*.json') ?: [] as $file) {
+            $bytes = (string) file_get_contents($file);
+            if (str_contains($bytes, $needle)) {
+                $decoded = json_decode($bytes, true);
+                return is_array($decoded) ? $decoded : null;
+            }
+        }
+        return null;
+    };
+
+    // The exact supported wrapper found by independent review: a provider
+    // fails after an explicit conflict override, so Apply retains it below a
+    // clean typed refusal. Public details do not need redaction, but the
+    // private cause still needs a record.
+    $typedEvidenceRepo = sys_get_temp_dir() . '/wprism-cli-typed-provider-evidence-' . bin2hex(random_bytes(6));
+    mkdir($typedEvidenceRepo, 0700, true);
+    file_put_contents($typedEvidenceRepo . '/site.wprism.json', "{}\n");
+    $typedProviderCause = new RuntimeException(
+        'provider forced-override failure X-Amz-Signature=PRIVATE_TYPED_PROVIDER_CAUSE'
+    );
+    $typedProviderBoundary = new \WPrism\PrivateEvidenceException(
+        "wprism: provider 'probe' capability 'repair' failed",
+        $typedProviderCause
+    );
+    \WPrism\Apply::$applyFailure = new \WPrism\CommandRefusalException(
+        'apply_forced_override_failed',
+        'apply failed after explicit plan conflict overrides were authorized',
+        'inspect private operator evidence and apply recovery state; reconcile the failed gate before another attempt and do not assume the authorized override committed',
+        [],
+        'Warning: FORCED reviewed override\nwprism: provider repair failed',
+        $typedProviderBoundary,
+        [['entity_identity_sha256' => hash('sha256', 'typed-private-evidence')]]
+    );
+    $typedProviderEnvelope = invoke_json(
+        static fn() => $cli->apply([], ['repo' => $typedEvidenceRepo, 'format' => 'json'])
+    );
+    check(
+        ($typedProviderEnvelope['reason_code'] ?? null) === 'apply_forced_override_failed'
+            && ($typedProviderEnvelope['details_redacted'] ?? false) === false
+            && !str_contains((string) json_encode($typedProviderEnvelope), 'PRIVATE_TYPED_PROVIDER_CAUSE'),
+        'a clean typed forced-override envelope remains byte-shape compatible and omits the provider cause'
+    );
+    $typedProviderRecord = $findPrivateRecord($typedEvidenceRepo, 'PRIVATE_TYPED_PROVIDER_CAUSE');
+    check(
+        is_array($typedProviderRecord)
+            && ($typedProviderRecord['reason_code'] ?? null) === 'apply_forced_override_failed'
+            && ($typedProviderRecord['traversal']['private_edges'] ?? null) === 1,
+        'a typed forced-override failure records the hidden provider cause despite needing no public redaction'
+    );
+
+    // Human mode prints only the stable wrapper. The same hidden cause must
+    // not disappear merely because no JSON envelope is requested.
+    $humanEvidenceBefore = count(glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: []);
+    \WPrism\Capture::$failure = $providerDispatchFailure;
+    WP_CLI::reset();
+    try {
+        $cli->capture([], ['repo' => $providerEvidenceRepo]);
+        check(false, 'human provider refusal exits non-zero');
+    } catch (CliJsonHumanError $humanProviderFailure) {
+        check(
+            !str_contains($humanProviderFailure->getMessage(), 'PRIVATE_PROVIDER_CAUSE')
+                && !str_contains(implode("\n", WP_CLI::$errors), 'PRIVATE_PROVIDER_CAUSE'),
+            'human provider refusal prints only the stable wrapper'
+        );
+    }
+    check(
+        count(glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: []) === $humanEvidenceBefore + 1,
+        'human mode records the hidden provider cause under the same private store'
+    );
+
+    // More ordinary wrappers than the record budget cannot crowd out the
+    // private edge. The graph retains root + private path and says exactly how
+    // much ordinary context it omitted.
+    $deepOpaqueCause = new RuntimeException('opaque deep provider cause PRIVATE_DEEP_PROVIDER_CAUSE');
+    $deepFailure = new \WPrism\PrivateEvidenceException('safe deep provider boundary', $deepOpaqueCause);
+    for ($depth = 0; $depth < 70; $depth++) {
+        $deepFailure = new RuntimeException('safe ordinary wrapper ' . $depth, 0, $deepFailure);
+    }
+    \WPrism\Capture::$failure = $deepFailure;
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    $deepRecord = $findPrivateRecord($providerEvidenceRepo, 'PRIVATE_DEEP_PROVIDER_CAUSE');
+    check(
+        is_array($deepRecord)
+            && ($deepRecord['traversal']['scan_complete'] ?? null) === true
+            && ($deepRecord['traversal']['record_complete'] ?? null) === false
+            && ($deepRecord['traversal']['omitted_scanned_nodes'] ?? 0) > 0
+            && ($deepRecord['traversal']['private_edges'] ?? null) === 1,
+        'a private cause beyond the record budget is prioritized and ordinary omissions are explicit'
+    );
+
+    $publicPrevious = new RuntimeException('safe typed engine previous');
+    $typedQueryFailure = new \WPrism\DatabaseQueryIsolationViolationException(
+        'wprism: a native database read escaped its declared physical-table profile',
+        71,
+        $publicPrevious
+    );
+    $typedRendering = (string) $typedQueryFailure;
+    \WPrism\Capture::$failure = $typedQueryFailure;
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    $typedPublicBefore = WP_CLI::$lines;
+    $privateQuery = new RuntimeException("SELECT secret FROM wp_private WHERE token='PRIVATE_TYPED_QUERY_CAUSE'");
+    $privateProfile = new RuntimeException('PRIVATE_TYPED_QUERY_PROFILE');
+    $typedQueryFailure->retain_private_evidence($privateQuery, $privateProfile);
+    check(
+        $typedQueryFailure->getCode() === 71
+            && $typedQueryFailure->getPrevious() === $publicPrevious
+            && (string) $typedQueryFailure === $typedRendering,
+        'private annotation preserves the same typed exception code, standard previous and full public string rendering'
+    );
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    check(WP_CLI::$lines === $typedPublicBefore,
+        'the actual CLI publishes byte-identical machine output before and after typed private annotation');
+    $typedQueryRecord = $findPrivateRecord($providerEvidenceRepo, 'PRIVATE_TYPED_QUERY_CAUSE');
+    check(
+        is_array($typedQueryRecord)
+            && ($typedQueryRecord['throwable'][0]['class'] ?? null) === \WPrism\DatabaseQueryIsolationViolationException::class
+            && ($typedQueryRecord['throwable'][1]['message'] ?? null) === $privateQuery->getMessage()
+            && ($typedQueryRecord['throwable'][2]['message'] ?? null) === $privateProfile->getMessage()
+            && ($typedQueryRecord['throwable'][1]['relation'] ?? null) === 'private_evidence'
+            && ($typedQueryRecord['throwable'][2]['relation'] ?? null) === 'private_evidence'
+            && ($typedQueryRecord['traversal']['private_edges'] ?? null) === 2,
+        'the real eligible CLI writer retains query and profile under the original typed root'
+    );
+    $rebindRefused = false;
+    try {
+        $typedQueryFailure->retain_private_evidence(new RuntimeException('replacement private cause'));
+    } catch (LogicException) {
+        $rebindRefused = true;
+    }
+    check($rebindRefused && $typedQueryFailure->private_evidence_causes() === [$privateQuery, $privateProfile],
+        'a later annotation cannot replace the original private cause roster');
+    check(
+        (new ReflectionMethod(\WPrism\PrivateEvidenceCarrierException::class, 'private_evidence_causes'))->isFinal()
+            && (new ReflectionMethod(\WPrism\PrivateEvidenceCarrierException::class, 'retain_private_evidence'))->isFinal(),
+        'private traversal and attachment dispatch only final engine methods, never adapter-overridden callbacks'
+    );
+    $GLOBALS['private_evidence_lookalike_calls'] = 0;
+    $lookalike = new class('ordinary external exception') extends RuntimeException {
+        public function private_evidence_causes(): array {
+            $GLOBALS['private_evidence_lookalike_calls']++;
+            return [new RuntimeException('lookalike private callback')];
+        }
+    };
+    $lookalikeGraph = \WPrism\PrivateRefusalEvidence::graph($lookalike);
+    check($GLOBALS['private_evidence_lookalike_calls'] === 0 && $lookalikeGraph['traversal']['private_edges'] === 0,
+        'a throwable with a lookalike private method cannot execute a callback during evidence traversal');
+    $emptyCarrier = new \WPrism\DatabaseQueryIsolationViolationException('empty typed cause beyond budget');
+    $ordinaryChain = $emptyCarrier;
+    for ($depth = 0; $depth < 70; $depth++) {
+        $ordinaryChain = new RuntimeException('ordinary typed-wrapper depth ' . $depth, 0, $ordinaryChain);
+    }
+    $emptyCarrierGraph = \WPrism\PrivateRefusalEvidence::graph($ordinaryChain);
+    check(
+        $emptyCarrierGraph['traversal']['private_edges'] === 0
+            && !in_array(\WPrism\DatabaseQueryIsolationViolationException::class,
+                array_column($emptyCarrierGraph['throwable'], 'class'), true),
+        'an empty typed carrier never displaces ordinary evidence under the private-priority budget'
+    );
+
+    $graph = new ReflectionMethod(\WPrism\PrivateRefusalEvidence::class, 'graph');
+    $cycle = new \WPrism\PrivateEvidenceException('safe private-evidence cycle', new RuntimeException('seed'));
+    $cycleCauses = new ReflectionProperty(\WPrism\PrivateEvidenceCarrierException::class, 'privateEvidenceCauses');
+    $cycleCauses->setValue($cycle, [$cycle]);
+    $cycleGraph = $graph->invoke(null, $cycle);
+    check(
+        ($cycleGraph['traversal']['scan_complete'] ?? null) === true
+            && ($cycleGraph['traversal']['cycle_edges'] ?? null) === 1
+            && ($cycleGraph['traversal']['recorded_nodes'] ?? null) === 1,
+        'a private-evidence cycle terminates and records an explicit cycle edge'
+    );
+    $firstCompositeCause = new RuntimeException('PRIVATE_COMPOSITE_PROVIDER');
+    $secondCompositeCause = new RuntimeException('PRIVATE_COMPOSITE_RECOVERY');
+    $compositeGraph = $graph->invoke(
+        null,
+        new \WPrism\PrivateEvidenceException(
+            'safe composite scoped failure',
+            $firstCompositeCause,
+            $secondCompositeCause
+        )
+    );
+    $compositeBytes = json_encode($compositeGraph, JSON_UNESCAPED_SLASHES);
+    check(
+        ($compositeGraph['traversal']['private_edges'] ?? null) === 2
+            && ($compositeGraph['traversal']['record_complete'] ?? null) === true
+            && str_contains((string) $compositeBytes, 'PRIVATE_COMPOSITE_PROVIDER')
+            && str_contains((string) $compositeBytes, 'PRIVATE_COMPOSITE_RECOVERY'),
+        'the private graph retains both provider and recovery-store causes from one scoped composite'
+    );
+    $truncated = new RuntimeException('bounded traversal tail');
+    for ($depth = 0; $depth < 300; $depth++) {
+        $truncated = new RuntimeException('bounded traversal wrapper ' . $depth, 0, $truncated);
+    }
+    $truncatedGraph = $graph->invoke(null, $truncated);
+    check(
+        ($truncatedGraph['traversal']['scan_complete'] ?? null) === false
+            && ($truncatedGraph['traversal']['scanned_nodes'] ?? null) === 256
+            && ($truncatedGraph['traversal']['truncated_pending_edges'] ?? 0) > 0,
+        'a cause graph beyond the scan bound reports truncation instead of claiming completeness'
+    );
+
+    // Node counts alone are not a resource bound: one plugin exception can
+    // carry megabytes, and one corrupted carrier can fan out across an
+    // arbitrary array. Fields retain an exact length/hash witness while the
+    // graph independently bounds nodes, edges, and encoded bytes.
+    $oversizedMessage = 'PRIVATE_OVERSIZE_PREFIX:'
+        . str_repeat('x', 2 * 1024 * 1024)
+        . ':PRIVATE_OVERSIZE_TAIL';
+    $oversizedCause = new RuntimeException($oversizedMessage);
+    $oversizedFailure = new \WPrism\PrivateEvidenceException(
+        'safe oversized provider boundary',
+        $oversizedCause
+    );
+    $oversizedBefore = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    \WPrism\Capture::$failure = $oversizedFailure;
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    $oversizedAfter = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    $oversizedFiles = array_values(array_diff($oversizedAfter, $oversizedBefore));
+    $oversizedBytes = (string) file_get_contents($oversizedFiles[0] ?? '');
+    $oversizedRecord = json_decode($oversizedBytes, true);
+    $oversizedNode = $oversizedRecord['throwable'][1] ?? [];
+    check(
+        count($oversizedFiles) === 1
+            && strlen($oversizedBytes) <= 262144
+            && ($oversizedNode['message_truncated'] ?? null) === true
+            && ($oversizedNode['message_original_bytes'] ?? null) === strlen($oversizedMessage)
+            && ($oversizedNode['message_sha256'] ?? null) === hash('sha256', $oversizedMessage)
+            && str_starts_with((string) ($oversizedNode['message'] ?? ''), 'PRIVATE_OVERSIZE_PREFIX:')
+            && !str_contains($oversizedBytes, 'PRIVATE_OVERSIZE_TAIL'),
+        'a multi-megabyte provider message yields one bounded record with explicit original length, digest, and truncation'
+    );
+    unset($oversizedMessage, $oversizedCause, $oversizedFailure, $oversizedBytes, $oversizedRecord);
+
+    $fanoutFirst = new RuntimeException('bounded fanout cause 0');
+    $fanoutCauses = [];
+    for ($edge = 1; $edge < 1024; $edge++) {
+        $fanoutCauses[] = new RuntimeException('bounded fanout cause ' . $edge);
+    }
+    $fanoutGraph = $graph->invoke(
+        null,
+        new \WPrism\PrivateEvidenceException(
+            'safe PRIVATE_FANOUT_CARRIER',
+            $fanoutFirst,
+            ...$fanoutCauses
+        )
+    );
+    check(
+        ($fanoutGraph['traversal']['private_edges'] ?? null) === 1024
+            && ($fanoutGraph['traversal']['scan_edge_limit'] ?? null) === 512
+            && ($fanoutGraph['traversal']['examined_edges'] ?? 513) <= 512
+            && ($fanoutGraph['traversal']['truncated_edges'] ?? 0) > 0
+            && ($fanoutGraph['traversal']['scan_complete'] ?? null) === false
+            && ($fanoutGraph['traversal']['recorded_nodes'] ?? 65) <= 64
+            && strlen((string) json_encode($fanoutGraph)) <= 262144,
+        'a high-fanout private carrier is edge-, node-, and byte-bounded with explicit truncation'
+    );
+    unset($fanoutCauses, $fanoutFirst, $fanoutGraph);
+
+    $invalidCarrier = new \WPrism\PrivateEvidenceException(
+        'safe PRIVATE_INVALID_EDGE_CARRIER',
+        new RuntimeException('seed')
+    );
+    $cycleCauses->setValue($invalidCarrier, [null]);
+    \WPrism\Capture::$failure = $invalidCarrier;
+    $invalidEnvelope = invoke_json(
+        static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json'])
+    );
+    $invalidRecord = $findPrivateRecord($providerEvidenceRepo, 'PRIVATE_INVALID_EDGE_CARRIER');
+    check(
+        ($invalidEnvelope['details_redacted'] ?? null) === true
+            && is_array($invalidRecord)
+            && ($invalidRecord['traversal']['invalid_private_edges'] ?? null) === 1
+            && ($invalidRecord['traversal']['scan_complete'] ?? null) === false,
+        'a malformed hidden edge cannot replace refusal output and is explicit in the private traversal witness'
+    );
     // The typed-diagnostic redaction and the final defense pass are the same
     // contract: any details_redacted envelope leaves a record.
     \WPrism\Apply::$planFailure = new \WPrism\RepositoryCompilationException([[
@@ -876,6 +1286,31 @@ namespace {
     check(scandir($strangerDir) === ['.', '..'], 'the stranger directory is left exactly as it was found');
     @rmdir($strangerDir);
 
+    // Eligibility is an inode witness, not a boolean followed by a new root
+    // snapshot. If the sole site marker disappears after review, Kernel must
+    // reject the stale witness before creating `.wprism`.
+    $markerRaceRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-marker-race-' . bin2hex(random_bytes(6));
+    mkdir($markerRaceRepo, 0700, true);
+    file_put_contents($markerRaceRepo . '/site.wprism.json', "{}\n");
+    $eligibilityProbe = new ReflectionMethod(\WPrism\Cli::class, 'refusal_evidence_repository');
+    $markerWitness = $eligibilityProbe->invoke(null, $markerRaceRepo, 'capture');
+    unlink($markerRaceRepo . '/site.wprism.json');
+    check(is_array($markerWitness), 'site-only repository eligibility returns an inode-bound qualifier witness');
+    if (is_array($markerWitness)) {
+        \WPrism\PrivateRefusalEvidence::record(
+            $markerRaceRepo,
+            $markerWitness,
+            new RuntimeException('PRIVATE_STALE_MARKER_WITNESS'),
+            'capture',
+            'capture_failed'
+        );
+    }
+    check(
+        !is_dir($markerRaceRepo . '/.wprism'),
+        'a vanished repository qualifier cannot plant evidence through a previously reviewed witness'
+    );
+    rmdir($markerRaceRepo);
+
     // A real `.wprism/` alone qualifies it, beside the promotion checkpoints the
     // record was always meant to sit next to — no site.wprism.json required.
     $checkpointRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-checkpoints-' . bin2hex(random_bytes(6));
@@ -885,6 +1320,40 @@ namespace {
     check(
         count(glob($checkpointRepo . '/.wprism/refusals/*-capture-*.json') ?: []) === 1,
         'an existing .wprism/ qualifies a repository even with no site.wprism.json'
+    );
+
+    // Adoption historically published the authority root as 0755, and the
+    // cross-uid pair harness uses a sticky shared parent. Both safely contain
+    // an exact 0700 refusal child; a plain writable parent does not.
+    $adoptedModeRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-adopted-mode-' . bin2hex(random_bytes(6));
+    mkdir($adoptedModeRepo . '/.wprism/control', 0755, true);
+    chmod($adoptedModeRepo . '/.wprism', 0755);
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with PRIVATE_ADOPTED_MODE');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $adoptedModeRepo, 'format' => 'json']));
+    check(
+        count(glob($adoptedModeRepo . '/.wprism/refusals/*.json') ?: []) === 1
+            && (fileperms($adoptedModeRepo . '/.wprism/refusals') & 0777) === 0700,
+        'an adoption-shaped 0755 authority root records into its own private 0700 child'
+    );
+
+    $stickyModeRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-sticky-mode-' . bin2hex(random_bytes(6));
+    mkdir($stickyModeRepo . '/.wprism/control', 0700, true);
+    chmod($stickyModeRepo . '/.wprism', 01777);
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with PRIVATE_STICKY_MODE');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $stickyModeRepo, 'format' => 'json']));
+    check(
+        count(glob($stickyModeRepo . '/.wprism/refusals/*.json') ?: []) === 1,
+        'the pair harness sticky shared authority root preserves private refusal recording'
+    );
+
+    $writableModeRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-writable-mode-' . bin2hex(random_bytes(6));
+    mkdir($writableModeRepo . '/.wprism/control', 0700, true);
+    chmod($writableModeRepo . '/.wprism', 0777);
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with PRIVATE_WRITABLE_MODE');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $writableModeRepo, 'format' => 'json']));
+    check(
+        !is_dir($writableModeRepo . '/.wprism/refusals'),
+        'a non-sticky group/world-writable authority root receives no private evidence'
     );
 
     // A symlinked repository root is never followed, whatever sits behind it —
@@ -899,28 +1368,129 @@ namespace {
     invoke_json(static fn() => $cli->capture([], ['repo' => $linkPath, 'format' => 'json']));
     check(!is_dir($linkTarget . '/.wprism'), 'a symlinked repository root is not followed, even to a directory holding a site.wprism.json');
 
+    // The same no-follow contract applies to every inner component. A regular
+    // site marker must never bless a preplanted `.wprism` or `refusals` link.
+    $controlLinkRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-control-link-' . bin2hex(random_bytes(6));
+    $controlLinkOutside = $controlLinkRepo . '-outside';
+    mkdir($controlLinkRepo, 0700, true);
+    mkdir($controlLinkOutside, 0700, true);
+    file_put_contents($controlLinkRepo . '/site.wprism.json', "{}\n");
+    symlink($controlLinkOutside, $controlLinkRepo . '/.wprism');
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with sk_live_CONTROL_LINK');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $controlLinkRepo, 'format' => 'json']));
+    check(
+        scandir($controlLinkOutside) === ['.', '..'],
+        'a symlinked .wprism control directory receives no private evidence outside the repository'
+    );
+
+    $refusalLinkRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-directory-link-' . bin2hex(random_bytes(6));
+    $refusalLinkOutside = $refusalLinkRepo . '-outside';
+    mkdir($refusalLinkRepo . '/.wprism', 0700, true);
+    mkdir($refusalLinkOutside, 0700, true);
+    symlink($refusalLinkOutside, $refusalLinkRepo . '/.wprism/refusals');
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with sk_live_REFUSAL_LINK');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $refusalLinkRepo, 'format' => 'json']));
+    check(
+        scandir($refusalLinkOutside) === ['.', '..'],
+        'a symlinked refusals directory receives no private evidence outside the repository'
+    );
+
+    // Exclusive leaf creation is asserted against the writer itself: a
+    // preplanted symlink keeps its outside sentinel byte-identical.
+    $targetMethod = new ReflectionMethod(\WPrism\PrivateRefusalEvidence::class, 'private_refusal_target');
+    $writerMethod = new ReflectionMethod(\WPrism\PrivateRefusalEvidence::class, 'write_private_refusal_record');
+    $eligibilityMethod = new ReflectionMethod(\WPrism\Cli::class, 'refusal_evidence_repository');
+    $secureTarget = $targetMethod->invoke(
+        null,
+        $evidenceRepo,
+        $eligibilityMethod->invoke(null, $evidenceRepo, 'capture')
+    );
+    $leafOutside = sys_get_temp_dir() . '/wprism-cli-json-refusal-leaf-' . bin2hex(random_bytes(6));
+    file_put_contents($leafOutside, 'outside sentinel');
+    $leafLink = $evidenceRepo . '/.wprism/refusals/preplanted.json';
+    symlink($leafOutside, $leafLink);
+    $writerMethod->invoke(null, $secureTarget, $leafLink, "PRIVATE LEAF EVIDENCE\n");
+    check(
+        is_link($leafLink) && file_get_contents($leafOutside) === 'outside sentinel',
+        'exclusive private-evidence creation neither follows nor overwrites a preplanted leaf symlink'
+    );
+    unlink($leafLink);
+
+    // Move the bound parent after the descriptor's first write and replace its
+    // old pathname. The post-write witness must fail, and cleanup must erase
+    // through the still-open descriptor because pathname unlink can no longer
+    // reach the moved inode.
+    $movedRefusalDirectory = $evidenceRepo . '/.wprism/refusals-moved';
+    $racedLeaf = $evidenceRepo . '/.wprism/refusals/raced.json';
+    $writerMethod->invoke(
+        null,
+        $secureTarget,
+        $racedLeaf,
+        "PRIVATE_RACE_SECRET\n",
+        static function () use ($evidenceRepo, $movedRefusalDirectory): void {
+            rename($evidenceRepo . '/.wprism/refusals', $movedRefusalDirectory);
+            mkdir($evidenceRepo . '/.wprism/refusals', 0700);
+        }
+    );
+    $movedLeaf = $movedRefusalDirectory . '/raced.json';
+    check(
+        is_file($movedLeaf)
+            && filesize($movedLeaf) === 0
+            && !is_file($racedLeaf)
+            && !str_contains((string) file_get_contents($movedLeaf), 'PRIVATE_RACE_SECRET'),
+        'a parent swap observed after first write descriptor-erases the moved inode before close'
+    );
+    unlink($movedLeaf);
+    foreach (glob($movedRefusalDirectory . '/*.json') ?: [] as $priorEvidenceFile) {
+        rename(
+            $priorEvidenceFile,
+            $evidenceRepo . '/.wprism/refusals/' . basename($priorEvidenceFile)
+        );
+    }
+    rmdir($movedRefusalDirectory);
+
+    // A permissive process umask cannot create a readable window: the writer
+    // narrows exclusive creation itself and verifies mode before content.
+    $priorTestUmask = umask(0000);
+    try {
+        \WPrism\Capture::$failure = new RuntimeException('wprism: refused with sk_live_PERMISSIVE_UMASK');
+        invoke_json(static fn() => $cli->capture([], ['repo' => $evidenceRepo, 'format' => 'json']));
+    } finally {
+        umask($priorTestUmask);
+    }
+    $privateModesSafe = true;
+    foreach (glob($evidenceRepo . '/.wprism/refusals/*.json') ?: [] as $privateFile) {
+        $privateModesSafe = $privateModesSafe && (fileperms($privateFile) & 0777) === 0600;
+    }
+    check(
+        $privateModesSafe
+            && (fileperms($evidenceRepo . '/.wprism') & 0777) === 0700
+            && (fileperms($evidenceRepo . '/.wprism/refusals') & 0777) === 0700,
+        'private evidence stays 0600 under a permissive caller umask and its directory chain is 0700'
+    );
+
     // init is held to one extra condition: the directory must STILL be the one
     // it started against. That is the live failure's exact shape -- the root is
     // replaced between the lease and the refusal -- so it is asserted against
     // the predicate directly rather than through a stubbed init transaction.
-    $gate = new ReflectionMethod(\WPrism\Cli::class, 'refusal_evidence_repository');
+    $gate = $eligibilityMethod;
     $snapshot = new ReflectionProperty(\WPrism\Cli::class, 'initRepositoryIdentityAtEntry');
     $identityOf = new ReflectionMethod(\WPrism\Cli::class, 'directory_identity');
 
     $snapshot->setValue(null, null);
     check(
-        $gate->invoke(null, $evidenceRepo, 'init') === false,
+        $gate->invoke(null, $evidenceRepo, 'init') === null,
         'init records nothing when it never snapshotted a repository identity'
     );
     check(
-        $gate->invoke(null, $evidenceRepo, 'capture') === true,
+        is_array($gate->invoke(null, $evidenceRepo, 'capture')),
         'while every other command still records into the same WPrism repository'
     );
 
     $snapshot->setValue(null, $identityOf->invoke(null, $evidenceRepo));
     (new ReflectionProperty(\WPrism\Cli::class, 'initRepositoryWasWPrismAtEntry'))->setValue(null, true);
     check(
-        $gate->invoke(null, $evidenceRepo, 'init') === true,
+        is_array($gate->invoke(null, $evidenceRepo, 'init')),
         'init records while the directory it started against is still the one at that path'
     );
 
@@ -963,8 +1533,10 @@ namespace {
     );
     \WPrism\Init::$failure = null;
     foreach (glob($freshRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($freshRepo . '/.wprism/refusals'); @rmdir($freshRepo . '/.wprism');
-    @unlink($freshRepo . '/site.wprism.json'); @rmdir($freshRepo);
+    @rmdir($freshRepo . '/.wprism/refusals');
+    @rmdir($freshRepo . '/.wprism');
+    @unlink($freshRepo . '/site.wprism.json');
+    @rmdir($freshRepo);
 
     // The live case: same path, different inode.
     $swapped = sys_get_temp_dir() . '/wprism-cli-json-refusal-swapped-' . bin2hex(random_bytes(6));
@@ -976,20 +1548,54 @@ namespace {
     mkdir($swapped, 0700, true);
     file_put_contents($swapped . '/site.wprism.json', "{}\n");
     check(
-        $gate->invoke(null, $swapped, 'init') === false,
+        $gate->invoke(null, $swapped, 'init') === null,
         'and refuses once that path names a different directory, even one that is itself a WPrism repository'
     );
     $snapshot->setValue(null, null);
-    @unlink($swapped . '/site.wprism.json'); @rmdir($swapped);
-    @unlink($reviewed . '/site.wprism.json'); @rmdir($reviewed);
+    @unlink($swapped . '/site.wprism.json');
+    @rmdir($swapped);
+    @unlink($reviewed . '/site.wprism.json');
+    @rmdir($reviewed);
 
     foreach (glob($evidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($evidenceRepo . '/.wprism/refusals'); @rmdir($evidenceRepo . '/.wprism');
-    @unlink($evidenceRepo . '/site.wprism.json'); @rmdir($evidenceRepo);
+    @rmdir($evidenceRepo . '/.wprism/refusals');
+    @rmdir($evidenceRepo . '/.wprism');
+    @unlink($evidenceRepo . '/site.wprism.json');
+    @rmdir($evidenceRepo);
+    @unlink($leafOutside);
+    foreach (glob($providerEvidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($providerEvidenceRepo . '/.wprism/refusals');
+    @rmdir($providerEvidenceRepo . '/.wprism');
+    @unlink($providerEvidenceRepo . '/site.wprism.json');
+    @rmdir($providerEvidenceRepo);
+    foreach (glob($typedEvidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($typedEvidenceRepo . '/.wprism/refusals');
+    @rmdir($typedEvidenceRepo . '/.wprism');
+    @unlink($typedEvidenceRepo . '/site.wprism.json');
+    @rmdir($typedEvidenceRepo);
     foreach (glob($checkpointRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($checkpointRepo . '/.wprism/refusals'); @rmdir($checkpointRepo . '/.wprism/checkpoints');
-    @rmdir($checkpointRepo . '/.wprism'); @rmdir($checkpointRepo);
-    @unlink($linkPath); @unlink($linkTarget . '/site.wprism.json'); @rmdir($linkTarget);
+    @rmdir($checkpointRepo . '/.wprism/refusals');
+    @rmdir($checkpointRepo . '/.wprism/checkpoints');
+    @rmdir($checkpointRepo . '/.wprism');
+    @rmdir($checkpointRepo);
+    foreach ([$adoptedModeRepo, $stickyModeRepo, $writableModeRepo] as $modeRepo) {
+        foreach (glob($modeRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+        if (is_dir($modeRepo . '/.wprism/refusals')) rmdir($modeRepo . '/.wprism/refusals');
+        @rmdir($modeRepo . '/.wprism/control');
+        @rmdir($modeRepo . '/.wprism');
+        @rmdir($modeRepo);
+    }
+    @unlink($linkPath);
+    @unlink($linkTarget . '/site.wprism.json');
+    @rmdir($linkTarget);
+    @unlink($controlLinkRepo . '/.wprism');
+    @unlink($controlLinkRepo . '/site.wprism.json');
+    @rmdir($controlLinkRepo);
+    @rmdir($controlLinkOutside);
+    @unlink($refusalLinkRepo . '/.wprism/refusals');
+    @rmdir($refusalLinkRepo . '/.wprism');
+    @rmdir($refusalLinkRepo);
+    @rmdir($refusalLinkOutside);
 
     echo "\n== issue #3397: refresh-export and scope answer machines with the same envelope ==\n";
     $productLeakShapes = [
@@ -1176,10 +1782,16 @@ namespace {
     // 32 with WP-2.5's `adapter-deletion-feasibility`, which answers
     // DeleteGuardEvaluator::lock_index() for a PROPOSED deletion selector's
     // guards at authoring time; 33 with the asynchronous `lifecycle-settle`
-    // completion gate.
+    // completion gate; 34 with the pre-observation `schema-settle` gate; 37
+    // after lifecycle/schema status and the value-free `checkpoint-target`
+    // identity preflight closed the host-owned provider-settlement sequence;
+    // 38 with the isolated `code-baseline-accept` host phase.
+    // Checkpoint authentication and opening are intentionally absent: recovery
+    // performs them before WordPress loads, so public WP commands would be a
+    // second authority over the destructive restore boundary.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 33, 'every one of the 33 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 38, 'every one of the 38 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -1187,7 +1799,7 @@ namespace {
     // regression this closes.
     $armed = new ReflectionMethod(\WPrism\Cli::class, 'refusal_remediation');
     foreach ([
-        'code-preflight', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
+        'code-preflight', 'code-baseline-accept', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
         'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
         'journal-report', 'effect-coverage', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
     ] as $command) {

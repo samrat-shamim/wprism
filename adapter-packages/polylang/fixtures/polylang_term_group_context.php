@@ -25,143 +25,7 @@ require_once $root . '/agent/src/Apply/ApplyFieldMaterializer.php';
 require_once $root . '/agent/src/Apply/TermMaterializer.php';
 require_once $root . '/agent/src/Repository/RepositorySchemaValidator.php';
 
-/**
- * The shared row store intentionally does not invent information_schema or
- * transaction-variable answers. This narrow proxy supplies the exact server
- * facts the production owner-range lock now requires while delegating every
- * data read/write to that shared store.
- */
-final class PolylangTermGroupWpdb {
-    public string $prefix;
-    public string $base_prefix;
-    public string $terms;
-    public string $term_taxonomy;
-    public string $termmeta;
-    public string $options;
-    public string $last_error = '';
-    public int $insert_id = 0;
-    public int $rows_affected = 0;
-    private bool $activeTransaction = false;
-    private bool $nextRepeatableRead = false;
-    private bool $savepointExists = false;
-
-    public function __construct(private readonly \WPrismTest\FakeWpdb $inner) {
-        foreach (['prefix', 'base_prefix', 'terms', 'term_taxonomy', 'termmeta', 'options'] as $property) {
-            $this->$property = $inner->$property;
-        }
-    }
-
-    public function __get(string $name): mixed { return $this->inner->$name; }
-
-    public function __call(string $name, array $arguments): mixed {
-        $this->syncIn();
-        $result = $this->inner->$name(...$arguments);
-        $this->syncOut();
-        return $result === $this->inner ? $this : $result;
-    }
-
-    public function get_var(string $sql, int $x = 0, int $y = 0): mixed {
-        $this->last_error = '';
-        if ($sql === 'SELECT @@in_transaction') {
-            return $this->activeTransaction ? '1' : '0';
-        }
-        if ($sql === 'SELECT @@transaction_isolation') {
-            return 'REPEATABLE-READ';
-        }
-        return $this->forward('get_var', [$this->stripLockSyntax($sql), $x, $y]);
-    }
-
-    public function get_results(string $sql, string $output = OBJECT): mixed {
-        $this->last_error = '';
-        if (str_contains($sql, 'information_schema.TABLES')) {
-            return [
-                ['TABLE_NAME' => $this->options, 'ENGINE' => 'InnoDB'],
-                ['TABLE_NAME' => $this->termmeta, 'ENGINE' => 'InnoDB'],
-            ];
-        }
-        if ($sql === "SHOW INDEX FROM `{$this->termmeta}`") {
-            return [[
-                'Key_name' => 'term_id',
-                'Seq_in_index' => '1',
-                'Column_name' => 'term_id',
-                'Sub_part' => null,
-                'Non_unique' => '1',
-                'Index_type' => 'BTREE',
-            ]];
-        }
-        if ($sql === "SHOW INDEX FROM `{$this->options}`") {
-            return [[
-                'Key_name' => 'option_name',
-                'Seq_in_index' => '1',
-                'Column_name' => 'option_name',
-                'Sub_part' => null,
-                'Non_unique' => '0',
-                'Index_type' => 'BTREE',
-            ]];
-        }
-        return $this->forward('get_results', [$this->stripLockSyntax($sql), $output]);
-    }
-
-    public function get_row(string $sql, string $output = OBJECT, int $y = 0): mixed {
-        return $this->forward('get_row', [$this->stripLockSyntax($sql), $output, $y]);
-    }
-
-    public function get_col(string $sql, int $x = 0): mixed {
-        return $this->forward('get_col', [$this->stripLockSyntax($sql), $x]);
-    }
-
-    public function query(string $sql): mixed {
-        if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
-            if ($this->activeTransaction) return false;
-            $this->nextRepeatableRead = true;
-            return 1;
-        }
-        if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
-            if (!$this->activeTransaction) return false;
-            $this->savepointExists = true;
-            return 1;
-        }
-        if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
-            if (!$this->activeTransaction || !$this->savepointExists) return false;
-            $this->savepointExists = false;
-            return 1;
-        }
-        $result = $this->forward('query', [$sql]);
-        if ($result !== false) {
-            if (in_array(strtoupper(trim($sql)), ['START TRANSACTION', 'BEGIN'], true)) {
-                if (!$this->nextRepeatableRead) return false;
-                $this->nextRepeatableRead = false;
-                $this->activeTransaction = true;
-            } elseif (in_array(strtoupper(trim($sql)), ['COMMIT', 'ROLLBACK'], true)) {
-                $this->activeTransaction = false;
-                $this->savepointExists = false;
-            }
-        }
-        return $result;
-    }
-
-    private function forward(string $method, array $arguments): mixed {
-        $this->syncIn();
-        $result = $this->inner->$method(...$arguments);
-        $this->syncOut();
-        return $result;
-    }
-
-    private function syncIn(): void { $this->inner->last_error = $this->last_error; }
-
-    private function syncOut(): void {
-        $this->last_error = $this->inner->last_error;
-        $this->insert_id = $this->inner->insert_id;
-        $this->rows_affected = $this->inner->rows_affected;
-    }
-
-    private function stripLockSyntax(string $sql): string {
-        $sql = (string) preg_replace('/ FORCE INDEX \(`[^`]+`\)/', '', $sql);
-        return (string) preg_replace('/ FOR UPDATE\s*$/D', '', $sql);
-    }
-}
-
-$wpdb = new PolylangTermGroupWpdb(new \WPrismTest\FakeWpdb());
+$wpdb = new \WPrismTest\FakeWpdb();
 $GLOBALS['wpdb'] = $wpdb;
 $wpdb->setColumns('termmeta', [
     'meta_id' => 'bigint unsigned',
@@ -170,6 +34,14 @@ $wpdb->setColumns('termmeta', [
     'meta_value' => 'longtext',
 ]);
 $wpdb->seedTable('termmeta', []);
+$wpdb->setIndexes('termmeta', [[
+    'Key_name' => 'term_id',
+    'Seq_in_index' => 1,
+    'Column_name' => 'term_id',
+    'Sub_part' => null,
+    'Non_unique' => 1,
+    'Index_type' => 'BTREE',
+]]);
 $wpdb->setColumns('options', [
     'option_id' => 'bigint unsigned',
     'option_name' => 'varchar(191)',
@@ -178,6 +50,14 @@ $wpdb->setColumns('options', [
 ]);
 $wpdb->seedTable('options', []);
 $wpdb->setUniqueKey('options', ['option_name']);
+$wpdb->setIndexes('options', [[
+    'Key_name' => 'option_name',
+    'Seq_in_index' => 1,
+    'Column_name' => 'option_name',
+    'Sub_part' => null,
+    'Non_unique' => 0,
+    'Index_type' => 'BTREE',
+]]);
 
 $policy = \WPrism\Policy::load(
     null,
@@ -316,13 +196,29 @@ $wpdb->seedTable('term_taxonomy', [[
     'parent' => 0,
     'count' => 0,
 ]]);
+foreach ([
+    $wpdb->terms,
+    $wpdb->term_taxonomy,
+    $wpdb->termmeta,
+    $wpdb->options,
+    $wpdb->prefix . 'wprism_map',
+] as $table) {
+    $wpdb->setTableEngine($table, 'InnoDB');
+}
+$wpdb->enableInformationSchema();
 $fieldMaterializer = new \WPrism\ApplyFieldMaterializer($policy, $tokens);
 $materializer = new \WPrism\TermMaterializer(
     $policy,
     $tokens,
     $fieldMaterializer
 );
-\WPrism\Db::start_repeatable_read('Polylang term fixture transaction start');
+\WPrism\Db::start_repeatable_read(
+    'Polylang term fixture transaction start',
+    new \WPrism\NativeDatabaseProfile(
+        [$wpdb->prefix . 'wprism_map'],
+        [$wpdb->terms, $wpdb->term_taxonomy, $wpdb->termmeta]
+    )
+);
 $fieldMaterializer->begin_authored_transaction();
 $materializer->begin_authored_transaction();
 \WPrism\CacheInvalidationTransaction::begin();

@@ -12,6 +12,7 @@
     "code_snippets_settings mixes portable editor preferences with version-switch controls and enable_flat_files, so the whole settings row stays environment-owned. Provider code-snippets-state clears every plugin-defined cache key for the exact site table, replaces only that table's hashed flat-file directory, delegates reconstruction to the plugin's public Snippet_Files API, and verifies database, fresh plugin API, enabled flag, code-file, and index agreement before returning count/hash-only evidence. The provider refuses multisite and residual active_shared_network_snippets state rather than touching a second identity domain."
   ],
   "options": {
+    "active_shared_network_snippets": {"class": "env", "required": false},
     "code_snippets_settings": {"class": "env", "required": false},
     "code_snippets_version": {"class": "runtime"}
   },
@@ -49,7 +50,7 @@
       "contracts": {
         "rebuild_snippet_state": {
           "args": {},
-          "reads": ["table:snippets", "option:code_snippets_settings"],
+          "reads": ["table:snippets", "option:code_snippets_settings", "option:active_shared_network_snippets"],
           "writes": ["entity:code-snippets-cache", "entity:code-snippets-flat-files"],
           "scope": "site",
           "idempotent": true,

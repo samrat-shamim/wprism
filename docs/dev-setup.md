@@ -221,7 +221,7 @@ first-party source file that ships inside `agent/`, and **every existing
 `require_once` stays** (owner ruling D4). The fallback is additive — an
 autoloader is only consulted for a class that is *still undeclared* when it is
 referenced — so on the production path it resolves nothing at all. Measured:
-after `agent/wprism.php` finishes, 276 of the map's 281 names are already
+after `agent/wprism.php` finishes, 292 of the map's 297 names are already
 declared, and the five exceptions (`WPrism\AdapterCertification` and its four
 withdrawal/supersession signals —
 `WPrism\SupersededSiteAdapterCertificate`,

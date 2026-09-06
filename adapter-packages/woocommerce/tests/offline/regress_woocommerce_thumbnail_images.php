@@ -17,7 +17,6 @@ require_once $root . '/agent/src/Kernel/PlainData.php';
 require_once $root . '/agent/src/Kernel/Db.php';
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Apply/ApplyFieldMaterializer.php';
-require_once $root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php';
 
 use WPrism\ApplyFieldMaterializer;
 use WPrism\Policy;
@@ -595,7 +594,10 @@ wprism_check_same([], woo_thumbnail_repository_diagnostics($interpreter, $record
     'the repository admits the exact 500-pixel custom-square authored projection');
 
 $materializer = (new ReflectionClass(ApplyFieldMaterializer::class))->newInstanceWithoutConstructor();
-\WPrism\Db::start_repeatable_read('WooCommerce thumbnail fixture transaction');
+\WPrism\Db::start_repeatable_read(
+    'WooCommerce thumbnail fixture transaction',
+    new \WPrism\NativeDatabaseProfile([], [$wpdb->options])
+);
 $materializer->begin_authored_transaction();
 \WPrism\CacheInvalidationTransaction::begin();
 foreach ($desired as $name => $value) {

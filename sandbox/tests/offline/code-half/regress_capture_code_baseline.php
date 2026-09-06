@@ -1,58 +1,31 @@
 <?php
 /**
- * Offline regression — issue #3507: `wprism capture` OBSERVES the code-version
- * baseline, it never accepts one.
+ * Offline product proof for exact code-baseline observation and publication.
  *
- * The defect this pins: CapturePublicationWorkflow called
- * Deploy::record_code_versions() unconditionally inside the capture
- * transaction, and that writer overwrites wprism_kv['code_versions'] with no
- * drift check (LifecyclePlanner.php:record_code_versions). code_drift()
- * reads exactly that key, so a plain capture across an out-of-band plugin
- * change erased the finding from every later `wprism status`/`wprism plan` — with
- * no consent gate and no output at all, while deploy reaches the identical
- * writer only after refusing (Deploy.php:203-210) or being forced past it
- * with --force-code-drift, warning once per overridden row
- * (Deploy.php:221-224), and the drift row's own remedy text names 'wprism
- * deploy' as the accept path and never names capture.
- *
- * So this file asserts both halves and their asymmetry:
- *   1. LifecyclePlanner::observe_code_versions() writes when there is
- *      nothing to accept (no baseline yet, or zero drift) and leaves the
- *      recorded blob BYTE-identical when there is, handing the rows back.
- *   2. record_code_versions() still clobbers across drift — deploy's
- *      unconditional re-baseline must stay unconditional, so a shared skip
- *      would have been the wrong fix.
- *   3. The capture call site takes (1), not (2), and reports every row.
- *
- * Real Ledger over the shared FakeWpdb, so "byte-identical" is asserted
- * against the value that actually round-trips through wprism_kv rather than
- * against a hand-held copy.
+ * The baseline is an authority record, not a WordPress cache projection: all
+ * writers must lock the raw lifecycle rows and ledger keys in one proven
+ * transaction, sample headers directly, and roll back both baseline and
+ * receipt when the final sample changes.
  */
 declare(strict_types=1);
 
 namespace {
-    /** wp_get_theme()'s WP_Theme, narrowed to the one field the planner reads. */
-    final class WPrismCaptureBaselineTheme {
-        public function __construct(private string $slug) {}
-        public function get(string $field): string {
-            if ($field !== 'Version') {
-                return '';
-            }
-            return (string) ($GLOBALS['wprism_capture_baseline_themes'][$this->slug] ?? '');
+    final class WPrismCodeBaselineWakeupBomb {
+        public function __wakeup(): void {
+            ++$GLOBALS['wprism_code_baseline_wakeups'];
         }
     }
 
-    // The live plugin/theme surfaces sandbox/tests/lib/wp_stubs.php
-    // deliberately does not model (it owns options, not wp-admin's plugin
-    // API). Same shape regress_template_mismatch.php uses, and defining
-    // validate_plugin() is what keeps Deploy::require_plugin_admin_functions()
-    // from require'ing ABSPATH . 'wp-admin/includes/plugin.php'.
-    $GLOBALS['wprism_capture_baseline_plugins'] = [];
-    $GLOBALS['wprism_capture_baseline_themes'] = [];
-
-    function get_plugins(): array { return $GLOBALS['wprism_capture_baseline_plugins']; }
-    function validate_plugin(string $plugin) { return null; }
-    function wp_get_theme(string $slug): WPrismCaptureBaselineTheme { return new WPrismCaptureBaselineTheme($slug); }
+    // These deliberately fail if the product regresses to cached/admin APIs.
+    function get_plugins(): array {
+        throw new \RuntimeException('get_plugins cache API must not author a code baseline');
+    }
+    function get_file_data(): array {
+        throw new \RuntimeException('get_file_data cache API must not author a code baseline');
+    }
+    function wp_get_theme(): object {
+        throw new \RuntimeException('wp_get_theme cache API must not author a code baseline');
+    }
 }
 
 namespace WPrism {
@@ -62,193 +35,522 @@ namespace WPrism {
     require_once __DIR__ . '/../../lib/check.php';
     require_once __DIR__ . '/../../lib/wp_stubs.php';
     require_once __DIR__ . '/../../lib/FakeWpdb.php';
+    // Select one complete runtime tree for counterfactual execution; mixing
+    // two physical dependency roots would redeclare the same Kernel classes.
+    $runtimeRoot = $argv[1] ?? dirname(__DIR__, 4);
+    require_once $runtimeRoot . '/agent/src/Promotion/CodeBaselineAcceptance.php';
+    require_once $runtimeRoot . '/agent/src/Promotion/CodeBaselineCapture.php';
+    require_once $runtimeRoot . '/agent/src/Promotion/CodeBaselinePublication.php';
 
-    // The publication workflow is the call site under test; requiring it
-    // also loads Deploy/LifecyclePlanner/Ledger/Policy through the same
-    // require_once chain a real load takes, so nothing here is reachable
-    // that agent/wprism.php would not also reach.
-    require_once __DIR__ . '/../../../../agent/src/Capture/CapturePublicationWorkflow.php';
+    $pluginSlug = 'wprism-baseline-' . getmypid();
+    $plugin = $pluginSlug . '/plugin.php';
+    $theme = 'wprism-theme-' . getmypid();
+    $pluginPath = rtrim(WP_PLUGIN_DIR, '/\\') . '/' . $plugin;
+    $themePath = rtrim(WP_CONTENT_DIR, '/\\') . '/themes/' . $theme . '/style.css';
+    $extraThemeRoot = sys_get_temp_dir() . '/wprism-baseline-extra-' . getmypid();
+    $desired = [
+        'active_plugins' => [$plugin],
+        'stylesheet' => $theme,
+        'template' => $theme,
+    ];
 
-    $workflowSource = file_get_contents(__DIR__ . '/../../../../agent/src/Capture/CapturePublicationWorkflow.php');
-    wprism_check(is_string($workflowSource), 'CapturePublicationWorkflow.php is readable');
-    $workflowSource = (string) $workflowSource;
-
-    // Neither code_drift() nor record_code_versions() reads $policy — both
-    // take it only to keep every planner entry point one shape (verified by
-    // reading the bodies, not assumed). An unconstructed instance is
-    // therefore the honest fixture: a frozen envelope would assert the
-    // envelope, not this behaviour.
-    $policy = (new \ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
-
-    /**
-     * One environment: which plugins are active, what versions are installed
-     * on disk, and which themes are live. Returns the fake $wpdb so the
-     * caller can read wprism_kv rows straight out of the store.
-     */
-    $environment = static function (array $active, array $installed, array $themes, array $themeVersions): FakeWpdb {
-        WpStore::reset()->seedOptions([
-            'active_plugins' => $active,
-            'stylesheet' => $themes['stylesheet'] ?? '',
-            'template' => $themes['template'] ?? '',
+    $writePlugin = static function (string $version, bool $name = true) use ($pluginPath): void {
+        if (!is_dir(dirname($pluginPath))) {
+            mkdir(dirname($pluginPath), 0777, true);
+        }
+        $header = "<?php\n";
+        if ($name) {
+            $header .= "/*\nPlugin Name: WPrism Baseline Fixture\n";
+        } else {
+            $header .= "/*\n";
+        }
+        if ($version !== '') {
+            $header .= "Version: $version\n";
+        }
+        file_put_contents($pluginPath, $header . "*/\n");
+        clearstatcache(true, $pluginPath);
+    };
+    $writeTheme = static function (string $version, ?string $root = null) use ($theme, $themePath): string {
+        $path = $root === null
+            ? $themePath
+            : rtrim($root, '/\\') . '/' . $theme . '/style.css';
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0777, true);
+        }
+        file_put_contents($path, "/*\nTheme Name: WPrism Baseline Theme\nVersion: $version\n*/\n");
+        clearstatcache(true, $path);
+        return $path;
+    };
+    $baseline = static function (string $pluginVersion, string $themeVersion) use ($plugin, $theme): string {
+        return (string) wp_json_encode([
+            'plugins' => [$plugin => $pluginVersion],
+            'stylesheet' => $theme,
+            'stylesheet_version' => $themeVersion,
+            'template' => $theme,
+            'template_version' => $themeVersion,
         ]);
-        $GLOBALS['wprism_capture_baseline_plugins'] = array_map(
-            static fn(string $version): array => ['Version' => $version],
-            $installed
-        );
-        $GLOBALS['wprism_capture_baseline_themes'] = $themeVersions;
+    };
+    $index = static fn(string $name, string $column): array => [[
+        'Key_name' => $name,
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => $column,
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+        'Visible' => 'YES',
+        'Ignored' => 'NO',
+    ]];
+
+    /** @return FakeWpdb */
+    $environment = static function (
+        string $installed = '1.7.2',
+        string $themeVersion = '2.0',
+        ?string $recorded = null,
+        ?string $receipt = null,
+        ?string $activeRaw = null,
+        bool $withTemplate = true,
+        string $optionsEngine = 'InnoDB',
+        bool $withOptionIndex = true,
+        bool $withLedger = true
+    ) use ($plugin, $theme, $writePlugin, $writeTheme, $index): FakeWpdb {
+        try {
+            ProcessFence::release();
+        } catch (\Throwable) {
+            // The previous fixture may not have installed a database yet.
+        }
+        Db::forget_transaction_tracking();
+        $writePlugin($installed);
+        $writeTheme($themeVersion);
+        $GLOBALS['wp_theme_directories'] = [];
+        $GLOBALS['wprism_code_baseline_wakeups'] = 0;
+        WpStore::reset()->seedOptions([
+            // Contradictory cache values prove the product reads raw SQL.
+            'active_plugins' => ['cache/cache.php'],
+            'stylesheet' => 'cache-theme',
+            'template' => 'cache-theme',
+        ]);
+
+        $optionRows = [
+            [
+                'option_id' => 1,
+                'option_name' => 'active_plugins',
+                'option_value' => $activeRaw ?? serialize([$plugin]),
+                'autoload' => 'yes',
+            ],
+            ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => $theme, 'autoload' => 'yes'],
+        ];
+        if ($withTemplate) {
+            $optionRows[] = ['option_id' => 3, 'option_name' => 'template', 'option_value' => $theme, 'autoload' => 'yes'];
+        }
+        $kvRows = [];
+        if ($receipt !== null) {
+            $kvRows[] = ['k' => CodeBaselineTransaction::RECEIPT_KEY, 'v' => $receipt];
+        }
+        if ($recorded !== null) {
+            $kvRows[] = ['k' => CodeBaselineTransaction::BASELINE_KEY, 'v' => $recorded];
+        }
+
         $wpdb = FakeWpdb::install();
-        // wprism_kv is (k, v) with k unique — Ledger::kv_set() is an INSERT ...
-        // ON DUPLICATE KEY UPDATE, which FakeWpdb refuses to interpret
-        // without the declared unique key.
-        $wpdb->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
-        $wpdb->setUniqueKey('wp_wprism_kv', ['k']);
+        $wpdb->setColumns('wp_options', [
+            'option_id' => 'bigint unsigned',
+            'option_name' => 'varchar(191)',
+            'option_value' => 'longtext',
+            'autoload' => 'varchar(20)',
+        ])->seedTable('wp_options', $optionRows)
+            ->setPrimaryKey('wp_options', 'option_id')
+            ->setUniqueKey('wp_options', ['option_name'])
+            ->setIndexes('wp_options', $withOptionIndex ? $index('option_name', 'option_name') : [])
+            ->setTableEngine('wp_options', $optionsEngine);
+        if ($withLedger) {
+            $wpdb->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+                ->seedTable('wp_wprism_kv', $kvRows)
+                ->setUniqueKey('wp_wprism_kv', ['k'])
+                ->setIndexes('wp_wprism_kv', $index('PRIMARY', 'k'))
+                ->setTableEngine('wp_wprism_kv', 'InnoDB');
+        }
+        $wpdb->enableInformationSchema();
+        ProcessFence::acquire();
         return $wpdb;
     };
 
-    // The key is private to the planner; read it rather than re-spelling it,
-    // so a rename cannot leave this suite green against the wrong row.
-    $codeVersionsKey = (string) (new \ReflectionClass(LifecyclePlanner::class))->getConstant('CODE_VERSIONS_KEY');
-    wprism_check_same('code_versions', $codeVersionsKey, 'the baseline still lives in wprism_kv under code_versions');
-    $recorded = static fn(): ?string => Ledger::kv_get($codeVersionsKey);
+    $kv = static function (FakeWpdb $wpdb, string $key): ?string {
+        foreach ($wpdb->rows('wp_wprism_kv') as $row) {
+            if (($row['k'] ?? null) === $key) {
+                return is_string($row['v'] ?? null) ? $row['v'] : null;
+            }
+        }
+        return null;
+    };
+    $failure = static function (callable $operation): ?\Throwable {
+        try {
+            $operation();
+        } catch (\Throwable $caught) {
+            return $caught;
+        }
+        return null;
+    };
+    $capture = static function () use ($desired): array {
+        $open = false;
+        try {
+            global $wpdb;
+            $ledgerTable = $wpdb->prefix . 'wprism_kv';
+            Db::start_repeatable_read(
+                'baseline regression capture start',
+                new NativeDatabaseProfile([$wpdb->options, $ledgerTable], [$ledgerTable])
+            );
+            $open = true;
+            $rows = CodeBaselineCapture::observe_or_publish($desired);
+            Db::commit('baseline regression capture commit');
+            $open = false;
+            return $rows;
+        } catch (\Throwable $caught) {
+            if ($open) {
+                Db::rollback_after_failure($caught, 'baseline regression capture rollback');
+            }
+            throw $caught;
+        }
+    };
 
-    // === 1. No baseline yet: nothing to accept, so capture records one. ===
-    $environment(['hello/hello.php'], ['hello/hello.php' => '1.7.2'], ['stylesheet' => 'twentytwo', 'template' => 'twentytwo'], ['twentytwo' => '2.0']);
-    wprism_check_same(null, $recorded(), 'fixture starts with no recorded code_versions at all');
-    wprism_check_same([], LifecyclePlanner::observe_code_versions($policy), 'a first capture has nothing to accept, so it reports nothing');
-    $first = (string) $recorded();
-    wprism_check_json_equal(
-        ['plugins' => ['hello/hello.php' => '1.7.2'], 'stylesheet' => 'twentytwo', 'stylesheet_version' => '2.0', 'template' => 'twentytwo', 'template_version' => '2.0'],
-        json_decode($first, true),
-        'a first capture writes the live versions as the baseline'
-    );
+    $policy = new Policy();
+    $compiled = CompiledRepository::create([
+        'tree' => ['options/core' => [
+            'data' => OptionState::document([
+                'active_plugins' => OptionState::present([$plugin], 'yes'),
+                'stylesheet' => OptionState::present($theme, 'yes'),
+                'template' => OptionState::present($theme, 'yes'),
+            ]),
+        ]],
+    ]);
 
-    // === 2. Baseline == live: still nothing to accept, still writes. ===
-    wprism_check_same([], LifecyclePlanner::observe_code_versions($policy), 'zero drift reports nothing');
-    wprism_check_same($first, (string) $recorded(), 'zero drift leaves the same recorded bytes');
-
-    // === 3. Drift: the finding is returned and the blob is NOT moved. ===
-    // The out-of-band change is on the installed side (a wp-admin/host
-    // auto-update), which is the real-world shape; the recorded baseline
-    // below is whatever the capture in case 1 wrote.
-    $GLOBALS['wprism_capture_baseline_plugins']['hello/hello.php'] = ['Version' => '1.7.3'];
-    $drift = LifecyclePlanner::observe_code_versions($policy);
-    wprism_check_same(1, count($drift), 'an unaccepted plugin drift is reported as exactly one row');
-    wprism_check_same('code_drift', $drift[0]['issue'] ?? null, 'the returned row is a code_drift finding');
-    wprism_check_same('hello/hello.php', $drift[0]['plugin'] ?? null, 'the row names the drifted plugin');
-    wprism_check_same('1.7.3', $drift[0]['installed_version'] ?? null, 'the row names the installed version');
-    wprism_check_same('1.7.2', $drift[0]['recorded_version'] ?? null, 'the row names the recorded version');
-    wprism_check_same($first, (string) $recorded(), 'issue #3507: capture across an unaccepted drift leaves wprism_kv[code_versions] byte-identical');
-
-    // The finding therefore survives to the next `wprism status`/`wprism plan`,
-    // which is the whole point: before this fix the second observation
-    // found nothing left to report.
+    // A virgin deploy asks for lifecycle status before any writer provisions
+    // the ledger. Absence of the whole store is explicit evidence of an absent
+    // baseline, not permission to query a table that is not there.
+    $wpdb = $environment(withLedger: false);
+    $wpdb->resetLog();
+    $virginStatus = LifecyclePlanner::deployment_status($policy, $compiled);
+    wprism_check_same('wprism-lifecycle-status/v2', $virginStatus['format'] ?? null, 'virgin target emits the reviewed lifecycle-status wire');
+    wprism_check_same('absent', $virginStatus['baseline_state'] ?? null, 'virgin lifecycle status reports an explicitly absent baseline');
+    wprism_check_same([], $virginStatus['code_drift'] ?? null, 'virgin lifecycle status reports no recorded drift');
+    $virginQueries = $wpdb->queries();
     wprism_check_same(
         1,
-        count(LifecyclePlanner::code_drift($policy, ['active_plugins' => ['hello/hello.php']])),
-        'the drift is still visible to a later code_drift() read'
+        count(array_filter(
+            $virginQueries,
+            static fn(string $sql): bool => $sql === 'SELECT 1 FROM `wp_wprism_kv` LIMIT 0'
+        )),
+        'virgin lifecycle observation probes the exact ledger-table identity once'
+    );
+    wprism_check(
+        !array_filter($virginQueries, static fn(string $sql): bool => str_contains($sql, 'SELECT k, v FROM wp_wprism_kv')),
+        'virgin lifecycle status never reads rows from the absent ledger table'
+    );
+    wprism_check(
+        (bool) array_filter($virginQueries, static fn(string $sql): bool => $sql === 'SELECT 1 FROM `wp_wprism_kv` LIMIT 0')
+            && (bool) array_filter($virginQueries, static fn(string $sql): bool => $sql === 'SHOW WARNINGS'),
+        'virgin lifecycle status accepts absence only from the exact 1146 server diagnostic'
+    );
+    wprism_check_same([], $wpdb->ddlLog(), 'virgin lifecycle observation provisions or repairs no schema');
+
+    $wpdb = $environment(withLedger: false);
+    $wpdb->failNextQuery('simulated ledger presence failure', 'SELECT 1 FROM `wp_wprism_kv`', 1);
+    $presenceFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $presenceFailure instanceof \RuntimeException
+            && str_contains($presenceFailure->getMessage(), 'key/value table presence lookup'),
+        'an unreadable ledger-presence fact is refused rather than reported as absent'
     );
 
-    // === 4. Deploy's writer is untouched: it still clobbers across drift. ===
-    // This is the asymmetry the fix depends on. `wprism deploy
-    // --force-code-drift` re-baselines unconditionally at Deploy.php:472,
-    // after its own refuse-or-force gate, so a shared skip inside
-    // record_code_versions() would have silently broken that accept path.
-    LifecyclePlanner::record_code_versions($policy);
-    wprism_check_same(
-        '1.7.3',
-        json_decode((string) $recorded(), true)['plugins']['hello/hello.php'] ?? null,
-        'record_code_versions() still overwrites across drift — deploy keeps its unconditional re-baseline'
+    $wpdb = $environment();
+    $wpdb->failNextQuery('SELECT command denied', 'SELECT 1 FROM `wp_wprism_kv`', 1);
+    $restrictedFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $restrictedFailure instanceof \RuntimeException
+            && str_contains($restrictedFailure->getMessage(), 'key/value table presence lookup'),
+        'an unreadable existing ledger is refused rather than reported as absent'
     );
-    wprism_check_same([], LifecyclePlanner::code_drift($policy, ['active_plugins' => ['hello/hello.php']]), 'that re-baseline clears the finding, exactly as a forced deploy must');
 
-    // === 5. Theme drift freezes the baseline the same way. ===
-    $environment(
-        ['hello/hello.php'],
-        ['hello/hello.php' => '1.7.2'],
-        ['stylesheet' => 'child', 'template' => 'parent'],
-        ['child' => '1.0', 'parent' => '1.0']
+    $wpdb = $environment();
+    $wpdb->setTemporaryTableEngine('wp_wprism_kv', 'InnoDB');
+    $shadowFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $shadowFailure instanceof \RuntimeException
+            && str_contains($shadowFailure->getMessage(), 'key/value table presence lookup'),
+        'a session-local table shadow cannot borrow the physical ledger identity'
     );
-    wprism_check_same([], LifecyclePlanner::observe_code_versions($policy), 'theme fixture starts clean');
-    $themeBaseline = (string) $recorded();
-    $GLOBALS['wprism_capture_baseline_themes']['child'] = '1.1';
-    $themeDrift = LifecyclePlanner::observe_code_versions($policy);
-    wprism_check_same(1, count($themeDrift), 'an unaccepted theme drift is reported too');
-    wprism_check_same('theme', $themeDrift[0]['kind'] ?? null, 'the theme row is typed as a theme finding');
-    wprism_check_same('child', $themeDrift[0]['theme'] ?? null, 'the theme row names the drifted stylesheet');
-    wprism_check_same($themeBaseline, (string) $recorded(), 'a theme drift freezes the recorded blob as well');
 
-    // === 6. The freeze is not sticky: restoring the recorded version writes again. ===
-    // "restore $baseline" is one of the two remedies the row's own message
-    // names, so it has to actually work without a deploy.
-    $GLOBALS['wprism_capture_baseline_themes']['child'] = '1.0';
-    wprism_check_same([], LifecyclePlanner::observe_code_versions($policy), 'restoring the recorded version clears the finding');
-    wprism_check_same($themeBaseline, (string) $recorded(), 'and the next capture records the restored state');
+    $wpdb = $environment();
+    $wpdb->failNextQuery('simulated ledger resolution race', 'SHOW CREATE TABLE', 1);
+    $resolutionFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $resolutionFailure instanceof \RuntimeException
+            && str_contains($resolutionFailure->getMessage(), 'key/value table presence lookup'),
+        'a ledger that becomes unreadable between census and session resolution is refused'
+    );
 
-    // === 7. A plugin missing from an existing baseline blocks capture's
-    // observer from silently minting the first out-of-band activation. ===
-    WpStore::reset()->seedOptions([
-        'active_plugins' => ['hello/hello.php', 'newly/activated.php'],
-        'stylesheet' => 'child',
-        'template' => 'parent',
+    $wpdb = $environment();
+    $wpdb->failNextQuery('simulated ledger row failure', 'SELECT k, v FROM', 1);
+    $rowFailure = $failure(static fn() => LifecyclePlanner::deployment_status($policy, $compiled));
+    wprism_check(
+        $rowFailure instanceof \RuntimeException
+            && str_contains($rowFailure->getMessage(), 'key/value lookup'),
+        'an existing but unreadable ledger is refused rather than reported as baseline-absent'
+    );
+
+    $wpdb = $environment(recorded: $baseline('1.7.1', '2.0'));
+    $establishedStatus = LifecyclePlanner::deployment_status($policy, $compiled);
+    wprism_check_same('drift', $establishedStatus['baseline_state'] ?? null, 'established lifecycle status consumes the durable baseline');
+    wprism_check_same([[
+        'issue' => 'code_drift',
+        'kind' => 'plugin',
+        'plugin' => $plugin,
+        'installed_version' => '1.7.2',
+        'recorded_version' => '1.7.1',
+        'message' => "$plugin is 1.7.2 on this environment, but the last successful 'wprism deploy' "
+            . "or 'wprism capture' recorded 1.7.1 — its code changed here outside WPrism's own "
+            . 'reconciliation (a wp-admin/host auto-update is the common cause; see DISALLOW_FILE_MODS '
+            . "in 'wp wprism doctor'). Re-run 'wprism deploy' to accept 1.7.2 as the new baseline, "
+            . 'restore 1.7.1, or pass --force-code-drift to proceed at your own risk.',
+    ]], $establishedStatus['code_drift'] ?? null, 'established lifecycle status projects the exact stored-version drift row');
+
+    // Advisory observation is one raw SQL snapshot plus direct header reads.
+    $wpdb = $environment();
+    $observation = CodeLifecycleObservation::read_unlocked($desired, null);
+    wprism_check_same([$plugin], $observation['active_plugins'], 'raw active_plugins beats contradictory WordPress cache state');
+    wprism_check_same('1.7.2', $observation['plugins'][$plugin] ?? null, 'plugin version comes from the direct bounded header sample');
+    wprism_check_same('2.0', $observation['themes'][$theme] ?? null, 'theme version comes from the direct bounded header sample');
+    $snapshotReads = array_values(array_filter(
+        $wpdb->queries(),
+        static fn(string $sql): bool => str_contains($sql, 'bounded_option_value')
+    ));
+    wprism_check_same(1, count($snapshotReads), 'all unlocked lifecycle options come from one bounded SQL statement');
+
+    // WP 7.1's actual deactivate_plugins() (plugin.php:758-850, function SHA256
+    // 26c64db62537462b421897f26e91c8af10d2d1ea2d87064d2703667336284061)
+    // leaves [1,2] / [0,2] after first/middle removal. Native isolated execution
+    // and the combined 5142fef1 private refusal identify this storage postimage.
+    // Reproduce those raw bytes here; do not repair them through update_option.
+    $roster = [$plugin, $pluginSlug . '/second.php', $pluginSlug . '/third.php'];
+    $compileLifecycle = static fn(array $active): CompiledRepository => CompiledRepository::create([
+        'tree' => ['options/core' => ['data' => OptionState::document([
+            'active_plugins' => OptionState::present($active, 'yes'),
+            'stylesheet' => OptionState::present($theme, 'yes'),
+            'template' => OptionState::present($theme, 'yes'),
+        ])]],
     ]);
-    $GLOBALS['wprism_capture_baseline_plugins']['newly/activated.php'] = ['Version' => '9.9'];
-    $missingBaseline = LifecyclePlanner::observe_code_versions($policy);
-    wprism_check_same(1, count($missingBaseline), 'a plugin activated since the last baseline is one visible finding');
-    wprism_check_same('code_baseline_missing', $missingBaseline[0]['issue'] ?? null, 'the finding distinguishes absence from a version mismatch');
-    wprism_check_same('newly/activated.php', $missingBaseline[0]['plugin'] ?? null, 'the missing baseline names the newly active plugin');
-    wprism_check_same(
-        null,
-        json_decode((string) $recorded(), true)['plugins']['newly/activated.php'] ?? null,
-        'capture leaves the baseline frozen instead of accepting the unreviewed activation'
-    );
-    LifecyclePlanner::record_code_versions($policy);
-    wprism_check_same('9.9', json_decode((string) $recorded(), true)['plugins']['newly/activated.php'] ?? null, 'deploy\'s explicit writer can accept the activation');
+    foreach (['first', 'middle', 'last', 'all', 'dense', 'ordered-sparse'] as $case) {
+        $active = $roster;
+        if ($case === 'first') unset($active[0]);
+        if ($case === 'middle') unset($active[1]);
+        if ($case === 'last') unset($active[2]);
+        if ($case === 'all') $active = [];
+        if ($case === 'ordered-sparse') $active = [9 => $roster[2], 2 => $roster[0], PHP_INT_MAX => $roster[1]];
+        $raw = serialize($active);
+        $wpdb = $environment(activeRaw: $raw, receipt: 'retire-on-success');
+        foreach (array_slice($roster, 1) as $nativePlugin) {
+            file_put_contents(rtrim(WP_PLUGIN_DIR, '/\\') . '/' . $nativePlugin,
+                "<?php\n/*\nPlugin Name: Native Lifecycle Fixture\nVersion: 1.7.2\n*/\n");
+        }
+        $nativeDesired = [...$desired, 'active_plugins' => array_values($active)];
+        $beforeRows = $wpdb->rows('wp_options');
+        $observed = null;
+        $readFailure = $failure(static function () use ($nativeDesired, &$observed): void {
+            $observed = CodeLifecycleObservation::read_unlocked($nativeDesired, null);
+        });
+        wprism_check($readFailure === null, "$case native deactivation storage is accepted without changing the WordPress row");
+        if ($readFailure !== null) continue;
+        wprism_check_same(array_values($active), $observed['active_plugins'], "$case observation preserves native iteration order, not numeric-key order");
+        $status = LifecyclePlanner::deployment_status($policy, $compileLifecycle(array_values($active)));
+        wprism_check_same(false, $status['required'], "$case exact native lifecycle does not invent activation work");
+        wprism_check_same([], $status['warnings'], "$case lifecycle status is warning-free");
+        wprism_check_same($beforeRows, $wpdb->rows('wp_options'), "$case advisory observation never reindexes native storage");
+        if (in_array($case, ['first', 'middle', 'last', 'all'], true)) {
+            $pending = LifecyclePlanner::deployment_status($policy, $compileLifecycle($roster));
+            wprism_check($pending['required'] && in_array('inactive_in_environment', $pending['reasons'], true),
+                "$case the public lifecycle planner identifies legitimate pending activation instead of malformed evidence");
+            $unsettled = $failure(static fn() => CodeBaselinePublication::publish_terminal([...$desired, 'active_plugins' => $roster], null));
+            wprism_check($unsettled instanceof \RuntimeException, "$case unsettled lifecycle still cannot publish a baseline");
+            wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), "$case activation refusal creates no baseline authority");
+        }
+        $published = $failure(static fn() => CodeBaselinePublication::publish_terminal($nativeDesired, $status['code_boundary_sha256']));
+        wprism_check($published === null, "$case the same native shape passes the real locked terminal writer");
+        $publishedBytes = $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY);
+        $publishedBaseline = $publishedBytes === null ? [] : json_decode($publishedBytes, true, flags: JSON_THROW_ON_ERROR);
+        wprism_check_same(array_fill_keys(array_values($active), '1.7.2'), $publishedBaseline['plugins'] ?? null,
+            "$case terminal authority contains only the observed ordered plugin identities");
+        wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), "$case terminal publication removes only its stale receipt");
+        wprism_check_same($beforeRows, $wpdb->rows('wp_options'), "$case locked observation/publication preserves every raw lifecycle byte");
+    }
+    // Canonical desired artifacts remain lists; only native storage positions
+    // are projected away. Non-native keys and malformed payloads still refuse.
+    $environment();
+    wprism_check($failure(static fn() => CodeLifecycleObservation::read_unlocked(
+        [...$desired, 'active_plugins' => [4 => $plugin]], null
+    )) instanceof \RuntimeException, 'sparse canonical desired lifecycle declarations remain invalid');
 
-    // === 8. The capture call site takes the observing writer, not the
-    // unconditional one, and reports every row it gets back. ===
+    // First capture publishes the exact baseline and deletes a stale receipt.
+    $wpdb = $environment(receipt: '{"stale":true}');
+    $wpdb->resetLog();
+    wprism_check_same([], $capture(), 'capture initializes an absent exact code baseline');
+    wprism_check_same($baseline('1.7.2', '2.0'), $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), 'capture publishes exact direct-header facts');
+    wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), 'capture atomically removes stale acceptance authority');
+
+    $queries = $wpdb->queries();
+    $position = static function (array $queries, callable $match): ?int {
+        foreach ($queries as $offset => $sql) {
+            if ($match($sql)) {
+                return $offset;
+            }
+        }
+        return null;
+    };
+    $activeAt = $position($queries, static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(option_value)') && str_contains($sql, "option_name = 'active_plugins'"));
+    $styleAt = $position($queries, static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(option_value)') && str_contains($sql, "option_name = 'stylesheet'"));
+    $templateAt = $position($queries, static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(option_value)') && str_contains($sql, "option_name = 'template'"));
+    $receiptAt = $position($queries, static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX') && str_contains($sql, "k = 'code_baseline_acceptance'"));
+    $baselineAt = $position($queries, static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX') && str_contains($sql, "k = 'code_versions'"));
     wprism_check(
-        str_contains($workflowSource, "require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';"),
-        'the workflow requires its own new dependency (AGENTS.md rule 1 — the drop-in has no autoloader)'
+        is_int($activeAt) && is_int($styleAt) && is_int($templateAt)
+            && is_int($receiptAt) && is_int($baselineAt)
+            && $activeAt < $styleAt && $styleAt < $templateAt
+            && $templateAt < $receiptAt && $receiptAt < $baselineAt,
+        'shared writer lock order is lifecycle lexical then receipt/baseline lexical'
     );
+    $touchAt = $position($queries, static fn(string $sql): bool => str_contains($sql, 'SELECT 1 FROM') && str_contains($sql, 'wp_options'));
     wprism_check(
-        !str_contains($workflowSource, 'Deploy::record_code_versions('),
-        'issue #3507: capture no longer calls the unconditional writer at all'
-    );
-    wprism_check(
-        str_contains($workflowSource, 'foreach (LifecyclePlanner::observe_code_versions($c->policy()) as $observed) {')
-            && str_contains($workflowSource, "\$candidate['warnings'][] = (string) \$observed['message'] . self::CODE_DRIFT_OBSERVED;"),
-        'capture appends one warning per unaccepted row to the summary warnings WP_CLI::warning() renders'
-    );
-    // Still inside the unscoped branch: a scoped capture publishes a bounded
-    // overlay and never touched the code baseline, before or after this fix.
-    $unscoped = strpos($workflowSource, 'if (!$scoped) {' . "\n" . '                        Ledger::prune_state(');
-    wprism_check(
-        $unscoped !== false
-            && strpos($workflowSource, 'LifecyclePlanner::observe_code_versions(') > $unscoped
-            && strpos($workflowSource, 'LifecyclePlanner::observe_code_versions(') < strpos($workflowSource, 'Publish::mark_commit_ready(', $unscoped),
-        'the observation stays inside the unscoped branch, before the commit-ready marker'
+        is_int($touchAt) && is_int($activeAt) && $touchAt < $activeAt,
+        'metadata locks precede lifecycle row locks'
     );
 
-    $suffix = (new \ReflectionClass(CapturePublicationWorkflow::class))->getConstant('CODE_DRIFT_OBSERVED');
-    wprism_check(is_string($suffix) && $suffix !== '', 'the warning suffix is a declared constant, not an inline literal');
-    $suffix = (string) $suffix;
-    wprism_check(
-        str_contains($suffix, 'did NOT accept it as the new baseline'),
-        'the warning says capture did not accept the drift'
-    );
-    wprism_check(
-        str_contains($suffix, "still there on the next 'wprism status'"),
-        'the warning says the finding survives, which is what makes it actionable later'
-    );
-    // Composed through the real row, so the operator-visible line is pinned
-    // end to end: the row's own three remedies, then what capture did.
-    $warning = (string) $themeDrift[0]['message'] . $suffix;
-    wprism_check(
-        str_contains($warning, "Re-run 'wprism deploy' to accept")
-            && str_contains($warning, '--force-code-drift')
-            && str_contains($warning, "did NOT accept it as the new baseline"),
-        'the composed warning carries the row remedies AND the observe-not-accept statement'
-    );
+    // Capture never consumes drift and never clears its receipt as a side effect.
+    $old = $baseline('1.7.1', '2.0');
+    $wpdb = $environment(recorded: $old, receipt: 'keep-me');
+    $drift = $capture();
+    wprism_check_same('code_drift', $drift[0]['issue'] ?? null, 'capture reports installed plugin drift');
+    wprism_check_same($old, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), 'capture leaves a drifted baseline byte-identical');
+    wprism_check_same('keep-me', $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), 'capture leaves receipt state untouched when it refuses publication');
 
-    wprism_check_summary('capture observes the code baseline and never accepts it (issue #3507)');
+    // Terminal lifecycle publication replaces both durable coordinates.
+    $wpdb = $environment(recorded: $old, receipt: 'discard-me');
+    $terminalObservation = CodeLifecycleObservation::read_unlocked($desired, $old);
+    $terminal = LifecyclePlanner::code_baseline_publication_snapshot($desired, $terminalObservation);
+    CodeBaselinePublication::publish_terminal($desired, $terminal['code_boundary_sha256']);
+    wprism_check_same($baseline('1.7.2', '2.0'), $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), 'terminal publication accepts the reconciled exact code set');
+    wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), 'terminal publication deletes an obsolete acceptance receipt');
+
+    $wpdb = $environment(recorded: $old, receipt: 'preserve-me');
+    $wrongBoundary = str_repeat('0', 64);
+    $boundaryFailure = $failure(static fn() => CodeBaselinePublication::publish_terminal($desired, $wrongBoundary));
+    wprism_check($boundaryFailure instanceof \RuntimeException, 'terminal publication refuses a stale host code boundary');
+    wprism_check_same($old, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), 'boundary refusal rolls baseline bytes back');
+    wprism_check_same('preserve-me', $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), 'boundary refusal rolls receipt deletion back');
+
+    // The isolated acceptance phase is receipt-bearing and exactly replayable.
+    $wpdb = $environment();
+    $accept = new \ReflectionMethod(CodeBaselineAcceptance::class, 'accept_or_replay');
+    $absentObservation = CodeLifecycleObservation::read_unlocked($desired, null);
+    $absentSnapshot = LifecyclePlanner::code_baseline_acceptance_snapshot($policy, $desired, false, $absentObservation);
+    $artifact = hash('sha256', 'baseline-artifact');
+    $operation = 'baseline-op-' . getmypid();
+    $args = [$policy, $desired, false, false, 'absent', $absentSnapshot['observation_sha256'], $operation, $artifact];
+    $accepted = $accept->invoke(null, ...$args);
+    wprism_check_same('initialized', $accepted['outcome'] ?? null, 'absent acceptance initializes a receipt-bearing baseline');
+    $replayed = $accept->invoke(null, ...$args);
+    wprism_check_same(true, $replayed['replayed'] ?? null, 'response-loss retry replays the committed acceptance receipt');
+    $writePlugin('1.7.3');
+    $replayFailure = $failure(static fn() => $accept->invoke(null, ...$args));
+    wprism_check($replayFailure instanceof \RuntimeException, 'receipt replay refuses changed direct-header facts');
+
+    $wpdb = $environment(recorded: $old);
+    $driftObservation = CodeLifecycleObservation::read_unlocked($desired, $old);
+    $driftSnapshot = LifecyclePlanner::code_baseline_acceptance_snapshot($policy, $desired, false, $driftObservation);
+    $driftArgs = [$policy, $desired, false, false, 'drift', $driftSnapshot['observation_sha256'], 'drift-op-' . getmypid(), $artifact];
+    $unforced = $failure(static fn() => $accept->invoke(null, ...$driftArgs));
+    wprism_check($unforced instanceof \RuntimeException && str_contains($unforced->getMessage(), '--force-code-drift'), 'drift acceptance requires explicit force authority');
+    $driftArgs[2] = true;
+    $forced = $accept->invoke(null, ...$driftArgs);
+    wprism_check_same('accepted', $forced['outcome'] ?? null, 'forced drift acceptance publishes the observed exact bytes');
+
+    // Filesystem facts cannot be DB-locked; paired sampling detects a change.
+    $wpdb = $environment(recorded: $old, receipt: 'preserve-on-change');
+    $mutated = false;
+    $wpdb->onQuery(static function (string $sql) use (&$mutated, $writePlugin): ?string {
+        if (!$mutated
+            && str_starts_with(ltrim($sql), 'INSERT INTO')
+            && str_contains($sql, 'wp_wprism_kv')) {
+            $mutated = true;
+            $writePlugin('1.7.4');
+        }
+        return null;
+    });
+    $changedFailure = $failure(static fn() => CodeBaselinePublication::publish_terminal($desired, null));
+    $wpdb->onQuery(null);
+    wprism_check($changedFailure instanceof \RuntimeException, 'paired header sampling refuses code changed during publication');
+    wprism_check_same($old, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), 'paired-sample refusal rolls baseline publication back');
+    wprism_check_same('preserve-on-change', $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), 'paired-sample refusal rolls receipt deletion back');
+
+    // Raw row grammar is closed and never invokes object lifecycle methods.
+    $serializedObject = serialize(new \WPrismCodeBaselineWakeupBomb());
+    $environment(activeRaw: $serializedObject);
+    $objectFailure = $failure(static fn() => CodeLifecycleObservation::read_unlocked($desired, null));
+    wprism_check($objectFailure instanceof \RuntimeException, 'serialized objects are refused as lifecycle evidence');
+    wprism_check_same(0, $GLOBALS['wprism_code_baseline_wakeups'], 'serialized-object refusal never invokes __wakeup');
+    foreach ([
+        serialize([$plugin, $plugin]) => 'duplicate active plugin identities',
+        serialize(['../escape/plugin.php']) => 'unsafe active plugin identities',
+        serialize([$plugin]) . "\n" => 'noncanonical trailing option bytes',
+        serialize(['plugin' => $plugin]) => 'associative plugin storage keys',
+        serialize(['01' => $plugin]) => 'noncanonical numeric-string plugin storage keys',
+        serialize([-1 => $plugin]) => 'negative plugin storage positions',
+        serialize([2 => $plugin, 8 => $plugin]) => 'duplicate sparse plugin identities',
+        serialize([2 => '../escape/plugin.php']) => 'unsafe sparse plugin identities',
+        serialize([2 => 17]) => 'non-string sparse plugin identities',
+        serialize([2 => [$plugin]]) => 'nested sparse plugin values',
+        serialize(array_combine(range(0, 8192, 2), array_map(static fn(int $i): string => "fixture$i/plugin.php", range(0, 4096)))) => 'oversized sparse plugin inventories',
+    ] as $raw => $label) {
+        $wpdb = $environment(activeRaw: $raw, receipt: 'keep-invalid-roster');
+        $beforeRows = $wpdb->rows('wp_options');
+        wprism_check($failure(static fn() => CodeLifecycleObservation::read_unlocked($desired, null)) instanceof \RuntimeException, "$label are refused");
+        wprism_check($failure(static fn() => CodeBaselinePublication::publish_terminal($desired, null)) instanceof \RuntimeException,
+            "$label also refuse the real locked writer");
+        wprism_check_same($beforeRows, $wpdb->rows('wp_options'), "$label leave raw lifecycle rows unchanged");
+        wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), "$label publish no baseline");
+        wprism_check_same('keep-invalid-roster', $kv($wpdb, CodeBaselineTransaction::RECEIPT_KEY), "$label preserve prior receipt bytes");
+    }
+
+    $environment(withTemplate: false);
+    wprism_check($failure($capture) instanceof \RuntimeException, 'a missing canonical lifecycle option row refuses publication');
+
+    $environment();
+    $writePlugin('1.7.2', false);
+    wprism_check($failure($capture) instanceof \RuntimeException, 'a plugin file without Plugin Name cannot author a baseline');
+    $environment();
+    $writePlugin('');
+    wprism_check($failure($capture) instanceof \RuntimeException, 'a plugin file without Version cannot author a baseline');
+
+    $environment();
+    $duplicateTheme = $writeTheme('2.0', $extraThemeRoot);
+    $GLOBALS['wp_theme_directories'] = [$extraThemeRoot];
+    wprism_check($failure(static fn() => CodeLifecycleObservation::read_unlocked($desired, null)) instanceof \RuntimeException, 'multiple registered style.css identities refuse theme observation');
+    @unlink($duplicateTheme);
+    @rmdir(dirname($duplicateTheme));
+    @rmdir($extraThemeRoot);
+
+    $wpdb = $environment(optionsEngine: 'MyISAM');
+    wprism_check($failure($capture) instanceof \RuntimeException, 'nontransactional lifecycle storage refuses baseline authority');
+    wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), 'storage refusal publishes no baseline');
+    $wpdb = $environment(withOptionIndex: false);
+    wprism_check($failure($capture) instanceof \RuntimeException, 'missing full-width unique lifecycle index refuses locking authority');
+    wprism_check_same(null, $kv($wpdb, CodeBaselineTransaction::BASELINE_KEY), 'index refusal publishes no baseline');
+
+    ProcessFence::release();
+    Db::forget_transaction_tracking();
+    @unlink($pluginPath);
+    foreach (array_slice($roster, 1) as $nativePlugin) {
+        @unlink(rtrim(WP_PLUGIN_DIR, '/\\') . '/' . $nativePlugin);
+    }
+    @rmdir(dirname($pluginPath));
+    @unlink($themePath);
+    @rmdir(dirname($themePath));
+    WpStore::reset();
+    wprism_check_summary('capture code baseline regression');
 }

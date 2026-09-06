@@ -2,6 +2,10 @@
 namespace WPrism;
 
 require_once __DIR__ . '/AdapterSources.php';
+// The feature roster names the action grammar's bounded post-kind selector.
+// Load that owner explicitly: agent/ has no production autoloader, and the
+// source-require guard treats an undeclared edge as a real partial-load defect.
+require_once __DIR__ . '/ActionProviderGrammar.php';
 // WP-4.12: the {N-1, N} window itself, shared with RepositoryCompiler, which
 // judges site.wprism.json's own spec_version and cannot reference this layer.
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
@@ -30,6 +34,7 @@ require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // Redirection's action_data column is the measured mixed serialized/text
 // demand; this leaf owns the value-vocabulary feature name that gates it.
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 // Circular with Policy.php's require_once of this file: safe because
 // require_once records the currently included path before the nested require
 // is reached, while these methods only resolve Policy at call time.
@@ -67,6 +72,10 @@ require_once __DIR__ . '/../Policy/AdapterClaimResolutions.php';
  * that agree until they do not.
  */
 final class AdapterContractGrammar {
+    /** A manifest-owned, fail-closed incompatibility between exact plugin basenames. */
+    public const PLUGIN_INCOMPATIBILITY_FEATURE = 'plugin-incompatibility/v1';
+    public const PLUGIN_INCOMPATIBILITY_SECTION = 'incompatible_plugins';
+
     /**
      * Engine features this engine IMPLEMENTS, and what each one claims.
      *
@@ -99,10 +108,10 @@ final class AdapterContractGrammar {
      * N/N-1 acceptance window plus the declaration channel itself. That is what
      * makes the channel a live product path on the day it ships rather than an
      * admissibility argument — the failure mode `authored_typed_snapshot_
-     * post_v1` demonstrates, which is declared by nothing across all 17 shipped
+     * post_v1` demonstrates, which is declared by nothing across all 18 shipped
      * manifests.
      *
-     * After `spec-window/v1`, SEVEN post-v3 features shipped through this
+     * After `spec-window/v1`, TEN post-v3 features shipped through this
      * channel in one wave, and together they are the proof § v3.2's claim
      * holds — each staged a grammar change with `WPRISM_SPEC_VERSION` left at 3,
      * asserted by each one's own suite:
@@ -132,8 +141,16 @@ final class AdapterContractGrammar {
      *   - `manifest-provider-runtime/v1` (§ v3.22): moves the manifest-owned
      *     provider protocol shell into core while leaving plugin calls and
      *     value-level postconditions in the digest-bound behavior file.
+     *   - `post-kind-action-trigger/v1`: the bounded post:* action selector,
+     *     which matches only concrete scoped post kinds and no other surface.
+     *   - `schema-settlement/v1`: a host-checkpointed, fresh-process provider
+     *     phase which establishes an exact declared table set before strict
+     *     target observation; it never makes an absent table plannable.
+     *   - `plugin-incompatibility/v1`: one plugin adapter's sorted exact-
+     *     basename list of competing plugins that cannot share its policy;
+     *     the aggregate loader refuses before mutation in either pin order.
      *
-     * All are keyed at `since` 3. PMPro was the first migrated consumer; eight
+     * All are keyed at `since` 3. PMPro was the first migrated consumer; ten
      * later provider-bearing manifests deliberately paid their own identity
      * change for `manifest-provider-runtime/v1`. Redirection was authored with
      * the runtime, mixed codec, and evidence declarations in its first digest,
@@ -152,6 +169,12 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        // A value constraint on an existing option field; canonical references
+        // keep their existing kind and certificate arm, so no new section.
+        ScalarReferenceIntersection::FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
         // ARM `field`, and the reviewed reason: an id codec is a typed
         // REFINEMENT over a declared `block_attrs` rule — it decides the JSON
         // type one already-declared attribute's resolved id is written back as
@@ -253,6 +276,38 @@ final class AdapterContractGrammar {
         // ManifestProviderRuntime while the provider file retains the native
         // mutation and value-level postcondition.
         ManifestProviderRuntime::FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
+        // Manifest providers may opt a capability into the engine's fixed
+        // stdin/receipt child protocol. The provider declaration is already a
+        // non-surface section; the feature widens only its execution metadata.
+        ManifestProviderRuntime::FRESH_PROCESS_FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
+        // A plugin incompatibility is a constraint on which adapter contracts
+        // may share one policy, not a state surface. The exact-basename list is
+        // therefore non-surface, while PolicyLoadFinalizer enforces it before
+        // a compiler, lifecycle hook, lease, or provider can be reached.
+        self::PLUGIN_INCOMPATIBILITY_FEATURE => [
+            'since' => 3,
+            'keys' => [self::PLUGIN_INCOMPATIBILITY_SECTION => 'non_surface'],
+        ],
+        // A value-vocabulary extension inside actions[].triggers, not a new
+        // top-level section. CanonicalSurfaces constrains it to concrete post
+        // kinds; ActionProviderGrammar owns both this name and its load-time
+        // feature gate, so an older engine refuses instead of interpreting a
+        // wildcard as an exact surface that can never match.
+        ActionProviderGrammar::POST_KIND_TRIGGER_FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
+        // A value-vocabulary extension inside actions[]: `phase` gains
+        // schema_settle and that phase alone gains `prepares`. No top-level
+        // key is claimed. ActionProviderGrammar owns the feature spelling and
+        // validates the exact prepares/effects relationship.
+        ActionProviderGrammar::SCHEMA_SETTLEMENT_FEATURE => [
             'since' => 3,
             'keys' => [],
         ],
@@ -427,7 +482,7 @@ final class AdapterContractGrammar {
      * publishes from its own constants. `keys` stays the flat list it was, so a
      * consumer that only wanted membership is unaffected.
      *
-     * @return array<string,array{since:int,keys:list<string>,sections:array<string,array<string,mixed>>}>
+     * @return array<string,array{since:int,keys:list<string>,sections:array<string,array<string,mixed>>,value_constraint?:array<string,mixed>}>
      */
     public static function implemented_feature_rows(): array {
         $arms = self::feature_key_arms();
@@ -445,6 +500,9 @@ final class AdapterContractGrammar {
                 'keys' => $keys,
                 'sections' => $sections,
             ];
+            if ($name === ScalarReferenceIntersection::FEATURE) {
+                $rows[$name]['value_constraint'] = ScalarReferenceIntersection::declaration_grammar();
+            }
         }
 
         return $rows;
@@ -481,6 +539,7 @@ final class AdapterContractGrammar {
             AttrIdCodecGrammar::SECTION => AttrIdCodecGrammar::section_grammar(),
             BodyRefGrammar::SECTION => BodyRefGrammar::section_grammar(),
             ColumnCodecGrammar::SECTION => ColumnCodecGrammar::section_grammar(),
+            self::PLUGIN_INCOMPATIBILITY_SECTION => self::plugin_incompatibility_section_grammar(),
             StructuredEvidence::SECTION => StructuredEvidence::section_grammar(),
             'engine_features' => [
                 'shape' => 'a non-empty, sorted, duplicate-free LIST of engine feature name strings',
@@ -740,10 +799,10 @@ final class AdapterContractGrammar {
         // lazy interpreters() lookup to hand a non-string to preg_match().
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
             $interpreter = $manifest['interpreter'];
-            if (!is_string($interpreter) || preg_match('/^[a-z0-9_-]+$/D', $interpreter) !== 1) {
+            if (!is_string($interpreter) || preg_match('/^[a-z][a-z0-9_-]*$/D', $interpreter) !== 1) {
                 throw new \RuntimeException(
                     "wprism: manifest '$name' declares interpreter " . var_export($interpreter, true)
-                    . ' — an interpreter name must be a non-empty string matching ^[a-z0-9_-]+$, since it resolves '
+                    . ' — an interpreter name must be a non-empty string matching ^[a-z][a-z0-9_-]*$, since it resolves '
                     . 'to <manifests_dir>/interpreters/<name>.php'
                 );
             }
@@ -784,6 +843,64 @@ final class AdapterContractGrammar {
                 );
             }
             Policy::assert_min_max_range($range, "manifest '$name' declares '$rangeKey'");
+        }
+        self::assert_plugin_incompatibilities($manifest, $name);
+    }
+
+    /** The author-facing grammar emitted by `wprism manifest-validate --emit-schema`. */
+    private static function plugin_incompatibility_section_grammar(): array {
+        return [
+            'shape' => 'a non-empty, sorted, duplicate-free LIST of exact plugin basenames',
+            'item' => "'<directory>/<main-file>.php' or '<main-file>.php'",
+            'refines' => 'the declaring plugin adapter\'s admissible co-installation boundary',
+            'validated_by' => self::class . '::assert_plugin_incompatibilities()',
+        ];
+    }
+
+    /** @param array<string,mixed> $manifest */
+    private static function assert_plugin_incompatibilities(array $manifest, string $name): void {
+        if (!array_key_exists(self::PLUGIN_INCOMPATIBILITY_SECTION, $manifest)) {
+            return;
+        }
+        $plugin = $manifest['plugin'] ?? null;
+        $incompatible = $manifest[self::PLUGIN_INCOMPATIBILITY_SECTION];
+        if (!is_string($plugin) || $plugin === '') {
+            throw new \RuntimeException(
+                "wprism: manifest '$name' declares '" . self::PLUGIN_INCOMPATIBILITY_SECTION
+                . "' without owning a plugin — only a plugin adapter can declare which other plugin cannot "
+                . 'safely share its policy'
+            );
+        }
+        $wellShaped = is_array($incompatible) && $incompatible !== [] && array_is_list($incompatible);
+        if ($wellShaped) {
+            foreach ($incompatible as $other) {
+                if (!is_string($other) || $other === '') {
+                    $wellShaped = false;
+                    break;
+                }
+            }
+        }
+        if ($wellShaped) {
+            $canonical = array_values(array_unique($incompatible));
+            sort($canonical, SORT_STRING);
+            $wellShaped = $canonical === $incompatible;
+        }
+        if (!$wellShaped) {
+            throw new \RuntimeException(
+                "wprism: manifest '$name' " . self::PLUGIN_INCOMPATIBILITY_SECTION
+                . ' must be a non-empty, sorted, duplicate-free list of exact plugin basenames'
+            );
+        }
+        foreach ($incompatible as $other) {
+            AdapterSources::assert_plugin_basename(
+                $other,
+                "manifest '$name' " . self::PLUGIN_INCOMPATIBILITY_SECTION . ' entry'
+            );
+            if (hash_equals($plugin, $other)) {
+                throw new \RuntimeException(
+                    "wprism: manifest '$name' declares its own plugin '$plugin' incompatible with itself"
+                );
+            }
         }
     }
 
@@ -1016,6 +1133,65 @@ final class AdapterContractGrammar {
             . 'marker (spec/repo-format.md § v3.3). Remedy: correct the spelling, remove the section, or declare '
             . 'the `engine_features` value that claims it (§ v3.2) — this engine implements: '
             . implode(', ', self::implemented_features())
+        );
+    }
+
+    /**
+     * Refuse a pinned plugin pair an adapter has declared non-composable.
+     * Sorting the complete conflict set before choosing a verdict keeps the
+     * refusal byte-identical under both pin orders; no adapter wins by loading
+     * first, and no lifecycle or provider process can observe the bad policy.
+     *
+     * @param list<array<string,mixed>> $manifests
+     */
+    public static function validate_no_incompatible_plugins(array $manifests): void {
+        $claimants = [];
+        foreach ($manifests as $manifest) {
+            $plugin = $manifest['plugin'] ?? null;
+            if (!is_string($plugin) || $plugin === '') {
+                continue;
+            }
+            $claimants[$plugin][] = (string) ($manifest['name'] ?? '?');
+        }
+        foreach ($claimants as &$names) {
+            $names = array_values(array_unique($names));
+            sort($names, SORT_STRING);
+        }
+        unset($names);
+
+        $conflicts = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            $plugin = $manifest['plugin'] ?? null;
+            if (!is_string($plugin) || $plugin === '') {
+                continue;
+            }
+            foreach ((array) ($manifest[self::PLUGIN_INCOMPATIBILITY_SECTION] ?? []) as $other) {
+                if (!is_string($other) || !isset($claimants[$other])) {
+                    continue;
+                }
+                $conflicts[] = [
+                    'claimants' => $claimants[$other],
+                    'manifest' => $name,
+                    'other' => $other,
+                    'plugin' => $plugin,
+                ];
+            }
+        }
+        if ($conflicts === []) {
+            return;
+        }
+        usort($conflicts, static fn(array $a, array $b): int => [
+            $a['manifest'], $a['plugin'], $a['other'], $a['claimants'],
+        ] <=> [
+            $b['manifest'], $b['plugin'], $b['other'], $b['claimants'],
+        ]);
+        $conflict = $conflicts[0];
+        throw new \RuntimeException(
+            "wprism: manifest '{$conflict['manifest']}' for plugin '{$conflict['plugin']}' declares plugin "
+            . "'{$conflict['other']}' incompatible, and pinned manifest(s) {"
+            . implode(', ', array_map(static fn(string $n): string => "'$n'", $conflict['claimants']))
+            . '} claim that plugin — incompatible plugin adapters cannot share one policy; pin only one'
         );
     }
 

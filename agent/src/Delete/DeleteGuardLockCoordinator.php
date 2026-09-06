@@ -14,6 +14,10 @@ final class DeleteGuardLockCoordinator {
     private bool $guardTableTouched = false;
     /** @var array<string,true> exact tables whose reviewed absence means zero references */
     private array $absenceEmptyTables = [];
+    /** @var ?array<string,string> exact point-in-time topology selected before START */
+    private ?array $profileTopology = null;
+    /** @var array<string,string> exact guard-table absence modes selected before START */
+    private array $profileTableModes = [];
     private ExecutableOwnerBoundary $executableOwnerBoundary;
     private DeletionWriterExclusion $writerExclusion;
 
@@ -35,6 +39,53 @@ final class DeleteGuardLockCoordinator {
     /** Refuse delete intent whose signed external exclusion is absent or lost. */
     public function assert_writer_exclusion_plan_authority(): void {
         $this->writerExclusion->assert_plan_authority();
+    }
+
+    /**
+     * Select the smallest physical profile immediately before authored START.
+     *
+     * Present guard tables become ordinary read tables so Db acquires and
+     * retains their metadata locks. Only manifest-reviewed optional names may
+     * remain presence-only; their first in-transaction recensus must match
+     * this point-in-time snapshot before any guard-row lock or delete is authorized.
+     *
+     * @return array{read_tables:list<string>,table_presence_reads:list<string>}
+     */
+    public function transaction_database_profile(array $deleteWork): array {
+        if ($this->profileTopology !== null || $this->profileTableModes !== []) {
+            throw new \RuntimeException('wprism: deletion database profile is already selected');
+        }
+        $this->writerExclusion->assert_plan_authority();
+        $tableModes = $this->guard_table_modes($deleteWork);
+        $topology = DeleteGuardEvaluator::guard_table_topology(
+            array_keys($tableModes),
+            'deletion guard locking'
+        );
+        $readTables = $this->executableOwnerBoundary->transaction_read_tables($deleteWork);
+        $presenceReads = [];
+        foreach ($tableModes as $table => $mode) {
+            if (($topology[$table] ?? null) === 'present') {
+                $readTables[] = $table;
+            } elseif ($mode !== 'empty') {
+                throw new \RuntimeException(
+                    "wprism: deletion guard locking refused — required guard table '$table' is absent"
+                );
+            }
+            if ($mode === 'empty') {
+                $presenceReads[] = $table;
+            }
+        }
+        $this->writerExclusion->assert_plan_authority();
+        $readTables = array_values(array_unique($readTables));
+        $presenceReads = array_values(array_unique($presenceReads));
+        sort($readTables, SORT_STRING);
+        sort($presenceReads, SORT_STRING);
+        $this->profileTopology = $topology;
+        $this->profileTableModes = $tableModes;
+        return [
+            'read_tables' => $readTables,
+            'table_presence_reads' => $presenceReads,
+        ];
     }
 
     /** @return array{count:int,error:?string,rows:string[],witness?:string} */
@@ -65,6 +116,12 @@ final class DeleteGuardLockCoordinator {
         array $tree,
         array $guardRepairUuids
     ): void {
+        $tableModes = $this->guard_table_modes($deleteWork);
+        if ($this->profileTopology === null || $this->profileTableModes !== $tableModes) {
+            throw new \RuntimeException(
+                'wprism: deletion guard locking refused — deletion database profile was not selected for this work'
+            );
+        }
         // Only the external recovery provider covers web/cron/CLI lifecycle
         // and filesystem writers. Verify that exact signed generation inside
         // this transaction before binding any activation/code owner fact.
@@ -73,7 +130,7 @@ final class DeleteGuardLockCoordinator {
         // under the same transaction as guard rows before any delete can run;
         // get_option() would only attest an unversioned request-cache value.
         $this->executableOwnerBoundary->bind($deleteWork);
-        $this->assert_guard_engines($deleteWork);
+        $this->assert_guard_engines_for_modes($tableModes);
         $this->assert_lock_isolation();
         DeleteGuardEvaluator::assert_revalidated_witnesses(
             $deleteWork,
@@ -104,42 +161,10 @@ final class DeleteGuardLockCoordinator {
         );
     }
 
-    public function assert_guard_engines(array $deleteWork): void {
-        global $wpdb;
-
+    /** @param array<string,string> $tableModes */
+    private function assert_guard_engines_for_modes(array $tableModes): void {
         $this->guardTableTouched = false;
         $this->absenceEmptyTables = [];
-        $tableModes = [];
-        $invalidGuards = [];
-        foreach ($deleteWork as $row) {
-            $capability = Deletion::capability(
-                $this->policy,
-                (string) ($row['deletion_kind'] ?? ''),
-                (string) ($row['deletion_type'] ?? '')
-            );
-            foreach ($capability['guards'] ?? [] as $guard) {
-                $declared = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($guard['table'] ?? ''));
-                if ($declared === '') {
-                    $invalidGuards[] = (string) ($guard['table'] ?? '');
-                    continue;
-                }
-                $table = (string) $wpdb->prefix . $declared;
-                $mode = ($guard['table_absence'] ?? null) === 'empty' ? 'empty' : 'required';
-                if (isset($tableModes[$table]) && $tableModes[$table] !== $mode) {
-                    throw new \RuntimeException(
-                        "wprism: deletion guard locking refused — guard declarations disagree on table_absence for '$table'"
-                    );
-                }
-                $tableModes[$table] = $mode;
-            }
-        }
-        if ($invalidGuards) {
-            sort($invalidGuards, SORT_STRING);
-            throw new \RuntimeException(
-                'wprism: deletion guard locking refused — guard declaration has no usable table name: '
-                . implode(', ', $invalidGuards)
-            );
-        }
         if ($tableModes === []) {
             return;
         }
@@ -148,6 +173,13 @@ final class DeleteGuardLockCoordinator {
             array_keys($tableModes),
             'deletion guard locking'
         );
+        if ($this->profileTopology === null
+            || $this->profileTableModes !== $tableModes
+            || $this->profileTopology !== $topology) {
+            throw new \RuntimeException(
+                'wprism: deletion guard locking refused — guard-table topology changed before transaction admission'
+            );
+        }
         $presentTables = [];
         foreach ($tableModes as $table => $mode) {
             if (($topology[$table] ?? null) === 'present') {
@@ -263,8 +295,53 @@ final class DeleteGuardLockCoordinator {
 
     /** Clear the transaction-local token after either commit or rollback. */
     public function end_writer_exclusion_transaction(): void {
+        $this->guardTableTouched = false;
         $this->absenceEmptyTables = [];
+        $this->profileTopology = null;
+        $this->profileTableModes = [];
+        // Activation-row locks and filesystem identities are transaction
+        // evidence. A reused ApplyServices graph must reacquire both rather
+        // than comparing a later request against an unlocked prior snapshot.
+        $this->executableOwnerBoundary = new ExecutableOwnerBoundary($this->policy);
         $this->writerExclusion->end_authored_transaction();
+    }
+
+    /** @return array<string,string> exact physical table => required|empty */
+    private function guard_table_modes(array $deleteWork): array {
+        global $wpdb;
+        $tableModes = [];
+        $invalidGuards = [];
+        foreach ($deleteWork as $row) {
+            $capability = Deletion::capability(
+                $this->policy,
+                (string) ($row['deletion_kind'] ?? ''),
+                (string) ($row['deletion_type'] ?? '')
+            );
+            foreach ($capability['guards'] ?? [] as $guard) {
+                $declared = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($guard['table'] ?? ''));
+                if ($declared === '') {
+                    $invalidGuards[] = (string) ($guard['table'] ?? '');
+                    continue;
+                }
+                $table = (string) $wpdb->prefix . $declared;
+                $mode = ($guard['table_absence'] ?? null) === 'empty' ? 'empty' : 'required';
+                if (isset($tableModes[$table]) && $tableModes[$table] !== $mode) {
+                    throw new \RuntimeException(
+                        "wprism: deletion guard locking refused — guard declarations disagree on table_absence for '$table'"
+                    );
+                }
+                $tableModes[$table] = $mode;
+            }
+        }
+        if ($invalidGuards) {
+            sort($invalidGuards, SORT_STRING);
+            throw new \RuntimeException(
+                'wprism: deletion guard locking refused — guard declaration has no usable table name: '
+                . implode(', ', $invalidGuards)
+            );
+        }
+        ksort($tableModes, SORT_STRING);
+        return $tableModes;
     }
 
     /** Refuse runtime-owned semantic guards before force can authorize work. */

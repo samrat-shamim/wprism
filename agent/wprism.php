@@ -17,12 +17,28 @@ require_once __DIR__ . '/src/Kernel/OrderPreserved.php';
 require_once __DIR__ . '/src/Kernel/Canon.php';
 require_once __DIR__ . '/src/Kernel/OptionState.php';
 require_once __DIR__ . '/src/Kernel/UserMetaState.php';
+require_once __DIR__ . '/src/Kernel/DatabaseExceptions.php';
+require_once __DIR__ . '/src/Kernel/NativeDatabaseProfile.php';
+require_once __DIR__ . '/src/Kernel/TransactionAuthority.php';
+require_once __DIR__ . '/src/Kernel/DatabaseTransportBoundary.php';
+require_once __DIR__ . '/src/Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/src/Kernel/DatabaseServerDiagnostics.php';
+require_once __DIR__ . '/src/Kernel/DatabaseTableIdentifier.php';
+require_once __DIR__ . '/src/Kernel/DatabaseTablePresence.php';
+require_once __DIR__ . '/src/Kernel/DatabaseLockBoundary.php';
 require_once __DIR__ . '/src/Kernel/Db.php';
+require_once __DIR__ . '/src/Kernel/TransactionalTableBoundary.php';
+require_once __DIR__ . '/src/Kernel/LockedOptionRows.php';
+require_once __DIR__ . '/src/Kernel/ExactOptionWriter.php';
 require_once __DIR__ . '/src/Apply/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/src/Adapter/ProviderDatabaseSession.php';
 require_once __DIR__ . '/src/Adapter/ProviderSdk.php';
 require_once __DIR__ . '/src/Adapter/ManifestProviderRuntime.php';
+require_once __DIR__ . '/src/Adapter/ProviderOperationProcess.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
+require_once __DIR__ . '/src/Kernel/PrivateEvidenceException.php';
+require_once __DIR__ . '/src/Kernel/PrivateRefusalEvidence.php';
 // Beside CommandRefusal because that is its one dependency, and ahead of every
 // verb: the topology gate has to be loaded for the Policy-free doors
 // (journal-reset, the promotion-lease verbs, classify) that never reach
@@ -114,8 +130,19 @@ require_once __DIR__ . '/src/Apply/UserMetaMaterializer.php';
 require_once __DIR__ . '/src/Apply/ConvergenceVerifier.php';
 require_once __DIR__ . '/src/Apply/Apply.php';
 require_once __DIR__ . '/src/Promotion/Deploy.php';
+require_once __DIR__ . '/src/Promotion/CodeLifecycleObservation.php';
+require_once __DIR__ . '/src/Promotion/CodeBaselineTransaction.php';
+require_once __DIR__ . '/src/Promotion/CodeBaselineCapture.php';
+require_once __DIR__ . '/src/Promotion/CodeBaselinePublication.php';
+require_once __DIR__ . '/src/Promotion/CodeBaselineAcceptance.php';
+require_once __DIR__ . '/src/Repository/SchemaSettlementIntent.php';
+require_once __DIR__ . '/src/Adapter/ProviderPhaseExecutor.php';
 require_once __DIR__ . '/src/Adapter/LifecycleSettlement.php';
+require_once __DIR__ . '/src/Adapter/SchemaSettlement.php';
+require_once __DIR__ . '/src/Recovery/DatabaseTargetIdentity.php';
 require_once __DIR__ . '/src/Recovery/RetainedCheckpointCipher.php';
+require_once __DIR__ . '/src/Kernel/CheckpointRecoveryIntent.php';
+require_once __DIR__ . '/src/Kernel/ProviderSettlementIntent.php';
 require_once __DIR__ . '/src/Repository/Journal.php';
 require_once __DIR__ . '/src/Review/EffectDeclarationCoverage.php';
 require_once __DIR__ . '/src/Review/Pending.php';
@@ -130,7 +157,7 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  * Additive classmap fallback (issue #3481, owner rulings D3/D4).
  *
  * Every require_once above is retained and still does all the loading: after
- * this bootstrap runs, 276 of the 281 names in wprism-classmap.php are already
+ * this bootstrap runs, 304 of the 309 names in wprism-classmap.php are already
  * declared, and the five exceptions (WPrism\AdapterCertification and its four
  * withdrawal/supersession signals) are
  * require_once'd at each of that file's three use sites in AdapterSources.php

@@ -17,7 +17,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 335 offline suites green"
+	@echo "regress-offline-all: 355 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-action-provider-grammar \
@@ -55,6 +55,7 @@ regress-offline-corpus: code-half-unit \
 	regress-attr-id-codec-grammar \
 	regress-authored-meta-context \
 	regress-authored-ratification \
+	regress-authored-work-units \
 	regress-authority-delegation \
 	regress-authority-record-v2 \
 	regress-authorization-plan \
@@ -119,10 +120,13 @@ regress-offline-corpus: code-half-unit \
 	regress-contract-shape \
 	regress-control-plane-seams \
 	regress-convergence-verifier \
+	regress-core-conformance-evidence \
 	regress-core-rewrite-native-action \
+	regress-core-ssh-deletion-contract \
 	regress-coverage-offline \
 	regress-cross-manifest-guards \
 	regress-cross-root-replay \
+	regress-db-transaction-authority \
 	regress-delete-authorization-receipt \
 	regress-delete-executor \
 	regress-delete-guard-evaluator \
@@ -159,6 +163,7 @@ regress-offline-corpus: code-half-unit \
 	regress-environment-materializer-recovery \
 	regress-environment-materializer-ssh \
 	regress-exact-option-resolver \
+	regress-executable-tree-identity \
 	regress-explain-export-premise \
 	regress-explain-registry \
 	regress-export-manifest-roundtrip \
@@ -180,6 +185,7 @@ regress-offline-corpus: code-half-unit \
 	regress-interpreter-policy \
 	regress-invalidate-vocabulary \
 	regress-journal-bootstrap \
+	regress-ledger-read-only-schema \
 	regress-lifecycle-executor \
 	regress-lifecycle-options-snapshot \
 	regress-lifecycle-phase-handoff-unit \
@@ -190,6 +196,7 @@ regress-offline-corpus: code-half-unit \
 	regress-lint-trust-tier-gate \
 	regress-lint-type-exemptions \
 	regress-live-exit-code-contract \
+	regress-live-pair-ownership \
 	regress-local-bootstrap \
 	regress-local-verified-rollback \
 	regress-manifest-dispositions \
@@ -225,10 +232,12 @@ regress-offline-corpus: code-half-unit \
 	regress-path-safety \
 	regress-pending-command \
 	regress-pending-queue-ownership \
+	regress-php-literal-data \
 	regress-pin-resolver \
 	regress-plan-category-summary \
 	regress-plan-contract-trust \
 	regress-plan-explain \
+	regress-plan-reference-adoption \
 	regress-plan-summary-code-drift \
 	regress-plan-title-render \
 	regress-plan-view \
@@ -238,6 +247,7 @@ regress-offline-corpus: code-half-unit \
 	regress-plugin-adapter-source \
 	regress-plugin-claim-resolution \
 	regress-plugin-dependency-order \
+	regress-plugin-incompatibility \
 	regress-policy-load-finalizer \
 	regress-policy-load-scale \
 	regress-policy-rule-resolver \
@@ -247,11 +257,16 @@ regress-offline-corpus: code-half-unit \
 	regress-post-materializer \
 	regress-post-type-grammar \
 	regress-post-type-relation-resolver \
+	regress-private-command-capture \
+	regress-private-refusal-receipt \
 	regress-promote-command \
 	regress-promotion-abort-reason \
+	regress-promotion-begin-atomicity \
 	regress-promotion-unit \
 	regress-proof-legacy-pair \
-	regress-rank-math-adapter \
+	regress-provider-database-session \
+	regress-provider-operation-process \
+	regress-provider-option-surfaces \
 	regress-rebase-command \
 	regress-recover-claim \
 	regress-recover-ordering \
@@ -269,6 +284,7 @@ regress-offline-corpus: code-half-unit \
 	regress-refresh-field-diff \
 	regress-refresh-orchestration \
 	regress-refresh-rebase \
+	regress-refresh-reference-projection \
 	regress-regen-dependency-policy \
 	regress-rehearse-provider \
 	regress-relationship-materializer \
@@ -285,11 +301,13 @@ regress-offline-corpus: code-half-unit \
 	regress-repository-menu-location-validator \
 	regress-repository-portable-shape-validator \
 	regress-repository-reference-graph-validator \
+	regress-repository-scalar-reference-intersection \
 	regress-repository-schema-validator \
 	regress-repository-state-file-catalog \
 	regress-reviewer-evidence-tier \
 	regress-revocation-reachability \
 	regress-rollback-authority \
+	regress-scalar-reference-intersection \
 	regress-scope-closure \
 	regress-scope-command \
 	regress-scope-contract \
@@ -316,6 +334,7 @@ regress-offline-corpus: code-half-unit \
 	regress-spec-v3-dry-run \
 	regress-spec-window \
 	regress-ssh-adopt-evidence-retention \
+	regress-ssh-adopt-extension \
 	regress-ssh-rollback-certification \
 	regress-state-handoff-verifier \
 	regress-status-command \
@@ -352,7 +371,8 @@ regress-offline-corpus: code-half-unit \
 	regress-vocabulary-ownership \
 	regress-widget-type-resolver \
 	regress-woocommerce-regen-engine \
+	regress-wordpress-cron-window \
 	regress-wp-cli-child-process \
 	regress-wpforms-lite-adapter \
 	regress-wpforms-lite-term-deletion
-	@echo "regress-offline-corpus: 335 offline suites green"
+	@echo "regress-offline-corpus: 355 offline suites green"

@@ -129,6 +129,10 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*" >&3; }
 note() { printf '\033[1;33mnote: %s\033[0m\n' "$*" >&3; }
 plan() { printf '    $ %s\n' "$*" >&3; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
+[ "$WPRISM_DB_ENGINE" = mariadb ] \
+  || fail "MUP reference-provider evidence requires MariaDB; got WPRISM_DB_ENGINE=$WPRISM_DB_ENGINE"
 soft_fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 
 dry() { [ "$DRY_RUN" = 1 ]; }

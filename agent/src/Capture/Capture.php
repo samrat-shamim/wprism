@@ -198,6 +198,7 @@ final class Capture {
      * ledger map rows are synced from existing _wprism_uuid meta — identity
      * repair, not content mutation).
      *
+     * @param null|\Closure(object):?string $unmappedTermObserver Full-plan comparison only: a unique desired natural identity, never durable capture or adoption authority.
      * @return array<string, array{type: string, hash: string, content: string, path: string}>
      */
     public static function snapshot(
@@ -206,7 +207,8 @@ final class Capture {
         ?CompiledRepository $compiled = null,
         ?Policy $policy = null,
         ?array &$planObservations = null,
-        ?array $binding = null
+        ?array $binding = null,
+        ?\Closure $unmappedTermObserver = null
     ): array {
         return CaptureSnapshotService::snapshot(
             $repo,
@@ -214,7 +216,8 @@ final class Capture {
             $compiled,
             $policy,
             $planObservations,
-            $binding
+            $binding,
+            $unmappedTermObserver
         );
     }
 

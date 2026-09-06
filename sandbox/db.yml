@@ -13,15 +13,18 @@ name: wprism-db
 #
 # Here, each pair (sandbox/pair.yml) gets two logical databases on THIS one
 # server: wp_${WPRISM_PAIR}1 / wp_${WPRISM_PAIR}2. sandbox/bin/pair.sh creates/
-# drops those databases (and the shared `wordpress` application user's
-# wildcard grant) — this compose file only brings up the server itself, it
-# never touches per-pair schema.
+# drops those databases (and grants the shared `wordpress` application user
+# exact authority on each concrete schema) — this compose file only brings up
+# the server itself; it never touches per-pair schema.
 #
 # Own compose project (`wprism-db`, set via the top-level `name:` below and
 # also passed explicitly as `-p wprism-db` by pair.sh) — deliberately separate
 # from every pair's own project (`wprism-<name>`, sandbox/pair.yml) so pairs
 # can be created and destroyed freely without this server ever being in
-# their `compose down`/`up --force-recreate` blast radius.
+# their `compose down`/`up --force-recreate` blast radius. The prerequisite
+# call in pair_db_ensure_up() additionally uses `--no-recreate`: a second
+# linked worktree's absolute Compose metadata must not replace this singleton
+# while another pair is using it.
 #
 # Cross-project reachability is via the `wprism-shared` external network this
 # file OWNS: it's declared here WITHOUT `external: true`, so this is the one

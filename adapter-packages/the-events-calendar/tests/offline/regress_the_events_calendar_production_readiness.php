@@ -812,9 +812,6 @@ require_once $root . '/agent/src/Capture/CaptureCandidateBuilder.php';
 require_once $root . '/agent/src/Kernel/TransientDbException.php';
 require_once $root . '/agent/src/Kernel/Db.php';
 require_once $root . '/agent/src/Apply/OptionsMaterializer.php';
-require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/the-events-calendar.php';
-require_once dirname(__DIR__, 2) . '/package/runtime/providers/the-events-calendar-category-colors.php';
-require_once dirname(__DIR__, 2) . '/package/runtime/regenerators/the-events-calendar.php';
 
 use WPrism\Interpreters\TheEventsCalendar;
 use WPrism\Blocks;
@@ -1889,10 +1886,57 @@ $interpreter = $policy->interpreters()['the-events-calendar'];
 wprism_check($interpreter instanceof TheEventsCalendar, 'the manifest resolves its digest-bound TEC interpreter');
 $savedVersionPlugins = $GLOBALS['tec_readiness_plugins'] ?? null;
 $savedVersionOptions = $GLOBALS['tec_readiness_options'] ?? null;
+$savedVersionDb = $GLOBALS['wpdb'] ?? null;
 $tecPlugin = 'the-events-calendar/the-events-calendar.php';
+$tecTheme = 'tec-readiness-theme';
+$tecPluginPath = rtrim(WP_PLUGIN_DIR, '/\\') . '/' . $tecPlugin;
+$tecThemePath = rtrim(WP_CONTENT_DIR, '/\\') . '/themes/' . $tecTheme . '/style.css';
+foreach ([dirname($tecPluginPath), dirname($tecThemePath)] as $directory) {
+    if (!is_dir($directory) && !mkdir($directory, 0777, true) && !is_dir($directory)) {
+        throw new RuntimeException("could not create TEC lifecycle fixture directory: $directory");
+    }
+}
+$writeTecPluginVersion = static function (string $version) use ($tecPluginPath): void {
+    $bytes = "<?php\n/*\nPlugin Name: The Events Calendar readiness fixture\nVersion: $version\n*/\n";
+    if (file_put_contents($tecPluginPath, $bytes) !== strlen($bytes)) {
+        throw new RuntimeException('could not write TEC lifecycle plugin fixture');
+    }
+    clearstatcache(true, $tecPluginPath);
+};
+$themeBytes = "/*\nTheme Name: TEC readiness fixture\nVersion: 1.0.0\n*/\n";
+if (file_put_contents($tecThemePath, $themeBytes) !== strlen($themeBytes)) {
+    throw new RuntimeException('could not write TEC lifecycle theme fixture');
+}
+$versionDb = FakeWpdb::install();
+$versionDb->setColumns($versionDb->options, [
+    'option_id' => 'bigint unsigned',
+    'option_name' => 'varchar(191)',
+    'option_value' => 'longtext',
+    'autoload' => 'varchar(20)',
+])->seedTable($versionDb->options, [
+    [
+        'option_id' => 1,
+        'option_name' => 'active_plugins',
+        'option_value' => serialize([$tecPlugin]),
+        'autoload' => 'yes',
+    ],
+    [
+        'option_id' => 2,
+        'option_name' => 'stylesheet',
+        'option_value' => $tecTheme,
+        'autoload' => 'yes',
+    ],
+    [
+        'option_id' => 3,
+        'option_name' => 'template',
+        'option_value' => $tecTheme,
+        'autoload' => 'yes',
+    ],
+]);
 $GLOBALS['tec_readiness_options']['active_plugins'] = [$tecPlugin];
 foreach (['6.17.2', '6.17.3'] as $inRangeVersion) {
     $GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => $inRangeVersion]];
+    $writeTecPluginVersion($inRangeVersion);
     wprism_check_same(
         [],
         Deploy::code_mismatch($policy, ['active_plugins' => [$tecPlugin]]),
@@ -1901,9 +1945,12 @@ foreach (['6.17.2', '6.17.3'] as $inRangeVersion) {
 }
 foreach (['6.17.1', '6.17.4'] as $outOfRangeVersion) {
     $GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => $outOfRangeVersion]];
+    $writeTecPluginVersion($outOfRangeVersion);
     $beforeVersionRefusal = serialize([
         $GLOBALS['tec_readiness_plugins'],
         $GLOBALS['tec_readiness_options'],
+        file_get_contents($tecPluginPath),
+        $versionDb->rows($versionDb->options),
     ]);
     $versionRows = Deploy::code_mismatch($policy, ['active_plugins' => [$tecPlugin]]);
     wprism_check_same(1, count($versionRows), "TEC $outOfRangeVersion produces one lifecycle refusal");
@@ -1928,7 +1975,12 @@ foreach (['6.17.1', '6.17.4'] as $outOfRangeVersion) {
     );
     wprism_check_same(
         $beforeVersionRefusal,
-        serialize([$GLOBALS['tec_readiness_plugins'], $GLOBALS['tec_readiness_options']]),
+        serialize([
+            $GLOBALS['tec_readiness_plugins'],
+            $GLOBALS['tec_readiness_options'],
+            file_get_contents($tecPluginPath),
+            $versionDb->rows($versionDb->options),
+        ]),
         "TEC $outOfRangeVersion range diagnosis is read-only before lifecycle mutation"
     );
 }
@@ -1942,6 +1994,15 @@ if ($savedVersionOptions === null) {
 } else {
     $GLOBALS['tec_readiness_options'] = $savedVersionOptions;
 }
+if ($savedVersionDb === null) {
+    unset($GLOBALS['wpdb']);
+} else {
+    $GLOBALS['wpdb'] = $savedVersionDb;
+}
+@unlink($tecPluginPath);
+@rmdir(dirname($tecPluginPath));
+@unlink($tecThemePath);
+@rmdir(dirname($tecThemePath));
 wprism_check_same(
     [['kind' => 'post', 'path' => 'organizer', 'type' => 'int']],
     $policy->block_attr_rules()['tribe/event-organizer'] ?? null,
@@ -2634,6 +2695,7 @@ $organizerTargetInner = new FakeWpdb();
 $organizerTargetDb = new LockingFakeWpdb($organizerTargetInner);
 $organizerTargetDb
     ->addInnoDbTable($organizerTargetDb->postmeta)
+    ->addInnoDbTable($organizerTargetDb->prefix . 'wprism_map')
     ->addIndex($organizerTargetDb->postmeta, 'post_id', 'post_id');
 $organizerTargetInner->seedTable($organizerTargetInner->postmeta, [
     [
@@ -2693,7 +2755,13 @@ $applyOrganizerRows = static function (
     $cacheStarted = false;
     $failure = null;
     try {
-        \WPrism\Db::start_repeatable_read('TEC organizer repeated-row product fixture');
+        \WPrism\Db::start_repeatable_read(
+            'TEC organizer repeated-row product fixture',
+            new \WPrism\NativeDatabaseProfile(
+                [$database->prefix . 'wprism_map'],
+                [$database->postmeta]
+            )
+        );
         $transactionStarted = true;
         $materializer->begin_authored_transaction();
         \WPrism\CacheInvalidationTransaction::begin();
@@ -3515,9 +3583,11 @@ wprism_check(
     'the shipped provider honestly declares the direct exact Generator-then-dropdown contract instead of claiming controller dispatch'
 );
 
-$widgetDb = FakeWpdb::install();
+$widgetDb = new LockingFakeWpdb(new FakeWpdb());
+$GLOBALS['wpdb'] = $widgetDb;
 $widgetMapTable = $widgetDb->prefix . 'wprism_map';
 $widgetDb
+    ->addInnoDbTable($widgetMapTable)
     ->setUniqueKey($widgetMapTable, ['uuid', 'id_kind'])
     ->setUniqueKey($widgetMapTable, ['id_kind', 'local_id']);
 $sourceWidgetRows = [
@@ -3836,6 +3906,8 @@ $ownerMismatchDb->seedTable($ownerMismatchDb->options, [
 ]);
 $ownerMismatchOptionPreimage = $ownerMismatchDb->rows($ownerMismatchDb->options);
 $scopedWidgetScanner = new ReflectionMethod(CaptureCandidateBuilder::class, 'portableWidgetReferenceScan');
+// These direct selection/ownership probes do not open a capture transaction;
+// only CaptureTransaction can supply its exact work-partition authority.
 $scopedWidgetBuilder = new CaptureCandidateBuilder($root, $coreTecPolicy);
 $selectedWidgetPost = (object) [
     'ID' => 7001,
@@ -3861,7 +3933,8 @@ foreach ([$unrelatedCoreWidgetPost, $unrelatedTecWidgetPost] as $unrelatedPost) 
             $scopedWidgetBuilder,
             [$selectedWidgetPost, $unrelatedPost],
             $scopedPostUuids,
-            [TEC_EVENT_UUID]
+            [TEC_EVENT_UUID],
+            null
         ),
         'scoped stored-widget discovery observes only the contract-selected post closure'
     );
@@ -3871,7 +3944,8 @@ wprism_check_throws(
         $scopedWidgetBuilder,
         [$selectedWidgetPost, $unrelatedCoreWidgetPost],
         $scopedPostUuids,
-        [TEC_EVENT_UUID, TEC_VENUE_UUID]
+        [TEC_EVENT_UUID, TEC_VENUE_UUID],
+        null
     ),
     RuntimeException::class,
     'the same foreign core widget refuses when its owning post is actually selected',
@@ -4602,9 +4676,29 @@ add_action('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']
 $colorDb = FakeWpdb::install();
 tec_readiness_sync_color_db();
 
-$colorProvider = new TheEventsCalendarCategoryColors(
-    $policy->provider_declarations()['the-events-calendar-category-colors']
-);
+$savedColorPlugins = $GLOBALS['tec_readiness_plugins'] ?? null;
+$savedColorOptions = $GLOBALS['tec_readiness_options'] ?? null;
+$GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => '6.17.3']];
+$GLOBALS['tec_readiness_options']['active_plugins'] = [$tecPlugin];
+$colorNegotiation = \WPrism\Providers::negotiate($policy, $colorActions);
+if ($savedColorPlugins === null) {
+    unset($GLOBALS['tec_readiness_plugins']);
+} else {
+    $GLOBALS['tec_readiness_plugins'] = $savedColorPlugins;
+}
+if ($savedColorOptions === null) {
+    unset($GLOBALS['tec_readiness_options']);
+} else {
+    $GLOBALS['tec_readiness_options'] = $savedColorOptions;
+}
+wprism_check_same([], $colorNegotiation['problems'] ?? null,
+    'the product negotiation path admits the digest-bound Category Colors provider');
+$colorProvider = $colorNegotiation['providers']['the-events-calendar-category-colors'] ?? null;
+wprism_check($colorProvider instanceof TheEventsCalendarCategoryColors,
+    'the product negotiation path loads the exact Category Colors provider class');
+if (!$colorProvider instanceof TheEventsCalendarCategoryColors) {
+    wprism_check_summary('The Events Calendar production readiness');
+}
 wprism_check_same(
     [
         'id' => 'the-events-calendar-category-colors',
@@ -6667,7 +6761,8 @@ function tec_readiness_capture_customizer_record(
     string $canonicalAutoload = 'auto-on'
 ): ?array {
     $savedDb = $GLOBALS['wpdb'] ?? null;
-    $db = FakeWpdb::install();
+    $db = new LockingFakeWpdb(new FakeWpdb());
+    $GLOBALS['wpdb'] = $db;
     $rows = [];
     $rawOptionSnapshot = [];
     $optionId = 1;
@@ -6691,10 +6786,14 @@ function tec_readiness_capture_customizer_record(
         $rows[] = $row;
         $rawOptionSnapshot[$row['option_name']] = $row['option_value'];
     }
-    $db->seedTable($db->options, $rows);
+    $db->seedTable($db->options, $rows)
+        ->addInnoDbTable($db->options);
     $transactionStarted = false;
     try {
-        \WPrism\Db::start_read_only_consistent_snapshot('TEC Customizer capture fixture');
+        \WPrism\Db::start_read_only_consistent_snapshot(
+            'TEC Customizer capture fixture',
+            \WPrism\NativeDatabaseProfile::read_only([$db->options])
+        );
         $transactionStarted = true;
         $capture = new \WPrism\OptionsCapture(
             $policy,
@@ -6831,7 +6930,10 @@ function tec_readiness_materialize_mixed_option(
     $failure = null;
     $warnings = [];
     try {
-        \WPrism\Db::start_repeatable_read('TEC mixed-option fixture apply');
+        \WPrism\Db::start_repeatable_read(
+            'TEC mixed-option fixture apply',
+            new \WPrism\NativeDatabaseProfile([], [$db->options])
+        );
         $transactionStarted = true;
         $fieldMaterializer->begin_authored_transaction();
         $optionsMaterializer->begin_authored_transaction();
@@ -7892,7 +7994,7 @@ foreach ([
         timePlan: [1700.1, 1700.2],
         configureDb: static function (LockingFakeWpdb $db) use ($failedMarker): void {
             $db->inner()->onQuery(static function (string $sql, string $method) use ($failedMarker): ?string {
-                if ($method === 'insert' && str_contains($sql, $failedMarker)) {
+                if ($method === 'query' && str_contains($sql, $failedMarker)) {
                     return 'injected marker write failure';
                 }
                 return null;
@@ -7971,7 +8073,7 @@ $preexistingPurgeRollback = tec_readiness_materialize_mixed_option(
     timePlan: [1950.1, 1950.2],
     configureDb: static function (LockingFakeWpdb $db): void {
         $db->inner()->onQuery(static function (string $sql, string $method): ?string {
-            if ($method === 'insert' && str_contains($sql, 'tribe_last_save_post')) {
+            if ($method === 'query' && str_contains($sql, 'tribe_last_save_post')) {
                 return 'injected marker write failure';
             }
             return null;
@@ -8072,7 +8174,7 @@ $mainRestoreFailure = tec_readiness_materialize_mixed_option(
     configureDb: static function (LockingFakeWpdb $db): void {
         $db->inner()->onQuery(static function (string $sql, string $method): ?string {
             static $failed = false;
-            if (!$failed && $method === 'update' && str_contains($sql, 'tribe_last_save_post')) {
+            if (!$failed && $method === 'query' && str_contains($sql, 'tribe_last_save_post')) {
                 $failed = true;
                 return 'injected second marker update failure';
             }
@@ -8975,7 +9077,12 @@ add_filter(
     5,
     4
 );
-$regenerator = new TheEventsCalendarRegenerator($policy);
+$regenerator = $policy->regenerators()['the-events-calendar'] ?? null;
+wprism_check($regenerator instanceof TheEventsCalendarRegenerator,
+    'the policy loader resolves the exact digest-bound TEC regenerator');
+if (!$regenerator instanceof TheEventsCalendarRegenerator) {
+    wprism_check_summary('The Events Calendar production readiness');
+}
 $GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
 wprism_check_throws(
     static fn() => $regenerator->regenerate_batch([], [[

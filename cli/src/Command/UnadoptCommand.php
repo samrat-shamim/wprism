@@ -18,16 +18,25 @@ final class UnadoptCommand {
         }
         $archive = null;
         $yes = false;
+        $legacyLoaderQuiesced = false;
         foreach ($extra as $arg) {
             if ($arg === '--yes' && !$yes) {
                 $yes = true;
+                continue;
+            }
+            if ($arg === AgentGenerationFence::LEGACY_QUIESCENCE_FLAG && !$legacyLoaderQuiesced) {
+                $legacyLoaderQuiesced = true;
                 continue;
             }
             if (str_starts_with($arg, '--archive-to=') && $archive === null) {
                 $archive = substr($arg, strlen('--archive-to='));
                 continue;
             }
-            fwrite(STDERR, "wprism: unadopt accepts exactly --archive-to=<absolute-path> and optional --yes\n");
+            fwrite(
+                STDERR,
+                'wprism: unadopt accepts exactly --archive-to=<absolute-path>, optional --yes, and optional '
+                    . AgentGenerationFence::LEGACY_QUIESCENCE_FLAG . "\n"
+            );
             return 1;
         }
         if (!is_string($archive) || $archive === '') {
@@ -56,7 +65,7 @@ final class UnadoptCommand {
         }
 
         try {
-            $result = Unadopt::execute($transport, $plan);
+            $result = Unadopt::execute($transport, $plan, $legacyLoaderQuiesced);
         } catch (\Throwable $error) {
             fwrite(STDERR, 'wprism: unadopt failed: ' . $error->getMessage() . "\n");
             return 1;
@@ -69,6 +78,9 @@ final class UnadoptCommand {
         $receipt = $result['receipt'] ?? [];
         echo 'unadopt: WPrism control plane removed; complete evidence archive: '
             . ($receipt['archive'] ?? $archive) . "\n";
+        if (($receipt['legacy_loader_quiescence_attested'] ?? false) === true) {
+            echo "unadopt: legacy unfenced loader transition used and archived the explicit quiescence attestation\n";
+        }
         echo 'unadopt: repository code, media, state, Git history, site.wprism.json, and durable revocations were preserved in place' . "\n";
         echo 'unadopt receipt: ' . hash('sha256', json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) . "\n";
         return 0;
@@ -79,6 +91,11 @@ final class UnadoptCommand {
         echo "WPrism unadopt plan {$plan['digest']}\n";
         echo "  agent: {$plan['agent_version']}\n";
         echo "  archive: {$plan['archive']}\n";
+        echo "  loader generation fence: {$plan['loader_generation_fence']}\n";
+        if (($plan['loader_generation_fence'] ?? null) === 'legacy-unfenced') {
+            echo '  required migration boundary: hold traffic and drain every legacy-loader PHP/WP-CLI process '
+                . 'through command completion; attest with ' . AgentGenerationFence::LEGACY_QUIESCENCE_FLAG . "\n";
+        }
         echo "  remove from live target after archive verification:\n";
         foreach ($plan['surfaces'] as $surface) {
             echo "    {$surface['path']} ({$surface['sha256']})\n";

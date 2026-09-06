@@ -178,6 +178,7 @@ final class ReleaseCommand {
      */
     public const OBSERVED_FAILURE_CLASSES = [
         'plan_changed',
+        'incomplete_checkpoint_recovery', 'incomplete_provider_settlement',
         'incomplete_lifecycle', 'incomplete_apply', 'ambiguous_commitment',
         'checkpoint_unavailable', 'drift_detected', 'receipt_uncertain', 'nothing_safe',
     ];
@@ -1530,13 +1531,29 @@ PHP;
     /**
      * Observe the failure class from the target, never from the exit code.
      *
-     * Order matters and is the order of consequence: an interrupted code
-     * lifecycle window is the most dangerous state and is checked first, an
-     * unreadable target is checked last. Every branch returns a class
-     * `NextAction::MAPPING` knows, so the closed set can never be widened by
-     * accident here.
+     * Order matters and is the order of observability: database-external debt
+     * is checked through the version-independent filesystem fence before an
+     * agent boot that debt deliberately blocks. Once clear, lifecycle/apply
+     * receipts and rollback authority retain their existing consequence
+     * order. Every branch returns a class `NextAction::MAPPING` knows, so the
+     * closed set can never be widened by accident here.
      */
     private static function classifyFailure(EnvironmentDriver $driver): string {
+        try {
+            $external = CodeDeploy::externalRecoveryFence($driver, $driver->repoPath());
+        } catch (\Throwable) {
+            return 'receipt_uncertain';
+        }
+        $externalState = (string) ($external['state'] ?? 'unsafe');
+        if ($externalState === 'checkpoint_recovery') {
+            return 'incomplete_checkpoint_recovery';
+        }
+        if ($externalState === 'provider_settlement') {
+            return 'incomplete_provider_settlement';
+        }
+        if ($externalState !== 'clear') {
+            return 'receipt_uncertain';
+        }
         try {
             $plan = self::targetPlan($driver);
         } catch (CommandRefusalException) {

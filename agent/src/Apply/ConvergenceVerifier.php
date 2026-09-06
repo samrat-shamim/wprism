@@ -209,8 +209,8 @@ final class ConvergenceVerifier {
             $lines[] = '  remedy: ' . $remediation;
         }
         if (($envelope['details_redacted'] ?? false) === true) {
-            $lines[] = '  the subprocess redacted its detail; the full chain is in '
-                . '<repo>/.wprism/refusals/ on this environment';
+            $lines[] = '  the subprocess redacted its detail; its bounded private evidence graph and '
+                . 'completeness witness are in <repo>/.wprism/refusals/ on this environment';
         }
         return implode("\n", $lines);
     }

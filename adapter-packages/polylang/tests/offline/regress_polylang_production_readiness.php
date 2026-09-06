@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace {
     $repoRoot = dirname(__DIR__, 4);
     require_once $repoRoot . '/sandbox/tests/lib/check.php';
+    require_once $repoRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
     require_once $repoRoot . '/agent/src/Kernel/PlainData.php';
 
     $GLOBALS['pll_options'] = [];
@@ -224,6 +225,28 @@ namespace {
         }
     }
 
+    /** Decode one complete POSIX single-quoted token emitted by escapeshellarg(). */
+    function pll_shell_unquote(string $token): string {
+        if (strlen($token) < 2 || $token[0] !== "'" || substr($token, -1) !== "'") {
+            throw new \RuntimeException('fixture bounded command is not shell-quoted');
+        }
+        return str_replace("'\\''", "'", substr($token, 1, -1));
+    }
+
+    /** Recover the reviewed `eval <quoted code>` payload from the fixed launcher layers. */
+    function pll_bounded_eval_code(string $launchLine): string {
+        $separator = strrpos($launchLine, ' -- ');
+        if ($separator === false) {
+            throw new \RuntimeException('fixture bounded command has no wrapper boundary');
+        }
+        $commandLine = pll_shell_unquote(substr($launchLine, $separator + 4));
+        $evalAt = strrpos($commandLine, ' eval ');
+        if ($evalAt === false) {
+            throw new \RuntimeException('fixture bounded command has no eval payload');
+        }
+        return pll_shell_unquote(substr($commandLine, $evalAt + 6));
+    }
+
     function clean_term_cache(int|array $termIds, string $taxonomy = ''): void {
         foreach ((array) $termIds as $termId) {
             $GLOBALS['pll_cleaned_terms'][] = [(int) $termId, $taxonomy];
@@ -374,7 +397,19 @@ namespace {
     }
 
     final class WP_CLI {
+        use \WPrismTest\WpCliChildRuntime;
+
         public static function runcommand(string $command, array $options): mixed {
+            if (str_starts_with($command, 'exec ')) {
+                $GLOBALS['pll_child_calls'][] = [$command, $options];
+                if ($GLOBALS['pll_child_throw'] instanceof \Throwable) {
+                    throw $GLOBALS['pll_child_throw'];
+                }
+                if ($GLOBALS['pll_execute_fresh_catalog_child']) {
+                    return (object) \pll_execute_fresh_catalog_child(\pll_bounded_eval_code($command));
+                }
+                return (object) $GLOBALS['pll_child_result'];
+            }
             $GLOBALS['pll_command_calls'][] = [$command, $options];
             if ($GLOBALS['pll_command_throw'] instanceof \Throwable) {
                 throw $GLOBALS['pll_command_throw'];
@@ -391,36 +426,6 @@ namespace {
 
 namespace WPrism {
     final class Policy {}
-
-    /**
-     * The generic transport owns process groups, concurrent pipe draining and
-     * limits. This product fixture records only the fixed caller contract so
-     * it can refuse a widened timeout/output boundary without reimplementing
-     * a second process fake (the generic transport suite covers descendants).
-     */
-    final class WpCliChildProcess {
-        /** @return array{return_code:int,stdout:string,stderr:string} */
-        public static function capture(
-            string $command,
-            int $timeoutSeconds,
-            int $stdoutLimit,
-            int $stderrLimit
-        ): array {
-            $GLOBALS['pll_child_calls'][] = [$command, $timeoutSeconds, $stdoutLimit, $stderrLimit];
-            if ($GLOBALS['pll_child_throw'] instanceof \Throwable) {
-                throw $GLOBALS['pll_child_throw'];
-            }
-            if ($GLOBALS['pll_execute_fresh_catalog_child']) {
-                $quoted = substr($command, strlen('eval '));
-                if (strlen($quoted) < 2 || $quoted[0] !== "'" || substr($quoted, -1) !== "'") {
-                    throw new \RuntimeException('fixture catalog child command is not shell-quoted');
-                }
-                $code = str_replace("'\\''", "'", substr($quoted, 1, -1));
-                return \pll_execute_fresh_catalog_child($code);
-            }
-            return $GLOBALS['pll_child_result'];
-        }
-    }
 
     final class Providers {
         public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
@@ -614,7 +619,7 @@ namespace {
         'negative, overflow, float, scientific, junk, leading-zero and nonscalar term_group values refuse before publication'
     );
     wprism_check_same(false, $termGroup['captured_category_has_term_group'] ?? null, 'ordinary taxonomy bytes remain unchanged without exact opt-in');
-    wprism_check_same(2, $termGroup['materialized_term_group'] ?? null, 'term materialization restores native language order');
+    wprism_check_same('2', $termGroup['materialized_term_group'] ?? null, 'term materialization restores native language order through wpdb decimal text transport');
     wprism_check(
         ($termGroup['language_description'] ?? null) === ($termGroup['materialized_description'] ?? null)
             && str_contains((string) ($termGroup['language_description'] ?? ''), 's:3:"rtl";i:1;'),
@@ -774,8 +779,17 @@ namespace {
     wprism_check(
         count($GLOBALS['pll_command_calls']) === 0
             && count($GLOBALS['pll_child_calls']) === 1
-            && str_starts_with((string) ($GLOBALS['pll_child_calls'][0][0] ?? ''), 'eval ')
-            && array_slice($GLOBALS['pll_child_calls'][0] ?? [], 1) === [120, 262144, 131072],
+            && str_starts_with((string) ($GLOBALS['pll_child_calls'][0][0] ?? ''), 'exec ')
+            && str_contains((string) ($GLOBALS['pll_child_calls'][0][0] ?? ''), ' eval ')
+            && ($GLOBALS['pll_child_calls'][0][1] ?? null) === [
+                'launch' => true,
+                'return' => 'all',
+                'exit_error' => false,
+            ]
+            && preg_match(
+                '/WpCliChildProcess::capture\\(\\s*[\'\"]eval [\'\"] \\. escapeshellarg\\(\\$code\\),\\s*120,\\s*262144,\\s*131072\\s*\\)/s',
+                (string) file_get_contents(dirname(__DIR__, 2) . '/package/runtime/providers/polylang-nav-menus.php')
+            ) === 1,
         'provider uses a bounded fresh catalog-verification child with fixed process limits'
     );
     wprism_check_same(

@@ -937,6 +937,8 @@ final class AffectedTest extends TestCase
         ] as $path) {
             self::assertSame([
                 'adapter-package:woocommerce',
+                'integration-scenario:rank-math-commerce-multilingual:offline:regress_rank_math_commerce_multilingual_contract.php',
+                'integration-scenario:rank-math-commerce-multilingual:offline:regress_source_native_premise.php',
                 'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
             ], self::targets(['--paths=' . $path]));
         }
@@ -965,11 +967,13 @@ final class AffectedTest extends TestCase
             $decoded['tasks'][0]['command']
         );
         self::assertSame(
-            ['adapter-package', 'participant-scenario'],
+            ['adapter-package', 'participant-scenario', 'participant-scenario', 'participant-scenario'],
             array_column($decoded['explain'], 'why')
         );
         self::assertSame([
             'integration-scenario:polylang-tec-rewrite-coinstall:live:regress_polylang_tec_rewrite_coinstall.sh',
+            'integration-scenario:rank-math-commerce-multilingual:live:regress_rank_math_commerce_multilingual.sh',
+            'integration-scenario:rank-math-commerce-multilingual:live:regress_rank_math_commerce_multilingual_ssh_deletion.sh',
             'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
         ], array_column($decoded['advisories'], 'target'));
     }

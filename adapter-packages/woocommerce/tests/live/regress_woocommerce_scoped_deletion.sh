@@ -19,11 +19,11 @@ wprism_ssh_adopt_extension() {
   esac
   local woo_suffix="${woo_version//./}"
   local woo_sku="WPRISM-SSH-DELETE-${woo_suffix}"
-  local woo_pin executable_owners product_id product_file product_base product_uuid
-  local expected_hash expected_revision source_path scope_hash plan_json full_plan_json scoped_code
+  local woo_pin executable_owners product_id product_uuid
+  local active_themes observation owner_row stylesheet template theme
+  local scope_hash plan_json full_plan_json scoped_code
   local lookup_before failed_code failed_product failed_lookup retry_code
   local status_json stock_topology success_product success_lookup converged_plan
-  local next_generation retry_generation
   local failure_stdout="$DIAG_DIR/woocommerce-delete-failure.stdout"
   local failure_stderr="$DIAG_DIR/woocommerce-delete-failure.stderr"
   local success_stdout="$DIAG_DIR/woocommerce-delete-success.stdout"
@@ -36,51 +36,11 @@ wprism_ssh_adopt_extension() {
   done
 
   say "enroll the full upload/effect recovery providers required for deletion"
-  ( umask 077; openssl rand 32 >"$TMP/woocommerce-upload.key" )
-  chmod 0600 "$TMP/woocommerce-upload.key"
-  scp -F "$TMP/ssh_config" \
-    "$ROOT/sandbox/tests/fixtures/upload-provider.php" \
-    "$ROOT/sandbox/tests/fixtures/effect-provider.php" \
-    "$PACKAGE_ROOT/fixtures/plan-bound-code-release-provider.php" \
-    "$TMP/woocommerce-upload.key" \
-    wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
-  ssh_fixture '
-    chmod 700 /home/wprism/recovery-fixture/upload-provider.php /home/wprism/recovery-fixture/effect-provider.php /home/wprism/recovery-fixture/plan-bound-code-release-provider.php
-    chmod 600 /home/wprism/recovery-fixture/woocommerce-upload.key
-    mkdir -p /home/wprism/recovery-fixture/offload
-    chmod 700 /home/wprism/recovery-fixture/offload
-  '
-  jq '
-    .envs.target.rollback_recovery.upload_provider = [
-      "/usr/local/bin/php",
-      "/home/wprism/recovery-fixture/upload-provider.php",
-      "/home/wprism/recovery-fixture/upload-provider-state",
-      "/var/www/html/wp-content/uploads",
-      "/home/wprism/recovery-fixture/offload",
-      "/home/wprism/site/media",
-      "/home/wprism/recovery-fixture/woocommerce-upload.key"
-    ]
-    | .envs.target.rollback_recovery.effect_provider = [
-      "/usr/local/bin/php",
-      "/home/wprism/recovery-fixture/effect-provider.php",
-      "/home/wprism/recovery-fixture/effect-provider-state",
-      "/var/www/html"
-    ]
-    | .envs.target.rollback_recovery.code_release_provider = [
-      "/usr/local/bin/php",
-      "/home/wprism/recovery-fixture/plan-bound-code-release-provider.php",
-      "/home/wprism/recovery-fixture/woocommerce-code-release-state",
-      "/home/wprism/code-releases",
-      "/home/wprism/code-current"
-    ]
-  ' "$TMP/envs.json" >"$TMP/envs.full-recovery.json"
-  mv "$TMP/envs.full-recovery.json" "$TMP/envs.json"
-  "$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null \
-    || fail "WooCommerce scoped-deletion extension could not enroll full recovery providers"
+  wprism_ssh_enroll_full_recovery woocommerce
   pass "candidate-bound upload/effect/code-release providers are enrolled for full automatic recovery"
 
   say "install the exact WooCommerce deletion boundary on the adopted SSH target"
-  ssh_fixture "cd /var/www/html && wp plugin install woocommerce --version=$woo_version --activate --quiet"
+  wprism_ssh_install_certified_plugin woocommerce "$woo_version"
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
   if [ "$woo_version" = "11.0.1" ]; then
@@ -128,21 +88,9 @@ wprism_ssh_adopt_extension() {
     }
     exit($site && $state ? 0 : 42);
   '\''' || fail "WooCommerce code release setup found repository changes outside the shared captured site/state evidence"
+  wprism_ssh_stage_code_inventory woocommerce
   ssh_fixture '
     set -eu
-    mkdir -p /home/wprism/site/code/wp-content/plugins /home/wprism/site/code/wp-content/themes
-    cp -a /var/www/html/wp-content/plugins/woocommerce /home/wprism/site/code/wp-content/plugins/woocommerce
-    stylesheet="$(cd /var/www/html && wp option get stylesheet)"
-    template="$(cd /var/www/html && wp option get template)"
-    for theme in "$stylesheet" "$template"; do
-      case "$theme" in
-        ""|*[!A-Za-z0-9._-]*) exit 41 ;;
-      esac
-      test -d "/var/www/html/wp-content/themes/$theme"
-      if [ ! -e "/home/wprism/site/code/wp-content/themes/$theme" ]; then
-        cp -a "/var/www/html/wp-content/themes/$theme" "/home/wprism/site/code/wp-content/themes/$theme"
-      fi
-    done
     php -r '\''
       $path = "/home/wprism/site/site.wprism.json";
       $site = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
@@ -153,124 +101,55 @@ wprism_ssh_adopt_extension() {
     git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   ' || fail "WooCommerce deletion proof could not commit its exact code half"
-  next_generation="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' | jq -r '.generation + 1')"
-  [[ "$next_generation" =~ ^[1-9][0-9]*$ ]] \
-    || fail "WooCommerce deletion proof could not derive its next signed generation"
-  retry_generation=$((next_generation + 1))
-  ssh_fixture "
-    set -eu
-    test ! -e /home/wprism/code-releases
-    test ! -e /home/wprism/code-current
-    mkdir -p /home/wprism/code-releases/release-prior
-    mkdir -p /home/wprism/code-releases/release-desired-$next_generation
-    mkdir -p /home/wprism/code-releases/release-desired-$retry_generation
-    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-prior/wp-content
-    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$next_generation/wp-content
-    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$retry_generation/wp-content
-    printf '%s\\n' release-prior > /home/wprism/code-current
-    chmod 600 /home/wprism/code-current
-  " || fail "WooCommerce deletion proof could not stage immutable prior/failure/retry releases"
-  pass "WooCommerce code inventory and immutable generations $next_generation/$retry_generation are exact and target-credential-free"
+  wprism_ssh_stage_generation_releases 2
+  pass "WooCommerce code inventory and consecutive failure/retry generations are exact and target-credential-free"
 
-  cat >"$TMP/woocommerce-owner-agreements.php" <<'PHP'
-<?php
+  stylesheet="$(ssh_fixture 'cd /var/www/html && wp option get stylesheet')" \
+    || fail "WooCommerce scoped-deletion extension could not observe its active stylesheet"
+  template="$(ssh_fixture 'cd /var/www/html && wp option get template')" \
+    || fail "WooCommerce scoped-deletion extension could not observe its active template"
+  active_themes="$(printf '%s\n' "$stylesheet" "$template" | LC_ALL=C sort -u)" \
+    || fail "WooCommerce scoped-deletion extension could not order the active theme roster"
+  [ -n "$active_themes" ] \
+    || fail "WooCommerce scoped-deletion extension observed an empty active theme roster"
+  executable_owners='[]'
+  while IFS= read -r theme; do
+    [[ "$theme" =~ ^[A-Za-z0-9._-]{1,128}$ ]] && [ "$theme" != '.' ] && [ "$theme" != '..' ] \
+      || fail "WooCommerce scoped-deletion extension observed a malformed active theme owner"
+    observation="$(ssh_fixture "cd /var/www/html && wp wprism executable-owner-observe --owner='theme:$theme'")" \
+      || fail "WooCommerce scoped-deletion extension could not observe exact theme:$theme code"
+    owner_row="$(jq -ce --arg owner "theme:$theme" --arg root "themes/$theme" \
+      --arg rationale 'Exact active theme code reviewed: it persists no Woo product reverse-reference identity.' '
+        if keys == ["code_identity", "owner"]
+          and .owner == $owner
+          and .code_identity.format == "wprism-executable-tree/v1"
+          and .code_identity.root == $root
+          and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+        then . + {rationale: $rationale}
+        else error("noncanonical executable owner observation")
+        end
+      ' <<<"$observation")" \
+      || fail "WooCommerce scoped-deletion extension received malformed theme:$theme code identity"
+    executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+      || fail "WooCommerce scoped-deletion extension could not assemble theme:$theme agreement"
+  done <<<"$active_themes"
 
-$themes = array_values(array_unique([get_stylesheet(), get_template()]));
-sort($themes, SORT_STRING);
-$contentRoot = realpath(WP_CONTENT_DIR);
-if (!is_string($contentRoot) || $contentRoot === '') {
-    throw new RuntimeException('WooCommerce deletion agreement cannot resolve WP_CONTENT_DIR');
-}
-$owners = [];
-foreach ($themes as $theme) {
-    if (!is_string($theme) || preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $theme) !== 1) {
-        throw new RuntimeException('WooCommerce deletion agreement found a malformed theme owner');
-    }
-    $canonicalRoot = 'themes/' . $theme;
-    $root = WP_CONTENT_DIR . '/' . $canonicalRoot;
-    $resolved = realpath($root);
-    if (!is_string($resolved) || $resolved !== $contentRoot . '/' . $canonicalRoot || is_link($root)) {
-        throw new RuntimeException('WooCommerce deletion agreement found an unsafe theme root');
-    }
-    $files = [];
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
-    foreach ($iterator as $entry) {
-        if (!$entry instanceof SplFileInfo) {
-            throw new RuntimeException('WooCommerce deletion agreement found an uninspectable theme entry');
-        }
-        $path = $entry->getPathname();
-        $stat = lstat($path);
-        $kind = is_array($stat) ? (((int) $stat['mode']) & 0170000) : 0;
-        if ($kind === 0040000) {
-            continue;
-        }
-        if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-            throw new RuntimeException('WooCommerce deletion agreement found a nonregular theme entry');
-        }
-        $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));
-        $files[] = ['path' => $relative, 'sha256' => hash_file('sha256', $path)];
-    }
-    usort($files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
-    $payload = ['files' => $files, 'format' => 'wprism-executable-tree/v1', 'root' => $canonicalRoot];
-    $owners[] = [
-        'owner' => 'theme:' . $theme,
-        'code_identity' => [
-            'format' => 'wprism-executable-tree/v1',
-            'root' => $canonicalRoot,
-            'sha256' => hash('sha256', \WPrism\Canon::encode($payload)),
-        ],
-        'rationale' => 'Exact active theme code reviewed: it persists no Woo product reverse-reference identity.',
-    ];
-}
-$plugin = 'woocommerce/woocommerce.php';
-$canonicalRoot = 'plugins/woocommerce';
-$root = WP_PLUGIN_DIR . '/woocommerce';
-$resolved = realpath($root);
-if (!is_string($resolved) || $resolved !== $contentRoot . '/' . $canonicalRoot
-    || is_link($root) || !is_file(WP_PLUGIN_DIR . '/' . $plugin)) {
-    throw new RuntimeException('WooCommerce deletion agreement found an unsafe plugin root');
-}
-$files = [];
-$iterator = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-    RecursiveIteratorIterator::SELF_FIRST
-);
-foreach ($iterator as $entry) {
-    if (!$entry instanceof SplFileInfo) {
-        throw new RuntimeException('WooCommerce deletion agreement found an uninspectable plugin entry');
-    }
-    $path = $entry->getPathname();
-    $stat = lstat($path);
-    $kind = is_array($stat) ? (((int) $stat['mode']) & 0170000) : 0;
-    if ($kind === 0040000) {
-        continue;
-    }
-    if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
-        throw new RuntimeException('WooCommerce deletion agreement found a nonregular plugin entry');
-    }
-    $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));
-    $files[] = ['path' => $relative, 'sha256' => hash_file('sha256', $path)];
-}
-usort($files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
-$payload = ['files' => $files, 'format' => 'wprism-executable-tree/v1', 'root' => $canonicalRoot];
-$owners[] = [
-    'owner' => 'plugin:' . $plugin,
-    'code_identity' => [
-        'format' => 'wprism-executable-tree/v1',
-        'root' => $canonicalRoot,
-        'sha256' => hash('sha256', \WPrism\Canon::encode($payload)),
-    ],
-    'rationale' => 'Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.',
-];
-echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-PHP
-  scp -F "$TMP/ssh_config" "$TMP/woocommerce-owner-agreements.php" \
-    wprism-adopt-fixture:/home/wprism/recovery-fixture/woocommerce-owner-agreements.php >/dev/null
-  executable_owners="$(ssh_fixture 'cd /var/www/html && wp eval-file /home/wprism/recovery-fixture/woocommerce-owner-agreements.php')"
-  ssh_fixture 'rm -f /home/wprism/recovery-fixture/woocommerce-owner-agreements.php'
+  observation="$(ssh_fixture "cd /var/www/html && wp wprism executable-owner-observe --owner='plugin:woocommerce/woocommerce.php'")" \
+    || fail "WooCommerce scoped-deletion extension could not observe exact WooCommerce code"
+  owner_row="$(jq -ce --arg rationale \
+    'Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.' '
+      if keys == ["code_identity", "owner"]
+        and .owner == "plugin:woocommerce/woocommerce.php"
+        and .code_identity.format == "wprism-executable-tree/v1"
+        and .code_identity.root == "plugins/woocommerce"
+        and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+      then . + {rationale: $rationale}
+      else error("noncanonical executable owner observation")
+      end
+    ' <<<"$observation")" \
+    || fail "WooCommerce scoped-deletion extension received malformed WooCommerce code identity"
+  executable_owners="$(jq -ce --argjson row "$owner_row" '. + [$row]' <<<"$executable_owners")" \
+    || fail "WooCommerce scoped-deletion extension could not assemble its WooCommerce agreement"
   jq -e '
     (map(select(.owner == "plugin:woocommerce/woocommerce.php")) | length) == 1
     and (map(select(.owner | startswith("theme:"))) | length) >= 1
@@ -353,26 +232,8 @@ PHP
 
   "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/woocommerce-delete-capture.json" \
     || fail "WooCommerce scoped-deletion extension could not capture the exact product"
-  product_file="$(ssh_fixture 'find /home/wprism/site/state/posts/product -type f -name "*--wprism-ssh-deletion-proof.md" -print')"
-  [ "$(wc -l <<<"$product_file" | tr -d ' ')" -eq 1 ] && [ -n "$product_file" ] \
-    || fail "WooCommerce scoped-deletion extension did not capture one named product file"
-  product_base="$(basename "$product_file")"
-  product_uuid="${product_base:0:36}"
-  [[ "$product_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
-    || fail "WooCommerce scoped-deletion extension captured a malformed product UUID"
-  expected_hash="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT content_hash FROM wp_wprism_state WHERE uuid='$product_uuid'\" --skip-column-names" | tr -d '[:space:]')"
-  expected_revision="$(ssh_fixture 'cd /var/www/html && wp eval '\''echo \WPrism\RepositoryCompiler::compile("/home/wprism/site", \WPrism\Policy::load("/home/wprism/site"))->revision_hash();'\''')"
-  [[ "$expected_hash" =~ ^[a-f0-9]{64}$ ]] && [[ "$expected_revision" =~ ^[a-f0-9]{64}$ ]] \
-    || fail "WooCommerce scoped-deletion extension could not bind exact product preimage hashes"
-  source_path="posts/product/$product_base"
-  jq -n --arg expected_hash "$expected_hash" --arg expected_revision "$expected_revision" \
-    --arg source_path "$source_path" --arg uuid "$product_uuid" \
-    '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"wprism-deletion/v1",kind:"post",source_path:$source_path,type:"product",uuid:$uuid}' \
-    >"$TMP/woocommerce-delete.json"
-  ssh_fixture 'mkdir -p /home/wprism/site/state/deletions'
-  ssh_fixture "mv '$product_file' '/home/wprism/recovery-fixture/$product_base.present'"
-  scp -F "$TMP/ssh_config" "$TMP/woocommerce-delete.json" \
-    "wprism-adopt-fixture:/home/wprism/site/state/deletions/$product_uuid.json" >/dev/null
+  product_uuid="$(wprism_ssh_publish_post_tombstone product wprism-ssh-deletion-proof)" \
+    || fail "WooCommerce scoped-deletion extension could not publish its engine-derived product tombstone"
 
   "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots="tombstone:$product_uuid" --contract --format=json >"$contract" \
     || fail "WooCommerce scoped-deletion extension could not mint its exact tombstone contract"

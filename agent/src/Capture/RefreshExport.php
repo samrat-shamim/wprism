@@ -2,9 +2,14 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Policy/ScopeClosure.php';
+require_once __DIR__ . '/CaptureTransaction.php';
+require_once __DIR__ . '/CaptureSnapshotService.php';
 
 /**
  * Strict production observation boundary for host-side refresh/rebase work.
@@ -55,7 +60,9 @@ final class RefreshExport {
             }
         }
 
-        return self::in_read_only_snapshot(static function () use (
+        return self::in_read_only_snapshot(
+            CaptureTransaction::database_profile($policy, readOnly: true),
+            static function (DatabaseWorkAuthority $workAuthority) use (
             $repo,
             $policy,
             $compiled,
@@ -63,19 +70,20 @@ final class RefreshExport {
             $previousUserLogins,
             $forceUnresolvedRefs,
             $scopeContract
-        ): array {
+            ): array {
             // The schema/map checks happen inside the same MVCC view as the
             // rows they authorize. No ensure/repair fallback is available.
             Ledger::assert_read_only_schema();
             self::assert_quiescent();
             Identity::assert_embedded_unique();
 
-            $candidate = Capture::build_read_only_export(
+            $candidate = CaptureSnapshotService::buildReadOnlyExport(
                 $repo,
                 $policy,
                 $previousOptions,
                 $previousUserLogins,
-                $forceUnresolvedRefs
+                $forceUnresolvedRefs,
+                $workAuthority
             );
             Identity::assert_entities_unique($candidate['entities']);
             $selected = $scopeContract === null
@@ -177,7 +185,8 @@ final class RefreshExport {
             }
 
             return self::payload($candidate, $deletions, $compiled, $scopeContract);
-        });
+            }
+        );
     }
 
     /** The host must not race an in-flight apply or any live promotion lease. */
@@ -454,28 +463,31 @@ final class RefreshExport {
     }
 
     /** Execute callback in a server-enforced, rollback-only read snapshot. */
-    private static function in_read_only_snapshot(callable $fn): array {
+    private static function in_read_only_snapshot(
+        NativeDatabaseProfile $profile,
+        callable $fn
+    ): array {
         $open = false;
         try {
-            Db::start_read_only_consistent_snapshot('starting read-only production snapshot');
+            $workAuthority = Db::start_read_only_consistent_snapshot(
+                'starting read-only production snapshot',
+                $profile
+            );
             $open = true;
-            $result = $fn();
+            $result = DatabaseQueryIsolation::with_engine_work_units(
+                $workAuthority,
+                static fn(): array => $fn($workAuthority)
+            );
             Db::rollback('closing read-only production snapshot');
             $open = false;
             return $result;
         } catch (\Throwable $t) {
             if ($open) {
-                try {
-                    if (Db::transaction_active('read-only production snapshot rollback boundary')) {
-                        Db::rollback('rolling back read-only production snapshot');
-                    } else {
-                        Db::forget_transaction_tracking();
-                    }
-                } catch (\Throwable $_rollback) {
-                    // Preserve the original refusal; no WPrism DML can have
-                    // occurred in a server-enforced READ ONLY transaction.
-                    Db::forget_transaction_tracking();
-                }
+                // A quota/grammar refusal poisons ordinary state reads. Db's
+                // existing cleanup entry owns the one rollback permit and
+                // terminal proof; forgetting an active snapshot is not safe
+                // merely because this observer had no write authority.
+                Db::rollback_after_failure($t, 'rolling back read-only production snapshot');
             }
             throw $t;
         }

@@ -89,7 +89,7 @@ final class AdapterKitTest extends TestCase
     }
 
     /**
-     * A synthetic tree carrying only what the assembler reads: the seven
+     * A synthetic tree carrying only what the assembler reads: the packaged
      * packaged sources, copied from the real ones so the dependency shapes are
      * the real ones, plus Adopt.php.
      *
@@ -232,10 +232,16 @@ final class AdapterKitTest extends TestCase
             )
         );
         $this->assertSame(
-            ['conformance/asserts.sh', 'lib/pair_identity.sh', 'bin/fetch-artifact.sh'],
+            [
+                'conformance/asserts.sh',
+                'lib/host_orchestrator.sh',
+                'lib/pair_identity.sh',
+                'bin/fetch-artifact.sh',
+            ],
             AdapterKit::dependencyTargets(
                 'conformance/run.sh',
-                ". conformance/asserts.sh\n  . lib/pair_identity.sh\n  source bin/fetch-artifact.sh\n"
+                ". conformance/asserts.sh\n. lib/host_orchestrator.sh\n"
+                    . "  . lib/pair_identity.sh\n  source bin/fetch-artifact.sh\n"
             )
         );
         $this->assertSame(
@@ -252,15 +258,30 @@ final class AdapterKitTest extends TestCase
      */
     public function testResolveTargetsSplitsOnTheMemberKind(): void
     {
-        $members = ['lib/check.php', 'lib/FakeWpdb.php', 'lib/pair_identity.sh', 'conformance/asserts.sh', 'skeleton/suite.php'];
+        $members = [
+            'lib/check.php',
+            'lib/FakeWpdb.php',
+            'lib/host_orchestrator.sh',
+            'lib/pair_identity.sh',
+            'conformance/asserts.sh',
+            'skeleton/suite.php',
+        ];
 
         $this->assertSame(
             ['internal' => ['/../lib/check.php'], 'external' => ['/../../../agent/x.php']],
             AdapterKit::resolveTargets($members, 'skeleton/suite.php', ['/../lib/check.php', '/../../../agent/x.php'])
         );
         $this->assertSame(
-            ['internal' => ['conformance/asserts.sh', 'lib/pair_identity.sh'], 'external' => ['bin/fetch-artifact.sh']],
-            AdapterKit::resolveTargets($members, 'conformance/run.sh', ['conformance/asserts.sh', 'lib/pair_identity.sh', 'bin/fetch-artifact.sh'])
+            [
+                'internal' => ['conformance/asserts.sh', 'lib/host_orchestrator.sh', 'lib/pair_identity.sh'],
+                'external' => ['bin/fetch-artifact.sh'],
+            ],
+            AdapterKit::resolveTargets($members, 'conformance/run.sh', [
+                'conformance/asserts.sh',
+                'lib/host_orchestrator.sh',
+                'lib/pair_identity.sh',
+                'bin/fetch-artifact.sh',
+            ])
         );
     }
 

@@ -182,7 +182,10 @@ final class AdapterProbe {
     private static function table_exists(string $prefixed): bool {
         global $wpdb;
         $wpdb->last_error = '';
-        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed));
+        $found = $wpdb->get_var($wpdb->prepare(
+            'SHOW TABLES LIKE %s',
+            $wpdb->esc_like($prefixed)
+        ));
         self::assert_read_ok('table existence');
         return is_string($found) && $found === $prefixed;
     }

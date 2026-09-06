@@ -7,6 +7,9 @@ if (!class_exists(Canary::class, false)) {
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
+if (!class_exists(NativeDatabaseProfile::class, false)) {
+    require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
+}
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
 }
@@ -77,10 +80,12 @@ final class Orphans {
         }
 
         $action = $delete ? 'delete' : 'reparent';
+        $reparentSpec = $delete ? null : self::reparent_spec($table, $decl, $reparent);
+        $profile = self::database_profile($policy, $tables, $table, $decl, $reparentSpec);
         $transactionStarted = false;
         Canary::arm();
         try {
-            Db::start('orphans transaction start');
+            Db::start('orphans transaction start', $profile);
             $transactionStarted = true;
             if ($delete) {
                 $uuid = Ledger::uuid_for($localId, (string) $decl['id_kind']);
@@ -90,11 +95,8 @@ final class Orphans {
                     Ledger::forget($uuid);
                 }
             } else {
-                [$column, $targetId] = self::parse_reparent($reparent);
-                $kind = self::ref_kind($decl, $column);
-                if ($kind === null) {
-                    throw new \RuntimeException("wprism: '$column' is not a declared structural ref column of '$table'");
-                }
+                [$column, $targetId, $kind] = $reparentSpec
+                    ?? throw new \LogicException('wprism: missing validated orphan reparent specification');
                 if (Ledger::uuid_for($targetId, $kind) === null
                     || !self::target_exists($tables, $kind, $targetId)) {
                     throw new \RuntimeException(
@@ -193,6 +195,16 @@ final class Orphans {
         return [$m[1], (int) $m[2]];
     }
 
+    /** @return array{string,int,string} */
+    private static function reparent_spec(string $table, array $decl, string $value): array {
+        [$column, $targetId] = self::parse_reparent($value);
+        $kind = self::ref_kind($decl, $column);
+        if ($kind === null) {
+            throw new \RuntimeException("wprism: '$column' is not a declared structural ref column of '$table'");
+        }
+        return [$column, $targetId, $kind];
+    }
+
     private static function ref_kind(array $decl, string $column): ?string {
         foreach ($decl['refs'] ?? [] as $ref) {
             if (($ref['column'] ?? '') === $column) {
@@ -208,8 +220,69 @@ final class Orphans {
             : (string) $decl['pk'];
     }
 
+    /**
+     * @param array<string,array> $tables
+     * @param ?array{string,int,string} $reparentSpec
+     */
+    private static function database_profile(
+        Policy $policy,
+        array $tables,
+        string $table,
+        array $decl,
+        ?array $reparentSpec
+    ): NativeDatabaseProfile {
+        global $wpdb;
+        $writes = [
+            $wpdb->prefix . $table,
+            $wpdb->prefix . 'wprism_map',
+            $wpdb->prefix . 'wprism_state',
+        ];
+        foreach (Snapshot::meta_tables($policy) as $metaTable => $metaDecl) {
+            if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
+                continue;
+            }
+            if ($reparentSpec === null) {
+                $writes[] = $wpdb->prefix . $metaTable;
+                continue;
+            }
+            $rule = $metaDecl['keys'][$reparentSpec[0]] ?? null;
+            if (($rule['ref'] ?? null) === $reparentSpec[2]) {
+                $writes[] = $wpdb->prefix . $metaTable;
+            }
+        }
+        foreach ((array) ($decl['invalidate'] ?? []) as $invalidation) {
+            if (isset($invalidation['table'])) {
+                $writes[] = $wpdb->prefix . (string) $invalidation['table'];
+            }
+            if (isset($invalidation['option_pattern'])) {
+                $writes[] = $wpdb->options;
+            }
+        }
+        $reads = $writes;
+        if ($reparentSpec !== null) {
+            $target = self::target_table($tables, $reparentSpec[2]);
+            if ($target !== null) {
+                $reads[] = $target['table'];
+            }
+        }
+        return new NativeDatabaseProfile($reads, $writes);
+    }
+
     /** A ledger row alone is not proof that its plugin/core target survived. */
     private static function target_exists(array $tables, string $kind, int $localId): bool {
+        global $wpdb;
+        $target = self::target_table($tables, $kind);
+        if ($target === null) {
+            return false;
+        }
+        return $wpdb->get_var($wpdb->prepare(
+            "SELECT `{$target['pk']}` FROM `{$target['table']}` WHERE `{$target['pk']}` = %d LIMIT 1",
+            $localId
+        )) !== null;
+    }
+
+    /** @return ?array{table:string,pk:string} */
+    private static function target_table(array $tables, string $kind): ?array {
         global $wpdb;
         if ($kind === Ledger::KIND_POST) {
             $table = $wpdb->posts;
@@ -231,15 +304,12 @@ final class Orphans {
                 }
             }
             if ($targetDecl === null || !isset($targetDecl['pk'])) {
-                return false;
+                return null;
             }
             $table = $wpdb->prefix . self::name($targetTable);
             $pk = self::name((string) $targetDecl['pk']);
         }
-        return $wpdb->get_var($wpdb->prepare(
-            "SELECT `$pk` FROM `$table` WHERE `$pk` = %d LIMIT 1",
-            $localId
-        )) !== null;
+        return ['table' => $table, 'pk' => $pk];
     }
 
     private static function name(string $name): string {

@@ -520,13 +520,12 @@ final class EffectBundle {
             if (!is_array($row) || array_is_list($row)) throw new \RuntimeException('wprism effects: malformed inventory row');
             self::assertExactKeys($row, ['effect', 'manifest', 'phase', 'source'], 'inventory row');
             self::assertActor((string) $row['manifest'], 'manifest');
-            // Policy::effects_inventory() names lifecycle_settle actions with
-            // this hyphenated receipt phase. Rejecting the compiler's own
-            // phase here made automatic recovery fail before mutation on any
-            // adapter that declared settlement effects (WooCommerce is the
-            // live witness), even though target observation already compares
-            // the phase exactly rather than widening it.
-            if (!in_array($row['phase'] ?? null, ['lifecycle', 'lifecycle-settle', 'rebuild', 'regenerator'], true)
+            // Policy::effects_inventory() names the two provider-only action
+            // phases with hyphenated receipt identities. Recovery must accept
+            // those exact compiler outputs or a WooCommerce lifecycle claim
+            // and a Rank Math schema-settlement claim both refuse before
+            // mutation; no other phase gains receipt authority here.
+            if (!in_array($row['phase'] ?? null, ['lifecycle', 'lifecycle-settle', 'schema-settle', 'rebuild', 'regenerator'], true)
                 || !is_string($row['source']) || $row['source'] === '') {
                 throw new \RuntimeException('wprism effects: inventory phase/source is malformed');
             }

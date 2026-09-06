@@ -14,7 +14,6 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require_once __DIR__ . '/../../../../adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
@@ -1756,7 +1755,8 @@ foreach ([
     'fetch_artifact woocommerce 11.0.1 cli1 plugin',
     'woo_plugin_identity',
     'establish_woocommerce_hpos wp1',
-    'woo_plugin_tree_hash',
+    'woo_observed_plugin_sha',
+    "wp1 wprism executable-owner-observe '--owner=plugin:woocommerce/woocommerce.php'",
     'woocommerce_custom_orders_table_enabled',
     'woo_storage_fingerprint',
     'wprism_tables',

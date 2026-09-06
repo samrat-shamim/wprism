@@ -27,6 +27,10 @@ cd "$(dirname "$0")/../.."   # -> sandbox/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
+[ "$WPRISM_DB_ENGINE" = mariadb ] \
+  || fail "core platform matrix requires MariaDB; got WPRISM_DB_ENGINE=$WPRISM_DB_ENGINE"
 
 PAIR="${CORE_SCOPE_PLATFORM_PAIR:-corescope}"
 PORT1="${CORE_SCOPE_PLATFORM_PORT1:-8996}"
@@ -388,9 +392,10 @@ jq -e '
   (.platform.compatibility.process == {
     note:.platform.compatibility.process.note,
     os_families:["Darwin","Linux"],
-    profile:"local-posix-process-group-exec/v1",
+    profile:"local-posix-process-group-exec-no-cli-opcache/v1",
     required_functions:["passthru","posix_kill","posix_setsid","proc_close","proc_get_status","proc_open","proc_terminate"],
-    shell:"/bin/sh"
+    shell:"/bin/sh",
+    wp_cli_opcache_enabled:false
   })
 ' "$PLATFORM_FILE" >/dev/null \
   || fail 'shipped platform declaration is not a well-formed core/PHP/database/local-POSIX/process matrix'

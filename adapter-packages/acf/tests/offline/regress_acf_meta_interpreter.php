@@ -28,7 +28,6 @@ require $repoRoot . '/agent/src/Kernel/OptionState.php';
 require $repoRoot . '/agent/src/Kernel/PlainData.php';
 require $repoRoot . '/agent/src/Policy/Policy.php';
 require $repoRoot . '/agent/src/Repository/RepositoryAuthorization.php';
-require dirname(__DIR__, 2) . '/package/runtime/interpreters/acf.php';
 
 use WPrism\Policy;
 use WPrism\Interpreters\Acf;
@@ -95,10 +94,16 @@ final class AcfSerializedWakeupProbe {
 // docblock says the param is unused (classification is fully schema-driven
 // from primed field definitions), so an empty, manifest-less Policy is
 // exactly as valid as any other for the direct-class tests below.
+$acfPackage = \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'acf');
+$loaderPolicy = Policy::load(null, ['acf'], adapterLibrary: $acfPackage);
+// Production admits executable package bytes only through the digest-bound
+// loader. Prime that same boundary before the direct class-level fixtures;
+// a raw test require would correctly look like an unvalidated preload later.
+$loaderPolicy->interpreters();
 $emptyPolicy = Policy::load(
     null,
     [],
-    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+    adapterLibrary: $acfPackage
 );
 
 echo "\n== term_meta_rule(): reuses post_meta_rule()'s exact shadow-key machinery ==\n";

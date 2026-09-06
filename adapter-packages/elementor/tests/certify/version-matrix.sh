@@ -121,6 +121,7 @@ EOF
   run_elementor_command postdeploy_elementor_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   run_elementor_command wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   require_wprism_answered "Elementor $ELEMENTOR_VERSION apply" json "$(cat "$VMATRIX_APPLY_LOG")"
   jq -e '.canary == "clean"' "$VMATRIX_APPLY_LOG" >/dev/null \
     || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
@@ -158,6 +159,7 @@ EOF
     run_elementor_command wp2 wprism deploy --repo=/siterepo --force-code-drift
     REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     run_elementor_command wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"
+    assert_version_matrix_apply_ready
     require_wprism_answered 'Elementor 4.0.0 to 4.2.3 upgrade apply' json "$(cat "$VMATRIX_APPLY_LOG")"
     jq -e '.canary == "clean" and .verification.result == "pass"' "$VMATRIX_APPLY_LOG" >/dev/null \
       || fail 'apply canary not clean after elementor 4.0.0 to 4.2.3 in-place upgrade'

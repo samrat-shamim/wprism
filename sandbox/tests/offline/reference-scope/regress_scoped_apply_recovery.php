@@ -14,12 +14,42 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 // WP-4.12: derived from agent/wprism.php — this suite reaches the shipped
 // platform.json, which restates both defines.
 require_once __DIR__ . '/../../lib/agent_version.php';
 wprism_test_define_agent_versions();
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
+}
+
+final class ScopedRecoveryCliHalt extends RuntimeException {
+    public function __construct(public int $status) {
+        parent::__construct("halt:$status");
+    }
+}
+
+final class WP_CLI {
+    /** @var list<string> */
+    public static array $lines = [];
+
+    public static function add_command(mixed $name, mixed $class): void {}
+
+    public static function line(mixed $line): void {
+        self::$lines[] = (string) $line;
+    }
+
+    public static function halt(mixed $status): void {
+        throw new ScopedRecoveryCliHalt((int) $status);
+    }
+
+    public static function error(mixed $message, mixed $exit = true): void {
+        throw new RuntimeException((string) $message);
+    }
+
+    public static function reset(): void {
+        self::$lines = [];
+    }
 }
 
 $wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
@@ -41,7 +71,7 @@ foreach ([
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
     'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'ScopedApplyCoordinator',
     'ScopedApplyWorkProjector',
-    'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher',
+    'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher', 'RebuildActionNegotiator',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
     $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
@@ -50,6 +80,7 @@ foreach ([
     }
     require_once $root . '/agent/' . $wprismAgentFile;
 }
+require_once $root . '/agent/src/Command/Cli.php';
 
 use WPrism\Canon;
 use WPrism\CanonicalLedgerMapGuard;
@@ -58,6 +89,7 @@ use WPrism\NativeActions;
 use WPrism\Policy;
 use WPrism\PromotionLock;
 use WPrism\Providers;
+use WPrism\RebuildActionNegotiator;
 use WPrism\ScopeContract;
 use WPrism\ScopedApply;
 use WPrism\ScopedApplySession;
@@ -67,6 +99,8 @@ final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
     /** @var array<string,?string> */
     public array $values = [];
     public bool $forceConflict = false;
+    public ?\Throwable $compareAndSwapFailure = null;
+    public int $compareAndSwapFailureCountdown = 0;
 
     public function read(string $key): ?string {
         if ($key !== ScopedApplySession::STORAGE_KEY
@@ -78,6 +112,14 @@ final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
     }
 
     public function compare_and_swap(string $key, ?string $expected, ?string $replacement): bool {
+        if ($this->compareAndSwapFailure !== null) {
+            if ($this->compareAndSwapFailureCountdown === 0) {
+                $failure = $this->compareAndSwapFailure;
+                $this->compareAndSwapFailure = null;
+                throw $failure;
+            }
+            $this->compareAndSwapFailureCountdown--;
+        }
         if ($this->forceConflict) {
             $this->forceConflict = false;
             return false;
@@ -162,6 +204,10 @@ final class ScopedRecoveryEffectWpdb {
 
     public function get_row(string $query, mixed $output = null): array|false|null {
         $this->last_error = '';
+        if (preg_match("/SELECT k, v FROM wp_wprism_kv(?: FORCE INDEX \\(`[^`]+`\\))? WHERE k = '([^']*)'/", $query, $match) === 1) {
+            $value = $this->kvRows[$match[1]] ?? null;
+            return $value === null ? null : ['k' => $match[1], 'v' => $value];
+        }
         if (preg_match("/FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $match) === 1) {
             foreach ($this->mapRows as $row) {
                 if ($row['uuid'] === $match[1] && $row['id_kind'] === $match[2]) {
@@ -301,7 +347,8 @@ final class ScopedRecoveryEffectWpdb {
     }
 }
 
-$GLOBALS['wpdb'] = new ScopedRecoveryEffectWpdb();
+$scopedRecoveryEffectWpdb = new ScopedRecoveryEffectWpdb();
+$GLOBALS['wpdb'] = $scopedRecoveryEffectWpdb;
 $GLOBALS['scoped_recovery_cache'] = ['transient' => []];
 $GLOBALS['scoped_recovery_delete_calls'] = 0;
 
@@ -325,8 +372,33 @@ function add_filter(string $hook, callable $callback, int $priority = 10, int $a
     return true;
 }
 
+function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+    $allGate = is_array($GLOBALS['wp_filter'] ?? null) ? ($GLOBALS['wp_filter']['all'] ?? null) : null;
+    if (is_object($allGate) && method_exists($allGate, 'do_all_hook')) {
+        $allArgs = array_merge([$hook, $value], $args);
+        $allGate->do_all_hook($allArgs);
+    }
+    $gate = is_array($GLOBALS['wp_filter'] ?? null) ? ($GLOBALS['wp_filter'][$hook] ?? null) : null;
+    if (is_object($gate) && method_exists($gate, 'apply_filters')) {
+        return $gate->apply_filters($value, array_merge([$value], $args));
+    }
+    return $value;
+}
+
 function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $autoload = 'yes'): bool {
     global $wpdb;
+    if ($wpdb instanceof \WPrismTest\FakeWpdb) {
+        foreach ($wpdb->rows($wpdb->options) as $row) {
+            if (($row['option_name'] ?? null) === $name) {
+                return false;
+            }
+        }
+        return $wpdb->insert($wpdb->options, [
+            'option_name' => $name,
+            'option_value' => (string) $value,
+            'autoload' => is_bool($autoload) ? ($autoload ? 'yes' : 'no') : (string) $autoload,
+        ]) === 1;
+    }
     if (array_key_exists($name, $wpdb->optionRows)) {
         return false;
     }
@@ -336,6 +408,22 @@ function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $a
 
 function update_option(string $name, mixed $value, mixed $autoload = null): bool {
     global $wpdb;
+    if ($wpdb instanceof \WPrismTest\FakeWpdb) {
+        foreach ($wpdb->rows($wpdb->options) as $row) {
+            if (($row['option_name'] ?? null) !== $name) {
+                continue;
+            }
+            if (hash_equals((string) ($row['option_value'] ?? ''), (string) $value)) {
+                return false;
+            }
+            return $wpdb->update(
+                $wpdb->options,
+                ['option_value' => (string) $value],
+                ['option_name' => $name]
+            ) === 1;
+        }
+        return add_option($name, $value, '', $autoload ?? 'yes');
+    }
     $old = $wpdb->optionRows[$name] ?? null;
     $wpdb->optionRows[$name] = (string) $value;
     return $old !== $wpdb->optionRows[$name];
@@ -346,6 +434,12 @@ function wp_cache_get(string $key, string $group = '', bool $force = false, mixe
     return $found ? $GLOBALS['scoped_recovery_cache'][$group][$key] : false;
 }
 
+function wp_cache_delete(string $key, string $group = ''): bool {
+    $present = array_key_exists($key, $GLOBALS['scoped_recovery_cache'][$group] ?? []);
+    unset($GLOBALS['scoped_recovery_cache'][$group][$key]);
+    return $present;
+}
+
 function wp_cache_flush(): bool {
     return true;
 }
@@ -353,8 +447,13 @@ function wp_cache_flush(): bool {
 function delete_transient(string $name): bool {
     global $wpdb;
     $GLOBALS['scoped_recovery_delete_calls']++;
-    unset($wpdb->optionRows['_transient_' . $name]);
-    unset($wpdb->optionRows['_transient_timeout_' . $name]);
+    if ($wpdb instanceof \WPrismTest\FakeWpdb) {
+        $wpdb->delete($wpdb->options, ['option_name' => '_transient_' . $name]);
+        $wpdb->delete($wpdb->options, ['option_name' => '_transient_timeout_' . $name]);
+    } else {
+        unset($wpdb->optionRows['_transient_' . $name]);
+        unset($wpdb->optionRows['_transient_timeout_' . $name]);
+    }
     unset($GLOBALS['scoped_recovery_cache']['transient'][$name]);
     return true;
 }
@@ -363,9 +462,14 @@ final class ScopedRecoveryProvider {
     public int $invocations = 0;
     public int $reconciliations = 0;
     public int $state = 0;
+    public ?\Throwable $invokeFailure = null;
+    public ?\Throwable $reconcileFailure = null;
 
     public function invoke_scoped(string $capability, array $args, array $operation): array {
         $this->invocations++;
+        if ($this->invokeFailure !== null) {
+            throw $this->invokeFailure;
+        }
         $before = ['state' => $this->state];
         $this->state++;
         return [
@@ -378,6 +482,9 @@ final class ScopedRecoveryProvider {
 
     public function reconcile_scoped(string $capability, array $args, array $operation): array {
         $this->reconciliations++;
+        if ($this->reconcileFailure !== null) {
+            throw $this->reconcileFailure;
+        }
         return [
             'operation' => $operation,
             'after' => ['state' => $this->state],
@@ -408,6 +515,61 @@ $expectThrow = static function (callable $fn, string $needle, string $message) u
 };
 $hash = static fn(string $label): string => hash('sha256', $label);
 $uuid = static fn(int $n): string => sprintf('00000000-0000-4000-8000-%012d', $n);
+
+$globalProviderAction = [
+    'kind' => 'provider',
+    'provider' => 'global-provider',
+    'capability' => 'rebuild_global_state',
+    'effects' => [[
+        'id' => 'global-state',
+        'kind' => 'database',
+        'mode' => 'restorable',
+        'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'global_state'],
+    ]],
+];
+$scopedNegotiation = [
+    'scoped_capabilities' => [
+        'global-provider' => [
+            'rebuild_global_state' => ['operation_envelope' => 'wprism-scoped-effect-operation/v1'],
+        ],
+    ],
+];
+foreach (['plan', 'apply'] as $operation) {
+    RebuildActionNegotiator::assert_scoped_action_authority(
+        [$globalProviderAction],
+        $scopedNegotiation,
+        $operation
+    );
+    $check(true, "scoped $operation admits an untriggered provider only with its exact negotiated operation contract");
+    $expectThrow(
+        static fn() => RebuildActionNegotiator::assert_scoped_action_authority(
+            [['kind' => 'native', 'action' => 'rewrite.flush']],
+            $scopedNegotiation,
+            $operation
+        ),
+        "scoped $operation refused before target mutation — an untriggered global action requires",
+        "scoped $operation refuses an untriggered native action"
+    );
+    $expectThrow(
+        static fn() => RebuildActionNegotiator::assert_scoped_action_authority(
+            [$globalProviderAction],
+            ['scoped_capabilities' => []],
+            $operation
+        ),
+        'successfully negotiated operation-bound provider reconciliation contract',
+        "scoped $operation refuses an untriggered legacy provider without negotiated reconcile"
+    );
+    RebuildActionNegotiator::assert_scoped_action_authority(
+        [[
+            'kind' => 'native',
+            'action' => 'rewrite.flush',
+            'triggers' => ['post:*'],
+        ]],
+        ['scoped_capabilities' => []],
+        $operation
+    );
+    $check(true, "scoped $operation preserves trigger-bound native authority");
+}
 
 // A pre-session-id promotion remains readable for ordinary full-promotion
 // recovery, but it cannot seed scoped authority whose recovery protocol
@@ -2209,6 +2371,27 @@ $GLOBALS['wpdb']->postRows = [];
 $GLOBALS['wpdb']->optionRows = [];
 $GLOBALS['wpdb']->mapRows = [];
 
+$GLOBALS['wpdb'] = \WPrismTest\FakeWpdb::install()
+    ->setColumns('wp_options', [
+        'option_id' => 'bigint unsigned',
+        'option_name' => 'varchar(191)',
+        'option_value' => 'longtext',
+        'autoload' => 'varchar(20)',
+    ])
+    ->seedTable('wp_options', [])
+    ->setPrimaryKey('wp_options', 'option_id')
+    ->setUniqueKey('wp_options', ['option_name'])
+    ->setIndexes('wp_options', [[
+        'Key_name' => 'option_name',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'option_name',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ]])
+    ->setTableEngine('wp_options', 'InnoDB')
+    ->enableInformationSchema();
+
 // Operation-bound provider response loss: invocation is durable exactly once,
 // reconciliation calls the provider's readback hook, and a mismatched readback
 // is recovery_required rather than a second invocation.
@@ -2226,7 +2409,56 @@ $providerOperation = [
     'input_hash' => Providers::scoped_input_hash($providerAction, $providerDecl),
     'effect_hash' => $hash('provider-effect'),
 ];
+$scopedInvokeCause = new RuntimeException(
+    "scoped invoke failed with X-Amz-Signature=PRIVATE_SCOPED_INVOKE\nPRIVATE_SCOPED_INVOKE_LINE"
+);
+$privateProvider = new ScopedRecoveryProvider();
+$privateProvider->invokeFailure = $scopedInvokeCause;
+$failedProviderOperation = array_replace($providerOperation, [
+    'operation_id' => 'provider-operation-private-failure',
+]);
+$scopedInvokeFailure = null;
+try {
+    Providers::invoke_scoped($privateProvider, $providerAction, $providerDecl, $failedProviderOperation);
+} catch (Throwable $failure) {
+    $scopedInvokeFailure = $failure;
+}
+$check(
+    $scopedInvokeFailure instanceof \WPrism\PrivateEvidenceException
+        && $scopedInvokeFailure->getMessage()
+            === "wprism: provider 'scoped-recovery' capability 'repair' scoped invocation failed"
+        && $scopedInvokeFailure->getPrevious() === null
+        && $scopedInvokeFailure->private_evidence_causes() === [$scopedInvokeCause]
+        && !str_contains((string) $scopedInvokeFailure, 'PRIVATE_SCOPED_INVOKE'),
+    'scoped provider invocation keeps the exact opaque cause private while its printable wrapper stays stable'
+);
 $providerReceipt = Providers::invoke_scoped($provider, $providerAction, $providerDecl, $providerOperation);
+$scopedReconcileCause = new RuntimeException(
+    "scoped reconcile failed with sk_live_PRIVATE_SCOPED_RECONCILE\nPRIVATE_SCOPED_RECONCILE_LINE"
+);
+$privateReconcileProvider = new ScopedRecoveryProvider();
+$privateReconcileProvider->state = $provider->state;
+$privateReconcileProvider->reconcileFailure = $scopedReconcileCause;
+$scopedReconcileFailure = null;
+try {
+    Providers::reconcile_scoped(
+        $privateReconcileProvider,
+        $providerAction,
+        $providerDecl,
+        $providerOperation
+    );
+} catch (Throwable $failure) {
+    $scopedReconcileFailure = $failure;
+}
+$check(
+    $scopedReconcileFailure instanceof \WPrism\PrivateEvidenceException
+        && $scopedReconcileFailure->getMessage()
+            === "wprism: provider 'scoped-recovery' capability 'repair' scoped reconciliation failed"
+        && $scopedReconcileFailure->getPrevious() === null
+        && $scopedReconcileFailure->private_evidence_causes() === [$scopedReconcileCause]
+        && !str_contains((string) $scopedReconcileFailure, 'PRIVATE_SCOPED_RECONCILE'),
+    'scoped provider reconciliation keeps the exact opaque cause private while its printable wrapper stays stable'
+);
 $providerRecovered = Providers::reconcile_scoped($provider, $providerAction, $providerDecl, $providerOperation);
 $check(
     $providerReceipt['status'] === 'verified'
@@ -2395,19 +2627,20 @@ $dispatch = new \WPrism\RebuildActionDispatcher(
     new \WPrism\ProviderActionBatchBuilder($policy, []),
     static function (): void {}
 );
-$driveScopedDispatch = static function (ScopedApplySession $session) use (
+$driveScopedDispatch = static function (ScopedApplySession $session, ?array $negotiation = null) use (
     $dispatch,
     $dispatchAction,
     $dispatchNegotiation,
     $selectedBeforeRoot
 ): array {
+    $negotiation ??= $dispatchNegotiation;
     $warnings = [];
     $receipts = [];
     $failure = null;
     try {
         $dispatch->dispatch(
             [$dispatchAction],
-            $dispatchNegotiation,
+            $negotiation,
             [],
             [],
             [],
@@ -2458,6 +2691,120 @@ $check(
         && count($reopenedDispatch->receipts()) === 3,
     'product dispatcher reconciles a verified retained effect without a second invocation'
 );
+
+// The product dispatcher, not only Providers in isolation: a scoped invoke
+// failure persists recovery_required, keeps the opaque cause out of printable
+// exception state, and retains the exact cause behind the safe provider seam.
+[, , $providerFailureSession] = $makeDispatchRecovery('provider-failure');
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
+    $providerFailureSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$providerFailureSession->resume_recorded_recovery();
+$rawDispatchProviderCause = new RuntimeException(
+    "scoped product provider failed X-Amz-Signature=PRIVATE_DISPATCH_PROVIDER\nPRIVATE_DISPATCH_PROVIDER_LINE"
+);
+$failingDispatchProvider = new ScopedRecoveryProvider();
+$failingDispatchProvider->invokeFailure = $rawDispatchProviderCause;
+$failingDispatchNegotiation = $dispatchNegotiation;
+$failingDispatchNegotiation['providers']['scoped-recovery'] = $failingDispatchProvider;
+$providerFailureResult = $driveScopedDispatch($providerFailureSession, $failingDispatchNegotiation);
+$providerFailure = $providerFailureResult['failure'];
+$providerBoundary = $providerFailure?->getPrevious();
+$check(
+    $providerFailure instanceof RuntimeException
+        && $providerBoundary instanceof \WPrism\PrivateEvidenceException
+        && $providerBoundary->private_evidence_causes() === [$rawDispatchProviderCause]
+        && !str_contains((string) $providerFailure, 'PRIVATE_DISPATCH_PROVIDER')
+        && $providerFailureSession->is_recovery_required(),
+    'product scoped dispatch persists recovery_required and retains an opaque invoke cause without printable leakage'
+);
+
+// If that recovery CAS itself fails, it must not replace the provider fact.
+// The composite wrapper has no printable previous chain and carries both
+// causes solely for the private evidence graph.
+[$maskedStore, , $maskedSession] = $makeDispatchRecovery('masked-provider-failure');
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
+    $maskedSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$maskedSession->resume_recorded_recovery();
+$maskedProviderCause = new RuntimeException(
+    'scoped provider failed with sk_live_PRIVATE_MASKED_PROVIDER'
+);
+$maskedRecoveryCause = new RuntimeException(
+    'scoped recovery store failed at /private/PRIVATE_MASKED_RECOVERY'
+);
+$maskedProvider = new ScopedRecoveryProvider();
+$maskedProvider->invokeFailure = $maskedProviderCause;
+$maskedNegotiation = $dispatchNegotiation;
+$maskedNegotiation['providers']['scoped-recovery'] = $maskedProvider;
+$maskedStore->compareAndSwapFailure = $maskedRecoveryCause;
+$maskedStore->compareAndSwapFailureCountdown = 1;
+$maskedResult = $driveScopedDispatch($maskedSession, $maskedNegotiation);
+$maskedFailure = $maskedResult['failure'];
+$maskedPrivateCauses = $maskedFailure instanceof \WPrism\PrivateEvidenceException
+    ? $maskedFailure->private_evidence_causes()
+    : [];
+$maskedProviderBoundary = $maskedPrivateCauses[0] ?? null;
+$check(
+    $maskedFailure instanceof \WPrism\PrivateEvidenceException
+        && str_contains($maskedFailure->getMessage(), 'scoped recovery witness persistence failed')
+        && $maskedFailure->getPrevious() === null
+        && $maskedProviderBoundary instanceof \WPrism\PrivateEvidenceException
+        && $maskedProviderBoundary->private_evidence_causes() === [$maskedProviderCause]
+        && ($maskedPrivateCauses[1] ?? null) === $maskedRecoveryCause
+        && !str_contains((string) $maskedFailure, 'PRIVATE_MASKED_PROVIDER')
+        && !str_contains((string) $maskedFailure, 'PRIVATE_MASKED_RECOVERY')
+        && !$maskedSession->is_recovery_required(),
+    'a failed recovery write retains both private causes and cannot falsely claim the session persisted recovery_required'
+);
+
+// Carry that exact dispatcher composite through the product CLI boundary. The
+// public refusal stays constant while the bound private store retains both the
+// provider fact and the recovery-store failure needed to diagnose precedence.
+$dispatchEvidenceRepo = rtrim(sys_get_temp_dir(), '/')
+    . '/wprism-scoped-dispatch-evidence-' . bin2hex(random_bytes(8));
+mkdir($dispatchEvidenceRepo, 0700, true);
+file_put_contents($dispatchEvidenceRepo . '/site.wprism.json', "{}\n");
+WP_CLI::reset();
+$cliFailureBoundary = new ReflectionMethod(\WPrism\Cli::class, 'halt_json_failure');
+$cliHalt = null;
+try {
+    $cliFailureBoundary->invoke(
+        null,
+        $maskedFailure,
+        ['repo' => $dispatchEvidenceRepo, 'format' => 'json'],
+        'apply'
+    );
+} catch (ScopedRecoveryCliHalt $halt) {
+    $cliHalt = $halt;
+}
+$dispatchPublicBytes = implode("\n", WP_CLI::$lines);
+$dispatchEvidenceFiles = glob($dispatchEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+$dispatchPrivateBytes = count($dispatchEvidenceFiles) === 1
+    ? (string) file_get_contents($dispatchEvidenceFiles[0])
+    : '';
+$dispatchPublic = json_decode($dispatchPublicBytes, true);
+$check(
+    $cliHalt?->status === 1
+        && ($dispatchPublic['details_redacted'] ?? null) === true
+        && !str_contains($dispatchPublicBytes, 'PRIVATE_MASKED_PROVIDER')
+        && !str_contains($dispatchPublicBytes, 'PRIVATE_MASKED_RECOVERY')
+        && str_contains($dispatchPrivateBytes, 'PRIVATE_MASKED_PROVIDER')
+        && str_contains($dispatchPrivateBytes, 'PRIVATE_MASKED_RECOVERY')
+        && (fileperms($dispatchEvidenceFiles[0] ?? '') & 0777) === 0600,
+    'the real dispatcher composite crosses the CLI as a redacted envelope and one private 0600 evidence graph'
+);
+foreach ($dispatchEvidenceFiles as $dispatchEvidenceFile) {
+    unlink($dispatchEvidenceFile);
+}
+rmdir($dispatchEvidenceRepo . '/.wprism/refusals');
+rmdir($dispatchEvidenceRepo . '/.wprism');
+unlink($dispatchEvidenceRepo . '/site.wprism.json');
+rmdir($dispatchEvidenceRepo);
 
 [, , $changedSelectionSession] = $makeDispatchRecovery('changed-selection');
 $changedAction = $dispatchAction;
@@ -2537,8 +2884,16 @@ $check(
 // Native transient delete uses the same operation receipt channel and must
 // not infer execution merely from an absent transient.
 $nativeName = 'scoped_recovery_native';
-$GLOBALS['wpdb']->optionRows['_transient_' . $nativeName] = 'stale';
-$GLOBALS['wpdb']->optionRows['_transient_timeout_' . $nativeName] = '123';
+$GLOBALS['wpdb']->insert($GLOBALS['wpdb']->options, [
+    'option_name' => '_transient_' . $nativeName,
+    'option_value' => 'stale',
+    'autoload' => 'no',
+]);
+$GLOBALS['wpdb']->insert($GLOBALS['wpdb']->options, [
+    'option_name' => '_transient_timeout_' . $nativeName,
+    'option_value' => '123',
+    'autoload' => 'no',
+]);
 $GLOBALS['scoped_recovery_cache']['transient'][$nativeName] = false;
 $nativeArgs = ['name' => $nativeName];
 $nativeOperation = [
@@ -2707,9 +3062,55 @@ $check(
 );
 
 // Exercise the public full-plan entrypoint at its generic interlock gate as
-// well. The scratch repository is compile-only; the fake ledger returns an
-// already-persisted nonterminal session, so Apply::plan() must refuse before
-// it reaches any target snapshot or mutation path.
+// well. The scratch repository is compile-only; the shared strict database
+// model carries an already-persisted nonterminal session, so Apply::plan()
+// must refuse before it reaches any target snapshot or mutation path. This
+// public facade initializes the ledger before consulting the interlock, hence
+// the fixture exposes the real current InnoDB ledger schema rather than
+// bypassing Db's query-filter/session boundary with the effect-only fake.
+$interlockWpdb = \WPrismTest\FakeWpdb::install()
+    ->enableInformationSchema()
+    ->enableFullApplySqlExtensions();
+$interlockWpdb->seedTable('wprism_map', [])
+    ->setColumns('wprism_map', [
+        'uuid' => 'char(36)',
+        'entity_type' => 'varchar(64)',
+        'id_kind' => 'varchar(64)',
+        'local_id' => 'bigint unsigned',
+    ])
+    ->setUniqueKey('wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wprism_map', 'InnoDB');
+$interlockWpdb->seedTable('wprism_state', [])
+    ->setColumns('wprism_state', [
+        'uuid' => 'varchar(64)',
+        'entity_type' => 'varchar(64)',
+        'content_hash' => 'char(64)',
+    ])
+    ->setUniqueKey('wprism_state', ['uuid'])
+    ->setTableEngine('wprism_state', 'InnoDB');
+$interlockWpdb->seedTable('wprism_kv', [[
+    'k' => ScopedApplySession::STORAGE_KEY,
+    'v' => $interlockSession->canonical(),
+]])
+    ->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+    ->setUniqueKey('wprism_kv', ['k'])
+    ->setTableEngine('wprism_kv', 'InnoDB');
+$interlockWpdb->seedTable('wprism_journal', [])
+    ->setColumns('wprism_journal', [
+        'id' => 'bigint unsigned',
+        't' => 'datetime',
+        'op' => 'varchar(8)',
+        'tbl' => 'varchar(64)',
+        'item' => 'varchar(191)',
+        'surface' => 'varchar(32)',
+        'actor' => 'bigint unsigned',
+        'caps' => 'varchar(64)',
+        'hook' => 'varchar(191)',
+        'proposal' => 'varchar(16)',
+    ])
+    ->setUniqueKey('wprism_journal', ['id'])
+    ->setTableEngine('wprism_journal', 'InnoDB');
 $interlockRepo = sys_get_temp_dir() . '/wprism-scoped-apply-interlock-' . bin2hex(random_bytes(5));
 if (!mkdir($interlockRepo . '/state/options', 0700, true)
     || !mkdir($interlockRepo . '/media', 0700, true)) {
@@ -2752,16 +3153,19 @@ file_put_contents(
     $interlockRepo . '/state/options/core.json',
     Canon::encode(\WPrism\OptionState::document($requiredOptions))
 );
-$GLOBALS['wpdb']->kvRows[ScopedApplySession::STORAGE_KEY] = $interlockSession->canonical();
 $expectThrow(
     static fn() => \WPrism\Apply::plan($interlockRepo),
     'full plan refused',
     'public full apply planning interlock refuses before target contact while scoped work is nonterminal'
 );
 $check(
-    $GLOBALS['wpdb']->kvRows[ScopedApplySession::STORAGE_KEY] === $interlockSession->canonical(),
+    $interlockWpdb->rows('wprism_kv') === [[
+        'k' => ScopedApplySession::STORAGE_KEY,
+        'v' => $interlockSession->canonical(),
+    ]],
     'public full-plan interlock leaves the exact scoped session bytes untouched'
 );
+$GLOBALS['wpdb'] = $scopedRecoveryEffectWpdb;
 
 $executorWithoutParticipant = (new ReflectionClass(\WPrism\AuthoredTransactionExecutor::class))
     ->newInstanceWithoutConstructor();
@@ -2922,6 +3326,19 @@ $check(
         && str_contains($actionNegotiatorSource, 'durable environment-local recovery input'),
     'scoped preflight refuses provider context channels whose local-id payload cannot be reconstructed after a crash'
 );
+$recoveryNegotiationAt = strpos(
+    $preparationSource,
+    '$this->services->rebuild_action_negotiator()->negotiate('
+);
+$recoverySelectionAt = strpos($preparationSource, '->assert_recovery_selection(');
+$check(
+    substr_count($applySource, 'RebuildActionNegotiator::assert_scoped_action_authority(') === 1
+        && substr_count($actionNegotiatorSource, 'self::assert_scoped_action_authority(') === 1
+        && $recoveryNegotiationAt !== false
+        && $recoverySelectionAt !== false
+        && $recoveryNegotiationAt < $recoverySelectionAt,
+    'plan, apply and recovery all re-enter the same untriggered scoped-provider authority gate before mutation or resume'
+);
 $codeWitnessCheckAt = strpos($applySource, "'wprism:scoped-code-witness-changed'");
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
 $protectedTargetCheckAt = strpos($applySource, "'wprism:scoped-protected-target-drift'");
@@ -3043,8 +3460,9 @@ $check(
     'fresh scoped convergence rejects selected-map drift against ordinal one before selected content can pass'
 );
 $check(
-    str_contains($ledgerFinalizerSource, "Db::start_repeatable_read('scoped ledger transaction start')")
-        && str_contains($ledgerFinalizerSource, 'DeleteGuardEvaluator::assert_innodb_tables([')
+    str_contains($ledgerFinalizerSource, "'scoped ledger transaction start',")
+        && str_contains($ledgerFinalizerSource, 'self::ledger_profile()')
+        && str_contains($ledgerFinalizerSource, 'private static function ledger_profile(): NativeDatabaseProfile')
         && $finalizerMapLockAt !== false
         && $finalizerForgetAt !== false
         && $finalizerMapReadbackAt !== false
@@ -3060,7 +3478,7 @@ $check(
         && str_contains($ledgerFinalizerSource, 'scoped ledger map inventory exceeds the bounded row frontier')
         && str_contains($ledgerFinalizerSource, 'FORCE INDEX (PRIMARY) ORDER BY uuid ASC, id_kind ASC LIMIT $limit FOR UPDATE')
         && substr_count($ledgerFinalizerSource, "assert_transaction_isolation('scoped ledger map inventory") === 2,
-    'terminalization range-locks the complete selected map and permits only explicit tombstone cleanup before sealing roots'
+    'terminalization binds its complete ledger profile, range-locks the selected map, and permits only explicit tombstone cleanup before sealing roots'
 );
 $check(
     str_contains($repoFormatSource, 'admits at most 100,000 physical map rows')

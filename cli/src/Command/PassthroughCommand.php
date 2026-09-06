@@ -19,9 +19,15 @@ final class PassthroughCommand {
     private const ENV_SET_OUTCOME_TIMEOUT_SECONDS = 300.0;
     private const OUTCOME_UNKNOWN_EXIT = 75;
 
-    public static function run(EnvironmentDriver $driver, string $verb, array $extra): int {
+    /** @param null|callable():?int $beforeTarget */
+    public static function run(
+        EnvironmentDriver $driver,
+        string $verb,
+        array $extra,
+        ?callable $beforeTarget = null
+    ): int {
         if (in_array($verb, ['plan', 'apply'], true)) {
-            return self::runScoped($driver, $verb, $extra);
+            return self::runScoped($driver, $verb, $extra, $beforeTarget);
         }
         foreach ($extra as $arg) {
             if (!is_string($arg) || self::isHostOwnedTargetFlag($arg)) {
@@ -33,6 +39,10 @@ final class PassthroughCommand {
                     'remove --repo/--path; the selected environment supplies both bindings'
                 );
             }
+        }
+        $refusal = $beforeTarget === null ? null : $beforeTarget();
+        if (is_int($refusal)) {
+            return $refusal;
         }
         return $driver->streamWp(array_merge(['wprism', $verb, '--repo=' . $driver->repoPath()], $extra));
     }
@@ -571,7 +581,13 @@ final class PassthroughCommand {
         exit(128 + $caught);
     }
 
-    public static function runScoped(EnvironmentDriver $driver, string $verb, array $extra): int {
+    /** @param null|callable():?int $beforeTarget */
+    public static function runScoped(
+        EnvironmentDriver $driver,
+        string $verb,
+        array $extra,
+        ?callable $beforeTarget = null
+    ): int {
         $forward = [];
         $contractPath = null;
         $hasPlanView = false;
@@ -662,6 +678,10 @@ final class PassthroughCommand {
                     'generate a fresh contract with wprism scope --contract and retry the command'
                 );
             }
+        }
+        $refusal = $beforeTarget === null ? null : $beforeTarget();
+        if (is_int($refusal)) {
+            return $refusal;
         }
         return $driver->streamWp(array_merge(['wprism', $verb, '--repo=' . $driver->repoPath()], $forward));
     }

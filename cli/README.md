@@ -945,18 +945,29 @@ semantics remain the rehearsal implementation's.
   typed refusal or an established typed compiler diagnostic. The
   human-facing `wprism: ` prefix is never machine-publication authority: every
   unclassified Throwable contributes none of its message, cause, path,
-  login, or trace and instead sets `details_redacted: true` (issue #3404). The
-  redacted sentence is not lost: the agent writes it — reason code, throwable
-  class, message, cause chain, origin file:line — as a private, gitignored
-  record under the site repository's `.wprism/refusals/` (one
-  `wprism-private-refusal-evidence/v1` JSON file per redacted refusal, next to
-  the promotion checkpoints), and the host prints one stderr line naming that
-  place whenever a captured transport returns such an envelope. The record is
-  written only into a directory that is **already a WPrism repository** — a
-  regular `site.wprism.json`, or a `.wprism/` that already exists — reached without
-  following a symlinked repository root, and for `init` only when that
-  directory was already a WPrism repository *when the command started* and is
-  still the same directory (issue #3516, issue #3522). Both init conditions are
+  login, or trace and instead sets `details_redacted: true` (issue #3404).
+  On an eligible target the redacted sentence is not lost: the agent writes a
+  private, gitignored `wprism-private-refusal-evidence/v2` record under the site
+  repository's `.wprism/refusals/`, and the host prints one stderr line naming
+  that place whenever a captured transport returns such an envelope. The same
+  store also retains provider/recovery causes hidden behind a safe typed or
+  human-facing wrapper. V2 contains a bounded Throwable graph (maximum 256
+  scanned nodes, 512 edges, 64 recorded nodes, 4,096 retained source bytes per
+  class/message/file field, 131,072 graph bytes, and 262,144 bytes for the
+  complete record). Each bounded field includes its original byte length,
+  SHA-256, truncation flag, and encoding. Valid UTF-8 stays verbatim; any other
+  retained byte prefix is stored reversibly as base64 rather than silently
+  substituted. The traversal object says explicitly whether nodes, edges,
+  bytes, invalid edges, or cycles made the record incomplete. It contains no
+  trace. The record is written only into a directory that is **already a
+  WPrism repository** — a regular `site.wprism.json`, or a `.wprism/` that
+  already exists — reached without following a symlinked repository root. The
+  exact root and qualifying marker
+  or control-directory inode are rebound around exclusive 0600 creation;
+  `.wprism/refusals` is 0700 and its existing parent must be non-writable by
+  group/other or sticky-bit bounded. For `init`, recording is allowed only when
+  that directory was already a WPrism repository *when the command started*
+  and is still the same directory (issue #3516, issue #3522). Both init conditions are
   entry-time facts on purpose: `init` is the command that CREATES that marker,
   so asking at refusal time let an init that published `site.wprism.json` and then
   failed answer its own question — and the `.wprism/` it wrote then survived the
@@ -966,10 +977,9 @@ semantics remain the rehearsal implementation's.
   still records. A
   refusal must never materialize WPrism state in a directory that just failed
   the repository-identity gate, or in one that is not a WPrism repository at
-  all, so where those conditions do not hold nothing is written and the
-  operator's documented remedy — rerun in human mode to read the sentence —
-  is what applies. The envelope is byte-identical either way: it carries
-  `details_redacted: true` and never an evidence path. Known
+  all, so where those conditions do not hold nothing is written and never
+  replaces the primary refusal. The envelope is byte-identical either way: it
+  carries `details_redacted: true` and never an evidence path. Known
   uncertain-commit and ambiguous-publication refusals explicitly say not to
   retry or discard retained recovery evidence.
   The host uses the same envelope if environment or driver preflight refuses

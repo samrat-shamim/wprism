@@ -81,23 +81,21 @@ exists only in MariaDB images, so db.mysql.yml runs `mysql -uroot -proot -e
 soon as the server accepts a connection, which is exactly the fake-readiness
 gap `--innodb_initialized` was chosen to close.
 
-`pair.sh` exports `WPRISM_DB_HOST="$DB_CONTAINER"` **at load**, beside the
-engine selection and therefore for every subcommand — not just `up`.
-`pair.yml` renders `WORDPRESS_DB_HOST: ${WPRISM_DB_HOST:-wprism-shared-db}` from it,
-and `pair_compose_configure()` writes it into `sandbox/.env` beside
-`WPRISM_AGENT_SRC`, `WPRISM_ADAPTER_PACKAGES_SRC`, and `WPRISM_PLATFORM_SRC`. The
-`.env` write is load-bearing,
-not belt-and-braces: `conformance/run.sh` and every `regress_*.sh` invoke
-`pair.sh up` as a subprocess and then make their own `docker compose -f
-pair.yml` calls, which never see pair.sh's export. A MySQL pair whose
-subprocesses re-rendered the `wprism-shared-db` default would run green against
-MariaDB and be recorded as MySQL evidence.
+`pair_db_select_engine()` exports the exact `WPRISM_DB_ENGINE` / `WPRISM_DB_HOST`
+tuple in the **calling process**. `pair.sh` calls it at load for every
+subcommand. Harnesses that also issue direct Compose or host-CLI calls must
+source `lib/pair_db.sh` and call the selector in their own parent shell before
+starting a pair; a subprocess cannot export back to its parent. Multi-engine
+drivers select each cell before starting it and finish that cell's cleanup
+before selecting the next engine.
 
-The load-time export matters for the same reason: `pair_compose_configure()`
-rewrites `sandbox/.env` on *every* call, and `stop`/`start`/`destroy` all call
-it, so exporting only inside `up` would let a later `pair.sh stop
-<mysql-pair>` put `wprism-shared-db` back into the file the next subprocess
-compose call reads. (Exactly the failure `WPRISM_AGENT_SRC` hit in issue #3277.)
+Database selection is never written to shared `sandbox/.env`. It previously
+let a concurrent MySQL lifecycle command reroute a MariaDB conformance run
+mid-deploy. The file now contains only the three source-mount paths, and each
+publication removes any pre-fix database entry. Legacy default callers retain
+`pair.yml`'s immutable MariaDB default. Candidate-bound callers additionally
+pin mounts through `pair_identity_export_source_mounts()`; their exported
+context outranks the source-path fallback throughout direct and host calls.
 
 **What this server now proves — and what it does not yet.**
 `platform/adapter-library/capabilities/platform.json`'s database axis is an engine-keyed map
@@ -136,11 +134,11 @@ three belong in the same commit as the claim:
   carrying signed site adapters may, and the PR that moves a bound cell must
   say so.
 
-**Bring it down when the matrix is not running**
-(`docker compose -p wprism-db-mysql -f db.mysql.yml down -v`). It adds a second
-2g / 2.0-cpu long-lived container to the same daemon accounting `db.yml:4-12`
-records as having wedged OrbStack under three concurrent stacks; never leave
-it up alongside a full conformance sweep.
+Both database servers are fleet-shared. A matrix owns its leased pair and
+exact schemas, not either server or its volume; its cleanup must never stop,
+recreate, or delete a shared database. Idle-server shutdown is a separate
+fleet-admin operation after proving no pair uses it. Pair budget and per-pair
+release discipline account for concurrent live work.
 
 ### Cross-project networking
 
@@ -169,18 +167,32 @@ assumes `wp1`/`wp2` resolve to "your own" pair on this network.
 
 Every pair gets two databases on the shared server: `wp_<name>1` /
 `wp_<name>2` (e.g. pair `conf` → `wp_conf1`/`wp_conf2`). One application
-user, `wordpress`/`wordpress`, is shared by every pair via a **wildcard
-grant** — `pair.sh up` idempotently runs:
+user, `wordpress`/`wordpress`, is shared by every pair. `pair.sh up`
+idempotently authenticates that principal, then grants each newly resolved
+pair schema directly:
 
 ```sql
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+GRANT PROCESS ON *.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
+CREATE DATABASE IF NOT EXISTS wp_<name>1;
+CREATE DATABASE IF NOT EXISTS wp_<name>2;
+GRANT ALL PRIVILEGES ON wp_<name>1.* TO 'wordpress'@'%';
+GRANT ALL PRIVILEGES ON wp_<name>2.* TO 'wordpress'@'%';
 ```
 
-(`wp\_%` — escaped underscore, then a wildcard — matches every
-`wp_<name>{1,2}` database any pair will ever create; no per-pair user, no
-re-granting on every `up`.) Root credentials (`root`/`root`) are for admin
+The exact schema grants are required evidence, not just least privilege:
+transactional mutation proves direct `TRIGGER` visibility from
+`information_schema.SCHEMA_PRIVILEGES`. A narrower exact `TRIGGER` grant
+beside the former `wp\_%` wildcard is invalid on MariaDB because the exact row
+shadows the wildcard row, leaving WordPress unable to create or read its own
+tables. Exact `ALL PRIVILEGES` supplies both normal application authority and
+the direct trigger-metadata proof. `PROCESS` is intentionally global: MySQL 8.4's
+`INNODB_FOREIGN` and MariaDB 11's `INNODB_SYS_FOREIGN` require it, and those
+are the claimed sources that expose an incoming cascade from a child in a
+schema the application account cannot otherwise see. Production accounts do
+not need it for capture/assessment, but transactional mutation refuses without
+it. Root credentials (`root`/`root`) are for admin
 operations only (`CREATE`/`DROP DATABASE`), always via `docker exec
 wprism-shared-db mariadb -uroot ...` from pair.sh — never over the published
 port. That port (`127.0.0.1:${WPRISM_SHARED_DB_PORT:-3316}`, loopback-only;
@@ -263,8 +275,9 @@ In order: report (and, when `WPRISM_EXPECTED_SOURCE_SHA` is set, verify) the
 agent/adapter-packages/platform bind-mount source, before anything else at all;
 validate the
 dynamic host CPU/RAM pair budget (before creating any
-pair state); ensure the shared db is up and healthy; ensure the `wordpress`
-user/grant exist; create this pair's two databases; create its site-repo
+pair state); ensure the shared db is up and healthy without recreating an
+already-running singleton; ensure the `wordpress`
+user exists; create this pair's two databases with exact grants; create its site-repo
 directories (and, under `--codebind`, the plugin subdirectory the bind
 mount needs to exist before any container attaches to it — see below); bring
 up `wp1/wp2/cli1/cli2`;
@@ -274,6 +287,15 @@ bootstrap (`core install`, theme, permalinks, `.htaccess`) on each side
 pattern. Re-running `up` on an already-installed pair is safe and fast — it
 re-converges the containers (a no-op if config hasn't changed) and skips
 the bootstrap entirely.
+
+The shared server is deliberately stricter than a pair's own containers:
+ordinary `up`, `start`, `reset`, and `destroy` prerequisites use Compose
+`--no-recreate`. Compose records an absolute config-file path, so two clean
+linked worktrees can otherwise replace the same healthy `wprism-shared-db` container
+despite supplying byte-identical `db.yml`, disconnecting every in-flight pair.
+Changing the shared database image or configuration is a fleet-wide admin
+operation and must be recreated explicitly when no pair is using it; it is not
+an implicit side effect of one pair's lifecycle.
 
 **The readiness fix task #74 called for**: every script in this sandbox
 (`setup.sh`, `conformance/run.sh`, the spike scripts) polls `wp core
@@ -377,6 +399,14 @@ fail in CI. Conformance also invokes wp-cli with umask `000`, keeping its
 captured descendants removable by the host-side harness. These exceptions
 are confined to disposable sandbox paths and processes; they are not guidance
 for production repository permissions.
+
+The shared recovery helper applies the same test-only boundary to `.wprism`
+and `.wprism/control` with mode `1777`. Recovery initialization deliberately
+normalizes its control root to the production `0700` mode, so the helper
+restores `1777` afterward; otherwise a native Linux bind mount owned by the
+host cannot be traversed by the container's uid 33. Sticky parents bound
+cross-user replacement while private evidence and production adoption retain
+their `0700` directory and `0600` file modes.
 
 ### `reset` — what it covers, and what it deliberately doesn't
 

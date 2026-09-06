@@ -298,6 +298,7 @@ use WPrism\Orchestrator\DriverCapabilitiesCommand;
 use WPrism\Orchestrator\EnvironmentListCommand;
 use WPrism\Orchestrator\DoctorCommand;
 use WPrism\Orchestrator\AdoptCommand;
+use WPrism\Orchestrator\BootstrapEligibilityReport;
 use WPrism\Orchestrator\UnadoptCommand;
 use WPrism\Orchestrator\ConnectCommand;
 use WPrism\Orchestrator\OnboardCommand;
@@ -364,8 +365,8 @@ Usage:
   wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
   wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
   wprism onboard <env> status --git-url=<same-url> --format=json
-  wprism adopt  <env>
-  wprism unadopt <env> --archive-to=<absolute-path> [--yes]
+  wprism adopt  <env> [--attest-legacy-loader-quiesced]
+  wprism unadopt <env> --archive-to=<absolute-path> [--yes] [--attest-legacy-loader-quiesced]
   wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   wprism init   <env> --archive-interrupted-to=<absolute-sibling> [--yes]
   wprism status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--cursor=<token>] [--limit=<1..200>]
@@ -886,11 +887,17 @@ Verbs:
                           the exact agent version, policy load, rollback
                           authority, and doctor checks before transaction
                           commit. Existing site.wprism.json is retained.
+    --attest-legacy-      One-time migration assertion accepted only when the
+      loader-quiesced     exact pre-fence WPrism loader is installed: traffic
+                          remains held and every PHP/WP-CLI process that could
+                          have loaded it has exited through command completion.
   unadopt <env>           Archive the exact installed agent, MU loader, and
     --archive-to=<path>   target-local recovery/control tree before removing
     [--yes]               them. Repository code/media/state/Git/site.wprism.json
                           and durable revocations remain in place. The archive
                           path is mandatory; evidence is never discarded.
+    [--attest-legacy-     The same one-time, exact-loader quiescence assertion
+      loader-quiesced]    required before removing a pre-fence installation.
   init <env>              Discover an existing authenticated local/docker/SSH
                           target and print a content-addressed proposal before
                           writing anything. Unsupported active extensions,
@@ -1872,27 +1879,71 @@ function main(array $argv): int {
         return 1;
     }
 
+    // Recovery debt is outside the database and managed code by design. Ask
+    // the target filesystem directly, so code-first rollback to an older agent
+    // cannot make an empty/partial import look like a fresh environment. Only
+    // diagnostics and the exact legacy restore path may cross this fence.
+    $recoveryControlRequired = $driverReport->requiresRecoveryControl();
+    $recoveryResume = $verb === 'recover'
+        && (($extra === [] || in_array('--list', $extra, true))
+            || count(array_filter(
+                $extra,
+                static fn(string $arg): bool => str_starts_with($arg, '--restore=')
+            )) === 1)
+        && !in_array('--confirm-prune', $extra, true)
+        && count(array_filter(
+            $extra,
+            static fn(string $arg): bool => str_starts_with($arg, '--prune-retained=')
+        )) === 0
+        && !in_array($extra[0] ?? '', ['prepare', 'execute'], true);
+    $deferRecoveryFence = $recoveryControlRequired
+        && !$recoveryResume
+        && in_array($verb, ['capture', 'plan', 'apply', 'promote', 'refresh', 'rebase'], true)
+        && count(array_filter(
+            $extra,
+            static fn(string $arg): bool => PassthroughCommand::isScopeContractFlag($arg)
+        )) > 0;
+    $bootstrapAuthority = null;
+    if ($recoveryControlRequired && !$recoveryResume && !$deferRecoveryFence) {
+        $fenceRefusal = external_recovery_fence_refusal($transport, $verb, $extra, $bootstrapAuthority);
+        if (is_int($fenceRefusal)) {
+            return $fenceRefusal;
+        }
+    }
+    $beforeTarget = $deferRecoveryFence
+        ? static fn(): ?int => external_recovery_fence_refusal($transport, $verb, $extra)
+        : null;
+
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
-        'adopt' => cmd_adopt($transport, $extra),
+        'adopt' => cmd_adopt($transport, $extra, $bootstrapAuthority),
         'unadopt' => cmd_unadopt($transport, $extra),
         'onboard' => OnboardCommand::run(
             $transport,
             $extra,
             dirname(__DIR__),
-            ['status' => static fn(EnvironmentDriver $driver): int => cmd_status($driver, [], $envsFileOverride)]
+            [
+                'status' => static fn(EnvironmentDriver $driver): int => cmd_status($driver, [], $envsFileOverride),
+                'adopt' => static fn(EnvironmentDriver $driver, array $args, string $sourceRoot): int =>
+                    AdoptCommand::run($driver, $args, $sourceRoot, $bootstrapAuthority),
+            ]
         ),
         'init' => cmd_init($transport, $extra, $envsFileOverride),
         'status' => cmd_status($transport, $extra, $envsFileOverride),
         'assess' => cmd_assess($transport, $extra),
         'contract' => cmd_contract($transport, $extra),
         'adapter-observe' => cmd_adapter_observe($transport, $extra),
-        'capabilities', 'lint', 'plan', 'explain', 'apply', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'lint', 'plan', 'explain', 'apply', 'coverage' => cmd_passthrough(
+            $transport,
+            $verb,
+            $extra,
+            $beforeTarget
+        ),
         'env-set' => PassthroughCommand::runEnvSet($transport, $extra),
-        'capture' => cmd_capture($transport, $extra, $envsFileOverride),
+        'capture' => cmd_capture($transport, $extra, $envsFileOverride, $beforeTarget),
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),
-        'promote' => cmd_promote($transport, $extra),
+        'promote' => cmd_promote($transport, $extra, $beforeTarget),
         'stage-source' => StageSourceCommand::run($transport, $extra),
         'authority-policy' => AuthorityPolicyCommand::run($transport, $extra),
         'release' => cmd_release($transport, $extra),
@@ -1903,8 +1954,8 @@ function main(array $argv): int {
         'classify' => cmd_classify($transport, $extra),
         'code-classify' => CodeClassifyCommand::run($transport, $extra),
         'code-resolve' => CodeResolveCommand::run($transport, $extra),
-        'refresh' => cmd_refresh($transport, $extra),
-        'rebase' => cmd_rebase($transport, $extra),
+        'refresh' => cmd_refresh($transport, $extra, $beforeTarget),
+        'rebase' => cmd_rebase($transport, $extra, $beforeTarget),
     };
 }
 
@@ -1944,6 +1995,57 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
         fwrite(STDERR, "    remediation: {$blocker['remediation']}\n");
     }
     fwrite(STDERR, "  report: {$body['digest']}\n");
+}
+
+/**
+ * Map the version-independent filesystem fence's closed state vocabulary to
+ * the public host refusal. The transport's prose is never parsed here.
+ */
+function external_recovery_fence_refusal(
+    EnvironmentDriver $transport,
+    string $verb,
+    array $extra,
+    ?BootstrapEligibilityReport &$bootstrapAuthority = null
+): ?int {
+    $fence = CodeDeploy::externalRecoveryFence($transport, $transport->repoPath());
+    $state = (string) ($fence['state'] ?? 'unsafe');
+    if ($state === 'clear') {
+        return null;
+    }
+    // RecoveryFence remains strict for every already-managed operation. Only
+    // the adoption owner can positively prove a pristine initial target, and
+    // carries that proof into the generation writer rather than treating a
+    // missing repository as clear recovery state.
+    $initialAdoption = $verb === 'adopt'
+        || ($verb === 'onboard' && !in_array('--handoff-only', $extra, true) && ($extra[0] ?? '') !== 'status');
+    if ($state === 'unsafe' && $initialAdoption && $transport instanceof \WPrism\Orchestrator\AdoptionTransport) {
+        $bootstrapAuthority = BootstrapEligibilityReport::initialRecoveryAuthority($transport, dirname(__DIR__));
+        if ($bootstrapAuthority !== null) {
+            return null;
+        }
+    }
+    [$reasonCode, $message, $remediation] = match ($state) {
+        'provider_settlement' => [
+            'provider_settlement_incomplete',
+            'an incomplete adapter provider settlement blocks this command',
+            'resume the exact retained checkpoint with wprism recover before observing or mutating this environment',
+        ],
+        'checkpoint_recovery' => [
+            'checkpoint_recovery_incomplete',
+            'an incomplete database recovery blocks this command',
+            'resume the exact retained checkpoint with wprism recover before observing or mutating this environment',
+        ],
+        default => [
+            'external_recovery_state_unreadable',
+            'the database-external recovery fence could not be read safely',
+            'repair the adopted control directory boundary, then rerun wprism doctor',
+        ],
+    };
+    if (wants_agent_refusal_json($verb, $extra)) {
+        return render_agent_refusal_json($verb, $reasonCode, $message, $remediation);
+    }
+    fwrite(STDERR, "wprism: $message; $remediation\n");
+    return 1;
 }
 
 /** Public nested environment lifecycle namespace. */
@@ -1989,12 +2091,14 @@ function render_environment_receipt(array $receipt, bool $json, string $action):
     EnvironmentCommand::renderReceipt($receipt, $json, $action);
 }
 
-function cmd_refresh(EnvironmentDriver $t, array $extra): int {
-    return RefreshCommand::run($t, $extra);
+/** @param null|callable():?int $beforeTarget */
+function cmd_refresh(EnvironmentDriver $t, array $extra, ?callable $beforeTarget = null): int {
+    return RefreshCommand::run($t, $extra, $beforeTarget);
 }
 
-function cmd_rebase(EnvironmentDriver $t, array $extra): int {
-    return RebaseCommand::run($t, $extra);
+/** @param null|callable():?int $beforeTarget */
+function cmd_rebase(EnvironmentDriver $t, array $extra, ?callable $beforeTarget = null): int {
+    return RebaseCommand::run($t, $extra, $beforeTarget);
 }
 
 function cmd_envs(?string $envsFileOverride): int {
@@ -2005,8 +2109,8 @@ function cmd_doctor(EnvironmentDriver $t): int {
     return DoctorCommand::run($t);
 }
 
-function cmd_adopt(EnvironmentDriver $t, array $extra): int {
-    return AdoptCommand::run($t, $extra, dirname(__DIR__));
+function cmd_adopt(EnvironmentDriver $t, array $extra, ?BootstrapEligibilityReport $bootstrapAuthority = null): int {
+    return AdoptCommand::run($t, $extra, dirname(__DIR__), $bootstrapAuthority);
 }
 
 function cmd_unadopt(EnvironmentDriver $t, array $extra): int {
@@ -2146,8 +2250,14 @@ function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
     return true;
 }
 
-function cmd_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
-    return PassthroughCommand::run($t, $verb, $extra);
+/** @param null|callable():?int $beforeTarget */
+function cmd_passthrough(
+    EnvironmentDriver $t,
+    string $verb,
+    array $extra,
+    ?callable $beforeTarget = null
+): int {
+    return PassthroughCommand::run($t, $verb, $extra, $beforeTarget);
 }
 
 /** @return bool */
@@ -2227,8 +2337,14 @@ function cmd_scoped_passthrough(EnvironmentDriver $t, string $verb, array $extra
 }
 
 /** Validate a host-local scope contract, then forward only its compact proof. */
-function cmd_capture(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {
-    return CaptureCommand::run($t, $extra, $envsFileOverride);
+/** @param null|callable():?int $beforeTarget */
+function cmd_capture(
+    EnvironmentDriver $t,
+    array $extra,
+    ?string $envsFileOverride = null,
+    ?callable $beforeTarget = null
+): int {
+    return CaptureCommand::run($t, $extra, $envsFileOverride, null, $beforeTarget);
 }
 
 /**
@@ -2260,7 +2376,13 @@ function orchestrator_run_id(): string {
 
 /** Arguments only the orchestrator can truthfully own. */
 function is_orchestrator_internal_flag(string $arg): bool {
-    foreach (['--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold', '--materializing-code', '--state-handoff', '--lifecycle-phase'] as $flag) {
+    foreach ([
+        '--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold',
+        '--materializing-code', '--state-handoff', '--lifecycle-phase', '--checkpoint',
+        '--presence-only', '--after-code-transition', '--release-on-success',
+        '--operation-id', '--expected-observation-sha256', '--expected-baseline-state',
+        '--expected-code-boundary', '--expected-code-findings', '--host-reported-code-findings',
+    ] as $flag) {
         if ($arg === $flag || str_starts_with($arg, $flag . '=')) {
             return true;
         }
@@ -2332,11 +2454,16 @@ function cmd_deploy(EnvironmentDriver $t, array $extra): int {
  * environment materializer uses cmd_promote_frozen() below so it can bind the
  * operation to the artifact it already compiled.
  */
-function cmd_promote(EnvironmentDriver $t, array $extra): int {
+/** @param null|callable():?int $beforeTarget */
+function cmd_promote(EnvironmentDriver $t, array $extra, ?callable $beforeTarget = null): int {
     return PromoteCommand::run(
         $t,
         $extra,
-        static fn(EnvironmentDriver $driver, array $args): int => cmd_promote_scoped($driver, $args),
+        static fn(EnvironmentDriver $driver, array $args): int => cmd_promote_scoped(
+            $driver,
+            $args,
+            $beforeTarget
+        ),
         static fn(EnvironmentDriver $driver, array $args, ?array $frozen): array|int => cmd_promote_internal($driver, $args, $frozen)
     );
 }
@@ -2417,7 +2544,12 @@ function cmd_rehearse(EnvironmentDriver $t, array $extra, ?string $envsFileOverr
  * that prior DB before reopening traffic. Once committed, no later rollback
  * is exposed because unrelated writes may resume.
  */
-function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
+/** @param null|callable():?int $beforeTarget */
+function cmd_promote_scoped(
+    EnvironmentDriver $t,
+    array $extra,
+    ?callable $beforeTarget = null
+): int {
     $contractPath = null;
     $withDeletes = false;
     $json = false;
@@ -2504,6 +2636,11 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
             'scoped promotion requires the SSH verified recovery profile',
             'use scoped apply for local/docker targets or configure an SSH target with signed checkpoint recovery'
         );
+    }
+
+    $fenceRefusal = $beforeTarget === null ? null : $beforeTarget();
+    if (is_int($fenceRefusal)) {
+        return $fenceRefusal;
     }
 
     $contract = $scopeInput['contract'];
@@ -2897,6 +3034,12 @@ function cmd_promote_internal(
         if (!is_string($arg)) {
             continue;
         }
+        if (str_starts_with($arg, '--force-code-mismatch=')
+            || str_starts_with($arg, '--force-code-drift=')
+            || str_starts_with($arg, '--force-unresolved-refs=')) {
+            fwrite(STDERR, "wprism: promote boolean force flags are valueless; remove '=value' from '$arg'\n");
+            return 1;
+        }
         if ($arg === '--with-deletes') {
             if ($allowDeletes) {
                 return scope_wire_refusal(
@@ -3024,6 +3167,9 @@ function cmd_promote_internal(
         return 1;
     }
     $artifactHash = (string) $compile['summary']['artifact_hash'];
+    $schemaDeclared = CodeDeploy::schemaSettlementRequired($compile['summary']);
+    $lifecycleSettlementDeclared = CodeDeploy::lifecycleSettlementDeclared($compile['summary']);
+    $schemaSettlementRequired = false;
     if ($authorizedSource !== null
         && !hash_equals((string) ($authorizedSource['artifact_hash'] ?? ''), $artifactHash)) {
         fwrite(
@@ -3059,8 +3205,122 @@ function cmd_promote_internal(
         $runtimePreflightDone = true;
     }
 
-    $verifiedUnavailableReason = 'target carries no signed automatic rollback authority';
-    if ($t instanceof \WPrism\Orchestrator\RecoveryTransport && $t->carriesRollbackAuthority()) {
+    if ($schemaDeclared && !$runtimePreflightDone) {
+        $preflight = code_runtime_preflight(
+            $t,
+            'promote',
+            $repo,
+            $artifact,
+            $artifactHash,
+            $compile['summary']
+        );
+        if (is_int($preflight)) {
+            return $preflight;
+        }
+        $codeChangeRequired = $preflight;
+        $runtimePreflightDone = true;
+    }
+    if ($runtimePreflightDone && !$codeChangeRequired) {
+        echo "promote phase: lifecycle-status\n";
+        $lifecycleStatusResult = $t->captureWp(CodeDeploy::lifecycleStatusArgs(
+            $repo,
+            $artifact,
+            $artifactHash,
+            $extra
+        ));
+        if (($lifecycleStatusResult['exit'] ?? 1) !== 0) {
+            fwrite(STDERR, "wprism: promote: lifecycle preflight failed; no target mutation occurred\n");
+            print_transport_detail($lifecycleStatusResult);
+            return ($lifecycleStatusResult['exit'] ?? 1) !== 0
+                ? (int) $lifecycleStatusResult['exit']
+                : 1;
+        }
+        try {
+            $lifecycleStatus = CodeDeploy::lifecycleStatusResult($lifecycleStatusResult);
+        } catch (\Throwable $failure) {
+            fwrite(STDERR, "wprism: promote: {$failure->getMessage()}; no target mutation occurred\n");
+            return 1;
+        }
+        if ($lifecycleStatus['baseline_state'] !== 'exact') {
+            $baselineRemedy = $lifecycleStatus['baseline_state'] === 'drift'
+                ? "run host 'wprism deploy <env> --force-code-drift' to review and accept it"
+                : "run host 'wprism deploy <env>' to initialize it";
+            fwrite(
+                STDERR,
+                "wprism: promote: target code-version baseline is {$lifecycleStatus['baseline_state']}; "
+                . "$baselineRemedy before promotion\n"
+            );
+            return 1;
+        }
+        if ($lifecycleStatus['required']) {
+            fwrite(
+                STDERR,
+                "wprism: promote: target lifecycle differs from the compiled repository; run host "
+                . "'wprism deploy <env>' to establish activation and checkpointed schema before promotion\n"
+            );
+            return 1;
+        }
+    }
+    if ($schemaDeclared) {
+        echo "promote phase: schema-status\n";
+        $schemaStatusResult = $t->captureWp(CodeDeploy::schemaStatusArgs(
+            $repo,
+            $artifact,
+            $artifactHash,
+            $codeChangeRequired
+        ));
+        if (($schemaStatusResult['exit'] ?? 1) !== 0) {
+            fwrite(STDERR, "wprism: promote: schema readiness preflight failed; no target mutation occurred\n");
+            print_transport_detail($schemaStatusResult);
+            return ($schemaStatusResult['exit'] ?? 1) !== 0 ? (int) $schemaStatusResult['exit'] : 1;
+        }
+        try {
+            $schemaStatus = CodeDeploy::schemaStatusResult($schemaStatusResult);
+        } catch (\Throwable $failure) {
+            fwrite(STDERR, "wprism: promote: {$failure->getMessage()}; no target mutation occurred\n");
+            return 1;
+        }
+        if (!$schemaStatus['declared']
+            || $schemaStatus['mode'] !== ($codeChangeRequired ? 'presence' : 'exact')) {
+            fwrite(STDERR, "wprism: promote: compiled schema effects disagree with target readiness evidence; no target mutation occurred\n");
+            return 1;
+        }
+        $schemaSettlementRequired = $codeChangeRequired || $schemaStatus['required'];
+    }
+    $lifecycleSettlementRequired = $codeChangeRequired
+        || ($lifecycleSettlementDeclared && $schemaSettlementRequired);
+    $lifecyclePhasesRequired = $codeChangeRequired
+        || ($schemaSettlementRequired && $lifecycleSettlementDeclared);
+    $providerSettlementPhases = [];
+    if ($schemaSettlementRequired) {
+        $providerSettlementPhases[] = 'schema-settle';
+    }
+    if ($lifecycleSettlementDeclared && $lifecycleSettlementRequired) {
+        $providerSettlementPhases[] = 'lifecycle-settle';
+    }
+    $providerTransactionPhases = $providerSettlementPhases;
+    if ($providerTransactionPhases !== [] && $lifecyclePhasesRequired) {
+        $providerTransactionPhases = array_merge(
+            ['lifecycle-retire', 'lifecycle-activate'],
+            $providerTransactionPhases
+        );
+    }
+
+    if ($schemaSettlementRequired && $allowDeletes) {
+        fwrite(
+            STDERR,
+            "wprism: promote: deletion planning requires declared tables to exist; run host "
+            . "'wprism deploy <env>' to establish checkpointed schema, then retry this exact promotion\n"
+        );
+        return 1;
+    }
+
+    $verifiedUnavailableReason = $providerSettlementPhases !== []
+        ? 'checkpoint-backed provider settlement must retain one cross-process recovery intent'
+        : 'target carries no signed automatic rollback authority';
+    if ($providerSettlementPhases === []
+        && $t instanceof \WPrism\Orchestrator\RecoveryTransport
+        && $t->carriesRollbackAuthority()) {
         try {
             $verifiedPlan = verified_promotion_plan(
                 $t,
@@ -3227,7 +3487,7 @@ function cmd_promote_internal(
     }
 
     echo "promote phase: promotion-begin\n";
-    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash, $authorizedSource));
+    $begin = $t->captureWp(CodeDeploy::beginArgs($repo, $runId, $artifactHash, $authorizedSource));
     if ($begin['exit'] !== 0) {
         fwrite(STDERR, "wprism: promote: promotion-begin failed; checkpoint, deploy, and apply were not started\n");
         print_transport_detail($begin);
@@ -3261,10 +3521,7 @@ function cmd_promote_internal(
     $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
         return $arg === '--force-code-mismatch'
             || $arg === '--force-code-drift'
-            || $arg === '--force-unresolved-refs'
-            || str_starts_with($arg, '--force-code-mismatch=')
-            || str_starts_with($arg, '--force-code-drift=')
-            || str_starts_with($arg, '--force-unresolved-refs=');
+            || $arg === '--force-unresolved-refs';
     }));
 
     if ($codeChangeRequired) {
@@ -3275,29 +3532,251 @@ function cmd_promote_internal(
         }
     }
 
-    if ($codeChangeRequired) {
+    if ($providerTransactionPhases !== []) {
+        // Code staging is already checkpoint/session-bound. Publish before the
+        // first lifecycle hook and carry both lifecycle processes in the exact
+        // external provider transaction.
+        echo "promote phase: provider-settlement-begin\n";
+        $providerBegin = CodeDeploy::beginProviderSettlement(
+            $t,
+            $repo,
+            $artifact,
+            $checkpoint,
+            $runId,
+            $artifactHash,
+            $providerTransactionPhases
+        );
+        if (($providerBegin['exit'] ?? 1) !== 0) {
+            print_transport_detail($providerBegin);
+            return promote_failed(
+                $t,
+                'provider-settlement-begin',
+                ($providerBegin['exit'] ?? 1) !== 0 ? (int) $providerBegin['exit'] : 1,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
+        }
+    }
+
+    if ($lifecyclePhasesRequired) {
         echo "promote phase: lifecycle-retire\n";
         $retire = $t->streamWp(CodeDeploy::lifecycleArgs(
-            $repo, $artifact, $runId, $artifactHash, true, true, true, 'retire', $deployExtra
+            $repo,
+            $artifact,
+            $runId,
+            $artifactHash,
+            true,
+            $codeChangeRequired,
+            true,
+            'retire',
+            $deployExtra,
+            in_array('lifecycle-retire', $providerTransactionPhases, true) ? $checkpoint : ''
         ));
         if ($retire !== 0) {
-            return promote_failed($t, 'lifecycle-retire', $retire, $checkpoint, true, $runId, $artifactHash);
+            return promote_failed(
+                $t,
+                'lifecycle-retire',
+                $retire,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
+        }
+        if (in_array('lifecycle-retire', $providerTransactionPhases, true)) {
+            $retireAdvance = CodeDeploy::advanceProviderSettlement(
+                $t,
+                $repo,
+                $artifact,
+                $checkpoint,
+                $runId,
+                $artifactHash,
+                $providerTransactionPhases,
+                'lifecycle-retire'
+            );
+            if (($retireAdvance['exit'] ?? 1) !== 0) {
+                print_transport_detail($retireAdvance);
+                return promote_failed(
+                    $t,
+                    'lifecycle-retire-progress',
+                    ($retireAdvance['exit'] ?? 1) !== 0 ? (int) $retireAdvance['exit'] : 1,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+            }
         }
 
         echo "promote phase: lifecycle-activate\n";
         $activate = $t->streamWp(CodeDeploy::lifecycleArgs(
-            $repo, $artifact, $runId, $artifactHash, true, true, true, 'activate', $deployExtra
+            $repo,
+            $artifact,
+            $runId,
+            $artifactHash,
+            true,
+            $codeChangeRequired,
+            true,
+            'activate',
+            $deployExtra,
+            in_array('lifecycle-activate', $providerTransactionPhases, true) ? $checkpoint : ''
         ));
         if ($activate !== 0) {
-            return promote_failed($t, 'lifecycle-activate', $activate, $checkpoint, true, $runId, $artifactHash);
+            return promote_failed(
+                $t,
+                'lifecycle-activate',
+                $activate,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
         }
+        if (in_array('lifecycle-activate', $providerTransactionPhases, true)) {
+            $activateAdvance = CodeDeploy::advanceProviderSettlement(
+                $t,
+                $repo,
+                $artifact,
+                $checkpoint,
+                $runId,
+                $artifactHash,
+                $providerTransactionPhases,
+                'lifecycle-activate'
+            );
+            if (($activateAdvance['exit'] ?? 1) !== 0) {
+                print_transport_detail($activateAdvance);
+                return promote_failed(
+                    $t,
+                    'lifecycle-activate-progress',
+                    ($activateAdvance['exit'] ?? 1) !== 0 ? (int) $activateAdvance['exit'] : 1,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+            }
+        }
+    }
 
+    if ($schemaSettlementRequired) {
+        echo "promote phase: schema-settle\n";
+        $schema = $t->streamWp(CodeDeploy::schemaSettleArgs(
+            $repo,
+            $artifact,
+            $artifactHash,
+            $runId,
+            $checkpoint,
+            $lifecyclePhasesRequired
+        ));
+        if ($schema !== 0) {
+            return promote_failed(
+                $t,
+                'schema-settle',
+                $schema,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
+        }
+        $schemaAdvance = CodeDeploy::advanceProviderSettlement(
+            $t,
+            $repo,
+            $artifact,
+            $checkpoint,
+            $runId,
+            $artifactHash,
+            $providerTransactionPhases,
+            'schema-settle'
+        );
+        if (($schemaAdvance['exit'] ?? 1) !== 0) {
+            print_transport_detail($schemaAdvance);
+            return promote_failed(
+                $t,
+                'provider-settlement-advance-schema',
+                ($schemaAdvance['exit'] ?? 1) !== 0 ? (int) $schemaAdvance['exit'] : 1,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
+        }
+    }
+
+    if ($lifecycleSettlementRequired) {
         echo "promote phase: lifecycle-settle\n";
-        $settle = $t->streamWp(CodeDeploy::lifecycleSettleArgs($repo, $artifact, $artifactHash, $runId));
+        $settle = $t->streamWp(CodeDeploy::lifecycleSettleArgs(
+            $repo,
+            $artifact,
+            $artifactHash,
+            $runId,
+            in_array('lifecycle-settle', $providerSettlementPhases, true) ? $checkpoint : ''
+        ));
         if ($settle !== 0) {
-            return promote_failed($t, 'lifecycle-settle', $settle, $checkpoint, true, $runId, $artifactHash);
+            return promote_failed(
+                $t,
+                'lifecycle-settle',
+                $settle,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
         }
+        if (in_array('lifecycle-settle', $providerSettlementPhases, true)) {
+            $lifecycleAdvance = CodeDeploy::advanceProviderSettlement(
+                $t,
+                $repo,
+                $artifact,
+                $checkpoint,
+                $runId,
+                $artifactHash,
+                $providerTransactionPhases,
+                'lifecycle-settle'
+            );
+            if (($lifecycleAdvance['exit'] ?? 1) !== 0) {
+                print_transport_detail($lifecycleAdvance);
+                return promote_failed(
+                    $t,
+                    'provider-settlement-advance-lifecycle',
+                    ($lifecycleAdvance['exit'] ?? 1) !== 0 ? (int) $lifecycleAdvance['exit'] : 1,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+            }
+        }
+    }
 
+    if ($providerTransactionPhases !== []) {
+        echo "promote phase: provider-settlement-complete\n";
+        $providerComplete = CodeDeploy::completeProviderSettlement(
+            $t,
+            $repo,
+            $artifact,
+            $checkpoint,
+            $runId,
+            $artifactHash,
+            $providerTransactionPhases
+        );
+        if (($providerComplete['exit'] ?? 1) !== 0) {
+            print_transport_detail($providerComplete);
+            return promote_failed(
+                $t,
+                'provider-settlement-complete',
+                ($providerComplete['exit'] ?? 1) !== 0 ? (int) $providerComplete['exit'] : 1,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
+        }
+    }
+
+    if ($codeChangeRequired) {
         echo "promote phase: code-finalize\n";
         $finalize = $t->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, true));
         if ($finalize !== 0) {
@@ -3318,9 +3797,17 @@ function cmd_promote_internal(
             return promote_failed($t, 'apply', $apply, $checkpoint, $codeChangeRequired, $runId, $artifactHash);
         }
 
-        echo $codeChangeRequired
-            ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize -> apply\n"
-            : "promote complete: content apply; code lifecycle hooks not run\n";
+        if ($codeChangeRequired) {
+            echo $schemaSettlementRequired
+                ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> schema-settle -> lifecycle-settle -> code-finalize -> apply\n"
+                : "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize -> apply\n";
+        } else {
+            echo $lifecycleSettlementRequired
+                ? "promote complete: schema-settle -> lifecycle-settle -> content apply; code lifecycle hooks not run\n"
+                : ($schemaSettlementRequired
+                    ? "promote complete: schema-settle -> content apply; code lifecycle hooks not run\n"
+                    : "promote complete: content apply; code lifecycle hooks not run\n");
+        }
         echo "database checkpoint retained: $checkpoint\n";
         return 0;
     }
@@ -3380,9 +3867,15 @@ function cmd_promote_internal(
         fwrite(STDERR, "wprism: promote: apply receipt could not be verified or retained: {$e->getMessage()}\n");
         return 1;
     }
-    echo $codeChangeRequired
-        ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize -> apply\n"
-        : "promote complete: content apply; code lifecycle hooks not run\n";
+    if ($codeChangeRequired) {
+        echo $schemaSettlementRequired
+            ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> schema-settle -> lifecycle-settle -> code-finalize -> apply\n"
+            : "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize -> apply\n";
+    } else {
+        echo $schemaSettlementRequired
+            ? "promote complete: schema-settle -> content apply; code lifecycle hooks not run\n"
+            : "promote complete: content apply; code lifecycle hooks not run\n";
+    }
     echo "database checkpoint retained: $checkpoint\n";
     return $receipt;
 }
@@ -3901,7 +4394,7 @@ function cmd_promote_verified(
     }
 
     echo "promote phase: promotion-begin\n";
-    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash, $authorizedSource));
+    $begin = $t->captureWp(CodeDeploy::beginArgs($repo, $runId, $artifactHash, $authorizedSource));
     if ($begin['exit'] !== 0) {
         fwrite(STDERR, "wprism: promote: promotion-begin failed under verified rollback\n");
         print_transport_detail($begin);
@@ -3954,10 +4447,7 @@ function cmd_promote_verified(
     $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
         return $arg === '--force-code-mismatch'
             || $arg === '--force-code-drift'
-            || $arg === '--force-unresolved-refs'
-            || str_starts_with($arg, '--force-code-mismatch=')
-            || str_starts_with($arg, '--force-code-drift=')
-            || str_starts_with($arg, '--force-unresolved-refs=');
+            || $arg === '--force-unresolved-refs';
     }));
 
     if ($codeChangeRequired) {
@@ -3988,7 +4478,9 @@ function cmd_promote_verified(
                 $profile, 'lifecycle-activate', $activate, $effectsTouched, $uploadsApplied, $codeSelected
             );
         }
+    }
 
+    if ($codeChangeRequired) {
         echo "promote phase: lifecycle-settle\n";
         $settle = $t->streamWp(CodeDeploy::lifecycleSettleArgs($repo, $artifact, $artifactHash, $runId));
         if ($settle !== 0) {
@@ -4027,7 +4519,7 @@ function cmd_promote_verified(
     // Apply can run exact selected rebuild providers even when code is already
     // current. From the first call onward rollback must reconcile the prepared
     // effect bundle before restoring the database checkpoint.
-    $effectsTouched = (array) ($plan['effects_inventory'] ?? []) !== [];
+    $effectsTouched = $effectsTouched || (array) ($plan['effects_inventory'] ?? []) !== [];
     $applyExtra = $extra;
     if ($allowDeletes) {
         if (!is_array($claimReceipt)
@@ -4305,6 +4797,10 @@ function cmd_classify(EnvironmentDriver $t, array $extra): int {
     });
 }
 
+// register_argc_argv is configurable; an unavailable argument vector must
+// take main()'s normal usage path rather than fail before command parsing.
+$cliArgv = $_SERVER['argv'] ?? [];
+$argv = is_array($cliArgv) ? array_map('strval', $cliArgv) : [];
 try {
     exit(main($argv));
 } catch (\Throwable $e) {

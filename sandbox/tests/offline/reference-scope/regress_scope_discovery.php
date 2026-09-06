@@ -348,7 +348,7 @@ namespace WPrism {
     $check(
         $warnings === [
             "taxonomy 'missing_link' is in policy scope but not registered on this environment"
-            . " (plugin inactive?) — cannot determine which object type its relationships"
+            . ' (plugin inactive?) — cannot determine which object type its relationships'
             . ' belong to, so its relationships are skipped for every post and term',
         ],
         'ordinary capture reports an unregistered exact taxonomy and omits only its unknown relationships'
@@ -614,7 +614,7 @@ namespace WPrism {
         && str_contains($candidateSource, '$this->scopeDiscovery = new ScopeDiscovery('),
         'candidate builder explicitly owns one shared ScopeDiscovery collaborator');
     $check(is_string($candidateSource)
-        && str_contains($candidateSource, '$scope = $this->scopeDiscovery->discover(')
+        && str_contains($candidateSource, '$scope = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array => $this->scopeDiscovery->discover(')
         && str_contains($candidateSource, '$this->safetyGates->assertScopeGaps($gaps);')
         && str_contains($candidateSource, '$this->taxonomiesByPostType = $scope[\'by_post_type\'];')
         && str_contains($candidateSource, '$this->termObjectTaxonomies = $scope[\'term_object\'];'),

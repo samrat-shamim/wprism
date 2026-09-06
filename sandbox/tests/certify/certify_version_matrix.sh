@@ -13,10 +13,9 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 assert_no_php_diagnostics() { # <label> <log>
-  local label="$1" log="$2"
-  if grep -Eq '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated): .* in .*[.]php on line [0-9]+' "$log"; then
-    fail "$label emitted a PHP runtime diagnostic: $(grep -Em1 '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated): .* in .*[.]php on line [0-9]+' "$log")"
-  fi
+  local label="$1" log="$2" out
+  out=$(cat "$log") || fail "$label has no readable evidence log"
+  assert_no_php_runtime_diagnostics "$label" "$out"
 }
 
 # The conformance seeds/postdeploy hooks this harness sources call the shared
@@ -47,6 +46,13 @@ declare -F version_matrix_workflow >/dev/null \
   || fail "manifest '$VMATRIX_MANIFEST' certification capsule does not define version_matrix_workflow"
 [[ "${VMATRIX_PLUGIN_SLUG:-}" =~ ^[a-z][a-z0-9-]*$ ]] \
   || fail "manifest '$VMATRIX_MANIFEST' certification capsule does not define one canonical VMATRIX_PLUGIN_SLUG"
+# Normalize the public matrix variable before the capsule preflight. Candidate-
+# bound capsules validate and export their source root there; invoking them
+# first would make the documented VMATRIX_EXPECTED_SOURCE_SHA interface fail
+# before the shared driver had translated it.
+if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
+  export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
+fi
 if declare -F version_matrix_preflight >/dev/null; then
   version_matrix_preflight
 fi
@@ -61,15 +67,14 @@ export WPRISM_PAIR="$PAIR"
 # pair mounts. Export before the first pair.sh call: `up` can allocate the
 # databases and start containers, so setting it later would certify a stale
 # canonical checkout rather than this candidate.
-if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
-  export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
-fi
 # Boundary observations use fresh direct Compose processes. Keep the selected
 # mounts in this shell; shared .env can legitimately move when another pair is
 # cleaned up and therefore cannot carry this matrix's candidate identity.
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'version matrix could not pin its selected source mounts in the caller environment'
+. lib/pair_db.sh
+pair_db_select_engine
 PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
@@ -79,10 +84,32 @@ fi
 export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 PAIR_COMPOSE_STRING="${PAIR_COMPOSE[*]}"
 VMATRIX_APPLY_LOG=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-apply.${PAIR}.XXXXXX")
-trap 'rm -f -- "$VMATRIX_APPLY_LOG"' EXIT
+. lib/host_orchestrator.sh
+WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-host.${PAIR}.XXXXXX")
+trap 'rm -f -- "$VMATRIX_APPLY_LOG" "$WPRISM_HOST_REGISTRY"' EXIT
+wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$PAIR"
+WPRISM_HOST_CLI="$(cd .. && pwd)/cli/wprism"
+export WPRISM_HOST_CLI WPRISM_HOST_REGISTRY
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=wprism-vmatrix1 -c user.email=vmatrix1@example.test)
+
+# Capsule-owned positive apply steps write this log before any subsequent
+# command can replace it. Both historical human-output and newer JSON cases
+# must reject missing required bindings; optional env rows and verified action
+# receipts keep their existing meanings. Expected refusals do not use this gate.
+assert_version_matrix_apply_ready() {
+  local out last
+  out=$(<"$VMATRIX_APPLY_LOG")
+  last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
+  assert_no_php_diagnostics 'version matrix apply' "$VMATRIX_APPLY_LOG"
+  if [[ "$last" == \{* ]]; then
+    assert_wprism_apply_ready 'version matrix apply' "$out"
+  else
+    assert_wprism_required_environment 'version matrix apply' human "$out"
+    grep -q 'canary clean' <<<"$out" || fail 'version matrix apply did not return its clean success result'
+  fi
+}
 
 . bin/fetch-artifact.sh
 
@@ -125,6 +152,14 @@ reset_case_repositories() {
 clone_case_target() {
   git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
   chmod 0777 "siterepo/${PAIR}2"
+  establish_core_environment_bindings wp1 /siterepo admin@example.test \
+    "http://localhost:$PORT1" "http://localhost:$PORT1"
+  establish_core_environment_bindings wp2 /siterepo admin@example.test \
+    "http://localhost:$PORT2" "http://localhost:$PORT2"
+  wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "siterepo/${PAIR}1" \
+    || fail 'version matrix could not install the source recovery runtime'
+  wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "siterepo/${PAIR}2" \
+    || fail 'version matrix could not install the target recovery runtime'
 }
 
 say "boot pair $PAIR (${PAIR}1 :$PORT1 / ${PAIR}2 :$PORT2), idempotent"

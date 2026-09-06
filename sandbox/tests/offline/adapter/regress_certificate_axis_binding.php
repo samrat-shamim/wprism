@@ -519,7 +519,7 @@ wprism_check_same(
     'and an axis it did NOT narrow still binds whole, so narrowing is per axis rather than per certificate'
 );
 wprism_check_same(
-    ['local-posix-process-group-exec/v1'],
+    ['local-posix-process-group-exec-no-cli-opcache/v1'],
     (array) (((array) $narrowStatement['axes'])['process']['cells'] ?? []),
     'including the two axes no claim states (`filesystem`, `process`): they are absent from the narrowing '
     . 'projection by design, so a certificate binds the boundary\'s own profile for them'

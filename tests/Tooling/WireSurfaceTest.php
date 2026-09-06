@@ -267,11 +267,11 @@ final class WireSurfaceTest extends TestCase
     /**
      * Gate 7 (WP-4.10, spec § v3.9), membership half. The grandfather list is
      * CLOSED, which means nothing about it unless a library the list does not
-     * match is refused: a seventeenth shipped adapter must not be able to
+     * match is refused: an additional shipped adapter must not be able to
      * arrive by dropping a package in `adapter-packages/`, because each unprefixed name
      * admitted is one more identity handed to the shipped library permanently.
      */
-    public function testASeventeenthShippedAdapterNameFailsTheGrandfatherListGate(): void
+    public function testAnAdditionalShippedAdapterNameFailsTheGrandfatherListGate(): void
     {
         $package = (string) self::$fixture . '/adapter-packages/zeta/package';
         self::assertTrue(mkdir($package, 0700, true));
@@ -310,8 +310,11 @@ final class WireSurfaceTest extends TestCase
         $fixture = (string) self::$fixture;
         $relative = 'agent/src/Adapter/IdentityNamespaces.php';
         $hoisted = $fixture . '/platform/IdentityNamespaces.php';
+        $inventoryRelative = 'agent/src/Adapter/ShippedIdentityInventory.php';
+        $inventoryHoisted = $fixture . '/platform/ShippedIdentityInventory.php';
         $original = (string) file_get_contents($fixture . '/' . $relative);
         file_put_contents($hoisted, $original);
+        copy($fixture . '/' . $inventoryRelative, $inventoryHoisted);
         file_put_contents(
             $fixture . '/' . $relative,
             "<?php\ndeclare(strict_types=1);\nrequire_once __DIR__ . '/../../../platform/IdentityNamespaces.php';\n"
@@ -321,6 +324,7 @@ final class WireSurfaceTest extends TestCase
         } finally {
             file_put_contents($fixture . '/' . $relative, $original);
             unlink($hoisted);
+            unlink($inventoryHoisted);
         }
         self::assertSame(1, $result['status'], 'a list declared outside agent/src must fail the register check');
         self::assertStringContainsString('outside agent/src', $result['stderr']);

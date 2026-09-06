@@ -7,11 +7,17 @@ namespace WPrism {
         public static int $starts = 0;
         public static int $rollbacks = 0;
         public static int $nextMetaId = 11;
+        /** @var list<mixed> */
+        public static array $profiles = [];
 
-        public static function start_repeatable_read(string $purpose): void { ++self::$starts; }
+        public static function start_repeatable_read(string $purpose, mixed $profile): void {
+            ++self::$starts;
+            self::$profiles[] = $profile;
+        }
         public static function commit(string $purpose): void {}
         public static function checkpoint(string $purpose): void {}
         public static function transaction_active(string $purpose): bool { return true; }
+        public static function transaction_authority(string $purpose): object { return (object) ['active' => true]; }
         public static function insert(string $table, array $data, mixed $format = null, ?string $purpose = null): int {
             global $wpdb;
             if ($table === 'wp_postmeta' && is_object($wpdb) && property_exists($wpdb, 'rows')) {
@@ -63,6 +69,39 @@ namespace WPrism {
             }
             return 1;
         }
+        public static function mutation(
+            string $head,
+            string $condition,
+            string $tail,
+            string $purpose,
+            array $readTables = []
+        ): int {
+            global $wpdb;
+            if (preg_match(
+                "/^INSERT INTO wp_wprism_kv \\(k, v\\) SELECT '((?:''|[^'])*)', '((?:''|[^'])*)'$/D",
+                trim($head),
+                $match
+            ) === 1) {
+                $key = str_replace("''", "'", $match[1]);
+                $value = str_replace("''", "'", $match[2]);
+                foreach ($wpdb->kvRows as &$row) {
+                    if ($row['k'] === $key) {
+                        $row['v'] = $value;
+                        unset($row);
+                        return 1;
+                    }
+                }
+                unset($row);
+                $wpdb->kvRows[] = ['k' => $key, 'v' => $value];
+                return 1;
+            }
+            return self::query(
+                trim($head)
+                    . ($condition !== '' ? ' WHERE ' . $condition : '')
+                    . ($tail !== '' ? ' ' . $tail : ''),
+                $purpose
+            );
+        }
         public static function rollback(string $purpose): void {
             ++self::$rollbacks;
             if (isset($GLOBALS['wpdb'])
@@ -70,6 +109,9 @@ namespace WPrism {
                 && property_exists($GLOBALS['wpdb'], 'savepointExists')) {
                 $GLOBALS['wpdb']->savepointExists = false;
             }
+        }
+        public static function rollback_after_failure(\Throwable $failure, string $purpose): void {
+            self::rollback($purpose);
         }
     }
 }
@@ -166,6 +208,7 @@ namespace {
     }
 
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
+    if (!defined('ARRAY_N')) define('ARRAY_N', 'ARRAY_N');
     /**
      * Product-path regression for the durable attachment filesystem/native
      * metadata boundary. The former extraction-only suite could stay green
@@ -275,7 +318,7 @@ namespace {
         public function get_var(string $sql): mixed {
             $this->queries[] = $sql;
             if (trim($sql) === 'SELECT @@in_transaction') return '1';
-            if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 1$/D', trim($sql)) === 1) return '1';
+            if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 0$/D', trim($sql)) === 1) return null;
             if (preg_match("/^SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D", trim($sql), $match) === 1) {
                 foreach ($this->kvRows as $row) {
                     if ($row['k'] === 'ledger:' . $match[2] . ':' . $match[1]) return $row['v'];
@@ -290,6 +333,21 @@ namespace {
                 return null;
             }
             throw new \RuntimeException("unrecognized attachment authority get_var: $sql");
+        }
+
+        public function get_row(string $sql, mixed $mode): ?array {
+            $this->queries[] = $sql;
+            if (preg_match("/^SELECT k, v FROM wp_wprism_kv WHERE k = '((?:''|[^'])*)'$/D", trim($sql), $match) === 1) {
+                $wanted = str_replace("''", "'", $match[1]);
+                foreach ($this->kvRows as $row) {
+                    if (hash_equals($wanted, $row['k'])) return ['k' => $row['k'], 'v' => $row['v']];
+                }
+                return null;
+            }
+            if (preg_match('/^SHOW CREATE TABLE `([^`]+)`$/D', trim($sql), $match) === 1) {
+                return [$match[1], "CREATE TABLE `{$match[1]}` (`id` bigint) ENGINE=InnoDB"];
+            }
+            throw new \RuntimeException("unrecognized attachment authority get_row: $sql");
         }
 
         public function query(string $sql): int|false {
@@ -867,6 +925,17 @@ namespace {
                 && Db::$rollbacks === 1
                 && !$GLOBALS['wpdb']->savepointExists,
             'native generator establishes target-lock continuity and settles its rollback-only metadata transaction'
+        );
+        $metadataProfile = Db::$profiles[0] ?? null;
+        $check(
+            $metadataProfile instanceof \WPrism\NativeDatabaseProfile
+                && $metadataProfile->readable_tables() === [
+                    'wp_options',
+                    'wp_postmeta',
+                    'wp_posts',
+                    'wp_wprism_map',
+                ],
+            'native generator admits the exact Core image-option reads and no unrelated physical table'
         );
         $check(
             $GLOBALS['wprism_attachment_generate_calls'] === 1,
@@ -1667,6 +1736,9 @@ namespace {
             renewRegenerationLease: static function (): void {},
             renewProviderLease: static function (): void {},
             lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            deletionDatabaseProfile: static fn(array $work): array => [
+                'read_tables' => [], 'table_presence_reads' => [],
+            ],
             recheckDeleteGuard: static function (array $a, array $b, array $c, bool $d, array $e, array $f, bool $g): void {},
             selectionDeclaresChannelFor: static fn(string $channel, string $surface): bool => false,
             selectionDeclaresEntityBatchFor: static fn(string $surface): bool => false,

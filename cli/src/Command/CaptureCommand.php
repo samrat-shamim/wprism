@@ -21,7 +21,8 @@ final class CaptureCommand {
         EnvironmentDriver $driver,
         array $extra,
         ?string $envsFileOverride = null,
-        ?callable $currentBranch = null
+        ?callable $currentBranch = null,
+        ?callable $beforeTarget = null
     ): int {
         $forward = [];
         $contractPath = null;
@@ -155,6 +156,10 @@ final class CaptureCommand {
                 );
             }
             $forward[] = '--expected-repository-branch=' . $targetBranch;
+        }
+        $refusal = $beforeTarget === null ? null : $beforeTarget();
+        if (is_int($refusal)) {
+            return $refusal;
         }
         $wpArgs = array_merge(['wprism', 'capture', '--repo=' . $driver->repoPath()], $forward);
         // Human output retains the live target stream. Every JSON invocation

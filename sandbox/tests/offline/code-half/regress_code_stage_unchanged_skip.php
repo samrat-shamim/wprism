@@ -51,7 +51,7 @@ final class Ledger {
 final class Db {
     /** @var ?array<string,string> */
     private static ?array $snapshot = null;
-    public static function start(string $context): void { self::$snapshot = Ledger::$rows; }
+    public static function start(string $context, mixed $profile): void { self::$snapshot = Ledger::$rows; }
     public static function commit(string $context): void { self::$snapshot = null; }
     public static function rollback(string $context): void {
         Ledger::$rows = self::$snapshot ?? [];
@@ -70,6 +70,8 @@ final class PromotionLock {
 require_once __DIR__ . '/../../lib/check.php';
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Code/Code.php';
+
+$GLOBALS['wpdb'] = (object) ['prefix' => 'wp_'];
 
 function skip_put(string $path, string $bytes): void {
     $dir = \dirname($path);

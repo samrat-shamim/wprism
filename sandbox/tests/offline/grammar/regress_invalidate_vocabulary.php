@@ -154,9 +154,9 @@ wprism_check(
 
 // The single-demand shape. Code Snippets drops a cache entry SHARED by every row
 // of its table (neither member carries an id). One demand is not two, so it stays
-// out — and manifests/woocommerce.json:307 already reviewed the blanket case into
-// the top-level `actions` channel, so admitting it would overturn a decision
-// rather than close a gap.
+// out of the engine vocabulary. The certified adapter closes that product demand
+// through its verified provider; the implementation detail is therefore not an
+// open platform primitive competing in the demand ranking.
 wprism_check(
     str_contains($snippetsProvider, 'wp_cache_delete(\\Code_Snippets\\Settings\\CACHE_KEY, \\Code_Snippets\\CACHE_GROUP)'),
     'THE SINGLE-DEMAND SHAPE is real and is still single: manifests/providers/code-snippets-state.php drops a '
@@ -170,9 +170,9 @@ wprism_check(
     'the ledger records the ADMITTED verb as shipped: primitive `row_cache_entry_invalidation`'
 );
 wprism_check(
-    ($ledger['primitives']['table_scoped_cache_entry_invalidation']['status'] ?? null) === 'open',
-    'AND IT STILL RECORDS THE REFUSED ONE: primitive `table_scoped_cache_entry_invalidation` stays `open`. A '
-        . 'ledger that forgot the shapes the boundary turned away would make the boundary look free'
+    !array_key_exists('table_scoped_cache_entry_invalidation', (array) ($ledger['primitives'] ?? [])),
+    'the Code Snippets-only table-wide cache shape is not promoted into an open platform primitive after its '
+        . 'certified provider closed the product demand'
 );
 
 $demandFor = static function (array $ledger, string $primitive): array {
@@ -189,11 +189,10 @@ $demandFor = static function (array $ledger, string $primitive): array {
     return $names;
 };
 
-wprism_check_same(
-    ['Code Snippets'],
-    $demandFor($ledger, 'table_scoped_cache_entry_invalidation'),
-    'the refused shape has exactly ONE demanding candidate in the ledger — which is the whole reason it is '
-        . 'refused, stated as data the open-demand ranking can count rather than as a paragraph'
+wprism_check(
+    in_array('Code Snippets', $demandFor($ledger, 'verified_provider_postcondition'), true),
+    'the ledger keeps the Code Snippets demand attached to the generic verified-provider facility that closes it, '
+        . 'without minting a plugin-named platform primitive'
 );
 wprism_check(
     in_array('Paid Memberships Pro', $demandFor($ledger, 'row_cache_entry_invalidation'), true),
@@ -359,6 +358,7 @@ wprism_check_same(
         'column_codecs' => 3,
         'declaration_evidence' => 3,
         'engine_features' => 3,
+        'incompatible_plugins' => 3,
     ],
     AdapterContractGrammar::section_min_spec(),
     'section_min_spec() gains no floor from this rider: a feature with no `keys` contributes none, so no manifest '

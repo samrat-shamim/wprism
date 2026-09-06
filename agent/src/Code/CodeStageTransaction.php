@@ -10,6 +10,7 @@ if (!class_exists(Db::class, false)) {
 if (!class_exists(Ledger::class, false)) {
     require_once __DIR__ . '/../Repository/Ledger.php';
 }
+require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 
 /**
  * Atomically publishes the staged code receipt.
@@ -39,9 +40,13 @@ final class CodeStageTransaction {
         string $artifact,
         array $createdPaths
     ): void {
+        global $wpdb;
         $transactionStarted = false;
         try {
-            Db::start('code stage ledger transaction start');
+            Db::start(
+                'code stage ledger transaction start',
+                new NativeDatabaseProfile([], [$wpdb->prefix . 'wprism_kv'])
+            );
             $transactionStarted = true;
             Ledger::kv_set(self::HISTORY_KEY, Canon::encode(array_values($history)));
             Ledger::kv_set(self::DESCRIPTOR_KEY, Canon::encode($descriptor));

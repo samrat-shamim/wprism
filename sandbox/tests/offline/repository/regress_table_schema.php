@@ -63,9 +63,16 @@ final class TableSchemaWpdb {
         return ['sql' => $sql, 'args' => $args];
     }
 
+    public function esc_like(string $text): string {
+        return addcslashes($text, '_%\\');
+    }
+
     public function get_var(array $prepared): ?string {
         $this->reads++;
-        $prefixed = (string) ($prepared['args'][0] ?? '');
+        $prefixed = strtr(
+            (string) ($prepared['args'][0] ?? ''),
+            ['\\_' => '_', '\\%' => '%', '\\\\' => '\\']
+        );
         $table = str_starts_with($prefixed, $this->prefix)
             ? substr($prefixed, strlen($this->prefix))
             : $prefixed;

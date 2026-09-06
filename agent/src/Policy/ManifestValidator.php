@@ -106,7 +106,7 @@ final class ManifestValidator {
         AdapterContractGrammar::validate_adapter_contract($manifest);
         ActionProviderGrammar::validate_effect_contracts($manifest);
         DiscoveryGrammar::validate_discovery_contract($manifest);
-        ReferenceShapeGrammar::validate_reference_shapes($manifest, $label);
+        ReferenceShapeGrammar::validate_reference_shapes($manifest, $label, true);
         // WP-6.1's two `engine_features`-staged sections, and their placement
         // is the contract. AFTER validate_adapter_contract() above, because §
         // v3.2/§ v3.3's three verdicts must stay distinct and must arrive

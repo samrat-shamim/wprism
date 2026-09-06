@@ -39,6 +39,8 @@ function maybe_serialize(mixed $value): mixed {
     return is_array($value) || is_object($value) ? serialize($value) : $value;
 }
 
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
@@ -53,6 +55,9 @@ use WPrism\CacheInvalidationTransaction;
 use WPrism\OptionsMaterializer;
 use WPrism\Policy;
 use WPrism\Tokens;
+use WPrism\Db;
+use WPrism\NativeDatabaseProfile;
+use WPrismTest\FakeWpdb;
 
 final class OptionsMaterializerFakeWpdb {
     public string $prefix = 'wp_';
@@ -170,6 +175,32 @@ final class OptionsMaterializerFakeWpdb {
     }
 }
 
+/** @param list<array{uuid:string,entity_type:string,id_kind:string,local_id:int}> $mapRows */
+function options_materializer_db(array $mapRows = []): FakeWpdb {
+    return FakeWpdb::install()
+        ->seedTable('wp_options', [])
+        ->setColumns('wp_options', [
+            'option_id' => 'bigint unsigned', 'option_name' => 'varchar(191)',
+            'option_value' => 'longtext', 'autoload' => 'varchar(20)',
+        ])
+        ->setAutoIncrement('wp_options', 1, 'option_id')
+        ->setUniqueKey('wp_options', ['option_name'])
+        ->setIndexes('wp_options', [[
+            'Key_name' => 'option_name', 'Column_name' => 'option_name', 'Seq_in_index' => 1,
+            'Sub_part' => null, 'Non_unique' => 0, 'Index_type' => 'BTREE',
+        ]])
+        ->setTableEngine('wp_options', 'InnoDB')
+        ->seedTable('wp_wprism_map', $mapRows)
+        ->setColumns('wp_wprism_map', [
+            'uuid' => 'varchar(36)', 'entity_type' => 'varchar(64)',
+            'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
+        ])
+        ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+        ->setTableEngine('wp_wprism_map', 'InnoDB')
+        ->enableInformationSchema();
+}
+
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -215,11 +246,14 @@ $check(
 $applyOptionsParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_options'))->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionsParams)
-        === ['document', 'withDeletes', 'warnings', 'classificationDocument']
+        === ['document', 'withDeletes', 'warnings', 'classificationDocument', 'workAuthority']
         && $applyOptionsParams[2]->isPassedByReference()
         && $applyOptionsParams[3]->isOptional()
-        && (string) $applyOptionsParams[3]->getType() === '?array',
-    'apply_options() takes warnings by reference and an optional immutable classification-document input'
+        && (string) $applyOptionsParams[3]->getType() === '?array'
+        && $applyOptionsParams[4]->isOptional()
+        && $applyOptionsParams[4]->getDefaultValue() === null
+        && (string) $applyOptionsParams[4]->getType() === '?WPrism\\DatabaseWorkAuthority',
+    'apply_options() takes shared warnings, immutable classification and optional engine work authority'
 );
 $applyOptionSubKeysParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_option_sub_keys'))->getParameters();
 $check(
@@ -272,8 +306,12 @@ $acfFullDocument = \WPrism\OptionState::document([
 $acfSelectedDocument = \WPrism\OptionState::document([
     'options_scoped_tagline' => \WPrism\OptionState::present('Scoped ACF tagline', 'yes'),
 ]);
-$GLOBALS['wpdb'] = new OptionsMaterializerFakeWpdb();
+$GLOBALS['wpdb'] = options_materializer_db();
 $acfWarnings = [];
+Db::start_repeatable_read(
+    'options materializer ACF fixture transaction start',
+    new NativeDatabaseProfile(['wp_options', 'wp_wprism_map'], ['wp_options'])
+);
 $acfFieldMaterializer->begin_authored_transaction();
 $acfMaterializer->begin_authored_transaction();
 CacheInvalidationTransaction::begin();
@@ -284,18 +322,19 @@ try {
     $missingCompanionRefused = str_contains($failure->getMessage(), 'policy declares');
 }
 $acfMaterializer->apply_options($acfSelectedDocument, false, $acfWarnings, $acfFullDocument);
+$acfRows = $GLOBALS['wpdb']->rows('wp_options');
+Db::commit('options materializer ACF fixture transaction commit');
 $acfMaterializer->commit_authored_transaction();
 CacheInvalidationTransaction::finish();
 $acfMaterializer->end_authored_transaction();
 $acfFieldMaterializer->end_authored_transaction();
 CacheInvalidationTransaction::end();
-$acfWrites = $GLOBALS['wpdb']->writes;
 $check(
     $missingCompanionRefused
-        && count($acfWrites) === 1
-        && ($acfWrites[0]['data']['option_name'] ?? null) === 'options_scoped_tagline'
-        && ($acfWrites[0]['data']['option_value'] ?? null) === 'Scoped ACF tagline'
-        && !str_contains((string) ($acfWrites[0]['data']['option_name'] ?? ''), '_options_'),
+        && count($acfRows) === 1
+        && ($acfRows[0]['option_name'] ?? null) === 'options_scoped_tagline'
+        && ($acfRows[0]['option_value'] ?? null) === 'Scoped ACF tagline'
+        && !str_contains((string) ($acfRows[0]['option_name'] ?? ''), '_options_'),
     'record-scoped materialization uses an excluded ACF shadow only as immutable classification context and writes only the selected option'
 );
 
@@ -321,13 +360,16 @@ $csvMaterializer = new OptionsMaterializer(
     $csvTokens,
     $csvFieldMaterializer
 );
-$csvDb = new OptionsMaterializerFakeWpdb();
-$csvDb->localIds = [
-    $firstLevelUuid . ':pmpro_level' => 701,
-    $secondLevelUuid . ':pmpro_level' => 902,
-];
+$csvDb = options_materializer_db([
+    ['uuid' => $firstLevelUuid, 'entity_type' => 'pmpro_level', 'id_kind' => 'pmpro_level', 'local_id' => 701],
+    ['uuid' => $secondLevelUuid, 'entity_type' => 'pmpro_level', 'id_kind' => 'pmpro_level', 'local_id' => 902],
+]);
 $GLOBALS['wpdb'] = $csvDb;
 $csvWarnings = [];
+Db::start_repeatable_read(
+    'options materializer CSV fixture transaction start',
+    new NativeDatabaseProfile(['wp_options', 'wp_wprism_map'], ['wp_options'])
+);
 $csvFieldMaterializer->begin_authored_transaction();
 $csvMaterializer->begin_authored_transaction();
 CacheInvalidationTransaction::begin();
@@ -337,12 +379,13 @@ $csvMaterializer->apply_options(\WPrism\OptionState::document([
         '{{pmpro_level:' . $secondLevelUuid . '}}',
     ], 'yes'),
 ]), false, $csvWarnings);
+Db::commit('options materializer CSV fixture transaction commit');
 $csvMaterializer->commit_authored_transaction();
 CacheInvalidationTransaction::finish();
 $csvMaterializer->end_authored_transaction();
 $csvFieldMaterializer->end_authored_transaction();
 CacheInvalidationTransaction::end();
-$csvWrite = $csvDb->writes[0]['data']['option_value'] ?? null;
+$csvWrite = $csvDb->rows('wp_options')[0]['option_value'] ?? null;
 $check(
     $csvWrite === '701,902' && explode(',', $csvWrite) === ['701', '902'],
     'CSV option refs apply as the plugin-native comma-delimited string with target-local ids'

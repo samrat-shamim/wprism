@@ -39,15 +39,16 @@ require_once __DIR__ . '/../Policy/Policy.php';
  * WHAT THE JOURNAL CAN AND CANNOT SEE — READ THIS BEFORE TRUSTING A NUMBER
  * -----------------------------------------------------------------------
  * The journal observes `(table, item)` for database writes only
- * (Journal.php:66-100). Of the 247 effect rows `Policy::effects_inventory()`
- * projects for the 16 shipped adapters, 64 carry a `database_checkpoint`
- * selector and are therefore scorable; the remaining 183 select `external`
- * hooks, cache namespaces and provider resources, which no journal row can
- * confirm or refute. Eight adapters (core, elementor, ninja-forms, polylang,
- * the-events-calendar, woocommerce, yoast, yoast-duplicate-post) declare at
- * least one scorable effect; the other eight declare none, so this scorer is
- * SILENT about them and that silence is reported as `scorable => false` rather
- * than as a clean score. #561 added the seventh scorable adapter; the reviewed
+ * (Journal.php:66-100). Rank Math and Yoast deliberately cannot share one
+ * policy, so there is no honest "all 18" denominator: the two maximal valid
+ * worlds project 400 effects / 116 `database_checkpoint` selectors and 393 /
+ * 111 respectively. The remaining selectors name `external` hooks, cache
+ * namespaces and provider resources that no journal row can confirm or refute.
+ * Across those worlds ten adapters (core, elementor, ninja-forms, polylang,
+ * rank-math, redirection, the-events-calendar, woocommerce, yoast,
+ * yoast-duplicate-post) declare at least one scorable effect; each world has
+ * nine and the other adapters report `scorable => false`, never a clean score.
+ * #561 added the seventh scorable adapter; the reviewed
  * Polylang production-readiness port added five effects, two observable, and
  * the eighth. PMPro's generic row-cache invalidation migration retired one
  * provider action effect without changing journal observability. Measured on
@@ -90,7 +91,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
  *
  * WHY TRIGGERS ARE MATCHED EVEN THOUGH THEY ARE REDUNDANT TODAY
  * -------------------------------------------------------------
- * Every `option:`/`table:` trigger the 16 shipped manifests declare is also
+ * Every `option:`/`table:` trigger the 18 shipped manifests declare is also
  * classified by the SAME manifest (verified by walking `Policy::actions()`
  * against `option_rule_details()`/`declared_table_details()`: zero
  * disagreements). So trigger matching changes no shipped verdict. It stays

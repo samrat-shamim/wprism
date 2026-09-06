@@ -68,6 +68,21 @@ define('WPRISM_SPEC_VERSION', 2);
 // (Deploy.php:882-886), which is why no ABSPATH is needed here.
 $GLOBALS['wprism_test_plugins'] = [];
 $GLOBALS['wprism_test_active'] = [];
+$gvrContent = sys_get_temp_dir() . '/wprism-graduated-version-range-' . bin2hex(random_bytes(6));
+mkdir($gvrContent . '/plugins/graduated-probe', 0700, true);
+mkdir($gvrContent . '/themes', 0700, true);
+define('WP_CONTENT_DIR', $gvrContent);
+define('WP_PLUGIN_DIR', $gvrContent . '/plugins');
+register_shutdown_function(static function () use ($gvrContent): void {
+    $walk = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($gvrContent, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($walk as $path) {
+        $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname());
+    }
+    rmdir($gvrContent);
+});
 
 class WP_Error {
     public function __construct(public string $message = '') {}
@@ -91,6 +106,7 @@ require_once $root . '/agent/src/Policy/ArtifactPolicyIdentity.php';
 require_once $root . '/agent/src/Promotion/Deploy.php';
 require_once $root . '/agent/src/Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 // The producer half. Loaded ONLY to hold the two outcome vocabularies equal —
 // no agent class here references it, and none may.
 require_once $root . '/cli/src/Adapter/AdapterBoundary.php';
@@ -104,6 +120,7 @@ use WPrism\PlanCategorySummary;
 use WPrism\Policy;
 use WPrism\VersionEvidenceGrammar;
 use WPrismTest\FrozenPolicy;
+use WPrismTest\FakeWpdb;
 
 const GVR_PLUGIN = 'graduated-probe/graduated-probe.php';
 const GVR_MANIFEST = 'graduated-probe';
@@ -170,6 +187,24 @@ function gvr_policy(array $site): Policy {
 function gvr_row(Policy $policy, string $installed): ?array {
     $GLOBALS['wprism_test_plugins'] = [GVR_PLUGIN => ['Version' => $installed]];
     $GLOBALS['wprism_test_active'] = [GVR_PLUGIN];
+    file_put_contents(
+        WP_PLUGIN_DIR . '/' . GVR_PLUGIN,
+        "<?php\n/*\nPlugin Name: Graduated Probe\nVersion: $installed\n*/\n"
+    );
+    $wpdb = $GLOBALS['wpdb'] ?? null;
+    if (!$wpdb instanceof FakeWpdb) {
+        $wpdb = FakeWpdb::install();
+    }
+    $wpdb->setColumns('options', [
+        'option_id' => 'bigint unsigned',
+        'option_name' => 'varchar(191)',
+        'option_value' => 'longtext',
+        'autoload' => 'varchar(20)',
+    ])->seedTable('options', [
+        ['option_id' => 1, 'option_name' => 'active_plugins', 'option_value' => serialize([GVR_PLUGIN]), 'autoload' => 'yes'],
+        ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'twentytwentyone', 'autoload' => 'yes'],
+        ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'twentytwentyone', 'autoload' => 'yes'],
+    ]);
     $rows = LifecyclePlanner::code_mismatch($policy, ['active_plugins' => [GVR_PLUGIN]]);
     return $rows[0] ?? null;
 }
@@ -368,6 +403,10 @@ wprism_check_same(
 // about, and graduating it would be graduating an unknown.
 $GLOBALS['wprism_test_plugins'] = [GVR_PLUGIN => []];
 $GLOBALS['wprism_test_active'] = [GVR_PLUGIN];
+file_put_contents(
+    WP_PLUGIN_DIR . '/' . GVR_PLUGIN,
+    "<?php\n/*\nPlugin Name: Graduated Probe\n*/\n"
+);
 $unknown = LifecyclePlanner::code_mismatch($graduatedPolicy, ['active_plugins' => [GVR_PLUGIN]])[0] ?? null;
 wprism_check_same(
     'outside_version_range',
@@ -425,6 +464,11 @@ wprism_check_same(
 );
 $GLOBALS['wprism_test_plugins'] = [GVR_PLUGIN => ['Version' => '6.9.1']];
 $GLOBALS['wprism_test_active'] = [];
+$GLOBALS['wpdb']->seedTable('options', [
+    ['option_id' => 1, 'option_name' => 'active_plugins', 'option_value' => serialize([]), 'autoload' => 'yes'],
+    ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'twentytwentyone', 'autoload' => 'yes'],
+    ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'twentytwentyone', 'autoload' => 'yes'],
+]);
 wprism_check_same(
     [],
     LifecyclePlanner::code_mismatch($corePolicy, ['active_plugins' => []]),
@@ -497,9 +541,11 @@ wprism_check(
     'the deploy code_drift refusal envelope is byte-identical'
 );
 wprism_check(
-    str_contains($deploySource, "                    'code_revision_stale',\n"
-        . "                    VersionEvidenceGrammar::VERDICT,\n"),
-    'deploy names the graduated verdict by constant in its non-blocking list, never by a second copy of the string'
+    str_contains(
+        $deploySource,
+        "&& \$r['issue'] !== VersionEvidenceGrammar::VERDICT"
+    ),
+    'deploy names the graduated verdict by constant in its non-blocking predicate, never by a second copy of the string'
 );
 wprism_check(
     !str_contains($deploySource, "'outside_version_range',\n                ]"),

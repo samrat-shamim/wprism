@@ -133,6 +133,12 @@ ownership paths share one engine-owned negotiation and receipt contract:
   receipt-shape enforcement. The behavior module owns only plugin API calls and
   the value-level postcondition that proves them.
 
+Manifest-shipped providers, interpreters, and regenerators all use one
+engine-owned descriptor loader. Artifact identity is the sole path/class/hash
+authority; the loader rechecks source identity, opcode-cache state, and
+process-wide symbol provenance before executable bytes can run. An adapter may
+not replace that boundary with a direct include or its own loader.
+
 The provider contract must define:
 
 - deterministic identity and compatible plugin/provider versions;
@@ -147,6 +153,39 @@ WPrism's provider SDK and manifest runtime may offer generic facilities such as
 checked database reads, canonical codecs, scoped context, heartbeat, receipts,
 dispatch, and error mapping. They must not become a second home for plugin APIs
 or business rules.
+
+A bootstrap-sensitive manifest provider may declare a site-scoped, idempotent
+capability under `manifest-provider-fresh-process/v1`. The adapter still owns
+only the plugin call and complete postimage projection. Core owns both fresh
+WordPress boots, the fixed command and canonical transport, one deadline,
+parent/descendant lifetime, persistent-cache fencing, frozen-policy and
+executable identity checks, database read isolation, receipt comparison, and
+recovery classification. Adapter-owned process launchers, command strings,
+transaction orchestration, and transport parsers cross the boundary and are not
+accepted.
+
+Ten historical runtime files predate that rule. They are compatibility debt,
+not SDK: `AdapterPackageValidator::LEGACY_RUNTIME_EXECUTION_DEBT` records each
+exact package path, source SHA-256, finding set, and replacement boundary, while
+the v2 `runtimeSdk()` no longer advertises `WpCliChildProcess`. The validator
+accepts only those unchanged bytes and refuses a moved file, a changed hash, an
+added finding, or the same machinery in any other runtime. Removal is staged by
+the owning adapter's next recertification: move The Events Calendar and
+WooCommerce transaction/DML code to the engine database session first; move the
+six provider-owned child protocols to the manifest fresh-process runtime; and
+replace WooCommerce's interpreter self-loader with a closed, digest-bound engine
+probe. Each migration deletes its registry row rather than updating the hash.
+
+Fresh execution is two-phase: one child mutates and projects, then a distinct
+child invokes no provider mutation and observes the durable postimage through
+the canonical `$wpdb` read-only boundary. That boundary is not a filesystem,
+cache, network, or alternate-database sandbox. Durable option proof therefore
+uses the SDK's exact bounded physical-row reader, never cache-backed
+`get_option()`. Failure after the mutation child is conservatively visible as
+recovery debt. Real-process tests must cover both process identities, cache and
+identity drift, deadline/parent-death behavior, observer write refusal, exact
+projection equality, and composition with every adapter sharing its declared
+surfaces or lifecycle constraints.
 
 ### 5. Compatibility shim
 
@@ -163,9 +202,19 @@ The trust decision depends on what is installed:
 - a data-only manifest receives declarative authority only;
 - a native action invokes reviewed generic engine behavior;
 - a plugin provider is executable code trusted as part of the installed plugin;
-- a manifest-owned behavior module is digest-bound adapter code executed only
-  through its declared engine-owned contract; and
+- a manifest-owned behavior module is accepted by WPrism only after its
+  digest-bound bytes are loaded and dispatched through the declared
+  engine-owned contract; directly constructed, cloned, or unserialized runtime
+  objects receive no provider-SDK database authority; and
 - a compatibility shim is executable and explicitly reported as exceptional.
+
+Manifest-owned PHP is trusted reviewed code, not adversarial code contained by
+a language sandbox. The runtime SDK, exact-object authority and package
+validator prevent accidental boundary expansion and make reviewed capabilities
+explicit; they cannot prevent malicious PHP from using reflection, globals,
+filesystem/network functions, or raw database handles. Defending against a
+hostile adapter executable would require an out-of-process capability sandbox
+and is outside the current platform architecture.
 
 Certification is evidence about supported behavior, not a substitute for the
 trust decision. Certified, exercised, uncertified, incompatible, missing, and

@@ -7,26 +7,40 @@
  */
 
 namespace {
-    final class WPrismFakeTheme {
-        public function __construct(private string $slug) {}
-        public function exists(): bool { return in_array($this->slug, ['child', 'correct-parent'], true); }
-        public function get(string $field): string { return $field === 'Version' ? '1.0.0' : ''; }
-    }
+    $root = dirname(__DIR__, 4);
+    $target = sys_get_temp_dir() . '/wprism-template-mismatch-' . bin2hex(random_bytes(6));
+    define('ABSPATH', $target . '/');
+    define('WP_CONTENT_DIR', $target . '/wp-content');
+    define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
+    require_once "$root/sandbox/tests/lib/wp_stubs.php";
+    require_once "$root/sandbox/tests/lib/FakeWpdb.php";
 
-    $wprismTemplateFixtureOptions = [
-        'stylesheet' => 'child',
-        'template' => 'wrong-parent',
-        'active_plugins' => [],
-    ];
-
-    function validate_plugin(string $plugin) { return null; }
-    function get_plugins(): array { return []; }
-    function is_wp_error($value): bool { return false; }
-    function get_option(string $name) {
-        global $wprismTemplateFixtureOptions;
-        return $wprismTemplateFixtureOptions[$name] ?? null;
+    foreach (['child', 'wrong-parent', 'correct-parent'] as $theme) {
+        mkdir(WP_CONTENT_DIR . "/themes/$theme", 0777, true);
+        file_put_contents(
+            WP_CONTENT_DIR . "/themes/$theme/style.css",
+            "/*\nTheme Name: $theme\nVersion: 1.0.0\n*/\n"
+        );
     }
-    function wp_get_theme(string $slug): WPrismFakeTheme { return new WPrismFakeTheme($slug); }
+    $GLOBALS['wp_theme_directories'] = [];
+    $GLOBALS['wpdb'] = \WPrismTest\FakeWpdb::install()
+        ->seedTable('wp_options', [
+            ['option_name' => 'active_plugins', 'option_value' => 'a:0:{}', 'autoload' => 'yes'],
+            ['option_name' => 'stylesheet', 'option_value' => 'child', 'autoload' => 'yes'],
+            ['option_name' => 'template', 'option_value' => 'wrong-parent', 'autoload' => 'yes'],
+        ])
+        ->setColumns('wp_options', [
+            'option_name' => 'varchar(191)', 'option_value' => 'longtext', 'autoload' => 'varchar(20)',
+        ]);
+    register_shutdown_function(static function () use ($target): void {
+        if (!is_dir($target)) return;
+        $items = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($target, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($items as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+        rmdir($target);
+    });
 }
 
 namespace WPrism {

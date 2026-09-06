@@ -86,6 +86,10 @@ namespace {
         /** @var list<string> */
         public array $queries = [];
 
+        public function esc_like(string $value): string {
+            return addcslashes($value, '_%\\');
+        }
+
         public function prepare(string $query, mixed ...$args): string {
             foreach ($args as $arg) {
                 if (is_array($arg)) {
@@ -200,7 +204,22 @@ namespace WPrism {
 
     final class Db {
         public static int $mutationCalls = 0;
-        public static function query(string $query, string $context = ''): void { self::$mutationCalls++; }
+        /** @var list<array{table:string,rows:array,format:mixed,context:?string}> */
+        public static array $insertRowsCalls = [];
+        public static function delete_all(string $table, ?string $context = null): int {
+            self::$mutationCalls++;
+            return 1;
+        }
+        public static function insert_rows(
+            string $table,
+            array $rows,
+            mixed $format = null,
+            ?string $context = null
+        ): int {
+            self::$mutationCalls++;
+            self::$insertRowsCalls[] = compact('table', 'rows', 'format', 'context');
+            return count($rows);
+        }
     }
 
     final class Policy {
@@ -241,7 +260,7 @@ namespace WPrism {
                         'message' => "PLUGIN_THROWABLE\nAuthorization: Bearer SECRET",
                     ]]],
                     'operations' => ["apply\nRAW_OPERATION"],
-                    'surfaces' => ["/home/private/surface"],
+                    'surfaces' => ['/home/private/surface'],
                 ]],
                 'blockers' => [[
                     'name' => '1vendor.foo_bar',
@@ -494,10 +513,34 @@ namespace {
         }
     }
 
-    echo "== command-entry journal suspension ==\n";
+    echo "== structured journal publication ==\n";
     $wpdb = new ObservationFakeWpdb();
     $GLOBALS['wpdb'] = $wpdb;
     Journal::boot();
+    Journal::observe("UPDATE wp_posts SET post_title = 'ordinary write' WHERE ID = 42");
+    Journal::flush();
+    $journalInsert = Db::$insertRowsCalls[0] ?? null;
+    check(
+        Ledger::$ensureCalls === 1
+            && Db::$mutationCalls === 1
+            && is_array($journalInsert)
+            && $journalInsert['table'] === 'wp_wprism_journal'
+            && $journalInsert['context'] === 'journal flush observations'
+            && $journalInsert['format'] === [
+                '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s',
+            ]
+            && array_keys($journalInsert['rows'][0] ?? []) === [
+                't', 'op', 'tbl', 'item', 'surface', 'actor', 'caps', 'hook', 'proposal',
+            ]
+            && ($journalInsert['rows'][0]['op'] ?? null) === 'UPDATE'
+            && ($journalInsert['rows'][0]['tbl'] ?? null) === 'posts',
+        'journal flush publishes one structured, typed row batch instead of raw INSERT SQL'
+    );
+
+    echo "\n== command-entry journal suspension ==\n";
+    Ledger::$ensureCalls = 0;
+    Db::$mutationCalls = 0;
+    Db::$insertRowsCalls = [];
     Journal::observe("UPDATE wp_posts SET post_title = 'bootstrap callback write'");
     $refusalPathRan = false;
     try {
@@ -528,10 +571,10 @@ namespace {
     );
 
     // issue #3497: the other end of the same evidence. `journal-reset` is the one
-    // statement in the shipped runtime that removes journal rows, and options
+    // operation in the shipped runtime that removes journal rows, and options
     // no adapter declares are recorded NOWHERE else — capture whitelists
     // options, so the journal is their only witness (agent/src/Review/
-    // Pending.php:16-19). Truncating silently therefore empties `wprism pending`
+    // Pending.php:16-19). Clearing them silently therefore empties `wprism pending`
     // while the writes it named are still in the database: silent-uncapture.
     // The live report had it destroying the observations only because
     // `wprism init` refused `existing_wprism_ledger` on a journal-only environment
@@ -551,11 +594,11 @@ namespace {
         count(WP_CLI::$warnings) === 1
             && str_contains(WP_CLI::$warnings[0], 'destroying 7 observation row(s)')
             && str_contains(WP_CLI::$warnings[0], 'wprism pending loses them permanently'),
-        'a populated journal-reset names the count and what the review queue loses before truncating'
+        'a populated journal-reset names the count and what the review queue loses before clearing rows'
     );
     check(
         Db::$mutationCalls === 1 && WP_CLI::$successes === ['journal truncated'],
-        'the truncate still runs and its success line keeps its exact bytes'
+        'the row clearing still runs and its success line keeps its exact bytes'
     );
 
     $resetWpdb->journalRowCount = 0;
@@ -586,7 +629,7 @@ namespace {
         $resetRefused && Db::$mutationCalls === 0 && WP_CLI::$successes === []
             && count(WP_CLI::$errors) === 1
             && str_contains(WP_CLI::$errors[0], 'could not read the observations it would destroy'),
-        'an unreadable journal count refuses before the TRUNCATE instead of destroying an unknown quantity of evidence'
+        'an unreadable journal count refuses before row clearing instead of destroying an unknown quantity of evidence'
     );
     $resetWpdb->journalCountQueryFails = false;
     WP_CLI::$errors = [];
@@ -916,9 +959,21 @@ namespace {
 
     $driverCapability = DriverCapabilityReport::forDriver('fixture', 'fixture', 'adapter-observe', [
         DriverCapability::ATTACH => true,
+        DriverCapability::BOUNDED_CONTROL => true,
+        DriverCapability::RAW_CONTROL => true,
         DriverCapability::WP_CONTROL => true,
     ]);
-    check($driverCapability->ready(), 'adapter-observe is wired to normal attach + WP-CLI driver capability requirements');
+    $driverRequirements = array_column($driverCapability->toArray()['requirements'], 'capability');
+    check(
+        $driverCapability->ready()
+            && $driverRequirements === [
+                DriverCapability::BOUNDED_CONTROL,
+                DriverCapability::RAW_CONTROL,
+                DriverCapability::WP_CONTROL,
+                DriverCapability::ATTACH,
+            ],
+        'adapter-observe requires attach + WP-CLI plus framed raw recovery control'
+    );
 
     echo "\n== create-only local evidence ==\n";
     $outDir = sys_get_temp_dir() . '/wprism-observation-out-' . bin2hex(random_bytes(6));

@@ -16,6 +16,8 @@ require_once $root . '/cli/src/Release/ReleaseOutcome.php';
 require_once $root . '/cli/src/Command/ReleaseCommand.php';
 
 use WPrism\CommandRefusalException;
+use WPrism\Orchestrator\BoundedControlDriver;
+use WPrism\Orchestrator\DriverCapabilityReport;
 use WPrism\Orchestrator\NextAction;
 use WPrism\Orchestrator\ProjectionVocabulary;
 use WPrism\Orchestrator\ReleaseCommand;
@@ -31,6 +33,72 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     fwrite(STDERR, "FAIL: $message\n");
     $failures++;
 };
+
+final class ReleaseFenceDriver implements BoundedControlDriver {
+    public int $rawCalls = 0;
+    public int $wpCalls = 0;
+
+    /** @param array{exit:int,stdout:string,stderr:string} $raw */
+    public function __construct(private array $raw) {}
+
+    public function name(): string { return 'release-fence'; }
+    public function driverId(): string { return 'release-fence'; }
+    public function repoPath(): string { return '/repo'; }
+    public function describe(): string { return 'release fence fixture'; }
+    public function captureRaw(string $script): array {
+        $this->rawCalls++;
+        return $this->raw;
+    }
+    public function captureRawBounded(
+        string $script,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return $this->captureRaw($script);
+    }
+    public function captureRawFramed(
+        string $phpTupleProgram,
+        array $arguments,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        $raw = $this->captureRaw($phpTupleProgram);
+        return [
+            'verified' => true,
+            'exit' => $raw['exit'],
+            'stdout' => $raw['stdout'],
+            'stderr' => $raw['stderr'],
+            'transport_exit' => 0,
+            'transport_stderr' => '',
+            'failure' => null,
+        ];
+    }
+    public function captureWp(array $wpArgs): array {
+        $this->wpCalls++;
+        return ['exit' => 97, 'stdout' => '', 'stderr' => 'agent must remain fenced'];
+    }
+    public function captureWpBounded(
+        array $wpArgs,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return $this->captureWp($wpArgs);
+    }
+    public function streamWp(array $wpArgs): int {
+        $this->wpCalls++;
+        return 97;
+    }
+    public function wpInstruction(array $wpArgs): string {
+        $this->wpCalls++;
+        return 'agent must remain fenced';
+    }
+    public function capabilityReport(string $operation): DriverCapabilityReport {
+        throw new RuntimeException('release fence fixture has no capability report');
+    }
+}
 
 // The set itself is the spec's, in the spec's order.
 $check(
@@ -67,6 +135,10 @@ $check(NextAction::forFailure('incomplete_lifecycle') === NextAction::RECOVER,
     'an incomplete_lifecycle receipt is ALWAYS recover');
 $check(NextAction::forFailure('incomplete_apply') === NextAction::RECOVER,
     'an interrupted authored-state transaction is recover');
+$check(NextAction::forFailure('incomplete_checkpoint_recovery') === NextAction::RECOVER,
+    'durable checkpoint-restoration debt is recover');
+$check(NextAction::forFailure('incomplete_provider_settlement') === NextAction::RECOVER,
+    'durable provider-settlement debt is recover');
 $check(NextAction::forFailure('ambiguous_commitment') === NextAction::RECONCILE,
     'an ambiguous commitment is ALWAYS reconcile');
 $check(NextAction::forFailure('ambiguous_commitment') !== NextAction::RETRY,
@@ -75,6 +147,32 @@ $check(NextAction::forFailure('ref_mismatch') === NextAction::RECONCILE,
     'a --from ref mismatch is reconcile');
 $check(NextAction::forFailure('plan_changed') === NextAction::RETRY,
     'a plan that changed before any write is retry — nothing needs reconciling');
+
+$classifier = new ReflectionMethod(ReleaseCommand::class, 'classifyFailure');
+foreach ([
+    'checkpoint recovery' => [[
+        'exit' => 75,
+        'stdout' => '',
+        'stderr' => 'incomplete checkpoint recovery is active',
+    ], 'incomplete_checkpoint_recovery'],
+    'provider settlement' => [[
+        'exit' => 75,
+        'stdout' => '',
+        'stderr' => 'incomplete provider settlement is active',
+    ], 'incomplete_provider_settlement'],
+    'unsafe external fence' => [[
+        'exit' => 0,
+        'stdout' => "clear\n",
+        'stderr' => '',
+    ], 'receipt_uncertain'],
+] as $label => [$raw, $expected]) {
+    $driver = new ReleaseFenceDriver($raw);
+    $actual = $classifier->invoke(null, $driver);
+    $check(
+        $actual === $expected && $driver->rawCalls === 1 && $driver->wpCalls === 0,
+        "$label is classified from durable filesystem state without booting the fenced agent"
+    );
+}
 
 // `retry` never ships without the spec's own precondition on it.
 $check(

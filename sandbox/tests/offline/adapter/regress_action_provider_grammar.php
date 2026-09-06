@@ -99,6 +99,124 @@ $assertThrows(
     'repeats exact surface',
     'actions: repeated trigger surface'
 );
+$schemaEffect = [
+    'id' => 'schema-a', 'kind' => 'database', 'mode' => 'restorable',
+    'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'adapter_a'],
+];
+$schemaManifest = [
+    'engine_features' => ['schema-settlement/v1'],
+    'name' => 'm',
+    'providers' => [[
+        'id' => 'schema',
+        'capabilities' => ['inspect_schema', 'prepare_schema'],
+    ]],
+    'tables' => ['adapter_a' => ['class' => 'derived']],
+    'actions' => [[
+        'args' => [], 'capability' => 'prepare_schema', 'effects' => [$schemaEffect],
+        'kind' => 'provider', 'phase' => 'schema_settle', 'prepares' => ['adapter_a'],
+        'provider' => 'schema', 'readiness' => 'inspect_schema',
+    ]],
+];
+$check(
+    (static function () use ($schemaManifest): bool {
+        ActionProviderGrammar::validate_actions($schemaManifest);
+        return true;
+    })(),
+    'actions: plugin-sourced schema settlement defers its executable contract to live negotiation'
+);
+$manifestOwnedSchema = $schemaManifest;
+$manifestOwnedSchema['providers'][0]['contracts'] = [
+    'inspect_schema' => [
+        'args' => [], 'idempotent' => true, 'reads' => ['table:adapter_a'],
+        'scope' => 'site', 'timeout_seconds' => 30, 'writes' => [],
+    ],
+    'prepare_schema' => [
+        'args' => [], 'idempotent' => true, 'reads' => ['table:adapter_a'],
+        'scope' => 'site', 'timeout_seconds' => 60, 'writes' => ['table:adapter_a'],
+    ],
+];
+$check(
+    (static function () use ($manifestOwnedSchema): bool {
+        ActionProviderGrammar::validate_actions($manifestOwnedSchema);
+        return true;
+    })(),
+    'actions: manifest-owned schema preparation binds its exact table contract offline'
+);
+$prepareContractMutations = [
+    'argument schema' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['args'] = ['mode' => 'string'];
+        return $manifest;
+    },
+    'idempotence' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['idempotent'] = false;
+        return $manifest;
+    },
+    'scope' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['scope'] = 'entity';
+        return $manifest;
+    },
+    'read surface' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['reads'] = [];
+        return $manifest;
+    },
+    'write surface' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['writes'] = [];
+        return $manifest;
+    },
+];
+foreach ($prepareContractMutations as $field => $mutate) {
+    $assertThrows(
+        static fn() => ActionProviderGrammar::validate_actions($mutate($manifestOwnedSchema)),
+        'capability must be an idempotent argument-free site capability which reads and writes exactly prepares',
+        "actions: manifest-owned schema preparation refuses a mutated $field offline"
+    );
+}
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        unset($invalid['actions'][0]['prepares']);
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'prepares must be a non-empty sorted list',
+    'actions: schema settlement cannot omit its exact table boundary'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['actions'][0]['prepares'] = ['undeclared'];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    "names undeclared table 'undeclared'",
+    'actions: schema settlement cannot prepare an undeclared table'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['tables']['adapter_b'] = ['class' => 'derived'];
+        $invalid['actions'][0]['prepares'] = ['adapter_b', 'adapter_a'];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'must be sorted lexically',
+    'actions: schema settlement table authority is canonical-order stable'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['actions'][0]['effects'] = [];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'schema_settle effects must exactly cover prepares tables',
+    'actions: schema settlement cannot exceed its rollback effect witness'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['actions'][0]['triggers'] = ['option:probe'];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'selected by an exact compiled policy, not state triggers',
+    'actions: schema settlement is a policy phase rather than a state trigger'
+);
 
 // ---------------------------------------------------------- validate_providers
 
@@ -162,6 +280,123 @@ $assertThrows(
     ]),
     'declares provider id \'dup\' more than once',
     'providers: duplicate provider id'
+);
+$freshContract = [
+    'args' => [],
+    'idempotent' => true,
+    'reads' => ['table:probe'],
+    'scope' => 'site',
+    'scoped' => [
+        'operation_envelope' => 'wprism-scoped-effect-operation/v1',
+        'receipt_projection' => 'handler',
+        'reconcile' => true,
+    ],
+    'timeout_seconds' => 30,
+    'writes' => ['table:probe'],
+];
+$freshProviderManifest = [
+    'engine_features' => [
+        'manifest-provider-fresh-process/v1',
+        'manifest-provider-runtime/v1',
+    ],
+    'name' => 'm',
+    'providers' => [[
+        'capabilities' => ['a', 'b'],
+        'contracts' => ['a' => $freshContract, 'b' => $freshContract],
+        'fresh_process_capabilities' => ['a'],
+        'id' => 'x',
+        'plugin' => 'x/x.php',
+        'source' => 'manifest',
+        'version' => '1.0.0',
+    ]],
+];
+$check(
+    (static function () use ($freshProviderManifest): bool {
+        ActionProviderGrammar::validate_providers($freshProviderManifest);
+        return true;
+    })(),
+    'providers: a fresh-process capability is a feature-gated subset of a manifest runtime contract'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['engine_features'] = ['manifest-provider-runtime/v1'];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    "requires engine feature 'manifest-provider-fresh-process/v1'",
+    'providers: fresh-process execution cannot bypass its engine feature'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = [];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'must be a non-empty sorted capability list',
+    'providers: an empty fresh-process declaration is refused rather than treated as inert'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = [['a']];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'must be a non-empty sorted capability list',
+    'providers: malformed fresh-process members refuse before string sorting can emit a warning'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = ['b', 'a'];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'must be sorted and unique',
+    'providers: fresh-process capability identity is canonical-order stable'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['contracts']['a']['timeout_seconds'] = 901;
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'timeout_seconds <= 900',
+    'providers: fresh-process timeout cannot exceed the generic child-process ceiling'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['contracts']['a']['idempotent'] = false;
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'idempotent: true',
+    'providers: fresh-process execution is retry-safe after an ambiguous child outcome'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['fresh_process_capabilities'] = ['missing'];
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'names an undeclared capability',
+    'providers: fresh-process execution cannot name behavior outside the digest-bound contract'
+);
+$assertThrows(
+    static function () use ($freshProviderManifest): void {
+        $invalid = $freshProviderManifest;
+        $invalid['providers'][0]['contracts']['a']['scope'] = 'entity';
+        ActionProviderGrammar::validate_providers($invalid);
+    },
+    'requires scope: site',
+    'providers: fresh execution excludes post-authored entity batches from its fixed request boundary'
+);
+$unscopedFreshProviderManifest = $freshProviderManifest;
+unset($unscopedFreshProviderManifest['providers'][0]['contracts']['a']['scoped']);
+$check(
+    (static function () use ($unscopedFreshProviderManifest): bool {
+        ActionProviderGrammar::validate_providers($unscopedFreshProviderManifest);
+        return true;
+    })(),
+    'providers: fresh execution is independent of the optional scoped-apply recovery contract'
 );
 
 // ------------------------------------------------ validate_no_conflicting_provider_ids
@@ -298,6 +533,10 @@ $assertThrows(
 
 $vocab = Policy::closed_vocabularies();
 $check($vocab['action_kinds'] === ['native', 'provider'], 'closed_vocabularies(): action_kinds unchanged');
+$check(
+    $vocab['action_phases'] === ['lifecycle_settle', 'schema_settle'],
+    'closed_vocabularies(): action_phases publishes the two provider-only phases'
+);
 $check($vocab['provider_sources'] === ['manifest', 'plugin'], 'closed_vocabularies(): provider_sources unchanged');
 $check(
     $vocab['effect_kinds'] === ['database', 'filesystem', 'schedule', 'cache', 'queue', 'mail', 'http', 'external'],

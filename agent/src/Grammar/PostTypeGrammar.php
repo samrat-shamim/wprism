@@ -108,6 +108,12 @@ final class PostTypeGrammar {
                     "wprism: manifest '$name' post_types.$postType.regen_dependency needs a non-empty string 'regenerator'"
                 );
             }
+            if (preg_match('/^[a-z][a-z0-9_-]*$/D', $regenerator) !== 1) {
+                throw new \RuntimeException(
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency.regenerator must match "
+                    . '^[a-z][a-z0-9_-]*$'
+                );
+            }
             $verify = $regen['verify'] ?? null;
             if (!is_array($verify) || !is_string($verify['table'] ?? null) || ($verify['table'] ?? '') === ''
                 || !is_string($verify['column'] ?? null) || ($verify['column'] ?? '') === '') {

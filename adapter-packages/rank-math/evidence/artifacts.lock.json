@@ -1,0 +1,27 @@
+{
+    "plugins": {
+        "seo-by-rank-math": {
+            "1.0.276": {
+                "url": "https://downloads.wordpress.org/plugin/seo-by-rank-math.1.0.276.zip",
+                "sha256": "5252b6e233fe6fe73e69b57fbb039b50140bb5f12438da0ada1c2a973a99f83d",
+                "role": "refusal-fixture"
+            },
+            "1.0.277": {
+                "url": "https://downloads.wordpress.org/plugin/seo-by-rank-math.1.0.277.zip",
+                "sha256": "7fb596fad0b82ef4c2a5fede32aa91f0b645658027c20ac2ffa5cd5979eea616",
+                "role": "certified-boundary"
+            },
+            "1.0.277.1": {
+                "url": "https://downloads.wordpress.org/plugin/seo-by-rank-math.1.0.277.1.zip",
+                "sha256": "32bfec0ee08a2a995c1d9204bdaa8d8a566d1a682853560dc419816707e80088",
+                "role": "certified-boundary"
+            },
+            "1.0.277.2": {
+                "url": "https://downloads.wordpress.org/plugin/seo-by-rank-math.1.0.277.2.zip",
+                "sha256": "1c6cae3fda401798dfdc5d1d5814de17c040ffcb457c40e2f0256db84a680b1b",
+                "role": "certified-boundary"
+            }
+        }
+    },
+    "themes": {}
+}

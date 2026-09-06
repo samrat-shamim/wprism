@@ -161,9 +161,10 @@ EOF
   wp2 wprism deploy --repo=/siterepo
   prepare_code_snippets_boundary_target
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
-  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
-    || fail "apply canary not clean at code-snippets $CODE_SNIPPETS_VERSION"
+  # Keep the complete stream for the shared matrix gate. JSON also makes
+  # canonical verification observable; human canary text alone cannot prove it.
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --format=json 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  assert_version_matrix_apply_ready
   grep -q 'provider capability fired: code-snippets-state@1.0.0 rebuild_snippet_state' "$VMATRIX_APPLY_LOG" \
     || fail "Code Snippets provider did not fire at $CODE_SNIPPETS_VERSION"
   check_code_snippets_boundary_content "$CODE_SNIPPETS_VERSION"

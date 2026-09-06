@@ -9,21 +9,83 @@ if (!class_exists(Policy::class, false)) {
 if (!class_exists(Providers::class, false)) {
     require_once __DIR__ . '/Providers.php';
 }
+if (!class_exists(ProviderPhaseExecutor::class, false)) {
+    require_once __DIR__ . '/ProviderPhaseExecutor.php';
+}
 if (!class_exists(RepositoryCompiler::class, false)) {
     require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 }
 if (!class_exists(PromotionLock::class, false)) {
     require_once __DIR__ . '/../Promotion/PromotionLock.php';
 }
+if (!class_exists(RetainedCheckpointCipher::class, false)) {
+    require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
+}
+if (!class_exists(DatabaseTargetIdentity::class, false)) {
+    require_once __DIR__ . '/../Recovery/DatabaseTargetIdentity.php';
+}
+if (!class_exists(ProviderSettlementIntent::class, false)) {
+    require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
+}
 
 /** Adapter-owned completion gate for asynchronous plugin upgrade work. */
 final class LifecycleSettlement {
+    public static function assert_ready(Policy $policy): void {
+        ProviderPhaseExecutor::assert_ready(
+            $policy,
+            $policy->lifecycle_settle_actions(),
+            'lifecycle settlement'
+        );
+    }
+
     /** @return array{format:string,actions:int,receipts:list<array<string,mixed>>} */
     public static function run(
         string $repo,
         string $artifactPath,
         string $artifactHash,
-        string $promotionOwner
+        string $promotionOwner,
+        string $checkpointPath,
+        bool $releaseOnSuccess = false
+    ): array {
+        if ($checkpointPath !== '') {
+            return ProviderSettlementIntent::with_phase(
+                $repo,
+                $artifactPath,
+                $checkpointPath,
+                $promotionOwner,
+                $artifactHash,
+                'lifecycle-settle',
+                static fn(array $providerIntent): array => self::run_continued(
+                    $repo,
+                    $artifactPath,
+                    $artifactHash,
+                    $promotionOwner,
+                    $checkpointPath,
+                    $releaseOnSuccess,
+                    (string) ($providerIntent['checkpoint']['cipher_sha256'] ?? '')
+                )
+            );
+        }
+        return self::run_continued(
+            $repo,
+            $artifactPath,
+            $artifactHash,
+            $promotionOwner,
+            '',
+            $releaseOnSuccess,
+            ''
+        );
+    }
+
+    /** @return array{format:string,actions:int,receipts:list<array<string,mixed>>} */
+    private static function run_continued(
+        string $repo,
+        string $artifactPath,
+        string $artifactHash,
+        string $promotionOwner,
+        string $checkpointPath,
+        bool $releaseOnSuccess,
+        string $expectedCipherSha256
     ): array {
         if (preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1) {
             throw new \InvalidArgumentException('wprism: lifecycle-settle requires a valid artifact hash');
@@ -36,53 +98,31 @@ final class LifecycleSettlement {
         if (!hash_equals($artifactHash, $compiled->artifact_hash())) {
             throw new \RuntimeException('wprism: lifecycle-settle artifact does not match the host-compiled artifact hash');
         }
+        $actions = $policy->lifecycle_settle_actions();
+        if ($actions !== []) {
+            if ($checkpointPath === '') {
+                throw new \RuntimeException(
+                    'wprism: lifecycle-settle requires a host-authenticated provider settlement checkpoint'
+                );
+            }
+            $checkpoint = RetainedCheckpointCipher::verify($repo, $checkpointPath);
+            DatabaseTargetIdentity::assertWordPressConfig(
+                (string) ($checkpoint['database_target_sha256'] ?? '')
+            );
+            if (!hash_equals($expectedCipherSha256, (string) ($checkpoint['cipher_sha256'] ?? ''))) {
+                throw new \RuntimeException(
+                    'wprism: lifecycle-settle checkpoint ciphertext changed after provider settlement authorization'
+                );
+            }
+        }
         PromotionLock::acquire($promotionOwner, $artifactHash, 'lifecycle-settle', null, true);
         try {
             PromotionLock::assert_lifecycle_complete($promotionOwner, $artifactHash);
-            $actions = $policy->lifecycle_settle_actions();
-            if ($actions === []) {
-                PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settled');
-                return ['format' => 'wprism-lifecycle-settlement/v1', 'actions' => 0, 'receipts' => []];
+            $summary = self::run_locked($policy, $promotionOwner, $artifactHash);
+            if ($releaseOnSuccess) {
+                PromotionLock::release($promotionOwner, $artifactHash);
             }
-
-            $negotiated = Providers::negotiate($policy, $actions);
-            if ($negotiated['problems'] !== []) {
-                $codes = [];
-                foreach ($negotiated['problems'] as $problem) {
-                    $codes[] = (string) ($problem['code'] ?? 'provider_unavailable')
-                        . ':' . (string) ($problem['provider'] ?? '?');
-                }
-                throw new \RuntimeException(
-                    'wprism: lifecycle settlement provider negotiation failed: ' . implode(', ', $codes)
-                );
-            }
-
-            $receipts = [];
-            foreach ($actions as $action) {
-                $providerId = (string) $action['provider'];
-                $capability = (string) $action['capability'];
-                $provider = $negotiated['providers'][$providerId] ?? null;
-                $declaration = $negotiated['capabilities'][$providerId][$capability] ?? null;
-                if (!is_object($provider) || !is_array($declaration)) {
-                    throw new \RuntimeException(
-                        "wprism: lifecycle settlement lost negotiated provider '$providerId' capability '$capability'"
-                    );
-                }
-                PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settle-provider');
-                $receipts[] = [
-                    'capability' => $capability,
-                    'manifest' => (string) $action['manifest'],
-                    'provider' => $providerId,
-                    'receipt' => Providers::invoke($provider, $action, $declaration, []),
-                ];
-            }
-            PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settled');
-
-            return [
-                'format' => 'wprism-lifecycle-settlement/v1',
-                'actions' => count($actions),
-                'receipts' => $receipts,
-            ];
+            return $summary;
         } catch (\Throwable $failure) {
             try {
                 PromotionLock::release($promotionOwner, $artifactHash);
@@ -92,5 +132,43 @@ final class LifecycleSettlement {
             }
             throw $failure;
         }
+    }
+
+    /**
+     * Direct-deploy execution under its continuously held exact promotion
+     * session. The caller has already completed lifecycle reconciliation and
+     * verified the locked policy/artifact pair.
+     *
+     * @return array{format:string,actions:int,receipts:list<array<string,mixed>>}
+     */
+    public static function run_locked(
+        Policy $policy,
+        string $promotionOwner,
+        string $artifactHash
+    ): array {
+        PromotionLock::assert_no_lifecycle_attempt($promotionOwner, $artifactHash, 'lifecycle-settle');
+        $actions = $policy->lifecycle_settle_actions();
+        if ($actions === []) {
+            PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settled');
+            return ['format' => 'wprism-lifecycle-settlement/v1', 'actions' => 0, 'receipts' => []];
+        }
+
+        $receipts = ProviderPhaseExecutor::run(
+            $policy,
+            $actions,
+            'lifecycle settlement',
+            static fn(): mixed => PromotionLock::heartbeat(
+                $promotionOwner,
+                $artifactHash,
+                'lifecycle-settle-provider'
+            )
+        );
+        PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settled');
+
+        return [
+            'format' => 'wprism-lifecycle-settlement/v1',
+            'actions' => count($actions),
+            'receipts' => $receipts,
+        ];
     }
 }

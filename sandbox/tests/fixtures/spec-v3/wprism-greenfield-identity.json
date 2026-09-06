@@ -3,44 +3,93 @@
         "acf": "c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d",
         "advanced-editor-tools": "cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d",
         "classic-editor": "908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea",
-        "code-snippets": "ca66c5959ea2fa0d0fc39b6d5d2f3da0a866c728bd8eb2b9c0d942455054fc04",
+        "code-snippets": "f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e",
         "contact-form-7": "fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5",
         "core": "9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63",
         "elementor": "5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64",
         "ninja-forms": "35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011",
         "paid-memberships-pro": "e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253",
         "polylang": "60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548",
-        "redirection": "6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7",
+        "rank-math": "f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116",
+        "redirection": "7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16",
         "the-events-calendar": "cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee",
-        "woocommerce": "c66724d62f9410b43208b172ebdf95f6a5003b81a00dd6137401da4ae5cc94e3",
+        "woocommerce": "9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0",
         "wprism-agency-cpt": "174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab",
         "wps-hide-login": "4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050",
         "yoast": "565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea",
         "yoast-duplicate-post": "1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456"
     },
-    "format": "wprism-greenfield-identity/v1",
+    "format": "wprism-greenfield-identity/v2",
     "manifest_bytes_sha256": {
         "acf": "8776e7e64922c0aa70b348832a193869554b5faee4a4741a911daedf3080faca",
         "advanced-editor-tools": "047d6d21b86301a52c8681d9623a0588f1f6e458a58a01b0b8b1735e84942f03",
         "classic-editor": "ffad6256c34fd74538c4beba7f29299cd7fe3312d4b551795668bfeab8bb475b",
-        "code-snippets": "31588659fccdb2c23d2fb44891dc8cdc4a6d86dab631e5fc7e1a50c02e33a8a3",
+        "code-snippets": "8011eeffb6e4e246dac3ceb5128677be7debca08102101a9a39d336b9c62fd46",
         "contact-form-7": "bfdd6f48b2b9e8658fe5f0e355edb232648294fabe70dcca080283481537f7be",
         "core": "76dc95aa88bc7861301c28b5647607ea6c3722475f5ae76d3993b330b105baa4",
         "elementor": "e8968ca8c55f41cbabd6a5672ab6084d45631312bb8a44605cfe169b086c258c",
         "ninja-forms": "7127febed3e8b907cd05d30b62ba5788a5c9157c8163e766d4453557c7e3d017",
         "paid-memberships-pro": "b5674ba2258dfc6e764608d06305fdad785f8b3812bc6e5894ef5954cc84f717",
         "polylang": "ce528f0361b733048822c182039f572689c91a002de82c57f596d3dfef1c6e13",
-        "redirection": "9d19654602f48d32610679cf701995bfb906d632da4990ffd0de1f813e7eeb8c",
+        "rank-math": "4b867607269aa09cb9e1e7cbe3aeef793d6eccf5b86a999a4c4fb2764e4a3b82",
+        "redirection": "e1979af988710e99decbcf9efb8c778352deedcb7cd59f488056d07a7733bf50",
         "the-events-calendar": "c76dcf086a1b7e7d4027435b267bb440103147f17ad2841ab1179c15057196d6",
-        "woocommerce": "3d5e2270962bc7de7de8f3dd0864f5cd1b057b2f0536fcc43d6c3f80e0c6f647",
+        "woocommerce": "03e14b06b1cd939badc819297f137e02d3eadd2c8c0bb175e0f1c7858c24112c",
         "wprism-agency-cpt": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf",
         "wps-hide-login": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5",
         "yoast": "e319300014e96b089e456ebf68d32098b4bde13691c712c206876d3ae9a0c852",
         "yoast-duplicate-post": "4378d9ab7627bc0732cb61ce1266427231d44ddacae3db4c49402be2b99992fe"
     },
     "pin_sets": {
-        "all-17": {
-            "manifest_hash": "713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5",
+        "rank-world": {
+            "manifest_hash": "79b9d1cefcd7756ee845f888e5ca90b8a172053710617b6e3d03218dc9a76b9e",
+            "pins": [
+                "acf",
+                "advanced-editor-tools",
+                "classic-editor",
+                "code-snippets",
+                "contact-form-7",
+                "core",
+                "elementor",
+                "ninja-forms",
+                "paid-memberships-pro",
+                "polylang",
+                "rank-math",
+                "redirection",
+                "the-events-calendar",
+                "woocommerce",
+                "wprism-agency-cpt",
+                "wps-hide-login",
+                "yoast-duplicate-post"
+            ],
+            "snapshot_sha256": "c2ce88f5164a59e0ecd307ba35bb322b3b9edff72d5569c06138643dafc72aa6"
+        },
+        "core+elementor+yoast+contact-form-7": {
+            "manifest_hash": "0447fed067e86aaa6bf8593a1a83cbea94e9b011d0f2a5820db723152cb72caa",
+            "pins": ["contact-form-7", "core", "elementor", "yoast"]
+        },
+        "core+paid-memberships-pro+code-snippets": {
+            "manifest_hash": "d00e9a468515d7458b2a4a654fcb931a0ddf35afd194cea4e243dda90f0a390a",
+            "pins": ["code-snippets", "core", "paid-memberships-pro"]
+        },
+        "core+polylang+the-events-calendar": {
+            "manifest_hash": "75ae5cec64a6a416b29ccf34f20d7d77bc9aaacdd25f41033427111bb5810fb3",
+            "pins": ["core", "polylang", "the-events-calendar"]
+        },
+        "core+woocommerce+acf": {
+            "manifest_hash": "a382ee3a44059f1e9f888958202946ad2250e84005de5a910be5f13ee4b408be",
+            "pins": ["acf", "core", "woocommerce"]
+        },
+        "core-only": {
+            "manifest_hash": "14bf83b00f73f2210c7f9dc329fd3bdda5e576eb5a7a2d4415cda6d375f8f64c",
+            "pins": ["core"]
+        },
+        "wprism-agency-cpt-only": {
+            "manifest_hash": "b2fc37062cf77e4725ca4b2cb723636cfe53563cad9040d62b490835ccb3d1bf",
+            "pins": ["wprism-agency-cpt"]
+        },
+        "yoast-world": {
+            "manifest_hash": "574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -59,33 +108,9 @@
                 "wps-hide-login",
                 "yoast",
                 "yoast-duplicate-post"
-            ]
-        },
-        "core+elementor+yoast+contact-form-7": {
-            "manifest_hash": "0447fed067e86aaa6bf8593a1a83cbea94e9b011d0f2a5820db723152cb72caa",
-            "pins": ["contact-form-7", "core", "elementor", "yoast"]
-        },
-        "core+paid-memberships-pro+code-snippets": {
-            "manifest_hash": "820c76d7af3dd245f72305cf508f50f75032224e2a2b96ec048e3aa86bdfd82f",
-            "pins": ["code-snippets", "core", "paid-memberships-pro"]
-        },
-        "core+polylang+the-events-calendar": {
-            "manifest_hash": "75ae5cec64a6a416b29ccf34f20d7d77bc9aaacdd25f41033427111bb5810fb3",
-            "pins": ["core", "polylang", "the-events-calendar"]
-        },
-        "core+woocommerce+acf": {
-            "manifest_hash": "1c55fddd0ed2efd1baa57dfbffdcd3cfdd1f449ba044d4fe238e423eb2a9b9aa",
-            "pins": ["acf", "core", "woocommerce"]
-        },
-        "core-only": {
-            "manifest_hash": "14bf83b00f73f2210c7f9dc329fd3bdda5e576eb5a7a2d4415cda6d375f8f64c",
-            "pins": ["core"]
-        },
-        "wprism-agency-cpt-only": {
-            "manifest_hash": "b2fc37062cf77e4725ca4b2cb723636cfe53563cad9040d62b490835ccb3d1bf",
-            "pins": ["wprism-agency-cpt"]
+            ],
+            "snapshot_sha256": "1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114"
         }
     },
-    "registry_sha256": "99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa",
-    "snapshot_sha256": "db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae"
+    "registry_sha256": "e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3"
 }

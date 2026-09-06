@@ -229,13 +229,10 @@ function wp_next_scheduled(string $hook, array $args = []): int|false {
     return false;
 }
 
-final class WooEngineFakeWpdb {
-    public string $prefix = 'wp_';
-    public string $posts = 'wp_posts';
-    // Apply::rebuild()'s term-recount step names this table; get_col() below
-    // matches no query against it, so the recount loop walks past an empty set.
-    public string $term_taxonomy = 'wp_term_taxonomy';
-    public string $last_error = '';
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
+
+final class WooEngineFakeWpdb extends \WPrismTest\FakeWpdb {
     public string $failReadContaining = '';
     public int $catalogScanCalls = 0;
     public array $map = [];
@@ -244,73 +241,91 @@ final class WooEngineFakeWpdb {
     public array $kv = [];
     /** @var array<int,array{parent_id:int,post_types:array<int,string>}> */
     public array $childInventoryQueries = [];
+    private string $fixtureState = '';
+
+    public function __construct() {
+        parent::__construct('wp_');
+        $this->enableInformationSchema();
+        $this->setColumns('wprism_map', [
+            'uuid' => 'char(36)',
+            'entity_type' => 'varchar(64)',
+            'id_kind' => 'varchar(32)',
+            'local_id' => 'bigint unsigned',
+        ]);
+        $this->setUniqueKey('wprism_map', ['uuid', 'id_kind']);
+        $this->setUniqueKey('wprism_map', ['id_kind', 'local_id']);
+        $this->setTableEngine('wprism_map', 'InnoDB');
+        $this->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+        $this->setUniqueKey('wprism_kv', ['k']);
+        $this->setTableEngine('wprism_kv', 'InnoDB');
+        $this->setColumns('posts', [
+            'ID' => 'bigint unsigned',
+            'post_type' => 'varchar(20)',
+            'post_parent' => 'bigint unsigned',
+        ]);
+        $this->setColumns('term_taxonomy', ['term_taxonomy_id' => 'bigint unsigned']);
+        $this->setColumns('lookup', ['post_id' => 'bigint unsigned']);
+        $this->setUniqueKey('lookup', ['post_id']);
+        $this->syncFixtureToStore();
+    }
 
     public function prepare(string $query, ...$args): string {
-        foreach ($args as $arg) {
-            $value = is_int($arg) || is_float($arg)
-                ? (string) $arg
-                : "'" . addslashes((string) $arg) . "'";
-            $query = preg_replace('/%[dsif]/', $value, $query, 1);
-        }
-        return $query;
+        return parent::prepare($query, ...$args);
     }
 
     public function query(string $query): int|false {
-        $this->last_error = '';
-        if (preg_match("/INSERT INTO wp_wprism_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
-            $this->kv[stripslashes($m[1])] = stripslashes($m[2]);
-            return 1;
-        }
-        if (preg_match("/DELETE FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
-            unset($this->kv[stripslashes($m[1])]);
-            return 1;
-        }
-        return 1;
+        $this->syncFixtureToStore();
+        $result = parent::query($query);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    private function readFails(string $query): bool {
-        if ($this->failReadContaining === '' || !str_contains($query, $this->failReadContaining)) {
-            return false;
-        }
-        $this->last_error = 'injected bookkeeping read failure';
-        return true;
-    }
-
-    public function get_results(string $query, $output = null): array {
-        if ($this->readFails($query)) {
-            return [];
-        }
+    public function get_results(string $query, string $output = OBJECT): array|false|null {
+        $this->prepareReadFailure($query);
         if (str_contains($query, 'INNER JOIN wp_posts') || str_contains($query, 'wprism_map m')) {
             $this->catalogScanCalls++;
         }
-        if (str_contains($query, 'SELECT k, v FROM wp_wprism_kv')) {
-            return array_map(
-                static fn(string $k, string $v): array => ['k' => $k, 'v' => $v],
-                array_keys($this->kv),
-                array_values($this->kv)
-            );
-        }
-        return [];
+        $this->syncFixtureToStore();
+        $result = parent::get_results($query, $output);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_row(string $query, $output = null): ?array {
-        if ($this->readFails($query)) {
-            return null;
-        }
-        if (preg_match('/FROM wp_posts WHERE ID = (\d+)/', $query, $m)) {
-            return $this->postsRows[(int) $m[1]] ?? null;
-        }
-        return null;
+    public function get_row(string $query, string $output = OBJECT, int $y = 0): array|object|null {
+        $this->prepareReadFailure($query);
+        $this->syncFixtureToStore();
+        $result = parent::get_row($query, $output, $y);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_col(string $query): array {
-        if ($this->readFails($query)) {
-            return [];
+    public function get_col(string $query, int $x = 0): array {
+        $this->prepareReadFailure($query);
+        $this->recordChildInventoryQuery($query);
+        $this->syncFixtureToStore();
+        $result = parent::get_col($query, $x);
+        $this->syncStoreToFixture();
+        return $result;
+    }
+
+    public function get_var(string $query, int $x = 0, int $y = 0): ?string {
+        $this->prepareReadFailure($query);
+        $this->syncFixtureToStore();
+        $result = parent::get_var($query, $x, $y);
+        $this->syncStoreToFixture();
+        return $result;
+    }
+
+    private function prepareReadFailure(string $query): void {
+        if ($this->failReadContaining !== '' && str_contains($query, $this->failReadContaining)) {
+            $this->failNextQuery('injected bookkeeping read failure', $this->failReadContaining);
         }
-        if (!preg_match('/FROM wp_posts WHERE post_parent = (\\d+)/', $query, $m)) {
-            return [];
+    }
+
+    private function recordChildInventoryQuery(string $query): void {
+        if (!preg_match('/FROM wp_posts WHERE post_parent = (\\d+)/', $query, $parentMatch)) {
+            return;
         }
-        $parentId = (int) $m[1];
         $postTypes = [];
         if (preg_match("/AND post_type = '((?:[^'\\\\]|\\\\.)*)'/", $query, $typeMatch)) {
             $postTypes[] = stripslashes($typeMatch[1]);
@@ -319,54 +334,74 @@ final class WooEngineFakeWpdb {
             $postTypes = array_map('stripslashes', $quotedTypes[1] ?? []);
         }
         sort($postTypes, SORT_STRING);
-        if ($postTypes === []) {
-            return [];
+        if ($postTypes !== []) {
+            $this->childInventoryQueries[] = [
+                'parent_id' => (int) $parentMatch[1],
+                'post_types' => $postTypes,
+            ];
         }
-        $this->childInventoryQueries[] = [
-            'parent_id' => $parentId,
-            'post_types' => $postTypes,
-        ];
-        $ids = [];
-        foreach ($this->postsRows as $id => $row) {
-            if ((int) ($row['post_parent'] ?? 0) === $parentId
-                && in_array((string) ($row['post_type'] ?? ''), $postTypes, true)) {
-                $ids[] = (int) $id;
-            }
-        }
-        sort($ids, SORT_NUMERIC);
-        return $ids;
     }
 
-    public function get_var(string $query): mixed {
-        if ($this->readFails($query)) {
-            return null;
+    private function syncFixtureToStore(): void {
+        $state = $this->fixtureState();
+        if ($state === $this->fixtureState) {
+            return;
         }
-        if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
-            return $this->kv[stripslashes($m[1])] ?? null;
+        $this->seedTable('wprism_map', array_map(
+            static fn(array $row): array => [
+                'uuid' => $row['uuid'],
+                'entity_type' => 'post',
+                'id_kind' => $row['kind'],
+                'local_id' => $row['id'],
+            ],
+            $this->map
+        ));
+        $posts = [];
+        foreach ($this->postsRows as $id => $row) {
+            $posts[] = ['ID' => $id] + $row;
         }
-        if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
-            foreach ($this->map as $row) {
-                if ($row['uuid'] === $m[1] && $row['kind'] === $m[2]) {
-                    return $row['id'];
-                }
-            }
-            return null;
+        $this->seedTable('posts', $posts);
+        $this->seedTable('term_taxonomy', []);
+        $this->seedTable('lookup', array_map(
+            static fn(int|string $id): array => ['post_id' => (int) $id],
+            array_keys($this->lookupRows)
+        ));
+        $kv = [];
+        foreach ($this->kv as $key => $value) {
+            $kv[] = ['k' => $key, 'v' => $value];
         }
-        if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
-            foreach ($this->map as $row) {
-                if ($row['kind'] === $m[1] && (int) $row['id'] === (int) $m[2]) {
-                    return $row['uuid'];
-                }
-            }
-            return null;
+        $this->seedTable('wprism_kv', $kv);
+        $this->fixtureState = $state;
+    }
+
+    private function syncStoreToFixture(): void {
+        $this->map = array_map(
+            static fn(array $row): array => [
+                'uuid' => $row['uuid'],
+                'kind' => $row['id_kind'],
+                'id' => (int) $row['local_id'],
+            ],
+            $this->rows('wprism_map')
+        );
+        $this->postsRows = [];
+        foreach ($this->rows('posts') as $row) {
+            $id = (int) $row['ID'];
+            unset($row['ID']);
+            $this->postsRows[$id] = $row;
         }
-        if (str_contains($query, 'SHOW TABLES LIKE')) {
-            return 'wp_lookup';
+        $this->lookupRows = [];
+        foreach ($this->rows('lookup') as $row) {
+            $this->lookupRows[(int) $row['post_id']] = true;
         }
-        if (preg_match('/FROM `wp_lookup` WHERE `post_id` = (\d+)/', $query, $m)) {
-            return isset($this->lookupRows[(int) $m[1]]) ? 1 : null;
+        $this->kv = [];
+        foreach ($this->rows('wprism_kv') as $row) {
+            $this->kv[(string) $row['k']] = $row['v'];
         }
-        return null;
+        $this->fixtureState = $this->fixtureState();
+    }
+
+    private function fixtureState(): string {
+        return hash('sha256', serialize([$this->map, $this->postsRows, $this->lookupRows, $this->kv]));
     }
 }
 

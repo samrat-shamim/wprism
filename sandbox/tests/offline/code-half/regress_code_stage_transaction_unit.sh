@@ -77,7 +77,7 @@ final class Db {
     public static int $rollbacks = 0;
     public static bool $failCommit = false;
     public static bool $terminalCommitFailure = false;
-    public static function start(string $context): void {
+    public static function start(string $context, mixed $profile): void {
         self::$starts++;
         self::$snapshot = Ledger::$rows;
     }
@@ -115,6 +115,8 @@ final class PromotionLock {
 
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Code/Code.php";
+
+$GLOBALS['wpdb'] = (object) ['prefix' => 'wp_'];
 
 function remove_stage_transaction(string $path): void {
     if (!file_exists($path) && !is_link($path)) { return; }

@@ -8,15 +8,10 @@
  * (membership_id -> a declared pmpro_level row, page_id -> a post).
  *
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Secrets,Db,Ledger,
- * Tokens,Snapshot}.php against a hand-built fixture, with only a minimal
- * fake $wpdb (below) standing in for the query/mutation shapes Snapshot.php
- * and Ledger.php actually issue — mirrors regress_block_refs.php's own
- * "real engine code, fake database" approach and its FakeWpdb's philosophy
- * (stand in for exactly the shapes issued, not a general SQL engine), grown
- * just enough to also fake table ROWS (insert/update/delete), since this
- * mode's whole point — reconciling a live join table by tuple — can't be
- * proven with read-only query stubs alone the way Blocks.php's capture-only
- * path could.
+ * Tokens,Snapshot}.php against rows seeded into the shared FakeWpdb. Its SQL
+ * interpreter and transaction/query-filter model keep this suite on the same
+ * product mutation path as every other offline engine suite: a changed SQL
+ * shape is refused by name instead of being hidden by a local answer map.
  *
  * What THIS file proves: schema-assertion invariants, uuid derivation off
  * the REFERENCED entities' own uuids (not raw local ids — the cross-
@@ -34,259 +29,16 @@
  * and the script exits 1.
  */
 
-// ---------------------------------------------------------------- WP stubs
+// --------------------------------------------------------- shared harness
 
-if (!defined('ARRAY_A')) {
-    define('ARRAY_A', 'ARRAY_A');
-}
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
-$GLOBALS['__fake_options'] = ['home' => 'http://example.test'];
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
-if (!function_exists('get_option')) {
-    function get_option($name, $default = false) {
-        return $GLOBALS['__fake_options'][$name] ?? $default;
-    }
-}
-if (!function_exists('wp_upload_dir')) {
-    function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false) {
-        return [
-            'baseurl' => 'http://example.test/wp-content/uploads',
-            'basedir' => sys_get_temp_dir() . '/wprism-regress-uploads',
-        ];
-    }
-}
-if (!function_exists('untrailingslashit')) {
-    function untrailingslashit($string) {
-        return rtrim((string) $string, '/\\');
-    }
-}
-if (!function_exists('sanitize_title')) {
-    function sanitize_title($s) {
-        return strtolower(trim((string) $s));
-    }
-}
-
-// ------------------------------------------------------------- fake $wpdb
-
-/**
- * Stands in for exactly the query/mutation shapes this test's code paths
- * issue (confirmed by reading agent/src/{Ledger,Snapshot}.php directly, the
- * same discipline regress_block_refs.php's FakeWpdb docblock states) — NOT
- * a general SQL engine, and NOT a general fake-table framework: two things
- * beyond regress_block_refs.php's own FakeWpdb are new here, both because
- * composite_ref's reconciliation is a real read-modify-write against a live
- * TABLE, not a pure lookup:
- *   - $this->tables[name] = ['columns' => [...], 'rows' => [...]] backs
- *     SHOW TABLES LIKE / SHOW COLUMNS FROM / a plain SELECT *, AND is
- *     mutated by real insert()/update()/delete() METHOD calls (matching
- *     $wpdb's own API shape) rather than string-parsed SQL for those three.
- *   - query() interprets the two wprism_map statements Ledger::set()/forget()
- *     issue well enough to keep $this->identity self-consistent across a
- *     capture-then-apply-then-delete sequence in ONE test run.
- */
-final class FakeWpdb {
-    public $prefix = 'wp_';
-    public $insert_id = 0;
-    public $last_error = '';
-
-    /** @var array<string, array<int, string>> id_kind => [local_id => uuid] (wprism_map) */
-    public $identity = [];
-    /** @var array<string, array<int, string>> id_kind => [local_id => entity_type] (wprism_map) */
-    public $identityType = [];
-    /** @var array<string, array{columns: array<string,string>, rows: array<int, array<string,mixed>>}> unprefixed table => shape */
-    public $tables = [];
-
-    public function get_charset_collate(): string {
-        return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci';
-    }
-
-    public function prepare($query, ...$args) {
-        if (count($args) === 1 && is_array($args[0])) {
-            $args = $args[0];
-        }
-        return ['__prepared' => true, 'sql' => $query, 'args' => $args];
-    }
-
-    public function get_var($prepared) {
-        [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'INFORMATION_SCHEMA.COLUMNS') && str_contains($sql, 'CHARACTER_MAXIMUM_LENGTH')) {
-            return 64; // Ledger::ensure() just created its current-width schema.
-        }
-        if (str_contains($sql, 'SHOW TABLES LIKE')) {
-            $prefixed = (string) $args[0];
-            $unprefixed = str_starts_with($prefixed, $this->prefix) ? substr($prefixed, strlen($this->prefix)) : $prefixed;
-            return isset($this->tables[$unprefixed]) ? $prefixed : null;
-        }
-        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'wprism_map')) {
-            [$uuid, $kind] = $args;
-            foreach ($this->identity[$kind] ?? [] as $localId => $u) {
-                if ($u === $uuid) {
-                    return $localId;
-                }
-            }
-            return null;
-        }
-        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'wprism_map')) {
-            [$kind, $localId] = $args;
-            return $this->identity[$kind][(int) $localId] ?? null;
-        }
-        if (preg_match('/^SELECT 1 FROM `([^`]+)` WHERE `([^`]+)` = %d AND `([^`]+)` = %d/', $sql, $m)) {
-            $unprefixed = $this->strip_prefix($m[1]);
-            [$col1, $col2] = [$m[2], $m[3]];
-            [$v1, $v2] = $args;
-            foreach ($this->tables[$unprefixed]['rows'] ?? [] as $row) {
-                if ((int) ($row[$col1] ?? null) === (int) $v1 && (int) ($row[$col2] ?? null) === (int) $v2) {
-                    return 1;
-                }
-            }
-            return null;
-        }
-        throw new \RuntimeException("FakeWpdb::get_var: unrecognized query shape: $sql");
-    }
-
-    public function get_row($prepared, $output = ARRAY_A) {
-        [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'wprism_map')) {
-            [$uuid, $kind] = $args;
-            foreach ($this->identity[$kind] ?? [] as $localId => $candidate) {
-                if ($candidate === $uuid) {
-                    return [
-                        'entity_type' => $this->identityType[$kind][$localId] ?? '',
-                        'local_id' => $localId,
-                    ];
-                }
-            }
-            return null;
-        }
-        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'wprism_map')) {
-            [$kind, $localId] = $args;
-            $localId = (int) $localId;
-            if (!isset($this->identity[$kind][$localId])) {
-                return null;
-            }
-            return [
-                'uuid' => $this->identity[$kind][$localId],
-                'entity_type' => $this->identityType[$kind][$localId] ?? '',
-            ];
-        }
-        throw new \RuntimeException("FakeWpdb::get_row: unrecognized query shape: $sql");
-    }
-
-    public function get_results($prepared, $output = ARRAY_A) {
-        [$sql, ] = $this->unwrap($prepared);
-        $sql = trim($sql);
-        if (preg_match('/^SHOW COLUMNS FROM `([^`]+)`/', $sql, $m)) {
-            $unprefixed = $this->strip_prefix($m[1]);
-            $out = [];
-            foreach ($this->tables[$unprefixed]['columns'] ?? [] as $name => $type) {
-                $out[] = ['Field' => $name, 'Type' => $type];
-            }
-            return $out;
-        }
-        if (preg_match('/^SELECT \* FROM `([^`]+)` ORDER BY/', $sql, $m)) {
-            $unprefixed = $this->strip_prefix($m[1]);
-            return $this->tables[$unprefixed]['rows'] ?? [];
-        }
-        throw new \RuntimeException("FakeWpdb::get_results: unrecognized query shape: $sql");
-    }
-
-    public function query($prepared) {
-        [$sql, $args] = $this->unwrap($prepared);
-        $sql = trim($sql);
-        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'wprism_map') && str_contains($sql, 'uuid <>')) {
-            [$kind, $localId, $uuid] = $args;
-            foreach ($this->identity[$kind] ?? [] as $lid => $u) {
-                if ($lid === (int) $localId && $u !== $uuid) {
-                    unset($this->identity[$kind][$lid]);
-                    unset($this->identityType[$kind][$lid]);
-                }
-            }
-            return 1;
-        }
-        if (str_starts_with($sql, 'INSERT INTO') && str_contains($sql, 'wprism_map')) {
-            [$uuid, $entityType, $kind, $localId] = $args; // (uuid, entity_type, id_kind, local_id)
-            $this->identity[$kind][(int) $localId] = $uuid;
-            $this->identityType[$kind][(int) $localId] = $entityType;
-            return 1;
-        }
-        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'wprism_map')) {
-            // Ledger::forget()'s uuid-keyed delete
-            $uuid = $args[0];
-            foreach ($this->identity as $kind => $byId) {
-                foreach ($byId as $lid => $u) {
-                    if ($u === $uuid) {
-                        unset($this->identity[$kind][$lid]);
-                        unset($this->identityType[$kind][$lid]);
-                    }
-                }
-            }
-            return 1;
-        }
-        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'wprism_state')) {
-            return 1; // wprism_state not modeled — nothing this file's tests read back
-        }
-        return 1; // generic no-op fallback (e.g. Ledger::ensure()'s CREATE TABLE, never issued here but harmless)
-    }
-
-    public function insert($table, $data, $format = null) {
-        $unprefixed = $this->strip_prefix($table);
-        $this->tables[$unprefixed]['rows'][] = $data;
-        return 1;
-    }
-
-    public function update($table, $data, $where, $format = null, $whereFormat = null) {
-        $unprefixed = $this->strip_prefix($table);
-        $n = 0;
-        foreach ($this->tables[$unprefixed]['rows'] as &$row) {
-            $match = true;
-            foreach ($where as $k => $v) {
-                if ((string) ($row[$k] ?? null) !== (string) $v) {
-                    $match = false;
-                    break;
-                }
-            }
-            if ($match) {
-                foreach ($data as $k => $v) {
-                    $row[$k] = $v;
-                }
-                $n++;
-            }
-        }
-        unset($row);
-        return $n;
-    }
-
-    public function delete($table, $where) {
-        $unprefixed = $this->strip_prefix($table);
-        $before = count($this->tables[$unprefixed]['rows'] ?? []);
-        $this->tables[$unprefixed]['rows'] = array_values(array_filter(
-            $this->tables[$unprefixed]['rows'] ?? [],
-            function ($row) use ($where) {
-                foreach ($where as $k => $v) {
-                    if ((string) ($row[$k] ?? null) !== (string) $v) {
-                        return true; // keep: doesn't match WHERE
-                    }
-                }
-                return false; // matches every WHERE clause: delete it
-            }
-        ));
-        return $before - count($this->tables[$unprefixed]['rows']);
-    }
-
-    private function strip_prefix(string $prefixed): string {
-        return str_starts_with($prefixed, $this->prefix) ? substr($prefixed, strlen($this->prefix)) : $prefixed;
-    }
-
-    private function unwrap($prepared): array {
-        if (is_array($prepared) && ($prepared['__prepared'] ?? false)) {
-            return [$prepared['sql'], $prepared['args']];
-        }
-        return [(string) $prepared, []];
-    }
-}
-
-$wpdb = new FakeWpdb();
-$GLOBALS['wpdb'] = $wpdb;
+WpStore::reset()->seedOptions(['home' => 'http://example.test']);
+$wpdb = FakeWpdb::install()->enableInformationSchema();
 
 // ----------------------------------------------------------- engine + fixtures
 
@@ -365,14 +117,16 @@ function pmpro_pages_decl(array $overrides = []): array {
 /** DESCRIBE'd live against this round's own sandbox pair (asnap3235):
  *  PRIMARY KEY (page_id, membership_id), plus an auto ON UPDATE timestamp. */
 function seed_pmpro_pages_table(FakeWpdb $wpdb, array $rows): void {
-    $wpdb->tables['pmpro_memberships_pages'] = [
-        'columns' => [
+    if (!$wpdb->hasTable('wp_pmpro_memberships_pages')) {
+        $wpdb->setColumns('wp_pmpro_memberships_pages', [
             'membership_id' => 'int(11) unsigned',
             'page_id' => 'bigint(20) unsigned',
             'modified' => 'timestamp',
-        ],
-        'rows' => $rows,
-    ];
+        ])
+            ->setUniqueKey('wp_pmpro_memberships_pages', ['page_id', 'membership_id'])
+            ->setTableEngine('wp_pmpro_memberships_pages', 'InnoDB');
+    }
+    $wpdb->seedTable('wp_pmpro_memberships_pages', $rows);
 }
 
 function fresh_policy(array $tablesDecl): Policy {
@@ -404,16 +158,69 @@ function shipping_method_policy(array $overrides = []): Policy {
 }
 
 function seed_shipping_methods_table(FakeWpdb $wpdb, array $rows): void {
-    $wpdb->tables['woocommerce_shipping_zone_methods'] = [
-        'columns' => [
+    if (!$wpdb->hasTable('wp_woocommerce_shipping_zone_methods')) {
+        $wpdb->setColumns('wp_woocommerce_shipping_zone_methods', [
             'instance_id' => 'bigint(20) unsigned',
             'zone_id' => 'bigint(20) unsigned',
             'method_id' => 'varchar(255)',
             'method_order' => 'bigint(20) unsigned',
             'is_enabled' => 'tinyint(1)',
-        ],
-        'rows' => $rows,
+        ])
+            ->setPrimaryKey('wp_woocommerce_shipping_zone_methods', 'instance_id')
+            ->setTableEngine('wp_woocommerce_shipping_zone_methods', 'InnoDB');
+    }
+    $wpdb->seedTable('wp_woocommerce_shipping_zone_methods', $rows);
+}
+
+/**
+ * Replace one environment's durable identities with real wprism_map rows.
+ * Snapshot.php:433-442's long-entity repair writes both ledger tables, so
+ * their InnoDB facts deliberately drive Db's standalone authority profile.
+ *
+ * @param array<string,array<int,string>> $identity
+ */
+function seed_ledger(FakeWpdb $wpdb, array $identity): void {
+    $entityTypes = [
+        'pmpro_level' => 'pmpro_membership_levels',
+        'post' => 'post',
+        'wc_zone' => 'woocommerce_shipping_zones',
+        'wc_zone_method' => 'woocommerce_shipping_zone_methods',
     ];
+    $rows = [];
+    foreach ($identity as $kind => $byLocalId) {
+        if (!isset($entityTypes[$kind])) {
+            throw new \InvalidArgumentException("missing fixture entity type for ledger kind '$kind'");
+        }
+        foreach ($byLocalId as $localId => $uuid) {
+            $rows[] = [
+                'uuid' => $uuid,
+                'entity_type' => $entityTypes[$kind],
+                'id_kind' => $kind,
+                'local_id' => (int) $localId,
+            ];
+        }
+    }
+    if (!$wpdb->hasTable('wp_wprism_map')) {
+        $wpdb->setColumns('wp_wprism_map', [
+            'uuid' => 'char(36)',
+            'entity_type' => 'varchar(64)',
+            'id_kind' => 'varchar(32)',
+            'local_id' => 'bigint unsigned',
+        ])
+            ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+            ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+            ->setTableEngine('wp_wprism_map', 'InnoDB')
+            ->setColumns('wp_wprism_state', [
+                'uuid' => 'varchar(64)',
+                'entity_type' => 'varchar(64)',
+                'content_hash' => 'char(64)',
+            ])
+            ->setUniqueKey('wp_wprism_state', ['uuid'])
+            ->setTableEngine('wp_wprism_state', 'InnoDB');
+    }
+    $wpdb
+        ->seedTable('wp_wprism_map', $rows)
+        ->seedTable('wp_wprism_state', []);
 }
 
 /** @return array<string,array{path:string,content:string}> */
@@ -437,7 +244,7 @@ function entities_by_uuid(array $entities): array {
 // ======================================================================
 echo "\n== Group A: schema assertion ==\n";
 
-$wpdb->tables = [];
+seed_ledger($wpdb, []);
 seed_pmpro_pages_table($wpdb, []);
 
 check_throws(
@@ -496,7 +303,7 @@ check_throws(
 );
 
 // A6: a fully valid declaration passes schema assertion cleanly (empty table -> empty result, no throw).
-$wpdb->identity = [];
+seed_ledger($wpdb, []);
 $emptyResult = Snapshot::capture(fresh_policy(pmpro_pages_decl()), new Tokens(), true);
 check($emptyResult === [], 'A6: a valid composite_ref declaration against an empty table passes schema assertion and returns no entities');
 
@@ -514,8 +321,7 @@ const PAGE_UUID  = '01980000-1002-7000-8000-000000000002';
 // round's own live fixture on asnap3235 — Studio Access is level 2 there,
 // but the SPECIFIC numbers are arbitrary; only their DIFFERENCE from
 // "environment B" below matters for the portability proof in B3).
-$wpdb->tables = [];
-$wpdb->identity = ['pmpro_level' => [5 => LEVEL_UUID], 'post' => [14 => PAGE_UUID]];
+seed_ledger($wpdb, ['pmpro_level' => [5 => LEVEL_UUID], 'post' => [14 => PAGE_UUID]]);
 seed_pmpro_pages_table($wpdb, [
     ['membership_id' => 5, 'page_id' => 14, 'modified' => '2026-08-06 12:00:00'],
 ]);
@@ -540,8 +346,7 @@ if ($eB1 !== null) {
 // derive the IDENTICAL uuid. This is what makes the fact portable across
 // environments at all — see Snapshot.php's own docblock for why deriving
 // from raw local ids instead would have silently broken this.
-$wpdb->tables = [];
-$wpdb->identity = ['pmpro_level' => [999 => LEVEL_UUID], 'post' => [4242 => PAGE_UUID]]; // same two REFERENCED uuids, wildly different LOCAL ids
+seed_ledger($wpdb, ['pmpro_level' => [999 => LEVEL_UUID], 'post' => [4242 => PAGE_UUID]]); // same two REFERENCED uuids, wildly different LOCAL ids
 seed_pmpro_pages_table($wpdb, [
     ['membership_id' => 999, 'page_id' => 4242, 'modified' => '2026-08-01 00:00:00'],
 ]);
@@ -555,8 +360,7 @@ if ($eB2 !== null && $eB1 !== null) {
 }
 
 // B3 — structural throw: an unmapped ref (page 999 was never captured/minted).
-$wpdb->tables = [];
-$wpdb->identity = ['pmpro_level' => [5 => LEVEL_UUID]]; // 'post' kind has NOTHING mapped
+seed_ledger($wpdb, ['pmpro_level' => [5 => LEVEL_UUID]]); // 'post' kind has NOTHING mapped
 seed_pmpro_pages_table($wpdb, [
     ['membership_id' => 5, 'page_id' => 999, 'modified' => '2026-08-06 12:00:00'],
 ]);
@@ -577,8 +381,7 @@ check_throws(
 );
 
 // B4 — determinism: capturing the SAME live state twice is byte-identical.
-$wpdb->tables = [];
-$wpdb->identity = ['pmpro_level' => [5 => LEVEL_UUID], 'post' => [14 => PAGE_UUID]];
+seed_ledger($wpdb, ['pmpro_level' => [5 => LEVEL_UUID], 'post' => [14 => PAGE_UUID]]);
 seed_pmpro_pages_table($wpdb, [
     ['membership_id' => 5, 'page_id' => 14, 'modified' => '2026-08-06 12:00:00'],
 ]);
@@ -597,18 +400,17 @@ echo "\n== Group C: apply-side reconciliation ==\n";
 // again from BOTH capture-side environments above.
 $capturedEntity = $eB1; // uuid = the portable one; columns = {{pmpro_level:...}}, {{post:...}} tokens
 
-$wpdb->tables = [];
-$wpdb->identity = ['pmpro_level' => [77 => LEVEL_UUID], 'post' => [88 => PAGE_UUID]]; // environment C's OWN local ids
+seed_ledger($wpdb, ['pmpro_level' => [77 => LEVEL_UUID], 'post' => [88 => PAGE_UUID]]); // environment C's OWN local ids
 seed_pmpro_pages_table($wpdb, []); // fresh target: table exists, zero rows
 $policyC = fresh_policy(pmpro_pages_decl());
 
 $ensured = Snapshot::ensure_row($policyC, $capturedEntity);
 check($ensured === false, 'C1: ensure_row() (phase 1) is a documented no-op for composite_ref — returns false, inserts nothing yet');
-check(count($wpdb->tables['pmpro_memberships_pages']['rows']) === 0, 'C1: phase 1 truly inserted zero rows (the row is created ENTIRELY in phase 2, unlike every other row table)');
+check(count($wpdb->rows('wp_pmpro_memberships_pages')) === 0, 'C1: phase 1 truly inserted zero rows (the row is created ENTIRELY in phase 2, unlike every other row table)');
 
 $tokensC = new Tokens();
 Snapshot::finalize_row($policyC, $tokensC, $capturedEntity);
-$rowsAfterFinalize = $wpdb->tables['pmpro_memberships_pages']['rows'];
+$rowsAfterFinalize = $wpdb->rows('wp_pmpro_memberships_pages');
 check(count($rowsAfterFinalize) === 1, 'C2: finalize_row() (phase 2) inserted exactly one row');
 if (count($rowsAfterFinalize) === 1) {
     $r = $rowsAfterFinalize[0];
@@ -621,12 +423,12 @@ check($packedAfterFinalize !== null, 'C2: finalize_composite_row() recorded a wp
 // C3 — idempotency: finalize the SAME entity again (as a real re-apply of
 // an unchanged file would eventually call it) must not duplicate the row.
 Snapshot::finalize_row($policyC, new Tokens(), $capturedEntity);
-check(count($wpdb->tables['pmpro_memberships_pages']['rows']) === 1, 'C3: re-finalizing the identical entity is idempotent — still exactly one row, no duplicate-key style corruption');
+check(count($wpdb->rows('wp_pmpro_memberships_pages')) === 1, 'C3: re-finalizing the identical entity is idempotent — still exactly one row, no duplicate-key style corruption');
 
 // C4 — delete_row(): unpack the packed local_id back into the correct
 // tuple and delete exactly that row on THIS environment.
 Snapshot::delete_row($policyC, $capturedEntity['uuid'], 'pmpro_memberships_pages');
-check(count($wpdb->tables['pmpro_memberships_pages']['rows']) === 0, 'C4: delete_row() removed the row (resolved via the packed local_id, unpacked back to membership_id=77/page_id=88)');
+check(count($wpdb->rows('wp_pmpro_memberships_pages')) === 0, 'C4: delete_row() removed the row (resolved via the packed local_id, unpacked back to membership_id=77/page_id=88)');
 check(
     Ledger::id_for($capturedEntity['uuid'], 'pmpro_restrict') === $packedAfterFinalize,
     'C4: delete_row() retains the ledger entry until Apply post-rebuild bookkeeping commits convergence metadata'
@@ -641,8 +443,7 @@ check(
 echo "\n== Group D: composite local-id packing budget ==\n";
 
 $OVER_BUDGET = (1 << 31); // 2^31 — one past the 31-bit-per-component budget documented in pack_composite_id()'s docblock
-$wpdb->tables = [];
-$wpdb->identity = ['pmpro_level' => [$OVER_BUDGET => LEVEL_UUID], 'post' => [14 => PAGE_UUID]];
+seed_ledger($wpdb, ['pmpro_level' => [$OVER_BUDGET => LEVEL_UUID], 'post' => [14 => PAGE_UUID]]);
 seed_pmpro_pages_table($wpdb, [
     ['membership_id' => $OVER_BUDGET, 'page_id' => 14, 'modified' => '2026-08-06 12:00:00'],
 ]);
@@ -654,8 +455,7 @@ check_throws(
 
 // A component comfortably within budget (the realistic case, matching
 // this round\'s own live fixture\'s small ids) must NOT throw.
-$wpdb->tables = [];
-$wpdb->identity = ['pmpro_level' => [2147483647 >> 1 => LEVEL_UUID], 'post' => [14 => PAGE_UUID]]; // (2^31-1)/2, safely inside budget
+seed_ledger($wpdb, ['pmpro_level' => [2147483647 >> 1 => LEVEL_UUID], 'post' => [14 => PAGE_UUID]]); // (2^31-1)/2, safely inside budget
 seed_pmpro_pages_table($wpdb, [
     ['membership_id' => 2147483647 >> 1, 'page_id' => 14, 'modified' => '2026-08-06 12:00:00'],
 ]);
@@ -674,35 +474,21 @@ const ZONE_UUID = '01980000-2000-7000-8000-000000000000';
 const FLAT_RATE_UUID = '01980000-2001-7000-8000-000000000001';
 const FREE_SHIPPING_UUID = '01980000-2002-7000-8000-000000000002';
 
-$wpdb->tables = [];
-$wpdb->identity = [
+seed_ledger($wpdb, [
     'wc_zone' => [7 => ZONE_UUID],
     'wc_zone_method' => [1 => FLAT_RATE_UUID, 2 => FREE_SHIPPING_UUID],
-];
-$wpdb->identityType = [
-    'wc_zone_method' => [
-        1 => 'woocommerce_shipping_zone_methods',
-        2 => 'woocommerce_shipping_zone_methods',
-    ],
-];
+]);
 seed_shipping_methods_table($wpdb, [
     ['instance_id' => 1, 'zone_id' => 7, 'method_id' => 'flat_rate', 'method_order' => 1, 'is_enabled' => 1],
     ['instance_id' => 2, 'zone_id' => 7, 'method_id' => 'free_shipping', 'method_order' => 2, 'is_enabled' => 1],
 ]);
 $methodsA = entities_by_uuid(Snapshot::capture(shipping_method_policy(), new Tokens(), true));
 
-$wpdb->tables = [];
-$wpdb->identity = [
+seed_ledger($wpdb, [
     'wc_zone' => [77 => ZONE_UUID],
     // Same portable rows, opposite target-local instance ids.
     'wc_zone_method' => [1 => FREE_SHIPPING_UUID, 2 => FLAT_RATE_UUID],
-];
-$wpdb->identityType = [
-    'wc_zone_method' => [
-        1 => 'woocommerce_shipping_zone_methods',
-        2 => 'woocommerce_shipping_zone_methods',
-    ],
-];
+]);
 seed_shipping_methods_table($wpdb, [
     ['instance_id' => 1, 'zone_id' => 77, 'method_id' => 'free_shipping', 'method_order' => 2, 'is_enabled' => 1],
     ['instance_id' => 2, 'zone_id' => 77, 'method_id' => 'flat_rate', 'method_order' => 1, 'is_enabled' => 1],

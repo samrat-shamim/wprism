@@ -34,10 +34,18 @@ final class OptionGrammar {
      * Deliberately narrow, matching env_options()'s own scope: only
      * top-level `options.<name>.class === "env"` rules. A `sub_keys`
      * entry's OWN class (issue #3233's per-sub-key carve-out) is out of
-     * v2 scope for the identical reason post_meta/term_meta env values
-     * are (see env_options()'s docblock) — no shipped manifest declares
-     * one today (confirmed empirically, not assumed), so this is a named
-     * scope cut, not an oversight.
+     * v2 provisioning scope for the identical reason post_meta/term_meta env
+     * values are (see env_options()'s docblock): it classifies one target-local
+     * sibling inside a plugin-managed blob, not an independently writable
+     * intended-value slot. This is a named scope cut, not an oversight.
+     *
+     * A structured parent cannot be required. `required:true` promises an
+     * operator-provisioned intended value, but env-set deliberately refuses
+     * whole-value writes to a sub_keys-bearing plugin blob: one scalar would
+     * destroy every excluded sibling. Such a declaration can therefore never
+     * clear its own required env_missing row through a supported product path.
+     * The plugin must natively populate the parent and the manifest must say
+     * `required:false`; named authored carve-outs remain independently owned.
      */
     public static function validate_env_options(array $source, string $label): void {
         foreach ((array) ($source['options'] ?? []) as $name => $rule) {
@@ -50,6 +58,15 @@ final class OptionGrammar {
                     . '(true: an operator must provision this value on a fresh environment — a genuine '
                     . 'secret or site-identity value; false: plugin-internal bookkeeping that '
                     . 'self-populates and is not worth checklisting) — no silent default either way'
+                );
+            }
+            $subKeys = $rule['sub_keys'] ?? null;
+            if ($rule['required'] && is_array($subKeys) && $subKeys !== []) {
+                throw new \RuntimeException(
+                    "wprism: $label options.$name cannot declare required=true with sub_keys — required env "
+                    . "options need a public whole-value provisioning path, while 'wprism env-set' refuses "
+                    . 'structured plugin-managed blobs; declare required=false when the plugin natively '
+                    . 'populates the parent'
                 );
             }
         }

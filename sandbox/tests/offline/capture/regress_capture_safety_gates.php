@@ -118,7 +118,19 @@ $gates->guardPersonalData('options', 'woocommerce_shipping_cost_requires_address
 $gates->guardPersonalData("table 'pmpro_membership_levelmeta' key", 'confirmation_in_email', '1', []);
 $gates->guardPersonalData('options', 'require_name_email', '1', []);
 $gates->guardPersonalData('options', 'woocommerce_default_customer_address', 'base', []);
+$gates->guardPersonalData('options', 'rank-math-options-general', ['content_ai_country' => 'all'], []);
 check(true, 'boolean and enum controls borrowing contact-field nouns do not false-positive as personal data');
+
+$concreteCountry = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'rank-math-options-general',
+    ['content_ai_country' => 'BD'],
+    []
+));
+check(
+    ($concreteCountry->diagnostics[0]['personal_data_shape'] ?? null) === 'postal address',
+    'the Rank Math all-countries sentinel does not exempt a concrete country value'
+);
 
 $deliveryControlAddress = refusal(static fn() => $gates->guardPersonalData(
     "table 'fixture' key",

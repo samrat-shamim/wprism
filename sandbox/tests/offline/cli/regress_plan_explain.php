@@ -207,7 +207,7 @@ $check(
 );
 
 echo "\n== opaque selector grammar and safe failures ==\n";
-$sidebarKey = "sidebar/গ্রাহক zone:primary";
+$sidebarKey = 'sidebar/গ্রাহক zone:primary';
 $selected = PlanExplanation::select(['update' => [[
     'uuid' => $sidebarKey, 'type' => 'sidebar', 'path' => 'sidebars/private.json',
 ]]], 'update:' . $sidebarKey);
@@ -343,7 +343,7 @@ $check(
     $captureStart !== false && $captureEnd !== false
         && str_contains($strictCapture, 'Ledger::assert_read_only_schema()')
         && substr_count($strictCapture, 'assertReadOnlyIdentityPrecondition(') === 3
-        && str_contains($strictCapture, "true\n                );"),
+        && str_contains($strictCapture, "true,\n                    workAuthority: \$workAuthority\n                );"),
     'explain capture asserts existing schema and normalizes every strict identity read'
 );
 foreach (['Ledger::ensure', 'prune_dead_map', 'repair_truncated_entity_types'] as $forbiddenCall) {

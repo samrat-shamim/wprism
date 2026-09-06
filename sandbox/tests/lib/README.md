@@ -1,17 +1,105 @@
-# `sandbox/tests/lib/` — the shared offline test harness
+# `sandbox/tests/lib/` — shared test harnesses
 
-Five PHP files, no dependencies, no composer, no WordPress. Every offline
-`regress_*.php` suite runs as `php sandbox/tests/offline/<domain>/X.php`, so
-these must too. (`grind_lib.sh` also lives here; it is the grind harnesses'
-shell library and has nothing to do with the PHP harness below.)
+The central PHP helpers have no dependencies, composer, or WordPress. Every
+offline `regress_*.php` suite runs as `php
+sandbox/tests/offline/<domain>/X.php`, so these must too. Shell helpers inherit
+the explicitly documented state of their parent live/grind harness; they are
+not standalone suites.
 
 | file | provides |
 | --- | --- |
 | `check.php` | `wprism_check*()` assertions, the end-of-suite summary/exit code, and `wprism_code_without_comments()` for the suites that measure a reader set by grepping shipped source (rationale-dense prose names the same tokens, so comments are stripped first) |
 | `wp_stubs.php` | `\WPrismTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
+| `wp_serialization_stubs.php` | the exact `is_serialized()`, `maybe_serialize()`, and `maybe_unserialize()` semantics for a lightweight suite that must exercise WordPress wire bytes without loading the full stateful stub surface |
 | `FakeWpdb.php` | `\WPrismTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
 | `frozen_policy.php` | `\WPrismTest\FrozenPolicy` — the `wprism-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
 | `ConformanceVector.php` | `\WPrismTest\ConformanceVector` — the `wprism-conformance-vector/v1` grammar and its offline replay driver |
+| `ShellProbe.php` | `\WPrismTest\ShellProbe` — actual command/acceptance block extraction and isolated Bash execution with private, separately observed stdout/stderr; each capsule owns its commands, payloads and assertions |
+| `PrivateRefusalReceipt.php` | `\WPrismTest\PrivateRefusalReceipt` — bounded private-record freshness, mode/inode and exact v2 graph verification; callers declare the command, reason and ordered class/message/parent/edge profile and receive only message digests. Its separate diagnostic snapshot/delta API can preserve at most four new records/1 MiB of raw bytes (base64-encoded in a private sink), explicitly unverified and never as capability evidence. |
+| `private_command_capture.sh` | `wprism_private_command_capture` — one private snapshot → command → fresh-delta lifecycle, shared by host and native commands. Caller-owned argv arrays supply the native snapshot, collector and silent validator; the collector receives the saved baseline stdout path, and the validator receives an owned capture stem. All five stage transports/statuses survive disposable cleanup in fifteen `0600` files under one `0700` sink. |
+| `wordpress_cron_window.sh` | Test-only, owner-scoped prevention of new WP-Cron spawning during a complete native-row comparison. The caller supplies its WP runner and an outside-WordPress shell transport bound to the same site's MU directory; native PHP proves the guard loaded before the protected body. |
+| `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
+| `pair_live_ownership.sh` | the direct-live evidence state machine: exact-worktree mounts, engine/root-bound pair leases, partial-up teardown, exact site/scratch removal, checked release, and the sole post-cleanup PASS |
+
+`ssh_adopt_extension.sh` admits an exact empty active-plugin roster for core
+evidence, never an omitted observation. Its immutable release helper stages
+exactly one, two or three consecutive desired generations; every generation
+must exist before its own signed provider claim. Tombstone publication is
+reusable for separate identities and removes its owned local/remote executable
+after each attempt without replacing an occupied destination. Full-recovery
+registry replacement retains a `0600` owner-local allocation mask.
+
+`sandbox/tests/live/regress_core_ssh_deletion.sh` is the one explicitly admitted
+shared extension. It proves signed page/post/attachment deletion, native
+revision cascades, runtime-comment preservation, exact CASCADE metadata
+preflight refusal and fixed-point retry. Attachment upload originals and
+generated derivatives are deliberately preserved: the core deletion manifest
+does not grant filesystem deletion authority. Its native row observer and
+actual shell acceptance are covered by `regress-core-ssh-deletion-contract`;
+this offline contract is not a substitute for the separately allocated live run.
+Its forced-FK control captures complete transport and the shared bounded private
+diagnostic delta before applying public assertions, then separately verifies
+the exact cause graph against the checked page/post/comment identities.
+
+`PrivateRefusalReceipt::snapshot($directory, $profile)` returns the canonical
+command-scoped filename baseline; call it immediately before the expected
+refusal. `verify($directory, $baseline, $profile)` requires exactly one new
+record, no removed prior names, and the exact complete graph. A profile has
+only `command`, `reason_code`, and ordered `nodes`; each node declares only
+`parent_index`, `relation`, `class`, and `message`. Array position is its exact
+node index. No runtime cause selects or modifies a profile. Failures throw a
+value-free `RuntimeException`; successful receipts contain only the command,
+format, one-new-record count, ordered message digests, and `verified: true`.
+
+`wprism_private_command_capture` does not interpret a native refusal graph or
+turn a retained record into a passing certificate. The owner binds the exact
+site, command inventory and bounded reader. Both baseline validation and delta
+validation must return zero **without output**; their own stdout/stderr/status
+are private too. A failed baseline prevents the protected command, and a failed
+collector/validator prevents public success publication. The original command
+exit is always retained once it runs. Public stderr is replayed before public
+stdout so the native JSON answer remains last in a merged capture; each stream's
+bytes are unchanged apart from the separately identified diagnostic pointer on
+stderr. Allocation alone uses a private umask: cross-uid host publication keeps
+the caller's original mask. Callers still apply their normal full-stream and
+command-specific success/refusal assertions after this diagnostic boundary.
+Diagnostics are outside the protected command's transaction. A post-command
+diagnostic failure invalidates the test evidence; it does not claim that the
+already-finished command rolled back.
+
+`wordpress_cron_window_begin <wp_runner> <mu_directory_transport>` belongs in a
+caller-owned, `set -e` subshell after sourcing `conformance/asserts.sh` and the
+helper. Install `trap 'wordpress_cron_window_exit "$?"' EXIT` and
+`trap 'exit 130' INT TERM` before begin; do not put that subshell in an `if` or
+`||` condition, which disables its normal errexit semantics. The transport
+executes the supplied `sh` argv and stdin in the exact site's MU directory,
+without booting WordPress. Atomic no-replacement publication precedes a native
+`DISABLE_WP_CRON === true` and owner-token check. Cleanup runs on success,
+failure and interruption, refuses foreign or replaced guards, preserves a body
+failure and makes an unproven removal fail a successful body. This prevents
+new `spawn_cron()` calls only: already-running workers, unrelated writers and
+lazy transient expiration remain visible to the full-row comparison. No
+database rows are removed or omitted. `regress-wordpress-cron-window` exercises
+the actual remote payload and native PHP with failed/ambiguous transports,
+warnings, collisions, wrong premises, signals and cleanup failures.
+
+Run private inspection as the target CLI uid **outside WordPress**. Docker
+callers mount the exact candidate file read-only for that invocation, e.g.
+`--volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro"`,
+and pass its explicit container path to their own fixture entrypoint. SSH
+fixtures transport the same exact test file under their private diagnostic
+ownership. A missing test library refuses; it never falls back to deployed
+runtime or package code. Besides v2's 64-node/4096-field-byte/262144-record-byte
+bounds, inventory admits at most 4096 directory entries and a 1048576-byte
+baseline; exceeding a test boundary cannot delete operator evidence.
+
+`pair_live_ownership_prepare()` preserves the caller's umask: its `0700`
+scratch allocation must not turn later host-authored repository fixtures into
+`0600` files that the pair's uid 33 cannot read. Private file owners scope
+their own `077` creation mask instead. The shared host-registry writer and
+destroy transcript do this themselves; a driver-owned diagnostic must do the
+same before its first write. `regress_live_pair_ownership.sh` exercises both
+the cross-uid repository mode bits and the private scratch/output modes.
 
 `FrozenPolicy` exists because the frozen wire stopped taking a snapshot's word
 for provenance. A suite that only wants a `Policy` object used to hand
@@ -196,13 +284,19 @@ table with no recorded index fixture. Those facts already live in
 `setColumns()` / `setUniqueKey()` / `setPrimaryKey()`, so a synthetic
 `information_schema` — or a `SHOW INDEX` that answered `[]` because nobody
 called `setIndexes()` — would only be asserting this harness's own
-bookkeeping. Concretely it means `Ledger::assert_read_only_schema()`,
-`Ledger::prune_dead_table_map()` (a multi-table `DELETE`) and
+bookkeeping. Concretely it means `Ledger::prune_dead_table_map()` (a multi-table `DELETE`) and
 `Snapshot::assert_all_mapped_rows_managed()` (`Snapshot.php:532-533` — a
 `LEFT JOIN` whose `ON` carries two conditions, one of them against a literal)
 stay live-certification paths and cannot be moved here. `SHOW TABLES LIKE` and
 `SHOW COLUMNS FROM` *are* supported — they are the offline way to probe
 existence and column shape.
+
+`Ledger::assert_read_only_schema()` now uses exact-table `SHOW FULL COLUMNS`
+and `SHOW INDEX` within the real read-only profile. Its offline regression
+supplies explicit column/index fixtures and checks that profile's refusal of
+raw schema-qualified reads. Opted-in metadata projections still pass through
+the ordinary query gate, interception, logging and error-reset pipeline; they
+must never manufacture an answer before the active authority sees the query.
 
 Joins are refused with ONE exception, added when the engine's own term-deletion
 path turned out to need it: a single `LEFT JOIN` whose `ON` is exactly one
@@ -316,6 +410,15 @@ model (the join forms above, real collations, storage engines) — and that
 assertion probably belongs in the live certification instead.
 
 ## Migrating the existing suites
+
+Existing semantic doubles that still model unsupported joins/collations can
+use `CheckedReadTransportDouble` while preserving their row model. It
+delegates strict-mode and session-state authority to `FakeWpdb`; every
+overridden SQL entrypoint must first pass its SQL through
+`$this->checkedReadQuery()`. The shared dispatcher invokes the installed
+engine `all`/`query` gates directly, even if the capsule has no global
+`apply_filters()` or uses a bespoke hook fake. It does not bypass the product
+boundary or certify the row model. New suites still start with `FakeWpdb`.
 
 **Only when the suite is already being edited for another reason.** These files
 are the offline corpus that IS the merge gate; a mass rewrite would churn

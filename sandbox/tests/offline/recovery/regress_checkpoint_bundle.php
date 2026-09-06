@@ -216,7 +216,7 @@ try {
     $tombstone=(string)file_get_contents(dirname($root).'/rollback/'.str_repeat('c',48).'/checkpoint-tombstone.json');checkpoint_ok(!str_contains($tombstone,'CREATE TABLE')&&!str_contains($tombstone,trim((string)file_get_contents($kmsKey))),'audit tombstone is hash-only and contains no plaintext/key material');
     checkpoint_ok(str_contains($tombstone,'logical-delete-provider-limited'),'tombstone reports provider physical-erasure limits honestly');
 
-    $controllerRoot=$tmp.'/controller-host/.wprism/control';RollbackControl::initialize($controllerRoot);RollbackControl::installPublicKey($controllerRoot,$keyId,base64_encode($public));$installedRuntime=$controllerRoot.'/recovery-runtime';mkdir($installedRuntime,0700);foreach(['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile)copy(dirname(__DIR__,4).'/recovery/'.$runtimeFile,$installedRuntime.'/'.$runtimeFile);
+    $controllerRoot=$tmp.'/controller-host/.wprism/control';RollbackControl::initialize($controllerRoot);RollbackControl::installPublicKey($controllerRoot,$keyId,base64_encode($public));$installedRuntime=$controllerRoot.'/recovery-runtime';mkdir($installedRuntime,0700);foreach(['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php','ProviderSettlementIntent.php','CheckpointRecoveryIntent.php'] as $runtimeFile)copy(dirname(__DIR__,4).'/recovery/'.$runtimeFile,$installedRuntime.'/'.$runtimeFile);copy(dirname(__DIR__,4).'/agent/src/Recovery/DatabaseTargetIdentity.php',$installedRuntime.'/DatabaseTargetIdentity.php');copy(dirname(__DIR__,4).'/agent/src/Recovery/RetainedCheckpointCipher.php',$installedRuntime.'/RetainedCheckpointCipher.php');
     $controllerConfig=$config;$controllerConfig['checkpoint_provider']=[PHP_BINARY,$provider,$tmp.'/controller-provider-state',$dbSource,$kmsKey];$controllerConfig['exclusion_provider']=[PHP_BINARY,$exclusion,$tmp.'/controller-exclusion.json'];$controllerConfigPath=$tmp.'/controller-config.json';checkpoint_write($controllerConfigPath,RollbackControl::canonical($controllerConfig)."\n");RecoveryExecutor::configureFromFile($controllerRoot,$controllerConfigPath);
     $signingPath=$tmp.'/controller-signing.key';checkpoint_write($signingPath,base64_encode($secret)."\n");$fakeBin=$tmp.'/fake-bin';mkdir($fakeBin,0700);checkpoint_write($fakeBin.'/ssh',"#!/bin/sh\n[ \"\$1\" = -T ] && shift\nshift\nexec /bin/sh -c \"\$1\"\n",0700);checkpoint_write($fakeBin.'/scp',"#!/bin/sh\nsrc=\$1\ndest=\$2\ntarget=\${dest#*:}\ncp \"\$src\" \"\$target\"\n",0700);putenv('PATH='.$fakeBin.':'.getenv('PATH'));
     $transport=new SshTransport('checkpoint-controller',['transport'=>'ssh','host'=>'fixture-host','wp_path'=>$tmp.'/unused-wordpress','repo_path'=>$tmp.'/controller-host','rollback_key_id'=>$keyId,'rollback_signing_key'=>$signingPath,'rollback_recovery'=>['adapters'=>$commands,'checkpoint_provider'=>[PHP_BINARY,$provider,$tmp.'/controller-provider-state',$dbSource,$kmsKey],'exclusion_provider'=>[PHP_BINARY,$exclusion,$tmp.'/controller-exclusion.json'],'timeout_seconds'=>3]]);
@@ -249,9 +249,11 @@ try {
     RollbackControl::installPublicKey($scopedRoot, $keyId, base64_encode($public));
     $scopedRuntime = $scopedRoot . '/recovery-runtime';
     mkdir($scopedRuntime, 0700);
-    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
+    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php','ProviderSettlementIntent.php','CheckpointRecoveryIntent.php'] as $runtimeFile) {
         copy(dirname(__DIR__, 4) . '/recovery/' . $runtimeFile, $scopedRuntime . '/' . $runtimeFile);
     }
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/DatabaseTargetIdentity.php', $scopedRuntime . '/DatabaseTargetIdentity.php');
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/RetainedCheckpointCipher.php', $scopedRuntime . '/RetainedCheckpointCipher.php');
     $scopedProviderState = $tmp . '/scoped-provider-state';
     $scopedExclusionState = $tmp . '/scoped-exclusion.json';
     $scopedConfig = $config;
@@ -466,9 +468,11 @@ try {
     RollbackControl::installPublicKey($openRoot, $keyId, base64_encode($public));
     $openRuntime = $openRoot . '/recovery-runtime';
     mkdir($openRuntime, 0700);
-    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
+    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php','ProviderSettlementIntent.php','CheckpointRecoveryIntent.php'] as $runtimeFile) {
         copy(dirname(__DIR__, 4) . '/recovery/' . $runtimeFile, $openRuntime . '/' . $runtimeFile);
     }
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/DatabaseTargetIdentity.php', $openRuntime . '/DatabaseTargetIdentity.php');
+    copy(dirname(__DIR__, 4) . '/agent/src/Recovery/RetainedCheckpointCipher.php', $openRuntime . '/RetainedCheckpointCipher.php');
     $openProviderState = $tmp . '/scoped-open-provider-state';
     $openExclusionState = $tmp . '/scoped-open-exclusion.json';
     $openConfig = $config;

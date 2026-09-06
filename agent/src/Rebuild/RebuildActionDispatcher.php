@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
 require_once __DIR__ . '/NativeActions.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
@@ -422,10 +423,26 @@ final class RebuildActionDispatcher {
                     'verified' => true,
                 ];
             } catch (\Throwable $t) {
+                $recoveryFailure = null;
                 if ($scoped && $scopedSession !== null
                     && !$scopedSession->is_recovery_required()
                     && !$scopedSession->is_terminal()) {
-                    $scopedSession->recover(hash('sha256', 'wprism:scoped-effect-reconciliation-refused'));
+                    try {
+                        $scopedSession->recover(hash('sha256', 'wprism:scoped-effect-reconciliation-refused'));
+                    } catch (\Throwable $recoveryWriteFailure) {
+                        // The opaque effect failure and the failed durable
+                        // recovery write are two independent facts. Neither is
+                        // safe in Throwable::$previous, while dropping either
+                        // makes an uncertain scoped target unreconstructable.
+                        $recoveryFailure = $recoveryWriteFailure;
+                    }
+                }
+                if ($recoveryFailure !== null) {
+                    throw new PrivateEvidenceException(
+                        "wprism: required manifest action '$source' failed and scoped recovery witness persistence failed; preserve target state and reconcile before retry",
+                        $t,
+                        $recoveryFailure
+                    );
                 }
                 // issue #3206 posture, unchanged by the channel swap: a failed
                 // required rebuild is a hard apply failure, never a warning,
@@ -433,14 +450,12 @@ final class RebuildActionDispatcher {
                 if (str_starts_with($t->getMessage(), 'wprism: required manifest action')) {
                     throw $t;
                 }
-                // The inner message rides in the wrapper because nothing in
-                // the product path renders getPrevious() — Cli's handlers all
-                // print getMessage() alone. Providers assemble exit codes and
-                // stdout/stderr tails precisely so an operator sees the real
-                // error (issue #3282); swallowing them here would recreate the
-                // "exited 255, go reproduce it by hand" experience that issue
-                // closed (independent review of this change caught exactly
-                // that regression before it shipped).
+                // The reviewed inner sentence rides in the outer wrapper
+                // because Cli prints getMessage() alone. Raw provider output
+                // is deliberately absent from Throwable::$previous and crosses
+                // only into the private bounded evidence record; dropping this
+                // safe carrier here would recreate the opaque "exited 255"
+                // diagnosis issue #3282 closed.
                 throw new \RuntimeException(
                     "wprism: required manifest action '$source' failed — " . $t->getMessage(),
                     0,

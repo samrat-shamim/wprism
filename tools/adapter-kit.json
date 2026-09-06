@@ -36,16 +36,24 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/wp_stubs.php",
             "role": "WPrismTest\\WpStore plus function_exists()-guarded WordPress function stubs",
-            "bytes": 36082,
-            "sha256": "d28b583963be4b5fa5b58486710495830c4c03bd017cbdb25640d090a838f4bd"
+            "bytes": 36538,
+            "sha256": "b31a0b9797880937080c59e75e157efc44ba188ec99c62e6249cd325d7918638"
+        },
+        {
+            "path": "lib/wp_serialization_stubs.php",
+            "origin": "copied",
+            "source": "sandbox/tests/lib/wp_serialization_stubs.php",
+            "role": "exact WordPress option serialization primitives without the stateful stub surface",
+            "bytes": 3168,
+            "sha256": "ccc1558cf1dabf9a64dc663761c7445b6c7e68a8088d30ccb83bc87007da5488"
         },
         {
             "path": "lib/FakeWpdb.php",
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "WPrismTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 181883,
-            "sha256": "31d3de834ed61dad5da0f95f16436d662699bc3bf90feafa4936f6bebda33c19"
+            "bytes": 228986,
+            "sha256": "55d45c4cc92da64d3c6a09d8eefae446b76742aaca702149579d637ffbd79a03"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -60,32 +68,48 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/ConformanceVector.php",
             "role": "WPrismTest\\ConformanceVector — record a wprism-conformance-vector/v1 once on a pair, replay the round trip offline forever; needs the agent runtime",
-            "bytes": 22392,
-            "sha256": "51411e1d547bdc1ce2e4c4ada64c3bc24e4a2127130e475d17e5fe7af9167928"
+            "bytes": 22655,
+            "sha256": "758a81c16d62e98e6fcc770bc17aab436793ee0041912552e6e3d2c81864af77"
         },
         {
             "path": "lib/pair_identity.sh",
             "origin": "copied",
             "source": "sandbox/lib/pair_identity.sh",
             "role": "candidate source resolution and caller-local Compose mount pinning for parallel evidence lanes",
-            "bytes": 2904,
-            "sha256": "f18414f17836aacbc17ed22fa95639482aa3f4ca9e81fb166cc93be9573bc987"
+            "bytes": 3652,
+            "sha256": "7276aad568f8d23250bec8b85d07cbec7daf43c075072de86a3591baa712b756"
+        },
+        {
+            "path": "lib/pair_db.sh",
+            "origin": "copied",
+            "source": "sandbox/lib/pair_db.sh",
+            "role": "canonical database engine selection and caller-local host pinning for parallel evidence lanes",
+            "bytes": 9566,
+            "sha256": "ccf41b3c6c74984c2de34018590f9b32f3107ca0802f48526047306721f53f59"
+        },
+        {
+            "path": "lib/host_orchestrator.sh",
+            "origin": "copied",
+            "source": "sandbox/lib/host_orchestrator.sh",
+            "role": "host CLI registry, adoption-equivalent recovery setup and invocation boundary for checkpointed pair deployment",
+            "bytes": 8824,
+            "sha256": "9bc297b808dd46ff4017c79069b7677b3ba377c41fadcec404e7094acc7aecf2"
         },
         {
             "path": "conformance/run.sh",
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 36602,
-            "sha256": "430f8965a635d126d7b675b37c810359aacb6195de02e2620e69c423bdf3ba6c"
+            "bytes": 38048,
+            "sha256": "f3f257a09f1089e26a53fc1fc69a4b7459ba564a39988d29d41b015a03ee7e30"
         },
         {
             "path": "conformance/asserts.sh",
             "origin": "copied",
             "source": "sandbox/conformance/asserts.sh",
             "role": "premise assertions every seed/postdeploy hook calls before its engine assertion",
-            "bytes": 12958,
-            "sha256": "736bb2b29c3622a46b17fc2b3eebc0e8cc823ce8865572b1fefce7f562aa856e"
+            "bytes": 23436,
+            "sha256": "2d2c33632df1f23b594e7750fdf8b852f2d587aae512e5b465548bc0599de4c1"
         },
         {
             "path": "skeleton/example-adapter.php",
@@ -108,8 +132,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 4514,
-            "sha256": "b5fc550a3af6ff565081db9aab8facf8621a3e6a0ef0c8b6f68d12a419c9d680"
+            "bytes": 5009,
+            "sha256": "100658ff8ff4837568adf653fc95dc2775b44a1e01ad25d8796be62f0c1b01d6"
         }
     ]
 }

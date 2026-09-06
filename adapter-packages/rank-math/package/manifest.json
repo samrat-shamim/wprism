@@ -1,0 +1,804 @@
+{
+    "actions": [
+        {
+            "args": [],
+            "capability": "prepare_schema",
+            "effects": [
+                {
+                    "id": "rank-math-schema-redirections",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_redirections"
+                    }
+                },
+                {
+                    "id": "rank-math-schema-redirection-cache",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_redirections_cache"
+                    }
+                },
+                {
+                    "id": "rank-math-schema-internal-links",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_internal_links"
+                    }
+                },
+                {
+                    "id": "rank-math-schema-internal-meta",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_internal_meta"
+                    }
+                }
+            ],
+            "kind": "provider",
+            "phase": "schema_settle",
+            "prepares": [
+                "rank_math_internal_links",
+                "rank_math_internal_meta",
+                "rank_math_redirections",
+                "rank_math_redirections_cache"
+            ],
+            "provider": "rank-math-state",
+            "readiness": "inspect_schema"
+        },
+        {
+            "args": [],
+            "capability": "rebuild_all_link_state",
+            "effects": [
+                {
+                    "id": "rank-math-lifecycle-link-rows",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_internal_links"
+                    }
+                },
+                {
+                    "id": "rank-math-lifecycle-link-counts",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_internal_meta"
+                    }
+                },
+                {
+                    "id": "rank-math-lifecycle-link-markers",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "postmeta"
+                    }
+                },
+                {
+                    "id": "rank-math-lifecycle-native-route-cache",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "option",
+                        "value": "_transient_wc_term_counts"
+                    }
+                },
+                {
+                    "id": "rank-math-lifecycle-native-route-cache-expiry",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "option",
+                        "value": "_transient_timeout_wc_term_counts"
+                    }
+                },
+                {
+                    "id": "rank-math-lifecycle-native-link-frontier",
+                    "kind": "external",
+                    "mode": "irreversible",
+                    "selector": {
+                        "scope": "external",
+                        "type": "provider_resource",
+                        "value": "rank-math-native-link-repair:v1:permalink-filters,post-meta-hooks,object-cache"
+                    }
+                }
+            ],
+            "kind": "provider",
+            "phase": "lifecycle_settle",
+            "provider": "rank-math-state"
+        },
+        {
+            "args": [],
+            "capability": "rebuild_all_link_state",
+            "effects": [
+                {
+                    "id": "rank-math-link-rows",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_internal_links"
+                    }
+                },
+                {
+                    "id": "rank-math-link-counts",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "rank_math_internal_meta"
+                    }
+                },
+                {
+                    "id": "rank-math-link-markers",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "table",
+                        "value": "postmeta"
+                    }
+                },
+                {
+                    "id": "rank-math-native-route-cache",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "option",
+                        "value": "_transient_wc_term_counts"
+                    }
+                },
+                {
+                    "id": "rank-math-native-route-cache-expiry",
+                    "kind": "database",
+                    "mode": "restorable",
+                    "selector": {
+                        "scope": "database_checkpoint",
+                        "type": "option",
+                        "value": "_transient_timeout_wc_term_counts"
+                    }
+                },
+                {
+                    "id": "rank-math-native-link-frontier",
+                    "kind": "external",
+                    "mode": "irreversible",
+                    "selector": {
+                        "scope": "external",
+                        "type": "provider_resource",
+                        "value": "rank-math-native-link-repair:v1:permalink-filters,post-meta-hooks,object-cache"
+                    }
+                }
+            ],
+            "kind": "provider",
+            "provider": "rank-math-state"
+        }
+    ],
+    "declaration_evidence": {
+        "options.rank-math-options-general": {
+            "evidence": [
+                {
+                    "locator": "Rank Math setup wizard and wp option get rank-math-options-general --format=json",
+                    "observation": "The real wizard persisted the 47-key general settings object, including an environment URL at attachment_redirect_default and Unicode/delimiter-capable presentation strings; plain_data is required to tokenize every nested string leaf without treating module settings as secrets or ids.",
+                    "source": "dogfood pair rmauthor, 2026-08-27, Rank Math SEO 1.0.277"
+                }
+            ]
+        },
+        "options.rank-math-options-titles": {
+            "evidence": [
+                {
+                    "locator": "Rank Math setup wizard plus includes/admin/wizard/class-your-site.php:116-127",
+                    "observation": "Exact 1.0.277.2 source reads five local WordPress ids from this object: homepage_facebook_image_id, knowledgegraph_logo_id and open_graph_image_id are attachment posts; local_seo_about_page and local_seo_contact_page are pages. All five require post identity rebinding while ordinary string leaves retain environment tokenization.",
+                    "source": "dogfood pair rmauthor and exact 1.0.277 source"
+                }
+            ]
+        },
+        "options.rank_math_registration_skip": {
+            "evidence": [
+                {
+                    "locator": "Rank Math registration skip UI, rank-math.php:291-299, and includes/admin/class-registration.php:25-45",
+                    "observation": "The target exercise proved this is executable setup state, not an optional environment hint: without the source site's skip choice, Registration::$invalid makes Rank Math return before constructing its module manager, so redirections and every other selected module remain inert even though rank_math_modules was applied exactly.",
+                    "source": "dogfood pair rmauthor, 2026-08-27, Rank Math SEO 1.0.277"
+                },
+                {
+                    "locator": "Fresh host deploy lifecycle-settle before authored apply, rank-math.php:291-301, includes/class-common.php:53, and WP_Rewrite::$rules",
+                    "observation": "A virgin target has not received the canonical registration-skip option when pre-apply lifecycle settlement runs, so Rank Math returns before Common constructs Defaults and the native excluded_post_types hook is absent. Independent parent and bounded-child WP-CLI requests also retained a null lazy rewrite cache beside an exact non-empty 94-rule stored array. The provider initializes exactly RankMath\\Defaults only for the absent hook, and copies only that non-empty effective array into an exact core WP_Rewrite object's request-local cache; strict hook/runtime, empty-rule and stored/loaded-drift refusals remain, and the durable option stays byte-identical.",
+                    "source": "candidate-bound conformance and diagnostic pairs rmconf/rmdiag, 2026-09-03, Rank Math SEO 1.0.277.2"
+                }
+            ]
+        },
+        "post_meta.rank_math_primary_*": {
+            "evidence": [
+                {
+                    "locator": "POST /wp-json/rankmath/v1/updateMeta followed by raw wp_postmeta read",
+                    "observation": "rank_math_primary_category stored the source category's local term id as the digit string '2'. A post with id 2 existed simultaneously, which exposed and now regresses the pending-queue ownership collision; the declaration is term + cast:string.",
+                    "source": "dogfood pair rmauthor, 2026-08-27"
+                }
+            ]
+        },
+        "tables.rank_math_redirections": {
+            "evidence": [
+                {
+                    "locator": "POST /wp-json/rankmath/v1/updateRedirection, SHOW COLUMNS, and two real HTTP requests",
+                    "observation": "The native endpoint created one 302 rule with serialized sources and an authored destination; HTTP returned the exact Location twice while hits/last_accessed changed. Those counters are runtime, the rule fields are authored, and rank_math_redirections_cache is a rebuildable lookup invalidated by redirection_id.",
+                    "source": "dogfood pair rmauthor, 2026-08-27, Rank Math SEO 1.0.277"
+                }
+            ]
+        }
+    },
+    "engine_features": [
+        "manifest-provider-fresh-process/v1",
+        "manifest-provider-runtime/v1",
+        "plugin-incompatibility/v1",
+        "schema-settlement/v1",
+        "spec-window/v1",
+        "structured-evidence/v1"
+    ],
+    "incompatible_plugins": [
+        "wordpress-seo/wp-seo.php"
+    ],
+    "lifecycle_effects": [
+        {
+            "id": "rank-math-plugin-lifecycle",
+            "kind": "external",
+            "mode": "irreversible",
+            "selector": {
+                "scope": "external",
+                "type": "plugin_lifecycle",
+                "value": "seo-by-rank-math/rank-math.php"
+            }
+        }
+    ],
+    "name": "rank-math",
+    "notes": [
+        "WHAT THIS ADAPTER IS. The shipped Rank Math SEO adapter, promoted from a real site-adapter exercise after exact-artifact, hostile-target, provider failure/retry, lifecycle, native HTTP and multi-plugin evidence closed its remaining production boundaries.",
+        "THE SUPPORTED PROFILE. Core per-post/per-term SEO metadata, general and titles settings, module selection, the disconnected site's explicit registration-skip choice, and authored redirection rules are portable. A connected Rank Math account remains unsupported because this adapter declares no registration credential surface. Sitemap exclusions are not portable: exclude_posts/exclude_terms are comma-separated local ids with no declarative list-of-ids codec, so the whole sitemap option remains target-owned. Instant Indexing remains target-owned because the same object carries the generated IndexNow API key. A populated Facebook app secret in the titles object trips WPrism's deep secret guard and refuses capture; this fixture never authorizes a credential to enter state.",
+        "CUSTOM SCHEMA IS DELIBERATELY UNSUPPORTED. rank_math_schema_<type> values are portable structured data, but every rank_math_shortcode_schema_<name> sibling stores the local wp_postmeta.meta_id of its schema row. WPrism has no postmeta-row identity keyspace and a declarative site adapter cannot ship a trusted provider that rebuilds those shortcuts. Both families therefore remain undeclared: a site using custom schema refuses capture instead of carrying a source-local meta_id or silently losing shortcode behavior. Default schema selected through rank-math-options-titles remains supported because it creates no shortcut row.",
+        "DERIVED LINK DATA. rank_math_internal_links/rank_math_internal_meta and rank_math_internal_links_processed are target-local plugin projections, never canonical state. The digest-bound provider runs site-scoped repair after every non-empty authored apply because native link resolution depends on content, routes, taxonomy and participant callbacks. Inside each of two engine-owned write transactions it freezes native source resolution, resets derived rows, runs RankMath\\Links\\Links::process_post_links() for accessible posts, independently replays the pinned ContentProcessor primitives, and requires the exact stored URL/source/target/type multiset, per-object counts and markers. The seven Rank extraction/classification/save/post-type decision filters retain their strict callback audit. Exact native exclusions and null core rewrite-cache hydration are request-local virgin-target premises, not durable regeneration authority. Native route computation may refill, update or expire _transient_wc_term_counts and _transient_timeout_wc_term_counts; those exact database effects are checkpoint-covered, with all other raw option and non-marker post-meta bytes guarded unchanged. Their manifest option declarations imply physical wp_options permission, not SQL row-key enforcement. The full native-computation hash stays in the mutation receipt and repeat-pass equality. Every read-only phase instead reads complete bounded durable facts: all post source columns, including inaccessible types, route posts, options, comments, taxonomy, term metadata, relevant authors and metadata, and exact derived rows. No route, eligibility or cache-backed settings callback runs in preimage, ambiguous-commit classification, post-commit verification or the separately booted observer. The stable cross-boot hash binds durable dependencies, not a claim of native recomputation in another request; native correctness is verified in the authorized mutation transaction and the later observer proves unchanged durable inputs and outputs. The parent still requires exact projected equality from both boots under one absolute deadline and immutable execution identity; uncertainty is explicit recovery debt. Native target_post_id=0 links remain valid while every positive target must exist. Persistent notifications remain isolated. Scoped recovery reads only the derived database receipt surfaces and never re-enters native callbacks. SQL checkpoints cover the declared table and option writes; the signed irreversible frontier names native permalink filters, post-meta hooks and object cache, whose effects SQL rollback cannot undo.",
+        "ACTION SCHEDULER. Rank Math bundles Action Scheduler and created the four actionscheduler_* tables during this exercise. Their declarations are byte-identical to WooCommerce's runtime declarations so co-installation has no competing owner; queue actions, claims, groups and logs remain target-local execution state.",
+        "REAL-WORLD AUTHORING FRICTION. The first unscoped draft was 223185 bytes. Re-running with --match='^rank[-_]math' still produced about 220 KiB because --force conservatively retained 78 stale machine-owned proposals. AdapterDraft now drops only a stale proposal whose generated_hash still matches its untouched semantic fragment; edited, ratified and legacy fragments remain preserved. The same scoped rerun produced 21736 bytes and only the 15 Rank Math option/table proposals.",
+        "REAL-WORLD OWNERSHIP FRICTION. pending originally described rank_math_primary_category=2 as the post/page whose local id happened to be 2, even though the key and the native API made it a category term. Pending now gives term/category/tag-shaped keys a term-first lookup and retains the old post-first fallback for ambiguous keys. The exact post/term id collision is permanent offline regression coverage.",
+        "REAL-WORLD PAIR FRICTION. pair.sh printed a docker compose recipe with -p wprism-rmauthor but omitted WPRISM_PAIR/WPRISM_PORT1/WPRISM_PORT2/WPRISM_CLI_IMAGE. Compose project naming does not populate ${WPRISM_PAIR}; copy-paste silently selected wp_1 and failed with Error establishing a database connection. The printed recipe now retains the complete selected environment, and its unit suite pins the replayable command.",
+        "REDIRECTION IDENTITY. Exact 1.0.277 source sanitizes every rule into a domain-free sources array, serializes that array through one plugin writer, and resolves duplicate matching rules by mutable updated order. Treating duplicates as distinct portable objects would preserve an ambiguous winner, so sources is the enforced natural key: a duplicate refuses capture instead of changing behavior by row order. The opaque serialized bytes need no token rewrite because Rank Math has already stripped the home domain; url_to receives ordinary environment tokenization; hit and timestamp columns never enter canonical state; cache rows are invalidated by the applied redirection id. This replaced mapped identity after a populated independent target correctly refused for lack of a cloned WPrism identity sidecar.",
+        "SCHEMA PRECONDITION. Rank Math activation creates link-counter tables from its default modules but does not create redirection tables unless that module was already enabled. Host-checkpointed schema settlement therefore refuses both extensibility hooks, invokes RankMath\\Installer::create_tables() for the declared module schemas, and proves exact schema plus complete row witnesses before typed rows are materialized; it creates schema only and never changes the target's module option. The separate lifecycle-settlement action rebuilds derived link state after authored apply.",
+        "VERSION WINDOW. Official 1.0.277, 1.0.277.1 and 1.0.277.2 artifacts are hash-pinned and source-probed inside [1.0.277, 1.0.277.3); 1.0.276 is the adjacent below-range refusal control. The runtime contract is the closed version interval, not an assertion that an installed directory is byte-identical to a WordPress.org zip; no version outside the three evidenced release labels is admitted."
+    ],
+    "option_autoload": "preserve",
+    "option_namespaces": [
+        {
+            "match": "^(?:rank-math-options-|rank_math_)"
+        }
+    ],
+    "options": {
+        "rank-math-options-general": {
+            "class": "authored",
+            "plain_data": true
+        },
+        "rank-math-options-instant-indexing": {
+            "class": "env",
+            "required": false
+        },
+        "rank-math-options-sitemap": {
+            "class": "env",
+            "required": false
+        },
+        "rank-math-options-titles": {
+            "class": "authored",
+            "json_refs": [
+                {
+                    "kind": "post",
+                    "path": "$.homepage_facebook_image_id"
+                },
+                {
+                    "kind": "post",
+                    "path": "$.knowledgegraph_logo_id"
+                },
+                {
+                    "kind": "post",
+                    "path": "$.local_seo_about_page"
+                },
+                {
+                    "kind": "post",
+                    "path": "$.local_seo_contact_page"
+                },
+                {
+                    "kind": "post",
+                    "path": "$.open_graph_image_id"
+                }
+            ]
+        },
+        "rank_math_db_version": {
+            "class": "runtime"
+        },
+        "rank_math_flush_rewrite": {
+            "class": "runtime"
+        },
+        "rank_math_indexnow_log": {
+            "class": "runtime"
+        },
+        "rank_math_install_date": {
+            "class": "runtime"
+        },
+        "rank_math_is_configured": {
+            "class": "authored"
+        },
+        "rank_math_known_post_types": {
+            "class": "derived"
+        },
+        "rank_math_modules": {
+            "class": "authored"
+        },
+        "rank_math_notifications": {
+            "class": "runtime"
+        },
+        "rank_math_pro_notice_date": {
+            "class": "runtime"
+        },
+        "rank_math_registration_skip": {
+            "class": "authored"
+        },
+        "rank_math_review_notice_date": {
+            "class": "runtime"
+        },
+        "rank_math_review_posts_converted": {
+            "class": "runtime"
+        },
+        "rank_math_version": {
+            "class": "runtime"
+        }
+    },
+    "plugin": "seo-by-rank-math/rank-math.php",
+    "post_meta": {
+        "rank_math_advanced_robots": {
+            "class": "authored"
+        },
+        "rank_math_breadcrumb_title": {
+            "class": "authored"
+        },
+        "rank_math_canonical_url": {
+            "class": "authored"
+        },
+        "rank_math_contentai_score": {
+            "class": "derived"
+        },
+        "rank_math_description": {
+            "class": "authored"
+        },
+        "rank_math_description_editor": {
+            "class": "runtime"
+        },
+        "rank_math_facebook_author": {
+            "class": "authored"
+        },
+        "rank_math_facebook_description": {
+            "class": "authored"
+        },
+        "rank_math_facebook_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_facebook_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_title": {
+            "class": "authored"
+        },
+        "rank_math_focus_keyword": {
+            "class": "authored"
+        },
+        "rank_math_internal_links_processed": {
+            "class": "derived"
+        },
+        "rank_math_pillar_content": {
+            "class": "authored"
+        },
+        "rank_math_rich_snippet": {
+            "class": "authored"
+        },
+        "rank_math_robots": {
+            "class": "authored"
+        },
+        "rank_math_seo_score": {
+            "class": "derived"
+        },
+        "rank_math_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_country": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_description": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_googleplay_id": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_app_googleplay_name": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_googleplay_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_ipad_id": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_app_ipad_name": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_ipad_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_iphone_id": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_app_iphone_name": {
+            "class": "authored"
+        },
+        "rank_math_twitter_app_iphone_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_card_type": {
+            "class": "authored"
+        },
+        "rank_math_twitter_description": {
+            "class": "authored"
+        },
+        "rank_math_twitter_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_twitter_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_player_size": {
+            "class": "authored",
+            "lint_ok": true
+        },
+        "rank_math_twitter_player_stream": {
+            "class": "authored"
+        },
+        "rank_math_twitter_player_stream_ctype": {
+            "class": "authored"
+        },
+        "rank_math_twitter_player_url": {
+            "class": "authored"
+        },
+        "rank_math_twitter_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_use_facebook": {
+            "class": "authored"
+        }
+    },
+    "post_meta_patterns": [
+        {
+            "cast": "string",
+            "class": "authored",
+            "match": "^rank_math_primary_[a-z0-9_-]+\\z",
+            "ref": "term"
+        }
+    ],
+    "providers": [
+        {
+            "capabilities": [
+                "inspect_schema",
+                "prepare_schema",
+                "rebuild_all_link_state"
+            ],
+            "contracts": {
+                "inspect_schema": {
+                    "args": [],
+                    "idempotent": true,
+                    "reads": [
+                        "table:rank_math_internal_links",
+                        "table:rank_math_internal_meta",
+                        "table:rank_math_redirections",
+                        "table:rank_math_redirections_cache"
+                    ],
+                    "scope": "site",
+                    "timeout_seconds": 30,
+                    "writes": []
+                },
+                "prepare_schema": {
+                    "args": [],
+                    "idempotent": true,
+                    "reads": [
+                        "table:rank_math_internal_links",
+                        "table:rank_math_internal_meta",
+                        "table:rank_math_redirections",
+                        "table:rank_math_redirections_cache"
+                    ],
+                    "scope": "site",
+                    "timeout_seconds": 60,
+                    "writes": [
+                        "table:rank_math_internal_links",
+                        "table:rank_math_internal_meta",
+                        "table:rank_math_redirections",
+                        "table:rank_math_redirections_cache"
+                    ]
+                },
+                "rebuild_all_link_state": {
+                    "args": [],
+                    "idempotent": true,
+                    "reads": [
+                        "option:category_base",
+                        "option:close_comments_days_old",
+                        "option:close_comments_for_old_posts",
+                        "option:comments_per_page",
+                        "option:default_category",
+                        "option:home",
+                        "option:page_for_posts",
+                        "option:page_on_front",
+                        "option:permalink_structure",
+                        "option:polylang",
+                        "option:posts_per_page",
+                        "option:posts_per_rss",
+                        "option:rank-math-options-general",
+                        "option:rank_math_modules",
+                        "option:rewrite_rules",
+                        "option:show_on_front",
+                        "option:siteurl",
+                        "option:sticky_posts",
+                        "option:tag_base",
+                        "option:woocommerce_permalinks",
+                        "option:wp_page_for_privacy_policy",
+                        "table:comments",
+                        "table:options",
+                        "table:postmeta",
+                        "table:posts",
+                        "table:rank_math_internal_links",
+                        "table:rank_math_internal_meta",
+                        "table:term_relationships",
+                        "table:term_taxonomy",
+                        "table:terms",
+                        "table:termmeta",
+                        "table:users",
+                        "table:usermeta"
+                    ],
+                    "scope": "site",
+                    "scoped": {
+                        "operation_envelope": "wprism-scoped-effect-operation/v1",
+                        "receipt_projection": "handler",
+                        "reconcile": true
+                    },
+                    "timeout_seconds": 600,
+                    "writes": [
+                        "option:_transient_timeout_wc_term_counts",
+                        "option:_transient_wc_term_counts",
+                        "table:postmeta",
+                        "table:rank_math_internal_links",
+                        "table:rank_math_internal_meta"
+                    ]
+                }
+            },
+            "fresh_process_capabilities": [
+                "rebuild_all_link_state"
+            ],
+            "id": "rank-math-state",
+            "plugin": "seo-by-rank-math/rank-math.php",
+            "requires": {
+                "classes": [
+                    "RankMath\\Defaults",
+                    "RankMath\\Helper",
+                    "RankMath\\Installer",
+                    "RankMath\\Links\\ContentProcessor",
+                    "RankMath\\Links\\Links",
+                    "WP_Hook",
+                    "WP_Post",
+                    "WP_Rewrite"
+                ],
+                "functions": [
+                    "clean_post_cache",
+                    "esc_sql",
+                    "get_option",
+                    "get_permalink",
+                    "get_post",
+                    "get_post_types",
+                    "has_filter",
+                    "home_url",
+                    "is_multisite",
+                    "is_post_type_viewable",
+                    "url_to_postid",
+                    "wp_json_encode"
+                ]
+            },
+            "source": "manifest",
+            "version": "1.0.1"
+        }
+    ],
+    "spec_version": 3,
+    "tables": {
+        "actionscheduler_actions": {
+            "class": "runtime"
+        },
+        "actionscheduler_claims": {
+            "class": "runtime"
+        },
+        "actionscheduler_groups": {
+            "class": "runtime"
+        },
+        "actionscheduler_logs": {
+            "class": "runtime"
+        },
+        "rank_math_404_logs": {
+            "class": "runtime"
+        },
+        "rank_math_analytics_gsc": {
+            "class": "runtime"
+        },
+        "rank_math_analytics_inspections": {
+            "class": "runtime"
+        },
+        "rank_math_analytics_objects": {
+            "class": "runtime"
+        },
+        "rank_math_internal_links": {
+            "class": "derived"
+        },
+        "rank_math_internal_meta": {
+            "class": "derived"
+        },
+        "rank_math_redirections": {
+            "class": "authored_snapshot",
+            "columns": {
+                "created": {
+                    "class": "runtime"
+                },
+                "header_code": {
+                    "class": "authored",
+                    "lint_ok": true
+                },
+                "hits": {
+                    "class": "runtime"
+                },
+                "last_accessed": {
+                    "class": "runtime"
+                },
+                "sources": {
+                    "class": "authored"
+                },
+                "status": {
+                    "class": "authored"
+                },
+                "updated": {
+                    "class": "runtime"
+                },
+                "url_to": {
+                    "class": "authored"
+                }
+            },
+            "id_kind": "rank_math_redirection",
+            "identity": {
+                "column": "sources",
+                "mode": "natural_key"
+            },
+            "invalidate": [
+                {
+                    "column": "redirection_id",
+                    "table": "rank_math_redirections_cache"
+                }
+            ],
+            "pk": "id",
+            "refs": []
+        },
+        "rank_math_redirections_cache": {
+            "class": "derived"
+        }
+    },
+    "term_meta": {
+        "rank_math_advanced_robots": {
+            "class": "authored"
+        },
+        "rank_math_breadcrumb_title": {
+            "class": "authored"
+        },
+        "rank_math_canonical_url": {
+            "class": "authored"
+        },
+        "rank_math_description": {
+            "class": "authored"
+        },
+        "rank_math_facebook_author": {
+            "class": "authored"
+        },
+        "rank_math_facebook_description": {
+            "class": "authored"
+        },
+        "rank_math_facebook_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image": {
+            "class": "authored"
+        },
+        "rank_math_facebook_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_facebook_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_facebook_title": {
+            "class": "authored"
+        },
+        "rank_math_focus_keyword": {
+            "class": "authored"
+        },
+        "rank_math_pillar_content": {
+            "class": "authored"
+        },
+        "rank_math_robots": {
+            "class": "authored"
+        },
+        "rank_math_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_card_type": {
+            "class": "authored"
+        },
+        "rank_math_twitter_description": {
+            "class": "authored"
+        },
+        "rank_math_twitter_enable_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image": {
+            "class": "authored"
+        },
+        "rank_math_twitter_image_id": {
+            "cast": "string",
+            "class": "authored",
+            "ref": "post"
+        },
+        "rank_math_twitter_image_overlay": {
+            "class": "authored"
+        },
+        "rank_math_twitter_title": {
+            "class": "authored"
+        },
+        "rank_math_twitter_use_facebook": {
+            "class": "authored"
+        }
+    },
+    "version_range": {
+        "max": "1.0.277.3",
+        "min": "1.0.277"
+    }
+}

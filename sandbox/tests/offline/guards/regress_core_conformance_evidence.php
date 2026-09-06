@@ -1,0 +1,793 @@
+<?php
+declare(strict_types=1);
+
+/** Core fixture evidence must exercise unsigned refusal, not invent deletion authority. */
+$pagePlanScratch = null;
+if (($argv[1] ?? '') === '--page-plan') {
+    $pagePlanScratch = sys_get_temp_dir() . '/wprism-core-page-plan-' . bin2hex(random_bytes(8));
+    define('WP_CONTENT_DIR', $pagePlanScratch);
+}
+require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../lib/ShellProbe.php';
+require_once __DIR__ . '/../../lib/PrivateRefusalReceipt.php';
+$profileRoot = is_dir($argv[1] ?? '') ? $argv[1] : dirname(__DIR__, 4);
+require_once $profileRoot . '/sandbox/conformance/fixtures/core-private-refusal-evidence.php';
+require_once dirname(__DIR__, 4) . '/sandbox/conformance/fixtures/core-native-state-evidence.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Delete/DeletionWriterExclusion.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Apply/ApplyRequestCoordinator.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Command/Cli.php';
+
+use WPrism\ApplyPlanner;
+use WPrism\ApplyRequestCoordinator;
+use WPrism\Cli;
+use WPrism\CommandRefusalException;
+use WPrism\DeleteGuardLockCoordinator;
+use WPrism\DeletionWriterExclusion;
+use WPrism\PrivateRefusalEvidence;
+use WPrismTest\FakeWpdb;
+use WPrismTest\ShellProbe;
+use WPrismTest\WpStore;
+
+final class CoreEvidenceHalt extends RuntimeException {}
+final class WP_CLI {
+    public static array $lines = [];
+    public static function add_command(string $name, string $class): void {}
+    public static function line(string $line): void { self::$lines[] = $line; }
+    public static function halt(int $status): never { throw new CoreEvidenceHalt((string) $status); }
+}
+
+$root = dirname(__DIR__, 4);
+$self = __FILE__;
+$nativeTables = ['posts', 'postmeta', 'comments', 'commentmeta', 'term_relationships',
+    'terms', 'termmeta', 'term_taxonomy', 'options', 'wprism_map', 'wprism_state', 'wprism_kv', 'wprism_journal'];
+
+// Derive the warning's entity kind through the actual immutable-plan builder.
+// An already-absent page isolates row construction from comment scanning; the
+// comment witness below still belongs to the separately exercised live guard.
+if (($argv[1] ?? '') === '--page-plan') {
+    require_once $root . '/sandbox/tests/lib/agent_version.php';
+    wprism_test_define_agent_versions();
+    require_once $root . '/agent/src/Capture/Capture.php';
+    function get_taxonomies(array $args = [], string $output = 'names'): array { return []; }
+    $scratch = $pagePlanScratch;
+    mkdir($scratch . '/themes/fixture', 0700, true);
+    file_put_contents($scratch . '/themes/fixture/style.css', "/*\nTheme Name: Core plan fixture\nVersion: 1.0.0\n*/\n");
+    try {
+        $db = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions();
+        foreach ($nativeTables as $table) {
+            $db->seedTable('wp_' . $table, [])->setTableEngine('wp_' . $table, 'InnoDB');
+        }
+        WpStore::reset()->seedOptions(['home' => 'https://core.example.test']);
+        foreach (\WPrism\TableSchema::core_capture_required_columns() as $property => $columns) {
+            $db->setColumns($db->$property, array_fill_keys($columns, 'longtext'))->setTableEngine($db->$property, 'InnoDB');
+        }
+        $db->setColumns('wp_wprism_map', [
+            'uuid' => 'char(36)', 'entity_type' => 'varchar(64)', 'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
+        ])->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+            ->setTableEngine('wp_wprism_map', 'InnoDB')->setColumns('wp_wprism_state', [
+                'uuid' => 'varchar(64)', 'entity_type' => 'varchar(64)', 'content_hash' => 'char(64)',
+            ])->setUniqueKey('wp_wprism_state', ['uuid'])->setTableEngine('wp_wprism_state', 'InnoDB')
+            ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'varchar(1024)'])
+            ->setUniqueKey('wp_wprism_kv', ['k'])->setTableEngine('wp_wprism_kv', 'InnoDB')
+            ->seedTable('wp_options', [
+                ['option_id' => 1, 'option_name' => 'active_plugins', 'option_value' => 'a:0:{}', 'autoload' => 'yes'],
+                ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'fixture', 'autoload' => 'yes'],
+                ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'fixture', 'autoload' => 'yes'],
+            ]);
+        $policy = new \WPrism\Policy();
+        $present = ($argv[3] ?? '') === 'present';
+        $policy->site = ['policy' => ['taxonomies' => [], 'post_types' => $present ? ['page'] : []]];
+        $policy->manifests = [\WPrism\Canon::decode((string) file_get_contents($root . '/platform/adapter-library/core/manifest.json'))];
+        $uuid = $argv[2];
+        $previous = \WPrism\CompiledRepository::create(['revision_hash' => str_repeat('b', 64), 'tree' => [$uuid => [
+            'type' => 'post', 'hash' => str_repeat('a', 64), 'path' => 'posts/page/' . $uuid . '.md',
+            'data' => ['uuid' => $uuid, 'type' => 'page'],
+        ]]]);
+        $tombstone = \WPrism\Deletion::capture_tombstones($previous, [], $policy)[0];
+        $compiled = \WPrism\CompiledRepository::create(['tree' => [], 'deletions' => [$uuid => $tombstone + [
+            'data' => \WPrism\Canon::decode($tombstone['content']), 'hash' => hash('sha256', $tombstone['content']),
+        ]]]);
+        $planner = new ApplyPlanner($policy, [], \WPrism\Ledger::id_for(...), \WPrism\Ledger::id_for(...));
+        $builder = new \WPrism\ApplyPlanBuilder($scratch, $policy, $planner,
+            new \WPrism\DeleteGuardReferenceScanner($policy), [], null,
+            static fn(): array => ['regen_pending' => [], 'regen_context' => [], 'warnings' => []],
+            static fn(): array => ['env_missing' => [], 'warnings' => []]);
+        if ($present) {
+            $db->setIndexes('wp_comments', [['Key_name' => 'PRIMARY', 'Column_name' => 'comment_ID',
+                'Seq_in_index' => '1', 'Non_unique' => '0']]);
+            $post = array_fill_keys(\WPrism\TableSchema::core_capture_required_columns()['posts'], '');
+            $post = array_replace($post, ['ID' => '7', 'post_author' => '0', 'post_parent' => '0', 'menu_order' => '0',
+                'post_type' => 'page', 'post_status' => 'publish', 'post_name' => 'retained-page', 'post_title' => 'Retained page']);
+            $db->seedTable('wp_posts', [$post, array_replace($post, ['ID' => '8', 'post_name' => 'untracked-page'])])
+                ->seedTable('wp_postmeta', [['meta_id' => '1', 'post_id' => '7', 'meta_key' => '_wprism_uuid', 'meta_value' => $uuid]]);
+            $observe = static function () use ($db, $nativeTables): array {
+                $state = [];
+                foreach ($nativeTables as $table) {
+                    $state[$table] = $db->rows('wp_' . $table);
+                }
+                return $state;
+            };
+            $before = $observe();
+            $first = $builder->build([], $compiled, false, false);
+            $after = $observe();
+            $repeat = $builder->build([], $compiled, false, false);
+            echo json_encode(['first' => $first['plan'], 'repeat' => $repeat['plan'],
+                'before' => $before, 'after' => $after, 'repeated' => $observe()], JSON_THROW_ON_ERROR) . "\n";
+        } else {
+            $result = $builder->build([], $compiled, false, false);
+            echo json_encode($result['plan']['deleted'][0], JSON_THROW_ON_ERROR) . "\n";
+        }
+    } finally {
+        unlink($scratch . '/themes/fixture/style.css');
+        rmdir($scratch . '/themes/fixture');
+        rmdir($scratch . '/themes');
+        rmdir($scratch);
+    }
+    exit(0);
+}
+
+// Child modes run the actual submitted fixture PHP, or append an engine-built
+// record only after the real shell block has inventoried its private store.
+if (($argv[1] ?? '') === '--write-record') {
+    [$directory, $recordJson, $mutation] = array_slice($argv, 2);
+    if (!is_dir($directory)) {
+        mkdir($directory, 0700, true);
+    }
+    $record = json_decode($recordJson, true, 32, JSON_THROW_ON_ERROR);
+    if ($mutation === 'unrelated') {
+        $record = ['format' => $record['format'], 'command' => 'apply', 'reason_code' => $record['reason_code'],
+            ...PrivateRefusalEvidence::graph(new RuntimeException('unrelated private-core-fixture-value'))];
+    } elseif ($mutation === 'incomplete') {
+        $record['traversal']['scan_complete'] = false;
+    }
+    $file = $directory . '/20260905-120000-apply-' . str_repeat('a', 24) . '.json';
+    file_put_contents($file, json_encode($record, JSON_THROW_ON_ERROR));
+    chmod($file, 0600);
+    if ($mutation === 'extra') {
+        $extra = $directory . '/20260905-120001-apply-' . str_repeat('b', 24) . '.json';
+        copy($file, $extra);
+        chmod($extra, 0600);
+    }
+    exit(0);
+}
+if (($argv[1] ?? '') === '--native') {
+    $wpdb = FakeWpdb::install();
+    foreach ($nativeTables as $table) {
+        $wpdb->seedTable('wp_' . $table, [['ID' => 1, 'meta_id' => 1, 'comment_ID' => 1,
+            'object_id' => 1, 'term_id' => 1, 'term_taxonomy_id' => 1, 'option_id' => 1,
+            'uuid' => 'fixture', 'id_kind' => 'post', 'k' => 'fixture', 'id' => 1]]);
+    }
+    $wpdb->seedTable('wp_wprism_map', array_map(static fn(string $kind): array => [
+        'uuid' => '11111111-1111-4111-8111-111111111111', 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => '7',
+    ], ['post', 'term', 'term_taxonomy', 'widget:block']));
+    $mutation = $argv[3];
+    if (str_starts_with($mutation, 'error:')) {
+        $wpdb->failNextQuery('private-core-fixture-value', 'FROM wp_' . substr($mutation, 6) . ' ');
+    } elseif ($mutation === 'null' || $mutation === 'false') {
+        $wpdb->returnNextGetResultsAs($mutation === 'null' ? null : false, 'FROM wp_posts ');
+    } elseif ($mutation === 'rows' || $mutation === 'exact-rows') {
+        $wpdb->returnNextGetResultsAs(array_fill(0, $mutation === 'rows' ? 4097 : 4096, ['ID' => 1]), 'FROM wp_posts ');
+    } elseif ($mutation === 'bytes') {
+        $wpdb->returnNextGetResultsAs([['value' => str_repeat('x', 1048576)]], 'FROM wp_posts ');
+    }
+    try {
+        eval($argv[2]);
+        exit(0);
+    } catch (Throwable $failure) {
+        fwrite(STDERR, $failure->getMessage() . "\n");
+        exit(1);
+    }
+}
+if (($argv[1] ?? '') === '--widget-eval') {
+    $options = json_decode((string) file_get_contents($argv[2]), true, 8, JSON_THROW_ON_ERROR);
+    $store = WpStore::reset()->seedOptions($options);
+    try {
+        eval($argv[3]);
+        if ($argv[4] === 'cleanup-change' && str_contains($argv[3], 'unset($widgets[99])')) {
+            update_option('widget_block', [21 => ['content' => 'changed unrelated widget']]);
+            echo 'invalid readback';
+        }
+        file_put_contents($argv[2], json_encode($store->options, JSON_THROW_ON_ERROR));
+        exit(0);
+    } catch (Throwable $failure) {
+        fwrite(STDERR, $failure->getMessage() . "\n");
+        exit(1);
+    }
+}
+
+$source = (string) file_get_contents($profileRoot . '/sandbox/conformance/checks/core.sh');
+// Stable fixture neighbors include the former bare `>/dev/null` command too;
+// extracting only new capture-variable names would skip the prior defect.
+$commandAfter = static function (string $before, string $after) use ($source): string {
+    $start = strpos($source, $before);
+    if ($start === false) {
+        throw new RuntimeException('missing core fixture command predecessor');
+    }
+    $start += strlen($before);
+    $end = strpos($source, $after, $start);
+    if ($end === false) {
+        throw new RuntimeException('missing core fixture command successor');
+    }
+    return substr($source, $start, $end - $start);
+};
+$start = strpos($source, 'core_private_refusal_evidence() {');
+$end = strpos($source, '# issue #3210: absence alone', (int) $start);
+wprism_check(is_int($start) && is_int($end), 'core owns one explicit receipt/native/refusal evidence block');
+$helpers = substr($source, (int) $start, (int) $end - (int) $start);
+$uuid = '11111111-1111-4111-8111-111111111111';
+$secondUuid = '22222222-2222-4222-8222-222222222222';
+[$pageStatus, $pageJson, $pageStderr] = ShellProbe::run('"$1" "$2" --page-plan "$3"', [PHP_BINARY, $self, $uuid], $root);
+wprism_check($pageStatus === 0 && $pageStderr === '', 'page tombstone and full target planner produce a warning-free row');
+$pageRow = json_decode($pageJson, true, 16, JSON_THROW_ON_ERROR);
+wprism_check(($pageRow['uuid'] ?? null) === $uuid && ($pageRow['type'] ?? null) === 'post'
+    && ($pageRow['deletion_kind'] ?? null) === 'post' && ($pageRow['deletion_type'] ?? null) === 'page',
+    'actual page deletion planning preserves the logical post kind separately from its page subtype');
+[$presentStatus, $presentJson, $presentStderr] = ShellProbe::run('"$1" "$2" --page-plan "$3" present', [PHP_BINARY, $self, $uuid], $root);
+wprism_check($presentStatus === 0 && $presentStderr === '', 'real fresh target snapshot and repeat plan complete without diagnostics');
+$present = json_decode($presentJson, true, 32, JSON_THROW_ON_ERROR);
+$expected = $present['before'];
+$expected['wprism_map'] = [['uuid' => $uuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 7]];
+wprism_check($present['before']['wprism_map'] === [] && $present['after'] === $expected,
+    'real full planning restores exactly the embedded page tuple, preserves every other native-table byte and mints no identity for the untracked page');
+wprism_check($present['after'] === $present['repeated'] && $present['after']['wprism_state'] === [],
+    'real repeat planning is a native and ledger fixed point and never publishes a last-synced baseline');
+foreach (['first', 'repeat'] as $stage) {
+    $plan = $present[$stage];
+    wprism_check($plan['deleted'] === [] && $plan['delete'] === [] && count($plan['delete_conflict']) === 1
+        && $plan['delete_conflict'][0]['uuid'] === $uuid
+        && $plan['delete_conflict'][0]['reason'] === 'target entity exists but has no last-synced base',
+        "real $stage plan retains the existing page as a missing-base deletion conflict");
+}
+$contexts = [
+    'plain' => '{}',
+    'forced-comments' => json_encode(['uuid' => $uuid, 'comment_id' => 23], JSON_THROW_ON_ERROR),
+    'forced-conflicts' => json_encode(['delete_conflict' => [
+        ['uuid' => $uuid, 'reason' => 'target entity changed locally since the tombstone base'],
+        ['uuid' => $secondUuid, 'reason' => 'tombstone expected hash does not match the target last-synced base'],
+    ]], JSON_THROW_ON_ERROR),
+];
+$records = [];
+$answers = [];
+foreach ([
+    ['plain', '[]'], ['unknown', '{}'], ['plain', '{'], ['plain', str_repeat('x', 65537)],
+    ['forced-comments', json_encode(['uuid' => $uuid, 'comment_id' => '23'])],
+    ['forced-comments', json_encode(['uuid' => $uuid, 'comment_id' => 0])],
+    ['forced-comments', json_encode(['uuid' => '../private-core-fixture-value', 'comment_id' => 23])],
+    ['forced-conflicts', '{"delete_conflict":[]}'],
+    ['forced-conflicts', json_encode(['delete_conflict' => [['uuid' => $uuid, 'reason' => 'unrelated private-core-fixture-value']]])],
+    ['forced-conflicts', json_encode(['delete_conflict' => array_fill(0, 17, ['uuid' => $uuid, 'reason' => 'target entity changed locally since the tombstone base'])])],
+    ['forced-conflicts', json_encode(['delete_conflict' => array_fill(0, 2, ['uuid' => $uuid, 'reason' => 'target entity changed locally since the tombstone base'])])],
+] as $index => [$name, $context]) {
+    $failure = null;
+    try {
+        core_private_refusal_profile($name, $context);
+    } catch (RuntimeException $caught) {
+        $failure = $caught;
+    }
+    wprism_check($failure instanceof RuntimeException && !str_contains($failure->getMessage(), 'private-core-fixture-value'),
+        "closed core profile context mutation $index refuses without inferring a private cause");
+}
+foreach ($contexts as $name => $contextJson) {
+    $leaf = null;
+    try {
+        (new DeletionWriterExclusion())->assert_plan_authority();
+    } catch (CommandRefusalException $failure) {
+        $leaf = $failure;
+    }
+    wprism_check($leaf instanceof CommandRefusalException, "$name: real unsigned authority gate refuses before any target access");
+    $coordinator = (new ReflectionClass(ApplyRequestCoordinator::class))->newInstanceWithoutConstructor();
+    $warnings = [];
+    $forced = [];
+    if ($name === 'forced-comments') {
+        DeleteGuardLockCoordinator::append_forced_warnings($warnings, $pageRow + [
+            'guard_refs' => [['table' => 'comments', 'rows' => ['comments.comment_ID=23'],
+                'repairable' => false, 'option_name_ref' => false]],
+        ], 'FORCED delete of guarded');
+    } elseif ($name === 'forced-conflicts') {
+        foreach (json_decode($contextJson, true)['delete_conflict'] as $row) {
+            $warnings[] = "FORCED deletion conflict {$row['uuid']} ({$row['reason']})";
+            $forced[] = ApplyPlanner::forced_override_evidence($row, 'delete_conflict', [
+                'with_deletes' => true, 'force_theirs' => true,
+            ]);
+        }
+    }
+    (new ReflectionProperty($coordinator, 'warnings'))->setValue($coordinator, $warnings);
+    (new ReflectionProperty($coordinator, 'forcedOverrideEvidence'))->setValue($coordinator, $forced);
+    $wrapped = (new ReflectionMethod(ApplyRequestCoordinator::class, 'failure_with_forced_warnings'))
+        ->invoke(null, $leaf, $coordinator);
+    $profile = core_private_refusal_profile($name, $contextJson);
+    $graph = PrivateRefusalEvidence::graph($wrapped);
+    $observedNodes = array_map(static fn(array $node): array => array_intersect_key($node, array_flip([
+        'parent_index', 'relation', 'class', 'message',
+    ])), $graph['throwable']);
+    wprism_check($observedNodes == $profile['nodes'], "$name: fixture profile equals real guard/coordinator exact cause graph");
+    $records[$name] = json_encode(['format' => 'wprism-private-refusal-evidence/v2',
+        'command' => 'apply', 'reason_code' => $profile['reason_code'], ...$graph], JSON_THROW_ON_ERROR);
+    WP_CLI::$lines = [];
+    try {
+        (new ReflectionMethod(Cli::class, 'halt_json_failure'))->invoke(null, $wrapped, ['format' => 'json'], 'apply');
+    } catch (CoreEvidenceHalt) {
+    }
+    $answers[$name] = WP_CLI::$lines[0] ?? '';
+    $public = json_decode($answers[$name], true);
+    wprism_check(($public['reason_code'] ?? null) === $profile['reason_code']
+        && !str_contains($answers[$name], WPRISM_CORE_DELETION_EXCLUSION_CAUSE),
+        "$name: real CLI public refusal has exact reason and no private cause");
+}
+
+$setup = <<<'SH'
+set -euo pipefail
+root="$1" php="$2" self="$3" profile="$4" context="$5" record="$6" fixture_answer="$7" mutation="$8"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$root/sandbox/conformance/asserts.sh"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-evidence.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
+ln -s "$root" "$scratch/source root"
+PAIR_SOURCE_ROOT="$scratch/source root" COMPOSE=fixture_compose
+fixture_observation_diagnostic() {
+  case "$mutation" in
+    "$1-php-stdout") printf 'PHP Warning: fixture observation in /fixture.php on line 1\n' ;;
+    "$1-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
+  esac
+}
+fixture_compose() {
+  local expected=(run --rm -T --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro"
+    --volume "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-private-refusal-evidence.php:/wprism-test/core-private-refusal-evidence.php:ro"
+    --entrypoint php cli2 /wprism-test/core-private-refusal-evidence.php /wprism-test/PrivateRefusalReceipt.php)
+  local word
+  for word in "${expected[@]}"; do [ "${1:-}" = "$word" ] || return 94; shift; done
+  [ "${3:-}" = /siterepo/.wprism/refusals ] || return 95
+  [ "$mutation" != missing-mount ] || return 96
+  local boundary="private-$1"
+  if [ "$1" = verify ] && [ "$mutation" = empty-baseline ]; then [ "${5:-}" = '[]' ] || return 98; fi
+  fixture_observation_diagnostic "$boundary"
+  "$php" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-private-refusal-evidence.php" \
+    "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php" "$1" "$2" "$scratch/refusals" "$4" "${@:5}" || return $?
+  [ "$mutation" != "$boundary-nonzero" ] || return 7
+}
+wp_conf2() {
+  if [ "$1" = eval ]; then
+    local boundary=native-before
+    [ ! -f "$scratch/applied" ] || boundary=native-after
+    fixture_observation_diagnostic "$boundary"
+    [ "$mutation" != empty-native ] || return 0
+    if [ "$mutation" = native-change ] && [ -f "$scratch/applied" ]; then printf '{"posts":"after"}\n'; else printf '{"posts":"before"}\n'; fi
+    [ "$mutation" != "$boundary-nonzero" ] || return 7
+    return 0
+  fi
+  [ "$1 $2" = 'wprism apply' ] || return 97
+  touch "$scratch/applied"
+  if [ "$mutation" != stale ]; then "$php" "$self" --write-record "$scratch/refusals" "$record" "$mutation"; fi
+  case "$mutation" in
+    php-stdout) printf 'PHP Warning: private-core-fixture-value in /fixture.php on line 1\n' ;;
+    php-stderr) printf 'PHP Parse error: private-core-fixture-value\n' >&2 ;;
+    private-leak) printf 'wprism: deletion refused before mutation — no exact held external writer exclusion is bound\n' ;;
+  esac
+  case "$mutation" in
+    wrong-envelope) printf '%s\n' "$fixture_answer" | jq -c '.reason_code="unrelated_failure"' ;;
+    missing-forced) printf '%s\n' "$fixture_answer" | jq -c 'del(.forced_overrides)' ;;
+    *) printf '%s\n' "$fixture_answer" ;;
+  esac
+  [ "$mutation" = zero-exit ] && return 0
+  return 1
+}
+if [ "$mutation" = stale ]; then "$php" "$self" --write-record "$scratch/refusals" "$record" ready; fi
+COMMENT_EXCLUSION_CONTEXT="$context" LOCAL_EXCLUSION_CONTEXT="$context"
+BRANCH_EXCLUSION_CONTEXT="$context" RESTORED_EXCLUSION_CONTEXT="$context"
+SH;
+preg_match_all('/^core_assert_deletion_exclusion (plain|forced-comments|forced-conflicts) .*$/m', $source, $calls, PREG_SET_ORDER);
+wprism_check(count($calls) === 5, 'all five direct-deletion acceptance sites use the exact fresh refusal evidence owner');
+foreach ($calls as $index => $call) {
+    $name = $call[1];
+    $mutations = ['ready', 'empty-baseline', 'zero-exit', 'wrong-envelope', 'php-stdout', 'php-stderr', 'private-leak',
+        'stale', 'unrelated', 'incomplete', 'extra', 'missing-mount', 'native-change', 'empty-native'];
+    foreach (['native-before', 'native-after', 'private-snapshot', 'private-verify'] as $boundary) {
+        foreach (['php-stdout', 'php-stderr', 'nonzero'] as $failure) {
+            $mutations[] = "$boundary-$failure";
+        }
+    }
+    if ($name === 'forced-conflicts') {
+        $mutations[] = 'missing-forced';
+    }
+    foreach ($mutations as $mutation) {
+        [$status, $stdout, $stderr] = ShellProbe::run($setup . "\n" . $helpers . "\n" . $call[0] . "\nprintf 'CORE_READY\\n'\n",
+            [$root, PHP_BINARY, $self, $name, $contexts[$name], $records[$name], $answers[$name], $mutation], $root);
+        $positive = in_array($mutation, ['ready', 'empty-baseline'], true);
+        if ($positive && $status !== 0) {
+            fwrite(STDERR, $stderr);
+        }
+        wprism_check($positive
+            ? $status === 0 && str_contains($stdout, 'CORE_READY')
+            : $status !== 0 && ($stdout . $stderr) !== '' && !str_contains($stdout, 'CORE_READY')
+                && !str_contains($stdout . $stderr, 'private-core-fixture-value')
+                && !str_contains($stdout . $stderr, WPRISM_CORE_DELETION_EXCLUSION_CAUSE),
+            "actual core deletion site $index ($name): $mutation is classified without private payload (exit $status)");
+    }
+}
+
+[$nativeStatus, $nativeProgram] = ShellProbe::run(
+    "wp_conf2() { printf '%s' \"\$2\"; }\n" . $helpers . "\ncore_deletion_native_state\n", [], $root);
+wprism_check($nativeStatus === 0 && str_contains($nativeProgram, 'LIMIT 4097'), 'native state proof executes the actual shell-submitted bounded SQL program');
+foreach (['ready', 'exact-rows', 'null', 'false', 'rows', 'bytes', ...array_map(static fn(string $table): string => 'error:' . $table, $nativeTables)] as $mutation) {
+    [$status, $stdout, $stderr] = ShellProbe::run('"$1" "$2" --native "$3" "$4"', [PHP_BINARY, $self, $nativeProgram, $mutation], $root);
+    $positive = in_array($mutation, ['ready', 'exact-rows'], true);
+    $observed = json_decode($stdout, true);
+    wprism_check($positive ? $status === 0 && array_keys($observed ?? []) === [...$nativeTables, 'restorable_map']
+        : $status !== 0 && $stdout === '' && !str_contains($stderr, 'private-core-fixture-value'),
+        "actual native SQL read: $mutation cannot turn an error or unbounded read into equality");
+    if ($positive) {
+        $restorable = array_map(static fn(string $kind): array => [
+            'uuid' => '11111111-1111-4111-8111-111111111111', 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => '7',
+        ], ['post', 'term', 'term_taxonomy']);
+        wprism_check(($observed['wprism_map']['count'] ?? null) === 4 && ($observed['restorable_map'] ?? null) === [
+            'count' => 3, 'sha256' => hash('sha256', json_encode($restorable, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
+        ], "actual native $mutation projection binds every restorable tuple byte and excludes ledger-only widget identity");
+    }
+}
+[$privateProgramStatus, $privateProgram] = ShellProbe::run(
+    "wp_conf2() { printf '%s' \"\$2\"; }\n" . $helpers . "\ncore_deletion_native_state private\n", [], $root);
+foreach (['ready', 'exact-rows', 'null', 'false', 'rows', 'bytes', ...array_map(static fn(string $table): string => 'error:' . $table, $nativeTables)] as $mutation) {
+    [$privateStatus, $privateJson, $privateStderr] = ShellProbe::run('"$1" "$2" --native "$3" "$4"',
+        [PHP_BINARY, $self, $privateProgram, $mutation], $root);
+    $positive = in_array($mutation, ['ready', 'exact-rows'], true);
+    $privateRecord = json_decode($privateJson, true);
+    $privateWitness = null;
+    try {
+        $privateWitness = core_native_state_evidence_projection($privateRecord ?? []);
+    } catch (Throwable) {
+    }
+    wprism_check($positive
+        ? $privateProgramStatus === 0 && $privateStatus === 0 && $privateStderr === ''
+            && is_array($privateWitness) && ($privateRecord['verified'] ?? null) === false
+        : $privateStatus !== 0 && $privateJson === '' && !str_contains($privateStderr, 'private-core-fixture-value'),
+        "actual private native SQL $mutation retains complete bounded rows or refuses without an incomplete witness");
+}
+
+$parkedBlock = ShellProbe::captureBlock($source, 'PARKED_BEFORE', '# issue #3264 <-> issue #3278 cross-PR finding');
+$widgetSetup = <<<'SH'
+set -euo pipefail
+root="$1" php="$2" self="$3" mutation="$4"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+pass() { :; }
+. "$root/sandbox/conformance/asserts.sh"
+CONF_REPO1=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-widgets.XXXXXX")
+trap 'rm -rf -- "$CONF_REPO1"' EXIT
+mkdir "$CONF_REPO1/state"
+printf '%s' '{"widget_block":{"21":{"content":"authored image"},"_multiwidget":1},"sidebars_widgets":{"sidebar-1":["block-21"],"wp_inactive_widgets":[],"array_version":3}}' >"$CONF_REPO1/options"
+wp_conf1() {
+  if [ "$1" = eval ]; then
+    local boundary=widget-before
+    case "$2" in
+      *'unset($widgets[99])'*) boundary=widget-after ;;
+      *'$widgets[99] = '*) boundary=widget-install ;;
+      *'Attachment retired in source intent'*) boundary=widget-retire ;;
+    esac
+    case "$mutation" in
+      "$boundary-php-stdout") printf 'PHP Warning: fixture observation in /fixture.php on line 1\n' ;;
+      "$boundary-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
+    esac
+    "$php" "$self" --widget-eval "$CONF_REPO1/options" "$2" "$mutation" || return $?
+    [ "$mutation" != "$boundary-nonzero" ] || return 7
+    return 0
+  fi
+  [ "$1 $2" = 'wprism capture' ] || return 96
+  local warning='unreferenced wp_inactive_widgets entries are target-owned; parked widget content will not propagate'
+  if jq -e '.widget_block | has("99")' "$CONF_REPO1/options" >/dev/null; then
+    [ "$mutation" != php ] || printf 'PHP Warning: fixture in /fixture.php on line 1\n' >&2
+    [ "$mutation" != captured ] || printf 'Parked source-only widget' >"$CONF_REPO1/state/leak"
+    [ "$mutation" != wrong-warning ] || warning='unrelated warning'
+    [ "$mutation" != missing-tree ] || rmdir "$CONF_REPO1/state"
+    jq -nc --arg warning "$warning" '{warnings:[$warning],counts:{}}'
+    [ "$mutation" != nonzero ] || return 7
+  else
+    if [ "$mutation" = residual-warning ]; then jq -nc --arg warning "$warning" '{warnings:[$warning],counts:{}}'; else printf '{"warnings":[],"counts":{}}\n'; fi
+  fi
+}
+SH;
+$widgetMutations = ['ready', 'wrong-warning', 'php', 'nonzero', 'captured', 'missing-tree', 'cleanup-change', 'residual-warning'];
+foreach (['widget-before', 'widget-install', 'widget-after'] as $boundary) {
+    foreach (['php-stdout', 'php-stderr', 'nonzero'] as $failure) {
+        $widgetMutations[] = "$boundary-$failure";
+    }
+}
+foreach ($widgetMutations as $mutation) {
+    [$status, $stdout] = ShellProbe::run($widgetSetup . "\n" . $parkedBlock . "\nprintf 'WIDGET_READY\\n'\n", [$root, PHP_BINARY, $self, $mutation], $root);
+    wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'WIDGET_READY')
+        : $status !== 0 && !str_contains($stdout, 'WIDGET_READY'), "actual parked-widget warning/cleanup block rejects $mutation counterfactual correctly");
+}
+$attachmentBlock = $commandAfter("# refusal rather than the intended tombstone expected-base conflict.\n", 'wp_conf1 post delete "$ATT1"');
+$attachmentSetup = str_replace('authored image', '<!-- wp:image {} -->authored image', $widgetSetup);
+foreach (['ready', 'widget-retire-php-stdout', 'widget-retire-php-stderr', 'widget-retire-nonzero'] as $mutation) {
+    [$status, $stdout] = ShellProbe::run($attachmentSetup . "\n" . $attachmentBlock . "\nprintf 'ATTACHMENT_READY\\n'\n",
+        [$root, PHP_BINARY, $self, $mutation], $root);
+    wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'ATTACHMENT_READY')
+        : $status !== 0 && !str_contains($stdout, 'ATTACHMENT_READY'), "actual attachment-widget retirement classifies $mutation before accepting its native write");
+}
+
+$seed = (string) file_get_contents($root . '/sandbox/conformance/seeds/core.sh');
+wprism_check(!str_contains($seed, "'wp_inactive_widgets'=>['block-99']")
+    && !str_contains($seed, 'Parked source-only widget'), 'positive source seed contains no deliberate parked-widget warning fixture');
+$deletionRegion = substr($source, (int) $end);
+wprism_check(!str_contains($deletionRegion, 'format=json >/dev/null')
+    && !str_contains($deletionRegion, 'wp_conf1 wprism capture --repo=/siterepo >/dev/null')
+    && !str_contains($deletionRegion, 'partial delete failure rolls the transaction back')
+    && !str_contains($deletionRegion, 'wprism_delete_block'),
+    'pending tombstones never reach an ordinary positive apply or claim an unexecuted post-FK rollback');
+preg_match_all('/^capture_wprism_json_checked [^\n]+\\\\\n[^\n]+/m', $deletionRegion, $planCaptures);
+$sourceCapturePredecessors = [
+    'LOCAL_DELETE_CAPTURE' => 'wp_conf1 post delete "$HELLO1" --force >/dev/null',
+    'BRANCH_EDIT_CAPTURE' => 'wp_conf1 post update "$ATT1" --post_title=\'Conformance Logo Branch Edit\' >/dev/null',
+    'BRANCH_DELETE_CAPTURE' => 'wp_conf1 post delete "$ATT1" --force >/dev/null',
+    'CHILD_DELETE_CAPTURE' => 'wp_conf1 post delete "$CHILD1" --force >/dev/null',
+];
+$captureCases = [];
+foreach ($planCaptures[0] as $capture) {
+    foreach (array_keys($sourceCapturePredecessors) as $variable) {
+        if (str_starts_with($capture, "capture_wprism_json_checked $variable ")) {
+            continue 2;
+        }
+    }
+    $captureCases[] = $capture;
+}
+foreach ($sourceCapturePredecessors as $predecessor) {
+    $captureCases[] = $commandAfter($predecessor . "\n", "\ngit -C ");
+}
+wprism_check(count($captureCases) === 15, 'exactly 15 actual deletion-region source-capture/target-plan command boundaries are exercised');
+foreach ($captureCases as $index => $capture) {
+    foreach (['ready', 'php-stdout', 'php-stderr', 'required-stdout', 'required-stderr', 'nonzero'] as $mutation) {
+        $script = <<<'SH'
+set -euo pipefail
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$1/sandbox/conformance/asserts.sh"
+fixture_mutation="$2"
+fixture_capture() {
+  case "$fixture_mutation" in
+    php-stdout) printf 'PHP Warning: fixture in /fixture.php on line 1\n' ;;
+    php-stderr) printf 'PHP Parse error: fixture\n' >&2 ;;
+    required-stdout) printf 'Warning: env_missing: fixture\n' ;;
+    required-stderr) printf 'Warning: env_missing: fixture\n' >&2 ;;
+  esac
+  printf '{"warnings":[]}\n'
+  [ "$fixture_mutation" != nonzero ] || return 7
+}
+wp_conf1() { fixture_capture "$@"; }
+wp_conf2() { fixture_capture "$@"; }
+SH;
+        [$status, $stdout] = ShellProbe::run($script . "\n" . $capture . "\nprintf 'CAPTURE_READY\\n'\n", [$root, $mutation], $root);
+        wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'CAPTURE_READY')
+            : $status !== 0 && !str_contains($stdout, 'CAPTURE_READY'), "actual deletion capture/plan command $index classifies $mutation before publishing JSON");
+    }
+}
+$fresh = ApplyPlanner::classify_deletion(['uuid' => $uuid, 'expected_hash' => str_repeat('a', 64)], ['hash' => str_repeat('a', 64)], null);
+wprism_check($fresh['bucket'] === 'delete_conflict'
+    && $fresh['row']['reason'] === 'target entity exists but has no last-synced base'
+    && str_contains($source, 'all(.delete_conflict[]; .reason == "target entity exists but has no last-synced base")'),
+    'clearing ledger history does not reinterpret a UUID-bearing native post as an already-deleted entity');
+
+$freshStart = strpos($source, 'TOMBSTONES=$(find');
+$freshEnd = strpos($source, 'pass "unmapped existing target entities', (int) $freshStart);
+$closedWindowEnd = strpos($source, '# END core fresh native window', (int) $freshStart);
+if (is_int($closedWindowEnd)) {
+    $freshEnd = $closedWindowEnd;
+}
+wprism_check(is_int($freshStart) && is_int($freshEnd), 'fresh-target witness includes the actual history-clearing setup');
+$freshBlock = substr($source, (int) $freshStart, (int) $freshEnd - (int) $freshStart);
+$freshSetup = <<<'SH'
+set -euo pipefail
+root="$1" fixture_answer="$2" mutation="$3" native_snapshots="$4"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+pass() { :; }
+. "$root/sandbox/conformance/asserts.sh"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-fresh.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
+CONF_REPO1="$scratch/site"
+PAIR_SOURCE_ROOT="$scratch/checkout"
+mkdir -p "$CONF_REPO1/state/deletions" "$CONF_REPO1/.wprism"
+mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp" "$PAIR_SOURCE_ROOT/sandbox/tests/lib" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures"
+ln -s "$root/sandbox/tests/lib/private_command_capture.sh" "$PAIR_SOURCE_ROOT/sandbox/tests/lib/private_command_capture.sh"
+ln -s "$root/sandbox/tests/lib/wordpress_cron_window.sh" "$PAIR_SOURCE_ROOT/sandbox/tests/lib/wordpress_cron_window.sh"
+ln -s "$root/sandbox/conformance/fixtures/core-native-state-evidence.php" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-native-state-evidence.php"
+mkdir "$scratch/mu"
+COMPOSE=core_fixture_compose
+core_fixture_compose() {
+  while [ "$1" != cli2 ]; do shift; done
+  shift 4 # cli2, -c, directory-binding command, sh; execute the actual remote payload.
+  (cd "$scratch/mu" && sh "$@")
+}
+touch "$CONF_REPO1/state/deletions/fixture.json"
+grep() {
+  if [ "$mutation" = native-after-large-stderr ] && [ -f "${CORE_NATIVE_EVIDENCE:-}/native-after.stderr" ]; then
+    case "${2:-}" in *'PHP (Warning|'*) printf 'UNBOUNDED_NATIVE_STDERR_READ\n' >&2 ;; esac
+  fi
+  command grep "$@"
+}
+wp_conf2() {
+  if [ "$1" = eval ]; then
+    php -r 'require $argv[1]; eval($argv[2]);' "$scratch/mu/wprism-native-read-window.php" "$2"
+    return
+  fi
+  if [ "$1 $2" = 'db query' ]; then
+    [ "$3" = 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' ] || return 95
+    touch "$scratch/cleared"
+    [ "$mutation" != clear-nonzero ] || return 7
+    return 0
+  fi
+  [ "$1 $2" = 'wprism plan' ] || return 96
+  local boundary=plan
+  if [ -f "$scratch/planned" ]; then boundary=repeat; touch "$scratch/repeated"; else touch "$scratch/planned"; fi
+  [ "$mutation" != "$boundary-php" ] || printf 'PHP Warning: fixture in /fixture.php on line 1\n' >&2
+  [ "$mutation" != "$boundary-required" ] || printf 'Warning: env_missing: fixture\n' >&2
+  if [ "$mutation" = "$boundary-conflict-change" ]; then
+    jq -c '.delete_conflict[0].reason="unrelated target failure"' <<<"$fixture_answer"
+  else printf '%s\n' "$fixture_answer"; fi
+  [ "$mutation" != "$boundary-nonzero" ] || return 7
+}
+core_deletion_native_state() {
+  local boundary=identity-baseline
+  [ ! -f "$scratch/cleared" ] || boundary=native-before
+  [ ! -f "$scratch/planned" ] || boundary=native-after
+  [ ! -f "$scratch/repeated" ] || boundary=native-repeated
+  case "$mutation" in
+    "$boundary-php-stdout") printf 'PHP Warning: fixture observation in /fixture.php on line 1\n' ;;
+    "$boundary-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
+  esac
+  [ "$mutation" != "$boundary-empty" ] || return 0
+  [ "$mutation" != "$boundary-large-stderr" ] || printf '%1048577s' '' >&2
+  if [ "${1:-witness}" = private ]; then
+    if [ "$mutation" = cron-churn ] && [ ! -f "$scratch/mu/wprism-native-read-window.php" ] \
+        && [ "$boundary" = native-after ]; then
+      jq -c '.unfrozen_cron' <<<"$native_snapshots"
+    else jq -c --arg boundary "$boundary" '.[$boundary]' <<<"$native_snapshots"; fi
+    case "$mutation" in
+      "$boundary-mode:"*) touch "$CORE_NATIVE_EVIDENCE/$boundary.${mutation##*:}"; chmod 0644 "$CORE_NATIVE_EVIDENCE/$boundary.${mutation##*:}" ;;
+      "$boundary-hardlink") ln "$CORE_NATIVE_EVIDENCE/$boundary.stdout" "$scratch/private-hardlink" ;;
+    esac
+  else jq -c --arg boundary "$boundary" '.[$boundary].witness' <<<"$native_snapshots"; fi
+  [ "$mutation" != "$boundary-nonzero" ] || return 7
+}
+SH;
+$freshTables = [];
+foreach ($nativeTables as $table) {
+    $freshTables[$table] = [['fixture' => 'private-core-native-value:' . $table]];
+}
+$freshTables['wprism_map'] = array_map(static fn(string $kind): array => [
+    'uuid' => $uuid, 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => '7',
+], ['post', 'term', 'term_taxonomy', 'widget:block']);
+$freshTables['options'] = [
+    ['option_id' => '1', 'option_name' => '_transient_doing_cron', 'option_value' => 'clock-before'],
+    ['option_id' => '2', 'option_name' => 'core_native_mutation_tooth', 'option_value' => 'durable-before'],
+];
+$nativeDiagnostic = static function (array $tables): array {
+    $witness = [];
+    foreach ($tables as $table => $rows) {
+        $witness[$table] = ['count' => count($rows), 'sha256' => hash('sha256',
+            json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))];
+    }
+    $restorable = array_values(array_filter($tables['wprism_map'], static fn(array $row): bool =>
+        in_array($row['id_kind'], ['post', 'term', 'term_taxonomy'], true)));
+    $witness['restorable_map'] = ['count' => count($restorable), 'sha256' => hash('sha256',
+        json_encode($restorable, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))];
+    return ['format' => 'wprism-core-native-state-diagnostic/v1', 'purpose' => 'diagnostic_only',
+        'verified' => false, 'tables' => $tables, 'witness' => $witness];
+};
+$freshMutations = ['ready', 'cron-churn', 'cron-write-through-guard', 'durable-option-write',
+    'old-deleted', 'wrong-reason', 'wrong-count', 'clear-nonzero',
+    'native-after-no-restoration', 'native-after-missing-table', 'native-after-mode:stdout',
+    'native-after-mode:stderr', 'native-after-mode:exit', 'native-after-hardlink', 'native-after-large-stderr',
+    'native-after-record:format', 'native-after-record:purpose', 'native-after-record:verified',
+    'native-after-record:row', 'native-after-record:column', 'native-after-record:hash',
+    'native-after-record:count', 'native-after-record:extra-witness', 'native-after-record:map-kind'];
+foreach (['plan', 'repeat'] as $boundary) {
+    foreach (['php', 'required', 'nonzero', 'conflict-change'] as $failure) {
+        $freshMutations[] = "$boundary-$failure";
+    }
+}
+foreach (['identity-baseline', 'native-before', 'native-after', 'native-repeated'] as $boundary) {
+    foreach (['php-stdout', 'php-stderr', 'nonzero', 'empty'] as $failure) {
+        $freshMutations[] = "$boundary-$failure";
+    }
+}
+foreach (['native-before', 'native-after', 'native-repeated'] as $boundary) {
+    foreach ([...$nativeTables, 'restorable_map'] as $table) {
+        $freshMutations[] = "$boundary-change:$table";
+    }
+}
+foreach ($freshMutations as $mutation) {
+    $snapshots = [];
+    foreach (['identity-baseline', 'native-before', 'native-after', 'native-repeated'] as $stage) {
+        $tables = $freshTables;
+        if ($stage !== 'identity-baseline') {
+            $tables['wprism_state'] = [];
+            $tables['wprism_map'] = $stage === 'native-before' ? []
+                : array_values(array_filter($tables['wprism_map'], static fn(array $row): bool => $row['id_kind'] !== 'widget:block'));
+        }
+        if ($mutation === "$stage-no-restoration") {
+            $tables['wprism_map'] = [];
+        } elseif (str_starts_with($mutation, "$stage-change:")) {
+            $changedTable = substr($mutation, strlen("$stage-change:"));
+            if ($changedTable !== 'restorable_map') {
+                $tables[$changedTable][] = $freshTables[$changedTable][0];
+            }
+        }
+        if ($stage === 'native-after' && in_array($mutation, ['cron-write-through-guard', 'durable-option-write'], true)) {
+            $tables['options'][$mutation === 'durable-option-write' ? 1 : 0]['option_value'] = 'real-change';
+        }
+        $snapshots[$stage] = $nativeDiagnostic($tables);
+        if ($stage === 'native-after') {
+            $unfrozen = $tables;
+            $unfrozen['options'][0]['option_value'] = 'clock-after';
+            $snapshots['unfrozen_cron'] = $nativeDiagnostic($unfrozen);
+        }
+        if ($mutation === "$stage-change:restorable_map") {
+            $snapshots[$stage]['witness']['restorable_map']['sha256'] = str_repeat('0', 64);
+        } elseif ($mutation === "$stage-missing-table") {
+            unset($snapshots[$stage]['tables']['posts']);
+        }
+        if (str_starts_with($mutation, "$stage-record:")) {
+            $variant = substr($mutation, strlen("$stage-record:"));
+            switch ($variant) {
+                case 'format':
+                    $snapshots[$stage]['format'] = 'unrelated/v1';
+                    break;
+                case 'purpose':
+                    $snapshots[$stage]['purpose'] = 'native_acceptance';
+                    break;
+                case 'verified':
+                    $snapshots[$stage]['verified'] = true;
+                    break;
+                case 'row':
+                    $snapshots[$stage]['tables']['posts'][0] = 'invalid';
+                    break;
+                case 'column':
+                    $snapshots[$stage]['tables']['posts'][0]['fixture'] = ['invalid'];
+                    break;
+                case 'hash':
+                    $snapshots[$stage]['witness']['posts']['sha256'] = str_repeat('0', 64);
+                    break;
+                case 'count':
+                    $snapshots[$stage]['witness']['posts']['count']++;
+                    break;
+                case 'extra-witness':
+                    $snapshots[$stage]['witness']['unknown'] = [];
+                    break;
+                case 'map-kind':
+                    unset($snapshots[$stage]['tables']['wprism_map'][0]['id_kind']);
+                    break;
+            }
+        }
+    }
+    $answer = ['warnings' => [], 'deleted' => [], 'delete' => [], 'delete_conflict' => [$fresh['row']]];
+    if ($mutation === 'old-deleted') {
+        $answer['deleted'] = $answer['delete_conflict'];
+        $answer['delete_conflict'] = [];
+    } elseif ($mutation === 'wrong-reason') {
+        $answer['delete_conflict'][0]['reason'] = 'unrelated target failure';
+    } elseif ($mutation === 'wrong-count') {
+        $answer['delete_conflict'][] = $fresh['row'];
+    }
+    $cleanupProof = <<<'SH'
+. "$root/sandbox/lib/pair_siterepo.sh"
+[ ! -e "$scratch/mu/wprism-native-read-window.php" ] || fail 'cron guard survived the complete observation window'
+# Exercise the real in-place reset against this test's own site, including
+# its permission broadening. A diagnostic stored inside the site is lost.
+pair_siterepo_clear_root "$CONF_REPO1"
+for stage in identity-baseline native-before native-after native-repeated; do
+  php "$root/sandbox/conformance/fixtures/core-native-state-evidence.php" "$CORE_NATIVE_EVIDENCE/$stage" >/dev/null
+done
+printf 'FRESH_READY\n'
+SH;
+    [$status, $stdout, $stderr] = ShellProbe::run($helpers . "\n" . $freshSetup . "\n" . $freshBlock . "\n" . $cleanupProof,
+        [$root, json_encode($answer, JSON_THROW_ON_ERROR), $mutation, json_encode($snapshots, JSON_THROW_ON_ERROR)], $root);
+    wprism_check(in_array($mutation, ['ready', 'cron-churn'], true) ? $status === 0 && str_contains($stdout, 'FRESH_READY')
+        : $status !== 0 && !str_contains($stdout, 'FRESH_READY'), "actual unmapped-target final plan distinguishes $mutation at the exact maintenance boundary");
+    wprism_check(!str_contains($stdout . $stderr, 'private-core-native-value'),
+        "actual $mutation native diagnostic rows never enter the public stream");
+    if ($mutation === 'native-after-large-stderr') {
+        wprism_check(!str_contains($stderr, 'UNBOUNDED_NATIVE_STDERR_READ'),
+            'oversized native stderr is rejected by file admission before the shell diagnostic predicate reads it');
+    }
+}
+
+wprism_check_summary('core conformance evidence');

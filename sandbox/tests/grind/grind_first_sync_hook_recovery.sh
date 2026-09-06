@@ -30,6 +30,8 @@ STATE="$SITE/state/options/core.json"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+. lib/pair_db.sh
+pair_db_select_engine
 
 cleanup() {
   local status=$?
@@ -51,7 +53,7 @@ cleanup() {
       printf 'FAIL: first-sync cleanup left Docker resources for project wprism-%s behind\n' "$PAIR" >&2
       status=1
     fi
-    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw \
+    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root "$DB_CONTAINER" "$DB_CLIENT" -uroot -N -B --raw \
       -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
       printf 'FAIL: first-sync cleanup could not verify database removal for %s\n' "$PAIR" >&2
       status=1
@@ -118,7 +120,7 @@ root_wp() {
 }
 target_php() { "${COMPOSE[@]}" run --rm -T cli1 php -r "$1"; }
 db_scalar() {
-  docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}1" -e "$1" \
+  docker exec -e MYSQL_PWD=root "$DB_CONTAINER" "$DB_CLIENT" -uroot -N -B --raw "wp_${PAIR}1" -e "$1" \
     | tr -d '\r'
 }
 ledger_value() { db_scalar "SELECT v FROM wp_wprism_kv WHERE k = '$1'"; }

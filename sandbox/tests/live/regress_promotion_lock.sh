@@ -16,6 +16,8 @@ wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. sandbox/lib/pair_db.sh
+pair_db_select_engine
 share_source_repo() {
   "${COMPOSE[@]}" run --rm -T cli1 sh -c '
     [ ! -e /siterepo/state ] || chmod -R a+rwX /siterepo/state
@@ -72,7 +74,7 @@ pass 'baseline target materialized'
 
 wp2 wprism compile --repo=/siterepo --out=/siterepo/.tmp-promotion-artifact.json --format=json >/dev/null
 ARTIFACT_HASH="$(jq -r '.artifact_hash' "$R2/.tmp-promotion-artifact.json")"
-wp2 wprism promotion-begin --promotion-owner=handoff-owner --artifact-hash="$ARTIFACT_HASH" >/dev/null
+wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=handoff-owner --artifact-hash="$ARTIFACT_HASH" >/dev/null
 wp2 wprism deploy --repo=/siterepo --compiled=/siterepo/.tmp-promotion-artifact.json \
   --promotion-owner=handoff-owner --artifact-hash="$ARTIFACT_HASH" --promotion-hold >/dev/null
 [ "$(wp2 eval 'echo (string) ((\WPrism\PromotionLock::current()["phase"] ?? ""));')" = deployed ] \
@@ -87,9 +89,9 @@ pass 'deploy hands one target lease to apply across wp-cli processes'
 # session recovered/completed, even though that newer session removed the
 # live row on success. Post-begin phases are continuations, never fresh locks.
 "${COMPOSE[@]}" run --rm -T -e WPRISM_TEST_MODE=1 -e WPRISM_TEST_PROMOTION_TTL=1 \
-  cli2 wp wprism promotion-begin --promotion-owner=obsolete-owner --artifact-hash="$ARTIFACT_HASH" >/dev/null
+  cli2 wp wprism promotion-begin --repo=/siterepo --promotion-owner=obsolete-owner --artifact-hash="$ARTIFACT_HASH" >/dev/null
 sleep 2
-wp2 wprism promotion-begin --promotion-owner=recovery-owner --artifact-hash="$ARTIFACT_HASH" >/dev/null
+wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=recovery-owner --artifact-hash="$ARTIFACT_HASH" >/dev/null
 wp2 wprism promotion-abort --promotion-owner=recovery-owner --artifact-hash="$ARTIFACT_HASH" >/dev/null
 if wp2 wprism deploy --repo=/siterepo --compiled=/siterepo/.tmp-promotion-artifact.json \
   --promotion-owner=obsolete-owner --artifact-hash="$ARTIFACT_HASH" \
@@ -113,10 +115,10 @@ HASH_A="$(printf 'a%.0s' {1..64})"
 # from completion release: it is exact-owner/hash, idempotent when a mutating
 # phase already cleaned up, and safe to call after a checkpoint import has put
 # the old row back into wprism_kv.
-wp2 wprism promotion-begin --promotion-owner=checkpoint-owner --artifact-hash="$HASH_A" >/dev/null
+wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=checkpoint-owner --artifact-hash="$HASH_A" >/dev/null
 [ "$(wp2 eval 'echo (string) ((\WPrism\PromotionLock::current()["phase"] ?? ""));')" = checkpoint ] \
   || fail 'promotion-begin did not acquire the checkpoint lease'
-if wp2 wprism promotion-begin --promotion-owner=checkpoint-other --artifact-hash="$HASH_A" \
+if wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=checkpoint-other --artifact-hash="$HASH_A" \
   >/tmp/promotion-lock-checkpoint-contender.log 2>&1; then
   fail 'second promotion-begin entered a live checkpoint lease'
 fi
@@ -127,7 +129,7 @@ wp2 wprism promotion-abort --promotion-owner=checkpoint-owner --artifact-hash="$
 [ "$(wp2 eval 'echo \WPrism\PromotionLock::current() === null ? "none" : "held";')" = none ] \
   || fail 'idempotent promotion-abort left its lease behind'
 
-wp2 wprism promotion-begin --promotion-owner=checkpoint-restore --artifact-hash="$HASH_A" >/dev/null
+wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=checkpoint-restore --artifact-hash="$HASH_A" >/dev/null
 wp2 wprism promotion-abort --promotion-owner=checkpoint-restore --artifact-hash="$HASH_A" >/dev/null
 wp2 eval "\WPrism\Ledger::kv_set('promotion_lock', wp_json_encode([
  'owner'=>'checkpoint-restore', 'artifact_hash'=>'$HASH_A', 'phase'=>'checkpoint',
@@ -137,7 +139,7 @@ wp2 wprism promotion-abort --promotion-owner=checkpoint-restore --artifact-hash=
 [ "$(wp2 eval 'echo \WPrism\PromotionLock::current() === null ? "none" : "held";')" = none ] \
   || fail 'promotion-abort did not clear a checkpoint-restored lease row'
 
-wp2 wprism promotion-begin --promotion-owner=checkpoint-guard --artifact-hash="$HASH_A" >/dev/null
+wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=checkpoint-guard --artifact-hash="$HASH_A" >/dev/null
 if wp2 wprism promotion-abort --promotion-owner=checkpoint-other --artifact-hash="$HASH_A" \
   >/tmp/promotion-lock-abort-owner.log 2>&1; then
   fail 'promotion-abort accepted a different owner'
@@ -154,17 +156,17 @@ pass 'promotion begin/abort serializes checkpointing and safely cleans restored 
 # A same-owner handoff after expiry must fail rather than revive the old
 # checkpoint lease. A distinct owner remains able to recover it after expiry.
 "${COMPOSE[@]}" run --rm -T -e WPRISM_TEST_MODE=1 -e WPRISM_TEST_PROMOTION_TTL=1 \
-  cli2 wp wprism promotion-begin --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" >/dev/null
+  cli2 wp wprism promotion-begin --repo=/siterepo --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" >/dev/null
 sleep 2
 if "${COMPOSE[@]}" run --rm -T -e WPRISM_TEST_MODE=1 -e WPRISM_TEST_PROMOTION_TTL=1 \
-  cli2 wp wprism promotion-begin --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" \
+  cli2 wp wprism promotion-begin --repo=/siterepo --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" \
   >/tmp/promotion-lock-same-owner-expired.log 2>&1; then
   fail 'expired checkpoint owner revived its own lease'
 fi
 grep -q 'expired before handoff' /tmp/promotion-lock-same-owner-expired.log \
   || fail 'same-owner expiry refusal was not explicit'
 wp2 wprism promotion-abort --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" >/dev/null
-wp2 wprism promotion-begin --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" >/dev/null
+wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" >/dev/null
 wp2 wprism promotion-abort --promotion-owner=checkpoint-expired --artifact-hash="$HASH_A" >/dev/null
 pass 'expired checkpoint owner must abort before beginning a fresh recovery lease'
 
@@ -334,7 +336,7 @@ pass 'runtime reverse reference created after planning blocks deletion'
 # not make Capture::snapshot reopen site.wprism.json mid-plan.
 wp2 wprism compile --repo=/siterepo --out=/siterepo/.tmp-frozen-policy.json --format=json >/dev/null
 FROZEN_HASH="$(jq -r '.artifact_hash' "$R2/.tmp-frozen-policy.json")"
-wp2 wprism promotion-begin --promotion-owner=frozen-policy-owner --artifact-hash="$FROZEN_HASH" >/dev/null
+wp2 wprism promotion-begin --repo=/siterepo --promotion-owner=frozen-policy-owner --artifact-hash="$FROZEN_HASH" >/dev/null
 cp "$R2/site.wprism.json" "$R2/.tmp-site.wprism.valid.json"
 "${COMPOSE[@]}" run --rm -T \
   -e WPRISM_TEST_MODE=1 -e WPRISM_TEST_PROMOTION_LOCKED_PAUSE_MS=4000 \

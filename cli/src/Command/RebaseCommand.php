@@ -16,7 +16,8 @@ require_once __DIR__ . '/CodeResolveCommand.php';
 /** Host parser/output boundary for refresh rebase and abort commands. */
 final class RebaseCommand {
     /** @param list<string> $extra */
-    public static function run(EnvironmentDriver $driver, array $extra): int {
+    /** @param null|callable():?int $beforeTarget */
+    public static function run(EnvironmentDriver $driver, array $extra, ?callable $beforeTarget = null): int {
         $fieldMode = count(array_filter($extra, static fn(string $arg): bool =>
             $arg === '--interactive' || str_starts_with($arg, '--interactive=')
             || str_starts_with($arg, '--field-resolution'))) > 0;
@@ -37,6 +38,10 @@ final class RebaseCommand {
                 if (count($flags) !== 1 || $parsed['interactive'] || $parsed['strategy_seen']
                     || $parsed['resolution']['strategy'] !== 'manual' || $parsed['resolution']['records'] !== []) {
                     throw new \RuntimeException('wprism rebase --abort=<run-id> accepts no production-ref or new-branch flags');
+                }
+                $fenceRefusal = $beforeTarget === null ? null : $beforeTarget();
+                if (is_int($fenceRefusal)) {
+                    return $fenceRefusal;
                 }
                 Refresh::abort($flags['--abort']);
                 echo 'refresh rebase aborted: ' . $flags['--abort'] . "\n";
@@ -80,6 +85,10 @@ final class RebaseCommand {
             $scope = isset($flags['--scope-contract'])
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
+            $fenceRefusal = $beforeTarget === null ? null : $beforeTarget();
+            if (is_int($fenceRefusal)) {
+                return $fenceRefusal;
+            }
             $result = Refresh::rebase($driver, $flags['--production-ref'], $flags['--new-branch'], $parsed['resolution'], $scope, $fieldPath, $parsed['interactive'], $parsed['strategy_seen']);
             CodeResolveCommand::renderRefreshPhase($result, 'rebase');
             echo 'refresh rebase complete: ' . $result['new_branch'] . ' at ' . $result['head'] . "\n";

@@ -254,6 +254,7 @@ $target = static function (
     int $mappedTt = 20
 ) use ($tagUuid, $dirtyTerm, $dirtyTaxonomy, $orphanRelationship): LockingFakeWpdb {
     $db = new LockingFakeWpdb(new FakeWpdb());
+    $db->enableInformationSchema();
     $db->setColumns('terms', [
         'term_id' => 'bigint unsigned', 'name' => 'varchar(200)',
         'slug' => 'varchar(200)', 'term_group' => 'bigint',
@@ -325,6 +326,7 @@ $target = static function (
     foreach ([
         $db->terms, $db->term_taxonomy, $db->term_relationships,
         $db->termmeta, $db->posts, $db->postmeta, $db->options,
+        $db->prefix . 'wprism_map',
     ] as $table) {
         $db->addInnoDbTable($table);
     }
@@ -445,7 +447,13 @@ $runDelete = static function (
     $before = $census($db);
     $warnings = [];
     $failure = null;
-    \WPrism\Db::start_repeatable_read('wpforms tag deletion fixture');
+    \WPrism\Db::start_repeatable_read(
+        'wpforms tag deletion fixture',
+        new \WPrism\NativeDatabaseProfile(
+            [$db->prefix . 'wprism_map'],
+            [$db->terms, $db->term_taxonomy, $db->term_relationships, $db->termmeta]
+        )
+    );
     $field->begin_authored_transaction();
     \WPrism\CacheInvalidationTransaction::begin();
     \WPrism\CacheInvalidationTransaction::prepare_term_hierarchy_options(['wpforms_form_tag' => false]);
@@ -540,6 +548,9 @@ $prepare = static function (array $deleteRow, array $opts, Policy $runPolicy): a
             renewRegenerationLease: $noop,
             renewProviderLease: $noop,
             lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            deletionDatabaseProfile: static fn(array $work): array => [
+                'read_tables' => [], 'table_presence_reads' => [],
+            ],
             recheckDeleteGuard: static function (
                 array $row,
                 array $uuids,

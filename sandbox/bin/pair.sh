@@ -91,7 +91,7 @@ source "lib/pair_db.sh"
 # shellcheck source=../lib/pair_compose.sh
 source "lib/pair_compose.sh"
 
-[ -r "lib/pair_lease.sh" ] || fail "pair lease library is missing: lib/pair_lease.sh (parallel evidence lanes cannot reserve names/ports safely)"
+[ -r "lib/pair_lease.sh" ] || fail "pair lease library is missing: lib/pair_lease.sh (parallel evidence lanes cannot reserve complete pair namespaces safely)"
 # shellcheck source=../lib/pair_lease.sh
 source "lib/pair_lease.sh"
 
@@ -385,16 +385,9 @@ remedy: commit or stash those changes, or produce this evidence from a clean sta
 # above: an unknown engine therefore refuses before ANY subcommand runs and
 # before a single docker call is made.
 pair_db_select_engine
-# The selected engine's server name travels with the WHOLE invocation, not just
-# `up`: pair_compose_configure() REWRITES sandbox/.env on every call (stop,
-# start and destroy each call it too, pair.sh:783/832/855), so exporting this
-# inside cmd_up only would let a later `pair.sh stop <mysql-pair>` overwrite
-# that file's WPRISM_DB_HOST with pair_compose.sh's wprism-shared-db default -- and
-# the next subprocess `docker compose -f pair.yml up` from conformance/run.sh
-# or a regress_*.sh would then recreate wp1/wp2 against MariaDB while the
-# operator recorded MySQL evidence. Exported at load, beside the selection it
-# derives from, that window does not exist.
-export WPRISM_DB_HOST="$DB_CONTAINER"
+# The selector exports engine and host for this entire invocation. Direct
+# Compose harnesses also call it in their own parent shell: a subprocess
+# export cannot protect that parent from another pair rewriting shared .env.
 DB_ROOT_USER=root
 DB_ROOT_PASS=root
 APP_USER=wordpress
@@ -665,11 +658,11 @@ cmd_up() {
   say "shared infra: $DB_LABEL + wprism-shared network"
   pair_db_ensure_up
   pair_db_ensure_app_user
-  pass "shared db up, healthy, wordpress user granted on wp\\_%"
+  pass "shared db up, healthy, wordpress user authenticated"
 
   say "pair '$name': databases"
   pair_db_create "$name"
-  pass "wp_${name}1, wp_${name}2 exist"
+  pass "wp_${name}1, wp_${name}2 exist with exact application grants"
 
   say "pair '$name': site-repo directories"
   pair_siterepo_prepare_roots "$name"
@@ -773,6 +766,7 @@ cmd_reset() {
   # host process that clears them. The helper preserves both bind-root inodes.
   pair_siterepo_host "$name" both
   pair_db_ensure_up
+  pair_db_ensure_app_user
 
   say "pair '$name': reset"
   pair_db_drop "$name"
@@ -803,6 +797,19 @@ cmd_reset() {
   echo "  reset also recorded siterepo/.${name}{1,2}.needs-install: that 'up' will"
   echo "  reinstall both sides unconditionally rather than trust an is-installed"
   echo "  probe against the databases just dropped here (issue #3412)."
+}
+
+cmd_repo_host() {
+  local name="${1:?usage: pair.sh repo-host <name> [1|2|both]}" lease_locked=0
+  validate_name "$name"
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
+  pair_siterepo_host "$@"
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
 }
 
 cmd_stop() {
@@ -972,6 +979,9 @@ cmd_lease_batch_acquire() {
   reserve_pair_budget ""
   [ $(( ${#requests[@]} / 3 )) -le "$PAIR_BUDGET_AVAILABLE" ] \
     || fail "pair lease batch requests $((${#requests[@]} / 3)) slots but only $PAIR_BUDGET_AVAILABLE are available"
+  # pair_lease_acquire_batch keeps every namespace fact in this one locked
+  # transaction: Compose/name/ports/roots/install markers, then the exact
+  # persistent database schemas, then lock-serialized atomic-file publication.
   pair_lease_acquire_batch "$token" "$owner_pid" "$owner_start" "${requests[@]}"
   disarm_budget_up_cleanup
 }
@@ -1079,21 +1089,20 @@ Environment:
            wprism-shared-db, the `mariadb` client, project wprism-db. `mysql`
            selects the parallel evidence-lane server (db.mysql.yml's
            wprism-shared-mysql, the `mysql` client, project wprism-db-mysql) and
-           exports WPRISM_DB_HOST so pair.yml and every subprocess compose call
-           resolve it. Any other value is refused by name, at load, before any
-           subcommand. Selecting `mysql` CLAIMS NOTHING: the shipped platform
-           contract (platform/adapter-library/capabilities/platform.json) is still
-           MariaDB-only, so `wp wprism ...` on such a pair refuses
-           platform_unsupported / platform_database_engine_unsupported. That
-           refusal is the lane's first datum; widening the claim needs live
-           evidence and its own commit.
+           exports the engine/host tuple for this invocation's descendants.
+           A parent harness issuing its own Compose calls must source
+           lib/pair_db.sh and call pair_db_select_engine in that parent;
+           database selection is never persisted in shared sandbox/.env.
+           Any other value is refused by name, at load, before any subcommand.
+           Engine selection alone claims no support: the platform contract and
+           its named evidence define what has actually been exercised.
 USAGE
 }
 
 case "${1:-}" in
   up)      shift; cmd_up "$@" ;;
   reset)   shift; cmd_reset "$@" ;;
-  repo-host) shift; pair_siterepo_host "$@" ;;
+  repo-host) shift; cmd_repo_host "$@" ;;
   stop)    shift; cmd_stop "$@" ;;
   start)   shift; cmd_start "$@" ;;
   destroy) shift; cmd_destroy "$@" ;;

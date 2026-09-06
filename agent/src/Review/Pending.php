@@ -144,7 +144,10 @@ final class Pending {
     public static function journal_installed(): bool {
         global $wpdb;
         $table = $wpdb->prefix . 'wprism_journal';
-        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        $found = $wpdb->get_var($wpdb->prepare(
+            'SHOW TABLES LIKE %s',
+            $wpdb->esc_like($table)
+        ));
         $readError = $wpdb->last_error ?? '';
         if (!is_string($readError) || $readError !== '' || $found === false) {
             self::assert_read_only_database();

@@ -59,6 +59,7 @@ final class LockingFakeWpdb {
 
     public function addInnoDbTable(string $table): self {
         $this->engines[$table] = 'InnoDB';
+        $this->inner->setTableEngine($table, 'InnoDB');
         return $this;
     }
 
@@ -97,7 +98,48 @@ final class LockingFakeWpdb {
         return $result === $this->inner ? $this : $result;
     }
 
+    public function remove_placeholder_escape(string $sql): string {
+        return $this->inner->remove_placeholder_escape($sql);
+    }
+
+    public function suppress_errors(?bool $suppress = null): bool {
+        return $this->inner->suppress_errors($suppress);
+    }
+
+    public function wprism_test_set_strict_transport(bool $enabled): bool {
+        return $this->inner->wprism_test_set_strict_transport($enabled);
+    }
+
+    public function wprism_test_strict_transport(): bool {
+        return $this->inner->wprism_test_strict_transport();
+    }
+
+    /** @return array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    public function wprism_test_database_session_state(): array {
+        return $this->inner->wprism_test_database_session_state();
+    }
+
+    /** @param array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} $state */
+    public function wprism_test_restore_database_session_state(array $state): void {
+        $this->inner->wprism_test_restore_database_session_state($state);
+    }
+
+    protected function process_fields(string $table, array $data, mixed $format): array|false {
+        $invoke = \Closure::bind(
+            function (string $target, array $fields, mixed $formats): array|false {
+                return $this->process_fields($target, $fields, $formats);
+            },
+            $this->inner,
+            get_class($this->inner)
+        );
+        if (!$invoke instanceof \Closure) {
+            return false;
+        }
+        return $invoke($table, $data, $format);
+    }
+
     public function get_var(string $sql, int $x = 0, int $y = 0): mixed {
+        $sql = $this->filterQuery($sql);
         $this->last_error = '';
         if (trim($sql) === 'SELECT CONNECTION_ID()') {
             return $this->connectionId;
@@ -116,8 +158,9 @@ final class LockingFakeWpdb {
     }
 
     public function get_results(string $sql, string $output = OBJECT): mixed {
+        $sql = $this->filterQuery($sql);
         $this->last_error = '';
-        if (str_contains($sql, 'information_schema.TABLES')) {
+        if (preg_match('/SELECT\s+TABLE_NAME\s*,\s*ENGINE\s+FROM\s+information_schema\.TABLES/i', $sql) === 1) {
             preg_match_all("/'((?:''|[^'])+)'/", $sql, $matches);
             $requested = array_fill_keys(array_map(
                 static fn(string $table): string => str_replace("''", "'", $table),
@@ -159,14 +202,17 @@ final class LockingFakeWpdb {
     }
 
     public function get_row(string $sql, string $output = OBJECT, int $y = 0): mixed {
+        $sql = $this->filterQuery($sql);
         return $this->forward('get_row', [$this->stripLockSyntax($sql), $output, $y]);
     }
 
     public function get_col(string $sql, int $x = 0): mixed {
+        $sql = $this->filterQuery($sql);
         return $this->forward('get_col', [$this->stripLockSyntax($sql), $x]);
     }
 
     public function query(string $sql): mixed {
+        $sql = $this->filterQuery($sql);
         $sql = trim($sql);
         $this->last_error = '';
         if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
@@ -202,7 +248,7 @@ final class LockingFakeWpdb {
                 }
                 $this->nextRepeatableRead = false;
                 $this->activeTransaction = true;
-            } elseif (in_array(strtoupper($sql), ['COMMIT', 'ROLLBACK'], true)) {
+            } elseif (preg_match('/^(?:COMMIT|ROLLBACK)(?:\s+AND\s+(?:NO\s+)?CHAIN\s+(?:NO\s+)?RELEASE)?$/iD', $sql) === 1) {
                 $this->activeTransaction = false;
                 $this->savepointExists = false;
             }
@@ -215,6 +261,26 @@ final class LockingFakeWpdb {
         $result = $this->inner->$method(...$arguments);
         $this->syncOut();
         return $result;
+    }
+
+    private function filterQuery(string $sql): string {
+        if (($GLOBALS['wpdb'] ?? null) !== $this || !is_array($GLOBALS['wp_filter'] ?? null)) {
+            return $sql;
+        }
+        $all = $GLOBALS['wp_filter']['all'] ?? null;
+        if (is_object($all) && method_exists($all, 'do_all_hook')) {
+            $args = ['query', $sql];
+            $all->do_all_hook($args);
+        }
+        $query = $GLOBALS['wp_filter']['query'] ?? null;
+        if (is_object($query) && method_exists($query, 'apply_filters')) {
+            $filtered = $query->apply_filters($sql, [$sql]);
+            if (!is_string($filtered)) {
+                throw new \RuntimeException('LockingFakeWpdb: query filter returned malformed SQL');
+            }
+            return $filtered;
+        }
+        return $sql;
     }
 
     private function syncIn(): void {

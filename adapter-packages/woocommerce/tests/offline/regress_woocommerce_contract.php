@@ -41,7 +41,6 @@ function woo_ok(bool $condition, string $message): void {
 $root = dirname(__DIR__, 4);
 require_once $root . '/sandbox/tests/lib/wp_stubs.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
-require_once $root . '/sandbox/tests/lib/frozen_policy.php';
 require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
 require_once $root . '/agent/src/Capture/CaptureCandidateBuilder.php';
 if (!function_exists('get_taxonomies')) {
@@ -1022,23 +1021,70 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 $woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
+// These three positive applies do not use VMATRIX_APPLY_LOG. The shared
+// stderr-only mutation probe covers its gate, while the capsule pins these
+// nonstandard callsites before their native observations or log deletion.
+$piiApplyPosition = strpos($woocommerceMatrixHarness, '--force-theirs >"$pii_apply_log" 2>&1');
+$piiReadyPosition = strpos($woocommerceMatrixHarness,
+    'assert_wprism_required_environment "WooCommerce $version WPRA-019 apply" human "$(<"$pii_apply_log")"');
+$piiReadbackPosition = strpos($woocommerceMatrixHarness,
+    'target_applied=$(woocommerce_native_pii_fingerprints wp2)');
+woo_ok($piiApplyPosition !== false && $piiReadyPosition !== false && $piiReadbackPosition !== false
+    && $piiApplyPosition < $piiReadyPosition && $piiReadyPosition < $piiReadbackPosition,
+    'the custom WPRA-019 apply log proves required environment readiness before native readback or deletion');
+foreach (['product', 'variation'] as $creationKind) {
+    $creationCapture = "capture_wprism_json_success creation_apply 'WooCommerce disposable $creationKind creation apply'";
+    $creationReady = "assert_wprism_apply_ready 'WooCommerce disposable $creationKind creation apply'";
+    $creationPosition = strpos($woocommerceMatrixHarness, $creationCapture);
+    $readyPosition = strpos($woocommerceMatrixHarness, $creationReady);
+    $creationCommand = $creationPosition !== false && $readyPosition !== false
+        ? substr($woocommerceMatrixHarness, $creationPosition, $readyPosition - $creationPosition)
+        : '';
+    woo_ok($creationPosition !== false && $readyPosition !== false
+        && $creationPosition < $readyPosition
+        && str_contains($creationCommand, 'wp2 wprism apply')
+        && str_contains($creationCommand, '--format=json')
+        && !str_contains($creationCommand, '>/dev/null'),
+        "the disposable $creationKind apply premise retains its JSON answer and checks required environment readiness");
+}
+$woocommerceOwnerObserverHarness = '';
+if (preg_match(
+    '/woocommerce_deletion_owner_agreements\(\) \{(?<body>.*?)\n\}\n\nVMATRIX_PLUGIN_SLUG/s',
+    $woocommerceMatrixHarness,
+    $woocommerceOwnerObserverMatch
+) === 1) {
+    $woocommerceOwnerObserverHarness = $woocommerceOwnerObserverMatch['body'];
+}
 $matrixHarness .= "\n" . $woocommerceMatrixHarness;
 $woocommerceScopedDeletionHarnessPath = dirname(__DIR__) . '/live/regress_woocommerce_scoped_deletion.sh';
 $woocommerceScopedDeletionHarness = (string) file_get_contents($woocommerceScopedDeletionHarnessPath);
-$woocommerceCodeReleaseProviderPath = dirname(__DIR__, 2) . '/fixtures/plan-bound-code-release-provider.php';
+$sshExtensionLibraryPath = $root . '/sandbox/tests/lib/ssh_adopt_extension.sh';
+$sshExtensionLibrary = (string) file_get_contents($sshExtensionLibraryPath);
+$woocommerceScopedDeletionEvidence = $woocommerceScopedDeletionHarness . "\n" . $sshExtensionLibrary;
+$woocommerceCodeReleaseProviderPath = $root . '/sandbox/tests/fixtures/plan-bound-code-release-provider.php';
 $woocommerceCodeReleaseProvider = (string) file_get_contents($woocommerceCodeReleaseProviderPath);
 $sshAdoptHarness = (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
 woo_ok(is_file($woocommerceScopedDeletionHarnessPath)
+    && is_file($sshExtensionLibraryPath)
     && str_contains($sshAdoptHarness, 'WPRISM_SSH_ADOPT_EXTENSION')
     && str_contains($sshAdoptHarness, 'wprism_ssh_adopt_extension')
     && str_contains($sshAdoptHarness, 'tests/live/*.sh'),
     'WooCommerce deletion live proof is selected only through the candidate-bound standalone SSH extension hook');
 woo_ok(is_file($woocommerceCodeReleaseProviderPath),
-    'WooCommerce deletion live proof owns its exact plan-bound code-release provider fixture');
+    'WooCommerce deletion live proof reuses the shared exact plan-bound code-release provider fixture');
+woo_ok(
+    str_contains($woocommerceScopedDeletionHarness,
+        'wprism_ssh_install_certified_plugin woocommerce "$woo_version"')
+        && !str_contains($woocommerceScopedDeletionHarness, 'wp plugin install woocommerce')
+        && str_contains($sshExtensionLibrary, 'artifact_library_jq -ce')
+        && str_contains($sshExtensionLibrary, '.role == "certified-boundary"')
+        && str_contains($sshExtensionLibrary, 'hash_file("sha256", $argv[1])'),
+    'WooCommerce SSH deletion installs only its participant-owned digest-verified certified artifact'
+);
 foreach ([
     'wprism-code-release-provider-request/v2',
     'desired_code_inventory',
-    'woo_release_owned_roots',
+    'wprism_release_owned_roots',
     'unrecorded or linked owned path refused',
     "'target_git_history' => false",
     "'target_registry_credentials' => false",
@@ -1234,8 +1280,8 @@ $settingsApiRecheck = $settingsApiLoad === false
     ? false
     : strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)", $settingsApiLoad + 1);
 $settingsApiReflection = strpos($nativeSettingsApi, "new \\ReflectionClass('WC_Settings_API')");
-$settingsApiHashCheck = strpos($nativeValidationFiles, "hash_equals(self::WOO_SETTINGS_API_SHA256, \$settingsHash)");
-$formattingHashCheck = strpos($nativeValidationFiles, "hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, \$formattingHash)");
+$settingsApiHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)');
+$formattingHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)');
 $settingsApiRequire = strpos($settingsApiLoader, "require_once \$files['settings'];");
 $formattingRequire = strpos($nativePermalinkRunner, "require_once \$files['formatting'];");
 woo_ok(
@@ -1473,7 +1519,9 @@ $captureDb->seedTable('wp_posts', [])
     ->seedTable('wp_usermeta', [])
     ->seedTable('wp_wprism_map', [])
     ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
-    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
+    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+    ->setTableEngine('wp_wprism_map', 'InnoDB')
+    ->enableInformationSchema();
 $candidate = (new CaptureCandidateBuilder('/siterepo', $capturePolicy))->build(false);
 $termEntities = array_values(array_filter(
     $candidate['entities'],
@@ -1503,19 +1551,10 @@ woo_ok(count(array_filter(
 $lintState = sys_get_temp_dir() . '/wprism-woo-lint-' . bin2hex(random_bytes(6));
 mkdir($lintState . '/options', 0777, true);
 mkdir($lintState . '/terms/pa_conf-color', 0777, true);
-$lintLibrary = $lintState . '/manifest-library';
-mkdir($lintLibrary . '/interpreters', 0777, true);
-// The real package interpreter was loaded above. This fixture needs a regular
-// inventory member at the explicit archive path, not a second copy that would
-// redeclare the already-loaded class (the retired symlink happened to collapse
-// to the original require_once path, but strict AdapterLibrary rejects links).
-file_put_contents($lintLibrary . '/interpreters/woocommerce.php', "<?php\n");
 $lintFiles = [
     $lintState . '/options/core.json',
     $lintState . '/terms/pa_conf-color/11111111-1111-5111-8111-111111111111--red.json',
     $lintState . '/terms/pa_conf-color/22222222-2222-5222-8222-222222222222--blue.json',
-    $lintLibrary . '/woocommerce.json',
-    $lintLibrary . '/interpreters/woocommerce.php',
 ];
 $removeLintTree = static function (string $path) use (&$removeLintTree): void {
     if (is_dir($path) && !is_link($path)) {
@@ -1570,25 +1609,25 @@ foreach ([
     ['ID' => 3, 'post_type' => 'page', 'post_title' => 'Cart', 'post_status' => 'publish'],
     ['ID' => 7, 'post_type' => 'page', 'post_title' => 'Catalog', 'post_status' => 'publish'],
 ]);
-$lintPolicy = static function (array $wooManifest) use ($lintLibrary, $root): Policy {
-    return \WPrismTest\FrozenPolicy::policy(
-        [$wooManifest],
-        \WPrismTest\FrozenPolicy::site([$wooManifest], WPRISM_SPEC_VERSION),
-        $lintLibrary,
-        \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
-    );
-};
 $preReviewManifest = $manifest;
 unset(
     $preReviewManifest['term_meta']['order']['lint_ok'],
     $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_height']['lint_ok'],
     $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_width']['lint_ok']
 );
-$preReviewFindings = \WPrism\Lint::scan_tree(
-    $lintState,
-    $lintPolicy($preReviewManifest),
-    \WPrism\LintEnvironment::live()
-);
+// The lint comparison deliberately varies only reviewed declarations. Keep
+// the already validated policy/package and its one executable path, then use
+// Policy's public mutable-fixture surface for the duration of this scan.
+$policy->manifests = [$preReviewManifest];
+try {
+    $preReviewFindings = \WPrism\Lint::scan_tree(
+        $lintState,
+        $policy,
+        \WPrism\LintEnvironment::live()
+    );
+} finally {
+    $policy->manifests = [$manifest];
+}
 $preReviewLocators = array_column($preReviewFindings, 'locator');
 sort($preReviewLocators, SORT_STRING);
 woo_ok($preReviewLocators === [
@@ -1597,7 +1636,7 @@ woo_ok($preReviewLocators === [
 ] && array_values(array_unique(array_column($preReviewFindings, 'class'))) === ['bare_id'],
 'the pre-review Woo policy reproduces both non-boolean bare-id collisions while wholly-1 option values stay suppressed');
 woo_ok(
-    \WPrism\Lint::scan_tree($lintState, $lintPolicy($manifest), \WPrism\LintEnvironment::live()) === [],
+    \WPrism\Lint::scan_tree($lintState, $policy, \WPrism\LintEnvironment::live()) === [],
     'the shipped Woo policy audits the exact term-order and thumbnail-dimension scalars without suppressing other keys'
 );
 foreach ($lintFiles as $file) {
@@ -1718,7 +1757,7 @@ woo_plugin_identity
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "could not establish HPOS through WooCommerce's native new-shop lifecycle"
 woo_identity
-PLUGIN_TREE=$(woo_plugin_tree_hash)
+PLUGIN_TREE=$(woo_observed_plugin_sha)
 require_observed_nonempty 'WooCommerce 11.0.1 plugin tree fingerprint' "$PLUGIN_TREE"
 pass 'exact WooCommerce 11.0.1 plugin tree is installed, active, and HPOS-enabled'
 
@@ -1873,7 +1912,7 @@ foreach ([
     "'display' => 'subcategories'",
     'wp_conf1 theme activate twentytwentyfive',
     'restore_conformance_theme 0',
-    "--type=wc-visual",
+    '--type=wc-visual',
     'VisualAttributeTermMeta::save_term_visual_from_request',
     "'/wc/v3/products/attributes/",
     "update_post_meta(\$COUPON_ID, 'product_brands'",
@@ -1976,8 +2015,8 @@ foreach ([
 foreach ([
     'Hostile selected review page',
     'TARGET_REVIEW_PAGE_ID',
-    "--slug=conformance-widgets --parent=\"\$TARGET_CAT_PARENT_ID\" --porcelain",
-    "--slug=atelier-tokyo --parent=\"\$TARGET_BRAND_PARENT_ID\" --porcelain",
+    '--slug=conformance-widgets --parent="$TARGET_CAT_PARENT_ID" --porcelain',
+    '--slug=atelier-tokyo --parent="$TARGET_BRAND_PARENT_ID" --porcelain',
     'woocommerce_review_order_flush_rewrite_pending',
 ] as $reviewTargetWitness) {
     woo_ok(str_contains($wooPostdeployHarness, $reviewTargetWitness),
@@ -2275,7 +2314,7 @@ woo_ok(
     )
         && str_contains(
             $woocommerceMatrixHarness,
-            "posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-lifecycle-final/posts/(product|product_variation)/[^ ]+"
+            'posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-lifecycle-final/posts/(product|product_variation)/[^ ]+'
         )
         && str_contains(
             $woocommerceMatrixHarness,
@@ -2291,7 +2330,7 @@ woo_ok(
     )
         && str_contains(
             $matrixHarness,
-            "posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+"
+            'posts/(product|product_variation)/[^ ]+ .*/\\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+'
         )
         && str_contains(
             $matrixHarness,
@@ -2505,12 +2544,13 @@ foreach ([
     'sandbox/tests/fixtures/upload-provider.php',
     'sandbox/tests/fixtures/effect-provider.php',
     'fixtures/plan-bound-code-release-provider.php',
+    'wprism_ssh_enroll_full_recovery woocommerce',
     '.envs.target.rollback_recovery.upload_provider',
     '"/home/wprism/site/media"',
     '.envs.target.rollback_recovery.effect_provider',
     '.envs.target.rollback_recovery.code_release_provider',
     'adopt target >/dev/null',
-    'wp plugin install woocommerce --version=$woo_version --activate',
+    'wprism_ssh_install_certified_plugin woocommerce "$woo_version"',
     'WOOCOMMERCE_BIS_ALPHA_ENABLED',
     'WC_Install::maybe_enable_hpos();',
     'WC_Install::create_tables();',
@@ -2519,9 +2559,10 @@ foreach ([
     '$site["code"] = ["format" => 1, "layout" => "wp-content", "source" => "code/wp-content"]',
     'git -C /home/wprism/site add -- site.wprism.json state code',
     'git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release"',
-    'release-prior',
-    'release-desired-$next_generation',
-    'release-desired-$retry_generation',
+    'wprism_ssh_stage_code_inventory woocommerce',
+    'wprism_ssh_stage_generation_releases 2',
+    'wprism_ssh_publish_post_tombstone product wprism-ssh-deletion-proof',
+    'Deletion::capture_tombstones($compiled, [], $policy, [$uuid])',
     'wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce',
     'git -C /home/wprism/site add -- media site.wprism.json state',
     'deploy target >"$TMP/woocommerce-code-baseline.stdout"',
@@ -2544,13 +2585,13 @@ foreach ([
     'success_lookup" = "0"',
     '.delete == [] and .delete_conflict == []',
 ] as $scopedDeletionWitness) {
-    woo_ok(str_contains($woocommerceScopedDeletionHarness, $scopedDeletionWitness),
+    woo_ok(str_contains($woocommerceScopedDeletionEvidence, $scopedDeletionWitness),
         "candidate-bound WooCommerce scoped-deletion live proof pins $scopedDeletionWitness");
 }
 woo_ok(
-    substr_count($woocommerceScopedDeletionHarness, 'wp eval-file /home/wprism/recovery-fixture/') === 2
+    substr_count($woocommerceScopedDeletionHarness, 'wp eval-file /home/wprism/recovery-fixture/') === 1
         && !str_contains($woocommerceScopedDeletionHarness, 'declare(strict_types=1);'),
-    'WP-CLI eval-file deletion fixtures omit the declaration that its eval wrapper cannot execute'
+    'the remaining WP-CLI eval-file deletion fixture omits the declaration that its eval wrapper cannot execute'
 );
 $failurePromotion = strpos(
     $woocommerceScopedDeletionHarness,
@@ -2587,11 +2628,13 @@ woo_ok(
             '{"selector": "post:product", "owners": $deletion_owner_agreements}')
         && str_contains($woocommerceMatrixHarness,
             '{"selector": "post:product_variation", "owners": $deletion_owner_agreements}')
-        && str_contains($woocommerceMatrixHarness, '"format" => "wprism-executable-tree/v1"')
-        && str_contains($woocommerceMatrixHarness, '"owner" => "plugin:" . $plugin')
-        && str_contains($woocommerceMatrixHarness, '"root" => $canonicalRoot')
+        && substr_count($woocommerceOwnerObserverHarness, 'wprism executable-owner-observe') === 2
+        && str_contains($woocommerceOwnerObserverHarness, '.owner == "plugin:woocommerce/woocommerce.php"')
+        && str_contains($woocommerceOwnerObserverHarness, '.code_identity.root == "plugins/woocommerce"')
+        && !str_contains($woocommerceOwnerObserverHarness, 'RecursiveIteratorIterator')
+        && !str_contains($woocommerceOwnerObserverHarness, 'hash_file("sha256"')
         && !str_contains($woocommerceMatrixHarness, '"theme:twentytwentyfive"'),
-    'matrix writes duplicate-resistant v2 exact observed plugin and theme tree identities instead of a permissive filename agreement'
+    'matrix writes duplicate-resistant v2 identities from the bounded product observer instead of hashing executable trees itself'
 );
 woo_ok(str_contains($woocommerceMatrixHarness, 'version_matrix_preflight()')
     && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA')

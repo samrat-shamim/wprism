@@ -27,8 +27,9 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
-define('WPRISM_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 3);
 require __DIR__ . '/../../lib/agent_version.php';
+require __DIR__ . '/../../lib/wp_serialization_stubs.php';
 wprism_test_define_agent_versions();
 // wpdb::get_results()'s output mode, which Ledger's own checked reads pass.
 define('ARRAY_A', 'ARRAY_A');
@@ -61,6 +62,12 @@ function is_wp_error(mixed $thing): bool {
     return $thing instanceof \WP_Error;
 }
 function apply_filters(string $hook, mixed $value): mixed {
+    $gate = is_array($GLOBALS['wp_filter'] ?? null)
+        ? ($GLOBALS['wp_filter'][$hook] ?? null)
+        : null;
+    if (is_object($gate) && method_exists($gate, 'apply_filters')) {
+        return $gate->apply_filters($value, [$value]);
+    }
     if ($hook === 'wprism_providers' && $GLOBALS['wprism_test_provider_registry_throw'] !== null) {
         throw new \RuntimeException($GLOBALS['wprism_test_provider_registry_throw']);    }
     return $hook === 'wprism_providers' ? $GLOBALS['wprism_test_providers'] : $value;
@@ -159,6 +166,25 @@ final class CheckedReadFakeWpdb {
     public string $errorOnRead = '';
     /** @var list<string> */
     public array $sqlSeen = [];
+    private bool $strictTransport = false;
+
+    public static function install(): self {
+        $database = new self();
+        $GLOBALS['wpdb'] = $database;
+        return $database;
+    }
+
+    private function filterQuery(string $sql): string {
+        $query = $GLOBALS['wp_filter']['query'] ?? null;
+        if (is_object($query) && method_exists($query, 'apply_filters')) {
+            $filtered = $query->apply_filters($sql, [$sql]);
+            if (!is_string($filtered)) {
+                throw new RuntimeException('checked-read fake received malformed filtered SQL');
+            }
+            return $filtered;
+        }
+        return $sql;
+    }
 
     private function ran(string $sql): void {
         $this->sqlSeen[] = $sql;
@@ -168,24 +194,68 @@ final class CheckedReadFakeWpdb {
     }
 
     public function get_var(string $sql): mixed {
+        $sql = $this->filterQuery($sql);
+        if ($sql === 'SELECT @@SESSION.sql_mode AS sql_mode') {
+            return '';
+        }
+        if ($sql === 'SELECT @@SESSION.character_set_client AS character_set_client') {
+            return 'utf8mb4';
+        }
+        if ($sql === 'SELECT MAXLEN FROM information_schema.CHARACTER_SETS '
+            . 'WHERE CHARACTER_SET_NAME = @@SESSION.character_set_client') {
+            return '4';
+        }
         $this->ran($sql);
         return $this->varReturn;
     }
 
     public function get_col(string $sql): mixed {
+        $sql = $this->filterQuery($sql);
         $this->ran($sql);
         return $this->colReturn;
     }
 
     public function get_row(string $sql, mixed $output = null): mixed {
+        $sql = $this->filterQuery($sql);
         $this->ran($sql);
         return $this->rowReturn;
     }
 
     public function get_results(string $sql, mixed $output = null): mixed {
+        $sql = $this->filterQuery($sql);
         $this->ran($sql);
         return $this->resultsReturn;
     }
+
+    public function remove_placeholder_escape(string $sql): string {
+        return $sql;
+    }
+
+    public function wprism_test_set_strict_transport(bool $enabled): bool {
+        $previous = $this->strictTransport;
+        $this->strictTransport = $enabled;
+        return $previous;
+    }
+
+    public function wprism_test_strict_transport(): bool {
+        return $this->strictTransport;
+    }
+
+    /** @return array{database:string,sql_mode:string,character_set_client:string,character_set_connection:string,character_set_results:string,collation_connection:string,character_set_client_max_bytes:int} */
+    public function wprism_test_database_session_state(): array {
+        return [
+            'database' => 'wordpress',
+            'sql_mode' => '',
+            'character_set_client' => 'utf8mb4',
+            'character_set_connection' => 'utf8mb4',
+            'character_set_results' => 'utf8mb4',
+            'collation_connection' => 'utf8mb4_unicode_ci',
+            'character_set_client_max_bytes' => 4,
+        ];
+    }
+
+    /** @param array<string,mixed> $state */
+    public function wprism_test_restore_database_session_state(array $state): void {}
 }
 
 $GLOBALS['wprism_native_cache'] = [];
@@ -235,8 +305,8 @@ require $root . '/agent/src/Policy/ManifestDispositions.php';
 require $root . '/agent/src/Policy/Policy.php';
 require $root . '/agent/src/Code/CodeCompatibility.php';
 require $root . '/agent/src/Promotion/Deploy.php';
-require $root . '/agent/src/Adapter/ProviderSdk.php';
-require $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Adapter/ProviderSdk.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
 // issue #3339: `wprism status`'s renderer is pure and is one half of the documented
 // two-renderer lockstep for plan rows, so it is driven directly below.
 require $root . '/cli/src/Plan/PlanSummary.php';
@@ -281,6 +351,7 @@ final class ProbeCache {
     public static array $identityOverrides = [];
     public static ?string $identityThrows = null;
     public static ?string $invokeThrows = null;
+    public static ?\Throwable $lastInvokeThrowable = null;
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
     // WPRISM-3.3: real wp_options writes the capability performs INSIDE invoke(),
@@ -323,7 +394,8 @@ final class ProbeCache {
     public function invoke(string $capability, array $args): array {
         $this->calls[] = [$capability, $args];
         if (self::$invokeThrows !== null) {
-            throw new \RuntimeException(self::$invokeThrows);
+            self::$lastInvokeThrowable = new \RuntimeException(self::$invokeThrows);
+            throw self::$lastInvokeThrowable;
         }
         if (self::$sleepSeconds > 0.0) {
             usleep((int) (self::$sleepSeconds * 1000000));
@@ -397,9 +469,6 @@ final class ProbeSupplied {
 }
 PHP);
 require_once WP_PLUGIN_DIR . '/probe/wprism-provider.php';
-// Loaded up front so the per-case reset below can address the fixture's static
-// override slots; Providers::negotiate() require_once's the same file itself.
-require_once $dir . '/providers/probe-cache.php';
 // A SECOND manifest-shipped provider, for the one shape a single provider with
 // two capabilities cannot express: a channel collision ACROSS providers, which
 // is the realistic form (two adapters, one surface) and the only one that can
@@ -418,8 +487,10 @@ final class ProbeIndex {
     }
 
     public function capabilities(): array {
+        $overrides = $GLOBALS['wprism_test_probe_index_capability_overrides']
+            ?? self::$capabilityOverrides;
         return [
-            'reindex' => self::$capabilityOverrides + [
+            'reindex' => $overrides + [
                 'args' => [],
                 'reads' => ['option:probe_setting'],
                 'writes' => ['entity:probe-index'],
@@ -435,7 +506,6 @@ final class ProbeIndex {
     }
 }
 PHP);
-require_once $dir . '/providers/probe-index.php';
 file_put_contents($dir . '/regenerators/probe-lookups.php', "<?php\n// Test-owned packaging fixture; negotiation never invokes this regenerator.\n");
 
 $manifest = [
@@ -523,16 +593,20 @@ $reset = static function (): void {
     $GLOBALS['wprism_test_active'] = ['probe/probe.php'];
     $GLOBALS['wprism_test_providers'] = [];
     $GLOBALS['wprism_test_provider_registry_throw'] = null;
-    \WPrism\Providers\ProbeCache::$capabilityMapOverride = null;
-    \WPrism\Providers\ProbeCache::$capabilityOverrides = [];
-    \WPrism\Providers\ProbeCache::$capabilitiesThrows = null;
-    \WPrism\Providers\ProbeCache::$extraCapabilities = [];
-    \WPrism\Providers\ProbeCache::$identityOverrides = [];
-    \WPrism\Providers\ProbeCache::$identityThrows = null;
-    \WPrism\Providers\ProbeCache::$invokeThrows = null;
-    \WPrism\Providers\ProbeCache::$receiptOverride = null;
-    \WPrism\Providers\ProbeCache::$sleepSeconds = 0.0;
-    \WPrism\Providers\ProbeCache::$optionWrites = [];
+    $GLOBALS['wprism_test_probe_index_capability_overrides'] = [];
+    if (class_exists(\WPrism\Providers\ProbeCache::class, false)) {
+        \WPrism\Providers\ProbeCache::$capabilityMapOverride = null;
+        \WPrism\Providers\ProbeCache::$capabilityOverrides = [];
+        \WPrism\Providers\ProbeCache::$capabilitiesThrows = null;
+        \WPrism\Providers\ProbeCache::$extraCapabilities = [];
+        \WPrism\Providers\ProbeCache::$identityOverrides = [];
+        \WPrism\Providers\ProbeCache::$identityThrows = null;
+        \WPrism\Providers\ProbeCache::$invokeThrows = null;
+        \WPrism\Providers\ProbeCache::$lastInvokeThrowable = null;
+        \WPrism\Providers\ProbeCache::$receiptOverride = null;
+        \WPrism\Providers\ProbeCache::$sleepSeconds = 0.0;
+        \WPrism\Providers\ProbeCache::$optionWrites = [];
+    }
 };
 
 echo "\n== closed native-action vocabulary ==\n";
@@ -698,7 +772,7 @@ echo "\n== provider checked reads: the read twin of Db, same message hygiene (is
 // message must never echo — the read twin of Db's operation-level context rule.
 $secretSql = "SELECT option_value FROM wp_options WHERE option_name='wprism_secret_CHECKED_READ_SECRET'";
 $readContext = 'probe cache group lookup';
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 
 $readFake->varReturn = '42';
 $check(\WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === '42',
@@ -721,7 +795,7 @@ $check(\WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readF
 
 // last_error is cleared before the read: a stale error from a prior query does
 // not doom a clean one (the same posture Db's mutations take).
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->last_error = 'stale DRIVER_SECRET from an earlier query';
 $readFake->varReturn = 'ok';
 $check(\WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === 'ok',
@@ -745,30 +819,30 @@ $checkedReadThrows = static function (callable $body, string $label) use ($check
 
 // A driver error is a failure even when the value itself looks fine — and
 // neither the SQL nor the driver text may appear in the message.
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->varReturn = '42';
 $readFake->errorOnRead = 'MySQL error near DRIVER_SECRET';
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
     'a non-empty last_error throws even behind a plausible value, and the message carries neither the SQL nor the driver text');
 
 // Each read's own failure shape throws, and each redacts identically.
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->varReturn = false;
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
     'checked_get_var throws on a false return (the wpdb failure sentinel), naming only the context');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->colReturn = false;
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake),
     'checked_get_col throws on a non-array return');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->rowReturn = 'not-an-array';
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake),
     'checked_get_row throws on a non-array, non-null return');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->resultsReturn = null;
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
     'checked_get_results throws on a non-array return');
-$readFake = new CheckedReadFakeWpdb();
+$readFake = CheckedReadFakeWpdb::install();
 $readFake->resultsReturn = ['aliased' => ['id' => '1']];
 $checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
     'checked_get_results throws on an associative outer result instead of silently reindexing it');
@@ -797,6 +871,97 @@ $check($negotiation['providers']['probe-cache'] instanceof \WPrism\Providers\Pro
     'the manifest-shipped provider class is loaded from <manifests_dir>/providers/<id>.php');
 $check(($negotiation['capabilities']['probe-cache']['flush']['scope'] ?? null) === 'site',
     'the negotiated capability declaration is bound for the rebuild pass');
+
+// Schema settlement is the only provider phase allowed to create a table
+// before capture can observe it. The manifest therefore binds both the exact
+// site scope and every prepared table to the live provider declaration; a
+// generic provider that merely happens to expose the same capability name is
+// not enough authority to perform pre-observation DDL.
+$schemaManifest = $manifest;
+$schemaManifest['engine_features'] = ['schema-settlement/v1', 'spec-window/v1'];
+$schemaManifest['spec_version'] = 3;
+$schemaManifest['providers'][0]['capabilities'] = ['flush', 'inspect_schema'];
+$schemaManifest['tables'] = ['probe_projection' => ['class' => 'derived']];
+$schemaManifest['actions'][0] = [
+    'args' => [],
+    'capability' => 'flush',
+    'effects' => [[
+        'id' => 'probe-schema',
+        'kind' => 'database',
+        'mode' => 'restorable',
+        'selector' => [
+            'scope' => 'database_checkpoint',
+            'type' => 'table',
+            'value' => 'probe_projection',
+        ],
+    ]],
+    'kind' => 'provider',
+    'phase' => 'schema_settle',
+    'prepares' => ['probe_projection'],
+    'provider' => 'probe-cache',
+    'readiness' => 'inspect_schema',
+];
+$schemaReadiness = [
+    'args' => [],
+    'idempotent' => true,
+    'reads' => ['table:probe_projection'],
+    'scope' => 'site',
+    'timeout_seconds' => 30,
+    'writes' => [],
+];
+$reset();
+
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => [],
+    'reads' => ['table:probe_projection'],
+];
+$schemaPolicy = $policyFor($schemaManifest);
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check(count($schemaNegotiation['problems']) === 1
+    && ($schemaNegotiation['problems'][0]['code'] ?? null) === 'schema_settlement_contract'
+    && str_contains((string) ($schemaNegotiation['problems'][0]['found'] ?? ''), 'non-exact schema surfaces'),
+    'schema settlement refuses a provider that does not advertise every exact prepared table write');
+
+$reset();
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => [],
+    'reads' => ['table:probe_projection'],
+    'scope' => 'entity',
+    'writes' => ['table:probe_projection'],
+];
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check(count($schemaNegotiation['problems']) === 1
+    && ($schemaNegotiation['problems'][0]['code'] ?? null) === 'schema_settlement_contract'
+    && str_contains((string) ($schemaNegotiation['problems'][0]['found'] ?? ''), 'entity scope'),
+    'schema settlement refuses a table-writing capability whose live scope is narrower than the whole site');
+
+$reset();
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => ['mode' => ['type' => 'string', 'required' => false]],
+    'reads' => ['table:probe_projection'],
+    'writes' => ['table:probe_projection'],
+];
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check(count($schemaNegotiation['problems']) === 1
+    && ($schemaNegotiation['problems'][0]['code'] ?? null) === 'schema_settlement_contract'
+    && str_contains((string) ($schemaNegotiation['problems'][0]['found'] ?? ''), 'optional arguments'),
+    'schema settlement refuses a plugin-sourced prepare capability that advertises even optional arguments');
+
+$reset();
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => [],
+    'reads' => ['table:probe_projection'],
+    'writes' => ['table:probe_projection'],
+];
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check($schemaNegotiation['problems'] === []
+    && isset($schemaNegotiation['capabilities']['probe-cache']['flush']),
+    'schema settlement binds only when the live capability is idempotent, site-scoped, and names every prepared table');
+$reset();
 
 // `effects: []` is deliberately a two-sided contract: the manifest opts out
 // of recovery inventory, and the selected live provider must independently
@@ -1733,8 +1898,10 @@ try {
         && !str_contains($message, "\n")
         && !str_contains($rendered, 'WPRISM_INVOKE_SECRET')
         && !str_contains($rendered, 'INJECTED_INVOKE_LINE')
-        && $t->getPrevious() === null,
-        'a provider invocation failure preserves provider/capability but redacts its throwable chain'
+        && $t instanceof \WPrism\PrivateEvidenceException
+        && $t->getPrevious() === null
+        && $t->private_evidence_causes() === [\WPrism\Providers\ProbeCache::$lastInvokeThrowable],
+        'a provider invocation failure keeps its exact cause private without exposing it through printable Throwable state'
     );
 }
 // timeout_seconds is a positive integer, so the smallest honest overrun test
@@ -1803,8 +1970,8 @@ $check($shippedShapePlan['watched'] === ['option:probe_setting']
 
 // The measured cost, as a number rather than an impression: one checked read
 // per watched surface per pass, two passes per invoke.
-$check($shippedShapePlan['queries_per_invoke'] === 2,
-    'the declared cost of the check is 2 queries per invoke for this capability (1 watched surface x 2 passes)');
+$check($shippedShapePlan['queries_per_invoke'] === 8,
+    'the declared cost is 8 server queries: one target read plus three exact session proofs per pass');
 
 // Counted by the reader's own statement rather than by the log length, so the
 // number is the ENGINE's added cost and stays that even when the drive also
@@ -1817,8 +1984,9 @@ $wpdb->resetLog();
 $reset();
 $observedReceipt = \WPrism\Providers::invoke($provider, $action, $declaration, []);
 $measuredQueries = $observationQueries();
-$check($measuredQueries === 2 && count($wpdb->queries()) === 2,
-    "and the MEASURED cost matches it: $measuredQueries added queries across one invoke, and nothing else ran, so a future regression in the reader's query count is visible here rather than on a customer's target");
+$sessionProofQueries = $wpdb->wprism_test_database_session_observation_count();
+$check($measuredQueries === 2 && count($wpdb->queries()) === 2 && $sessionProofQueries === 6,
+    "and the measured cost matches: $measuredQueries target reads plus $sessionProofQueries direct session proofs");
 
 // The shipped library's shape: every declared surface is one this engine has no
 // reader for, so the observation is silent — observe() returns before it
@@ -2685,11 +2853,12 @@ echo "\n== the engine half: what Apply assembles for each declared channel ==\n"
 // rebuild() pass through the same fake, so the edges BETWEEN these projections
 // and Providers::invoke() are covered too; what stays live-only is the rest of
 // that pass (term recounts, attachment metadata, cron rescheduling).
-require $root . '/agent/src/Kernel/Db.php';
-require $root . '/agent/src/Repository/Ledger.php';
-require $root . '/agent/src/Apply/Apply.php';
+require_once $root . '/agent/src/Kernel/Db.php';
+require_once $root . '/agent/src/Repository/Ledger.php';
+require_once $root . '/agent/src/Apply/Apply.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 
-final class ProbeBatchWpdb {
+final class ProbeBatchWpdb extends \WPrismTest\FakeWpdb {
     public string $prefix = 'wp_';
     public string $options = 'wp_options';
     public string $posts = 'wp_posts';
@@ -2705,72 +2874,130 @@ final class ProbeBatchWpdb {
     public array $optionRows = [];
     /** @var list<string> */
     public array $optionReadNames = [];
+    private string $fixtureState = '';
+
+    public function __construct() {
+        parent::__construct('wp_');
+        $this->enableInformationSchema();
+        foreach (['wprism_map', 'wprism_kv', 'posts', 'options', 'term_taxonomy'] as $table) {
+            $this->setTableEngine($table, 'InnoDB');
+        }
+        $this->setUniqueKey('wprism_map', ['uuid', 'id_kind']);
+        $this->setUniqueKey('wprism_kv', ['k']);
+        $this->setColumns('wprism_map', [
+            'uuid' => 'char(36)',
+            'id_kind' => 'varchar(32)',
+            'local_id' => 'bigint unsigned',
+        ]);
+        $this->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+        $this->setColumns('posts', ['ID' => 'bigint unsigned', 'post_type' => 'varchar(20)', 'post_parent' => 'bigint unsigned']);
+        $this->setColumns('options', ['option_name' => 'varchar(191)', 'option_value' => 'longtext', 'autoload' => 'varchar(20)']);
+        $this->setColumns('term_taxonomy', ['term_taxonomy_id' => 'bigint unsigned']);
+        $this->syncFixtureToStore();
+    }
 
     public function prepare(string $query, ...$args): string {
-        foreach ($args as $arg) {
-            $value = is_int($arg) || is_float($arg) ? (string) $arg : "'" . addslashes((string) $arg) . "'";
-            $query = (string) preg_replace('/%[dsif]/', $value, $query, 1);
-        }
-        return $query;
+        return parent::prepare($query, ...$args);
     }
 
-    public function query(string $query): int {
-        if (preg_match("/INSERT INTO wp_wprism_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
-            $this->kv[stripslashes($m[1])] = stripslashes($m[2]);
-            return 1;
-        }
-        if (preg_match("/DELETE FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
-            unset($this->kv[stripslashes($m[1])]);
-            return 1;
-        }
-        return 1;
+    public function query(string $query): int|bool {
+        $this->syncFixtureToStore();
+        $result = parent::query($query);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_results(string $query, $output = null): array {
-        if (!str_contains($query, 'SELECT k, v FROM wp_wprism_kv')) {
-            return [];
-        }
-        return array_map(
-            static fn(string $k, string $v): array => ['k' => $k, 'v' => $v],
-            array_keys($this->kv),
-            array_values($this->kv)
-        );
+    public function get_results(string $query, string $output = OBJECT): array|false|null {
+        $this->syncFixtureToStore();
+        $result = parent::get_results($query, $output);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_row(string $query, $output = null): ?array {
-        if (preg_match('/FROM wp_posts WHERE ID = (\d+)/', $query, $m)) {
-            return $this->postsRows[(int) $m[1]] ?? null;
-        }
-        return null;
+    public function get_row(string $query, string $output = OBJECT, int $y = 0): array|object|null {
+        $this->syncFixtureToStore();
+        $result = parent::get_row($query, $output, $y);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
     /** Term recounts find no term_taxonomy rows, so the rebuild pass walks past them. */
-    public function get_col(string $query): array {
-        return [];
+    public function get_col(string $query, int $x = 0): array {
+        $this->syncFixtureToStore();
+        $result = parent::get_col($query, $x);
+        $this->syncStoreToFixture();
+        return $result;
     }
 
-    public function get_var(string $query): mixed {
-        if (preg_match("/SELECT option_value FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/", $query, $m)) {
-            $name = stripslashes($m[1]);
-            $this->optionReadNames[] = $name;
-            return array_key_exists($name, $this->optionRows) ? $this->optionRows[$name] : null;
+    public function get_var(string $query, int $x = 0, int $y = 0): ?string {
+        if (preg_match("/SELECT option_value FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/", $query, $match) === 1) {
+            $this->optionReadNames[] = stripslashes($match[1]);
         }
-        if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
-            return $this->map[$m[1] . "\0" . $m[2]] ?? null;
+        $this->syncFixtureToStore();
+        $result = parent::get_var($query, $x, $y);
+        $this->syncStoreToFixture();
+        return $result;
+    }
+
+    private function syncFixtureToStore(): void {
+        $state = $this->fixtureState();
+        if (hash_equals($this->fixtureState, $state)) {
+            return;
         }
-        if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
-            foreach ($this->map as $key => $id) {
-                [$uuid, $kind] = explode("\0", $key, 2);
-                if ($kind === $m[1] && (int) $id === (int) $m[2]) {
-                    return $uuid;
-                }
-            }
-            return null;
+        $mapRows = [];
+        foreach ($this->map as $key => $localId) {
+            [$uuid, $kind] = explode("\0", $key, 2);
+            $mapRows[] = ['uuid' => $uuid, 'id_kind' => $kind, 'local_id' => $localId];
         }
-        if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
-            return $this->kv[stripslashes($m[1])] ?? null;
+        $postRows = [];
+        foreach ($this->postsRows as $id => $row) {
+            $postRows[] = ['ID' => $id] + $row;
         }
-        return null;
+        $optionRows = [];
+        foreach ($this->optionRows as $name => $value) {
+            $optionRows[] = ['option_name' => $name, 'option_value' => $value, 'autoload' => 'no'];
+        }
+        $kvRows = [];
+        foreach ($this->kv as $key => $value) {
+            $kvRows[] = ['k' => $key, 'v' => $value];
+        }
+        $this->seedTable('wprism_map', $mapRows);
+        $this->seedTable('wprism_kv', $kvRows);
+        $this->seedTable('posts', $postRows);
+        $this->seedTable('options', $optionRows);
+        $this->seedTable('term_taxonomy', []);
+        $this->fixtureState = $state;
+    }
+
+    private function syncStoreToFixture(): void {
+        $this->map = [];
+        foreach ($this->rows('wprism_map') as $row) {
+            $this->map[(string) $row['uuid'] . "\0" . (string) $row['id_kind']] = (int) $row['local_id'];
+        }
+        $this->kv = [];
+        foreach ($this->rows('wprism_kv') as $row) {
+            $this->kv[(string) $row['k']] = (string) $row['v'];
+        }
+        $this->optionRows = [];
+        foreach ($this->rows('options') as $row) {
+            $this->optionRows[(string) $row['option_name']] = $row['option_value'];
+        }
+        $this->postsRows = [];
+        foreach ($this->rows('posts') as $row) {
+            $id = (int) $row['ID'];
+            unset($row['ID']);
+            $this->postsRows[$id] = $row;
+        }
+        $this->fixtureState = $this->fixtureState();
+    }
+
+    private function fixtureState(): string {
+        return hash('sha256', serialize([
+            $this->map,
+            $this->postsRows,
+            $this->kv,
+            $this->optionRows,
+        ]));
     }
 }
 
@@ -2798,6 +3025,18 @@ $wpdb->map = [
 $wpdb->postsRows = [204 => ['post_type' => 'probe', 'post_parent' => 202]];
 
 $batchBuilder = new \WPrism\ProviderActionBatchBuilder($policyFor($manifest), []);
+
+$customPost = '88888888-8888-4888-8888-888888888888';
+$wpdb->map[$customPost . "\0post"] = 808;
+$customBatch = $batchBuilder->action_entities(
+    ['provider' => 'probe-cache', 'capability' => 'flush', 'triggers' => ['post:*']],
+    [['uuid' => $customPost]],
+    [$customPost => ['type' => 'post', 'data' => ['type' => 'book']]],
+    includeGenericPending: false
+);
+$check($customBatch['entities'] === [['kind' => 'post:book', 'id' => 808]]
+    && $customBatch['markers'] === [$customPost => 'book'],
+    'the bounded post:* primitive carries a scoped custom CPT through concrete-surface batch assembly; the provider never receives a wildcard row');
 
 $batchAction = [
     'provider' => 'probe-cache',
@@ -2993,6 +3232,10 @@ $driveRebuild = static function (
             renewRegenerationLease: static function (): void {},
             renewProviderLease: static function (): void {},
             lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            deletionDatabaseProfile: static fn(array $work): array => [
+                'read_tables' => [],
+                'table_presence_reads' => [],
+            ],
             recheckDeleteGuard: static function (array $a, array $b, array $c, bool $d, array $e, array $f, bool $g): void {},
             selectionDeclaresChannelFor: fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface),
             selectionDeclaresEntityBatchFor: fn(string $surface): bool => $selection->declares_entity_batch_for($surface),
@@ -3657,6 +3900,20 @@ $check($claimantNegotiation(['reparents'])['problems'] !== []
 $check($claimantNegotiation(null)['problems'] === [],
     'a capability declaring NO channel negotiates clean on the same post type: it consumes none of that '
     . 'bookkeeping, so the batch channel keeps undisputed ownership');
+$postKindManifest = $manifest;
+$postKindManifest['spec_version'] = 3;
+$postKindManifest['engine_features'] = ['post-kind-action-trigger/v1', 'spec-window/v1'];
+$postKindManifest['actions'][0]['triggers'] = ['post:*'];
+$reset();
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
+$postKindPolicy = $policyFor($postKindManifest);
+$postKindProblem = $one(\WPrism\Providers::negotiate(
+    $postKindPolicy,
+    $postKindPolicy->actions_for(['post:book'])
+)['problems']);
+$check(($postKindProblem['code'] ?? null) === 'post_kind_trigger_context_unsupported'
+    && str_contains((string) ($postKindProblem['remediation'] ?? ''), 'use exact post-type triggers'),
+    'a context-bearing provider cannot claim the generic post-kind trigger because durable marker ownership is per concrete post type');
 $reset();
 
 echo "\n== outstanding receipts are legible in plan and status (independent review F3) ==\n";
@@ -3725,6 +3982,26 @@ $check($envFacade === [
 $check(
     $wpdb->optionReadNames === ['a_required', 'm_present', 'z_optional'],
     'the Apply facade reads every resolved env option in Policy order through the wpdb boundary'
+);
+
+$serializedEnvManifest = $manifest;
+$serializedEnvManifest['options'] = [
+    'serialized_required' => ['class' => 'env', 'required' => true],
+];
+$serializedLookingEnv = 'a:1:{s:1:"x";s:1:"y";}';
+$wpdb->optionRows = ['serialized_required' => serialize($serializedLookingEnv)];
+$wpdb->optionReadNames = [];
+\WPrism\EnvironmentValues::set($scratchRoot, 'serialized_required', $serializedLookingEnv);
+$serializedEnvPolicy = $policyFor($serializedEnvManifest);
+$serializedEnvProjection = (new \WPrism\ApplyPlanEnvironment(
+    $serializedEnvPolicy,
+    new \WPrism\RebuildSelection($serializedEnvPolicy),
+    $scratchRoot
+))->env_missing_projection();
+$check(
+    $serializedEnvProjection === ['env_missing' => [], 'warnings' => []]
+        && $wpdb->optionReadNames === ['serialized_required'],
+    'the Apply facade compares WordPress wire bytes to the encoded intended scalar after env-set double-serialization'
 );
 $wpdb->optionRows = [];
 $wpdb->optionReadNames = [];
@@ -3919,7 +4196,7 @@ $check($twoConsumers(['deletions'], [], ['post:probe'], 'flush')['problems'] ===
 // under one key, so unbinding "the first claimant" alone would look identical.
 $reset();
 \WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
-\WPrism\Providers\ProbeIndex::$capabilityOverrides = ['context' => ['deletions']];
+$GLOBALS['wprism_test_probe_index_capability_overrides'] = ['context' => ['deletions']];
 $crossManifest = $manifest;
 $crossManifest['actions'][0]['triggers'] = ['post:probe'];
 $crossManifest['providers'][] = [
@@ -3972,7 +4249,7 @@ $check(\WPrism\Providers::problems($crossPolicy, $crossGating) === [],
     . 'even though the row is attributed to only one of its claimants');
 $check(\WPrism\Providers::problems($crossPolicy) !== [],
     'subtraction, never suppression: with nothing gating, the same call still reports it');
-\WPrism\Providers\ProbeIndex::$capabilityOverrides = [];
+$GLOBALS['wprism_test_probe_index_capability_overrides'] = [];
 
 $reset();
 \WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
