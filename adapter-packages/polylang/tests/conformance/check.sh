@@ -353,6 +353,14 @@ for language in en fr ar; do
     grep -Eqi "<html[^>]+dir=[\"']rtl[\"']" <<<"$FRONT" || fail 'Arabic frontend did not expose native RTL document direction'
     grep -Fq 'محتوى عربي قابل للنقل' <<<"$FRONT" || fail 'Arabic frontend did not consume its translated content'
   fi
+  BIOGRAPHY_EXPECTED=$(php -r '
+require $argv[1];
+$keys = ["en" => "description", "fr" => "description_fr", "ar" => "description_ar"];
+echo PolylangBiographyValues::authored($argv[2])[$keys[$argv[3]]];
+' "${WPRISM_ARTIFACT_LIBRARY_ROOT:-..}/adapter-packages/polylang/fixtures/polylang_biography_values.php" \
+    "http://localhost:${CONF2_PORT}" "$language")
+  [ -n "$BIOGRAPHY_EXPECTED" ] && grep -Fq "$BIOGRAPHY_EXPECTED" <<<"$FRONT" \
+    || fail "Polylang $language frontend did not consume the exact target-local author biography"
 done
 REST=$(curl -fsSL "http://localhost:${CONF2_PORT}/wp-json/wp/v2/posts/$POST_EN_ID") || fail 'conf2 Polylang REST post request failed'
 jq -e --argjson id "$POST_EN_ID" '.id == $id and (.content.rendered | contains("English portable body 東京 🚀"))' <<<"$REST" >/dev/null \
@@ -366,6 +374,9 @@ PAGE_REST=$(curl -fsSL "http://localhost:${CONF2_PORT}/wp-json/wp/v2/pages/$PAGE
 jq -e --argjson id "$PAGE_EN_ID" '.id == $id and .status == "publish" and (.content.rendered | contains("English portable page reference."))' <<<"$PAGE_REST" >/dev/null \
   || fail "Polylang target REST API did not consume the translated target page: $PAGE_REST"
 pass 'frontend language switching, per-language menus, public post/page routes, Arabic RTL, media URLs and REST all consume target-local state'
+
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-biography.sh"
+polylang_biography_check
 
 ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'Polylang zero-change plan' json "$ZERO_PLAN"

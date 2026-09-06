@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 namespace WPrismTest;
 
+require_once __DIR__ . '/EvidenceSizeProfile.php';
+
 /** Admit one retained command's complete object output without interpreting its meaning. */
 final class PrivateCommandOutput {
-    public static function readObject(string $stem, ?string $stderrPattern = null): string {
+    public static function readObject(string $stem, ?string $stderrPattern = null, string $profile = EvidenceSizeProfile::COMPACT): string {
+        $limits = EvidenceSizeProfile::limits($profile);
         if (!str_starts_with($stem, '/')) {
             throw new \RuntimeException('private command output requires an absolute stem');
         }
@@ -14,7 +17,7 @@ final class PrivateCommandOutput {
             throw new \RuntimeException('private command output directory is not private');
         }
         $streams = [];
-        foreach (['stdout' => 1048576, 'stderr' => 1048576, 'exit' => 8] as $suffix => $limit) {
+        foreach (['stdout' => $limits['stdout_bytes'], 'stderr' => 1048576, 'exit' => 8] as $suffix => $limit) {
             $path = "$stem.$suffix";
             $stat = @lstat($path);
             if (!is_array($stat) || ($stat['mode'] & 0177777) !== 0100600 || $stat['nlink'] !== 1

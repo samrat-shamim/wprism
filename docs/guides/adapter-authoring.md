@@ -1672,6 +1672,18 @@ plugin faithfully.
    after cleanup, not just before it. Its diagnostic-only record is not a passing certificate;
    a malformed, warning-bearing, oversized or mismatched observation refuses.
 
+   Put reusable capsule shell helpers in `fixtures/`, not beside class-named
+   test entrypoints. Source them through the explicit
+   `"$(dirname "${BASH_SOURCE[0]}")/../../fixtures/<name>.sh"` form.
+   From the live harness's `sandbox/` working directory,
+   `. tests/lib/private_command_capture.sh` is the reviewed shared transport
+   dependency; this admits that exact helper, not arbitrary neighboring shell
+   files. For complete canonical trees exceeding the compact 256 KiB content
+   budget, select `EvidenceSizeProfile::CONFORMANCE_TREE` explicitly in both
+   capture and retained admission. It permits one 1 MiB tree inside a 2 MiB
+   private command stream; roster and metadata bounds do not grow. Keep
+   before/after records separate and never truncate a tree to fit a budget.
+
 ### Getting the harness those tests need
 
 Adoption assembles package and platform sources into

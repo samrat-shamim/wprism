@@ -41,6 +41,7 @@ final class AdapterPackageValidator
         'conformance/asserts.sh',
         'lib/pair_identity.sh',
         'lib/pair_db.sh',
+        'tests/lib/private_command_capture.sh',
     ];
 
     /** @var list<string> */

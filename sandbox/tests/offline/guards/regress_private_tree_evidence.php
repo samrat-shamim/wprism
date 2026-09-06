@@ -7,6 +7,7 @@ require_once dirname(__DIR__, 2) . '/lib/PrivateCommandOutput.php';
 
 use WPrismTest\FilesystemTreeEvidence;
 use WPrismTest\PrivateCommandOutput;
+use WPrismTest\EvidenceSizeProfile;
 
 $scratch = sys_get_temp_dir() . '/wprism-private-tree-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700);
@@ -136,6 +137,49 @@ $reset = static function () use ($write, $answer, $private): void {
 };
 $reset();
 wprism_check_same($answer, PrivateCommandOutput::readObject($stem), 'private output admission returns the original complete object bytes');
+$largeRoot = "$scratch/large-source";
+mkdir($largeRoot, 0700);
+wprism_check_same(['tree_bytes' => FilesystemTreeEvidence::MAX_BYTES, 'tree_record_bytes' => FilesystemTreeEvidence::MAX_RECORD_BYTES, 'stdout_bytes' => 1048576],
+    EvidenceSizeProfile::limits(EvidenceSizeProfile::COMPACT), 'compact profile preserves every original transport bound');
+$largeBytes = str_repeat('x', 1048576);
+file_put_contents("$largeRoot/state", $largeBytes);
+$largeTree = FilesystemTreeEvidence::capture($largeRoot, 'state', EvidenceSizeProfile::CONFORMANCE_TREE);
+FilesystemTreeEvidence::assertRecord($largeTree, 'state', EvidenceSizeProfile::CONFORMANCE_TREE);
+wprism_check_same($largeBytes, base64_decode($largeTree['files'][0]['contents_base64'], true), 'explicit conformance profile retains its exact 1 MiB content boundary');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::capture($largeRoot, 'state'), RuntimeException::class, 'larger conformance content cannot weaken default capture');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($largeTree, 'state'), RuntimeException::class, 'a record cannot select a larger admission budget for itself');
+$largeAnswer = json_encode(['tree' => $largeTree], JSON_THROW_ON_ERROR);
+$write('stdout', $largeAnswer);
+wprism_check(strlen($largeAnswer) > 1048576, 'large transport fixture really crosses the old command budget');
+wprism_check_same($largeAnswer, PrivateCommandOutput::readObject($stem, null, EvidenceSizeProfile::CONFORMANCE_TREE), 'explicit conformance reader admits exact complete large record bytes');
+wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), RuntimeException::class, 'default command admission still refuses large conformance output');
+$write('stdout', str_repeat(' ', 2097153));
+wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, null, EvidenceSizeProfile::CONFORMANCE_TREE), RuntimeException::class, 'conformance command output still has a finite 2 MiB ceiling');
+file_put_contents("$largeRoot/state", $largeBytes . 'x');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::capture($largeRoot, 'state', EvidenceSizeProfile::CONFORMANCE_TREE), RuntimeException::class, 'conformance content over 1 MiB refuses');
+$largeTree['files'][0]['bytes']++;
+$largeTree['files'][0]['contents_base64'] = base64_encode($largeBytes . 'x');
+$largeTree['files'][0]['sha256'] = hash('sha256', $largeBytes . 'x');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($largeTree, 'state', EvidenceSizeProfile::CONFORMANCE_TREE), RuntimeException::class, 'retained conformance content over 1 MiB also refuses');
+mkdir("$largeRoot/split", 0700);
+file_put_contents("$largeRoot/split/a", str_repeat('x', 524288));
+file_put_contents("$largeRoot/split/b", str_repeat('x', 524289));
+wprism_check_throws(static fn() => FilesystemTreeEvidence::capture($largeRoot, 'split', EvidenceSizeProfile::CONFORMANCE_TREE), RuntimeException::class,
+    'larger content budget is aggregate, not a per-file allowance');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($overEntries, 'state/empty', EvidenceSizeProfile::CONFORMANCE_TREE), RuntimeException::class,
+    'larger content profile does not enlarge the entry roster');
+$largeMetadata = ['root' => 'state', 'directories' => [''], 'files' => []];
+for ($index = 0; $index < 1600; $index++) {
+    $largeMetadata['files'][] = array_replace($emptyRow, ['path' => sprintf('%04d-', $index) . str_repeat('x', 90)]);
+}
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($largeMetadata, 'state', EvidenceSizeProfile::CONFORMANCE_TREE), RuntimeException::class,
+    'larger content profile retains the exact metadata ceiling', 'metadata bound');
+foreach (['', 'conformance-tree/v2', 'unbounded'] as $unsupported) {
+    wprism_check_throws(static fn() => FilesystemTreeEvidence::capture($largeRoot, 'state', $unsupported), RuntimeException::class, 'capture refuses an unsupported evidence profile');
+    wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($tree, 'state', $unsupported), RuntimeException::class, 'retained admission refuses an unsupported evidence profile');
+    wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, null, $unsupported), RuntimeException::class, 'command admission refuses an unsupported evidence profile');
+}
+$reset();
 $write('stderr', " Container bound-cli1-run-abcd Created \n");
 wprism_check_same($answer, PrivateCommandOutput::readObject($stem, '/^ Container bound-cli1-run-[a-f0-9]+ Created $/D'), 'only the caller-bound lifecycle prelude is admitted');
 wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), RuntimeException::class, 'host-only observations admit no nonempty diagnostic prelude');

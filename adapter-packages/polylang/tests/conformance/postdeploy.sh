@@ -33,6 +33,10 @@ foreach ([
     $terms[$language] = (int) $created['term_id'];
 }
 
+$publisher = get_user_by('login', 'admin');
+if (!$publisher instanceof WP_User) {
+    throw new RuntimeException('Polylang target publisher premise is missing');
+}
 $posts = [];
 foreach ([
     'en' => 'portable-polylang-story-en',
@@ -42,6 +46,7 @@ foreach ([
     $created = wp_insert_post([
         'post_type' => 'post',
         'post_status' => 'publish',
+        'post_author' => (int) $publisher->ID,
         'post_title' => "Hostile target $language story",
         'post_name' => $slug,
         'post_content' => "Hostile target $language content that must not survive adoption.",
@@ -60,10 +65,6 @@ foreach ([
 // Same source-natural keys, deliberately different persistent statuses and
 // bytes: Apply must adopt these target rows while restoring source-authored
 // records and the target-local Polylang translation ids.
-$publisher = get_user_by('login', 'admin');
-if (!$publisher instanceof WP_User) {
-    throw new RuntimeException('Polylang target publisher premise is missing');
-}
 $previousUserId = get_current_user_id();
 wp_set_current_user((int) $publisher->ID);
 if (!current_user_can('publish_posts')) {
@@ -247,4 +248,7 @@ TARGET_TERM=$(jq -r '.terms.en' <<<"$TARGET_JSON")
 require_fixture_ids SOURCE_POST TARGET_POST SOURCE_PAGE TARGET_PAGE SOURCE_BLOCK TARGET_BLOCK SOURCE_TERM TARGET_TERM
 [ "$SOURCE_POST" != "$TARGET_POST" ] && [ "$SOURCE_PAGE" != "$TARGET_PAGE" ] && [ "$SOURCE_BLOCK" != "$TARGET_BLOCK" ] && [ "$SOURCE_TERM" != "$TARGET_TERM" ] \
   || fail "Polylang source/target hostile identities did not diverge: source=$SOURCE_POST/$SOURCE_PAGE/$SOURCE_BLOCK/$SOURCE_TERM target=$TARGET_POST/$TARGET_PAGE/$TARGET_BLOCK/$TARGET_TERM"
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-biography.sh"
+polylang_biography_seed target
+
 pass 'Polylang target begins with divergent same-key post/page/pattern content and statuses, stale derived state, and target-owned runtime siblings'

@@ -1457,6 +1457,43 @@ SH
         self::assertSame('acf', $result['adapter']);
     }
 
+    public function testValidatorAcceptsTheReviewedPrivateCommandCaptureSource(): void
+    {
+        $root = $this->validatorFixture();
+        $shared = 'sandbox/tests/lib/private_command_capture.sh';
+        self::write($root . '/' . $shared, (string) file_get_contents(dirname(__DIR__, 2) . '/' . $shared));
+        self::write(
+            $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
+            "#!/usr/bin/env bash\n. tests/lib/private_command_capture.sh\n"
+        );
+        self::assertSame('acf', AdapterPackageValidator::validate($root, 'acf')['adapter']);
+    }
+
+    public function testValidatorRefusesAnAbsentReviewedPrivateCommandCaptureSource(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
+            "#!/usr/bin/env bash\n. tests/lib/private_command_capture.sh\n"
+        );
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testReviewedPrivateCaptureSourceDoesNotAdmitItsNeighbor(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/sandbox/tests/lib/private_neighbor.sh', "#!/usr/bin/env bash\n:\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
+            "#!/usr/bin/env bash\n. tests/lib/private_neighbor.sh\n"
+        );
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
     public function testValidatorAcceptsAnAssignmentPrefixedCanonicalPackageRelativeShellSource(): void
     {
         $root = $this->validatorFixture();
