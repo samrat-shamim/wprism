@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/check.php';
 
-$repoRoot = dirname(__DIR__, 4);
+$repoRoot = $argv[1] ?? dirname(__DIR__, 4);
 $scratch = sys_get_temp_dir() . '/wprism-executable-tree-' . bin2hex(random_bytes(8));
 $content = $scratch . '/wp-content';
 $plugins = $content . '/plugins';
@@ -343,6 +343,35 @@ try {
         'accepts only --owner'
     );
     wprism_check_same([], WP_CLI::$lines, 'a refused command emits no partial observation');
+
+    // Integer-looking directory-map keys used to crash the shared walker
+    // before the inert product command could report an owner identity.
+    $numeric = $themes . '/numeric';
+    foreach (['-1', '01', '1'] as $name) mkdir($numeric . '/' . $name, 0700, true);
+    $numericRows = [];
+    foreach (['-1/0', '0', '00', '01/0', '02', '1/0', '9223372036854775808'] as $name) {
+        $value = 'literal path ' . $name;
+        file_put_contents($numeric . '/' . $name, $value);
+        $numericRows[] = ['path' => $name, 'sha256' => hash('sha256', $value)];
+    }
+    try {
+        $numericSnapshot = \WPrism\FilesystemTreeSnapshot::observe(
+            $content, $numeric, 'themes/numeric', 'numeric identity', 'wp-content'
+        );
+        wprism_check_same(['', '-1', '01', '1'], $numericSnapshot['directories'],
+            'numeric directory names retain exact string spelling and lexical order');
+        wprism_check_same(array_column($numericRows, 'path'), array_column($numericSnapshot['files'], 'path'),
+            'numeric file names, leading zeroes and integer overflow spellings remain distinct strings');
+        WP_CLI::$lines = [];
+        (new \WPrism\Cli())->executable_owner_observe([], ['owner' => 'theme:numeric']);
+        $numericAnswer = json_decode(WP_CLI::$lines[0], true, 32, JSON_THROW_ON_ERROR);
+        wprism_check_same(hash('sha256', \WPrism\Canon::encode([
+            'files' => $numericRows, 'format' => \WPrism\ExecutableTreeIdentity::FORMAT, 'root' => 'themes/numeric',
+        ])), $numericAnswer['code_identity']['sha256'],
+            'the actual owner-observe command hashes every literal numeric path without a compatibility projection');
+    } catch (Throwable $error) {
+        wprism_check(false, 'numeric paths must produce a product observation, not ' . get_class($error) . ': ' . $error->getMessage());
+    }
 
     $boundarySource = (string) file_get_contents($repoRoot . '/agent/src/Delete/ExecutableOwnerBoundary.php');
     $liveSource = (string) file_get_contents(
