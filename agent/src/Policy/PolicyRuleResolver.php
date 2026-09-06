@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
+require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
 
 /**
  * Pure selection of one exact or pattern-backed Policy classification rule.
@@ -64,6 +65,20 @@ final class PolicyRuleResolver {
     public function details(string $section, string $name): array {
         $sitePolicy = $this->site['policy'][$section][$name] ?? null;
         if ($sitePolicy !== null) {
+            if (in_array($section, ['post_meta', 'term_meta', 'user_meta'], true)) {
+                foreach ($this->manifests as $manifest) {
+                    if (is_array($declared = $manifest[$section][$name] ?? null)) {
+                        NativeValueValidation::assert_site_override($declared, $sitePolicy, "$section.$name");
+                    }
+                    foreach (self::PATTERN_KEYS[$section] ?? [] as $patternKey) {
+                        foreach ($manifest[$patternKey] ?? [] as $pattern) {
+                            if (preg_match('/' . $pattern['match'] . '/', $name)) {
+                                NativeValueValidation::assert_site_override($pattern, $sitePolicy, "$section.$name");
+                            }
+                        }
+                    }
+                }
+            }
             if ($section === 'options') {
                 foreach ($this->manifests as $manifest) {
                     $declared = $manifest['options'][$name] ?? null;
@@ -94,10 +109,10 @@ final class PolicyRuleResolver {
                 $coreMatch = $found; // keep scanning: a non-core declaration still outranks core
                 continue;
             }
-            return $found;
+            return $this->with_native_ownership($section, $name, $found);
         }
         if ($coreMatch !== null) {
-            return $coreMatch;
+            return $this->with_native_ownership($section, $name, $coreMatch);
         }
         $patternKeys = self::PATTERN_KEYS[$section] ?? [];
         if ($patternKeys !== []) {
@@ -105,17 +120,47 @@ final class PolicyRuleResolver {
                 foreach ($patternKeys as $patternKey) {
                     foreach ($manifest[$patternKey] ?? [] as $pattern) {
                         if (preg_match('/' . $pattern['match'] . '/', $name)) {
-                            return [
+                            return $this->with_native_ownership($section, $name, [
                                 'rule' => $section === 'options'
                                     ? ($this->withOptionAutoload)(array_diff_key($pattern, ['match' => true]), $manifest)
                                     : array_diff_key($pattern, ['match' => true]),
                                 'source' => (string) ($manifest['name'] ?? '?'),
-                            ];
+                            ]);
                         }
                     }
                 }
             }
         }
         return ['rule' => null, 'source' => null];
+    }
+
+    /** A native predicate cannot be hidden by another adapter's pin order. */
+    private function with_native_ownership(string $section, string $name, array $selected): array {
+        if (!in_array($section, ['post_meta', 'term_meta', 'user_meta'], true)) return $selected;
+        $owners = [];
+        $claimants = [];
+        foreach ($this->manifests as $manifest) {
+            $rule = $manifest[$section][$name] ?? null;
+            if ($rule === null) {
+                foreach (self::PATTERN_KEYS[$section] ?? [] as $patternKey) {
+                    foreach ($manifest[$patternKey] ?? [] as $pattern) {
+                        if (preg_match('/' . $pattern['match'] . '/', $name)) {
+                            $rule = $pattern;
+                            break 2;
+                        }
+                    }
+                }
+            }
+            if (is_array($rule) && array_key_exists(NativeValueValidation::FIELD, $rule)) {
+                $owners[(string)($manifest['name'] ?? '?')] = true;
+            }
+            if (is_array($rule) && ($manifest['name'] ?? null) !== 'core') {
+                $claimants[(string)($manifest['name'] ?? '?')] = true;
+            }
+        }
+        if ($owners !== [] && (count($owners) !== 1 || count($claimants) > 1 || !isset($owners[$selected['source']]))) {
+            throw new \RuntimeException("wprism: $section.$name native value validation has conflicting classification owners");
+        }
+        return $selected;
     }
 }

@@ -1721,6 +1721,10 @@ regress-private-tree-evidence:
 regress-repository-convergence:
 	php sandbox/tests/offline/repository/regress_repository_convergence.php
 
+.PHONY: regress-native-value-validation
+regress-native-value-validation:
+	php sandbox/tests/offline/apply/regress_native_value_validation.php
+
 # One scalar must satisfy every declared local-id consumer without guessing.
 .PHONY: regress-scalar-reference-intersection
 regress-scalar-reference-intersection:

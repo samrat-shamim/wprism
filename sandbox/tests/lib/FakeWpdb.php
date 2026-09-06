@@ -2773,6 +2773,20 @@ class FakeWpdb {
                         throw new \RuntimeException('FakeWpdb: simulated InnoDB row lock wait timeout');
                     }
                     $this->rowLocks[$key] = $this->connectionId;
+                } elseif ($table === $this->users && preg_match(
+                    '/^SELECT ID, user_login FROM `?[A-Za-z0-9_]{1,64}`? FORCE INDEX \(`[^`]+`\) '
+                    . "WHERE user_login = '((?:[^'\\\\]|\\\\.)*)' ORDER BY ID ASC LIMIT 3 FOR UPDATE$/D",
+                    $trimmed,
+                    $login
+                ) === 1) {
+                    // UserMetaMaterializer locks the complete collation-equal
+                    // login range, then selects exact bytes in PHP. The row
+                    // interpreter below still executes the full bounded read.
+                    $key = $table . "\0user_login\0" . strtolower(stripslashes($login[1]));
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB login-range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
                 } elseif (str_ends_with($table, 'actionscheduler_groups')
                     && preg_match("/\\bWHERE\\s+slug\\s*=\\s*'((?:[^'\\\\]|\\\\.)*)'/is", $trimmed, $group) === 1) {
                     $key = $table . "\0slug\0" . stripslashes($group[1]);

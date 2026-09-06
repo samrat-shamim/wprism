@@ -18,6 +18,7 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 require_once __DIR__ . '/../Policy/ScopeDiscovery.php';
 require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
+require_once __DIR__ . '/../Repository/RepositoryValueValidation.php';
 require_once __DIR__ . '/TermCapture.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Grammar/Blocks.php';
@@ -371,6 +372,7 @@ final class CaptureCandidateBuilder {
         $this->assertOptionGates();
         $this->safetyGates->assertContentReferences($this->tokens);
         $this->safetyGates->assertCanonicalContent($entities);
+        RepositoryValueValidation::assert_native_tree($entities, $this->policy);
         return [
             'entities' => $entities,
             'media' => $media,

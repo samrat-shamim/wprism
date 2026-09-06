@@ -34,6 +34,7 @@ require_once __DIR__ . '/RepositoryReferenceGraphValidator.php';
 require_once __DIR__ . '/RepositoryPortableShapeValidator.php';
 require_once __DIR__ . '/RepositoryMenuLocationValidator.php';
 require_once __DIR__ . '/RepositoryStateFileCatalog.php';
+require_once __DIR__ . '/RepositoryValueValidation.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
@@ -516,6 +517,7 @@ final class RepositoryCompiler {
         // exception/payload when it is the only failing layer so existing
         // CLI/CI consumers do not lose their stable contract.
         RepositoryAuthorization::assert_tree($this->policy, $tree);
+        RepositoryValueValidation::assert_portable_tree($tree, $this->policy);
 
         $mediaCatalog = $this->mediaCatalog->catalog();
         $siteHash = self::site_hash($this->policy);

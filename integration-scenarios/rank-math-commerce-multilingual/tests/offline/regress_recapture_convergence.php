@@ -285,4 +285,21 @@ foreach (['ready','native-refusal','warning','refusal','incomplete','nonzero'] a
     if ($fault === 'ready' && $status !== 0) fwrite(STDERR,substr($stderr,0,2048));
     $remove($staged);
 }
+$command = implode(' ', array_map(escapeshellarg(...), [PHP_BINARY,
+    dirname(__DIR__, 2) . '/fixtures/recapture-convergence.php', 'invalid-private-fixture-input']));
+[$status, $stdout, $stderr] = WPrismTest\ShellProbe::run($command, [], $root);
+wprism_check_same(1, $status, 'actual host convergence command returns nonzero on refusal');
+wprism_check_same('', $stderr, 'host refusal does not expose exception values on stderr');
+$refusal = json_decode($stdout, true, 32, JSON_THROW_ON_ERROR);
+wprism_check_same(['status' => 'error', 'phase' => 'invocation', 'error_class' => RuntimeException::class,
+    'message_sha256' => hash('sha256', 'invalid convergence invocation')], $refusal,
+    'actual host command has a closed value-free JSON failure receipt');
+[$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+    'set -euo pipefail' . "\n" . 'fail() { printf "FAIL: %s\\n" "$*" >&2; exit 1; }' . "\n"
+        . '. "$1/sandbox/conformance/asserts.sh"' . "\n"
+        . 'capture_wprism_json_success observed "host convergence" ' . $command . "\n"
+        . 'printf "WRONG_SUCCESS\\n"', [$root], $root);
+wprism_check($status !== 0 && !str_contains($stdout, 'WRONG_SUCCESS')
+    && str_contains($stderr, 'host convergence failed with exit 1') && !str_contains($stderr, 'infrastructure failure'),
+    'real caller reports answered host refusal, never a Docker infrastructure diagnosis');
 wprism_check_summary('combined semantic convergence with exact native preservation');

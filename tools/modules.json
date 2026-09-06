@@ -83,6 +83,7 @@
     "ManifestExecutableLoader",
     "NativeDatabaseProfile",
     "NativeTableDefinition",
+    "NativeValueValidation",
     "LockedOptionRows",
     "OptionState",
           "CommandRefusal",
@@ -146,7 +147,7 @@
             ]
           }
         ],
-  "file_count": 65,
+  "file_count": 66,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -174,6 +175,7 @@
     "ManifestExecutableLoader.php",
     "NativeDatabaseProfile.php",
     "NativeTableDefinition.php",
+    "NativeValueValidation.php",
           "MediaPayloadAuthority.php",
           "MetaRows.php",
           "OptionState.php",
@@ -451,6 +453,7 @@
           "CompiledArtifact",
           "Snapshot",
           "RepositoryCompiler",
+          "RepositoryValueValidation",
           "SidebarState",
           "CanonicalSurfaces",
           "CanonicalLedgerMapGuard",
@@ -509,7 +512,7 @@
             ]
           }
         ],
-        "file_count": 28,
+        "file_count": 29,
         "files": [
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
@@ -533,6 +536,7 @@
           "RepositoryReferenceGraphValidator.php",
           "RepositorySchemaValidator.php",
           "RepositoryStateFileCatalog.php",
+          "RepositoryValueValidation.php",
           "SchemaSettlementIntent.php",
           "SidebarState.php",
           "Snapshot.php",

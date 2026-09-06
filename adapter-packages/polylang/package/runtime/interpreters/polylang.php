@@ -140,7 +140,8 @@ final class Polylang {
         }
         $value = PlainData::decode($allMeta[$key] ?? '', "Polylang user meta $key");
         $this->assert_biography($value, "live user meta $key");
-        return ['class' => 'authored', 'allow_pii' => true, 'missing_user' => 'block'];
+        return ['class' => 'authored', 'allow_pii' => true, 'missing_user' => 'block',
+            'native_value_validation' => ['profile' => 'wordpress-kses/v1', 'context' => 'pre_user_description']];
     }
 
     public function option_rule(string $name, array $allOptions): ?array {
@@ -1039,17 +1040,9 @@ final class Polylang {
                 "wprism: Polylang $where must be valid UTF-8 without unsafe control bytes"
             );
         }
-        if (!function_exists('wp_kses')) {
-            throw new \RuntimeException(
-                "wprism: Polylang $where cannot prove the native pre_user_description KSES boundary"
-            );
-        }
-        $sanitized = wp_kses($value, 'pre_user_description');
-        if (!is_string($sanitized) || !hash_equals($value, $sanitized)) {
-            throw new \RuntimeException(
-                "wprism: Polylang $where is not already canonical under the native pre_user_description KSES boundary"
-            );
-        }
+        // Classification and repository diagnostics run in the standalone
+        // compiler too. The returned native profile delegates actual KSES to
+        // Capture, target planning and resolved-value Apply, never a host stub.
     }
 
     private function assert_source_language_flags(mixed $runtime): void {

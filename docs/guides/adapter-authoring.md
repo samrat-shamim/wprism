@@ -366,6 +366,40 @@ Do not align all fixture ids or filter warnings to turn the unsupported domain
 into a positive case. See
 [the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
 
+### Portable validation versus WordPress-native predicates
+
+Run your real adapter through the standalone `RepositoryCompiler`, with no
+WordPress bootstrap or sanitizer stubs. Classification and repository diagnostics
+are portable code: they cannot call plugin runtime or WordPress APIs. A test
+double for `wp_kses` masked this boundary in Polylang until the four-plugin
+recapture comparison compiled its complete user-meta sidecars on the host.
+
+When authored metadata must already satisfy native KSES, a v3 manifest declares
+`native-value-validation/v1` and adds the following field to its authored rule:
+
+```json
+"native_value_validation": {
+  "profile": "wordpress-kses/v1",
+  "context": "pre_user_description"
+}
+```
+
+This is a closed engine profile, not an arbitrary sanitizer callback. Exact
+post/term/user metadata, metadata patterns, and a feature-enrolled interpreter's
+metadata answer can use it. The engine retains bounded UTF-8 string checks during
+compilation; Capture validates native input and the canonical candidate; target
+Plan validates before snapshot work; Apply validates resolved values, locked
+classification, and all owned preimages before metadata writes. Repeated
+post/term rows are checked individually. A missing native API or changed output
+refuses; the engine never sanitizes and silently changes authored bytes.
+
+Test host compilation separately from real WordPress validation. Cover safe HTML
+and Unicode, size/control-byte refusals, missing APIs, unsafe desired and existing
+rows, repeated/duplicate values, URL rebinding, site overrides, and conflicting
+adapter ownership. Then run native conformance and relevant combinations. Adding
+this profile moves package identity: recompile and re-pin, never bypass a stale
+artifact. New native profiles require an engine contract and evidence first.
+
 ### Deleting what you author
 
 Authoring a post type does not make its rows deletable through WPrism. A capture

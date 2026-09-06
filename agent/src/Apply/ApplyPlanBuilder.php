@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
+require_once __DIR__ . '/../Repository/RepositoryValueValidation.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Delete/DeleteGuardReferenceScanner.php';
 if (!class_exists(CompiledRepository::class, false)) {
@@ -87,6 +88,9 @@ final class ApplyPlanBuilder {
     ): array {
         $tree = $compiled->tree();
         $this->check_theme_mismatch($tree);
+        // Compilation is target-free. Native predicates must pass here before
+        // even the non-strict snapshot can mint target observation identities.
+        RepositoryValueValidation::assert_native_tree($tree, $this->policy);
         // Capture::snapshot() runs the SAME build() capture.php's own `wprism
         // capture` does (drift detection needs the live environment's
         // current canonical view) — so it hits the identical task #73

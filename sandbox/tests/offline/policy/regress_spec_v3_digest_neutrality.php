@@ -35,12 +35,15 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-const BASELINE_FIXTURE_SHA256 = '06cc60a9e831115ba8806c02d70d7e86b0f47e1ea6295744b9437f8d4fb7224a';
-const RANK_WORLD_MANIFEST_HASH = '79b9d1cefcd7756ee845f888e5ca90b8a172053710617b6e3d03218dc9a76b9e';
-const YOAST_WORLD_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
+// Polylang's native-value-validation/v1 declaration changes only its package
+// address. regress_disposition_split.php retains the exact prior transition;
+// this current baseline also re-pins the Polylang/TEC world and manifest bytes.
+const BASELINE_FIXTURE_SHA256 = '17a055c45f3592c18ac3dd001791eb53b4fa6858d0ef5d1f4c97471d5c702b09';
+const RANK_WORLD_MANIFEST_HASH = 'f910e4f248fc034230db88497fe13c13adf69e56209981a0f3c8b2bfde33c0cd';
+const YOAST_WORLD_MANIFEST_HASH = '0d786231657aa37c64fcb31a9751a561da410482c84c6145d3f4e961f6e2f71a';
 const REGISTRY_SHA256 = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'c2ce88f5164a59e0ecd307ba35bb322b3b9edff72d5569c06138643dafc72aa6';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'ef66e57722b855c8ec0a8bca12324ad84032b67e44ac7ffe6598d6e767e2070b';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '9e139f3acb9eb3b9ee5514a4971a5ff2eb8109364923dd01951f6aed1e939ee2';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

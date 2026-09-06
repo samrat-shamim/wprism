@@ -9,6 +9,7 @@ require_once __DIR__ . '/ActionProviderGrammar.php';
 // WP-4.12: the {N-1, N} window itself, shared with RepositoryCompiler, which
 // judges site.wprism.json's own spec_version and cannot reference this layer.
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
+require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
 // WP-6.4: the value grammar for the `declaration_evidence` section. Eager, not
 // lazy like AdapterCertification below — that one is deferred because it is one
 // of the four names agent/wprism.php's bootstrap deliberately does not declare
@@ -169,6 +170,9 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        // A predicate on an existing metadata field, not a new surface. Its
+        // native arm executes only at explicit Capture/Plan/Apply boundaries.
+        NativeValueValidation::FEATURE => ['since' => 3, 'keys' => []],
         // A value constraint on an existing option field; canonical references
         // keep their existing kind and certificate arm, so no new section.
         ScalarReferenceIntersection::FEATURE => [
@@ -502,6 +506,9 @@ final class AdapterContractGrammar {
             ];
             if ($name === ScalarReferenceIntersection::FEATURE) {
                 $rows[$name]['value_constraint'] = ScalarReferenceIntersection::declaration_grammar();
+            }
+            if ($name === NativeValueValidation::FEATURE) {
+                $rows[$name]['value_constraint'] = NativeValueValidation::declaration_grammar();
             }
         }
 

@@ -52,8 +52,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "WPrismTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 228986,
-            "sha256": "55d45c4cc92da64d3c6a09d8eefae446b76742aaca702149579d637ffbd79a03"
+            "bytes": 229972,
+            "sha256": "8fcee535c3d47cb0e48591eb66e44ec46d31956910e81a90d48788157b464458"
         },
         {
             "path": "lib/frozen_policy.php",
