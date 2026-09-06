@@ -52182,7 +52182,7 @@
                     }
                 },
                 "SURFACE_PATTERN": {
-                    "value_repr": "/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D"
+                    "value_repr": "/^(post|term|table|option|entity):(?:[a-z0-9]|(?<=option:)_)[a-z0-9._-]{0,127}$/D"
                 }
             },
             "final": true,

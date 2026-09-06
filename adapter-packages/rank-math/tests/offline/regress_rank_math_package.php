@@ -97,7 +97,7 @@ wprism_check_same(
         'option:posts_per_page', 'option:posts_per_rss', 'option:rank-math-options-general',
         'option:rank_math_modules', 'option:rewrite_rules', 'option:show_on_front', 'option:siteurl',
         'option:sticky_posts', 'option:tag_base', 'option:woocommerce_permalinks',
-        'option:wp_page_for_privacy_policy', 'table:comments', 'table:postmeta', 'table:posts',
+        'option:wp_page_for_privacy_policy', 'table:comments', 'table:options', 'table:postmeta', 'table:posts',
         'table:rank_math_internal_links', 'table:rank_math_internal_meta', 'table:term_relationships',
         'table:term_taxonomy', 'table:terms', 'table:termmeta', 'table:users', 'table:usermeta',
     ],

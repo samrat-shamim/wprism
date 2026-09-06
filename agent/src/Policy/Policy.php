@@ -245,7 +245,10 @@ final class Policy {
      * vocabulary, so it is a shared constant rather than two regexes that can
      * drift into accepting different names for the same surface.
      */
-    public const SURFACE_PATTERN = '/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D';
+    // Native private option keys begin with '_' (transients and ACF shadows).
+    // Only that namespace gains the leading byte; the four other domains,
+    // exact-literal semantics, capture group and 128-byte bound stay intact.
+    public const SURFACE_PATTERN = '/^(post|term|table|option|entity):(?:[a-z0-9]|(?<=option:)_)[a-z0-9._-]{0,127}$/D';
 
     public array $site = [];
     /** @var array<int, array> */

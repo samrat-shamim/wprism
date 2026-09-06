@@ -77,7 +77,7 @@ final class ProviderSurfaces {
      * of those surfaces THIS file has a reader for — and keeping it local
      * means the observer loads without the policy layer.
      */
-    private const OPTION_SURFACE_PATTERN = '/^option:([a-z0-9][a-z0-9._-]{0,127})$/D';
+    private const OPTION_SURFACE_PATTERN = '/^option:([a-z0-9_][a-z0-9._-]{0,127})$/D';
 
     /** A surface whose reader found no row at all, as distinct from any digest. */
     private const ABSENT = 'absent';

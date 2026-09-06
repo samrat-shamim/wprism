@@ -110,6 +110,12 @@ final class RankMathState extends ManifestProviderRuntime {
     private const MAX_REGISTERED_POST_TYPES = 256;
     private const MAX_PUBLIC_QUERY_VARS = 2048;
     private const MAX_PUBLIC_QUERY_VAR_BYTES = 4096;
+    // 81fc's complete co-install refusal identifies Woo's native lookup cache.
+    // These are local derived effects, never authored state or observer input.
+    private const NATIVE_ROUTE_CACHE_OPTIONS = [
+        '_transient_timeout_wc_term_counts',
+        '_transient_wc_term_counts',
+    ];
     private const POST_WITNESS_COLUMNS = [
         'ID',
         'post_author',
@@ -838,9 +844,9 @@ final class RankMathState extends ManifestProviderRuntime {
      * assuming its permalink inputs stop at the posts table. Core can consult
      * author, category, rewrite and registered-query-var state, while plugins
      * can filter the resulting routes. The full hash binds that request-local
-     * runtime vector; dependency_state_hash excludes only that vector while
-     * retaining its durable option inputs and resolved native-link witness, so
-     * the checked parent can compare every stable route dependency after repair.
+     * runtime vector. This computation may refill native transient caches and
+     * runs only inside the declared mutation transaction. Fresh readback binds
+     * the complete durable inputs separately, without re-entering these APIs.
      *
      * @param array<string,string> $types
      * @param null|callable(array<string,mixed>,bool):void $visitor
@@ -1128,9 +1134,62 @@ final class RankMathState extends ManifestProviderRuntime {
         array $runtime,
         ?callable $routePostVisitor = null
     ): array {
+        $parts = $this->durable_route_dependency_projection($source, $routePostVisitor);
+        $parts['native_resolution'] = $source['resolution'];
+        $parts['types'] = array_keys($types);
+        $parts['runtime'] = $runtime;
+        $state = $parts;
+        unset($state['runtime']);
+        return [
+            'dependency_sha256' => hash('sha256', serialize($parts)),
+            'state_sha256' => hash('sha256', serialize($state)),
+        ];
+    }
+
+    /**
+     * Physical-table grants are not option-key grants. Bind every raw row and
+     * exclude only the two exact reviewed cache names in PHP, never with a
+     * collation-sensitive SQL predicate. This also protects unrelated native
+     * options and post metadata from hooks reached by the authorized operation.
+     *
+     * @return array{row_count:int,rows_sha256:string}
+     */
+    private function preserved_row_projection(bool $options): array {
+        global $wpdb;
+        $hash = hash_init('sha256');
+        $count = 0;
+        $this->stream_projection(
+            $options ? $wpdb->options : $wpdb->postmeta,
+            $options ? ['option_id', 'option_name', 'option_value', 'autoload']
+                : ['meta_id', 'post_id', 'meta_key', 'meta_value'],
+            '',
+            $options ? 'option_id' : 'meta_id',
+            $options ? 'Rank Math preserved-option projection' : 'Rank Math preserved-post-meta projection',
+            self::MAX_PROJECTION_ROWS,
+            static function (array $row) use ($options, &$hash, &$count): void {
+                $excluded = $options
+                    ? in_array($row['option_name'] ?? null, self::NATIVE_ROUTE_CACHE_OPTIONS, true)
+                    : ($row['meta_key'] ?? null) === 'rank_math_internal_links_processed';
+                if (!$excluded) {
+                    hash_update($hash, serialize($row));
+                    $count++;
+                }
+            }
+        );
+        return ['row_count' => $count, 'rows_sha256' => hash_final($hash)];
+    }
+
+    /**
+     * @param array{authors:list<int>,projection:array{row_count:int,rows_sha256:string}} $source
+     * @param null|callable(array<string,mixed>):void $routePostVisitor
+     * @return array<string,mixed>
+     */
+    private function durable_route_dependency_projection(array $source, ?callable $routePostVisitor = null): array {
         global $wpdb;
         $quotedOptions = array_map(
-            static fn(string $name): string => "'" . esc_sql($name) . "'",
+            // This closed literal set contains no quote or escape byte. Do
+            // not call WordPress's filterable escaping path in an observer.
+            static fn(string $name): string => "'$name'",
             self::ROUTE_OPTION_NAMES
         );
         $authorIds = $source['authors'];
@@ -1140,7 +1199,9 @@ final class RankMathState extends ManifestProviderRuntime {
         $authorMetaWhere = $authorIds === []
             ? 'WHERE 1 = 0'
             : 'WHERE user_id IN (' . implode(',', $authorIds) . ')';
-        $parts = [
+        return [
+            'preserved_options' => $this->preserved_row_projection(true),
+            'preserved_postmeta' => $this->preserved_row_projection(false),
             'options' => $this->stream_projection(
                 $wpdb->options,
                 ['option_name', 'option_value'],
@@ -1167,7 +1228,6 @@ final class RankMathState extends ManifestProviderRuntime {
                 $routePostVisitor
             ),
             'source_posts' => $source['projection'],
-            'native_resolution' => $source['resolution'],
             'term_relationships' => $this->stream_projection(
                 $wpdb->term_relationships,
                 ['object_id', 'term_taxonomy_id', 'term_order'],
@@ -1214,14 +1274,6 @@ final class RankMathState extends ManifestProviderRuntime {
                 'user_id, umeta_id',
                 'Rank Math route-author-meta projection'
             ),
-            'types' => array_keys($types),
-            'runtime' => $runtime,
-        ];
-        $state = $parts;
-        unset($state['runtime']);
-        return [
-            'dependency_sha256' => hash('sha256', serialize($parts)),
-            'state_sha256' => hash('sha256', serialize($state)),
         ];
     }
 
@@ -1288,9 +1340,7 @@ final class RankMathState extends ManifestProviderRuntime {
     /** @return array<string,mixed> */
     private function link_projection_within_snapshot(): array {
         $enabled = $this->durable_link_counter_enabled();
-        $this->assert_native_link_runtime($enabled);
-        $native = $this->audited_native_exclusion_callback();
-        return $this->complete_link_projection_within_snapshot($enabled, $native);
+        return $this->complete_link_projection_within_snapshot($enabled);
     }
 
     private function durable_link_counter_enabled(): bool {
@@ -1341,7 +1391,7 @@ final class RankMathState extends ManifestProviderRuntime {
             $wpdb->terms,
             // 87881374's retained native query is update_meta_cache('term')
             // during co-install resolution. Read and witness the complete
-            // bounded metadata state; the three-table write scope is unchanged.
+            // bounded metadata state; this table gains no write authority.
             $wpdb->termmeta,
             $wpdb->users,
             $wpdb->usermeta,
@@ -1408,27 +1458,55 @@ final class RankMathState extends ManifestProviderRuntime {
     }
 
     /**
-     * @param array{object,string} $native
-     * @param list<string> $routeTables
+     * No native eligibility or route callback runs here. Observe every post's
+     * complete source columns, including inaccessible types, so the second boot
+     * need not trust a writer-supplied identity set or repeat filterable APIs.
+     * Native eligibility and exact edge semantics remain independently checked
+     * before and after mutation inside its authorized transaction.
+     *
      * @return array<string,mixed>
      */
-    private function read_dependency_state(bool $enabled, array $native, array $routeTables): array {
+    private function durable_dependency_state_within_snapshot(bool $enabled): array {
         global $wpdb;
-        return ProviderSdk::database_read_snapshot(
-            'Rank Math dependency evidence',
-            $enabled ? $routeTables : [$wpdb->options],
-            function () use ($enabled, $native): array {
-                $this->assert_durable_link_counter_state($enabled);
-                return $this->dependency_state_within_snapshot($enabled, $native);
-            }
-        );
+        $source = ['row_count' => 0, 'rows_sha256' => hash('sha256', '')];
+        $authors = [];
+        if ($enabled) {
+            $source = $this->stream_projection(
+                $wpdb->posts,
+                self::POST_WITNESS_COLUMNS,
+                '',
+                'ID',
+                'Rank Math durable source-post projection',
+                self::MAX_ROUTE_IDENTITY_ROWS,
+                static function (array $row) use (&$authors): void {
+                    $id = (int) ($row['ID'] ?? 0);
+                    $author = (int) ($row['post_author'] ?? 0);
+                    if ($id <= 0 || $author < 0) {
+                        throw new \RuntimeException('wprism: Rank Math durable source projection contains an invalid identity');
+                    }
+                    if ($author > 0) {
+                        $authors[$author] = true;
+                    }
+                }
+            );
+        }
+        $authorIds = array_map('intval', array_keys($authors));
+        sort($authorIds, SORT_NUMERIC);
+        $parts = $enabled
+            ? $this->durable_route_dependency_projection(['authors' => $authorIds, 'projection' => $source])
+            : ['preserved_options' => $this->preserved_row_projection(true),
+                'preserved_postmeta' => $this->preserved_row_projection(false)];
+        return [
+            'source_projection' => $source,
+            'dependency_state_sha256' => hash('sha256', serialize(['enabled' => $enabled, 'parts' => $parts])),
+        ];
     }
 
-    /** @param array{object,string} $native @return array<string,mixed> */
-    private function complete_link_projection_within_snapshot(bool $enabled, array $native): array {
+    /** @return array<string,mixed> */
+    private function complete_link_projection_within_snapshot(bool $enabled): array {
         $this->assert_durable_link_counter_state($enabled);
         [$links, $meta, $postmeta] = $this->link_write_tables();
-        $state = $this->dependency_state_within_snapshot($enabled, $native);
+        $state = $this->durable_dependency_state_within_snapshot($enabled);
         $linkProjection = $this->stream_projection(
             $links,
             ['url', 'post_id', 'target_post_id', 'type'],
@@ -1453,11 +1531,8 @@ final class RankMathState extends ManifestProviderRuntime {
         return [
             'enabled' => $enabled,
             'post_count' => $state['source_projection']['row_count'],
-            'post_hash' => hash('sha256', serialize([
-                'types' => $state['types'],
-                'projection' => $state['source_projection'],
-            ])),
-            'dependency_hash' => $state['dependency_sha256'],
+            'post_hash' => $state['source_projection']['rows_sha256'],
+            'dependency_hash' => $state['dependency_state_sha256'],
             'dependency_state_hash' => $state['dependency_state_sha256'],
             'link_count' => $linkProjection['row_count'],
             'link_hash' => $linkProjection['rows_sha256'],
@@ -1469,15 +1544,14 @@ final class RankMathState extends ManifestProviderRuntime {
     }
 
     /**
-     * @param array{object,string} $native
      * @param list<string> $tables
      * @return array<string,mixed>
      */
-    private function read_complete_link_projection(bool $enabled, array $native, array $tables): array {
+    private function read_complete_link_projection(bool $enabled, array $tables): array {
         return ProviderSdk::database_read_snapshot(
             'Rank Math complete link evidence',
             $tables,
-            fn(): array => $this->complete_link_projection_within_snapshot($enabled, $native)
+            fn(): array => $this->complete_link_projection_within_snapshot($enabled)
         );
     }
 
@@ -1727,28 +1801,6 @@ final class RankMathState extends ManifestProviderRuntime {
         }
     }
 
-    /**
-     * @param array{object,string} $native
-     * @param list<string> $tables
-     * @param array<string,mixed> $initialDependencyState
-     */
-    private function read_verified_link_state(
-        bool $enabled,
-        array $native,
-        array $tables,
-        array $initialDependencyState
-    ): void {
-        ProviderSdk::database_read_snapshot(
-            'Rank Math verification evidence',
-            $tables,
-            fn(): mixed => $this->verify_link_state_within_snapshot(
-                $enabled,
-                $native,
-                $initialDependencyState
-            )
-        );
-    }
-
     /** @return array<string,mixed> */
     private function repair_link_state_pass(): array {
         global $wpdb;
@@ -1757,19 +1809,22 @@ final class RankMathState extends ManifestProviderRuntime {
             [$wpdb->options],
             fn(): bool => $this->durable_link_counter_enabled()
         );
-        $this->assert_native_link_runtime($enabled);
-        $native = $this->audited_native_exclusion_callback();
-        $routeTables = $this->route_dependency_tables();
         $tables = $this->link_state_tables($enabled);
-        $initialDependencyState = $this->read_dependency_state($enabled, $native, $routeTables);
-        if ($this->read_dependency_state($enabled, $native, $routeTables) !== $initialDependencyState) {
-            throw new \RuntimeException('wprism: Rank Math route dependencies changed during native repair');
-        }
-        $before = $this->read_complete_link_projection($enabled, $native, $tables);
-        ProviderSdk::database_write_contract_transaction(
+        $before = $this->read_complete_link_projection($enabled, $tables);
+        $proved = ProviderSdk::database_write_contract_transaction(
             'Rank Math native link repair',
-            function () use ($enabled, $native, $initialDependencyState): array {
+            function () use ($enabled, $before): array {
                 $this->assert_durable_link_counter_state($enabled);
+                if ($this->complete_link_projection_within_snapshot($enabled) !== $before) {
+                    throw new \RuntimeException('wprism: Rank Math route dependencies changed during native repair');
+                }
+                $this->assert_native_link_runtime($enabled);
+                $native = $this->audited_native_exclusion_callback();
+                // Native resolution is computation, not a durable read: Woo's
+                // cold/expired transient path can INSERT, UPDATE or DELETE.
+                // Freeze its exact native result before reset, then re-derive
+                // every edge/count/marker while this same authority is active.
+                $initialDependencyState = $this->dependency_state_within_snapshot($enabled, $native);
                 $this->clear_derived_link_state();
                 $lastId = 0;
                 $visitor = function (array $row, bool $processable) use (&$lastId): void {
@@ -1786,33 +1841,37 @@ final class RankMathState extends ManifestProviderRuntime {
                     );
                 }
                 $this->verify_link_state_within_snapshot($enabled, $native, $initialDependencyState);
-                return $state;
-            },
-            function (mixed $_state) use (
-                $enabled,
-                $native,
-                $initialDependencyState,
-                $before
-            ): string {
-                try {
-                    $this->verify_link_state_within_snapshot($enabled, $native, $initialDependencyState);
-                    return ProviderSdk::DATABASE_POSTIMAGE_APPLIED;
-                } catch (\Throwable) {
+                $after = $this->complete_link_projection_within_snapshot($enabled);
+                if ($after['dependency_state_hash'] !== $before['dependency_state_hash']) {
+                    throw new \RuntimeException('wprism: Rank Math route dependencies changed during native repair');
                 }
+                // This full computation witness remains in the mutation
+                // receipt and two-pass idempotence check. The independent
+                // observer compares only facts it can read without callbacks.
+                $after['dependency_hash'] = $state['dependency_sha256'];
+                return $after;
+            },
+            function (mixed $proved) use ($enabled, $before): string {
                 try {
-                    $current = $this->complete_link_projection_within_snapshot($enabled, $native);
+                    $current = $this->complete_link_projection_within_snapshot($enabled);
                 } catch (\Throwable) {
                     return ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN;
+                }
+                if (is_array($proved)
+                    && $this->project_fresh_postimage_rebuild_all_link_state($current)
+                        === $this->project_fresh_postimage_rebuild_all_link_state($proved)) {
+                    return ProviderSdk::DATABASE_POSTIMAGE_APPLIED;
                 }
                 return $current === $before
                     ? ProviderSdk::DATABASE_POSTIMAGE_NOT_APPLIED
                     : ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN;
             }
         );
-        if ($this->read_dependency_state($enabled, $native, $routeTables) !== $initialDependencyState) {
+        $after = $this->read_complete_link_projection($enabled, $tables);
+        if ($this->project_fresh_postimage_rebuild_all_link_state($after)
+            !== $this->project_fresh_postimage_rebuild_all_link_state($proved)) {
             throw new \RuntimeException('wprism: Rank Math route dependencies changed during native repair');
         }
-        $this->read_verified_link_state($enabled, $native, $tables, $initialDependencyState);
-        return $this->read_complete_link_projection($enabled, $native, $tables);
+        return $proved;
     }
 }

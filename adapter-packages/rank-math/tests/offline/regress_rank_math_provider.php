@@ -61,6 +61,7 @@ namespace {
     }
 
     function get_option(string $name, mixed $default = false): mixed {
+        rank_math_test_native_read('get_option');
         if ($name === 'rank_math_modules') {
             return $GLOBALS['rank_math_test_modules'];
         }
@@ -69,10 +70,64 @@ namespace {
 
     function wp_cache_flush(): bool {
         $GLOBALS['rank_math_test_cache_flush_calls']++;
+        $GLOBALS['rank_math_test_external_cache'] = [];
         return true;
     }
 
+    function rank_math_test_native_read(string $api): void {
+        if (class_exists(\WPrism\DatabaseQueryIsolation::class, false)
+            && \WPrism\DatabaseQueryIsolation::is_active()
+            && \WPrism\DatabaseQueryIsolation::bound_profile_is_read_only()) {
+            $GLOBALS['rank_math_test_readonly_native_calls'][] = $api;
+            if (($GLOBALS['rank_math_test_forbid_readonly_native'] ?? false) === true) {
+                throw new RuntimeException('native route API entered a read-only projection');
+            }
+        }
+    }
+
+    // The real co-install trace and pinned Woo/WordPress function proofs fix
+    // the two option names and possible DML shapes. This collaborator model
+    // sends those shapes through the actual canonical-wpdb profile; it is not
+    // a replacement for the package's separate live native-cache evidence.
+    function rank_math_test_native_cache(): void {
+        $mode = $GLOBALS['rank_math_test_native_cache_mode'] ?? null;
+        if ($mode === null) {
+            return;
+        }
+        $db = $GLOBALS['wpdb'];
+        if ($mode === 'external') {
+            if (!isset($GLOBALS['rank_math_test_external_cache']['wc_term_counts'])) {
+                $GLOBALS['rank_math_test_external_cache']['wc_term_counts'] = [25 => 3];
+                $GLOBALS['rank_math_test_native_cache_writes']++;
+            }
+            return;
+        }
+        $names = ['_transient_timeout_wc_term_counts', '_transient_wc_term_counts'];
+        $cached = array_values(array_filter($db->rows('options'),
+            static fn(array $row): bool => in_array($row['option_name'], $names, true)));
+        if ($mode === 'partial' && $GLOBALS['rank_math_test_native_cache_writes'] === 0) {
+            $db->update($db->options, ['option_value' => serialize([25 => 3, 99 => 7])],
+                ['option_name' => '_transient_wc_term_counts'], ['%s'], ['%s']);
+            $GLOBALS['rank_math_test_native_cache_writes']++;
+        }
+        if ($mode === 'evicted' || ($mode === 'expired' && ($GLOBALS['rank_math_test_native_cache_writes'] ?? 0) === 0)) {
+            foreach ($names as $name) {
+                $db->delete($db->options, ['option_name' => $name], ['%s']);
+            }
+            $cached = [];
+        }
+        if ($cached === []) {
+            foreach ($names as $index => $name) {
+                $db->insert($db->options, ['option_name' => $name,
+                    'option_value' => $index === 0 ? '1791254526' : serialize([25 => 3]),
+                    'autoload' => 'off'], ['%s', '%s', '%s']);
+                $GLOBALS['rank_math_test_native_cache_writes']++;
+            }
+        }
+    }
+
     function get_permalink(int|object $post): string|false {
+        rank_math_test_native_read('get_permalink');
         $GLOBALS['rank_math_test_permalink_calls']++;
         $post = is_object($post) ? $post : get_post($post);
         if (!is_object($post)) {
@@ -96,6 +151,8 @@ namespace {
     }
 
     function url_to_postid(string $url): int {
+        rank_math_test_native_read('url_to_postid');
+        rank_math_test_native_cache();
         $GLOBALS['rank_math_test_url_to_postid_calls']++;
         if (($GLOBALS['rank_math_test_cold_termmeta_cache'] ?? false) === true) {
             // 87881374's complete child report records this exact core
@@ -149,6 +206,7 @@ namespace {
     }
 
     function home_url(string $path = ''): string {
+        rank_math_test_native_read('home_url');
         return 'https://source.example.test' . $path;
     }
 
@@ -181,18 +239,26 @@ namespace {
 
     /** @return array<string,string> */
     function get_post_types(array $args = []): array {
+        rank_math_test_native_read('get_post_types');
         return $GLOBALS['rank_math_test_types'];
     }
 
-    function is_post_type_viewable(string $type): bool { return isset($GLOBALS['rank_math_test_types'][$type]); }
+    function is_post_type_viewable(string $type): bool {
+        rank_math_test_native_read('is_post_type_viewable');
+        return isset($GLOBALS['rank_math_test_types'][$type]);
+    }
 
     function esc_sql(string $value): string { return str_replace("'", "''", $value); }
 
     function is_multisite(): bool { return false; }
 
-    function clean_post_cache(int $id): void { $GLOBALS['rank_math_test_clean_post_cache_calls']++; }
+    function clean_post_cache(int $id): void {
+        rank_math_test_native_read('clean_post_cache');
+        $GLOBALS['rank_math_test_clean_post_cache_calls']++;
+    }
 
     function get_post(int $id): ?object {
+        rank_math_test_native_read('get_post');
         foreach ($GLOBALS['wpdb']->rows('posts') as $row) {
             if ((int) ($row['ID'] ?? 0) === $id) {
                 return (object) $row;
@@ -246,6 +312,7 @@ namespace RankMath\Links {
 
         /** @return list<string> */
         public function extract(string $content): array {
+            \rank_math_test_native_read('ContentProcessor::extract');
             $matches = [];
             $matched = preg_match_all(
                 '/<a\s[^>]*href=("??)([^" >]*?)\\1[^>]*>/iU',
@@ -288,6 +355,7 @@ namespace RankMath\Links {
 
     final class Links {
         public static function is_post_processable(object $post): bool {
+            \rank_math_test_native_read('Links::is_post_processable');
             return !in_array((string) ($post->post_status ?? ''), ['auto-draft', 'trash'], true);
         }
 
@@ -323,6 +391,7 @@ namespace RankMath {
 
         /** @param array<string,string> $types @return array<string,string> */
         public function excluded_post_types(array $types): array {
+            \rank_math_test_native_read('Defaults::excluded_post_types');
             unset($types['elementor_library']);
             return $types;
         }
@@ -331,10 +400,14 @@ namespace RankMath {
     final class Helper {
         /** @return array<string,string> */
         public static function get_accessible_post_types(): array {
+            \rank_math_test_native_read('Helper::get_accessible_post_types');
             return $GLOBALS['rank_math_test_helper_types'];
         }
 
-        public static function get_settings(string $name): bool { return false; }
+        public static function get_settings(string $name): bool {
+            \rank_math_test_native_read('Helper::get_settings');
+            return false;
+        }
     }
 
     final class Installer {
@@ -789,6 +862,11 @@ namespace {
         ];
         $GLOBALS['rank_math_test_clean_post_cache_calls'] = 0;
         $GLOBALS['rank_math_test_cache_flush_calls'] = 0;
+        $GLOBALS['rank_math_test_readonly_native_calls'] = [];
+        $GLOBALS['rank_math_test_forbid_readonly_native'] = false;
+        $GLOBALS['rank_math_test_native_cache_mode'] = null;
+        $GLOBALS['rank_math_test_native_cache_writes'] = 0;
+        $GLOBALS['rank_math_test_external_cache'] = [];
         $GLOBALS['rank_math_test_permalink_calls'] = 0;
         $GLOBALS['rank_math_test_url_to_postid_calls'] = 0;
         $GLOBALS['rank_math_test_cold_termmeta_cache'] = false;
@@ -1436,6 +1514,144 @@ namespace {
         'schema discovery failure is loud and value-redacted'
     );
 
+    foreach (['cold', 'warm', 'partial', 'expired', 'evicted', 'external'] as $cacheMode) {
+        $provider = rank_math_test_reset('link');
+        $GLOBALS['rank_math_test_forbid_readonly_native'] = true;
+        $GLOBALS['rank_math_test_native_cache_mode'] = $cacheMode;
+        $optionsBefore = $GLOBALS['wpdb']->rows('options');
+        if (in_array($cacheMode, ['warm', 'partial', 'expired', 'evicted'], true)) {
+            rank_math_test_set_option('_transient_wc_term_counts', [25 => 3]);
+            rank_math_test_set_option('_transient_timeout_wc_term_counts', $cacheMode === 'expired' ? 1 : 1791254526);
+        }
+        $cacheReceipt = null;
+        try {
+            $cacheReceipt = $provider->invoke('rebuild_all_link_state', []);
+        } catch (Throwable $failure) {
+            wprism_check(false, "$cacheMode native-cache repair unexpectedly refused: " . $failure->getMessage());
+        }
+        wprism_check(($cacheReceipt['verified'] ?? null) === true
+            && count($GLOBALS['rank_math_test_command_calls']) === 2
+            && $GLOBALS['rank_math_test_process_calls'] > 0,
+            "$cacheMode cache completes native repair and a separately profiled observer");
+        wprism_check_same([], $GLOBALS['rank_math_test_readonly_native_calls'],
+            "$cacheMode never re-enters native route APIs in any read-only callback");
+        $remaining = array_values(array_filter($GLOBALS['wpdb']->rows('options'),
+            static fn(array $row): bool => !in_array($row['option_name'],
+                ['_transient_wc_term_counts', '_transient_timeout_wc_term_counts'], true)));
+        wprism_check_same($optionsBefore, $remaining, "$cacheMode preserves every unrelated option row and autoload byte");
+        wprism_check($cacheMode === 'warm' ? $GLOBALS['rank_math_test_native_cache_writes'] === 0
+            : $GLOBALS['rank_math_test_native_cache_writes'] > 0,
+            "$cacheMode proves its native cache-write premise instead of assuming a primed cache");
+        if ($cacheMode === 'external') {
+            wprism_check_same($optionsBefore, $GLOBALS['wpdb']->rows('options'),
+                'external cache refill creates no database transient rows');
+            wprism_check_same([], $GLOBALS['rank_math_test_external_cache'],
+                'the second fresh boot remains valid after the engine flush removes the external cache');
+        }
+    }
+
+    rank_math_test_reset('link');
+    $outside = rank_math_test_posts()[0];
+    $outside['ID'] = 30;
+    $outside['post_type'] = 'elementor_library';
+    $outside['post_content'] = 'not processed by Rank Math';
+    $GLOBALS['wpdb']->seedTable('posts', array_merge(rank_math_test_posts(), [$outside]));
+    $outsideReceipt = rank_math_test_execute_child();
+    wprism_check_same(3, $outsideReceipt['after']['post_count'] ?? null,
+        'durable source witness includes inaccessible types without invoking native eligibility in its observer');
+    $outsideBefore = rank_math_test_projection();
+    $outside['post_content'] = 'changed while remaining outside native eligibility';
+    $GLOBALS['wpdb']->seedTable('posts', array_merge(rank_math_test_posts(), [$outside]));
+    $outsideAfter = rank_math_test_projection();
+    wprism_check($outsideBefore['dependency_state_hash'] !== $outsideAfter['dependency_state_hash'],
+        'same-count content drift in an inaccessible post remains part of the complete durable input witness');
+
+    rank_math_test_reset('link');
+    $before = $GLOBALS['wpdb']->rows('options');
+    wprism_check_throws(static fn(): mixed => rank_math_test_with_contract(
+        static fn(): mixed => \WPrism\ProviderSdk::database_read_contract_snapshot(
+            'Rank Math explicit observer mutation refusal',
+            static fn(): mixed => $GLOBALS['wpdb']->query("UPDATE wp_options SET option_value='refuse' WHERE option_id=1")
+        )
+    ), \WPrism\DatabaseQueryIsolationViolationException::class,
+        'declared cache writes never grant an option write inside the fresh observer profile',
+        'a native database mutation escaped its declared physical-table profile');
+    wprism_check_same($before, $GLOBALS['wpdb']->rows('options'),
+        'the observer mutation refusal preserves exact original native options');
+
+    foreach (['option_value', 'autoload', 'option_name', 'option_id'] as $column) {
+        rank_math_test_reset('link');
+        rank_math_test_set_option('unrelated_native_option', 'retain');
+        rank_math_test_set_option('_TRANSIENT_wc_term_counts', 'case-sensitive-preservation');
+        $tables = ['options', 'postmeta', 'rank_math_internal_links', 'rank_math_internal_meta'];
+        $before = array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables);
+        $changed = false;
+        $GLOBALS['rank_math_test_url_to_postid_override'] = static function (string $_url, bool $native) use ($column, &$changed): ?int {
+            if ($native && !$changed) {
+                $changed = true;
+                $value = $column === 'option_id' ? 90001 : 'unreviewed-change';
+                $GLOBALS['wpdb']->update($GLOBALS['wpdb']->options, [$column => $value],
+                    ['option_name' => 'unrelated_native_option']);
+            }
+            return null;
+        };
+        wprism_check_throws(static fn(): array => rank_math_test_execute_child(), RuntimeException::class,
+            "the broader physical options table cannot hide unrelated $column drift", 'route dependencies changed');
+        wprism_check($changed && $GLOBALS['rank_math_test_process_calls'] > 0,
+            "$column preservation control reaches the authorized native callback");
+        wprism_check_same($before, array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables),
+            "$column drift rolls back all original rows through the actual transaction owner");
+    }
+
+    foreach (['options', 'postmeta', 'posts'] as $table) {
+        $provider = rank_math_test_reset('link');
+        if ($table === 'options') {
+            rank_math_test_set_option('_TRANSIENT_wc_term_counts', 'case-sensitive-preservation');
+        }
+        $raced = false;
+        $GLOBALS['rank_math_test_after_result'] = static function () use ($table, &$raced): void {
+            if (count($GLOBALS['rank_math_test_command_calls']) === 1) {
+                $rows = $GLOBALS['wpdb']->rows($table);
+                $index = $table === 'options' ? count($rows) - 1 : 0;
+                $column = ['options' => 'option_value', 'postmeta' => 'meta_value', 'posts' => 'post_content'][$table];
+                $rows[$index][$column] = 'competing-durable-input';
+                $GLOBALS['wpdb']->seedTable($table, $rows);
+                $raced = true;
+            }
+        };
+        wprism_check_throws(static fn(): array => $provider->invoke('rebuild_all_link_state', []), RuntimeException::class,
+            "$table same-count durable drift between boots refuses success", 'fresh-process receipt disagrees');
+        wprism_check($raced && count($GLOBALS['rank_math_test_command_calls']) === 2,
+            "$table drift control reaches the independent database-read-only callback");
+    }
+
+    foreach (['after_false', 'after_throw', 'after_reconnect', 'inactive_false'] as $outcome) {
+        rank_math_test_reset('link');
+        $GLOBALS['rank_math_test_forbid_readonly_native'] = true;
+        $GLOBALS['rank_math_test_native_cache_mode'] = 'cold';
+        $GLOBALS['wpdb']->injectTransactionOutcome('COMMIT', $outcome);
+        $before = array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table),
+            ['options', 'postmeta', 'rank_math_internal_links', 'rank_math_internal_meta']);
+        $receipt = null;
+        $failure = null;
+        try {
+            $receipt = rank_math_test_execute_child();
+        } catch (Throwable $caught) {
+            $failure = $caught;
+        }
+        wprism_check($outcome === 'inactive_false'
+            ? $failure instanceof \WPrism\ProviderDatabaseTransactionNotAppliedException
+            : $failure === null && ($receipt['verified'] ?? null) === true,
+            "$outcome settles the actual ambiguous commit using only durable postimage facts");
+        wprism_check_same([], $GLOBALS['rank_math_test_readonly_native_calls'],
+            "$outcome classifier never repeats effectful native resolution");
+        if ($outcome === 'inactive_false') {
+            wprism_check_same($before, array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table),
+                ['options', 'postmeta', 'rank_math_internal_links', 'rank_math_internal_meta']),
+                'positively unapplied commit retains the exact original native rows');
+        }
+    }
+
     $termmetaRows = [
         ['meta_id' => 7, 'term_id' => 25, 'meta_key' => 'participant_route', 'meta_value' => 'native-value'],
         ['meta_id' => 9, 'term_id' => 25, 'meta_key' => 'participant_route', 'meta_value' => 'duplicate-value'],
@@ -1791,9 +2007,9 @@ namespace {
         $provider = rank_math_test_reset('link');
         try {
             $GLOBALS['wp']->public_query_vars = $queryBase;
-            $before = rank_math_test_projection();
+            $before = rank_math_test_execute_child()['after'];
             $GLOBALS['wp']->public_query_vars = $queryVars;
-            $after = rank_math_test_projection();
+            $after = rank_math_test_execute_child()['after'];
             wprism_check($before['dependency_hash'] !== $after['dependency_hash'],
                 "$label remains visible to exact runtime dependency comparison");
             wprism_check_same($before['dependency_state_hash'], $after['dependency_state_hash'],
@@ -2000,7 +2216,8 @@ namespace {
         'provider receipt exposes only counts and hashes, never authored link values'
     );
     $retry = $provider->invoke('rebuild_all_link_state', []);
-    wprism_check_same($retry['before'], $retry['after'],
+    $freshProject = new ReflectionMethod(RankMathState::class, 'project_fresh_postimage_rebuild_all_link_state');
+    wprism_check_same($freshProject->invoke($provider, $retry['before']), $freshProject->invoke($provider, $retry['after']),
         'a complete native retry is idempotent at its exact current projection');
 
     $operation = ['format' => 'wprism-scoped-effect-operation/v1', 'id' => 'rank-math-fixture'];
@@ -2625,9 +2842,9 @@ namespace {
     );
     $parentProjection = rank_math_test_projection();
     wprism_check_same(
-        \WPrism\Canon::encode($parentProjection),
-        \WPrism\Canon::encode($actualChild['after'] ?? null),
-        'an unchanged runtime gives the shared parent projector the same complete projection');
+        $freshProject->invoke($provider, $parentProjection),
+        $freshProject->invoke($provider, $actualChild['after']),
+        'fresh factual readback gives the shared projector the same complete durable projection');
     wprism_check_same(1, count(array_filter(
         $GLOBALS['wpdb']->rows('rank_math_internal_links'),
         static fn(array $row): bool => ($row['type'] ?? null) === 'internal'

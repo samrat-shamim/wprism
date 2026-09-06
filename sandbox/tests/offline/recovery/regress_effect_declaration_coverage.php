@@ -42,7 +42,7 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only. The two
- * maximal supported worlds project 400 effects / 116 database selectors
+ * maximal supported worlds project 404 effects / 120 database selectors
  * (Rank Math world) and 393 / 111 (Yoast world); the remainder selects external
  * hooks, cache namespaces and provider resources that no journal row can
  * confirm or refute. Eight of the eighteen adapters declare no journal-observable effect at all. That is reported as
@@ -63,7 +63,10 @@
  * becomes the ninth scorable adapter. WooCommerce product/variation deletion
  * adds four unique guard-table surfaces to the derived fixture without widening
  * the observable effect inventory. Rank Math adds 13 effects, 10 database
- * observable, and becomes the tenth scorable adapter; three irreversible rows
+ * observable, and becomes the tenth scorable adapter. Its reviewed native
+ * route-cache repair adds four exact option effects (two per repair phase),
+ * two unique database surfaces and fourteen scored adapter/surface pairs.
+ * Three irreversible rows
  * honestly name plugin lifecycle and native callback/cache frontiers that a
  * database journal cannot observe. Its exact schema phase adds the fourth
  * redirection table to the derived topology. The clean sheet -- 0 findings -- survived
@@ -209,13 +212,13 @@ echo "\n== the measured baseline: every shipped adapter across two maximal compa
 
 $rankWorldFixture = edc_derived_fixture($rankWorldPolicy);
 $yoastWorldFixture = edc_derived_fixture($yoastWorldPolicy);
-wprism_check_same(642, count($rankWorldFixture), 'the Rank Math world fixture contains every database surface its valid policy declares');
+wprism_check_same(644, count($rankWorldFixture), 'the Rank Math world fixture contains every database surface its valid policy declares');
 wprism_check_same(630, count($yoastWorldFixture), 'the Yoast world fixture contains every database surface its valid policy declares');
 
 $rankWorldBaseline = EffectDeclarationCoverage::from_facts($rankWorldPolicy, ['rows' => $rankWorldFixture]);
 $yoastWorldBaseline = EffectDeclarationCoverage::from_facts($yoastWorldPolicy, ['rows' => $yoastWorldFixture]);
 foreach ([
-    'Rank Math world' => [$rankWorldBaseline, 400, 116, 3132],
+    'Rank Math world' => [$rankWorldBaseline, 404, 120, 3146],
     'Yoast world' => [$yoastWorldBaseline, 393, 111, 3603],
 ] as $label => [$report, $declared, $observable, $scored]) {
     wprism_check_same(EffectDeclarationCoverage::FORMAT, $report['format'], "$label names the versioned report format");
@@ -274,10 +277,35 @@ wprism_check_same(2, $polylang['observable_effects'], 'two Polylang effects are 
 wprism_check_same(2, $polylang['exercised_effects'], 'the derived fixture exercises both Polylang database effects');
 
 $rankMath = edc_adapter($baseline, 'rank-math');
-wprism_check_same(13, $rankMath['declared_effects'], 'Rank Math declares every schema, lifecycle and rebuild side effect');
-wprism_check_same(10, $rankMath['observable_effects'], 'ten Rank Math effects are database-checkpoint observable');
+wprism_check_same(17, $rankMath['declared_effects'], 'Rank Math declares every schema, lifecycle and rebuild side effect');
+wprism_check_same(14, $rankMath['observable_effects'], 'fourteen Rank Math effects are database-checkpoint observable');
 wprism_check_same(3, $rankMath['unobservable_effects'], 'three Rank Math effects name irreversible provider and plugin-lifecycle frontiers');
-wprism_check_same(10, $rankMath['exercised_effects'], 'the derived fixture exercises every observable Rank Math effect');
+wprism_check_same(14, $rankMath['exercised_effects'], 'the derived fixture exercises every observable Rank Math effect');
+
+// Fixed identities prove the additional count is exactly the two reviewed
+// cache rows in both repair phases, not an accidental table-wide grant.
+$rankCacheEffects = [];
+foreach ($rankWorldPolicy->effects_inventory() as $entry) {
+    if ($entry['manifest'] === 'rank-math' && str_contains($entry['effect']['id'], 'native-route-cache')) {
+        $rankCacheEffects[$entry['effect']['id']] = [$entry['phase'], $entry['effect']];
+    }
+}
+$expectedRankCacheEffects = [];
+foreach (['lifecycle-' => 'lifecycle-settle', '' => 'rebuild'] as $prefix => $phase) {
+    foreach (['' => '_transient_wc_term_counts', '-expiry' => '_transient_timeout_wc_term_counts'] as $suffix => $option) {
+        $id = 'rank-math-' . $prefix . 'native-route-cache' . $suffix;
+        $expectedRankCacheEffects[$id] = [$phase, [
+            'id' => $id, 'kind' => 'database', 'mode' => 'restorable',
+            'selector' => ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => $option],
+        ]];
+    }
+}
+wprism_check_same($expectedRankCacheEffects, $rankCacheEffects, 'both Rank Math repair phases declare only the two exact checkpoint-restorable native cache options');
+$cacheOnly = edc_adapter(EffectDeclarationCoverage::from_facts($rankWorldPolicy, ['rows' => [
+    edc_row('options', '_transient_wc_term_counts'),
+    edc_row('options', '_transient_timeout_wc_term_counts'),
+]]), 'rank-math');
+wprism_check_same(4, $cacheOnly['exercised_effects'], 'two native cache writes exercise exactly four Rank Math phase-specific effects');
 
 $yoast = edc_adapter($yoastWorldBaseline, 'yoast');
 wprism_check_same(6, $yoast['declared_effects'], 'Yoast declares all six effects in its maximal compatible world');
@@ -285,7 +313,7 @@ wprism_check_same(5, $yoast['observable_effects'], 'five Yoast effects are datab
 wprism_check_same(5, $yoast['exercised_effects'], 'the Yoast-world fixture exercises every observable Yoast effect');
 
 $woo = edc_adapter($baseline, 'woocommerce');
-wprism_check_same(280, $woo['declared_effects'], 'woocommerce declares 280 of the Rank Math world\'s 400 effect rows');
+wprism_check_same(280, $woo['declared_effects'], 'woocommerce declares 280 of the Rank Math world\'s 404 effect rows');
 wprism_check_same(86, $woo['observable_effects'], '86 of them are journal-observable');
 wprism_check_same(86, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
 wprism_check_same([], $woo['unexercised_effects'], 'nothing is left unexercised when every declared surface is written');
@@ -346,7 +374,7 @@ echo "\n== an over-declared effect is NAMED as unexercised, and that is not an e
 // unexercised; nothing is a finding. Treating this as a defect would punish
 // exactly the over-declaration this report exists to reward.
 $empty = EffectDeclarationCoverage::from_facts($policy, ['rows' => []]);
-wprism_check_same(116, $empty['totals']['unexercised'], 'all 116 Rank Math-world database declarations report unexercised against an empty journal');
+wprism_check_same(120, $empty['totals']['unexercised'], 'all 120 Rank Math-world database declarations report unexercised against an empty journal');
 wprism_check_same(0, $empty['totals']['outside_declaration'], 'unexercised is NOT an error: an empty journal produces zero findings');
 wprism_check_same(false, $empty['blocking'], 'the document still says it blocks nothing');
 wprism_check_same(null, $empty['baseline']['outside_declaration_rate'], 'a rate over zero scored surfaces is null, never a fabricated 0');
@@ -422,7 +450,7 @@ wprism_check(
 
 $GLOBALS['wpdb'] = null;
 wprism_check_same('unusable', Journal::table_state($GLOBALS['wpdb']), 'no usable $wpdb probes as unusable');
-$legacyWpdbShape = new class {
+$legacyWpdbShape = new class() {
     public string $prefix = 'wp_';
 
     public function prepare(string $query, mixed ...$args): string {

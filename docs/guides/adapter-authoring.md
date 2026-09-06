@@ -841,8 +841,12 @@ operation needs a genuinely bounded semantic design, not a counter reset.
 Audit native API reads with cold caches as well as warm ones before narrowing
 that table list. For example, WordPress's `url_to_postid()` creates a `WP_Query`
 that can prime post metadata: an id-only answer still needs `postmeta` read
-authority. Declare those physical dependencies in the adapter; never widen the
-engine's table gate to accommodate an incomplete profile.
+authority. A native lookup can also create, update or delete transient rows;
+its name does not make it read-only. Declare those physical dependencies in
+the adapter; never widen the engine's table gate to accommodate an incomplete
+profile. Exact `option:` surfaces admit leading underscores (private options,
+transients and shadow keys), with the same 128-byte bound and no wildcards;
+the other four surface namespaces keep their existing first-byte grammar.
 
 When declared plugin tables may legitimately be absent, use
 `ProviderSdk::database_schema_snapshot($context, $physicalTables, $read)`.
@@ -931,13 +935,39 @@ gate; diagnostic retention grants no additional table access.
 Native route reads include cold-cache dependencies. Rank Math's four-plugin
 lane retained WordPress's exact `update_meta_cache('term')` query, exposing an
 omitted `termmeta` read. The capsule declares that table and folds all four
-metadata columns into its existing bounded dependency projection; the kernel's
-table grammar and the provider's three-table write authority do not expand.
+metadata columns into its existing bounded dependency projection; that read
+admission alone grants no new write authority.
 Test both cold and warm cache paths, duplicate and unrelated rows, failed and
 oversized reads, and dependency changes during mutation and between independent
 boots. A cache-priming read never authorizes a metadata or option write. A
 post-commit observer mismatch is recovery debt, not evidence that the completed
 mutation or a competing writer rolled back.
+
+Separate native computation from durable evidence. The measured Rank/Woo
+lookup also writes two exact transient options, so its native source/edge
+expectation and complete edge/count/marker verification run inside the
+existing authorized write transaction. The mutation receipt retains its full
+native-computation hash and two-pass idempotence proof. Read-only preimages,
+ambiguous-commit classification, post-commit readback and the second fresh boot
+use only complete bounded database projections; they do not call route,
+eligibility, cache-backed option or plugin settings APIs. Rank's factual source
+witness includes every post, even inaccessible types, so the observer never
+borrows a writer-selected identity list. This explicitly separates two claims:
+native correctness was proved at mutation time, while the later observer
+proves durable input/output equality. It does not claim to recompute arbitrary
+filter behavior in a future request.
+
+Named option effects are still mapped to physical table authority, not SQL
+row-key grants. A provider needing a native cache write must declare its exact
+cache effects and prove all unrelated option bytes remain unchanged in the
+transaction. Do not exclude a cache prefix or use a collation-sensitive SQL
+predicate to hide nearby names. The Rank provider binds every option and
+non-marker post-meta row and excludes only its two exact reviewed cache names
+and one exact marker key. SQL checkpoints cover the database effects; external
+object-cache/filter effects retain their explicit non-rollback declaration.
+Test cold, warm, partial, expired, repeatedly evicted and external-cache paths,
+hostile callbacks in every read-only phase, unrelated-row drift, ambiguous
+commits and cross-boot drift. Warming a fixture is not a cache authority model.
 
 `adapter-package-validate` is a static regression guard for that boundary in
 package runtime PHP. It refuses known direct process, transaction, raw-DML and

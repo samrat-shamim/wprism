@@ -797,6 +797,9 @@ regress-action-scope:
 regress-provider-contract:
 	php sandbox/tests/offline/adapter/regress_provider_contract.php
 
+regress-provider-option-surfaces:
+	php sandbox/tests/offline/adapter/regress_provider_option_surfaces.php
+
 # issue #3338: the structured native-action vocabulary and the plugin-owned
 # provider contract. One target, two harnesses (see the wrapper's header):
 # the load-time half never stubs a WordPress function, the runtime half stubs
