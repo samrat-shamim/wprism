@@ -42,7 +42,7 @@ if ($argv[1] === "snapshot") {
 polylang_biography_refusal_observe() { # <sink> <stage> <repo> <wp> <service> <pair> <boundary> <control>
   local sink="$1" stage="$2" repo="$3" wp="$4" service="$5" pair="$6" boundary="$7" control="$8" helper
   helper="${WPRISM_ARTIFACT_LIBRARY_ROOT:-..}/adapter-packages/polylang/fixtures/polylang_biography_refusals.php"
-  polylang_biography_refusal_stage "$sink" "$stage-native" "$wp" eval-file \
+  polylang_biography_refusal_stage "$sink" "$stage-native" "$wp" eval-file --use-include \
     /siterepo/.tmp-polylang-biography/polylang_biography_native.php observe \
     && polylang_biography_refusal_stage "$sink" "$stage" php "$helper" snapshot \
       "$repo" "$sink/$stage-native" "$pair" "$service" "$boundary" "$control" \
@@ -76,7 +76,7 @@ polylang_biography_refusal_command() { # <sink> <repo> <wp> <service> <pair> <bo
 polylang_biography_refusal_control() { # <sink> <mode> <wp> <service> <pair> <control>
   local sink="$1" mode="$2" wp="$3" service="$4" pair="$5" control="$6" helper
   helper="${WPRISM_ARTIFACT_LIBRARY_ROOT:-..}/adapter-packages/polylang/fixtures/polylang_biography_refusals.php"
-  polylang_biography_refusal_stage "$sink" "$mode" "$wp" eval-file \
+  polylang_biography_refusal_stage "$sink" "$mode" "$wp" eval-file --use-include \
     /siterepo/.tmp-polylang-biography/polylang_biography_native.php "$mode" "$control" \
     && polylang_biography_refusal_stage "$sink" "$mode-check" php "$helper" native-control \
       "$sink/$mode" "$pair" "$service" "$mode" "$control" \

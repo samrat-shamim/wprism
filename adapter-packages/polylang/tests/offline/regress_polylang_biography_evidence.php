@@ -115,10 +115,10 @@ mktemp() {
   command mktemp -d "$CONF_REPO1/private.XXXXXX"
 }
 . "$root/sandbox/conformance/asserts.sh"
-. "$root/adapter-packages/polylang/fixtures/polylang-biography.sh"
+. "$8"
 fixture_wp() {
-  [ "$#" -eq 3 ] && [ "$1" = eval-file ] && [ "$2" = /siterepo/.tmp-polylang-biography/polylang_biography_native.php ] \
-    && [ "$3" = "seed-$side" ] || return 57
+  [ "$#" -eq 4 ] && [ "$1" = eval-file ] && [ "$2" = --use-include ] \
+    && [ "$3" = /siterepo/.tmp-polylang-biography/polylang_biography_native.php ] && [ "$4" = "seed-$side" ] || return 57
   printf '%s' "$answer"
   printf '%s' "$diagnostic" >&2
   return "$status"
@@ -128,7 +128,7 @@ wp_conf2() { fixture_wp "$@"; }
 polylang_biography_seed "$side"
 printf 'SEED_READY\n'
 SH;
-foreach (['source', 'target', 'matrix-source', 'nonzero', 'empty', 'stdout-warning', 'stderr-warning', 'wrong-keys', 'wrong-mode', 'two-json', 'occupied', 'symlink', 'bad-side'] as $fault) {
+foreach (['source', 'target', 'matrix-source', 'nonzero', 'empty', 'stdout-warning', 'stderr-warning', 'wrong-keys', 'wrong-mode', 'two-json', 'occupied', 'symlink', 'bad-side', 'prior-eval-mode'] as $fault) {
     $probeRoot = $scratch . '/probe-' . $fault;
     mkdir($probeRoot, 0700);
     $staged = $probeRoot . '/.tmp-polylang-biography';
@@ -142,9 +142,16 @@ foreach (['source', 'target', 'matrix-source', 'nonzero', 'empty', 'stdout-warni
     if ($fault === 'two-json') $stdout .= $stdout;
     if ($fault === 'occupied') mkdir($staged, 0700);
     if ($fault === 'symlink') symlink($scratch . '/state', $staged);
+    $helper = $root . '/adapter-packages/polylang/fixtures/polylang-biography.sh';
+    if ($fault === 'prior-eval-mode') {
+        $prior = str_replace('eval-file --use-include ', 'eval-file ', file_get_contents($helper), $changed);
+        if ($changed !== 2) throw new RuntimeException('biography eval-mode counterfactual lost its two actual native callers');
+        $helper = $probeRoot . '/prior-biography.sh';
+        file_put_contents($helper, $prior);
+    }
     try {
         [$status, $output] = \WPrismTest\ShellProbe::run($seedProbe,
-            [$root, $probeRoot, $side, $stdout, $fault === 'stderr-warning' ? "PHP Warning: fixture\n" : '', $fault === 'nonzero' ? '7' : '0', $fault], $root . '/sandbox');
+            [$root, $probeRoot, $side, $stdout, $fault === 'stderr-warning' ? "PHP Warning: fixture\n" : '', $fault === 'nonzero' ? '7' : '0', $fault, $helper], $root . '/sandbox');
         $positive = in_array($fault, ['source', 'target', 'matrix-source'], true);
         wprism_check($positive ? $status === 0 && str_contains($output, "SEED_READY\n") : $status !== 0 && !str_contains($output, 'SEED_READY'),
             "actual biography seed command/acceptance classifies $fault");
@@ -154,6 +161,7 @@ foreach (['source', 'target', 'matrix-source', 'nonzero', 'empty', 'stdout-warni
             wprism_check_same(0644, fileperms($staged . '/polylang_biography_native.php') & 0777, 'fixture code remains readable under a private caller umask');
         }
     } finally {
+        if ($fault === 'prior-eval-mode') unlink($helper);
         if (is_link($staged)) unlink($staged);
         elseif (is_dir($staged)) {
             foreach (['polylang_biography_values.php', 'polylang_biography_native.php'] as $file) {
@@ -175,5 +183,34 @@ foreach (['source', 'target', 'matrix-source', 'nonzero', 'empty', 'stdout-warni
         }
         rmdir($probeRoot);
     }
+}
+$loadRoot = $scratch . '/load-premise';
+mkdir($loadRoot, 0700);
+symlink($root . '/agent', $loadRoot . '/wprism');
+$loadProbe = <<<'SH'
+set -euo pipefail
+php -d display_errors=stderr -r '
+define("WPMU_PLUGIN_DIR", $argv[2]);
+$args = ["observe"];
+try {
+    if ($argv[3] === "include") include $argv[1];
+    elseif ($argv[3] === "eval") eval("?>" . file_get_contents($argv[1]));
+    else throw new RuntimeException("invalid fixture load mode");
+} catch (RuntimeException $failure) {
+    if ($failure->getMessage() !== "Polylang biography native fixture premise is unavailable") throw $failure;
+    echo "NATIVE_PREMISE_REACHED\n";
+}
+' "$1" "$2" "$3"
+SH;
+try {
+    foreach (['include', 'eval'] as $mode) {
+        [$status, $output, $diagnostic] = \WPrismTest\ShellProbe::run($loadProbe,
+            [$root . '/adapter-packages/polylang/fixtures/polylang_biography_native.php', $loadRoot, $mode], $root . '/sandbox');
+        wprism_check($mode === 'include' ? $status === 0 && $output === "NATIVE_PREMISE_REACHED\n" && $diagnostic === ''
+            : $status !== 0 && str_contains($diagnostic, 'strict_types declaration must be the very first statement') && $output === '',
+            "$mode executes the actual strict native file with the expected PHP loading boundary, without substituting WordPress");
+    }
+} finally {
+    unlink($loadRoot . '/wprism'); rmdir($loadRoot);
 }
 wprism_check_summary('Polylang biography evidence admission');

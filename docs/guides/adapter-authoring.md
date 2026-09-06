@@ -1701,6 +1701,16 @@ plugin faithfully.
    private command stream; roster and metadata bounds do not grow. Keep
    before/after records separate and never truncate a tree to fit a budget.
 
+   Execute a PHP fixture with `wp eval-file --use-include` when it declares
+   `strict_types` or resolves sibling files through `__DIR__`. WP-CLI's default
+   evaluation mode is not an ordinary file include: the first native Polylang
+   biography seed at `8ed15717` failed before its premise check with
+   `strict_types declaration must be the very first statement`. The documented
+   [include mode](https://developer.wordpress.org/cli/commands/eval-file/)
+   preserves normal file semantics and the normal WordPress bootstrap. Do not
+   strip the declaration, add a loader shim, or skip WordPress to mask that
+   invocation error; pin the actual caller's arguments offline as well.
+
 ### Getting the harness those tests need
 
 Adoption assembles package and platform sources into

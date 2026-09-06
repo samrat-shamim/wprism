@@ -36,7 +36,7 @@ polylang_biography_seed() { # <source|target>
   sink=$(umask 077; mktemp -d "$root/sandbox/tmp/polylang-biography-seed.$pair.XXXXXX") || return 1
   . tests/lib/private_command_capture.sh
   (umask 077; wprism_private_capture_stage "$sink" native \
-    "$wp" eval-file /siterepo/.tmp-polylang-biography/polylang_biography_native.php "$mode") \
+    "$wp" eval-file --use-include /siterepo/.tmp-polylang-biography/polylang_biography_native.php "$mode") \
     || fail "Polylang biography native writer failed; private evidence: $sink"
   (umask 077; wprism_private_capture_stage "$sink" admission \
     php "$root/adapter-packages/polylang/fixtures/polylang_biography_evidence.php" seed "$sink/native" "$pair" "$service" "$mode") \
@@ -59,7 +59,7 @@ polylang_biography_check() {
     # code here, never reseed target values after the Apply being tested.
     polylang_biography_stage "$repo"
     (umask 077; wprism_private_capture_stage "$sink" "$side-native" \
-      "$wp" eval-file /siterepo/.tmp-polylang-biography/polylang_biography_native.php observe) \
+      "$wp" eval-file --use-include /siterepo/.tmp-polylang-biography/polylang_biography_native.php observe) \
       || fail "Polylang biography native observation failed; private evidence: $sink"
     (umask 077; wprism_private_capture_stage "$sink" "$side" \
       php "$root/adapter-packages/polylang/fixtures/polylang_biography_evidence.php" capture \

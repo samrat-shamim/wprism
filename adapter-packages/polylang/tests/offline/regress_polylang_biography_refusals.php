@@ -169,7 +169,7 @@ biography_compose() {
 }
 wp_conf2() {
   if [ "$1" = eval-file ]; then
-    [ "$#" -eq 3 ] && [ "$2" = /siterepo/.tmp-polylang-biography/polylang_biography_native.php ] && [ "$3" = observe ] || return 55
+    [ "$#" -eq 4 ] && [ "$2" = --use-include ] && [ "$3" = /siterepo/.tmp-polylang-biography/polylang_biography_native.php ] && [ "$4" = observe ] || return 55
     if [ -f "$fixture/ran" ]; then
       printf 'after\n' >>"$fixture/events"
       [ "$fault" != after-nonzero ] || return 8
