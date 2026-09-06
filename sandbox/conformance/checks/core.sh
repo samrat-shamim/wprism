@@ -926,6 +926,12 @@ core_private_refusal_evidence() { # <snapshot|verify> <profile> <directory> <fro
 }
 
 core_deletion_native_state() {
+  local retain_rows=false projection='$state'
+  case "${1:-witness}" in
+    witness) ;;
+    private) retain_rows=true; projection='["format"=>"wprism-core-native-state-diagnostic/v1","purpose"=>"diagnostic_only","verified"=>false,"tables"=>$nativeRows,"witness"=>$state]' ;;
+    *) fail 'unknown core native observation mode' ;;
+  esac
   wp_conf2 eval '
 global $wpdb;
 if (preg_match("/^[A-Za-z0-9_]+$/D", $wpdb->prefix) !== 1) {
@@ -939,6 +945,7 @@ $keys = [
     "wprism_state" => "uuid", "wprism_kv" => "k", "wprism_journal" => "id",
 ];
 $state = [];
+$nativeRows = [];
 foreach ($keys as $suffix => $key) {
     $wpdb->last_error = "";
     $rows = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}{$suffix} ORDER BY $key LIMIT 4097", ARRAY_A);
@@ -950,6 +957,9 @@ foreach ($keys as $suffix => $key) {
         throw new RuntimeException("core deletion fixture native read exceeded its byte witness");
     }
     $state[$suffix] = ["count" => count($rows), "sha256" => hash("sha256", $bytes)];
+    if ('"$retain_rows"') {
+        $nativeRows[$suffix] = $rows;
+    }
     if ($suffix === "wprism_map") {
         // CaptureIdentity restores these tuples from durable UUID metadata;
         // SidebarState cannot reconstruct ledger-only widget identity.
@@ -960,8 +970,25 @@ foreach ($keys as $suffix => $key) {
     }
 }
 $state["restorable_map"] = $restorableMap;
-echo wp_json_encode($state, JSON_UNESCAPED_SLASHES);
+echo wp_json_encode('"$projection"', JSON_UNESCAPED_SLASHES);
 '
+}
+
+core_capture_plan_native_state() { # <output variable> <label> <private stage>
+  local output_variable="$1" label="$2" stage="$3" stem
+  case "$stage" in identity-baseline|native-before|native-after|native-repeated) ;; *) fail 'unknown core native diagnostic stage' ;; esac
+  stem="$CORE_NATIVE_EVIDENCE/$stage"
+  # The shared transport retains rows and both streams before any assertion
+  # can destroy the disposable target. The ordinary report still carries only
+  # hashes/counts; private retention grants no plan or repair authority.
+  (umask 077; wprism_private_capture_stage "$CORE_NATIVE_EVIDENCE" "$stage" core_deletion_native_state private) \
+    || fail 'core native diagnostic command failed; inspect its retained private streams'
+  assert_no_php_runtime_diagnostics "$label" "$(<"$stem.stderr")"
+  if grep -Eq '(^|[[:space:]])Warning:' "$stem.stderr"; then
+    fail 'core native diagnostic emitted a warning; inspect its retained private streams'
+  fi
+  capture_wprism_json_success "$output_variable" "$label" \
+    php "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-native-state-evidence.php" "$stem"
 }
 
 core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
@@ -1342,12 +1369,15 @@ pass "missing reverse-reference guard infrastructure fails closed"
 # point without inventing widget UUIDs or a last-synced state baseline.
 TOMBSTONES=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' | wc -l | tr -d '[:space:]')
 require_observed_nonempty "repository tombstone count before fresh-target plan" "$TOMBSTONES"
-capture_wprism_json_success FRESH_IDENTITY_BASELINE 'core existing target native and restorable identity baseline' core_deletion_native_state
+. "$PAIR_SOURCE_ROOT/sandbox/tests/lib/private_command_capture.sh"
+CORE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$(cd "$CONF_REPO1" && pwd)/.wprism/core-native-evidence.XXXXXX")
+printf 'core native diagnostics (unverified): %s\n' "$CORE_NATIVE_EVIDENCE" >&2
+core_capture_plan_native_state FRESH_IDENTITY_BASELINE 'core existing target native and restorable identity baseline' identity-baseline
 require_observed_nonempty 'core existing target native and restorable identity baseline' "$FRESH_IDENTITY_BASELINE"
 jq -e '.restorable_map.count > 0' <<<"$FRESH_IDENTITY_BASELINE" >/dev/null \
   || fail 'fresh-target fixture has no durable identity mappings to restore'
 wp_conf2 db query 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' >/dev/null
-capture_wprism_json_success FRESH_NATIVE_BEFORE 'core unmapped target native and ledger baseline' core_deletion_native_state
+core_capture_plan_native_state FRESH_NATIVE_BEFORE 'core unmapped target native and ledger baseline' native-before
 require_observed_nonempty "core unmapped target native and ledger baseline" "$FRESH_NATIVE_BEFORE"
 jq -en --argjson baseline "$FRESH_IDENTITY_BASELINE" --argjson before "$FRESH_NATIVE_BEFORE" '
   {count:0,sha256:"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"} as $empty |
@@ -1361,7 +1391,7 @@ jq -e --argjson count "$TOMBSTONES" '
   (.delete_conflict | length) == $count and
   all(.delete_conflict[]; .reason == "target entity exists but has no last-synced base")
 ' <<<"$FRESH_PLAN" >/dev/null || fail 'unmapped existing target entities lost their missing-base deletion conflicts'
-capture_wprism_json_success FRESH_NATIVE_AFTER 'core unmapped target native and ledger readback' core_deletion_native_state
+core_capture_plan_native_state FRESH_NATIVE_AFTER 'core unmapped target native and ledger readback' native-after
 require_observed_nonempty "core unmapped target native and ledger readback" "$FRESH_NATIVE_AFTER"
 jq -en --argjson baseline "$FRESH_IDENTITY_BASELINE" --argjson before "$FRESH_NATIVE_BEFORE" --argjson after "$FRESH_NATIVE_AFTER" '
   $after == ($before | .wprism_map=$baseline.restorable_map | .restorable_map=$baseline.restorable_map)
@@ -1372,7 +1402,7 @@ require_wprism_answered 'conf2 repaired-map missing-base repeat plan' json "$FRE
 jq -en --argjson first "$FRESH_PLAN" --argjson repeated "$FRESH_REPEAT_PLAN" '
   [$first.deleted,$first.delete,$first.delete_conflict] == [$repeated.deleted,$repeated.delete,$repeated.delete_conflict]
 ' >/dev/null || fail 'repairing an identity map changed the pending missing-base deletion conflicts'
-capture_wprism_json_success FRESH_NATIVE_REPEATED 'core repaired-map native and ledger fixed point' core_deletion_native_state
+core_capture_plan_native_state FRESH_NATIVE_REPEATED 'core repaired-map native and ledger fixed point' native-repeated
 require_observed_nonempty 'core repaired-map native and ledger fixed point' "$FRESH_NATIVE_REPEATED"
 [ "$FRESH_NATIVE_AFTER" = "$FRESH_NATIVE_REPEATED" ] || fail 'repeated fresh-target plan changed native or ledger state'
 pass "unmapped existing target entities remain deletion conflicts; exact embedded maps repair once, without minting identity or a state baseline"

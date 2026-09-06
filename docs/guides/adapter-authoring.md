@@ -1585,6 +1585,16 @@ plugin faithfully.
    their lost UUIDs cannot be reconstructed from native metadata. See the
    final fresh-target check in `sandbox/conformance/checks/core.sh`.
 
+   A table hash can reject a mutation but cannot explain it after the pair is
+   destroyed. Retain bounded native rows and their complete transport privately
+   before equality assertions, then recompute the published count/hash witness
+   from those retained rows. Reuse the shared private capture transport; keep
+   the table set and semantic acceptance with the fixture owner. Core's final
+   plan check retains four snapshots in a `0700` directory with `0600` streams
+   under the source repository's `.wprism/`, outside disposable webroot/DB
+   teardown. Its explicit diagnostic-only record is not a passing certificate;
+   a malformed, warning-bearing, oversized or mismatched observation refuses.
+
 ### Getting the harness those tests need
 
 Adoption assembles package and platform sources into

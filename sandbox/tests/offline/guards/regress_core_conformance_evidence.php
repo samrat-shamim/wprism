@@ -14,6 +14,7 @@ require_once __DIR__ . '/../../lib/ShellProbe.php';
 require_once __DIR__ . '/../../lib/PrivateRefusalReceipt.php';
 $profileRoot = is_dir($argv[1] ?? '') ? $argv[1] : dirname(__DIR__, 4);
 require_once $profileRoot . '/sandbox/conformance/fixtures/core-private-refusal-evidence.php';
+require_once dirname(__DIR__, 4) . '/sandbox/conformance/fixtures/core-native-state-evidence.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Delete/DeletionWriterExclusion.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Apply/ApplyRequestCoordinator.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Command/Cli.php';
@@ -425,6 +426,24 @@ foreach (['ready', 'exact-rows', 'null', 'false', 'rows', 'bytes', ...array_map(
         ], "actual native $mutation projection binds every restorable tuple byte and excludes ledger-only widget identity");
     }
 }
+[$privateProgramStatus, $privateProgram] = ShellProbe::run(
+    "wp_conf2() { printf '%s' \"\$2\"; }\n" . $helpers . "\ncore_deletion_native_state private\n", [], $root);
+foreach (['ready', 'exact-rows', 'null', 'false', 'rows', 'bytes', ...array_map(static fn(string $table): string => 'error:' . $table, $nativeTables)] as $mutation) {
+    [$privateStatus, $privateJson, $privateStderr] = ShellProbe::run('"$1" "$2" --native "$3" "$4"',
+        [PHP_BINARY, $self, $privateProgram, $mutation], $root);
+    $positive = in_array($mutation, ['ready', 'exact-rows'], true);
+    $privateRecord = json_decode($privateJson, true);
+    $privateWitness = null;
+    try {
+        $privateWitness = core_native_state_evidence_projection($privateRecord ?? []);
+    } catch (Throwable) {
+    }
+    wprism_check($positive
+        ? $privateProgramStatus === 0 && $privateStatus === 0 && $privateStderr === ''
+            && is_array($privateWitness) && ($privateRecord['verified'] ?? null) === false
+        : $privateStatus !== 0 && $privateJson === '' && !str_contains($privateStderr, 'private-core-fixture-value'),
+        "actual private native SQL $mutation retains complete bounded rows or refuses without an incomplete witness");
+}
 
 $parkedBlock = ShellProbe::captureBlock($source, 'PARKED_BEFORE', '# issue #3264 <-> issue #3278 cross-PR finding');
 $widgetSetup = <<<'SH'
@@ -553,13 +572,14 @@ wprism_check(is_int($freshStart) && is_int($freshEnd), 'fresh-target witness inc
 $freshBlock = substr($source, (int) $freshStart, (int) $freshEnd - (int) $freshStart);
 $freshSetup = <<<'SH'
 set -euo pipefail
-root="$1" fixture_answer="$2" mutation="$3" native_baseline="$4"
+root="$1" fixture_answer="$2" mutation="$3" native_snapshots="$4"
+PAIR_SOURCE_ROOT="$root"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 . "$root/sandbox/conformance/asserts.sh"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-fresh.XXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
 CONF_REPO1="$scratch"
-mkdir -p "$CONF_REPO1/state/deletions"
+mkdir -p "$CONF_REPO1/state/deletions" "$CONF_REPO1/.wprism"
 touch "$CONF_REPO1/state/deletions/fixture.json"
 wp_conf2() {
   if [ "$1 $2" = 'db query' ]; then
@@ -588,25 +608,42 @@ core_deletion_native_state() {
     "$boundary-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
   esac
   [ "$mutation" != "$boundary-empty" ] || return 0
-  jq -c --arg boundary "$boundary" --arg mutation "$mutation" '
-    {count:0,sha256:"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"} as $empty |
-    if $boundary=="native-before" then .wprism_map=$empty | .wprism_state=$empty | .restorable_map=$empty
-    elif $boundary!="identity-baseline" then .wprism_map=.restorable_map | .wprism_state=$empty
-    else . end |
-    if $mutation==($boundary+"-no-restoration") then .wprism_map=$empty | .restorable_map=$empty
-    elif $mutation==($boundary+"-missing-table") then del(.posts)
-    elif ($mutation | startswith($boundary+"-change:")) then .[($mutation | split(":")[1])].sha256="changed"
-    else . end
-  ' <<<"$native_baseline"
+  if [ "${1:-witness}" = private ]; then
+    jq -c --arg boundary "$boundary" '.[$boundary]' <<<"$native_snapshots"
+    case "$mutation" in
+      "$boundary-mode:"*) touch "$CORE_NATIVE_EVIDENCE/$boundary.${mutation##*:}"; chmod 0644 "$CORE_NATIVE_EVIDENCE/$boundary.${mutation##*:}" ;;
+      "$boundary-hardlink") ln "$CORE_NATIVE_EVIDENCE/$boundary.stdout" "$scratch/private-hardlink" ;;
+    esac
+  else jq -c --arg boundary "$boundary" '.[$boundary].witness' <<<"$native_snapshots"; fi
   [ "$mutation" != "$boundary-nonzero" ] || return 7
 }
 SH;
-$freshBaseline = [];
-foreach ([...$nativeTables, 'restorable_map'] as $table) {
-    $freshBaseline[$table] = ['count' => $table === 'wprism_map' ? 4 : 3, 'sha256' => hash('sha256', $table)];
+$freshTables = [];
+foreach ($nativeTables as $table) {
+    $freshTables[$table] = [['fixture' => 'private-core-native-value:' . $table]];
 }
+$freshTables['wprism_map'] = array_map(static fn(string $kind): array => [
+    'uuid' => $uuid, 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => '7',
+], ['post', 'term', 'term_taxonomy', 'widget:block']);
+$nativeDiagnostic = static function (array $tables): array {
+    $witness = [];
+    foreach ($tables as $table => $rows) {
+        $witness[$table] = ['count' => count($rows), 'sha256' => hash('sha256',
+            json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))];
+    }
+    $restorable = array_values(array_filter($tables['wprism_map'], static fn(array $row): bool =>
+        in_array($row['id_kind'], ['post', 'term', 'term_taxonomy'], true)));
+    $witness['restorable_map'] = ['count' => count($restorable), 'sha256' => hash('sha256',
+        json_encode($restorable, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))];
+    return ['format' => 'wprism-core-native-state-diagnostic/v1', 'purpose' => 'diagnostic_only',
+        'verified' => false, 'tables' => $tables, 'witness' => $witness];
+};
 $freshMutations = ['ready', 'old-deleted', 'wrong-reason', 'wrong-count', 'clear-nonzero',
-    'native-after-no-restoration', 'native-after-missing-table'];
+    'native-after-no-restoration', 'native-after-missing-table', 'native-after-mode:stdout',
+    'native-after-mode:stderr', 'native-after-mode:exit', 'native-after-hardlink',
+    'native-after-record:format', 'native-after-record:purpose', 'native-after-record:verified',
+    'native-after-record:row', 'native-after-record:column', 'native-after-record:hash',
+    'native-after-record:count', 'native-after-record:extra-witness', 'native-after-record:map-kind'];
 foreach (['plan', 'repeat'] as $boundary) {
     foreach (['php', 'required', 'nonzero', 'conflict-change'] as $failure) {
         $freshMutations[] = "$boundary-$failure";
@@ -623,6 +660,61 @@ foreach (['native-before', 'native-after', 'native-repeated'] as $boundary) {
     }
 }
 foreach ($freshMutations as $mutation) {
+    $snapshots = [];
+    foreach (['identity-baseline', 'native-before', 'native-after', 'native-repeated'] as $stage) {
+        $tables = $freshTables;
+        if ($stage !== 'identity-baseline') {
+            $tables['wprism_state'] = [];
+            $tables['wprism_map'] = $stage === 'native-before' ? []
+                : array_values(array_filter($tables['wprism_map'], static fn(array $row): bool => $row['id_kind'] !== 'widget:block'));
+        }
+        if ($mutation === "$stage-no-restoration") {
+            $tables['wprism_map'] = [];
+        } elseif (str_starts_with($mutation, "$stage-change:")) {
+            $changedTable = substr($mutation, strlen("$stage-change:"));
+            if ($changedTable !== 'restorable_map') {
+                $tables[$changedTable][] = $freshTables[$changedTable][0];
+            }
+        }
+        $snapshots[$stage] = $nativeDiagnostic($tables);
+        if ($mutation === "$stage-change:restorable_map") {
+            $snapshots[$stage]['witness']['restorable_map']['sha256'] = str_repeat('0', 64);
+        } elseif ($mutation === "$stage-missing-table") {
+            unset($snapshots[$stage]['tables']['posts']);
+        }
+        if (str_starts_with($mutation, "$stage-record:")) {
+            $variant = substr($mutation, strlen("$stage-record:"));
+            switch ($variant) {
+                case 'format':
+                    $snapshots[$stage]['format'] = 'unrelated/v1';
+                    break;
+                case 'purpose':
+                    $snapshots[$stage]['purpose'] = 'native_acceptance';
+                    break;
+                case 'verified':
+                    $snapshots[$stage]['verified'] = true;
+                    break;
+                case 'row':
+                    $snapshots[$stage]['tables']['posts'][0] = 'invalid';
+                    break;
+                case 'column':
+                    $snapshots[$stage]['tables']['posts'][0]['fixture'] = ['invalid'];
+                    break;
+                case 'hash':
+                    $snapshots[$stage]['witness']['posts']['sha256'] = str_repeat('0', 64);
+                    break;
+                case 'count':
+                    $snapshots[$stage]['witness']['posts']['count']++;
+                    break;
+                case 'extra-witness':
+                    $snapshots[$stage]['witness']['unknown'] = [];
+                    break;
+                case 'map-kind':
+                    unset($snapshots[$stage]['tables']['wprism_map'][0]['id_kind']);
+                    break;
+            }
+        }
+    }
     $answer = ['warnings' => [], 'deleted' => [], 'delete' => [], 'delete_conflict' => [$fresh['row']]];
     if ($mutation === 'old-deleted') {
         $answer['deleted'] = $answer['delete_conflict'];
@@ -632,10 +724,12 @@ foreach ($freshMutations as $mutation) {
     } elseif ($mutation === 'wrong-count') {
         $answer['delete_conflict'][] = $fresh['row'];
     }
-    [$status, $stdout] = ShellProbe::run($freshSetup . "\n" . $freshBlock . "\nprintf 'FRESH_READY\\n'\n",
-        [$root, json_encode($answer, JSON_THROW_ON_ERROR), $mutation, json_encode($freshBaseline, JSON_THROW_ON_ERROR)], $root);
+    [$status, $stdout, $stderr] = ShellProbe::run($helpers . "\n" . $freshSetup . "\n" . $freshBlock . "\nprintf 'FRESH_READY\\n'\n",
+        [$root, json_encode($answer, JSON_THROW_ON_ERROR), $mutation, json_encode($snapshots, JSON_THROW_ON_ERROR)], $root);
     wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'FRESH_READY')
         : $status !== 0 && !str_contains($stdout, 'FRESH_READY'), "actual unmapped-target final plan distinguishes $mutation at the exact maintenance boundary");
+    wprism_check(!str_contains($stdout . $stderr, 'private-core-native-value'),
+        "actual $mutation native diagnostic rows never enter the public stream");
 }
 
 wprism_check_summary('core conformance evidence');
