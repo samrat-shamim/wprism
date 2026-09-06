@@ -2,7 +2,11 @@
 /** Offline proof for the artifact-bound manifest-provider child protocol. */
 declare(strict_types=1);
 
-$repo = dirname(__DIR__, 4);
+$fixtureRepo = dirname(__DIR__, 4);
+$repo = isset($argv[1]) ? realpath($argv[1]) : $fixtureRepo;
+if (!is_string($repo) || !is_dir($repo . '/agent/src')) {
+    throw new RuntimeException('provider-operation regression needs one complete runtime tree');
+}
 require_once $repo . '/sandbox/tests/lib/check.php';
 require_once $repo . '/sandbox/tests/lib/wp_stubs.php';
 require_once $repo . '/sandbox/tests/lib/FakeWpdb.php';
@@ -31,6 +35,7 @@ if (!function_exists('get_plugins')) {
 }
 
 require_once $repo . '/agent/src/Adapter/ProviderOperationProcess.php';
+require_once $repo . '/agent/src/Kernel/PrivateRefusalEvidence.php';
 require_once $repo . '/agent/src/Policy/ArtifactPolicyIdentity.php';
 require_once $repo . '/agent/src/Promotion/Deploy.php';
 require_once $repo . '/sandbox/tests/lib/frozen_policy.php';
@@ -62,7 +67,7 @@ $contract = [
     'writes' => ['option:fixture'],
 ];
 $actions = [];
-foreach (['after', 'dml', 'large', 'recurse'] as $value) {
+foreach (['after', 'dml', 'large', 'private-failure', 'recurse'] as $value) {
     $actions[] = [
         'args' => ['value' => $value],
         'capability' => 'execute',
@@ -110,7 +115,7 @@ $providerDirectory = $libraryRoot . '/providers';
 if (!is_dir($providerDirectory) && !mkdir($providerDirectory, 0700, true) && !is_dir($providerDirectory)) {
     throw new RuntimeException('cannot create fixture provider directory');
 }
-$providerSource = $repo . '/sandbox/tests/fixtures/providers/fixture-fresh.php';
+$providerSource = $fixtureRepo . '/sandbox/tests/fixtures/providers/fixture-fresh.php';
 $providerFile = $providerDirectory . '/fixture-fresh.php';
 if (!copy($providerSource, $providerFile)) {
     throw new RuntimeException('cannot publish fixture provider source');
@@ -360,7 +365,7 @@ try {
         throw new RuntimeException('cannot create durable provider-process fixture state');
     }
     $durableStatePath = (string) realpath($durableStatePath);
-    $childDriver = $repo . '/sandbox/tests/fixtures/providers/provider-operation-child.php';
+    $childDriver = $fixtureRepo . '/sandbox/tests/fixtures/providers/provider-operation-child.php';
     $runRealChild = static function (string $input) use ($repo, $durableStatePath, $childDriver): array {
         $pipes = [];
         $process = proc_open(
@@ -452,7 +457,7 @@ try {
         if (file_put_contents($durableStatePath, $initialDurableState) !== strlen($initialDurableState)) {
             throw new RuntimeException('cannot reset durable provider-process fixture state');
         }
-        require_once $repo . '/sandbox/tests/fixtures/providers/provider-operation-wp-cli-runtime.php';
+        require_once $fixtureRepo . '/sandbox/tests/fixtures/providers/provider-operation-wp-cli-runtime.php';
         $GLOBALS['wprism_provider_operation_child_driver'] = (string) realpath($childDriver);
         $GLOBALS['wprism_provider_operation_repo'] = (string) realpath($repo);
         $GLOBALS['wprism_provider_operation_state'] = $durableStatePath;
@@ -500,6 +505,170 @@ try {
                 && str_contains($whitespaceStderrFailure->getMessage(), 'recovery_required'),
             'any child stderr byte, including whitespace, refuses as ambiguous recovery debt'
         );
+        $whitespaceGraph = \WPrism\PrivateRefusalEvidence::graph($whitespaceStderrFailure);
+        wprism_check(in_array(" \n", array_column($whitespaceGraph['throwable'], 'message'), true),
+            'the rejected whitespace stderr bytes remain in private evidence instead of disappearing at receipt validation');
+
+        $privateFailure = null;
+        $privateLaunchesBefore = count($GLOBALS['wprism_provider_operation_prelaunch_cache_views'] ?? []);
+        $privateStateBefore = file_get_contents($durableStatePath);
+        try {
+            $provider->invoke_with_deadline('execute', ['value' => 'private-failure'], hrtime(true) + 30000000000);
+        } catch (Throwable $failure) {
+            $privateFailure = $failure;
+        }
+        wprism_check($privateFailure instanceof RuntimeException
+            && $privateFailure->getMessage() === 'wprism: manifest-provider fresh process did not complete cleanly; recovery_required'
+            && $privateFailure->getPrevious() === null
+            && !str_contains((string) $privateFailure, 'private-provider-cause-canary'),
+            'a real failed native child retains the reviewed refusal without publishing its private cause');
+        wprism_check(count($GLOBALS['wprism_provider_operation_prelaunch_cache_views'] ?? []) === $privateLaunchesBefore + 1
+            && file_get_contents($durableStatePath) === $privateStateBefore,
+            'a failed native invocation neither reaches the independent observer nor fabricates a committed mutation');
+        $privateGraph = \WPrism\PrivateRefusalEvidence::graph($privateFailure);
+        $childReports = [];
+        foreach ($privateGraph['throwable'] as $node) {
+            if (($node['message_encoding'] ?? null) !== 'utf-8' || ($node['message_truncated'] ?? true) !== false) continue;
+            $report = json_decode($node['message'], true);
+            if (is_array($report) && ($report['format'] ?? null) === 'wprism-provider-operation-failure/v1') {
+                $childReports[] = $report;
+            }
+        }
+        if (count($childReports) !== 1) {
+            wprism_check_detail('private child transport fields=' . json_encode(array_map(
+                static fn(array $node): array => array_intersect_key($node, array_flip([
+                    'index', 'parent_index', 'message_sha256', 'message_original_bytes', 'message_truncated',
+                ])), $privateGraph['throwable']), JSON_UNESCAPED_SLASHES));
+        }
+        wprism_check(count($childReports) === 1
+            && preg_match('/^[a-f0-9]{64}$/D', $childReports[0]['request_sha256'] ?? '') === 1
+            && ($childReports[0]['evidence']['traversal']['scan_complete'] ?? null) === true
+            && ($childReports[0]['evidence']['traversal']['record_complete'] ?? null) === true
+            && array_column($childReports[0]['evidence']['throwable'] ?? [], 'message') === [
+                'fixture operation refused', 'private-provider-cause-canary',
+            ], 'the real product launcher retains exactly one complete child failure graph, separate from successful provider evidence');
+        $boundRequests = $GLOBALS['wprism_provider_operation_request_identities'] ?? [];
+        $boundRequest = $boundRequests[array_key_last($boundRequests)] ?? [];
+        wprism_check(count($childReports) === 1
+            && ($childReports[0]['request_sha256'] ?? null) === ($boundRequest['request_sha256'] ?? null)
+            && ($boundRequest['operation'] ?? null) === 'invoke'
+            && ($boundRequest['provider'] ?? null) === 'fixture-fresh'
+            && array_map(static fn(array $node): array => array_intersect_key($node, array_flip([
+                'index', 'parent_index', 'relation', 'class',
+            ])), $childReports[0]['evidence']['throwable'] ?? []) === [
+                ['index' => 0, 'parent_index' => null, 'relation' => 'root', 'class' => RuntimeException::class],
+                ['index' => 1, 'parent_index' => 0, 'relation' => 'previous', 'class' => RuntimeException::class],
+            ], 'the transported child failure binds the exact pending request and retains both native class/parent edges');
+        wprism_check(in_array('wprism: child process return_code=1', array_column($privateGraph['throwable'], 'message'), true)
+            && in_array('wprism: child process stdout', array_column($privateGraph['throwable'], 'message'), true)
+            && in_array('wprism: child process stderr', array_column($privateGraph['throwable'], 'message'), true),
+            'the private process graph labels both streams and the actual failed child status');
+
+        require_once $repo . '/agent/src/Command/Cli.php';
+        $refusalRoot = sys_get_temp_dir() . '/wprism-provider-private-' . bin2hex(random_bytes(8));
+        mkdir($refusalRoot, 0700);
+        file_put_contents($refusalRoot . '/site.wprism.json', "{}\n");
+        $renderFailure = static function (Throwable $failure) use ($refusalRoot): array {
+            $status = null;
+            ob_start();
+            try {
+                (new ReflectionMethod(\WPrism\Cli::class, 'halt_json_failure'))->invoke(null,
+                    $failure, ['repo' => $refusalRoot, 'format' => 'json'], 'apply');
+            } catch (RuntimeException $halt) {
+                if ($halt->getMessage() !== 'fixture WP-CLI halt 1') throw $halt;
+                $status = 1;
+            } finally {
+                $output = ob_get_clean();
+            }
+            return [$status, $output];
+        };
+        try {
+            $oldPublic = $renderFailure(new RuntimeException($privateFailure->getMessage()));
+            $oldFiles = glob($refusalRoot . '/.wprism/refusals/*.json') ?: [];
+            $newPublic = $renderFailure($privateFailure);
+            wprism_check_same($oldPublic, $newPublic, 'the actual CLI keeps public refusal bytes/status identical when private child diagnostics are added');
+            $newFiles = array_values(array_diff(glob($refusalRoot . '/.wprism/refusals/*.json') ?: [], $oldFiles));
+            $record = count($newFiles) === 1 ? json_decode(file_get_contents($newFiles[0]), true, 32, JSON_THROW_ON_ERROR) : [];
+            wprism_check($newPublic[0] === 1 && !str_contains($newPublic[1], 'private-provider-cause-canary')
+                && ($record['command'] ?? null) === 'apply' && ($record['reason_code'] ?? null) === 'apply_failed'
+                && ($record['throwable'] ?? null) === $privateGraph['throwable']
+                && str_contains(json_encode($record), 'private-provider-cause-canary')
+                && (fileperms(dirname($newFiles[0])) & 0777) === 0700
+                && (fileperms($newFiles[0]) & 0777) === 0600,
+                'the real CLI eligibility and kernel writer retain the child graph only in one fresh mode-0600 private refusal record');
+        } finally {
+            foreach (glob($refusalRoot . '/.wprism/refusals/*.json') ?: [] as $file) unlink($file);
+            if (is_dir($refusalRoot . '/.wprism/refusals')) rmdir($refusalRoot . '/.wprism/refusals');
+            if (is_dir($refusalRoot . '/.wprism')) rmdir($refusalRoot . '/.wprism');
+            unlink($refusalRoot . '/site.wprism.json');
+            rmdir($refusalRoot);
+        }
+
+        foreach (['boot-exit', 'malformed-stdout', 'failure-as-success', 'wrong-identity'] as $transportCase) {
+            $GLOBALS['wprism_provider_operation_transport_case'] = $transportCase;
+            $transportFailure = null;
+            $beforeLaunches = count($GLOBALS['wprism_provider_operation_prelaunch_cache_views'] ?? []);
+            $beforeState = file_get_contents($durableStatePath);
+            try {
+                $provider->invoke_with_deadline('execute', ['value' => 'after'], hrtime(true) + 30000000000);
+            } catch (Throwable $failure) {
+                $transportFailure = $failure;
+            } finally {
+                unset($GLOBALS['wprism_provider_operation_transport_case']);
+            }
+            $transportGraph = \WPrism\PrivateRefusalEvidence::graph($transportFailure);
+            wprism_check($transportFailure instanceof RuntimeException
+                && str_contains($transportFailure->getMessage(), 'recovery_required')
+                && $transportFailure->getPrevious() === null
+                && !str_contains((string) $transportFailure, 'private-boot-stdout')
+                && !str_contains((string) $transportFailure, 'private-boot-stderr')
+                && !str_contains((string) $transportFailure, 'private-malformed-stdout')
+                && !str_contains((string) $transportFailure, 'private-unaccepted-receipt')
+                && !str_contains((string) $transportFailure, 'private-foreign-adapter')
+                && count($GLOBALS['wprism_provider_operation_prelaunch_cache_views'] ?? []) === $beforeLaunches + 1
+                && file_get_contents($durableStatePath) === $beforeState,
+                "$transportCase remains a private non-success, never a retry or observer authorization");
+            $expectedExit = $transportCase === 'boot-exit' ? 7 : 0;
+            wprism_check(in_array('wprism: child process return_code=' . $expectedExit, array_column($transportGraph['throwable'], 'message'), true)
+                && str_contains(json_encode($transportGraph), 'private-'),
+                "$transportCase retains its exact real-process status and rejected bytes before receipt parsing can discard them");
+        }
+
+        wprism_check(method_exists(\WPrism\BoundedChildProcess::class, 'failure_evidence'),
+            'private rejected-capture machinery belongs to the shared child lifecycle, not a provider executable');
+        if (method_exists(\WPrism\BoundedChildProcess::class, 'failure_evidence')) {
+            foreach ([
+                'empty' => ['', ''],
+                'binary' => ["private-binary\0\xff", "private-stderr\0"],
+                'field-limit' => [str_repeat('x', 4096), str_repeat('y', 4097)],
+                'large' => [str_repeat('private-output-', 2000), str_repeat('private-error-', 2000)],
+            ] as $case => [$stdoutBytes, $stderrBytes]) {
+                $captured = ['return_code' => 7, 'stdout' => $stdoutBytes, 'stderr' => $stderrBytes];
+                $cause = new JsonException('private-parser-cause');
+                $failure = \WPrism\BoundedChildProcess::failure_evidence('reviewed caller refusal', $captured, $cause);
+                wprism_check($failure->getMessage() === 'reviewed caller refusal' && $failure->getPrevious() === null
+                    && !str_contains((string) $failure, 'private-'), "$case keeps every output byte and parser cause out of ordinary exception rendering");
+                $graph = \WPrism\PrivateRefusalEvidence::graph($failure);
+                wprism_check(in_array('private-parser-cause', array_column($graph['throwable'], 'message'), true),
+                    "$case keeps a receipt-parser cause private alongside both independently named streams");
+                foreach (['stdout' => $stdoutBytes, 'stderr' => $stderrBytes] as $stream => $bytes) {
+                    $streamNodes = array_values(array_filter($graph['throwable'], static function (array $node) use ($graph, $stream): bool {
+                        $parent = $node['parent_index'];
+                        return $parent !== null && $node['relation'] === 'private_evidence'
+                            && ($graph['throwable'][$parent]['message'] ?? null) === 'wprism: child process ' . $stream;
+                    }));
+                    $node = $streamNodes[0] ?? [];
+                    $retained = substr($bytes, 0, 4096);
+                    $utf8 = preg_match('//u', $retained) === 1;
+                    wprism_check(count($streamNodes) === 1 && ($node['message'] ?? null) === ($utf8 ? $retained : base64_encode($retained))
+                        && ($node['message_encoding'] ?? null) === ($utf8 ? 'utf-8' : 'base64')
+                        && ($node['message_original_bytes'] ?? null) === strlen($bytes)
+                        && ($node['message_sha256'] ?? null) === hash('sha256', $bytes)
+                        && ($node['message_truncated'] ?? null) === (strlen($bytes) > 4096),
+                        "$case $stream uses the existing bounded private-field encoding, original-byte hash and explicit truncation witness");
+                }
+            }
+        }
 
         if (file_put_contents($durableStatePath, $initialDurableState) !== strlen($initialDurableState)) {
             throw new RuntimeException('cannot reset one-second provider-process fixture state');

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/PrivateEvidenceException.php';
+
 /**
  * Engine-internal bounded POSIX child lifecycle; not part of the adapter SDK.
  *
@@ -142,6 +144,28 @@ if ($result === false) {
 }
 exit(is_int($status) && $status >= 0 && $status <= 255 ? $status : 126);
 PHP;
+
+    /**
+     * Retain a rejected capture without teaching transport what success means.
+     * The caller supplies its reviewed sentence; ordinary exception rendering
+     * cannot reach either stream. The existing private graph owns byte limits,
+     * binary encoding, original hashes and explicit truncation witnesses.
+     *
+     * @param array{return_code:int,stdout:string,stderr:string} $result
+     */
+    public static function failure_evidence(
+        string $message,
+        array $result,
+        ?\Throwable $cause = null
+    ): PrivateEvidenceException {
+        return new PrivateEvidenceException(
+            $message,
+            new \RuntimeException('wprism: child process return_code=' . $result['return_code']),
+            new PrivateEvidenceException('wprism: child process stdout', new \RuntimeException($result['stdout'])),
+            new PrivateEvidenceException('wprism: child process stderr', new \RuntimeException($result['stderr'])),
+            ...($cause === null ? [] : [$cause])
+        );
+    }
 
     /** @return array{return_code:int,stdout:string,stderr:string} */
     public static function capture_until(

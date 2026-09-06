@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/BoundedChildProcess.php';
+require_once __DIR__ . '/../Kernel/PrivateRefusalEvidence.php';
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
 require_once __DIR__ . '/ManifestProviderRuntime.php';
 if (!class_exists(AdapterLibrary::class, false)) {
@@ -31,6 +33,7 @@ if (!class_exists(Providers::class, false)) {
 final class ProviderOperationProcess {
     public const REQUEST_FORMAT = 'wprism-provider-operation-request/v2';
     public const RECEIPT_FORMAT = 'wprism-provider-operation-response/v2';
+    private const FAILURE_FORMAT = 'wprism-provider-operation-failure/v1';
 
     private const MAX_REQUEST_BYTES = 1048576;
     private const MAX_ARGUMENT_BYTES = 524288;
@@ -257,6 +260,7 @@ final class ProviderOperationProcess {
 
     /** Execute the fixed stdin protocol inside a WP-CLI child. */
     public static function child_main(): void {
+        $encoded = null;
         try {
             if (!defined('STDIN') || !is_resource(STDIN)) {
                 throw new \RuntimeException('missing child stdin');
@@ -269,9 +273,25 @@ final class ProviderOperationProcess {
                 throw new \RuntimeException('invalid child request boundary');
             }
             fwrite(STDOUT, Canon::encode(self::dispatch($encoded)));
-        } catch (\Throwable) {
+        } catch (\Throwable $failure) {
+            // e299e84b retained the parent's private graph but its fresh child
+            // had discarded the actual cause. This fixed private pipe carries
+            // the existing bounded graph, never a successful provider receipt.
+            // Diagnostic write failure cannot replace the stable child refusal.
+            try {
+                fwrite(STDOUT, json_encode([
+                    'evidence' => PrivateRefusalEvidence::graph($failure),
+                    'format' => self::FAILURE_FORMAT,
+                    'request_sha256' => is_string($encoded) ? hash('sha256', $encoded) : null,
+                ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            } catch (\Throwable) {
+                // The parent still retains the failed transport and its status.
+            }
             fwrite(STDERR, "wprism-provider-operation-failed\n");
-            throw new \RuntimeException('wprism provider operation child refused');
+            // A protocol-owned nonzero exit leaves stdout as one failure
+            // document; PHP's uncaught-exception renderer would append a
+            // second, non-JSON channel and could hide the bounded report.
+            exit(1);
         }
     }
 
@@ -552,16 +572,17 @@ final class ProviderOperationProcess {
             self::$pendingIdentity = null;
         }
         if ($result['return_code'] !== 0 || $result['stderr'] !== '') {
-            throw new \RuntimeException(
-                'wprism: manifest-provider fresh process did not complete cleanly; recovery_required'
+            throw BoundedChildProcess::failure_evidence(
+                'wprism: manifest-provider fresh process did not complete cleanly; recovery_required',
+                $result
             );
         }
         try {
             $response = json_decode(trim($result['stdout']), true, 64, JSON_THROW_ON_ERROR);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException(
+            throw BoundedChildProcess::failure_evidence(
                 'wprism: manifest-provider fresh process returned malformed evidence; recovery_required',
-                0,
+                $result,
                 $failure
             );
         }
@@ -580,8 +601,9 @@ final class ProviderOperationProcess {
             || $response['operation'] !== $request['operation']
             || !is_array($response['result'])
             || array_is_list($response['result'])) {
-            throw new \RuntimeException(
-                'wprism: manifest-provider fresh process returned identity-mismatched evidence; recovery_required'
+            throw BoundedChildProcess::failure_evidence(
+                'wprism: manifest-provider fresh process returned identity-mismatched evidence; recovery_required',
+                $result
             );
         }
         return $response['result'];

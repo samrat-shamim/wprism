@@ -13,6 +13,16 @@ namespace WPrismTest\ProviderOperationCli {
 
 namespace {
     final class WP_CLI {
+        public static function add_command(string $name, string $class): void {}
+
+        public static function line(string $line): void {
+            echo $line . "\n";
+        }
+
+        public static function halt(int $status): never {
+            throw new \RuntimeException('fixture WP-CLI halt ' . $status);
+        }
+
         public static function get_configurator(): \WPrismTest\ProviderOperationCli\Configurator {
             return new \WPrismTest\ProviderOperationCli\Configurator();
         }
@@ -55,10 +65,12 @@ namespace WP_CLI\Utils {
         $repo = $GLOBALS['wprism_provider_operation_repo'] ?? null;
         $state = $GLOBALS['wprism_provider_operation_state'] ?? null;
         $injectedStderr = $GLOBALS['wprism_provider_operation_injected_stderr'] ?? '';
+        $transportCase = $GLOBALS['wprism_provider_operation_transport_case'] ?? 'native';
         if (!is_string($driver)
             || !is_string($repo)
             || !is_string($state)
             || !is_string($injectedStderr)
+            || !in_array($transportCase, ['native', 'boot-exit', 'malformed-stdout', 'failure-as-success', 'wrong-identity'], true)
             || realpath($driver) !== $driver
             || realpath($repo) !== $repo
             || realpath($state) !== $state) {
@@ -78,19 +90,48 @@ $driver = $argv[1] ?? null;
 $repo = $argv[2] ?? null;
 $state = $argv[3] ?? null;
 $injectedStderr = $argv[4] ?? null;
+$transportCase = $argv[5] ?? null;
 if (!is_string($driver) || !is_string($repo) || !is_string($state)) {
     exit(126);
 }
 if (is_string($injectedStderr) && $injectedStderr !== '') {
     fwrite(STDERR, $injectedStderr);
 }
+if ($transportCase !== 'native') {
+    if ($transportCase === 'boot-exit') {
+        echo 'private-boot-stdout';
+        fwrite(STDERR, 'private-boot-stderr');
+        exit(7);
+    }
+    if ($transportCase === 'malformed-stdout') {
+        echo 'private-malformed-stdout';
+        exit(0);
+    }
+    require $repo . '/agent/src/Kernel/Canon.php';
+    $input = stream_get_contents(STDIN);
+    $request = json_decode($input, true, 64, JSON_THROW_ON_ERROR);
+    echo \WPrism\Canon::encode([
+        'adapter' => $transportCase === 'wrong-identity' ? 'private-foreign-adapter' : $request['adapter'],
+        'adapter_digest' => $request['adapter_digest'],
+        'capability' => $request['capability'],
+        'format' => $transportCase === 'failure-as-success'
+            ? 'wprism-provider-operation-failure/v1' : 'wprism-provider-operation-response/v2',
+        'operation' => $request['operation'],
+        'provider' => $request['provider'],
+        'request_sha256' => hash('sha256', $input),
+        'result' => ['private' => 'private-unaccepted-receipt'],
+    ]);
+    exit(0);
+}
 $GLOBALS['argv'] = [$driver, $repo, $state];
 require $driver;
 PHP;
         $store = \wprism_wp_store();
+        $GLOBALS['wprism_provider_operation_request_identities'][] =
+            (new \ReflectionProperty(\WPrism\ProviderOperationProcess::class, 'pendingIdentity'))->getValue();
         $GLOBALS['wprism_provider_operation_prelaunch_cache_views'][] = $store->cache === [];
         $process = proc_open(
-            [PHP_BINARY, '-r', $wrapper, $driver, $repo, $state, $injectedStderr],
+            [PHP_BINARY, '-r', $wrapper, $driver, $repo, $state, $injectedStderr, $transportCase],
             $descriptors,
             $pipes,
             $cwd,

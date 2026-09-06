@@ -884,6 +884,18 @@ identity revalidation, cache fencing, database isolation, recovery posture,
 and retry boundary. Adapter code must not create a process, construct a command,
 parse transport, or issue transaction-control SQL.
 
+Failed child transport is private evidence, not an empty generic error. The
+shared bounded process lifecycle retains its status and independently named
+stdout/stderr through `PrivateEvidenceException`; the provider dispatcher
+emits a distinct request-hashed failure document using the existing bounded
+Throwable graph. Neither a zero exit nor a failure document can satisfy the
+success receipt grammar. Public command refusals and recovery requirements
+remain unchanged. The private recorder still owns its field/graph limits,
+binary encoding, original byte counts/hashes and explicit truncation markers:
+an incomplete diagnostic is not an exact-cause certificate. Do not add a
+plugin-owned subprocess logger or publish opaque child output to recover a
+missing cause.
+
 `adapter-package-validate` is a static regression guard for that boundary in
 package runtime PHP. It refuses known direct process, transaction, raw-DML and
 include spellings, but it is not a hostile-PHP sandbox; digest review and

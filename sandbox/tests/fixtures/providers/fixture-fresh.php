@@ -14,8 +14,12 @@ final class FixtureFresh extends ManifestProviderRuntime {
     /** @return array{before:array{value:string},after:array{value:string},verified:true} */
     protected function invoke_execute(array $args): array {
         $value = $args['value'] ?? null;
-        if (!is_string($value) || !in_array($value, ['after', 'dml', 'large', 'recurse'], true)) {
+        if (!is_string($value) || !in_array($value, ['after', 'dml', 'large', 'private-failure', 'recurse'], true)) {
             throw new \RuntimeException('fixture received unexpected args');
+        }
+        if ($value === 'private-failure') {
+            throw new \RuntimeException('fixture operation refused', 0,
+                new \RuntimeException('private-provider-cause-canary'));
         }
         if ($value === 'recurse') {
             return $this->invoke('execute', $args);

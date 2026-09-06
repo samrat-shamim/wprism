@@ -7804,6 +7804,39 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "failure_evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "message",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "cause",
+                            "type": "?Throwable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\PrivateEvidenceException",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
