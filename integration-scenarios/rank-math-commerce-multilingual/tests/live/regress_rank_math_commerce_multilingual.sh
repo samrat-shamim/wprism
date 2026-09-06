@@ -29,6 +29,66 @@ assert_rmcombo_default_apply_ready() { # <what> <complete JSON apply stream>
     || fail "$1 did not settle the portable Woo default without an option warning"
 }
 
+assert_rmcombo_redirect_transition() { # <complete before state> <complete after state>
+  jq -en --argjson before "$1" --argjson after "$2" '
+    $before.redirection_cache == [] and
+    $before.redirection.header_code == 302 and $before.redirection.status == "active" and
+    $before.redirection.url_to == $before.products.en.url and
+    $after == ($before | .redirection.hits += 1 | .redirection_cache = [{
+      from_url:"rmcombo-old",redirection_id:($before.redirection.id|tostring),
+      object_id:"0",object_type:"any",is_redirected:"1"
+    }])
+  ' >/dev/null || fail 'native redirect changed state outside its exact hit and cache projection'
+}
+
+assert_rmcombo_retry_projection() { # <complete pre-failure state> <complete retried state>
+  # c76 retained native observations prove the retry removes the owned rule's
+  # derived cache. The manifest invalidates by redirection_id, not by URL or
+  # table. Require that exact effect; deleting the whole field hides defects.
+  jq -en --argjson baseline "$1" --argjson retried "$2" '
+    $baseline.redirection_cache == [{
+      from_url:"rmcombo-old",redirection_id:($baseline.redirection.id|tostring),
+      object_id:"0",object_type:"any",is_redirected:"1"
+    }] and
+    $retried == ($baseline
+      | .products.en.content += "<p>provider failure retained combined retry authority <a href=\"https://retry.example.test/\">retry external</a></p>"
+      | .products.en.links = ((.products.en.links + [{url:"https://retry.example.test/",target_post_id:"0",type:"external"}]) | sort_by(.type,.url,.target_post_id))
+      | .products.en.rank_counts.external_link_count = "2"
+      | .redirection_cache = [])
+  ' >/dev/null || fail 'combined retry did not converge the exact new link projection and owned cache invalidation in isolation'
+}
+
+assert_rmcombo_unsupported_deletion() { # <capture|plan|apply> <status> <complete transport> <tombstone path or empty>
+  local command="$1" status="$2" stream="$3" path="$4" answer
+  local rmcombo_host_pair="$PAIR" rmcombo_host_service=cli2
+  case "$command" in capture) rmcombo_host_service=cli1 ;; plan|apply) ;; *) fail 'unknown deletion refusal command' ;; esac
+  [ "$status" -ne 0 ] || fail 'unsupported combined deletion unexpectedly succeeded'
+  assert_no_php_runtime_diagnostics 'combined unsupported deletion' "$stream"
+  # Apply retains its private command transport separately. Admit only the
+  # exact owner-local pointer, never a generic diagnostic/noise-line exclusion.
+  answer=$(jq -Rsr --arg command "$command" --arg prefix "private command diagnostics (unverified): $ROOT/sandbox/tmp/wprism-rmcombo-apply.$PAIR." '
+    split("\n") | map(select(length > 0)) |
+    map(select(startswith($prefix) and (ltrimstr($prefix)|test("^[a-zA-Z0-9]{6}$")))) as $pointers |
+    if ($pointers|length) != (if $command == "apply" then 1 else 0 end) then error("private pointer inventory")
+    else map(select(. as $line | $pointers | index($line) | not)) | join("\n") end
+  ' <<<"$stream") || fail 'combined deletion refusal has an invalid private diagnostic binding'
+  assert_rmcombo_host_native_json 'combined unsupported deletion' "$answer"
+  answer=$(awk 'NF { line=$0 } END { print line }' <<<"$answer")
+  jq -e --arg command "$command" --arg path "$path" '
+    .format == "wprism-command-refusal/v1" and .ok == false and .command == $command and
+    (has("details_redacted") | not) and (.diagnostics|length) == 1 and
+    .diagnostics[0].code == "unsupported_deletion" and
+    if $command == "capture" then
+      .error == "unsupported_deletion" and .reason_code == .error and
+      .diagnostics[0].surface == "post:rmcombo_book"
+    else
+      .error == "repository_compilation_failed" and .reason_code == .error and
+      .diagnostics[0].path == $path and .diagnostics[0].locator == "type" and
+      .diagnostics[0].severity == "blocking"
+    end
+  ' <<<"$answer" >/dev/null || fail 'combined deletion did not return its exact typed unsupported boundary'
+}
+
 capture_rmcombo_native_json() { # <what> <command> [args...]
   local answer
   capture_wprism_json_success answer "$1" "${@:2}"
@@ -1121,6 +1181,24 @@ assert_rmcombo_source_native() { # <seed receipt> <fresh native state> <metadata
   ' >/dev/null || fail 'combined source authored/native premise is incoherent before capture; inspect retained evidence'
 }
 
+rmcombo_canonical_state() { # <owned site repository>
+  php -r '
+require $argv[1]."/agent/src/Kernel/FilesystemTreeSnapshot.php";
+$repo = realpath($argv[2]);
+if (!is_string($repo) || !in_array($repo, [$argv[1]."/sandbox/siterepo/".$argv[3]."1",$argv[1]."/sandbox/siterepo/".$argv[3]."2"],true)) {
+    throw new RuntimeException("canonical observation is not an owned site repository");
+}
+$result = [];
+foreach (["state","site.wprism.json"] as $path) {
+    $tree = \WPrism\FilesystemTreeSnapshot::observe($repo,$repo."/".$path,$path,"combined canonical state","site repository");
+    foreach ($tree["files"] as &$file) unset($file["mtime"]);
+    unset($file);
+    $result[$path] = $tree;
+}
+echo json_encode($result,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
+' "$ROOT" "$1" "$PAIR"
+}
+
 run_leg() { # <source order> <target order> <independent|synchronized>
 local source_order="$1" target_order="$2" meta_mode="$3" target_meta_mode expected_source expected_target
 case "$meta_mode" in
@@ -1843,12 +1921,7 @@ redirection_response
 [ "$REDIRECT_STATUS" = 302 ] && [ "$REDIRECT_LOCATION" = "$(jq -r '.products.en.url' <<<"$TARGET")" ] \
   || fail "native Rank Math redirection diverged: status=$REDIRECT_STATUS location=${REDIRECT_LOCATION:-<none>}"
 capture_rmcombo_native_state TARGET_RUNTIME wp2 target-after-redirect
-jq -en --argjson before "$TARGET" --argjson after "$TARGET_RUNTIME" '
-  $after.redirection.hits == ($before.redirection.hits + 1) and
-  $after.redirection.header_code == 302 and $after.redirection.status == "active" and
-  $after.redirection.url_to == $before.products.en.url and
-  $after.neighbor == $before.neighbor and $after.scheduler == $before.scheduler
-' >/dev/null || fail "native redirect telemetry or target runtime isolation diverged: $TARGET_RUNTIME"
+assert_rmcombo_redirect_transition "$TARGET" "$TARGET_RUNTIME"
 pass 'native 302 routing consumes the target-bound URL and advances only target-local traffic telemetry'
 
 say 'hostile ACF ownership overlap refuses under both manifest orders before publication'
@@ -1916,9 +1989,7 @@ FAILURE_OUT=$(wp2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || 
   || fail 'combined provider failure did not retain retry authority'
 capture_rmcombo_native_state FAILURE_NATIVE wp2 target-after-failure
 jq -en --argjson baseline "$TARGET_RUNTIME" --argjson failed "$FAILURE_NATIVE" '
-  ($failed | .products.en.content = $baseline.products.en.content) == $baseline and
-  ($failed.products.en.content | contains("provider failure retained combined retry authority")) and
-  ([ $failed.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 0
+  $failed == ($baseline | .products.en.content += "<p>provider failure retained combined retry authority <a href=\"https://retry.example.test/\">retry external</a></p>")
 ' >/dev/null || fail "combined provider failure crossed a runtime boundary or fabricated derived success: $FAILURE_NATIVE"
 remove_hostile_provider
 capture_wprism_json_checked RETRY 'Rank Math combination provider retry' assert_rmcombo_default_apply_ready \
@@ -1933,19 +2004,16 @@ jq -e '
   ["provider:rank-math-state/rebuild_all_link_state"]
 ' <<<"$RETRY" >/dev/null || fail "retry selected an unexpected Rank Math action set: $RETRY"
 capture_rmcombo_native_state RETRY_NATIVE wp2 target-after-retry
-jq -en --argjson baseline "$TARGET_RUNTIME" --argjson retried "$RETRY_NATIVE" '
-  ($retried
-    | .products.en.content = $baseline.products.en.content
-    | .products.en.links = $baseline.products.en.links
-    | .products.en.rank_counts = $baseline.products.en.rank_counts) == $baseline and
-  ($retried.products.en.content | contains("provider failure retained combined retry authority")) and
-  ($retried.products.en.links | length) == 3 and
-  ([ $retried.products.en.links[].type ] | sort) == ["external","external","internal"] and
-  ([ $retried.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 1 and
-  ($retried.products.de.rank_counts == $baseline.products.de.rank_counts)
-' >/dev/null || fail "combined retry did not converge the exact new link projection in isolation: $RETRY_NATIVE"
+assert_rmcombo_retry_projection "$TARGET_RUNTIME" "$RETRY_NATIVE"
 assert_rmcombo_link_counts "$RETRY_NATIVE"
 pass 'provider failure and retry preserve every Woo, Polylang, ACF, taxonomy, module, CPT and target-runtime witness outside the intended Rank Math projection'
+
+redirection_response
+[ "$REDIRECT_STATUS" = 302 ] && [ "$REDIRECT_LOCATION" = "$(jq -r '.products.en.url' <<<"$RETRY_NATIVE")" ] \
+  || fail "native Rank Math retry redirection diverged: status=$REDIRECT_STATUS location=${REDIRECT_LOCATION:-<none>}"
+capture_rmcombo_native_state RETRY_RUNTIME wp2 target-after-retry-redirect
+assert_rmcombo_redirect_transition "$RETRY_NATIVE" "$RETRY_RUNTIME"
+pass 'the retried rule serves its native 302 and rebuilds only its owned cache with one additional hit'
 
 say 'combined recapture and repeated apply are exact no-ops'
 REVISION=$(git -C "$R2" rev-parse HEAD)
@@ -1960,7 +2028,7 @@ FINAL_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-final" || true)
 rm -rf "$R2/.tmp-rmcombo-final"
 [ -z "$FINAL_DIFF" ] || fail "combined target recapture differs: $FINAL_DIFF"
 capture_rmcombo_native_state TARGET_FINAL wp2 target-final
-jq -en --argjson retried "$RETRY_NATIVE" --argjson final "$TARGET_FINAL" '
+jq -en --argjson retried "$RETRY_RUNTIME" --argjson final "$TARGET_FINAL" '
   $final == $retried and $final.products.en.processed == true and $final.products.de.processed == true
 ' >/dev/null || fail "combined final native/runtime state was not an exact no-op: $TARGET_FINAL"
 [ "$(default_product_category_state wp2)" = "$TARGET_DEFAULT_NATIVE" ] \
@@ -1969,39 +2037,87 @@ product_response rmcombo-product-en >/dev/null
 product_response rmcombo-product-de >/dev/null
 pass "full source=$source_order target=$target_order path recaptures byte-identically and repeats with zero actions"
 
-say 'direct deletion remains refusal-only across the combined adapter boundary'
+say 'unsupported custom-CPT deletion refuses before canonical publication or target mutation'
 SOURCE_BOOK=$(jq -r '.book' <<<"$SOURCE_SEED")
 TARGET_BOOK=$(jq -r '.book.id' <<<"$TARGET_FINAL")
 require_fixture_ids SOURCE_BOOK TARGET_BOOK
+DELETE_SOURCE_BEFORE=$(rmcombo_canonical_state "$R1")
+DELETE_TARGET_BEFORE=$(rmcombo_canonical_state "$R2")
 wp1 post delete "$SOURCE_BOOK" --force >/dev/null
-capture_wprism_json_checked DELETE_SOURCE_CAPTURE \
-  'Rank Math combination deletion source capture' assert_rmcombo_warning_free_capture \
-  wp1 wprism capture --repo=/siterepo --format=json
-git -C "$R1" add -A
-git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test \
-  commit -qm 'capture: delete custom CPT with derived Rank Math links'
-git -C "$R1" push -q origin main
-git -C "$R2" pull -q origin main
-DELETE_WITHHELD_RC=0
-DELETE_WITHHELD=$(wp2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_WITHHELD_RC=$?
-[ "$DELETE_WITHHELD_RC" -ne 0 ] && grep -q -- '--with-deletes' <<<"$DELETE_WITHHELD" \
-  || fail "combined custom-CPT deletion did not require explicit delete authority: $DELETE_WITHHELD"
-wp2 post get "$TARGET_BOOK" --field=ID >/dev/null \
-  || fail 'withheld Rank Math deletion removed the target post'
+DELETE_SOURCE_RC=0
+DELETE_SOURCE_CAPTURE=$(wp1 wprism capture --repo=/siterepo --format=json 2>&1) || DELETE_SOURCE_RC=$?
+assert_rmcombo_unsupported_deletion capture "$DELETE_SOURCE_RC" "$DELETE_SOURCE_CAPTURE" ''
+[ "$(rmcombo_canonical_state "$R1")" = "$DELETE_SOURCE_BEFORE" ] \
+  || fail 'unsupported custom-CPT Capture partially published canonical state'
+rmcombo_host_pair="$PAIR" rmcombo_host_service=cli1
+capture_wprism_json_checked DELETE_SOURCE_ABSENT 'combined deleted source post absence' assert_rmcombo_host_native_json wp1 eval '
+echo wp_json_encode(["absent"=>get_post((int)getenv("WPRISM_RMCOMBO_BOOK")) === null]);
+' --exec="putenv('WPRISM_RMCOMBO_BOOK=$SOURCE_BOOK');"
+jq -e '. == {absent:true}' <<<"$DELETE_SOURCE_ABSENT" >/dev/null \
+  || fail 'unsupported deletion Capture did not observe a missing native source'
+
+# Post-type authoring is not destructive authority. The source correctly
+# publishes no tombstone; synthesize an otherwise valid target intent from
+# its real compiled identity to exercise the independent compiler boundary.
+rmcombo_host_service=cli2
+capture_wprism_json_checked DELETE_INTENT 'combined synthetic unsupported deletion intent' assert_rmcombo_host_native_json wp2 eval '
+$repo="/siterepo";
+$policy=\WPrism\Policy::load($repo);
+$compiled=\WPrism\RepositoryCompiler::compile($repo,$policy);
+$matches=array_filter($compiled->tree(),static fn(array $e):bool=>($e["type"]??null)==="post" && ($e["data"]["type"]??null)==="rmcombo_book" && ($e["data"]["slug"]??null)==="rmcombo-book");
+if(count($matches)!==1 || $policy->deletion_capability("post:rmcombo_book")!==null) throw new RuntimeException("custom-CPT unsupported-deletion premise is absent");
+$uuid=array_key_first($matches); $entity=$matches[$uuid];
+echo wp_json_encode(["expected_hash"=>$entity["hash"],"expected_revision"=>$compiled->revision_hash(),
+    "format"=>"wprism-deletion/v1","kind"=>"post","source_path"=>$entity["path"],"type"=>"rmcombo_book","uuid"=>$uuid]);
+'
+DELETE_UUID=$(jq -er '.uuid | select(test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"))' <<<"$DELETE_INTENT")
+DELETE_SOURCE_PATH="posts/rmcombo_book/$DELETE_UUID--rmcombo-book.md"
+jq -e --arg path "$DELETE_SOURCE_PATH" '.source_path == $path' <<<"$DELETE_INTENT" >/dev/null \
+  || fail 'synthetic custom-CPT deletion source path is not its exact compiled identity'
+DELETE_TOMBSTONE_PATH="deletions/$DELETE_UUID.json"
+DELETE_BACKUP="$TMP_ROOT/rmcombo-book-$source_order-$meta_mode.md"
+[ -f "$R2/state/$DELETE_SOURCE_PATH" ] && [ ! -L "$R2/state/$DELETE_SOURCE_PATH" ] \
+  && [ ! -e "$DELETE_BACKUP" ] && [ ! -L "$DELETE_BACKUP" ] \
+  && [ ! -e "$R2/state/$DELETE_TOMBSTONE_PATH" ] && [ ! -L "$R2/state/$DELETE_TOMBSTONE_PATH" ] \
+  || fail 'synthetic deletion would replace an occupied or nonordinary path'
+DELETE_DIRECTORY_CREATED=0
+if [ ! -d "$R2/state/deletions" ]; then
+  mkdir "$R2/state/deletions"
+  DELETE_DIRECTORY_CREATED=1
+fi
+[ ! -L "$R2/state/deletions" ] || fail 'synthetic deletion directory is linked'
+php -r '
+require $argv[1]."/agent/src/Kernel/Canon.php";
+$bytes=\WPrism\Canon::encode(json_decode($argv[3],true,32,JSON_THROW_ON_ERROR));
+$handle=fopen($argv[2],"x");
+if($handle===false || fwrite($handle,$bytes)!==strlen($bytes) || !fclose($handle)) throw new RuntimeException("synthetic tombstone publication failed");
+' "$ROOT" "$R2/state/$DELETE_TOMBSTONE_PATH" "$DELETE_INTENT"
+mv "$R2/state/$DELETE_SOURCE_PATH" "$DELETE_BACKUP"
+DELETE_SYNTHETIC_BEFORE=$(rmcombo_canonical_state "$R2")
+DELETE_PLAN_RC=0
+DELETE_PLAN=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || DELETE_PLAN_RC=$?
+assert_rmcombo_unsupported_deletion plan "$DELETE_PLAN_RC" "$DELETE_PLAN" "$DELETE_TOMBSTONE_PATH"
+[ "$(rmcombo_canonical_state "$R2")" = "$DELETE_SYNTHETIC_BEFORE" ] \
+  || fail 'unsupported custom-CPT Plan changed canonical state'
 DELETE_REVISION=$(git -C "$R2" rev-parse HEAD)
 DELETE_DIRECT_RC=0
 DELETE_DIRECT=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin \
   --revision="$DELETE_REVISION" --format=json 2>&1) || DELETE_DIRECT_RC=$?
-require_wprism_answered 'Rank Math combination direct custom-CPT deletion refusal' json "$DELETE_DIRECT"
-[ "$DELETE_DIRECT_RC" -ne 0 ] \
-  && tail -1 <<<"$DELETE_DIRECT" | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
-  || fail "combined direct custom-CPT deletion crossed without signed external exclusion: $DELETE_DIRECT"
+assert_rmcombo_unsupported_deletion apply "$DELETE_DIRECT_RC" "$DELETE_DIRECT" "$DELETE_TOMBSTONE_PATH"
+[ "$(rmcombo_canonical_state "$R2")" = "$DELETE_SYNTHETIC_BEFORE" ] \
+  || fail 'unsupported custom-CPT Apply changed canonical state'
 capture_rmcombo_native_state DELETE_REFUSAL_NATIVE wp2 target-delete-refusal
 jq -en --argjson before "$TARGET_FINAL" --argjson after "$DELETE_REFUSAL_NATIVE" '$after == $before' >/dev/null \
-  || fail "combined direct deletion refusal changed native or target-runtime state: $DELETE_REFUSAL_NATIVE"
-wp2 post get "$TARGET_BOOK" --field=ID >/dev/null \
-  || fail 'external-exclusion refusal removed the target custom post'
-pass 'both direct deletion forms refuse before combined portable, derived, or target-runtime mutation; signed promotion is exercised by the SSH scenario extension'
+  || fail 'combined unsupported deletion refusal changed native or target-runtime state'
+[ ! -e "$R2/state/$DELETE_SOURCE_PATH" ] && [ ! -L "$R2/state/$DELETE_SOURCE_PATH" ] \
+  || fail 'synthetic deletion source destination was replaced before restoration'
+mv "$DELETE_BACKUP" "$R2/state/$DELETE_SOURCE_PATH"
+rm "$R2/state/$DELETE_TOMBSTONE_PATH"
+if [ "$DELETE_DIRECTORY_CREATED" -eq 1 ]; then rmdir "$R2/state/deletions"; fi
+[ "$(rmcombo_canonical_state "$R2")" = "$DELETE_TARGET_BEFORE" ] \
+  && [ "$(rmcombo_canonical_state "$R1")" = "$DELETE_SOURCE_BEFORE" ] \
+  || fail 'synthetic deletion cleanup did not restore the complete canonical trees'
+pass 'unsupported custom-CPT deletion refuses at Capture and compiler Plan/Apply boundaries; no source tombstone is published and target native state is preserved'
 }
 
 # The generic lease is the sole fresh-namespace authority: under the shared

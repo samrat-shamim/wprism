@@ -62,6 +62,7 @@ final class AdapterChangeScopeCliTest extends TestCase
             . "owner: adapter adapter-packages/acf adapter-packages/acf/manifest.json\n"
             . "scenario-gate: rank-math-commerce-multilingual bash integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh\n"
             . "scenario-gate: rank-math-commerce-multilingual bash integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh\n"
+            . "scenario-gate: rank-math-commerce-multilingual php integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_deletion_boundary.php\n"
             . "scenario-gate: rank-math-commerce-multilingual php integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php\n"
             . "scenario-gate: rank-math-commerce-multilingual php integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php\n",
             $result['stdout']
@@ -97,12 +98,16 @@ final class AdapterChangeScopeCliTest extends TestCase
             $decision['scenario_gates'][1]['command']
         );
         self::assertSame(
+            ['php', 'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_deletion_boundary.php'],
+            $decision['scenario_gates'][2]['command']
+        );
+        self::assertSame(
             ['php', 'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php'],
-            $decision['scenario_gates'][3]['command']
+            $decision['scenario_gates'][4]['command']
         );
         self::assertSame(
             ['bash', 'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh'],
-            $decision['scenario_gates'][4]['command']
+            $decision['scenario_gates'][5]['command']
         );
     }
 

@@ -2281,6 +2281,24 @@ library.
    does not alter or waive the full native comparison. Diagnose the actual
    before/after difference before expanding a mutation allowance.
 
+   A declared cache invalidation is not a runtime-preservation defect. The
+   combined c76 retry removed only the applied redirect's derived cache, as
+   its existing `redirection_id` invalidation requires. Assert the complete
+   expected state, including that precise removal; do not drop the cache
+   field from comparison. Exercise the generic materializer with foreign rows
+   sharing a URL or colliding cache primary key, then prove native HTTP
+   reconstructs the owned cache and advances exactly one hit. Fixed-point
+   comparisons start from that post-HTTP state, not the earlier receipt.
+
+   Post-type authorship alone does not grant deletion. For an unsupported
+   custom CPT, prove missing-source Capture refuses before publishing a
+   tombstone, then use its real compiled hash/revision to construct an
+   otherwise valid synthetic intent and prove Plan/Apply compilation refuses
+   before target mutation. Compare complete canonical trees even when files
+   were already dirty, and restore only the test-owned synthetic target
+   intent. Do not reinterpret this as an external-exclusion refusal or a
+   successful signed deletion; those are separate capability boundaries.
+
    Rendered language identifiers are not interchangeable with WordPress
    locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`
    while Open Graph retains `en_US`/`de_DE`; regional variants change that

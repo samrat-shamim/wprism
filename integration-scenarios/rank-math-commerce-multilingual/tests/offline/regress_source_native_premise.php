@@ -182,6 +182,7 @@ $targetSource = (string) file_get_contents($targetRoot . $relative . '/tests/liv
 $targetCalls = [];
 foreach (['TARGET' => 'target-initial', 'TARGET_RUNTIME' => 'target-after-redirect',
     'FAILURE_NATIVE' => 'target-after-failure', 'RETRY_NATIVE' => 'target-after-retry',
+    'RETRY_RUNTIME' => 'target-after-retry-redirect',
     'TARGET_FINAL' => 'target-final', 'DELETE_REFUSAL_NATIVE' => 'target-delete-refusal'] as $variable => $phase) {
     $pattern = '/^(?:capture_rmcombo_native_state ' . $variable . ' wp2 ' . $phase
         . '|' . $variable . '=\$\(native_state wp2\))$/m';
@@ -257,6 +258,108 @@ foreach (['ready', 'missing-book-incoming', 'missing-retry-outgoing'] as $fault)
     [$status] = ShellProbe::run("set -euo pipefail\nfail() { exit 1; }\n" . $definitions . "\n" . 'assert_rmcombo_link_counts "$1"' . "\n",
         [json_encode($state, JSON_THROW_ON_ERROR)], $root);
     wprism_check(($status === 0) === ($fault === 'ready'), "actual retry graph count oracle distinguishes $fault");
+}
+
+// The third optional root executes the old retry caller, not a reimplementation
+// of its predicate. Both callers receive the same complete native observations.
+$retryRoot = is_dir($argv[3] ?? '') ? $argv[3] : $root;
+$retrySource = (string) file_get_contents($retryRoot . $relative . '/tests/live/regress_rank_math_commerce_multilingual.sh');
+$retryStart = strpos($retrySource, 'capture_rmcombo_native_state RETRY_NATIVE wp2 target-after-retry');
+$retryEnd = strpos($retrySource, "say 'combined recapture and repeated apply are exact no-ops'", $retryStart ?: 0);
+if ($retryStart === false || $retryEnd === false) {
+    throw new RuntimeException('the actual retry/native-redirect acceptance window is absent');
+}
+$retryWindow = substr($retrySource, $retryStart, $retryEnd - $retryStart);
+$baseline = $case('independent');
+$baseline['redirection']['hits'] = 42;
+$baseline['redirection_cache'] = [['from_url' => 'rmcombo-old', 'redirection_id' => '1',
+    'object_id' => '0', 'object_type' => 'any', 'is_redirected' => '1']];
+$baseline['neighbor'] = ['id' => 501, 'acf' => 'target only', 'price' => '67', 'title' => 'local SEO'];
+$baseline['retired_target_counts'] = ['internal_link_count' => '0', 'external_link_count' => '0', 'incoming_link_count' => '0'];
+$retried = $baseline;
+$retried['products']['en']['content'] .= '<p>provider failure retained combined retry authority <a href="https://retry.example.test/">retry external</a></p>';
+$retried['products']['en']['links'][] = ['url' => 'https://retry.example.test/', 'target_post_id' => '0', 'type' => 'external'];
+usort($retried['products']['en']['links'], static fn(array $a, array $b): int => [$a['type'], $a['url'], $a['target_post_id']] <=> [$b['type'], $b['url'], $b['target_post_id']]);
+$retried['products']['en']['rank_counts']['external_link_count'] = '2';
+$retried['redirection_cache'] = [];
+$served = $retried;
+$served['redirection']['hits']++;
+$served['redirection_cache'] = $baseline['redirection_cache'];
+$retryProbe = <<<'SH'
+set -euo pipefail
+TARGET_RUNTIME="$1" fixture_retry="$2" fixture_served="$3" fixture_status="$4" fixture_location="$5"
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+pass() { :; }
+capture_rmcombo_native_state() {
+  [ "$2" = wp2 ] || fail 'retry read a different site'
+  printf 'native:%s\n' "$3"
+  case "$3" in
+    target-after-retry) printf -v "$1" '%s' "$fixture_retry" ;;
+    target-after-retry-redirect) printf -v "$1" '%s' "$fixture_served" ;;
+    *) fail 'unknown retry phase' ;;
+  esac
+}
+redirection_response() {
+  printf 'http\n'
+  REDIRECT_STATUS="$fixture_status" REDIRECT_LOCATION="$fixture_location"
+}
+SH;
+// Only the graph-count definition is needed; the native capture above remains
+// the deterministic seam, while jq and both actual acceptance callers run.
+$countStart = strpos($current, 'assert_rmcombo_link_counts() {');
+$countEnd = strpos($current, "\n}", $countStart ?: 0);
+if ($countStart === false || $countEnd === false) throw new RuntimeException('graph-count definition is absent');
+$countDefinition = substr($current, $countStart, $countEnd + 2 - $countStart);
+$retryReadyTrace = "native:target-after-retry\nhttp\nnative:target-after-retry-redirect\nRETRY_READY\n";
+$runRetry = static function (array $before, array $after, array $http, string $status = '302', ?string $location = null) use ($retryProbe, $assertions, $countDefinition, $retryWindow, $root): array {
+    return ShellProbe::run($retryProbe . "\n" . $assertions . "\n" . $countDefinition . "\n" . $retryWindow . "\nprintf 'RETRY_READY\\n'\n",
+        [json_encode($before, JSON_THROW_ON_ERROR), json_encode($after, JSON_THROW_ON_ERROR), json_encode($http, JSON_THROW_ON_ERROR),
+            $status, $location ?? $before['products']['en']['url']], $root);
+};
+[$status, $stdout, $stderr] = $runRetry($baseline, $retried, $served);
+wprism_check($status === 0 && $stdout === $retryReadyTrace && $stderr === '',
+    'actual retry caller accepts exact content/edge/count changes, owned cache invalidation, and native 302 cache refill');
+if ($status !== 0 && $retryRoot === $root) fwrite(STDERR, substr($stderr, 0, 2048));
+foreach (['retained-owned-cache', 'wrong-owned-cache', 'missing-premise-cache', 'foreign-premise-cache', 'duplicate-edge', 'imprecise-content', 'wrong-edge-target', 'wrong-edge-url'] as $fault) {
+    $before = $baseline;
+    $after = $retried;
+    if ($fault === 'retained-owned-cache') $after['redirection_cache'] = $before['redirection_cache'];
+    if ($fault === 'wrong-owned-cache') $after['redirection_cache'] = [array_replace($before['redirection_cache'][0], ['redirection_id' => '999'])];
+    if ($fault === 'missing-premise-cache') $before['redirection_cache'] = [];
+    if ($fault === 'foreign-premise-cache') $before['redirection_cache'][0]['redirection_id'] = '999';
+    if ($fault === 'duplicate-edge') $after['products']['en']['links'][] = $after['products']['en']['links'][1];
+    if ($fault === 'imprecise-content') $after['products']['en']['content'] .= 'unrelated drift';
+    if ($fault === 'wrong-edge-target') $after['products']['en']['links'][1]['target_post_id'] = '999';
+    if ($fault === 'wrong-edge-url') $after['products']['en']['links'][1]['url'] .= '?wrong';
+    [$status, $stdout] = $runRetry($before, $after, $served);
+    wprism_check($status !== 0 && !str_contains($stdout, 'http'), "actual retry caller refuses $fault before HTTP");
+}
+// Mutate every complete native top-level witness, then each product field.
+// Normalizing the changed product as a whole would incorrectly admit these.
+foreach (array_keys($retried) as $key) {
+    $after = $retried;
+    $after[$key] = null;
+    [$status, $stdout] = $runRetry($baseline, $after, $served);
+    wprism_check($status !== 0 && !str_contains($stdout, 'RETRY_READY'), "retry preserves the complete $key witness");
+}
+foreach (['en', 'de'] as $language) {
+    foreach (array_keys($retried['products'][$language]) as $key) {
+        $after = $retried;
+        $after['products'][$language][$key] = null;
+        [$status, $stdout] = $runRetry($baseline, $after, $served);
+        wprism_check($status !== 0 && !str_contains($stdout, 'RETRY_READY'), "retry refuses $language.$key drift");
+    }
+}
+foreach (['status', 'location', 'no-cache', 'wrong-cache-owner', 'wrong-cache-object', 'two-hits', 'lost-edge', 'runtime-neighbor'] as $fault) {
+    $http = $served;
+    if ($fault === 'no-cache') $http['redirection_cache'] = [];
+    if ($fault === 'wrong-cache-owner') $http['redirection_cache'][0]['redirection_id'] = '999';
+    if ($fault === 'wrong-cache-object') $http['redirection_cache'][0]['object_id'] = '999';
+    if ($fault === 'two-hits') $http['redirection']['hits']++;
+    if ($fault === 'lost-edge') array_pop($http['products']['en']['links']);
+    if ($fault === 'runtime-neighbor') $http['neighbor']['price'] = '1';
+    [$status, $stdout] = $runRetry($baseline, $retried, $http, $fault === 'status' ? '301' : '302', $fault === 'location' ? 'https://wrong.invalid/' : null);
+    wprism_check($status !== 0 && !str_contains($stdout, 'RETRY_READY'), "post-retry native redirect refuses $fault");
 }
 
 $dispatchStart = strpos($current, 'pair_live_ownership_acquire mariadb');

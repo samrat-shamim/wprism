@@ -14,15 +14,42 @@ reviewed and exercised through the product path.
 
 ## First: finish the existing integration evidence
 
-- [ ] Diagnose the complete retry-isolation comparison in
+- [x] Close the shared Python pair-lock startup cancellation race found during
+  the follow-up's offline gate. A controlled real-launcher regression queues
+  TERM before the helper opens its reader: the prior library discards the
+  cancellation byte when it closes the last FIFO endpoint, leaving parent
+  and helper waiting on each other. The shared library now opens the reader
+  before closing its inherited endpoint; the same regression passes three
+  consecutive focused runs without changing cancellation deadlines or lock
+  authority. This is shared test infrastructure, not an adapter/engine change.
+- [x] Make the shared publication crash probe prove its staging premise. Its
+  parent-side 300ms kill could precede child startup; a controlled delayed
+  launch reproduces the same missing-staging failure. The test child now
+  injects real SIGKILL after its first staged write, and the observer requires
+  the signal, exact partial bytes, unchanged published state, released lock
+  and successful recovery in both immediate and delayed-startup cases.
+  Counterfactual timed killing, normal exit and killing before the write all
+  fail the actual observer. Publication runtime code is unchanged.
+- [x] Diagnose the complete retry-isolation comparison in
   `integration-scenarios/rank-math-commerce-multilingual/`. The exact
   `db96ab403ca9ac879f38c6088bbc3664c1e5c0f1` run on `rmcomboacf01` passed native
   source premises, Capture, host refusal/recovery/settlement, initial Apply,
   native and rendered convergence, redirect telemetry, and both hostile ACF
   collision refusals with checked cleanup and byte-identical recapture.
   It then reached a successful provider-retry receipt but failed the complete
-  native retry-isolation assertion. The cause is not yet established. A
-  successful command receipt is not evidence that this failed assertion passed.
+  native retry-isolation assertion. A fresh exact
+  `c76eb5806c9e61b5abf2e2bc67b17377dce33547` run retained every phase across
+  teardown: after the intended content/edge/count changes, the only difference
+  was removal of the owned redirect's derived cache. The manifest already
+  declares that invalidation by `redirection_id`. The scenario now requires
+  that precise effect and a subsequent native 302/cache refill. A successful
+  command receipt is not evidence that a failed native assertion passed.
+- [ ] Complete fresh live evidence for the corrected custom-CPT deletion
+  boundary. No pinned adapter grants `post:rmcombo_book` deletion: source
+  Capture must refuse `unsupported_deletion` without publishing a tombstone,
+  and an otherwise valid synthetic target intent must fail Plan/Apply
+  compilation without canonical or native mutation. This does not establish
+  signed deletion support for that CPT.
 - [ ] Complete all four scenario lanes: independent and synchronized metadata,
   each with opposed source/target plugin load orders. The first checkpoint's
   partial runs do not stand in for fixed-point or later-lane evidence.
