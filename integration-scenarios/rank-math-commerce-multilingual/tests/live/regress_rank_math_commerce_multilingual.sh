@@ -1056,18 +1056,29 @@ echo wp_json_encode($routes);
   ' >/dev/null || fail 'fresh source permalink routes do not resolve to their exact authored native identities'
 }
 
-capture_rmcombo_source_native() {
-  local suffix status=0
+capture_rmcombo_native_state() { # <output variable> <wp1|wp2> <phase label>
+  [ "$#" -eq 3 ] || fail 'combined native capture requires output, site and phase'
+  local __rmcombo_native_output="$1" __rmcombo_native_side="$2" __rmcombo_native_phase="$3"
+  local __rmcombo_native_suffix __rmcombo_native_status=0 __rmcombo_native_directory __rmcombo_native_value __rmcombo_native_service
+  [[ "$__rmcombo_native_output" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$__rmcombo_native_output" != __rmcombo_native_* ]] \
+    || fail 'combined native capture output variable is malformed or reserved'
+  [[ "$PAIR" =~ ^[a-z][a-z0-9]{2,23}$ ]] || fail 'combined native capture pair is malformed'
+  case "$__rmcombo_native_side" in wp1) __rmcombo_native_service=cli1 ;; wp2) __rmcombo_native_service=cli2 ;; *) fail 'combined native capture site is unknown' ;; esac
+  [[ "$__rmcombo_native_phase" =~ ^[a-z][a-z-]{0,47}$ ]] || fail 'combined native capture phase is malformed'
+  # db96 retained only the failed retry's final value. Keep each complete
+  # before/after observation outside site cleanup; admission grants no waiver
+  # of the caller's unchanged native and full-isolation assertions.
   mkdir -p "$ROOT/sandbox/tmp"
-  SOURCE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$ROOT/sandbox/tmp/wprism-rmcombo-source-state.$PAIR.XXXXXX")
-  printf 'combined source native diagnostics (unverified): %s\n' "$SOURCE_NATIVE_EVIDENCE" >&2
-  for suffix in stdout stderr exit; do
-    (umask 077; set -C; : > "$SOURCE_NATIVE_EVIDENCE/native.$suffix")
+  __rmcombo_native_directory=$(umask 077; mktemp -d "$ROOT/sandbox/tmp/wprism-rmcombo-native.$PAIR.$__rmcombo_native_phase.XXXXXX")
+  printf 'combined native diagnostics (unverified): %s\n' "$__rmcombo_native_directory" >&2
+  for __rmcombo_native_suffix in stdout stderr exit; do
+    (umask 077; set -C; : > "$__rmcombo_native_directory/native.$__rmcombo_native_suffix")
   done
-  wprism_private_capture_stage "$SOURCE_NATIVE_EVIDENCE" native native_state wp1 || status=$?
-  SOURCE_NATIVE=$(php "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/source-native-evidence.php" \
-    "$SOURCE_NATIVE_EVIDENCE/native" "$PAIR") || fail 'combined source native capture failed bounded admission; inspect retained evidence'
-  [ "$status" -eq 0 ] || fail 'combined source native observation did not succeed'
+  wprism_private_capture_stage "$__rmcombo_native_directory" native native_state "$__rmcombo_native_side" || __rmcombo_native_status=$?
+  __rmcombo_native_value=$(php "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/native-state-evidence.php" \
+    "$__rmcombo_native_directory/native" "$PAIR" "$__rmcombo_native_service") || fail 'combined native capture failed bounded admission; inspect retained evidence'
+  [ "$__rmcombo_native_status" -eq 0 ] || fail 'combined native observation did not succeed'
+  printf -v "$__rmcombo_native_output" '%s' "$__rmcombo_native_value"
 }
 
 assert_rmcombo_source_native() { # <seed receipt> <fresh native state> <metadata mode> <driver-owned source URL>
@@ -1405,7 +1416,7 @@ git -C "$R1" push -qu origin main
 establish_core_environment_bindings wp1 /siterepo admin@example.test \
   "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"
 prepare_rmcombo_source_native
-capture_rmcombo_source_native
+capture_rmcombo_native_state SOURCE_NATIVE wp1 source
 assert_rmcombo_source_native "$SOURCE_SEED" "$SOURCE_NATIVE" "$meta_mode" "http://${PAIR}1.invalid"
 jq -e '
   .scheduler == [{action_id: .scheduler[0].action_id, hook:"rmcombo_source_runtime", status:"pending", group_slug:""}] and
@@ -1724,7 +1735,7 @@ jq -e '
   ["provider:rank-math-state/rebuild_all_link_state"]
 ' <<<"$INITIAL" >/dev/null || fail "initial apply selected an unexpected Rank Math action set: $INITIAL"
 
-TARGET=$(native_state wp2)
+capture_rmcombo_native_state TARGET wp2 target-initial
 require_observed_nonempty 'Rank Math combination converged target' "$TARGET"
 TARGET_DEFAULT_NATIVE=$(default_product_category_state wp2)
 TARGET_DEFAULT_IDENTITY=$(default_product_category_identity wp2 "$SOURCE_DEFAULT_UUID")
@@ -1831,7 +1842,7 @@ pass 'exact reciprocal hreflang, canonical and Open Graph state renders on both 
 redirection_response
 [ "$REDIRECT_STATUS" = 302 ] && [ "$REDIRECT_LOCATION" = "$(jq -r '.products.en.url' <<<"$TARGET")" ] \
   || fail "native Rank Math redirection diverged: status=$REDIRECT_STATUS location=${REDIRECT_LOCATION:-<none>}"
-TARGET_RUNTIME=$(native_state wp2)
+capture_rmcombo_native_state TARGET_RUNTIME wp2 target-after-redirect
 jq -en --argjson before "$TARGET" --argjson after "$TARGET_RUNTIME" '
   $after.redirection.hits == ($before.redirection.hits + 1) and
   $after.redirection.header_code == 302 and $after.redirection.status == "active" and
@@ -1903,7 +1914,7 @@ FAILURE_OUT=$(wp2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || 
   || fail 'combined provider failure advanced applied_revision'
 [ "$(wp2 eval 'echo null===\WPrism\Ledger::kv_get("apply_in_progress")?"clear":"retained";' | tail -1)" = retained ] \
   || fail 'combined provider failure did not retain retry authority'
-FAILURE_NATIVE=$(native_state wp2)
+capture_rmcombo_native_state FAILURE_NATIVE wp2 target-after-failure
 jq -en --argjson baseline "$TARGET_RUNTIME" --argjson failed "$FAILURE_NATIVE" '
   ($failed | .products.en.content = $baseline.products.en.content) == $baseline and
   ($failed.products.en.content | contains("provider failure retained combined retry authority")) and
@@ -1921,7 +1932,7 @@ jq -e '
   ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
   ["provider:rank-math-state/rebuild_all_link_state"]
 ' <<<"$RETRY" >/dev/null || fail "retry selected an unexpected Rank Math action set: $RETRY"
-RETRY_NATIVE=$(native_state wp2)
+capture_rmcombo_native_state RETRY_NATIVE wp2 target-after-retry
 jq -en --argjson baseline "$TARGET_RUNTIME" --argjson retried "$RETRY_NATIVE" '
   ($retried
     | .products.en.content = $baseline.products.en.content
@@ -1948,7 +1959,7 @@ capture_wprism_json_checked TARGET_RECAPTURE 'Rank Math combination target recap
 FINAL_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-final" || true)
 rm -rf "$R2/.tmp-rmcombo-final"
 [ -z "$FINAL_DIFF" ] || fail "combined target recapture differs: $FINAL_DIFF"
-TARGET_FINAL=$(native_state wp2)
+capture_rmcombo_native_state TARGET_FINAL wp2 target-final
 jq -en --argjson retried "$RETRY_NATIVE" --argjson final "$TARGET_FINAL" '
   $final == $retried and $final.products.en.processed == true and $final.products.de.processed == true
 ' >/dev/null || fail "combined final native/runtime state was not an exact no-op: $TARGET_FINAL"
@@ -1985,7 +1996,7 @@ require_wprism_answered 'Rank Math combination direct custom-CPT deletion refusa
 [ "$DELETE_DIRECT_RC" -ne 0 ] \
   && tail -1 <<<"$DELETE_DIRECT" | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
   || fail "combined direct custom-CPT deletion crossed without signed external exclusion: $DELETE_DIRECT"
-DELETE_REFUSAL_NATIVE=$(native_state wp2)
+capture_rmcombo_native_state DELETE_REFUSAL_NATIVE wp2 target-delete-refusal
 jq -en --argjson before "$TARGET_FINAL" --argjson after "$DELETE_REFUSAL_NATIVE" '$after == $before' >/dev/null \
   || fail "combined direct deletion refusal changed native or target-runtime state: $DELETE_REFUSAL_NATIVE"
 wp2 post get "$TARGET_BOOK" --field=ID >/dev/null \

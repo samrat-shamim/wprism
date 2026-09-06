@@ -2271,6 +2271,16 @@ library.
    the English product contributes just as the German product does. Apply and
    retry must use that same complete graph oracle.
 
+   Retain complete **target** observations at phase boundaries too. The
+   combined retry at db96 had a successful command receipt but failed native
+   isolation after its pre-retry Bash value was lost during teardown. The
+   final value alone cannot identify the changed field. Reuse the same private
+   capture transport and bounded reader for initial state, post-HTTP runtime,
+   failed Apply, retry and fixed point, binding the reader to the exact target
+   service. Prove retained evidence remains readable after site cleanup and
+   does not alter or waive the full native comparison. Diagnose the actual
+   before/after difference before expanding a mutation allowance.
+
    Rendered language identifiers are not interchangeable with WordPress
    locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`
    while Open Graph retains `en_US`/`de_DE`; regional variants change that

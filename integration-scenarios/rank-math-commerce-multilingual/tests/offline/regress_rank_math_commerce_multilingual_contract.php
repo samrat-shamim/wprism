@@ -1905,13 +1905,13 @@ foreach ([
         'INITIAL',
         'Rank Math commerce/multilingual initial apply',
         'assert_rmcombo_default_apply_ready',
-        'TARGET=$(native_state wp2)',
+        'capture_rmcombo_native_state TARGET wp2 target-initial',
     ],
     [
         'RETRY',
         'Rank Math combination provider retry',
         'assert_rmcombo_default_apply_ready',
-        'RETRY_NATIVE=$(native_state wp2)',
+        'capture_rmcombo_native_state RETRY_NATIVE wp2 target-after-retry',
     ],
     [
         'NOOP',
@@ -2267,7 +2267,7 @@ wprism_check(str_contains($live, 'diff -r "$R1/state" "$R1/.tmp-rmcombo-collisio
 $directDeletion = strpos($live, "say 'direct deletion remains refusal-only across the combined adapter boundary'");
 $withheldRefusal = strpos($live, 'DELETE_WITHHELD_RC=0');
 $exclusionRefusal = strpos($live, '.reason_code == "deletion_writer_exclusion_required"');
-$refusalObservation = strpos($live, 'DELETE_REFUSAL_NATIVE=$(native_state wp2)');
+$refusalObservation = strpos($live, 'capture_rmcombo_native_state DELETE_REFUSAL_NATIVE wp2 target-delete-refusal');
 $refusalEquality = strpos(
     $live,
     '--argjson before "$TARGET_FINAL" --argjson after "$DELETE_REFUSAL_NATIVE" \'$after == $before\''

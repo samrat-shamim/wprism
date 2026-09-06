@@ -84,8 +84,8 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-source-premise.XXXXXX")
 trap 'find "$scratch" -depth -delete' EXIT
 ROOT="$scratch/checkout"
 mkdir -p "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures"
-ln -s "$root/integration-scenarios/rank-math-commerce-multilingual/fixtures/source-native-evidence.php" \
-  "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/source-native-evidence.php"
+ln -s "$root/integration-scenarios/rank-math-commerce-multilingual/fixtures/native-state-evidence.php" \
+  "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/native-state-evidence.php"
 wp1() {
   local phase=routes
   [[ "$2" != *'flush_rewrite_rules(false)'* ]] || phase=flush
@@ -100,16 +100,19 @@ wp1() {
   [ "$fault" != "$phase-nonzero" ] || return 7
 }
 native_state() {
+  printf '%s\n' "$1" >>"$scratch/native-sites"
+  [ "$fault" != native-compose ] || printf ' Container wprism-%s-cli%s-run-abcd Created \n' "$PAIR" "${1#wp}" >&2
+  [ "$fault" != native-other-site ] || printf ' Container wprism-%s-cli1-run-abcd Created \n' "$PAIR" >&2
   [ "$fault" != native-warning ] || printf 'PHP Warning: native source in /fixture.php on line 1\n' >&2
   [ "$fault" != native-noise ] || printf 'unexpected native diagnostic\n' >&2
   [ "$fault" != native-foreign ] || printf ' Container wprism-foreign-cli1-run-abcd Creating \n' >&2
-  if [ -n "${SOURCE_NATIVE_EVIDENCE:-}" ]; then
+  if [ -n "${__rmcombo_native_directory:-}" ]; then
     case "$fault" in
-      mode:*) chmod 0644 "$SOURCE_NATIVE_EVIDENCE/native.${fault#*:}" ;;
-      missing:*) rm "$SOURCE_NATIVE_EVIDENCE/native.${fault#*:}" ;;
-      hardlink) ln "$SOURCE_NATIVE_EVIDENCE/native.stdout" "$scratch/shared-file" ;;
-      directory-mode) chmod 0755 "$SOURCE_NATIVE_EVIDENCE" ;;
-      symlink) mv "$SOURCE_NATIVE_EVIDENCE/native.stdout" "$scratch/actual-stdout"; ln -s "$scratch/actual-stdout" "$SOURCE_NATIVE_EVIDENCE/native.stdout" ;;
+      mode:*) chmod 0644 "$__rmcombo_native_directory/native.${fault#*:}" ;;
+      missing:*) rm "$__rmcombo_native_directory/native.${fault#*:}" ;;
+      hardlink) ln "$__rmcombo_native_directory/native.stdout" "$scratch/shared-file" ;;
+      directory-mode) chmod 0755 "$__rmcombo_native_directory" ;;
+      symlink) mv "$__rmcombo_native_directory/native.stdout" "$scratch/actual-stdout"; ln -s "$scratch/actual-stdout" "$__rmcombo_native_directory/native.stdout" ;;
     esac
   fi
   [ "$fault" != native-empty ] || return 0
@@ -171,6 +174,76 @@ foreach (['flush-warning', 'flush-nonzero', 'routes-warning', 'routes-nonzero', 
     wprism_check(!str_contains($stderr, 'English badge') && !str_contains($stderr, 'Trying to access'), "$fault does not disclose private metadata or unchecked file diagnostics");
 }
 
+// Replaying only the old target caller must still read its healthy native
+// value, then fail because no complete baseline survives site cleanup. This
+// separates db96's missing evidence from the not-yet-diagnosed native delta.
+$targetRoot = is_dir($argv[2] ?? '') ? $argv[2] : $root;
+$targetSource = (string) file_get_contents($targetRoot . $relative . '/tests/live/regress_rank_math_commerce_multilingual.sh');
+$targetCalls = [];
+foreach (['TARGET' => 'target-initial', 'TARGET_RUNTIME' => 'target-after-redirect',
+    'FAILURE_NATIVE' => 'target-after-failure', 'RETRY_NATIVE' => 'target-after-retry',
+    'TARGET_FINAL' => 'target-final', 'DELETE_REFUSAL_NATIVE' => 'target-delete-refusal'] as $variable => $phase) {
+    $pattern = '/^(?:capture_rmcombo_native_state ' . $variable . ' wp2 ' . $phase
+        . '|' . $variable . '=\$\(native_state wp2\))$/m';
+    if (preg_match_all($pattern, $targetSource, $matches) !== 1) {
+        throw new RuntimeException('the actual native target observation caller is ambiguous or absent');
+    }
+    $targetCalls[$variable] = [$phase, $matches[0][0]];
+}
+$targetAfter = <<<'SH'
+[ "${!observed_variable}" = "$fixture_native" ] || fail 'target capture altered the complete native value'
+[ "$(<"$scratch/native-sites")" = wp2 ] || fail 'target capture observed a different site or read twice'
+printf 'TARGET_VALUE_READY\n'
+rmdir "$ROOT/sandbox/siterepo/rmcomboevidence2"
+matches=("$ROOT/sandbox/tmp/wprism-rmcombo-native.$PAIR.$observed_phase."*)
+[ "${#matches[@]}" -eq 1 ] && [ -d "${matches[0]}" ] || fail 'target observation was not retained outside site cleanup'
+reopened=$(php "$root/integration-scenarios/rank-math-commerce-multilingual/fixtures/native-state-evidence.php" \
+  "${matches[0]}/native" "$PAIR" cli2) || fail 'retained target state failed bounded readback'
+[ "$reopened" = "$fixture_native" ] || fail 'retained target state is not the complete observed native value'
+printf 'TARGET_RETAINED\n'
+SH;
+$runTarget = static function (string $variable, string $fault = 'ready', ?string $json = null) use ($probe, $definitions, $root, $case, $seed, $targetCalls, $targetAfter): array {
+    [$phase, $call] = $targetCalls[$variable];
+    $script = $probe . "\n" . $definitions . "\n"
+        . 'mkdir -p "$ROOT/sandbox/siterepo/rmcomboevidence2"' . "\n"
+        . 'observed_variable=' . escapeshellarg($variable) . ' observed_phase=' . escapeshellarg($phase) . "\n"
+        . $call . "\n" . $targetAfter;
+    return ShellProbe::run($script,
+        [$root, $json ?? json_encode($case('independent'), JSON_THROW_ON_ERROR),
+            json_encode($seed, JSON_THROW_ON_ERROR), 'independent', $fault], $root);
+};
+foreach (array_keys($targetCalls) as $variable) {
+    foreach (['ready', 'native-compose'] as $fault) {
+        [$status, $stdout, $stderr] = $runTarget($variable, $fault);
+        wprism_check(str_contains($stdout, 'TARGET_VALUE_READY'), "$variable $fault preserves the complete healthy native value with one target read");
+        wprism_check($status === 0 && str_contains($stdout, 'TARGET_RETAINED'), "$variable $fault retains bounded private evidence after site cleanup");
+        if ($status !== 0 && $targetRoot === $root) fwrite(STDERR, substr($stderr, 0, 1024));
+    }
+}
+foreach (['native-warning', 'native-noise', 'native-foreign', 'native-other-site', 'native-empty',
+    'native-duplicate', 'native-nonzero', 'mode:stdout', 'mode:stderr', 'mode:exit',
+    'missing:stdout', 'missing:stderr', 'hardlink', 'directory-mode', 'symlink',
+    'oversized-stdout', 'oversized-stderr'] as $fault) {
+    [$status, $stdout, $stderr] = $runTarget('TARGET_RUNTIME', $fault);
+    wprism_check($status !== 0 && !str_contains($stdout, 'TARGET_VALUE_READY'), "actual target observation refuses $fault before publication");
+    wprism_check(!str_contains($stderr, 'English badge') && !str_contains($stderr, 'Trying to access'), "$fault target refusal exposes no private value or unchecked diagnostic");
+}
+foreach (['null', '[]', '"not an object"', '{} {}'] as $json) {
+    [$status, $stdout] = $runTarget('TARGET_RUNTIME', 'ready', $json);
+    wprism_check($status !== 0 && !str_contains($stdout, 'TARGET_VALUE_READY'), 'target evidence rejects a non-object or ambiguous JSON record');
+}
+foreach (['capture_rmcombo_native_state',
+    'capture_rmcombo_native_state __rmcombo_native_value wp2 target',
+    'capture_rmcombo_native_state "bad-name" wp2 target',
+    'capture_rmcombo_native_state RESULT unknown target',
+    'capture_rmcombo_native_state RESULT wp2 ../target',
+    'PAIR=../bad; capture_rmcombo_native_state RESULT wp2 target'] as $call) {
+    [$status] = ShellProbe::run($probe . "\n" . $definitions . "\ncall_status=0\n( " . $call . " ) || call_status=$?\n"
+        . '[ "$call_status" -ne 0 ] && [ ! -e "$scratch/native-sites" ]',
+        [$root, '{}', '{}', 'independent', 'ready'], $root);
+    wprism_check($status === 0, 'native capture rejects malformed caller authority before observation');
+}
+
 $retry = $case('independent');
 $retry['products']['en']['links'][] = ['url' => 'https://retry.example.test/new', 'type' => 'external', 'target_post_id' => '0'];
 $retry['products']['en']['rank_counts']['external_link_count'] = '2';
@@ -226,4 +299,4 @@ wprism_check(str_contains($current, 'for meta_mode in independent synchronized; 
 wprism_check(str_contains($current, 'assert_rmcombo_link_counts "$TARGET"')
     && str_contains($current, 'assert_rmcombo_link_counts "$RETRY_NATIVE"'),
     'initial Apply and retry consume the complete three-author graph count oracle');
-wprism_check_summary('combined source native premise');
+wprism_check_summary('combined source and target native evidence');
