@@ -131,17 +131,34 @@ final class PrivateRefusalReceipt {
         if ($collection['receipt'] !== $receipt) self::fail('the retained receipt does not match its raw cause graph');
     }
 
-    private static function verifyDiagnostic(array $diagnostic, array $profile): string {
-        self::checkProfile($profile);
+    /** Validate complete transported diagnostic bytes without asserting any cause. */
+    public static function assertDiagnostic(array $diagnostic, string $command): void {
+        self::checkCommand($command);
         if (!self::exactKeys($diagnostic, ['command', 'format', 'new_records', 'purpose', 'records', 'verified'])
-            || $diagnostic['command'] !== $profile['command'] || $diagnostic['format'] !== 'wprism-private-refusal-diagnostic/v1'
-            || $diagnostic['new_records'] !== 1 || $diagnostic['purpose'] !== 'diagnostic_only' || $diagnostic['verified'] !== false
-            || !is_array($diagnostic['records']) || !array_is_list($diagnostic['records']) || count($diagnostic['records']) !== 1) {
-            self::fail('the retained diagnostic does not contain exactly one fresh command record');
+            || $diagnostic['command'] !== $command || $diagnostic['format'] !== 'wprism-private-refusal-diagnostic/v1'
+            || !is_int($diagnostic['new_records']) || $diagnostic['new_records'] < 0
+            || $diagnostic['new_records'] > self::DIAGNOSTIC_RECORD_LIMIT
+            || $diagnostic['purpose'] !== 'diagnostic_only' || $diagnostic['verified'] !== false
+            || !is_array($diagnostic['records']) || !array_is_list($diagnostic['records'])
+            || count($diagnostic['records']) !== $diagnostic['new_records']) {
+            self::fail('the retained diagnostic does not contain its bounded command records');
         }
-        $raw = $diagnostic['records'][0];
+        $names = [];
+        $totalBytes = 0;
+        foreach ($diagnostic['records'] as $raw) {
+            $totalBytes += strlen(self::diagnosticBytes($raw, $command));
+            $names[] = $raw['name'];
+        }
+        $sorted = $names;
+        sort($sorted, SORT_STRING);
+        if ($totalBytes > self::DIAGNOSTIC_BYTES_LIMIT || $names !== $sorted || count(array_unique($names)) !== count($names)) {
+            self::fail('the retained diagnostic exceeds its byte boundary or repeats unordered names');
+        }
+    }
+
+    private static function diagnosticBytes(mixed $raw, string $command): string {
         if (!is_array($raw) || !self::exactKeys($raw, ['bytes', 'contents_base64', 'name', 'sha256'])
-            || !is_string($raw['name']) || !self::validName($raw['name'], $profile['command'])
+            || !is_string($raw['name']) || !self::validName($raw['name'], $command)
             || !is_int($raw['bytes']) || $raw['bytes'] < 1 || $raw['bytes'] > self::RECORD_LIMIT
             || !is_string($raw['contents_base64']) || strlen($raw['contents_base64']) > 4 * (int) ceil(self::RECORD_LIMIT / 3)
             || !is_string($raw['sha256'])) {
@@ -150,7 +167,16 @@ final class PrivateRefusalReceipt {
         $bytes = base64_decode($raw['contents_base64'], true);
         if (!is_string($bytes) || base64_encode($bytes) !== $raw['contents_base64'] || strlen($bytes) !== $raw['bytes']
             || hash('sha256', $bytes) !== $raw['sha256']) self::fail('the retained diagnostic bytes do not match their identity');
-        return self::verifyRecord($bytes, $profile);
+        return $bytes;
+    }
+
+    private static function verifyDiagnostic(array $diagnostic, array $profile): string {
+        self::checkProfile($profile);
+        self::assertDiagnostic($diagnostic, $profile['command']);
+        if ($diagnostic['new_records'] !== 1) {
+            self::fail('the retained diagnostic does not contain exactly one fresh command record');
+        }
+        return self::verifyRecord(self::diagnosticBytes($diagnostic['records'][0], $profile['command']), $profile);
     }
 
     private static function verifyRecord(string $bytes, array $profile): string {

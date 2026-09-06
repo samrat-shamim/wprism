@@ -108,6 +108,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 # sandbox/tests/certify/certify_version_matrix.sh), and issue #3408 is what happens when
 # a helper reaches only one of them. Full doctrine in the fragment itself.
 . conformance/asserts.sh
+. tests/lib/conformance_private_command.sh
 
 # Package-first lookup makes the adapter directory the authority without
 # breaking the still-global adapters. A duplicate is ambiguous ownership, so
@@ -602,6 +603,7 @@ capture_wprism_json_checked \
   APPLY_JSON \
   "conf2 wprism apply" \
   assert_wprism_apply_ready \
+  conformance_private_command cli2 apply \
   wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" \
   --default-author=admin --revision="$REV" --json
 export APPLY_JSON

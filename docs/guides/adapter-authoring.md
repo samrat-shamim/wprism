@@ -1597,6 +1597,14 @@ plugin faithfully.
    Apply failure. Use `sandbox/tests/lib/private_command_capture.sh` to collect
    the bounded fresh delta before caller assertions or disposable teardown,
    with the owner binding its exact native transport and command inventory.
+   The shared conformance driver's initial Apply already uses
+   `conformance_private_command` (`sandbox/tests/lib/conformance_private_command.sh`):
+   its native reader runs outside WordPress as the site's CLI uid, and its
+   host decoder retains complete records in a private, non-disposable sink.
+   This closes the `ee27e3b9` Polylang run's lost-cause gap: successful source
+   Capture and target deploy did not explain the later redacted Apply refusal.
+   Reuse that binding for driver-owned native commands; do not wrap every
+   `wp_env` invocation and interfere with capsule-owned exact-cause collectors.
    A diagnostic-only record remains unverified; expected-cause acceptance
    still requires the separate exact profile below. Never expose the private
    cause publicly or call a diagnostic failure a product rollback.

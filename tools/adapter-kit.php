@@ -130,6 +130,10 @@ final class AdapterKit
                 . 'PASS from a directory that has no agent/ above it.',
         ],
         'conformance/run.sh' => [
+            'tests/lib/conformance_private_command.sh' =>
+                'The estate-bound reference harness retains initial Apply diagnostics through '
+                . 'the shared native CLI-uid reader before disposable cleanup. Its private '
+                . 'transport needs the repository pair estate, not the standalone offline kit.',
             'bin/fetch-artifact.sh' =>
                 'run.sh is the estate-bound member: it cd\'s to its own parent and drives a '
                 . 'disposable env pair through docker (run.sh:70, :172-173). It is shipped as the '

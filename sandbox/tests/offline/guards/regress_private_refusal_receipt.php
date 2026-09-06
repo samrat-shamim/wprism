@@ -103,6 +103,45 @@ wprism_check_same([
     ]],
     'verified' => false,
 ], $diagnostic, 'diagnostic retention preserves bounded raw bytes while explicitly making no expected-cause claim');
+PrivateRefusalReceipt::assertDiagnostic($diagnostic, 'apply');
+wprism_check(true, 'the shared decoder admits the complete retained diagnostic without a cause profile');
+foreach (['extra', 'format', 'command', 'purpose', 'verified', 'count-string', 'negative-count', 'count-mismatch',
+    'five-records', 'duplicate', 'unordered', 'list', 'raw-scalar', 'raw-extra', 'raw-name', 'raw-zero',
+    'raw-overflow', 'raw-digest', 'raw-base64', 'raw-size'] as $fault) {
+    $bad = $diagnostic;
+    switch ($fault) {
+        case 'extra': $bad['accepted'] = true; break;
+        case 'format': $bad['format'] = 'foreign'; break;
+        case 'command': $bad['command'] = 'plan'; break;
+        case 'purpose': $bad['purpose'] = 'proof'; break;
+        case 'verified': $bad['verified'] = true; break;
+        case 'count-string': $bad['new_records'] = '1'; break;
+        case 'negative-count': $bad['new_records'] = -1; break;
+        case 'count-mismatch': $bad['new_records'] = 0; break;
+        case 'five-records': $bad['new_records'] = 5; $bad['records'] = array_fill(0, 5, $bad['records'][0]); break;
+        case 'duplicate': $bad['new_records'] = 2; $bad['records'][] = $bad['records'][0]; break;
+        case 'unordered':
+            $bad['new_records'] = 2;
+            $bad['records'][] = array_replace($bad['records'][0], ['name' => $old]);
+            break;
+        case 'list': $bad['records'] = ['named' => $bad['records'][0]]; break;
+        case 'raw-scalar': $bad['records'][0] = null; break;
+        case 'raw-extra': $bad['records'][0]['accepted'] = true; break;
+        case 'raw-name': $bad['records'][0]['name'] = $other; break;
+        case 'raw-zero': $bad['records'][0]['bytes'] = 0; break;
+        case 'raw-overflow': $bad['records'][0]['bytes'] = 262145; break;
+        case 'raw-digest': $bad['records'][0]['sha256'] = str_repeat('0', 64); break;
+        case 'raw-base64': $bad['records'][0]['contents_base64'] .= "\n"; break;
+        case 'raw-size': $bad['records'][0]['bytes']++; break;
+    }
+    $refuses(fn() => PrivateRefusalReceipt::assertDiagnostic($bad, 'apply'), 'diagnostic transport ' . $fault);
+}
+$malformedDiagnostic = $diagnostic;
+$malformedBytes = "not JSON\0private cause receipt canary";
+$malformedDiagnostic['records'][0] = ['name' => $new, 'bytes' => strlen($malformedBytes),
+    'contents_base64' => base64_encode($malformedBytes), 'sha256' => hash('sha256', $malformedBytes)];
+PrivateRefusalReceipt::assertDiagnostic($malformedDiagnostic, 'apply');
+wprism_check(true, 'diagnostic admission preserves even malformed raw record bytes without blessing their cause');
 $collection = json_decode(PrivateRefusalReceipt::collect($directory, $baseline, $profile), true, 32, JSON_THROW_ON_ERROR);
 PrivateRefusalReceipt::assertCollection($collection, $profile);
 wprism_check_same($diagnostic, $collection['diagnostic'], 'combined collection verifies the exact retained bytes rather than rereading a mutable record');
@@ -141,6 +180,8 @@ $emptyDiagnostic = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 wprism_check_same(0, $emptyDiagnostic['new_records'] ?? null, 'a successful command can append no matching diagnostic record');
+PrivateRefusalReceipt::assertDiagnostic($emptyDiagnostic, 'apply');
+wprism_check(true, 'zero fresh records remain valid unverified diagnostic data');
 $overflowNames = [];
 for ($index = 3; $index < 8; $index++) {
     $overflowName = '20260905-09000' . $index . '-apply-' . str_repeat((string) $index, 24) . '.json';
@@ -162,6 +203,8 @@ $maximumDiagnostic = json_decode(PrivateRefusalReceipt::diagnosticNewRecords($di
 wprism_check_same(4, $maximumDiagnostic['new_records'], 'four exact-bound records fit the diagnostic count frontier');
 wprism_check_same(1048576, array_sum(array_column($maximumDiagnostic['records'], 'bytes')),
     'the diagnostic reader preserves the complete one-MiB raw-byte frontier');
+PrivateRefusalReceipt::assertDiagnostic($maximumDiagnostic, 'apply');
+wprism_check(true, 'the transported diagnostic decoder admits all four complete boundary-sized records');
 $write($directory . '/' . $overflowNames[0], str_pad($recordBytes, 262145));
 $refuses(fn() => PrivateRefusalReceipt::diagnosticNewRecords($directory, $afterDiagnostic, 'apply'),
     'a diagnostic record one byte beyond the per-record boundary');
