@@ -146,6 +146,17 @@ implementations can no longer share one manifest revision's identity.
 > `agent/src` class file. `manifest_rows()` folds manifest JSON bytes,
 > disposition bytes, and the sha256 of the named hook files — nothing else.
 
+After an intentional shipped-byte edit, measure the changed identities before
+updating the current literal baselines in `regress_disposition_split.php`,
+`regress_spec_v3_digest_neutrality.php` and their
+`sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json` fixture.
+Re-pin only measured changed addresses, including the fixture's own byte hash;
+leave historical transitions and frozen executable-debt hashes untouched.
+A provider-only edit can move its adapter and compatible manifest hashes while
+leaving manifest JSON, the disposition registry and policy snapshots unchanged.
+Run both identity owners before the aggregate: capsule validation does not
+replace those cross-library identity checks.
+
 ## The minimal worked example
 
 [`adapter-packages/classic-editor/package/manifest.json`](../../adapter-packages/classic-editor/package/manifest.json)
@@ -1434,6 +1445,17 @@ plugin faithfully.
    writer. Do not reindex the fixture's option to make the engine accept it.
    The native observation boundary projects plugin iteration order without
    changing stored bytes; desired artifact rosters remain canonical lists.
+
+   Native names are not necessarily adapter identifiers either. WordPress's
+   [WP_Rewrite::add_endpoint()](https://developer.wordpress.org/reference/classes/wp_rewrite/add_endpoint/)
+   registers the endpoint name as a query variable; WooCommerce 11.0.1 uses
+   `wc/file/transient`. A provider's serialized route-dependency witness must
+   retain those opaque string bytes, order and duplicates, with explicit count
+   and per-name byte bounds. Do not sanitize, skip or impose a manifest-ID
+   regex on native names merely being observed. Pin the registered example,
+   exact limits, malformed types and byte-sensitive drift through the provider
+   path. Keep this semantic observation with its adapter; process execution,
+   transaction authority and snapshot machinery remain engine-owned.
 
    Derive each phase's isolation oracle from its declared effects, not from
    the assumption that all pre-Apply state is immutable. Rank Math declares

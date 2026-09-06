@@ -3,6 +3,13 @@ declare(strict_types=1);
 
 namespace {
     $wprismRoot = dirname(__DIR__, 4);
+    $runtimeRoot = isset($argv[1]) ? realpath($argv[1]) : $wprismRoot;
+    if (!is_string($runtimeRoot)
+        || !is_file($runtimeRoot . '/agent/src/Adapter/ProviderSdk.php')
+        || !is_file($runtimeRoot . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php')) {
+        throw new RuntimeException('fixture needs one complete Rank Math runtime tree');
+    }
+    define('RANK_MATH_TEST_RUNTIME_ROOT', $runtimeRoot);
     require_once $wprismRoot . '/sandbox/tests/lib/check.php';
     require_once $wprismRoot . '/sandbox/tests/lib/FakeWpdb.php';
     require_once $wprismRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
@@ -244,7 +251,7 @@ namespace RankMath\Links {
         }
 
         public function normalize_link(string $link): string {
-            return rtrim(str_replace(\home_url(), '', explode('#', $link)[0]), "/\\");
+            return rtrim(str_replace(\home_url(), '', explode('#', $link)[0]), '/\\');
         }
 
         public function is_valid_link_type(string $link): string|false {
@@ -373,12 +380,12 @@ namespace RankMath {
 }
 
 namespace {
-    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderOperationProcess.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';
-    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PrivateRefusalEvidence.php';
-    require_once dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php';
+    require_once RANK_MATH_TEST_RUNTIME_ROOT . '/agent/src/Adapter/ProviderSdk.php';
+    require_once RANK_MATH_TEST_RUNTIME_ROOT . '/agent/src/Adapter/ManifestProviderRuntime.php';
+    require_once RANK_MATH_TEST_RUNTIME_ROOT . '/agent/src/Adapter/ProviderOperationProcess.php';
+    require_once RANK_MATH_TEST_RUNTIME_ROOT . '/agent/src/Adapter/Providers.php';
+    require_once RANK_MATH_TEST_RUNTIME_ROOT . '/agent/src/Kernel/PrivateRefusalEvidence.php';
+    require_once RANK_MATH_TEST_RUNTIME_ROOT . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php';
 
     use WPrism\Providers\RankMathState;
     use WPrismTest\FakeWpdb;
@@ -951,13 +958,13 @@ namespace {
         $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result();
 
         $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/manifest.json'),
+            (string) file_get_contents(RANK_MATH_TEST_RUNTIME_ROOT . '/adapter-packages/rank-math/package/manifest.json'),
             true,
             512,
             JSON_THROW_ON_ERROR
         );
         $providerFile = realpath(
-            dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php'
+            RANK_MATH_TEST_RUNTIME_ROOT . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php'
         );
         if ($providerFile === false) {
             throw new RuntimeException('fixture provider source is unavailable');
@@ -965,7 +972,7 @@ namespace {
         $declaration = $manifest['providers'][0];
         $declaration['manifest'] = 'rank-math';
         $declaration['_wprism_adapter_digest'] = str_repeat('a', 64);
-        $declaration['_wprism_adapter_library_root'] = realpath(dirname(__DIR__, 4));
+        $declaration['_wprism_adapter_library_root'] = RANK_MATH_TEST_RUNTIME_ROOT;
         $declaration['_wprism_execution_bound'] = true;
         $declaration['_wprism_execution_identity'] = [
             'artifact_hash' => str_repeat('b', 64),
@@ -1462,7 +1469,7 @@ namespace {
         'site repair launches one mutation child and one independent readback child');
     [$command, $options] = $GLOBALS['rank_math_test_command_calls'][0];
     $providerSource = file_get_contents(
-        dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php'
+        RANK_MATH_TEST_RUNTIME_ROOT . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php'
     );
     wprism_check(
         str_contains($command, 'ProviderOperationProcess::child_main')
@@ -1511,6 +1518,121 @@ namespace {
         );
         wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
             "$filter refusal launches no child process");
+    }
+
+    // Native query-variable values are opaque route dependencies. The exact
+    // Woo 11.0.1 endpoint below is registered by TransientFilesEngine.php:434
+    // through WP_Rewrite::add_endpoint(), not a fixture-only permissive path.
+    foreach ([
+        'native commerce endpoint' => ['p', 'wc/file/transient', 'lang'],
+        'non-ASCII endpoint' => ['p', 'مرحباً/ملف', 'lang'],
+        'punctuation and whitespace' => ['a.b', 'a b', 'a[b]', 'a%2Fb'],
+        'empty and numeric strings' => ['', '0', '123'],
+        'binary strings' => ["nul\0name", "non-utf8-\xff", "line\nbreak"],
+        'old identifier length boundary' => [str_repeat('x', 64), str_repeat('x', 65)],
+        'reviewed byte boundary' => [str_repeat('x', 4096)],
+        'sparse ordered duplicate names' => [2 => 'lang', 5 => 'wc/file/transient', 9 => 'lang'],
+        'reviewed count boundary' => array_fill(0, 2048, 'wc/file/transient'),
+    ] as $label => $queryVars) {
+        $provider = rank_math_test_reset('link');
+        $GLOBALS['wp']->public_query_vars = $queryVars;
+        $optionsBefore = $GLOBALS['wpdb']->rows('options');
+        $queryReceipt = null;
+        try {
+            $queryReceipt = $provider->invoke('rebuild_all_link_state', []);
+        } catch (Throwable $failure) {
+            wprism_check(false, "$label unexpectedly refused: " . $failure->getMessage());
+        }
+        wprism_check_same(true, $queryReceipt['verified'] ?? null,
+            "$label survives the provider invoke and independent observation path");
+        wprism_check($GLOBALS['rank_math_test_process_calls'] > 0,
+            "$label reaches native repair rather than receiving a vacuous success");
+        wprism_check_same($queryVars, $GLOBALS['wp']->public_query_vars,
+            "$label preserves native bytes, keys, order and duplicates");
+        wprism_check_same($optionsBefore, $GLOBALS['wpdb']->rows('options'),
+            "$label never rewrites stored route options to satisfy observation");
+    }
+
+    foreach ([
+        'missing registry' => null,
+        'object registry' => (object) ['name' => 'p'],
+        'scalar registry' => 'p',
+        'integer name' => ['p', 1],
+        'boolean name' => ['p', false],
+        'array name' => ['p', ['wc/file/transient']],
+        'object name' => ['p', (object) ['name' => 'wc/file/transient']],
+        'oversized name' => [str_repeat('x', 4097)],
+        'oversized registry' => array_fill(0, 2049, 'p'),
+    ] as $label => $queryVars) {
+        $provider = rank_math_test_reset('link');
+        $GLOBALS['wp']->public_query_vars = $queryVars;
+        $tables = ['rank_math_internal_links', 'rank_math_internal_meta', 'postmeta', 'options'];
+        $before = array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables);
+        wprism_check_throws(
+            static fn(): array => rank_math_test_execute_child(),
+            RuntimeException::class,
+            "$label refuses through the provider's operation boundary",
+            'public query-var topology is malformed or unbounded'
+        );
+        wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
+            "$label refuses before any native link mutation");
+        wprism_check_same($before,
+            array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables),
+            "$label preserves every link, count, marker and option row");
+    }
+
+    $queryBase = ['p', 'wc/file/transient', 'a.b', 'lang', 'lang'];
+    foreach ([
+        'slash to underscore' => ['p', 'wc_file_transient', 'a.b', 'lang', 'lang'],
+        'dot to underscore' => ['p', 'wc/file/transient', 'a_b', 'lang', 'lang'],
+        'order change' => ['p', 'a.b', 'wc/file/transient', 'lang', 'lang'],
+        'duplicate removal' => ['p', 'wc/file/transient', 'a.b', 'lang'],
+        'binary suffix' => ['p', "wc/file/transient\0", 'a.b', 'lang', 'lang'],
+    ] as $label => $queryVars) {
+        $provider = rank_math_test_reset('link');
+        try {
+            $GLOBALS['wp']->public_query_vars = $queryBase;
+            $before = rank_math_test_projection();
+            $GLOBALS['wp']->public_query_vars = $queryVars;
+            $after = rank_math_test_projection();
+            wprism_check($before['dependency_hash'] !== $after['dependency_hash'],
+                "$label remains visible to exact runtime dependency comparison");
+            wprism_check_same($before['dependency_state_hash'], $after['dependency_state_hash'],
+                "$label changes only request-local topology, not the durable-state witness");
+        } catch (Throwable $failure) {
+            wprism_check(false, "$label witness unexpectedly refused: " . $failure->getMessage());
+        }
+    }
+
+    foreach ([
+        'native endpoint replacement' => ['p', 'wc/file/changed', 'lang', 'lang'],
+        'native endpoint reordering' => ['wc/file/transient', 'p', 'lang', 'lang'],
+        'native duplicate removal' => ['p', 'wc/file/transient', 'lang'],
+    ] as $label => $queryVars) {
+        $provider = rank_math_test_reset('link');
+        $GLOBALS['wp']->public_query_vars = ['p', 'wc/file/transient', 'lang', 'lang'];
+        $tables = ['rank_math_internal_links', 'rank_math_internal_meta', 'postmeta', 'options'];
+        $before = array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables);
+        $GLOBALS['rank_math_test_url_to_postid_override'] = static function (
+            string $_url,
+            bool $insideNativeProcess
+        ) use ($queryVars): ?int {
+            if ($insideNativeProcess) {
+                $GLOBALS['wp']->public_query_vars = $queryVars;
+            }
+            return null;
+        };
+        wprism_check_throws(
+            static fn(): array => rank_math_test_execute_child(),
+            RuntimeException::class,
+            "$label during native repair cannot receive verified success",
+            'route runtime changed during its complete projection'
+        );
+        wprism_check($GLOBALS['rank_math_test_process_calls'] > 0,
+            "$label control reaches the actual native mutation callback");
+        wprism_check_same($before,
+            array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables),
+            "$label rolls back exact link, count, marker and option rows");
     }
 
     $provider = rank_math_test_reset('link');
@@ -1643,7 +1765,7 @@ namespace {
         $provider = rank_math_test_reset('link');
         $entries = $GLOBALS['wp_filter']['rank_math/excluded_post_types']->callbacks[10];
         if ($mode === 'substitute') {
-            $substitute = new class {
+            $substitute = new class() {
                 public function excluded_post_types(array $types): array { return $types; }
             };
             $entries['rank-math-native']['function'] = [$substitute, 'excluded_post_types'];

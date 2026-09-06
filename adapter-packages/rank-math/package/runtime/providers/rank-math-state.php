@@ -109,6 +109,7 @@ final class RankMathState extends ManifestProviderRuntime {
     private const MAX_NATIVE_RESOLUTION_LINKS = 200000;
     private const MAX_REGISTERED_POST_TYPES = 256;
     private const MAX_PUBLIC_QUERY_VARS = 2048;
+    private const MAX_PUBLIC_QUERY_VAR_BYTES = 4096;
     private const POST_WITNESS_COLUMNS = [
         'ID',
         'post_author',
@@ -460,7 +461,7 @@ final class RankMathState extends ManifestProviderRuntime {
             $columns
         ));
         $boundsRows = ProviderSdk::checked_get_results(
-            "SELECT COUNT(*) AS row_count, "
+            'SELECT COUNT(*) AS row_count, '
                 . "COALESCE(SUM($rowBytes), 0) AS total_bytes, "
                 . "COALESCE(MAX($rowBytes), 0) AS max_row_bytes FROM `$table`",
             'Rank Math schema content-bound readback',
@@ -1041,8 +1042,13 @@ final class RankMathState extends ManifestProviderRuntime {
             throw new \RuntimeException('wprism: Rank Math public query-var topology is malformed or unbounded');
         }
         foreach ($publicQueryVars as $queryVar) {
+            // WP_Rewrite::add_endpoint() preserves the endpoint name as its
+            // query var: WooCommerce 11.0.1 registers "wc/file/transient".
+            // This is a binary-safe serialized dependency witness, not an
+            // identifier, URL or SQL input. Bound bytes without normalizing
+            // names or dropping entries that must remain visible to drift.
             if (!is_string($queryVar)
-                || preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $queryVar) !== 1) {
+                || strlen($queryVar) > self::MAX_PUBLIC_QUERY_VAR_BYTES) {
                 throw new \RuntimeException('wprism: Rank Math public query-var topology is malformed or unbounded');
             }
         }

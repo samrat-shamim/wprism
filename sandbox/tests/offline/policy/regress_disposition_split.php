@@ -291,6 +291,10 @@ const WPRISM_PRE_FRESH_PROCESS_RANK_MATH_DIGEST = '3e72a78a5780a39f78ad7359b02ba
 const WPRISM_PRE_FRESH_PROCESS_MANIFEST_HASH = '8eb6f947081fd0de2834d21c1495a660565f6715a5bac369e826fed10234283e';
 const WPRISM_PRE_FRESH_PROCESS_SNAPSHOT_SHA = '84c6eb649fa8dda4a52e6c1b539c5e651abf1dec7d7dbdf4265fbf8471a33e4d';
 
+/** Native query-name observation changes only Rank's provider bytes, not the claim registry or policy snapshot. */
+const WPRISM_PRE_NATIVE_QUERY_NAMES_RANK_MATH_DIGEST = '0d25239e1ef81b66f446260b55e83745a8c53f10e23d7854bb41c1e13d804bc8';
+const WPRISM_PRE_NATIVE_QUERY_NAMES_MANIFEST_HASH = '9acae1d6eb62273b9e92717ebfa97993367c636a23b3b41a9824af1fff5af06d';
+
 /**
  * The duplicate durable-context declaration correction changes only the
  * WooCommerce manifest row. Preserve the immediately preceding fleet-visible
@@ -323,7 +327,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
-    'rank-math' => '0d25239e1ef81b66f446260b55e83745a8c53f10e23d7854bb41c1e13d804bc8',
+    'rank-math' => 'c4a5cc259a772312224a7fc29b68d52df40d4c6f0baecafd0385959db7d567d6',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
@@ -332,7 +336,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '9acae1d6eb62273b9e92717ebfa97993367c636a23b3b41a9824af1fff5af06d';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '2c68ffb2aa973b0b2bc25e1254c8cb60c00a8f7a06e2c269929ea077fab920d7';
 const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
 const WPRISM_CURRENT_REGISTRY_SHA = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
 const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '67eca63f8b2deafaa933f1349d71cbef481bbe2209cbf2e90ff5133bbb805676';
@@ -600,6 +604,17 @@ wprism_check(
         && WPRISM_PRE_FRESH_PROCESS_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
         && WPRISM_PRE_FRESH_PROCESS_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
     'the historical applying-parent readback addresses are distinct from the fresh-process observation baseline'
+);
+wprism_check_same(
+    ['rank-math'],
+    array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+        'rank-math' => WPRISM_PRE_NATIVE_QUERY_NAMES_RANK_MATH_DIGEST,
+    ]))),
+    'bounded opaque native query-name observation moves only Rank Math from the preceding shipped identity map'
+);
+wprism_check(
+    WPRISM_PRE_NATIVE_QUERY_NAMES_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH,
+    'the native query-name provider correction deliberately re-pins the Rank-compatible compiled manifest identity'
 );
 wprism_check_same(
     WPRISM_CURRENT_DIGESTS,
