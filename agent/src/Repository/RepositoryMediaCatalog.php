@@ -41,6 +41,16 @@ final class RepositoryMediaCatalog {
     /** @param \Closure(string,string,string,string,?string):void $add */
     public function __construct(string $mediaDir, \Closure $add) {
         $this->mediaDir = rtrim($mediaDir, '/');
+        // Public compiler callers accept relative repository/staging roots.
+        // Anchor once before iteration; resolving each blob with realpath here
+        // would erase the final-link evidence its immutable authority rejects.
+        if ($this->mediaDir !== '' && !str_starts_with($this->mediaDir, '/')) {
+            $cwd = getcwd();
+            if ($cwd === false) {
+                throw new \RuntimeException('wprism: repository media root requires an available local working directory');
+            }
+            $this->mediaDir = rtrim($cwd, '/') . '/' . $this->mediaDir;
+        }
         $this->add = $add;
     }
 

@@ -103,6 +103,21 @@ $check(
     'catalog() returns every safe content-addressed blob in deterministic lexical order'
 );
 
+$originalCwd = getcwd();
+try {
+    chdir($tmp);
+    $relativeDiagnostics = [];
+    $relative = $catalog('valid-media', $relativeDiagnostics);
+    chdir($originalCwd);
+    $relative->validate_attachment('state/posts/attachment/a--photo.md', $attachment('2026/08/photo.txt', "$referencedHash.txt"));
+    $relative->catalog_directory();
+    $check($relativeDiagnostics === [] && $relative->referenced_media() === $valid->referenced_media()
+        && $relative->catalog() === $expectedCatalog,
+        'relative media root binds its construction-time working directory before any later cwd change');
+} finally {
+    chdir($originalCwd);
+}
+
 $sharedUsageMedia = "$tmp/shared-usage-media";
 $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=', true);
 if (!is_string($png)) {

@@ -374,6 +374,16 @@ are portable code: they cannot call plugin runtime or WordPress APIs. A test
 double for `wp_kses` masked this boundary in Polylang until the four-plugin
 recapture comparison compiled its complete user-meta sidecars on the host.
 
+Exercise the actual host command with an attachment-bearing repository, using
+both absolute and caller-relative paths. `RepositoryMediaCatalog` anchors its
+media directory to the caller's working directory once, for ordinary, historical
+and staged compilation. Individual immutable media files still require absolute
+physical paths and full link/hash checks; path admission belongs in that shared
+repository boundary, not in each adapter fixture or the raw media-file authority.
+Sidecar-only evidence missed this in Polylang, while conformance's
+`siterepo/<pair>` argument failed on all three media blobs. Retain the shared
+confined tree observer and never omit attachments to make host evidence pass.
+
 When authored metadata must already satisfy native KSES, a v3 manifest declares
 `native-value-validation/v1` and adds the following field to its authored rule:
 

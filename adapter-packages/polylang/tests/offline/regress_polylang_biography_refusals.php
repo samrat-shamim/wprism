@@ -52,23 +52,74 @@ $native = static function (string $control = 'safe'): array {
 $repo = $scratch . '/repo';
 mkdir($repo . '/state/user-meta', 0700, true);
 mkdir($repo . '/state/terms/language', 0700, true);
-$policy = Canon::encode(['spec_version' => WPRISM_SPEC_VERSION, 'manifests' => ['polylang'],
-    'policy' => ['post_types' => [], 'taxonomies' => ['language']]]);
+mkdir($repo . '/state/posts/attachment', 0700, true);
+mkdir($repo . '/state/options', 0700);
+mkdir($repo . '/media', 0700);
+$policy = Canon::encode(['spec_version' => WPRISM_SPEC_VERSION, 'manifests' => ['core', 'polylang'],
+    'policy' => ['post_types' => ['attachment'], 'taxonomies' => ['language']]]);
 $write($repo . '/site.wprism.json', $policy);
+$coreOptions = [];
+foreach (['active_plugins', 'blog_public', 'blogdescription', 'blogname', 'default_category',
+    'page_for_posts', 'page_on_front', 'permalink_structure', 'posts_per_page', 'show_on_front',
+    'sticky_posts', 'stylesheet', 'template', 'wp_page_for_privacy_policy', 'polylang'] as $name) {
+    $coreOptions[$name] = \WPrism\OptionState::absent();
+}
+$coreOptions['polylang'] = \WPrism\OptionState::present([
+    'browser' => false, 'default_lang' => 'en', 'force_lang' => 1, 'hide_default' => true,
+    'media_support' => false, 'nav_menus' => [], 'post_types' => [], 'redirect_lang' => false,
+    'rewrite' => true, 'sync' => [], 'taxonomies' => [],
+], 'yes');
+$write($repo . '/state/options/core.json', Canon::encode(\WPrism\OptionState::document($coreOptions)));
 $sidecar = $repo . '/state/' . UserMetaState::path('admin');
 $safeDocument = Canon::encode(UserMetaState::document('admin', PolylangBiographyValues::authored('{{home}}')));
 $write($sidecar, $safeDocument);
-foreach (['fr', 'ar'] as $index => $slug) {
+foreach (['fr', 'ar', 'en'] as $index => $slug) {
     $uuid = '10000000-0000-4000-8000-00000000000' . ($index + 1);
     $write($repo . '/state/terms/language/' . $uuid . '--' . $slug . '.json', Canon::encode([
         'uuid' => $uuid, 'taxonomy' => 'language', 'name' => $slug, 'slug' => $slug, 'parent' => null,
-        'description' => serialize(['locale' => $slug === 'fr' ? 'fr_FR' : 'ar', 'rtl' => $slug === 'ar', 'flag_code' => $slug === 'fr' ? 'fr' : 'sa']),
+        'description' => serialize(['locale' => ['fr' => 'fr_FR', 'ar' => 'ar', 'en' => 'en_US'][$slug],
+            'rtl' => $slug === 'ar', 'flag_code' => ['fr' => 'fr', 'ar' => 'sa', 'en' => 'us'][$slug]]),
         'term_group' => 0, 'meta' => (object) [], 'relationships' => (object) [],
     ]));
 }
+// The real conformance caller supplies a relative repository containing media.
+// A sidecar-only fixture never reaches the immutable media path authority.
+$mediaBytes = "wprism-polylang-biography-media\n";
+$mediaName = hash('sha256', $mediaBytes) . '.txt';
+$write($repo . '/media/' . $mediaName, $mediaBytes);
+$attachment = '10000000-0000-4000-8000-000000000004';
+$write($repo . '/state/posts/attachment/' . $attachment . '--biography.txt.md', Canon::post_file([
+    'author' => 'user:admin', 'comment_status' => 'open', 'date' => '2026-09-07 00:00:00',
+    'date_gmt' => '2026-09-07 00:00:00', 'excerpt' => '', 'menu_order' => 0, 'meta' => (object) [],
+    'modified_gmt' => '2026-09-07 00:00:00', 'parent' => null, 'ping_status' => 'closed',
+    'slug' => 'biography.txt', 'status' => 'inherit', 'terms' => (object) [], 'title' => 'Biography attachment',
+    'type' => 'attachment', 'uuid' => $attachment, 'alt' => '', 'file' => 'biography.txt',
+    'media' => $mediaName, 'mime' => 'text/plain',
+], ''));
 $transport($scratch . '/native', $native());
 $safe = PolylangBiographyRefusals::snapshot($repo, $scratch . '/native', 'biographytest', 'cli2', 'safe', 'safe');
 wprism_check(!function_exists('wp_kses'), 'complete preservation snapshot uses the real standalone compiler without a native sanitizer');
+$compileProbe = <<<'SH'
+set -euo pipefail
+php "$1" capture "$2" "$3" biographytest cli2
+SH;
+foreach ([$repo, 'repo', './repo/'] as $repository) {
+    [$status, $output, $diagnostic] = ShellProbe::run($compileProbe,
+        [dirname(__DIR__, 2) . '/fixtures/polylang_biography_evidence.php', $repository, $scratch . '/native'], $scratch);
+    wprism_check($status === 0 && $diagnostic === '', "actual host biography command compiles an attachment-bearing repository from $repository");
+    if ($status === 0 && $diagnostic === '') {
+        $compiled = json_decode($output, true, 32, JSON_THROW_ON_ERROR);
+        PolylangBiographyEvidence::assertRecord($compiled);
+        wprism_check_same($safe['observation'], $compiled, 'absolute and relative command inputs retain identical complete canonical and compiled evidence');
+    }
+}
+symlink($repo, $scratch . '/linked-repo');
+mkdir($scratch . '/linked-state', 0700);
+symlink($repo . '/state', $scratch . '/linked-state/state');
+foreach ([$scratch . '/missing', $scratch . '/linked-repo', $scratch . '/linked-state'] as $invalid) {
+    wprism_check_throws(static fn() => PolylangBiographyEvidence::capture($invalid, $scratch . '/native', 'biographytest', 'cli2'),
+        RuntimeException::class, 'repository resolution does not bypass shared missing-root or symlink confinement');
+}
 foreach (array_keys(PolylangBiographyValues::hostile()) as $control) {
     foreach (['corrupt', 'restore'] as $mode) {
         $controlReceipt = ['format' => 'polylang-biography-control/v1', 'mode' => $mode, 'control' => $control, 'rows_changed' => 1];

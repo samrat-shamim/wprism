@@ -319,6 +319,52 @@ $b = "$tmp/b"; build_valid($b);
 if (compile_repo($b)->artifact_hash() !== $one->artifact_hash()) fail('identical inputs at another absolute path changed the artifact');
 ok('identical repository+manifest inputs produce the identical artifact on another machine path');
 
+// A public --repo path is caller-relative. Every compiler mode must use the
+// same repository media authority, including a detached staged tree/catalog.
+$originalCwd = getcwd();
+try {
+    chdir($tmp);
+    foreach (['b', './b/', 'a/../b'] as $relative) {
+        $relativePolicy = Policy::load($relative);
+        foreach ([
+            RepositoryCompiler::compile($relative, $relativePolicy),
+            RepositoryCompiler::compile_for_diff($relative, $relativePolicy),
+            RepositoryCompiler::compile_for_diff($relative, $relativePolicy, 'a/media'),
+            RepositoryCompiler::compile_staged($relative . '/state', 'a', $relativePolicy),
+            RepositoryCompiler::compile_staged($relative . '/state', 'a', $relativePolicy, $relative . '/media'),
+        ] as $compiled) {
+            if ($compiled->export() !== $one->export()) fail('caller-relative compiler roots changed the complete immutable artifact');
+        }
+    }
+    if (RepositoryCompiler::compile('code-enabled', Policy::load('code-enabled'))->export() !== $codeArtifact->export()) {
+        fail('caller-relative repository roots changed the code-enabled artifact');
+    }
+    ok('relative, dotted and parent-relative roots compile identically through all modes, detached media and code-enabled repositories');
+    foreach (['missing', 'linked', 'corrupt', 'orphan'] as $fault) {
+        $name = 'relative-media-' . $fault;
+        $faultRoot = $tmp . '/' . $name;
+        $faultIds = build_valid($faultRoot);
+        $blob = $faultRoot . '/media/' . $faultIds['mediaHash'] . '.txt';
+        if ($fault === 'missing') unlink($blob);
+        elseif ($fault === 'linked') {
+            rename($blob, $faultRoot . '/held-original.txt');
+            symlink($faultRoot . '/held-original.txt', $blob);
+        } elseif ($fault === 'corrupt') put($blob, 'not the declared content');
+        else put($faultRoot . '/media/' . str_repeat('0', 64) . '.txt', 'corrupt orphan');
+        if (failure($name) !== failure($faultRoot)) fail("$fault media produced different diagnostics through a relative repository");
+        ok("relative repository preserves the complete $fault media refusal");
+    }
+    try {
+        \WPrism\MediaPayloadAuthority::physicalLocalFilePath('b/media/' . $ids['mediaHash'] . '.txt');
+        fail('raw media-file authority accepted an unresolved relative path');
+    } catch (RuntimeException $failure) {
+        if ($failure->getMessage() !== 'wprism: media source path is not an absolute local filesystem path') throw $failure;
+    }
+    ok('repository path resolution does not relax the raw immutable media-file authority');
+} finally {
+    chdir($originalCwd);
+}
+
 $bad = "$tmp/batched"; $x = build_valid($bad);
 $front = post_front($x['page'], 'page', 'other');
 put("$bad/state/posts/page/{$x['page']}--other.md", Canon::post_file($front, 'duplicate uuid'));
