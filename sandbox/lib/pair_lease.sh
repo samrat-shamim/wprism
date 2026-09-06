@@ -164,6 +164,13 @@ pair_lease_acquire_batch() { # token owner-pid owner-start (name port1 port2)...
   [ "$#" -gt 0 ] && [ $(( $# % 3 )) -eq 0 ] || fail "pair lease request must contain name/port pairs"
   pair_lease_prune_stale
   dir="$(pair_lease_dir)"
+  # A lease precedes pair up, which otherwise creates this gitignored root.
+  # Pruning prepares the canonical lease store, not a separate worktree's
+  # site root (ba638ef1's pristine combined-run preflight exposed that gap).
+  # Only acquisition prepares the empty parent; readers and release must
+  # still refuse missing context, and no pair child or database is created.
+  mkdir -p -- siterepo \
+    || fail "could not prepare the current sandbox's pair site root: $(pwd -P)/siterepo"
   site_root="$(pair_lease_site_root)"
   db_engine="${WPRISM_DB_ENGINE:-mariadb}"
   db_container="${DB_CONTAINER:-}"

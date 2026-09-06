@@ -2200,6 +2200,15 @@ library.
    cell's owned teardown before changing the selected engine. Plugin hooks
    inherit this context and must not choose infrastructure themselves.
 
+   A direct live driver must work in a pristine worktree, not only one where
+   another sweep already created `sandbox/siterepo`. Shared lease acquisition
+   prepares that worktree's empty site parent before resolving its physical
+   address; this creates no pair child or database and grants no cleanup
+   authority until the complete lease census passes. Observation and release
+   remain read-only with respect to missing context. Exercise an absent root,
+   a distinct canonical lease store, and a non-directory root in shared harness
+   tests; never add adapter-specific directory creation to hide a lease bug.
+
    Positive round trips must also provision the three required core bindings.
    `establish_core_environment_bindings` in `sandbox/conformance/asserts.sh`
    takes a WP runner, repository, and the driver's expected `admin_email`,

@@ -535,7 +535,7 @@ run_pair_lease_namespace_case() {
   local label=pair_lease_namespace case_root="$TMP/pair-lease-namespace"
   local fake_bin="$case_root/fake-bin" pair_tool="$case_root/sandbox/bin/pair.sh"
   local log="$case_root/docker.log" owner_start token owner_token contender_token output schema
-  local real_ln real_ps real_rm foreign_tool rollback_token
+  local real_ln real_ps real_rm foreign_tool rollback_token pristine_tool pristine_token
   local lease_dir="$case_root/sandbox/siterepo/.pair-leases"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
   copy_pair_launcher "$case_root/sandbox/bin"
@@ -784,6 +784,54 @@ FAKE_PS
   [ -e "$lease_dir/owned.json" ] \
     || fail "$label: wrong-root release removed the lease"
   pass "$label: database lane and physical worktree root are release authority, checked before mutation"
+
+  # The canonical lease store already exists, while this distinct worktree
+  # has never run pair up. A fixture that pre-creates both roots misses the
+  # real first leased-run failure before any pair namespace was acquired.
+  pristine_tool="$case_root/pristine/sandbox/bin/pair.sh"
+  mkdir -p "$case_root/pristine/sandbox/bin"
+  copy_pair_launcher "$case_root/pristine/sandbox/bin"
+  chmod +x "$pristine_tool"
+  [ ! -e "$case_root/pristine/sandbox/siterepo" ] \
+    || fail "$label: pristine worktree already has its site root"
+  output="$case_root/pristine-release.txt"
+  if "$pristine_tool" lease-batch-release "$owner_token" >"$output" 2>&1; then
+    fail "$label: missing-context release accepted another worktree's authority"
+  fi
+  [ ! -e "$case_root/pristine/sandbox/siterepo" ] && [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: read-only release created missing context or removed another lease"
+  pristine_token="$(
+    source "$ROOT/sandbox/lib/pair_lease.sh"
+    pair_lease_token "$$" "$owner_start"
+  )"
+  "$pristine_tool" lease-batch-acquire "$pristine_token" "$$" "$owner_start" pristine 9454 9455 \
+    >"$case_root/pristine-acquire.txt" 2>&1 \
+    || { cat "$case_root/pristine-acquire.txt" >&2; fail "$label: pristine worktree could not acquire before its first pair up"; }
+  jq -e --arg token "$pristine_token" --arg root "$case_root/pristine/sandbox/siterepo" '
+    .token == $token and .ports == [9454,9455] and .site_root == $root
+    and .db_engine == "mariadb" and .db_container == "wprism-shared-db"
+  ' "$lease_dir/pristine.json" >/dev/null \
+    || fail "$label: first lease did not bind the separate physical site root"
+  [ -d "$case_root/pristine/sandbox/siterepo" ] \
+    && [ ! -e "$case_root/pristine/sandbox/siterepo/pristine1" ] \
+    && [ ! -e "$case_root/pristine/sandbox/siterepo/pristine2" ] \
+    || fail "$label: parent preparation created pair-owned children before up"
+  "$pristine_tool" lease-batch-release "$pristine_token" >"$case_root/pristine-release-ok.txt" 2>&1 \
+    || { cat "$case_root/pristine-release-ok.txt" >&2; fail "$label: empty pristine lease did not release"; }
+  [ ! -e "$lease_dir/pristine.json" ] && [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: pristine release removed the wrong cleanup authority"
+  rmdir "$case_root/pristine/sandbox/siterepo"
+  printf 'foreign non-directory site root\n' > "$case_root/pristine/sandbox/siterepo"
+  output="$case_root/pristine-file-root.txt"
+  if "$pristine_tool" lease-batch-acquire "$pristine_token" "$$" "$owner_start" pristine 9454 9455 \
+      >"$output" 2>&1; then
+    fail "$label: a non-directory site root crossed lease acquisition"
+  fi
+  grep -Fq "could not prepare the current sandbox's pair site root" "$output" \
+    && [ "$(cat "$case_root/pristine/sandbox/siterepo")" = 'foreign non-directory site root' ] \
+    && [ ! -e "$lease_dir/pristine.json" ] && [ -e "$lease_dir/owned.json" ] \
+    || fail "$label: failed parent preparation hid its cause, changed foreign bytes or published authority"
+  pass "$label: first worktree acquisition prepares only its exact parent; read-only release and non-directory refusals preserve authority"
 
   TZ=Asia/Tokyo "$pair_tool" capacity >"$case_root/capacity-cross-tz.json" 2>&1 \
     || fail "$label: a live owner became unobservable after the caller timezone changed"
