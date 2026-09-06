@@ -2450,6 +2450,25 @@ library.
    intent. Do not reinterpret this as an external-exclusion refusal or a
    successful signed deletion; those are separate capability boundaries.
 
+   An unsupported-deletion fixture must still be valid native storage.
+   Removing only a language's `terms` row leaves a `term_taxonomy` orphan;
+   bounded term observation correctly refuses that malformed input before
+   deletion policy runs. For Polylang 3.8.6, add an unused language with the
+   native `no_default_cat` option, establish its identities with ordinary
+   Capture, and delete it through the native language API. Observe the
+   refusal preimage **after** that fixture mutation. Native deletion also
+   clears runtime metadata, so its effects must not be attributed to Capture.
+   If exact restoration is not available, run this control last and destroy
+   the owned pair; re-adding a language mints different native identities.
+
+   Complete native preservation can use unfiltered `wp db export -` outside
+   WordPress, a separate `SHOW FULL TABLES` inventory, and the shared
+   `SqlDumpEvidence`/`PrivateCommandOutput` readers. Bind deterministic dump
+   flags at the producer, retain every table's schema and row bytes, assert
+   nonempty fixture tables and stale ledger identities, and compare exact
+   streams. Never normalize runtime values or accept equal empty dumps.
+   Keep database credentials and dump bytes in the private evidence sink.
+
    Rendered language identifiers are not interchangeable with WordPress
    locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`
    while Open Graph retains `en_US`/`de_DE`; regional variants change that

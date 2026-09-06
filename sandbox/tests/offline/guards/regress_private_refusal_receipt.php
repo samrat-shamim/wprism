@@ -105,6 +105,7 @@ wprism_check_same([
 ], $diagnostic, 'diagnostic retention preserves bounded raw bytes while explicitly making no expected-cause claim');
 PrivateRefusalReceipt::assertDiagnostic($diagnostic, 'apply');
 wprism_check(true, 'the shared decoder admits the complete retained diagnostic without a cause profile');
+wprism_check_same($receipt, PrivateRefusalReceipt::verifyDiagnostic($diagnostic, $profile), 'retained diagnostic verification reuses the exact native graph verifier');
 foreach (['extra', 'format', 'command', 'purpose', 'verified', 'count-string', 'negative-count', 'count-mismatch',
     'five-records', 'duplicate', 'unordered', 'list', 'raw-scalar', 'raw-extra', 'raw-name', 'raw-zero',
     'raw-overflow', 'raw-digest', 'raw-base64', 'raw-size'] as $fault) {
@@ -135,6 +136,7 @@ foreach (['extra', 'format', 'command', 'purpose', 'verified', 'count-string', '
         case 'raw-size': $bad['records'][0]['bytes']++; break;
     }
     $refuses(fn() => PrivateRefusalReceipt::assertDiagnostic($bad, 'apply'), 'diagnostic transport ' . $fault);
+    $refuses(fn() => PrivateRefusalReceipt::verifyDiagnostic($bad, $profile), 'retained cause transport ' . $fault);
 }
 $malformedDiagnostic = $diagnostic;
 $malformedBytes = "not JSON\0private cause receipt canary";
@@ -182,6 +184,7 @@ $emptyDiagnostic = json_decode(
 wprism_check_same(0, $emptyDiagnostic['new_records'] ?? null, 'a successful command can append no matching diagnostic record');
 PrivateRefusalReceipt::assertDiagnostic($emptyDiagnostic, 'apply');
 wprism_check(true, 'zero fresh records remain valid unverified diagnostic data');
+$refuses(fn() => PrivateRefusalReceipt::verifyDiagnostic($emptyDiagnostic, $profile), 'zero records cannot prove an expected cause');
 $overflowNames = [];
 for ($index = 3; $index < 8; $index++) {
     $overflowName = '20260905-09000' . $index . '-apply-' . str_repeat((string) $index, 24) . '.json';
@@ -270,6 +273,7 @@ foreach ($mutations as $label => [$path, $value]) {
         && base64_decode($failedCollection['diagnostic']['records'][0]['contents_base64'], true) === json_encode($changed, JSON_THROW_ON_ERROR),
         'failed combined collection retains the complete ' . $label . ' without a success receipt');
     $refuses(fn() => PrivateRefusalReceipt::assertCollection($failedCollection, $profile), 'failed collected ' . $label);
+    $refuses(fn() => PrivateRefusalReceipt::verifyDiagnostic($failedCollection['diagnostic'], $profile), 'failed retained cause ' . $label);
 }
 foreach (['', '{}{}', str_repeat('[', 33) . '0' . str_repeat(']', 33)] as $invalidBytes) {
     $write($directory . '/' . $new, $invalidBytes);

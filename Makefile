@@ -1717,6 +1717,10 @@ regress-private-command-capture:
 regress-private-tree-evidence:
 	php sandbox/tests/offline/guards/regress_private_tree_evidence.php
 
+.PHONY: regress-sql-dump-evidence
+regress-sql-dump-evidence:
+	php sandbox/tests/offline/guards/regress_sql_dump_evidence.php
+
 .PHONY: regress-repository-convergence
 regress-repository-convergence:
 	php sandbox/tests/offline/repository/regress_repository_convergence.php

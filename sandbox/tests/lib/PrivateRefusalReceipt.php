@@ -170,7 +170,8 @@ final class PrivateRefusalReceipt {
         return $bytes;
     }
 
-    private static function verifyDiagnostic(array $diagnostic, array $profile): string {
+    /** Re-verify retained diagnostic bytes against caller-declared intent, without rereading a disposed site. */
+    public static function verifyDiagnostic(array $diagnostic, array $profile): string {
         self::checkProfile($profile);
         self::assertDiagnostic($diagnostic, $profile['command']);
         if ($diagnostic['new_records'] !== 1) {

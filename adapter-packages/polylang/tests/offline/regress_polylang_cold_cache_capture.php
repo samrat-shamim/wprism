@@ -113,6 +113,22 @@ foreach ([false, true] as $warm) {
 }
 wprism_check_same(0, $model->listCalls, 'stale empty singleton cannot hide nonempty language rows');
 
+// The former live "language deletion" control deleted only wp_terms, not its
+// taxonomy row. It therefore exercises malformed physical input, never the
+// later unsupported-deletion policy gate. Keep those two premises distinct.
+$seedLanguages();
+$db->query('DELETE FROM wp_terms WHERE term_id = 31');
+$orphanBefore = [$db->rows('wp_terms'), $db->rows('wp_term_taxonomy'), $db->rows('wp_options')];
+PLL_Language_Factory::$inputs = [];
+wprism_check_throws($observe, RuntimeException::class, 'orphaned language refuses through the actual protected option-capture path',
+    'Polylang language flag audit bounded term observation refused: field or aggregate byte budget exceeded');
+wprism_check_same([], PLL_Language_Factory::$inputs, 'orphaned language fails before native interpretation or deletion inference');
+wprism_check_same($orphanBefore, [$db->rows('wp_terms'), $db->rows('wp_term_taxonomy'), $db->rows('wp_options')],
+    'malformed-language refusal preserves the entire native term, taxonomy and option preimage');
+$db->query('DELETE FROM wp_term_taxonomy WHERE term_id = 31');
+wprism_check_same($empty, $observe(), 'a consistent remaining language roster passes the physical input boundary');
+$seedLanguages();
+
 foreach (['custom-url', 'custom-markup', 'missing-builtin', 'invalid-code', 'malformed-language', 'native-write'] as $fault) {
     PLL_Language_Factory::$interpret = static function (array $terms) use ($fault): mixed {
         if ($fault === 'malformed-language') return null;

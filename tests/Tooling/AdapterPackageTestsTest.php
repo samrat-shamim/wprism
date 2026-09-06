@@ -1457,24 +1457,36 @@ SH
         self::assertSame('acf', $result['adapter']);
     }
 
-    public function testValidatorAcceptsTheReviewedPrivateCommandCaptureSource(): void
+    /** @return array<string,array{string}> */
+    public static function reviewedPrivateEvidenceSources(): array
+    {
+        return [
+            'private capture' => ['tests/lib/private_command_capture.sh'],
+            'native conformance diagnostics' => ['tests/lib/conformance_private_command.sh'],
+            'native cron window' => ['tests/lib/wordpress_cron_window.sh'],
+        ];
+    }
+
+    #[DataProvider('reviewedPrivateEvidenceSources')]
+    public function testValidatorAcceptsTheReviewedPrivateCommandCaptureSource(string $source): void
     {
         $root = $this->validatorFixture();
-        $shared = 'sandbox/tests/lib/private_command_capture.sh';
+        $shared = 'sandbox/' . $source;
         self::write($root . '/' . $shared, (string) file_get_contents(dirname(__DIR__, 2) . '/' . $shared));
         self::write(
             $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
-            "#!/usr/bin/env bash\n. tests/lib/private_command_capture.sh\n"
+            "#!/usr/bin/env bash\n. $source\n"
         );
         self::assertSame('acf', AdapterPackageValidator::validate($root, 'acf')['adapter']);
     }
 
-    public function testValidatorRefusesAnAbsentReviewedPrivateCommandCaptureSource(): void
+    #[DataProvider('reviewedPrivateEvidenceSources')]
+    public function testValidatorRefusesAnAbsentReviewedPrivateCommandCaptureSource(string $source): void
     {
         $root = $this->validatorFixture();
         self::write(
             $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
-            "#!/usr/bin/env bash\n. tests/lib/private_command_capture.sh\n"
+            "#!/usr/bin/env bash\n. $source\n"
         );
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('not an explicit recognized .sh file');

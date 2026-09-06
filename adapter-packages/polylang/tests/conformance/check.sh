@@ -519,34 +519,12 @@ jq -s -e 'any(.[]; .slug == "fr" and (.meta | has("_pll_strings_translations") |
 rm -rf "$EMPTY_STRINGS_STATE"
 pass 'populated Polylang string catalogs are authored while the exact empty sentinel remains target-local runtime state'
 
-DELETE_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-polylang-delete-row.json"
-wp_conf1 eval '
-  global $wpdb; $term=get_term_by("slug","ar","language");
-  $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->terms} WHERE term_id=%d",$term->term_id),ARRAY_A);
-  file_put_contents("/siterepo/.tmp-polylang-delete-row.json",wp_json_encode($row));
-  if (1!==$wpdb->delete($wpdb->terms,["term_id"=>(int)$term->term_id])) throw new RuntimeException($wpdb->last_error);
-  clean_term_cache((int)$term->term_id,"language");
-' >/dev/null
-DELETE_RC=0
-DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json) || DELETE_RC=$?
-require_wprism_answered 'Polylang unsupported language deletion capture' json "$DELETE_OUT"
-[ "$DELETE_RC" -ne 0 ] && jq -e '
-  .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
-  any(.diagnostics[]?; .code == "unsupported_deletion" and (.surface | contains("term:")))
-' <<<"$DELETE_OUT" >/dev/null || fail "Polylang language deletion did not refuse atomically: $DELETE_OUT"
-[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BASELINE" ] \
-  || fail 'Polylang unsupported language deletion published a tombstone'
-wp_conf1 eval '
-  global $wpdb; $row=json_decode(file_get_contents("/siterepo/.tmp-polylang-delete-row.json"),true);
-  if (false===$wpdb->insert($wpdb->terms,$row)) throw new RuntimeException($wpdb->last_error);
-  clean_term_cache((int)$row["term_id"],"language");
-' >/dev/null
-rm -f "$BACKUP" "$DELETE_BACKUP"
+rm -f "$BACKUP"
 wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-polylang-restored" \
-  || fail 'Polylang source did not restore exactly after malformed/secret/strings/deletion probes'
+  || fail 'Polylang source did not restore exactly after malformed/secret/strings probes'
 rm -rf "$CONF_REPO1/.tmp-polylang-restored"
-pass 'malformed groups/language metadata, switcher schema/secrets and language deletion refuse atomically; reviewed string catalogs capture without publication'
+pass 'malformed groups/language metadata and switcher schema/secrets refuse; reviewed string catalogs capture without publication'
 
 # Managed source and target edits form a true three-way conflict. Unforced
 # apply must be mutation-free; explicit repository authority then converges.
@@ -868,5 +846,8 @@ diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-polylang-final" \
   || fail 'Polylang final recovered state was not byte-identical'
 rm -rf "$CONF_REPO2/.tmp-polylang-final"
 pass 'deactivate/reactivate, default uninstall residue, absent-code refusal, complete-uninstall refusal, database restore and final native recovery are clean'
+
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-language-deletion.sh"
+polylang_language_deletion_check
 
 echo 'polylang conformance checks passed'

@@ -137,6 +137,12 @@ $reset = static function () use ($write, $answer, $private): void {
 };
 $reset();
 wprism_check_same($answer, PrivateCommandOutput::readObject($stem), 'private output admission returns the original complete object bytes');
+foreach (["", "opaque\0\xff\r\nno final newline", '[]', '{}', "one\ntwo\n"] as $opaque) {
+    $write('stdout', $opaque);
+    wprism_check_same($opaque, PrivateCommandOutput::readBytes($stem), 'opaque transport retains exact bytes without interpreting or normalizing them');
+    wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), Throwable::class, 'opaque admission cannot weaken the existing nonempty-object API');
+}
+$reset();
 $largeRoot = "$scratch/large-source";
 mkdir($largeRoot, 0700);
 wprism_check_same(['tree_bytes' => FilesystemTreeEvidence::MAX_BYTES, 'tree_record_bytes' => FilesystemTreeEvidence::MAX_RECORD_BYTES, 'stdout_bytes' => 1048576],
@@ -182,11 +188,13 @@ foreach (['', 'conformance-tree/v2', 'unbounded'] as $unsupported) {
 $reset();
 $write('stderr', " Container bound-cli1-run-abcd Created \n");
 wprism_check_same($answer, PrivateCommandOutput::readObject($stem, '/^ Container bound-cli1-run-[a-f0-9]+ Created $/D'), 'only the caller-bound lifecycle prelude is admitted');
+wprism_check_same($answer, PrivateCommandOutput::readBytes($stem, '/^ Container bound-cli1-run-[a-f0-9]+ Created $/D'), 'opaque streams retain the same explicit stderr boundary');
 wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), RuntimeException::class, 'host-only observations admit no nonempty diagnostic prelude');
 $reset();
 foreach ([1, 17, 255] as $expectedExit) {
     $write('exit', $expectedExit . "\n");
     wprism_check_same($answer, PrivateCommandOutput::readObject($stem, expectedExit: $expectedExit), 'explicit expected process status admits one unchanged complete object');
+    wprism_check_same($answer, PrivateCommandOutput::readBytes($stem, expectedExit: $expectedExit), 'opaque streams retain the same exact process status');
     wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), RuntimeException::class, 'expected nonzero status cannot weaken default success admission');
 }
 foreach (["0\n", "2\n", "01\n", "1", "1\n2\n", "-1\n", "256\n"] as $wrongExit) {
@@ -218,6 +226,9 @@ foreach (['nonzero', 'bad-exit', 'duplicate', 'array', 'empty-object', 'noise', 
         case 'symlink': rename("$stem.stdout", "$scratch/shared"); symlink("$scratch/shared", "$stem.stdout"); break;
     }
     wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), Throwable::class, "private output admission refuses $fault");
+    if (!in_array($fault, ['duplicate', 'array', 'empty-object'], true)) {
+        wprism_check_throws(static fn() => PrivateCommandOutput::readBytes($stem), Throwable::class, "opaque admission retains the transport boundary for $fault");
+    }
     if (!in_array($fault, ['nonzero', 'bad-exit', 'large-exit', 'exit-mode', 'missing'], true)) {
         $write('exit', "1\n");
         wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, expectedExit: 1), Throwable::class, "fixed-status refusal retains private admission checks for $fault");

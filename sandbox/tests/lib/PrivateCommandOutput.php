@@ -5,9 +5,19 @@ namespace WPrismTest;
 
 require_once __DIR__ . '/EvidenceSizeProfile.php';
 
-/** Admit one retained command's complete object output without interpreting its meaning. */
+/** Transport admission is shared; each owner still proves its output's meaning. */
 final class PrivateCommandOutput {
     public static function readObject(string $stem, ?string $stderrPattern = null, string $profile = EvidenceSizeProfile::COMPACT, int $expectedExit = 0): string {
+        $bytes = self::readBytes($stem, $stderrPattern, $profile, $expectedExit);
+        $record = json_decode($bytes, true, 32, JSON_THROW_ON_ERROR);
+        if (!is_array($record) || array_is_list($record)) {
+            throw new \RuntimeException('private command output is not one nonempty object');
+        }
+        return $bytes;
+    }
+
+    /** Native dumps are opaque bytes, not JSON. Empty output is not evidence of an empty database. */
+    public static function readBytes(string $stem, ?string $stderrPattern = null, string $profile = EvidenceSizeProfile::COMPACT, int $expectedExit = 0): string {
         $limits = EvidenceSizeProfile::limits($profile);
         if ($expectedExit < 0 || $expectedExit > 255) {
             throw new \RuntimeException('private command output requires an exact process exit status');
@@ -42,10 +52,6 @@ final class PrivateCommandOutput {
             if ($line !== '' && ($stderrPattern === null || preg_match($stderrPattern, $line) !== 1)) {
                 throw new \RuntimeException('private command output has an unexpected diagnostic');
             }
-        }
-        $record = json_decode($streams['stdout'], true, 32, JSON_THROW_ON_ERROR);
-        if (!is_array($record) || array_is_list($record)) {
-            throw new \RuntimeException('private command output is not one nonempty object');
         }
         return $streams['stdout'];
     }
