@@ -973,6 +973,60 @@ assert_rmcombo_link_counts() { # <complete native state>; all three authors cont
   ' >/dev/null || fail 'combined native link counts disagree with the complete seeded graph'
 }
 
+restore_rmcombo_collision_field() {
+  local receipt group_id product_id rmcombo_host_pair="$PAIR" rmcombo_host_service=cli1
+  group_id=$(jq -er '.group' <<<"$SOURCE_SEED")
+  product_id=$(jq -er '.products.en' <<<"$SOURCE_SEED")
+  require_fixture_ids group_id product_id
+  capture_wprism_json_checked receipt 'combined native ACF collision cleanup' assert_rmcombo_host_native_json wp1 eval '
+global $wpdb;
+$groupId = (int) getenv("WPRISM_RMCOMBO_COLLISION_GROUP");
+$productId = (int) getenv("WPRISM_RMCOMBO_COLLISION_PRODUCT");
+$group = get_post($groupId);
+$product = get_post($productId);
+$field = acf_get_field("field_rmcombo_rank_title");
+if (!$group instanceof WP_Post || $group->ID !== $groupId || $group->post_type !== "acf-field-group" || $group->post_name !== "group_rmcombo_product"
+    || !$product instanceof WP_Post || $product->ID !== $productId || $product->post_type !== "product" || $product->post_name !== "rmcombo-product-en"
+    || !is_array($field) || !is_int($field["ID"] ?? null) || $field["ID"] < 1
+    || ($field["key"] ?? null) !== "field_rmcombo_rank_title" || ($field["name"] ?? null) !== "rank_math_title"
+    || ($field["type"] ?? null) !== "post_object" || ($field["parent"] ?? null) !== $groupId
+    || get_post_meta($productId,"_rank_math_title",true) !== "field_rmcombo_rank_title"
+    || get_post_meta($productId,"rank_math_title",true) !== (string)$productId) {
+    throw new RuntimeException("the exact owned ACF collision fixture is absent or changed");
+}
+$fieldId = $field["ID"];
+$read = static function () use ($wpdb, $fieldId): array {
+    $wpdb->last_error = "";
+    $rows = $wpdb->get_results($wpdb->prepare(
+        "SELECT ID,post_parent,post_name,post_type FROM {$wpdb->posts} WHERE ID=%d OR (post_type=%s AND post_name=%s) ORDER BY ID LIMIT 3",
+        $fieldId, "acf-field", "field_rmcombo_rank_title"
+    ), ARRAY_A);
+    if ($wpdb->last_error !== "" || !is_array($rows)) throw new RuntimeException("ACF collision field observation failed");
+    return $rows;
+};
+if ($read() !== [["ID"=>(string)$fieldId,"post_parent"=>(string)$groupId,"post_name"=>"field_rmcombo_rank_title","post_type"=>"acf-field"]]) {
+    throw new RuntimeException("ACF collision field is not one exact owned physical row");
+}
+// ACF 6.8.7 accepts an ID/key/name, not its returned field array. Its true
+// return ignores wp_delete_post failure, so physical absence is independent.
+if (acf_delete_field($fieldId) !== true || $read() !== []) {
+    throw new RuntimeException("native ACF collision field removal did not complete");
+}
+delete_post_meta($productId,"_rank_math_title");
+update_post_meta($productId,"rank_math_title","Portable Rank Math Commerce EN 東京 🚀");
+if (metadata_exists("post",$productId,"_rank_math_title")
+    || get_post_meta($productId,"rank_math_title",true) !== "Portable Rank Math Commerce EN 東京 🚀") {
+    throw new RuntimeException("native collision metadata restoration did not complete");
+}
+echo wp_json_encode(["field_id"=>$fieldId,"product_id"=>$productId,"removed"=>true]);
+' --exec="putenv('WPRISM_RMCOMBO_COLLISION_GROUP=$group_id');putenv('WPRISM_RMCOMBO_COLLISION_PRODUCT=$product_id');"
+  jq -en --argjson receipt "$receipt" --argjson product "$product_id" '
+    ($receipt | keys) == ["field_id","product_id","removed"] and
+    ($receipt.field_id | type == "number" and . > 0 and floor == .) and
+    $receipt.product_id == $product and $receipt.removed == true
+  ' >/dev/null || fail 'native ACF collision cleanup did not return its exact checked receipt'
+}
+
 prepare_rmcombo_source_native() {
   local receipt rmcombo_host_pair="$PAIR" rmcombo_host_service=cli1
   # e647 source-only native evidence had correct URLs but three unresolved
@@ -1812,13 +1866,7 @@ for order in forward reverse; do
     || fail "ACF/Rank Math $order-order refusal partially published state"
 done
 printf '%s\n' "$POLICY_BYTES" > "$R1/site.wprism.json"
-wp1 eval '
-$field=acf_get_field("field_rmcombo_rank_title");
-if(is_array($field)) acf_delete_field($field);
-$product=get_page_by_path("rmcombo-product-en",OBJECT,"product");
-delete_post_meta($product->ID,"_rank_math_title");
-update_post_meta($product->ID,"rank_math_title","Portable Rank Math Commerce EN 東京 🚀");
-' >/dev/null
+restore_rmcombo_collision_field
 capture_wprism_json_checked COLLISION_RESTORED_CAPTURE \
   'Rank Math combination collision-restored capture' assert_rmcombo_warning_free_capture \
   wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-collision-restored --format=json

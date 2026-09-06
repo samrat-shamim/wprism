@@ -2277,6 +2277,14 @@ library.
    native rule. Assert the exact fixture's complete alternate map, and refuse
    duplicate or malformed language tags before projection can discard them.
 
+   Fixture repair must obey the pinned native API contract too. ACF 6.8.7
+   deletes by field ID/key/name, not its returned field array, and reports
+   `true` without checking `wp_delete_post` success. Before removal, prove
+   the exact owned field and physical row; afterward, check bounded physical
+   absence before restoring metadata. A fresh Capture must still reproduce
+   the complete original canonical tree. Test failed deletion and failed
+   readback separately so a successful-looking helper cannot hide either.
+
    A complete-row read window must control its test-owned background writers,
    not hide their rows. Core's retained native evidence localized one
    unexpected difference to `_transient_doing_cron.option_value`; its fresh-map

@@ -2124,6 +2124,146 @@ wprism_check(
         && str_contains($live, 'provider:rank-math-state/rebuild_all_link_state'),
     'failure, retry and no-op phases retain exact target-only witnesses and bind the selected Rank Math action source'
 );
+// The third optional root replays only the old cleanup caller. The doubles
+// implement ACF 6.8.7's scalar-selector contract and its unchecked-delete true
+// return; SQL reads still execute through the shared row-based FakeWpdb.
+$collisionSource = isset($argv[3]) ? (string) file_get_contents($argv[3]
+    . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh') : $live;
+$cleanupStart = strpos($collisionSource, "\nrestore_rmcombo_collision_field\n");
+if ($cleanupStart === false) {
+    $cleanupStart = strpos($collisionSource, "wp1 eval '\n\$field=acf_get_field(\"field_rmcombo_rank_title\");");
+}
+$cleanupEnd = $cleanupStart === false ? false : strpos($collisionSource, 'capture_wprism_json_checked COLLISION_RESTORED_CAPTURE', $cleanupStart);
+$cleanupDefinitionStart = strpos($live, 'restore_rmcombo_collision_field() {');
+$cleanupDefinitionEnd = strpos($live, 'prepare_rmcombo_source_native() {', $cleanupDefinitionStart ?: 0);
+if ($cleanupStart === false || $cleanupEnd === false || $cleanupDefinitionStart === false || $cleanupDefinitionEnd === false) {
+    throw new LogicException('the actual native ACF collision cleanup window is absent');
+}
+$cleanupCaller = substr($collisionSource, $cleanupStart, $cleanupEnd - $cleanupStart);
+$cleanupDefinition = substr($live, $cleanupDefinitionStart, $cleanupDefinitionEnd - $cleanupDefinitionStart);
+$cleanupNative = <<<'PHP'
+<?php
+declare(strict_types=1);
+require $argv[1] . '/sandbox/tests/lib/wp_stubs.php';
+require $argv[1] . '/sandbox/tests/lib/FakeWpdb.php';
+$fault = $argv[2];
+$trace = $argv[3];
+$code = $argv[4];
+if (isset($argv[5])) eval(substr($argv[5], strlen('--exec=')));
+$wpdb = WPrismTest\FakeWpdb::install();
+$field = ['ID'=>409,'parent'=>307,'key'=>'field_rmcombo_rank_title','name'=>'rank_math_title','type'=>'post_object'];
+$rows = [['ID'=>409,'post_parent'=>307,'post_name'=>'field_rmcombo_rank_title','post_type'=>'acf-field'],
+    ['ID'=>999,'post_parent'=>998,'post_name'=>'field_unrelated','post_type'=>'acf-field']];
+$meta = [309=>['rank_math_title'=>'309','_rank_math_title'=>'field_rmcombo_rank_title','rmcombo_badge'=>'English badge 東京'],
+    310=>['rank_math_title'=>'Tragbarer Rank Math Handel DE 東京 🚀','rmcombo_badge'=>'Deutsches Abzeichen 東京']];
+$calls = [];
+if (str_starts_with($fault, 'field:')) {
+    $key = substr($fault, 6);
+    $field[$key] = is_int($field[$key]) ? $field[$key] + 1 : $field[$key] . ':wrong';
+}
+if (str_starts_with($fault, 'row:')) {
+    $key = substr($fault, 4);
+    $rows[0][$key] = is_int($rows[0][$key]) ? $rows[0][$key] + 1 : $rows[0][$key] . ':wrong';
+}
+if ($fault === 'duplicate') $rows[] = array_replace($rows[0], ['ID'=>410]);
+if ($fault === 'missing-row') array_shift($rows);
+if ($fault === 'wrong-shadow') $meta[309]['_rank_math_title'] = 'field_foreign';
+if ($fault === 'wrong-value') $meta[309]['rank_math_title'] = 'changed';
+$wpdb->seedTable('wp_posts', $rows);
+if ($fault === 'read-error') $wpdb->failNextQuery('native row read failed', 'SELECT');
+if ($fault === 'read-null') $wpdb->returnNextGetResultsAs(null, 'SELECT');
+register_shutdown_function(static function () use ($trace, $wpdb): void {
+    file_put_contents($trace, json_encode(['calls'=>$GLOBALS['calls'],'meta'=>$GLOBALS['meta'],'rows'=>$wpdb->rows('wp_posts')], JSON_THROW_ON_ERROR));
+});
+class WP_Post {
+    public function __construct(public int $ID, public string $post_type, public string $post_name) {}
+}
+function get_post(int $id): ?WP_Post {
+    $group = $id === 307;
+    $role = $group ? 'group' : 'product';
+    if ($GLOBALS['fault'] === "missing-$role") return null;
+    $post = new WP_Post($id, $group ? 'acf-field-group' : 'product', $group ? 'group_rmcombo_product' : 'rmcombo-product-en');
+    foreach (['ID','post_type','post_name'] as $key) {
+        if ($GLOBALS['fault'] === "$role:$key") $post->$key = is_int($post->$key) ? $post->$key + 1 : $post->$key . ':wrong';
+    }
+    return $post;
+}
+function get_page_by_path(string $slug, mixed ...$args): ?WP_Post { return get_post(309); }
+function acf_get_field(int|string $selector): array|false { return $GLOBALS['fault'] === 'missing-field' ? false : $GLOBALS['field']; }
+function acf_delete_field(int|string $selector): bool {
+    $GLOBALS['calls'][] = ['delete-field',$selector];
+    if ($GLOBALS['fault'] === 'native-false') return false;
+    if ($GLOBALS['fault'] !== 'ignored-post-delete-failure') $GLOBALS['wpdb']->delete('wp_posts', ['ID'=>$selector]);
+    if ($GLOBALS['fault'] === 'after-read-error') $GLOBALS['wpdb']->failNextQuery('native post-delete read failed', 'SELECT');
+    if ($GLOBALS['fault'] === 'after-read-null') $GLOBALS['wpdb']->returnNextGetResultsAs(null, 'SELECT');
+    return true;
+}
+function get_post_meta(int $id, string $key, bool $single = false): mixed { return $GLOBALS['meta'][$id][$key] ?? ''; }
+function metadata_exists(string $kind, int $id, string $key): bool { return array_key_exists($key, $GLOBALS['meta'][$id]); }
+function delete_post_meta(int $id, string $key): void {
+    $GLOBALS['calls'][] = ['delete-meta',$id,$key];
+    if ($GLOBALS['fault'] !== 'metadata-delete-failure') unset($GLOBALS['meta'][$id][$key]);
+}
+function update_post_meta(int $id, string $key, mixed $value): void {
+    $GLOBALS['calls'][] = ['update-meta',$id,$key];
+    if ($GLOBALS['fault'] !== 'metadata-update-failure') $GLOBALS['meta'][$id][$key] = $value;
+}
+if ($fault === 'warning') fwrite(STDERR, "PHP Warning: native cleanup in /fixture.php on line 1\n");
+if ($fault === 'noise') fwrite(STDERR, "unexpected native cleanup message\n");
+try { eval($code); } catch (Throwable $failure) { fwrite(STDERR, get_class($failure) . ": native cleanup refused\n"); exit(1); }
+if ($fault === 'nonzero') exit(7);
+PHP;
+$cleanupFile = $site . '/native-collision.php';
+file_put_contents($cleanupFile, $cleanupNative);
+register_shutdown_function(static function () use ($cleanupFile, $site): void {
+    @unlink($cleanupFile);
+    @unlink($site . '/collision-trace.json');
+    @rmdir($site);
+});
+$hostNativeStart = strpos($live, 'assert_rmcombo_host_native_json() {');
+$hostNativeEnd = strpos($live, 'assert_rmcombo_host_rank_math_state() {', $hostNativeStart ?: 0);
+$hostNativeDefinition = substr($live, $hostNativeStart, $hostNativeEnd - $hostNativeStart);
+$cleanupProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" native="$2" fault="$3" trace="$4"
+PAIR=rmcollision
+SOURCE_SEED='{"group":307,"products":{"en":309}}'
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+wp1() { php "$native" "$ROOT" "$fault" "$trace" "${@:2}"; }
+SH;
+$cleanupPremises = ['missing-field','missing-group','missing-product','missing-row','duplicate','wrong-shadow','wrong-value',
+    'field:ID','field:parent','field:key','field:name','field:type',
+    'row:ID','row:post_parent','row:post_name','row:post_type',
+    'group:ID','group:post_type','group:post_name','product:ID','product:post_type','product:post_name',
+    'read-error','read-null'];
+$cleanupCases = ['ready', ...$cleanupPremises, 'native-false','ignored-post-delete-failure','after-read-error','after-read-null',
+    'metadata-delete-failure','metadata-update-failure','warning','noise','nonzero'];
+foreach ($cleanupCases as $case) {
+    $trace = $site . '/collision-trace.json';
+    @unlink($trace);
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run($cleanupProbe . "\n" . $hostNativeDefinition . "\n"
+        . $cleanupDefinition . "\n" . $cleanupCaller . "\nprintf 'CLEANUP_READY\\n'\n", [$root,$cleanupFile,$case,$trace], $root);
+    $observation = is_file($trace) ? json_decode((string) file_get_contents($trace), true, 32, JSON_THROW_ON_ERROR) : null;
+    $accepted = $status === 0 && $stdout === "CLEANUP_READY\n" && $stderr === '';
+    wprism_check($case === 'ready' ? $accepted : $status !== 0 && !str_contains($stdout, 'CLEANUP_READY'),
+        "actual native collision cleanup distinguishes $case");
+    if ($case === 'ready') {
+        wprism_check(($observation['calls'] ?? null) === [['delete-field',409],['delete-meta',309,'_rank_math_title'],['update-meta',309,'rank_math_title']]
+            && ($observation['rows'] ?? null) === [['ID'=>999,'post_parent'=>998,'post_name'=>'field_unrelated','post_type'=>'acf-field']]
+            && ($observation['meta'] ?? null) === [309=>['rank_math_title'=>'Portable Rank Math Commerce EN 東京 🚀','rmcombo_badge'=>'English badge 東京'],
+                310=>['rank_math_title'=>'Tragbarer Rank Math Handel DE 東京 🚀','rmcombo_badge'=>'Deutsches Abzeichen 東京']],
+            'native cleanup deletes only its integer-selected field and restores only its owned metadata');
+        if (!$accepted) fwrite(STDERR, substr($stderr, 0, 2048));
+    } elseif (in_array($case, $cleanupPremises, true)) {
+        wprism_check(($observation['calls'] ?? null) === [], "$case refuses before any native mutation");
+    } elseif (in_array($case, ['native-false','ignored-post-delete-failure','after-read-error','after-read-null'], true)) {
+        wprism_check(($observation['calls'] ?? null) === [['delete-field',409]], "$case cannot advance to metadata restoration");
+    }
+}
+wprism_check(str_contains($live, 'diff -r "$R1/state" "$R1/.tmp-rmcombo-collision-restored"'),
+    'native cleanup still requires complete canonical equality through a fresh Capture');
+
 $directDeletion = strpos($live, "say 'direct deletion remains refusal-only across the combined adapter boundary'");
 $withheldRefusal = strpos($live, 'DELETE_WITHHELD_RC=0');
 $exclusionRefusal = strpos($live, '.reason_code == "deletion_writer_exclusion_required"');
