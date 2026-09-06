@@ -35,12 +35,12 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-// Polylang's native-value-validation/v1 declaration changes only its package
-// address. regress_disposition_split.php retains the exact prior transition;
-// this current baseline also re-pins the Polylang/TEC world and manifest bytes.
-const BASELINE_FIXTURE_SHA256 = '17a055c45f3592c18ac3dd001791eb53b4fa6858d0ef5d1f4c97471d5c702b09';
-const RANK_WORLD_MANIFEST_HASH = 'f910e4f248fc034230db88497fe13c13adf69e56209981a0f3c8b2bfde33c0cd';
-const YOAST_WORLD_MANIFEST_HASH = '0d786231657aa37c64fcb31a9751a561da410482c84c6145d3f4e961f6e2f71a';
+// Polylang's cold-cache interpreter correction changes only its executable
+// address. The manifest and disposition bytes and frozen snapshots stay exact;
+// regress_disposition_split.php retains the prior active executable pins.
+const BASELINE_FIXTURE_SHA256 = '050d3c7092ec088d15ca1e4687786246d21b54c59258bb7396ca38925e37b6ab';
+const RANK_WORLD_MANIFEST_HASH = '6c799d1d913321bb0d440d4f1413792ab8f0b6528b1186c0891498e9c6ae83ba';
+const YOAST_WORLD_MANIFEST_HASH = 'dfd90f30a212b7ff026ec1f747fe4628e31f6b88c3519a08fbf17015d5842f30';
 const REGISTRY_SHA256 = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
 const RANK_WORLD_SNAPSHOT_SHA256 = 'ef66e57722b855c8ec0a8bca12324ad84032b67e44ac7ffe6598d6e767e2070b';
 const YOAST_WORLD_SNAPSHOT_SHA256 = '9e139f3acb9eb3b9ee5514a4971a5ff2eb8109364923dd01951f6aed1e939ee2';

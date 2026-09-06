@@ -107,6 +107,7 @@
           "ReferenceShapeGrammar",
           "ScalarReferenceIntersection",
           "TermCoordinateWitness",
+          "TermRows",
           "TableGraph",
           "TableSchema",
           "IdentityTokenCodec",
@@ -147,7 +148,7 @@
             ]
           }
         ],
-  "file_count": 66,
+  "file_count": 67,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -205,6 +206,7 @@
           "TableGraph.php",
           "TableSchema.php",
           "TermCoordinateWitness.php",
+          "TermRows.php",
     "TextTokenizer.php",
     "TransactionAuthority.php",
     "TransactionalTableBoundary.php",

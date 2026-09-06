@@ -892,6 +892,23 @@ profile. Exact `option:` surfaces admit leading underscores (private options,
 transients and shadow keys), with the same 128-byte bound and no wildcards;
 the other four surface namespaces keep their existing first-byte grammar.
 
+Capture and Plan observations cannot borrow a provider's cache-write authority.
+If a native getter rebuilds a transient on a cold or expired cache, select a
+side-effect-free native interpretation API over bounded physical inputs, or
+report the unsupported observation. Do not warm the cache, toggle a permanent
+plugin constant, bypass native validation, or widen the capture table profile.
+For term inputs, `ProviderSdk::term_rows($taxonomy, $maxRows, $maxBytes, $context)`
+reads one exact taxonomy from the caller's already-established snapshot. Both
+physical term tables must already be readable. The engine admits a size roster
+before bounded hash/value batches, preserves raw driver bytes, and refuses an
+orphan, duplicate identity, failed read, changed roster or exceeded budget.
+It does not apply WordPress filters or interpret language, flag, locale or other
+plugin semantics. Polylang's capture hook uses this split with its public native
+language factory, retaining custom-flag refusals without calling its cache-backed
+language-list getter. Exercise empty, cold, warm-but-stale and hostile native
+callback cases through the actual protected capture hook; pure helper tests
+cannot establish that the adapter chose the safe native API.
+
 When declared plugin tables may legitimately be absent, use
 `ProviderSdk::database_schema_snapshot($context, $physicalTables, $read)`.
 The engine first discovers exact presence inside an empty read-only profile,

@@ -2198,6 +2198,10 @@ final class Policy {
         if ($this->interpreterInstances !== null) {
             return $this->interpreterInstances;
         }
+        // Interpreter hooks consume the same bounded observation SDK as
+        // providers; the executable loader must supply it without relying on
+        // a prior provider invocation or the additive classmap fallback.
+        require_once __DIR__ . '/../Adapter/ProviderSdk.php';
         $this->interpreterInstances = [];
         foreach ($this->manifests as $m) {
             $name = $m['interpreter'] ?? null;

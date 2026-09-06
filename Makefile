@@ -1951,6 +1951,10 @@ regress-capture-secret-scan:
 regress-user-meta-capture:
 	php sandbox/tests/offline/capture/regress_user_meta_capture.php
 
+.PHONY: regress-term-rows
+regress-term-rows:
+	php sandbox/tests/offline/capture/regress_term_rows.php
+
 # issue #3349: direct post/term metadata discovery + classification boundary.
 # Pure PHP with fake wpdb/policy/token fixtures; no Docker or WordPress.
 regress-entity-meta-capture:

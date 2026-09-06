@@ -73,6 +73,22 @@ final class HarnessLibTest extends TestCase
         return $db;
     }
 
+    public function testNestedConditionGroupsRemainDistinctFromArithmeticOperands(): void
+    {
+        $db = $this->seededDb();
+        foreach ([
+            '((meta_id = 2))' => ['2'],
+            '(((meta_id <=> 2)))' => ['2'],
+            'post_id = 7 AND ((meta_id = 1 AND OCTET_LENGTH(meta_value) = 3))' => ['1'],
+            'post_id = 7 AND ((meta_id = 1) OR ((meta_id = 3)))' => ['1'],
+            'NOT (((meta_id = 2)))' => ['1', '3'],
+            '((meta_id + 1)) = 3' => ['2'],
+            '(meta_id + (1)) = 3' => ['2'],
+        ] as $condition => $expected) {
+            self::assertSame($expected, $db->get_col("SELECT meta_id FROM wp_postmeta WHERE $condition ORDER BY meta_id"));
+        }
+    }
+
     // ------------------------------------------------------ path constants
 
     /**

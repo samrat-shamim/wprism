@@ -327,6 +327,7 @@ return [
     'WPrism\\TermCapture' => 'src/Capture/TermCapture.php',
     'WPrism\\TermCoordinateWitness' => 'src/Kernel/TermCoordinateWitness.php',
     'WPrism\\TermMaterializer' => 'src/Apply/TermMaterializer.php',
+    'WPrism\\TermRows' => 'src/Kernel/TermRows.php',
     'WPrism\\TextTokenizer' => 'src/Kernel/TextTokenizer.php',
     'WPrism\\Tokens' => 'src/Grammar/Tokens.php',
     'WPrism\\TransactionAuthority' => 'src/Kernel/TransactionAuthority.php',

@@ -459,6 +459,7 @@ namespace {
     require_once $repoRoot . '/agent/src/Rebuild/NativeRewriteEffects.php';
     require_once dirname(__DIR__, 2) . '/package/runtime/providers/polylang-nav-menus.php';
     require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/polylang.php';
+    require_once dirname(__DIR__, 2) . '/fixtures/polylang_language_factory_double.php';
 
     use WPrism\Interpreters\Polylang;
     use WPrism\Providers\PolylangNavMenus;
@@ -1377,7 +1378,22 @@ namespace {
     $interpreter->option_rule('polylang', [
         'polylang' => serialize(['default_lang' => '', 'nav_menus' => []]),
     ]);
-    $normalized = $interpreter->normalize_captured_option_sub_keys(
+    require_once $repoRoot . '/sandbox/tests/lib/FakeWpdb.php';
+    require_once $repoRoot . '/agent/src/Adapter/ProviderSdk.php';
+    require_once $repoRoot . '/agent/src/Kernel/Db.php';
+    $captureDb = \WPrismTest\FakeWpdb::install()->enableInformationSchema();
+    $captureDb->seedTable('wp_terms', [])->seedTable('wp_term_taxonomy', [])
+        ->setTableEngine('wp_terms', 'InnoDB')->setTableEngine('wp_term_taxonomy', 'InnoDB');
+    $normalizeCapture = static function (...$arguments) use ($interpreter): array {
+        \WPrism\Db::start_read_only_consistent_snapshot('Polylang normalization fixture',
+            \WPrism\NativeDatabaseProfile::read_only(['wp_terms', 'wp_term_taxonomy']));
+        try {
+            return $interpreter->normalize_captured_option_sub_keys(...$arguments);
+        } finally {
+            \WPrism\Db::rollback('Polylang normalization fixture cleanup');
+        }
+    };
+    $normalized = $normalizeCapture(
         'polylang',
         ['nav_menus' => [], 'default_lang' => ''],
         $nativeSubKeys,
@@ -1396,7 +1412,7 @@ namespace {
         'nav_menus' => ['theme' => ['primary' => ['en' => 99]]],
     ]);
     $native = $installNative($rawMenuNative, $rawMenuNative);
-    $rawMenuOptions = $interpreter->normalize_captured_option_sub_keys(
+    $rawMenuOptions = $normalizeCapture(
         'polylang',
         [
             'default_lang' => 'en',

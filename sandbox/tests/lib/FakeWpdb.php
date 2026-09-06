@@ -4003,7 +4003,10 @@ class FakeWpdb {
 
     /**
      * Distinguish `( cond )` from `( expr )`: only a parenthesised group whose
-     * body contains a bare comparison/AND/OR at depth 1 is a condition.
+     * body contains a comparison/AND/OR is a condition, including an entirely
+     * nested group such as ((id = 7)). Arithmetic-only nesting stays an
+     * operand. TermRows' single-row size predicate exposed the old depth-1
+     * test: valid doubly-grouped SQL was misparsed as scalar arithmetic.
      */
     private function conditionFollows(): bool {
         $depth = 0;
@@ -4020,10 +4023,7 @@ class FakeWpdb {
                 }
                 continue;
             }
-            if ($depth !== 1) {
-                continue;
-            }
-            if ($token['t'] === 'op' && in_array($token['v'], ['=', '!=', '<>', '<', '<=', '>', '>='], true)) {
+            if ($token['t'] === 'op' && in_array($token['v'], ['=', '!=', '<>', '<', '<=', '>', '>=', '<=>'], true)) {
                 return true;
             }
             if ($token['t'] === 'word'
