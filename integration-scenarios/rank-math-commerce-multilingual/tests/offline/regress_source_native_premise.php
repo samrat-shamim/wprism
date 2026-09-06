@@ -536,7 +536,7 @@ if ($graphProgram !== '') {
         'individually admitted rows cannot exceed the complete taxonomy evidence byte budget');
 }
 $finalCapture = strpos($graphSource, 'capture_rmcombo_native_state TARGET_FINAL wp2 target-final');
-$rawComparison = strpos($graphSource, 'FINAL_DIFF=$(diff -rq');
-wprism_check($finalCapture !== false && $rawComparison !== false && $finalCapture < $rawComparison,
-    'the final native taxonomy graph survives a failed raw canonical comparison and disposable cleanup');
+$comparison = strpos($graphSource, "\nassert_rmcombo_semantic_recapture\n");
+wprism_check($finalCapture !== false && $comparison !== false && $finalCapture < $comparison,
+    'the final native taxonomy graph survives failed semantic convergence and disposable cleanup');
 wprism_check_summary('combined source and target native evidence');

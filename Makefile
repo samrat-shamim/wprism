@@ -1717,6 +1717,10 @@ regress-private-command-capture:
 regress-private-tree-evidence:
 	php sandbox/tests/offline/guards/regress_private_tree_evidence.php
 
+.PHONY: regress-repository-convergence
+regress-repository-convergence:
+	php sandbox/tests/offline/repository/regress_repository_convergence.php
+
 # One scalar must satisfy every declared local-id consumer without guessing.
 .PHONY: regress-scalar-reference-intersection
 regress-scalar-reference-intersection:

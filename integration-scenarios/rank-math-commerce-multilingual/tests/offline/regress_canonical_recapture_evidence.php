@@ -1,5 +1,5 @@
 <?php
-/** Replay the actual recapture acceptance/teardown caller; WordPress observations are fixture seams. */
+/** Replay actual private recapture retention; semantic/native acceptance has its own compiler-backed owner. */
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
@@ -25,7 +25,9 @@ $slice = static function (string $bytes, string $start, string $end): string {
 $assertions = $slice($live, 'assert_rmcombo_warning_free_capture() {', "\nassert_rmcombo_default_apply_ready() {");
 $definitions = $slice($live, 'capture_rmcombo_native_state() {', 'assert_rmcombo_source_native() {')
     . $slice($live, 'rmcombo_canonical_observation() {', 'run_leg() {');
-$window = ShellProbe::captureBlock($caller, 'TARGET_RECAPTURE', 'jq -en --argjson retried "$RETRY_RUNTIME" --argjson final "$TARGET_FINAL"');
+$retentionEnd = str_contains($caller, 'capture_rmcombo_native_state PRESERVATION_AFTER')
+    ? 'capture_rmcombo_native_state PRESERVATION_AFTER' : 'FINAL_DIFF=';
+$window = ShellProbe::captureBlock($caller, 'TARGET_RECAPTURE', $retentionEnd);
 $scratch = sys_get_temp_dir() . '/wprism-canonical-recapture-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700);
 $remove = static function (string $path): void {
@@ -107,9 +109,9 @@ foreach (['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong
     $case = $setup($fault);
     [$status, $stdout, $stderr] = ShellProbe::run($probe . "\n" . $assertions . "\n" . $definitions . "\n" . $window . "\nprintf 'CANONICAL_READY\\n'\n",
         [$root, $case, $fault], $root);
-    $healthy = in_array($fault, ['ready', 'command-compose'], true);
+    $healthy = in_array($fault, ['ready', 'command-compose', 'mismatch', 'source-drift'], true);
     wprism_check($healthy ? $status === 0 && str_contains($stdout, 'CANONICAL_READY') : $status !== 0 && !str_contains($stdout, 'CANONICAL_READY'),
-        "actual canonical caller classifies $fault without weakening complete equality (exit $status)");
+        "actual private retention classifies $fault before separate semantic acceptance (exit $status)");
     if ($healthy && $status !== 0) fwrite(STDERR, substr($stderr, 0, 2048));
     if (in_array($fault, ['missing-source', 'linked-source', 'large-source'], true)) {
         wprism_check(!file_exists($case . '/command-called'), "$fault baseline failure prevents the product command");
@@ -187,4 +189,4 @@ if (is_array($readySink)) {
             "actual post-teardown canonical validator classifies $fault");
     }
 }
-wprism_check_summary('combined canonical recapture retains full private bytes without waiving equality');
+wprism_check_summary('combined canonical recapture retains full private bytes before semantic acceptance');

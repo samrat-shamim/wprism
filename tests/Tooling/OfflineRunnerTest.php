@@ -711,6 +711,7 @@ final class OfflineRunnerTest extends TestCase
             'integration-scenario:rank-math-commerce-multilingual:offline:regress_canonical_recapture_evidence.php',
             'integration-scenario:rank-math-commerce-multilingual:offline:regress_deletion_boundary.php',
             'integration-scenario:rank-math-commerce-multilingual:offline:regress_rank_math_commerce_multilingual_contract.php',
+            'integration-scenario:rank-math-commerce-multilingual:offline:regress_recapture_convergence.php',
             'integration-scenario:rank-math-commerce-multilingual:offline:regress_source_native_premise.php',
             'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
         ], $targets);
@@ -831,7 +832,7 @@ final class OfflineRunnerTest extends TestCase
             'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
             $result['stderr']
         );
-        self::assertStringContainsString('6 selected task(s) from ', $result['stderr']);
+        self::assertStringContainsString('7 selected task(s) from ', $result['stderr']);
     }
 
     public function testChangedAdapterFilterThatMatchesNoScopedTaskIsAnError(): void

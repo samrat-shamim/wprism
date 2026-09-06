@@ -355,7 +355,8 @@ foreach ([
     'unsupported custom-CPT deletion refuses before canonical publication or target mutation',
     'combined unsupported deletion refusal changed native or target-runtime state',
     'no source tombstone is published and target native state is preserved',
-    'combined target recapture differs',
+    'assert_rmcombo_semantic_recapture',
+    'combined semantic/native convergence receipt is incomplete',
 ] as $witness) {
     wprism_check(str_contains($live, $witness), "the candidate-bound live scenario pins: $witness");
 }

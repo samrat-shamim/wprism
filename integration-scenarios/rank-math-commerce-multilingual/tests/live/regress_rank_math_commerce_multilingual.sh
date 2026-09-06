@@ -899,6 +899,58 @@ echo wp_json_encode([
 '
 }
 
+rmcombo_native_preservation() { # <wp2>; raw target-only ownership, separate from the existing runtime oracle
+  [ "$#" -eq 1 ] && [ "$1" = wp2 ] || fail 'target preservation observer requires the exact target'
+  capture_rmcombo_native_json 'Rank Math combination native preservation inventory' "$1" eval '
+global $wpdb;
+$neighbor = get_page_by_path("rmcombo-target-neighbor", OBJECT, "product");
+if (!$neighbor instanceof WP_Post || $neighbor->ID <= 0) throw new RuntimeException("native preservation neighbor is absent");
+$size = $wpdb->get_var($wpdb->prepare(
+    "SELECT OCTET_LENGTH(post_content)+OCTET_LENGTH(post_title)+OCTET_LENGTH(post_excerpt)+OCTET_LENGTH(to_ping)+OCTET_LENGTH(pinged)+OCTET_LENGTH(post_content_filtered) FROM {$wpdb->posts} WHERE ID=%d",
+    $neighbor->ID
+));
+if ($wpdb->last_error !== "" || !is_string($size) || !preg_match("/^(0|[1-9][0-9]{0,5})$/D", $size) || (int)$size > 65536) {
+    throw new RuntimeException("native preservation post size is unavailable or exceeds its bound");
+}
+$post = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->posts} WHERE ID=%d", $neighbor->ID), ARRAY_A);
+$columns = ["ID","post_author","post_date","post_date_gmt","post_content","post_title","post_excerpt","post_status","comment_status","ping_status","post_password","post_name","to_ping","pinged","post_modified","post_modified_gmt","post_content_filtered","post_parent","guid","menu_order","post_type","post_mime_type","comment_count"];
+if ($wpdb->last_error !== "" || !is_array($post) || array_keys($post) !== $columns
+    || $post["ID"] !== (string)$neighbor->ID || $post["post_type"] !== "product" || $post["post_name"] !== "rmcombo-target-neighbor") {
+    throw new RuntimeException("native preservation post row is incomplete or changed identity");
+}
+foreach ($post as $value) if (!is_string($value) || strlen($value) > 65536) throw new RuntimeException("native preservation post value is invalid or oversized");
+$login = null;
+if ($post["post_author"] !== "0") {
+    $login = $wpdb->get_var($wpdb->prepare("SELECT user_login FROM {$wpdb->users} WHERE ID=%d", (int)$post["post_author"]));
+    if ($wpdb->last_error !== "" || !is_string($login) || $login === "" || strlen($login) > 240) throw new RuntimeException("native preservation author is unavailable");
+}
+// Reuse the engine checked metadata owner reader, including its driver size,
+// hash and row-order proof. This fixture adds a smaller private-receipt budget;
+// it does not implement another metadata parser or permit partial inventories.
+$result = ["post"=>$post,"author_login"=>$login,
+    "postmeta"=>\WPrism\MetaRows::ordered($wpdb->postmeta,"post_id",$neighbor->ID,"meta_id","combined preservation post"),
+    "termmeta"=>[]];
+$count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->terms}");
+if ($wpdb->last_error !== "" || !is_string($count) || !preg_match("/^[1-9][0-9]{0,2}$/D",$count) || (int)$count > 256) {
+    throw new RuntimeException("native preservation term count is unavailable or oversized");
+}
+$ids = $wpdb->get_col("SELECT term_id FROM {$wpdb->terms} ORDER BY term_id LIMIT 257");
+if ($wpdb->last_error !== "" || !is_array($ids) || !array_is_list($ids) || count($ids) !== (int)$count || count(array_unique($ids)) !== count($ids)) {
+    throw new RuntimeException("native preservation term inventory is incomplete or changed");
+}
+foreach ($ids as $id) {
+    if (!is_string($id) || !preg_match("/^[1-9][0-9]*$/D",$id) || !is_int($number=filter_var($id,FILTER_VALIDATE_INT)) || $number <= 0) {
+        throw new RuntimeException("native preservation term identity is malformed");
+    }
+    $result["termmeta"][] = ["term_id"=>$id,"rows"=>\WPrism\MetaRows::ordered($wpdb->termmeta,"term_id",$number,"meta_id","combined preservation term")];
+    if (strlen(json_encode($result,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)) > 262144) {
+        throw new RuntimeException("native preservation inventory exceeds its private byte bound");
+    }
+}
+echo json_encode($result,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+'
+}
+
 product_response() { # <slug>
   local slug="$1" route host path response status body
   route=$(capture_rmcombo_native_json 'Rank Math combination product-route observation' wp2 eval '
@@ -1156,15 +1208,17 @@ echo wp_json_encode($routes);
   ' >/dev/null || fail 'fresh source permalink routes do not resolve to their exact authored native identities'
 }
 
-capture_rmcombo_native_state() { # <output variable> <wp1|wp2> <phase label>
-  [ "$#" -eq 3 ] || fail 'combined native capture requires output, site and phase'
+capture_rmcombo_native_state() { # <output variable> <wp1|wp2> <phase label> [declared observer]
+  [ "$#" -eq 3 ] || [ "$#" -eq 4 ] || fail 'combined native capture requires output, site and phase'
   local __rmcombo_native_output="$1" __rmcombo_native_side="$2" __rmcombo_native_phase="$3"
+  local __rmcombo_native_observer="${4:-native_state}"
   local __rmcombo_native_suffix __rmcombo_native_status=0 __rmcombo_native_directory __rmcombo_native_value __rmcombo_native_service
   [[ "$__rmcombo_native_output" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$__rmcombo_native_output" != __rmcombo_native_* ]] \
     || fail 'combined native capture output variable is malformed or reserved'
   [[ "$PAIR" =~ ^[a-z][a-z0-9]{2,23}$ ]] || fail 'combined native capture pair is malformed'
   case "$__rmcombo_native_side" in wp1) __rmcombo_native_service=cli1 ;; wp2) __rmcombo_native_service=cli2 ;; *) fail 'combined native capture site is unknown' ;; esac
   [[ "$__rmcombo_native_phase" =~ ^[a-z][a-z-]{0,47}$ ]] || fail 'combined native capture phase is malformed'
+  case "$__rmcombo_native_observer" in native_state|rmcombo_native_preservation) ;; *) fail 'combined native capture observer is undeclared' ;; esac
   # db96 retained only the failed retry's final value. Keep each complete
   # before/after observation outside site cleanup; admission grants no waiver
   # of the caller's unchanged native and full-isolation assertions.
@@ -1174,11 +1228,12 @@ capture_rmcombo_native_state() { # <output variable> <wp1|wp2> <phase label>
   for __rmcombo_native_suffix in stdout stderr exit; do
     (umask 077; set -C; : > "$__rmcombo_native_directory/native.$__rmcombo_native_suffix")
   done
-  wprism_private_capture_stage "$__rmcombo_native_directory" native native_state "$__rmcombo_native_side" || __rmcombo_native_status=$?
+  wprism_private_capture_stage "$__rmcombo_native_directory" native "$__rmcombo_native_observer" "$__rmcombo_native_side" || __rmcombo_native_status=$?
   __rmcombo_native_value=$(php "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/native-state-evidence.php" \
     "$__rmcombo_native_directory/native" "$PAIR" "$__rmcombo_native_service") || fail 'combined native capture failed bounded admission; inspect retained evidence'
   [ "$__rmcombo_native_status" -eq 0 ] || fail 'combined native observation did not succeed'
   printf -v "$__rmcombo_native_output" '%s' "$__rmcombo_native_value"
+  printf -v "${__rmcombo_native_output}_EVIDENCE" '%s' "$__rmcombo_native_directory/native"
 }
 
 assert_rmcombo_source_native() { # <seed receipt> <fresh native state> <metadata mode> <driver-owned source URL>
@@ -1300,6 +1355,7 @@ try {
         "/^ ?Container wprism-".$argv[3]."-cli2-run-[a-f0-9]+ (Creating|Created) *$/D");
 } catch (Throwable $error) { fwrite(STDERR,"canonical command admission failed; inspect private capture\n");exit(1); }
 ' "$ROOT" "$directory" "$PAIR" || fail "$1 did not retain one clean command object"
+  RMCOMBO_CANONICAL_EVIDENCE="$directory"
 }
 
 rmcombo_capture_target_recapture() {
@@ -1312,6 +1368,15 @@ rmcombo_capture_target_recapture() {
   wprism_private_command_capture "$ROOT/sandbox/tmp/wprism-rmcombo-canonical.$PAIR" \
     canonical_snapshot canonical_collect canonical_validator -- \
     wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final --format=json
+}
+
+assert_rmcombo_semantic_recapture() {
+  capture_wprism_json_success RMCOMBO_CONVERGENCE 'combined compiler/native convergence' \
+    php "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/recapture-convergence.php" \
+      "$ROOT" "$PAIR" "$RMCOMBO_CANONICAL_EVIDENCE" "$HOSTILE_NATIVE_EVIDENCE" "$TARGET_FINAL_EVIDENCE" \
+      "$PRESERVATION_BEFORE_EVIDENCE" "$PRESERVATION_PRECAPTURE_EVIDENCE" "$PRESERVATION_AFTER_EVIDENCE"
+  jq -e '.status == "ok" and .convergence.preserved_posts == 1 and .convergence.preserved_terms == 6 and .convergence.managed_entities > 0' \
+    <<<"$RMCOMBO_CONVERGENCE" >/dev/null || fail 'combined semantic/native convergence receipt is incomplete'
 }
 
 run_leg() { # <source order> <target order> <independent|synchronized>
@@ -1570,6 +1635,7 @@ jq -en --argjson source "$SOURCE_SEED" --argjson target "$TARGET_SEED" '
 ' >/dev/null || fail "custom product categories lost their within-host and cross-host divergence: $SOURCE_SEED / $TARGET_SEED"
 seed_rmcombo_stale_links
 capture_rmcombo_native_state HOSTILE_NATIVE wp2 target-hostile
+capture_rmcombo_native_state PRESERVATION_BEFORE wp2 target-preservation-before rmcombo_native_preservation
 jq -e '
   .modules == ["redirections","rich-snippet"] and
   all(.products[], .book;
@@ -2136,13 +2202,14 @@ capture_wprism_json_checked NOOP 'Rank Math combination no-op apply' assert_rmco
   wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REVISION" --format=json
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$NOOP" >/dev/null \
   || fail "combined no-op reran effects: $NOOP"
+capture_rmcombo_native_state PRESERVATION_PRECAPTURE wp2 target-preservation-precapture rmcombo_native_preservation
 capture_wprism_json_checked TARGET_RECAPTURE 'Rank Math combination target recapture' \
   assert_rmcombo_warning_free_recapture \
   rmcombo_capture_target_recapture
 capture_rmcombo_native_state TARGET_FINAL wp2 target-final
-FINAL_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-final" || true)
+capture_rmcombo_native_state PRESERVATION_AFTER wp2 target-preservation-after rmcombo_native_preservation
+assert_rmcombo_semantic_recapture
 rm -rf "$R2/.tmp-rmcombo-final"
-[ -z "$FINAL_DIFF" ] || fail "combined target recapture differs: $FINAL_DIFF"
 jq -en --argjson retried "$RETRY_RUNTIME" --argjson final "$TARGET_FINAL" '
   $final == $retried and $final.products.en.processed == true and $final.products.de.processed == true
 ' >/dev/null || fail "combined final native/runtime state was not an exact no-op: $TARGET_FINAL"
@@ -2150,7 +2217,7 @@ jq -en --argjson retried "$RETRY_RUNTIME" --argjson final "$TARGET_FINAL" '
   || fail 'combined retry/no-op path changed the applied portable Woo default category'
 product_response rmcombo-product-en >/dev/null
 product_response rmcombo-product-de >/dev/null
-pass "full source=$source_order target=$target_order path recaptures byte-identically and repeats with zero actions"
+pass "full source=$source_order target=$target_order path converges with exact native preservation and repeats with zero actions"
 
 say 'unsupported custom-CPT deletion refuses before canonical publication or target mutation'
 SOURCE_BOOK=$(jq -r '.book' <<<"$SOURCE_SEED")

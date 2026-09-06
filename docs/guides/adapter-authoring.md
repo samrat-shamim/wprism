@@ -2064,6 +2064,21 @@ are plan-time signals, not proof of corruption; each carries its own caveat
 note, because small ids legitimately coincide with counts, versions, and
 ordering indexes.
 
+For host-side evidence, compile each complete staged capture with
+`RepositoryCompiler::compile_staged()` and its own real repository/media root,
+then use `sandbox/tests/lib/RepositoryConvergence.php`. It compares semantic
+entity identities plus policy, code, effects, deletions and the complete media
+catalog. An explicitly named target-only signature is admissible only after
+the scenario proves its native preimage survived Apply and that Capture minted
+the exact corresponding UUID. Keep before-Apply, before-Capture and
+after-Capture observations separate: a declared provider may rebuild a derived
+marker row, while Capture may add identity metadata; neither permits omitting
+other metadata rows or accepting changes to authored fields. The four-plugin
+scenario also checks each extra canonical entity against its complete preserved
+authored preimage, including detached translation-group descriptions and
+memberships. Retained raw bytes remain diagnostic evidence; they are not a
+substitute for full compiler validation, nor permission to delete target content.
+
 **A finding on state your out-of-tree adapter declared blocks capture.** For a
 shipped or certified adapter every finding stays the advisory warning it always
 was; for an adapter installed out-of-tree that nothing has certified — including
