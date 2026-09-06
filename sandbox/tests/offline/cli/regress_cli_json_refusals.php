@@ -1077,9 +1077,78 @@ namespace {
         'a private cause beyond the record budget is prioritized and ordinary omissions are explicit'
     );
 
+    $publicPrevious = new RuntimeException('safe typed engine previous');
+    $typedQueryFailure = new \WPrism\DatabaseQueryIsolationViolationException(
+        'wprism: a native database read escaped its declared physical-table profile',
+        71,
+        $publicPrevious
+    );
+    $typedRendering = (string) $typedQueryFailure;
+    \WPrism\Capture::$failure = $typedQueryFailure;
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    $typedPublicBefore = WP_CLI::$lines;
+    $privateQuery = new RuntimeException("SELECT secret FROM wp_private WHERE token='PRIVATE_TYPED_QUERY_CAUSE'");
+    $privateProfile = new RuntimeException('PRIVATE_TYPED_QUERY_PROFILE');
+    $typedQueryFailure->retain_private_evidence($privateQuery, $privateProfile);
+    check(
+        $typedQueryFailure->getCode() === 71
+            && $typedQueryFailure->getPrevious() === $publicPrevious
+            && (string) $typedQueryFailure === $typedRendering,
+        'private annotation preserves the same typed exception code, standard previous and full public string rendering'
+    );
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    check(WP_CLI::$lines === $typedPublicBefore,
+        'the actual CLI publishes byte-identical machine output before and after typed private annotation');
+    $typedQueryRecord = $findPrivateRecord($providerEvidenceRepo, 'PRIVATE_TYPED_QUERY_CAUSE');
+    check(
+        is_array($typedQueryRecord)
+            && ($typedQueryRecord['throwable'][0]['class'] ?? null) === \WPrism\DatabaseQueryIsolationViolationException::class
+            && ($typedQueryRecord['throwable'][1]['message'] ?? null) === $privateQuery->getMessage()
+            && ($typedQueryRecord['throwable'][2]['message'] ?? null) === $privateProfile->getMessage()
+            && ($typedQueryRecord['throwable'][1]['relation'] ?? null) === 'private_evidence'
+            && ($typedQueryRecord['throwable'][2]['relation'] ?? null) === 'private_evidence'
+            && ($typedQueryRecord['traversal']['private_edges'] ?? null) === 2,
+        'the real eligible CLI writer retains query and profile under the original typed root'
+    );
+    $rebindRefused = false;
+    try {
+        $typedQueryFailure->retain_private_evidence(new RuntimeException('replacement private cause'));
+    } catch (LogicException) {
+        $rebindRefused = true;
+    }
+    check($rebindRefused && $typedQueryFailure->private_evidence_causes() === [$privateQuery, $privateProfile],
+        'a later annotation cannot replace the original private cause roster');
+    check(
+        (new ReflectionMethod(\WPrism\PrivateEvidenceCarrierException::class, 'private_evidence_causes'))->isFinal()
+            && (new ReflectionMethod(\WPrism\PrivateEvidenceCarrierException::class, 'retain_private_evidence'))->isFinal(),
+        'private traversal and attachment dispatch only final engine methods, never adapter-overridden callbacks'
+    );
+    $GLOBALS['private_evidence_lookalike_calls'] = 0;
+    $lookalike = new class('ordinary external exception') extends RuntimeException {
+        public function private_evidence_causes(): array {
+            $GLOBALS['private_evidence_lookalike_calls']++;
+            return [new RuntimeException('lookalike private callback')];
+        }
+    };
+    $lookalikeGraph = \WPrism\PrivateRefusalEvidence::graph($lookalike);
+    check($GLOBALS['private_evidence_lookalike_calls'] === 0 && $lookalikeGraph['traversal']['private_edges'] === 0,
+        'a throwable with a lookalike private method cannot execute a callback during evidence traversal');
+    $emptyCarrier = new \WPrism\DatabaseQueryIsolationViolationException('empty typed cause beyond budget');
+    $ordinaryChain = $emptyCarrier;
+    for ($depth = 0; $depth < 70; $depth++) {
+        $ordinaryChain = new RuntimeException('ordinary typed-wrapper depth ' . $depth, 0, $ordinaryChain);
+    }
+    $emptyCarrierGraph = \WPrism\PrivateRefusalEvidence::graph($ordinaryChain);
+    check(
+        $emptyCarrierGraph['traversal']['private_edges'] === 0
+            && !in_array(\WPrism\DatabaseQueryIsolationViolationException::class,
+                array_column($emptyCarrierGraph['throwable'], 'class'), true),
+        'an empty typed carrier never displaces ordinary evidence under the private-priority budget'
+    );
+
     $graph = new ReflectionMethod(\WPrism\PrivateRefusalEvidence::class, 'graph');
     $cycle = new \WPrism\PrivateEvidenceException('safe private-evidence cycle', new RuntimeException('seed'));
-    $cycleCauses = new ReflectionProperty(\WPrism\PrivateEvidenceException::class, 'privateEvidenceCauses');
+    $cycleCauses = new ReflectionProperty(\WPrism\PrivateEvidenceCarrierException::class, 'privateEvidenceCauses');
     $cycleCauses->setValue($cycle, [$cycle]);
     $cycleGraph = $graph->invoke(null, $cycle);
     check(
@@ -1464,8 +1533,10 @@ namespace {
     );
     \WPrism\Init::$failure = null;
     foreach (glob($freshRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($freshRepo . '/.wprism/refusals'); @rmdir($freshRepo . '/.wprism');
-    @unlink($freshRepo . '/site.wprism.json'); @rmdir($freshRepo);
+    @rmdir($freshRepo . '/.wprism/refusals');
+    @rmdir($freshRepo . '/.wprism');
+    @unlink($freshRepo . '/site.wprism.json');
+    @rmdir($freshRepo);
 
     // The live case: same path, different inode.
     $swapped = sys_get_temp_dir() . '/wprism-cli-json-refusal-swapped-' . bin2hex(random_bytes(6));
@@ -1481,33 +1552,50 @@ namespace {
         'and refuses once that path names a different directory, even one that is itself a WPrism repository'
     );
     $snapshot->setValue(null, null);
-    @unlink($swapped . '/site.wprism.json'); @rmdir($swapped);
-    @unlink($reviewed . '/site.wprism.json'); @rmdir($reviewed);
+    @unlink($swapped . '/site.wprism.json');
+    @rmdir($swapped);
+    @unlink($reviewed . '/site.wprism.json');
+    @rmdir($reviewed);
 
     foreach (glob($evidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($evidenceRepo . '/.wprism/refusals'); @rmdir($evidenceRepo . '/.wprism');
-    @unlink($evidenceRepo . '/site.wprism.json'); @rmdir($evidenceRepo);
+    @rmdir($evidenceRepo . '/.wprism/refusals');
+    @rmdir($evidenceRepo . '/.wprism');
+    @unlink($evidenceRepo . '/site.wprism.json');
+    @rmdir($evidenceRepo);
     @unlink($leafOutside);
     foreach (glob($providerEvidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($providerEvidenceRepo . '/.wprism/refusals'); @rmdir($providerEvidenceRepo . '/.wprism');
-    @unlink($providerEvidenceRepo . '/site.wprism.json'); @rmdir($providerEvidenceRepo);
+    @rmdir($providerEvidenceRepo . '/.wprism/refusals');
+    @rmdir($providerEvidenceRepo . '/.wprism');
+    @unlink($providerEvidenceRepo . '/site.wprism.json');
+    @rmdir($providerEvidenceRepo);
     foreach (glob($typedEvidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($typedEvidenceRepo . '/.wprism/refusals'); @rmdir($typedEvidenceRepo . '/.wprism');
-    @unlink($typedEvidenceRepo . '/site.wprism.json'); @rmdir($typedEvidenceRepo);
+    @rmdir($typedEvidenceRepo . '/.wprism/refusals');
+    @rmdir($typedEvidenceRepo . '/.wprism');
+    @unlink($typedEvidenceRepo . '/site.wprism.json');
+    @rmdir($typedEvidenceRepo);
     foreach (glob($checkpointRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($checkpointRepo . '/.wprism/refusals'); @rmdir($checkpointRepo . '/.wprism/checkpoints');
-    @rmdir($checkpointRepo . '/.wprism'); @rmdir($checkpointRepo);
+    @rmdir($checkpointRepo . '/.wprism/refusals');
+    @rmdir($checkpointRepo . '/.wprism/checkpoints');
+    @rmdir($checkpointRepo . '/.wprism');
+    @rmdir($checkpointRepo);
     foreach ([$adoptedModeRepo, $stickyModeRepo, $writableModeRepo] as $modeRepo) {
         foreach (glob($modeRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
         if (is_dir($modeRepo . '/.wprism/refusals')) rmdir($modeRepo . '/.wprism/refusals');
         @rmdir($modeRepo . '/.wprism/control');
-        @rmdir($modeRepo . '/.wprism'); @rmdir($modeRepo);
+        @rmdir($modeRepo . '/.wprism');
+        @rmdir($modeRepo);
     }
-    @unlink($linkPath); @unlink($linkTarget . '/site.wprism.json'); @rmdir($linkTarget);
-    @unlink($controlLinkRepo . '/.wprism'); @unlink($controlLinkRepo . '/site.wprism.json');
-    @rmdir($controlLinkRepo); @rmdir($controlLinkOutside);
-    @unlink($refusalLinkRepo . '/.wprism/refusals'); @rmdir($refusalLinkRepo . '/.wprism');
-    @rmdir($refusalLinkRepo); @rmdir($refusalLinkOutside);
+    @unlink($linkPath);
+    @unlink($linkTarget . '/site.wprism.json');
+    @rmdir($linkTarget);
+    @unlink($controlLinkRepo . '/.wprism');
+    @unlink($controlLinkRepo . '/site.wprism.json');
+    @rmdir($controlLinkRepo);
+    @rmdir($controlLinkOutside);
+    @unlink($refusalLinkRepo . '/.wprism/refusals');
+    @rmdir($refusalLinkRepo . '/.wprism');
+    @rmdir($refusalLinkRepo);
+    @rmdir($refusalLinkOutside);
 
     echo "\n== issue #3397: refresh-export and scope answer machines with the same envelope ==\n";
     $productLeakShapes = [

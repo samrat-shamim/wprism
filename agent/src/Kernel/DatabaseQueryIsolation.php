@@ -821,6 +821,30 @@ final class DatabaseQueryIsolation {
         string $structure,
         NativeDatabaseProfile $profile
     ): void {
+        try {
+            self::assert_profiled_query_access($sql, $structure, $profile);
+        } catch (DatabaseQueryIsolationViolationException $failure) {
+            // A native co-install read can exceed the capsule's declared
+            // profile. Keep the exact rejected query and authority private:
+            // the typed refusal, poison state and public sentence stay intact,
+            // and the existing recorder owns byte bounds and truncation.
+            $failure->retain_private_evidence(
+                new \RuntimeException($sql),
+                new \RuntimeException('wprism: native database profile: ' . serialize([
+                    'readable_tables' => $profile->readable_tables(),
+                    'write_tables' => $profile->write_tables(),
+                    'table_presence_reads' => $profile->table_presence_reads(),
+                ]))
+            );
+            throw $failure;
+        }
+    }
+
+    private static function assert_profiled_query_access(
+        string $sql,
+        string $structure,
+        NativeDatabaseProfile $profile
+    ): void {
         $presenceTable = self::table_presence_identifier($sql);
         if ($presenceTable !== null) {
             $allowed = array_fill_keys(array_merge(

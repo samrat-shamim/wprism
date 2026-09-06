@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/PrivateEvidenceCarrierException.php';
+
 /** A checked database mutation failed without exposing rendered SQL values. */
 final class DatabaseMutationException extends \RuntimeException {
     public string $mutationContext;
@@ -28,4 +30,4 @@ final class DatabaseTransactionOutcomeException extends \RuntimeException {
 }
 
 /** WordPress's mutable query-hook topology changed inside an isolated boundary. */
-final class DatabaseQueryIsolationViolationException extends \RuntimeException {}
+final class DatabaseQueryIsolationViolationException extends PrivateEvidenceCarrierException {}

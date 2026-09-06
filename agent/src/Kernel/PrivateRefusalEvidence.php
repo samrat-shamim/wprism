@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/PrivateEvidenceCarrierException.php';
 require_once __DIR__ . '/PrivateEvidenceException.php';
 
 /**
@@ -10,7 +11,7 @@ require_once __DIR__ . '/PrivateEvidenceException.php';
  *
  * Provider failures can contain credentials, target data, and local paths, so
  * they cannot use Throwable::$previous without making ordinary log rendering a
- * disclosure channel. PrivateEvidenceException keeps that public/operator
+ * disclosure channel. PrivateEvidenceCarrierException keeps that public/operator
  * boundary closed; this dependency-free kernel service is the one deliberate
  * crossing point, and only into a 0600 file below a bound 0700 refusal
  * directory. Its existing `.wprism` parent may use the product's historical
@@ -91,7 +92,7 @@ final class PrivateRefusalEvidence {
             $visited[$objectId] = $index;
             $scanned[] = $entry;
 
-            if ($cause instanceof PrivateEvidenceException) {
+            if ($cause instanceof PrivateEvidenceCarrierException) {
                 $privateCauses = $cause->private_evidence_causes();
                 $privateEdges += count($privateCauses);
                 $privatePosition = 0;
@@ -138,7 +139,9 @@ final class PrivateRefusalEvidence {
         }
         foreach ($scanned as $index => $entry) {
             if ($index !== 0
-                && ($entry['private_path'] || $entry['throwable'] instanceof PrivateEvidenceException)) {
+                && ($entry['private_path']
+                    || ($entry['throwable'] instanceof PrivateEvidenceCarrierException
+                        && $entry['throwable']->private_evidence_causes() !== []))) {
                 $priority[] = $index;
             }
         }

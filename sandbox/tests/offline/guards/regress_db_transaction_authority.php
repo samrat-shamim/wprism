@@ -10,14 +10,20 @@
  */
 declare(strict_types=1);
 
+$runtimeRoot = realpath($argv[1] ?? dirname(__DIR__, 4));
+if (!is_string($runtimeRoot) || !is_file($runtimeRoot . '/agent/src/Kernel/Db.php')) {
+    throw new RuntimeException('database authority fixture needs one complete runtime tree');
+}
+
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/NativeDatabaseProfile.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/NativeTableDefinition.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/DatabaseTablePresence.php';
-require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require_once $runtimeRoot . '/agent/src/Kernel/TransientDbException.php';
+require_once $runtimeRoot . '/agent/src/Kernel/NativeDatabaseProfile.php';
+require_once $runtimeRoot . '/agent/src/Kernel/NativeTableDefinition.php';
+require_once $runtimeRoot . '/agent/src/Kernel/DatabaseTablePresence.php';
+require_once $runtimeRoot . '/agent/src/Kernel/Db.php';
+require_once $runtimeRoot . '/agent/src/Kernel/PrivateRefusalEvidence.php';
 
 use WPrism\DatabaseMutationException;
 use WPrism\DatabaseQueryIsolationViolationException;
@@ -89,6 +95,90 @@ function db_authority_guarded_delete(
         $authority->connection_id(),
         $authority->session_nonce()
     );
+}
+
+foreach ([
+    'unreviewed native read' => [
+        "SELECT k FROM wp_unreviewed WHERE k='private_profile_read_canary'",
+        'wprism: a native database read escaped its declared physical-table profile',
+    ],
+    'unreviewed native write' => [
+        "UPDATE wp_wprism_kv SET v='private_profile_write_canary' WHERE k='x'",
+        'wprism: a native database mutation escaped its declared physical-table profile',
+    ],
+    'unreviewed native presence' => [
+        'SHOW CREATE TABLE `wp_private_profile_presence_canary`',
+        'wprism: a table-presence read escaped its declared physical-table profile',
+    ],
+    'inexact native presence' => [
+        "SHOW TABLES LIKE 'wp_private_profile_presence_canary'",
+        'wprism: a table-presence SHOW did not carry exact LIKE evidence',
+    ],
+    'closed native query grammar' => [
+        'SELECT * FROM wp_wprism_kv NATURAL JOIN wp_private_profile_grammar_canary',
+        'wprism: a query form is outside the closed native database profile grammar',
+    ],
+    'binary native query' => [
+        "SELECT k FROM wp_unreviewed WHERE k='private_profile_binary_\xff'",
+        'wprism: a native database read escaped its declared physical-table profile',
+    ],
+    'oversized native query' => [
+        "SELECT k FROM wp_unreviewed WHERE k='private_profile_long_" . str_repeat('x', 8192) . "'",
+        'wprism: a native database read escaped its declared physical-table profile',
+    ],
+] as $label => [$sql, $publicMessage]) {
+    $wpdb = db_authority_fixture();
+    $profile = db_authority_profile(['wp_wprism_kv']);
+    Db::start('private native profile evidence', $profile);
+    $dispatched = 0;
+    $wpdb->onQuery(static function (string $query) use ($sql, &$dispatched): null {
+        if ($query === $sql) {
+            $dispatched++;
+        }
+        return null;
+    });
+    $failure = db_authority_failure(static fn() => $wpdb->query($sql));
+    wprism_check($failure instanceof DatabaseQueryIsolationViolationException,
+        "$label retains the typed isolation refusal");
+    wprism_check_same($publicMessage, $failure?->getMessage(),
+        "$label preserves its exact public/operator sentence");
+    wprism_check_same(0, $failure?->getCode(), "$label preserves its exception code");
+    wprism_check_same(null, $failure?->getPrevious(),
+        "$label cannot expose rejected SQL through the standard previous chain");
+    wprism_check_same(0, $dispatched, "$label never dispatches the rejected statement to the database");
+    if (!$failure instanceof Throwable) {
+        continue;
+    }
+    $graph = \WPrism\PrivateRefusalEvidence::graph($failure);
+    $queryNode = $graph['throwable'][1] ?? [];
+    $profileNode = $graph['throwable'][2] ?? [];
+    $privateQuery = ($queryNode['message_encoding'] ?? null) === 'base64'
+        ? base64_decode($queryNode['message'], true)
+        : ($queryNode['message'] ?? null);
+    wprism_check_same(substr($sql, 0, 4096), $privateQuery,
+        "$label retains exact query bytes within the existing private field bound");
+    wprism_check_same(strlen($sql), $queryNode['message_original_bytes'] ?? null,
+        "$label records the complete original query length");
+    wprism_check_same(hash('sha256', $sql), $queryNode['message_sha256'] ?? null,
+        "$label records the complete original query hash");
+    wprism_check_same(strlen($sql) > 4096, $queryNode['message_truncated'] ?? null,
+        "$label makes private byte truncation explicit");
+    wprism_check_same('wprism: native database profile: ' . serialize([
+        'readable_tables' => $profile->readable_tables(),
+        'write_tables' => $profile->write_tables(),
+        'table_presence_reads' => $profile->table_presence_reads(),
+    ]), $profileNode['message'] ?? null,
+        "$label retains the exact physical profile without broadening it");
+    wprism_check_same([[0, 'private_evidence'], [0, 'private_evidence']], [
+        [$queryNode['parent_index'] ?? null, $queryNode['relation'] ?? null],
+        [$profileNode['parent_index'] ?? null, $profileNode['relation'] ?? null],
+    ], "$label keeps both diagnostics private and attached to the original typed refusal");
+    $poisoned = db_authority_failure(static fn() => $wpdb->query('SELECT COUNT(*) FROM wp_wprism_kv'));
+    wprism_check($poisoned instanceof DatabaseQueryIsolationViolationException,
+        "$label still poisons ordinary continuation after the caught refusal");
+    Db::rollback_after_failure($failure, 'private native profile rollback');
+    wprism_check_same([], $wpdb->rows('wp_wprism_kv'),
+        "$label cleanup retains every original row");
 }
 
 $wpdb = db_authority_fixture();

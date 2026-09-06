@@ -1,5 +1,5 @@
 {
-    "class_count": 480,
+    "class_count": 481,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -16357,7 +16357,7 @@
             ],
             "kind": "class",
             "methods": [],
-            "parent": "RuntimeException",
+            "parent": "WPrism\\PrivateEvidenceCarrierException",
             "properties": [],
             "readonly": false
         },
@@ -55644,6 +55644,54 @@
             },
             "readonly": true
         },
+        "WPrism\\PrivateEvidenceCarrierException": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "kind": "class",
+            "methods": {
+                "private_evidence_causes": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "retain_private_evidence": {
+                    "abstract": false,
+                    "final": true,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cause",
+                            "type": "Throwable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "additionalCauses",
+                            "type": "Throwable",
+                            "variadic": true
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": "RuntimeException",
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\PrivateEvidenceException": {
             "abstract": false,
             "constants": [],
@@ -55686,17 +55734,9 @@
                     "return_type": null,
                     "static": false,
                     "visibility": "public"
-                },
-                "private_evidence_causes": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [],
-                    "return_type": "array",
-                    "static": false,
-                    "visibility": "public"
                 }
             },
-            "parent": "RuntimeException",
+            "parent": "WPrism\\PrivateEvidenceCarrierException",
             "properties": [],
             "readonly": false
         },

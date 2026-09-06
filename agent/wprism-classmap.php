@@ -217,6 +217,7 @@ return [
     'WPrism\\PostTypeGrammar' => 'src/Grammar/PostTypeGrammar.php',
     'WPrism\\PostTypeRelationResolver' => 'src/Grammar/PostTypeRelationResolver.php',
     'WPrism\\PreparedApply' => 'src/Apply/PreparedApply.php',
+    'WPrism\\PrivateEvidenceCarrierException' => 'src/Kernel/PrivateEvidenceCarrierException.php',
     'WPrism\\PrivateEvidenceException' => 'src/Kernel/PrivateEvidenceException.php',
     'WPrism\\PrivateRefusalEvidence' => 'src/Kernel/PrivateRefusalEvidence.php',
     'WPrism\\ProcessFence' => 'src/Kernel/ProcessFence.php',

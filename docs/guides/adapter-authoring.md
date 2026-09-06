@@ -907,6 +907,17 @@ an incomplete diagnostic is not an exact-cause certificate. Do not add a
 plugin-owned subprocess logger or publish opaque child output to recover a
 missing cause.
 
+Typed engine refusals can retain private causes without changing their class,
+code, standard previous chain or operator sentence. The callback-free
+`PrivateEvidenceCarrierException` base binds those causes once through final
+engine methods; the private recorder must never duck-call a similarly named
+method on an arbitrary plugin throwable. The native database boundary retains
+its exact rejected SQL and physical-table profile through this channel before
+rethrowing the same isolation refusal. Use that evidence to identify a missing
+semantic read, not to widen the profile speculatively or publish SQL publicly.
+The existing query refusal, poisoned state and rollback authority remain the
+gate; diagnostic retention grants no additional table access.
+
 `adapter-package-validate` is a static regression guard for that boundary in
 package runtime PHP. It refuses known direct process, transaction, raw-DML and
 include spellings, but it is not a hostile-PHP sandbox; digest review and

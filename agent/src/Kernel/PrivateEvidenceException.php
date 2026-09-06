@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/PrivateEvidenceCarrierException.php';
+
 /**
  * Stable public/operator sentence with a cause reserved for private evidence.
  *
@@ -14,21 +16,13 @@ namespace WPrism;
  * `.wprism/refusals/` record; ordinary getMessage(), getPrevious(), and
  * Throwable string rendering retain only the reviewed wrapper sentence.
  */
-final class PrivateEvidenceException extends \RuntimeException {
-    /** @var non-empty-list<\Throwable> */
-    private array $privateEvidenceCauses;
-
+final class PrivateEvidenceException extends PrivateEvidenceCarrierException {
     public function __construct(
         string $message,
         \Throwable $privateEvidenceCause,
         \Throwable ...$additionalPrivateEvidenceCauses
     ) {
-        $this->privateEvidenceCauses = [$privateEvidenceCause, ...$additionalPrivateEvidenceCauses];
+        $this->retain_private_evidence($privateEvidenceCause, ...$additionalPrivateEvidenceCauses);
         parent::__construct($message);
-    }
-
-    /** @return non-empty-list<\Throwable> */
-    public function private_evidence_causes(): array {
-        return $this->privateEvidenceCauses;
     }
 }
