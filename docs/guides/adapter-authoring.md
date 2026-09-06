@@ -907,6 +907,16 @@ an incomplete diagnostic is not an exact-cause certificate. Do not add a
 plugin-owned subprocess logger or publish opaque child output to recover a
 missing cause.
 
+The same rule applies to engine-owned native children. `rewrite.flush` uses
+the shared rejected-capture helper for unknown exit statuses, warnings and
+malformed or invalid receipts, and retains a launch exception privately. Its
+reviewed native-error whitelist, receipt grammar and public sentences remain
+separate from transport diagnostics. Test raw whitespace and binary streams,
+field truncation with original hashes, parser causes and the real CLI private
+writer; also prove a rejected post-mutation receipt does not trigger another
+native invocation or masquerade as a rollback. Reuse this engine mechanism
+instead of putting another child logger in a plugin executable.
+
 Typed engine refusals can retain private causes without changing their class,
 code, standard previous chain or operator sentence. The callback-free
 `PrivateEvidenceCarrierException` base binds those causes once through final
