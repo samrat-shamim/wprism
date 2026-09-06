@@ -1556,6 +1556,17 @@ plugin faithfully.
    A diagnostic-only record remains unverified; expected-cause acceptance
    still requires the separate exact profile below. Never expose the private
    cause publicly or call a diagnostic failure a product rollback.
+   A canonical fixed-point failure also needs the complete files, not merely
+   `diff -rq` names or hashes. The combined commerce scenario at `9952f144`
+   lost both trees during teardown, leaving managed product differences
+   indistinguishable from target-only authored entities. Use the shared
+   `FilesystemTreeEvidence` reader with `private_command_capture.sh` to retain
+   source-before, source-after and recapture bytes before comparing or deleting
+   them. Its engine-backed confinement and closed byte/topology decoder remain
+   generic test machinery; the caller owns the selected roots, phase binding
+   and equality assertion. Preserve target-only files and empty directories in
+   this diagnostic. Do not normalize away differences to make the test pass,
+   and do not treat a successfully retained record as proof of equality.
    Inspect private records from a standalone, non-WordPress process running as
    the target CLI identity: the store is intentionally `0700`/`0600`, so host
    traversal that happens to work through Docker Desktop is not portable to a

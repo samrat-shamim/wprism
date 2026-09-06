@@ -1713,6 +1713,10 @@ regress-private-refusal-receipt:
 regress-private-command-capture:
 	php sandbox/tests/offline/guards/regress_private_command_capture.php
 
+.PHONY: regress-private-tree-evidence
+regress-private-tree-evidence:
+	php sandbox/tests/offline/guards/regress_private_tree_evidence.php
+
 # One scalar must satisfy every declared local-id consumer without guessing.
 .PHONY: regress-scalar-reference-intersection
 regress-scalar-reference-intersection:

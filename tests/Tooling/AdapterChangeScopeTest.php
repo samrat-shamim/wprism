@@ -39,6 +39,7 @@ final class AdapterChangeScopeTest extends TestCase
             [
                 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh',
+                'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_canonical_recapture_evidence.php',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_deletion_boundary.php',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php',

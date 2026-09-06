@@ -330,7 +330,8 @@ foreach ([
         $position !== false
             && substr_count($live, $capture) === 1
             && str_contains($window, "'$label'")
-            && str_contains($window, 'assert_rmcombo_warning_free_capture'),
+            && str_contains($window, $answer === 'TARGET_RECAPTURE'
+                ? 'assert_rmcombo_warning_free_recapture' : 'assert_rmcombo_warning_free_capture'),
         "$answer retains complete-stream, warning-free positive capture evidence"
     );
 }
@@ -1962,7 +1963,7 @@ foreach ([
         'NOOP',
         'Rank Math combination no-op apply',
         'assert_rmcombo_default_apply_ready',
-        'wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final',
+        'capture_wprism_json_checked TARGET_RECAPTURE',
     ],
 ] as [$answer, $label, $callback, $observation]) {
     $checkedCapture = strpos(

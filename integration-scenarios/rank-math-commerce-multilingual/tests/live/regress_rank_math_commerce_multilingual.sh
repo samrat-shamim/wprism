@@ -1199,6 +1199,81 @@ echo json_encode($result,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
 ' "$ROOT" "$1" "$PAIR"
 }
 
+rmcombo_canonical_observation() { # <baseline|recapture> [baseline stdout path]
+  php -r '
+require $argv[1]."/sandbox/tests/lib/FilesystemTreeEvidence.php";
+require $argv[1]."/sandbox/tests/lib/PrivateCommandOutput.php";
+if (preg_match("/^[a-z][a-z0-9]{2,23}$/D",$argv[2])!==1 || !in_array($argv[3],["baseline","recapture"],true)) {
+    throw new RuntimeException("canonical observation binding is invalid");
+}
+$source=$argv[1]."/sandbox/siterepo/".$argv[2]."1";
+$target=$argv[1]."/sandbox/siterepo/".$argv[2]."2";
+$record=["format"=>"wprism-private-canonical-observation/v1","authority"=>false,"pair"=>$argv[2],"phase"=>$argv[3],
+    "source"=>\WPrismTest\FilesystemTreeEvidence::capture($source,"state")];
+if ($argv[3]==="recapture") {
+    if (!str_ends_with($argv[4],"/baseline.stdout")) throw new RuntimeException("canonical baseline binding is invalid");
+    $baseline=\WPrismTest\PrivateCommandOutput::readObject(substr($argv[4],0,-7));
+    $record["baseline_sha256"]=hash("sha256",$baseline);
+    $record["recapture"]=\WPrismTest\FilesystemTreeEvidence::capture($target,".tmp-rmcombo-final");
+}
+echo json_encode($record,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
+' "$ROOT" "$PAIR" "$1" "${2:-}"
+}
+
+rmcombo_validate_canonical_observation() { # <private baseline|private stem>; silent on success
+  php -r '
+require $argv[1]."/sandbox/tests/lib/FilesystemTreeEvidence.php";
+require $argv[1]."/sandbox/tests/lib/PrivateCommandOutput.php";
+$phase=match(basename($argv[3])) {"baseline"=>"baseline","private"=>"recapture",default=>throw new RuntimeException("canonical evidence phase is invalid")};
+$record=json_decode(\WPrismTest\PrivateCommandOutput::readObject($argv[3]),true,32,JSON_THROW_ON_ERROR);
+$keys=array_keys($record);sort($keys,SORT_STRING);
+$expected=$phase==="baseline" ? ["authority","format","pair","phase","source"] : ["authority","baseline_sha256","format","pair","phase","recapture","source"];
+if ($keys!==$expected || $record["format"]!=="wprism-private-canonical-observation/v1" || $record["authority"]!==false
+    || $record["pair"]!==$argv[2] || $record["phase"]!==$phase) throw new RuntimeException("canonical evidence envelope is invalid");
+\WPrismTest\FilesystemTreeEvidence::assertRecord($record["source"],"state");
+if (($record["source"]["directories"][0]??null)!=="") throw new RuntimeException("canonical source is not a directory tree");
+if ($phase==="recapture") {
+    $baseline=\WPrismTest\PrivateCommandOutput::readObject(dirname($argv[3])."/baseline");
+    if ($record["baseline_sha256"]!==hash("sha256",$baseline)) throw new RuntimeException("canonical evidence lost its exact baseline");
+    \WPrismTest\FilesystemTreeEvidence::assertRecord($record["recapture"],".tmp-rmcombo-final");
+    if (($record["recapture"]["directories"][0]??null)!=="") throw new RuntimeException("canonical recapture is not a directory tree");
+}
+' "$ROOT" "$PAIR" "$1"
+}
+
+assert_rmcombo_warning_free_recapture() { # <what> <complete public transport>
+  assert_rmcombo_warning_free_capture "$1" "$2"
+  local directory
+  directory=$(jq -Rrse --arg prefix "private command diagnostics (unverified): $ROOT/sandbox/tmp/wprism-rmcombo-canonical.$PAIR." '
+    split("\n") | map(select(startswith($prefix)))
+    | if length == 1 and (.[0] | ltrimstr($prefix) | test("^[A-Za-z0-9]{6}$"))
+      then .[0] | ltrimstr("private command diagnostics (unverified): ")
+      else error("missing or ambiguous canonical command capture") end
+  ' <<<"$2") || fail "$1 lacks its exact private command capture"
+  # The mixed public stream selects a final receipt. Its saved original
+  # stdout must independently contain one object, not two convincing replies.
+  php -r '
+require $argv[1]."/sandbox/tests/lib/PrivateCommandOutput.php";
+try {
+    if (preg_match("/^[a-z][a-z0-9]{2,23}$/D",$argv[3])!==1) throw new RuntimeException("invalid pair");
+    \WPrismTest\PrivateCommandOutput::readObject($argv[2]."/command",
+        "/^ ?Container wprism-".$argv[3]."-cli2-run-[a-f0-9]+ (Creating|Created) *$/D");
+} catch (Throwable $error) { fwrite(STDERR,"canonical command admission failed; inspect private capture\n");exit(1); }
+' "$ROOT" "$directory" "$PAIR" || fail "$1 did not retain one clean command object"
+}
+
+rmcombo_capture_target_recapture() {
+  local canonical_snapshot=(rmcombo_canonical_observation baseline)
+  local canonical_collect=(rmcombo_canonical_observation recapture)
+  local canonical_validator=(rmcombo_validate_canonical_observation)
+  # 9952 kept only diff -rq filenames, then removed both trees on failure.
+  # Retain exact source-before/source-after and recapture bytes before the
+  # unchanged comparison can trigger teardown; this does not bless equality.
+  wprism_private_command_capture "$ROOT/sandbox/tmp/wprism-rmcombo-canonical.$PAIR" \
+    canonical_snapshot canonical_collect canonical_validator -- \
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final --format=json
+}
+
 run_leg() { # <source order> <target order> <independent|synchronized>
 local source_order="$1" target_order="$2" meta_mode="$3" target_meta_mode expected_source expected_target
 case "$meta_mode" in
@@ -2022,8 +2097,8 @@ capture_wprism_json_checked NOOP 'Rank Math combination no-op apply' assert_rmco
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$NOOP" >/dev/null \
   || fail "combined no-op reran effects: $NOOP"
 capture_wprism_json_checked TARGET_RECAPTURE 'Rank Math combination target recapture' \
-  assert_rmcombo_warning_free_capture \
-  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final --format=json
+  assert_rmcombo_warning_free_recapture \
+  rmcombo_capture_target_recapture
 FINAL_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-final" || true)
 rm -rf "$R2/.tmp-rmcombo-final"
 [ -z "$FINAL_DIFF" ] || fail "combined target recapture differs: $FINAL_DIFF"
