@@ -134,13 +134,17 @@ def parent_alive():
         return state != "Z"
     except OSError:
         return True
-try:
-    os.close(8)
-except OSError:
-    pass
 control_fd = None
 try:
     control_fd = os.open(control_path, os.O_RDONLY | os.O_NONBLOCK)
+    # Keep an endpoint open throughout the handoff: TERM can queue cancellation
+    # and close the parent writer before this helper starts. Closing inherited
+    # FD 8 first discards that byte with the last FIFO endpoint (the controlled
+    # before-reader cancellation regression reproduces the resulting join hang).
+    try:
+        os.close(8)
+    except OSError:
+        pass
     with open(lock_path, "a+") as lock:
         while True:
             if not parent_alive():
