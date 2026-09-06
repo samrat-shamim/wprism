@@ -983,12 +983,14 @@ core_capture_plan_native_state() { # <output variable> <label> <private stage>
   # hashes/counts; private retention grants no plan or repair authority.
   (umask 077; wprism_private_capture_stage "$CORE_NATIVE_EVIDENCE" "$stage" core_deletion_native_state private) \
     || fail 'core native diagnostic command failed; inspect its retained private streams'
+  # Admit bounded, private files before copying stderr into shell memory.
+  # The output variable is not used until this helper's warning gate passes.
+  capture_wprism_json_success "$output_variable" "$label" \
+    php "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-native-state-evidence.php" "$stem"
   assert_no_php_runtime_diagnostics "$label" "$(<"$stem.stderr")"
   if grep -Eq '(^|[[:space:]])Warning:' "$stem.stderr"; then
     fail 'core native diagnostic emitted a warning; inspect its retained private streams'
   fi
-  capture_wprism_json_success "$output_variable" "$label" \
-    php "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-native-state-evidence.php" "$stem"
 }
 
 core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
@@ -1370,7 +1372,10 @@ pass "missing reverse-reference guard infrastructure fails closed"
 TOMBSTONES=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' | wc -l | tr -d '[:space:]')
 require_observed_nonempty "repository tombstone count before fresh-target plan" "$TOMBSTONES"
 . "$PAIR_SOURCE_ROOT/sandbox/tests/lib/private_command_capture.sh"
-CORE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$(cd "$CONF_REPO1" && pwd)/.wprism/core-native-evidence.XXXXXX")
+# pair_siterepo_host_one() deliberately broadens every site's mode bits at
+# handback; private host evidence must not live anywhere in that bind tree.
+mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp"
+CORE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$PAIR_SOURCE_ROOT/sandbox/tmp/wprism-core-native.XXXXXX")
 printf 'core native diagnostics (unverified): %s\n' "$CORE_NATIVE_EVIDENCE" >&2
 core_capture_plan_native_state FRESH_IDENTITY_BASELINE 'core existing target native and restorable identity baseline' identity-baseline
 require_observed_nonempty 'core existing target native and restorable identity baseline' "$FRESH_IDENTITY_BASELINE"

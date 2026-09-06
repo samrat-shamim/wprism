@@ -573,14 +573,23 @@ $freshBlock = substr($source, (int) $freshStart, (int) $freshEnd - (int) $freshS
 $freshSetup = <<<'SH'
 set -euo pipefail
 root="$1" fixture_answer="$2" mutation="$3" native_snapshots="$4"
-PAIR_SOURCE_ROOT="$root"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 . "$root/sandbox/conformance/asserts.sh"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-fresh.XXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
-CONF_REPO1="$scratch"
+CONF_REPO1="$scratch/site"
+PAIR_SOURCE_ROOT="$scratch/checkout"
 mkdir -p "$CONF_REPO1/state/deletions" "$CONF_REPO1/.wprism"
+mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp" "$PAIR_SOURCE_ROOT/sandbox/tests/lib" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures"
+ln -s "$root/sandbox/tests/lib/private_command_capture.sh" "$PAIR_SOURCE_ROOT/sandbox/tests/lib/private_command_capture.sh"
+ln -s "$root/sandbox/conformance/fixtures/core-native-state-evidence.php" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-native-state-evidence.php"
 touch "$CONF_REPO1/state/deletions/fixture.json"
+grep() {
+  if [ "$mutation" = native-after-large-stderr ] && [ -f "${CORE_NATIVE_EVIDENCE:-}/native-after.stderr" ]; then
+    case "${2:-}" in *'PHP (Warning|'*) printf 'UNBOUNDED_NATIVE_STDERR_READ\n' >&2 ;; esac
+  fi
+  command grep "$@"
+}
 wp_conf2() {
   if [ "$1 $2" = 'db query' ]; then
     [ "$3" = 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' ] || return 95
@@ -608,6 +617,7 @@ core_deletion_native_state() {
     "$boundary-php-stderr") printf 'PHP Parse error: fixture observation\n' >&2 ;;
   esac
   [ "$mutation" != "$boundary-empty" ] || return 0
+  [ "$mutation" != "$boundary-large-stderr" ] || printf '%1048577s' '' >&2
   if [ "${1:-witness}" = private ]; then
     jq -c --arg boundary "$boundary" '.[$boundary]' <<<"$native_snapshots"
     case "$mutation" in
@@ -640,7 +650,7 @@ $nativeDiagnostic = static function (array $tables): array {
 };
 $freshMutations = ['ready', 'old-deleted', 'wrong-reason', 'wrong-count', 'clear-nonzero',
     'native-after-no-restoration', 'native-after-missing-table', 'native-after-mode:stdout',
-    'native-after-mode:stderr', 'native-after-mode:exit', 'native-after-hardlink',
+    'native-after-mode:stderr', 'native-after-mode:exit', 'native-after-hardlink', 'native-after-large-stderr',
     'native-after-record:format', 'native-after-record:purpose', 'native-after-record:verified',
     'native-after-record:row', 'native-after-record:column', 'native-after-record:hash',
     'native-after-record:count', 'native-after-record:extra-witness', 'native-after-record:map-kind'];
@@ -724,12 +734,26 @@ foreach ($freshMutations as $mutation) {
     } elseif ($mutation === 'wrong-count') {
         $answer['delete_conflict'][] = $fresh['row'];
     }
-    [$status, $stdout, $stderr] = ShellProbe::run($helpers . "\n" . $freshSetup . "\n" . $freshBlock . "\nprintf 'FRESH_READY\\n'\n",
+    $cleanupProof = <<<'SH'
+. "$root/sandbox/lib/pair_siterepo.sh"
+# Exercise the real in-place reset against this test's own site, including
+# its permission broadening. A diagnostic stored inside the site is lost.
+pair_siterepo_clear_root "$CONF_REPO1"
+for stage in identity-baseline native-before native-after native-repeated; do
+  php "$root/sandbox/conformance/fixtures/core-native-state-evidence.php" "$CORE_NATIVE_EVIDENCE/$stage" >/dev/null
+done
+printf 'FRESH_READY\n'
+SH;
+    [$status, $stdout, $stderr] = ShellProbe::run($helpers . "\n" . $freshSetup . "\n" . $freshBlock . "\n" . $cleanupProof,
         [$root, json_encode($answer, JSON_THROW_ON_ERROR), $mutation, json_encode($snapshots, JSON_THROW_ON_ERROR)], $root);
     wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'FRESH_READY')
         : $status !== 0 && !str_contains($stdout, 'FRESH_READY'), "actual unmapped-target final plan distinguishes $mutation at the exact maintenance boundary");
     wprism_check(!str_contains($stdout . $stderr, 'private-core-native-value'),
         "actual $mutation native diagnostic rows never enter the public stream");
+    if ($mutation === 'native-after-large-stderr') {
+        wprism_check(!str_contains($stderr, 'UNBOUNDED_NATIVE_STDERR_READ'),
+            'oversized native stderr is rejected by file admission before the shell diagnostic predicate reads it');
+    }
 }
 
 wprism_check_summary('core conformance evidence');

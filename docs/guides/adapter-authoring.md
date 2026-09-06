@@ -1591,8 +1591,10 @@ plugin faithfully.
    from those retained rows. Reuse the shared private capture transport; keep
    the table set and semantic acceptance with the fixture owner. Core's final
    plan check retains four snapshots in a `0700` directory with `0600` streams
-   under the source repository's `.wprism/`, outside disposable webroot/DB
-   teardown. Its explicit diagnostic-only record is not a passing certificate;
+   under the checkout's host-only `sandbox/tmp/`. Never put private host
+   evidence in a site-repository bind tree: pair handback intentionally broadens
+   that tree's permissions and reset removes its contents. Verify retention
+   after cleanup, not just before it. Its diagnostic-only record is not a passing certificate;
    a malformed, warning-bearing, oversized or mismatched observation refuses.
 
 ### Getting the harness those tests need
