@@ -1192,6 +1192,13 @@ final class RankMathState extends ManifestProviderRuntime {
                 'Rank Math route-term projection',
                 self::MAX_ROUTE_IDENTITY_ROWS
             ),
+            'termmeta' => $this->stream_projection(
+                $wpdb->termmeta,
+                ['meta_id', 'term_id', 'meta_key', 'meta_value'],
+                '',
+                'term_id, meta_id',
+                'Rank Math route-term-meta projection'
+            ),
             'users' => $this->stream_projection(
                 $wpdb->users,
                 self::USER_WITNESS_COLUMNS,
@@ -1332,6 +1339,10 @@ final class RankMathState extends ManifestProviderRuntime {
             $wpdb->term_relationships,
             $wpdb->term_taxonomy,
             $wpdb->terms,
+            // 87881374's retained native query is update_meta_cache('term')
+            // during co-install resolution. Read and witness the complete
+            // bounded metadata state; the three-table write scope is unchanged.
+            $wpdb->termmeta,
             $wpdb->users,
             $wpdb->usermeta,
         ];

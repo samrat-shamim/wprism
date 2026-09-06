@@ -918,6 +918,17 @@ semantic read, not to widen the profile speculatively or publish SQL publicly.
 The existing query refusal, poisoned state and rollback authority remain the
 gate; diagnostic retention grants no additional table access.
 
+Native route reads include cold-cache dependencies. Rank Math's four-plugin
+lane retained WordPress's exact `update_meta_cache('term')` query, exposing an
+omitted `termmeta` read. The capsule declares that table and folds all four
+metadata columns into its existing bounded dependency projection; the kernel's
+table grammar and the provider's three-table write authority do not expand.
+Test both cold and warm cache paths, duplicate and unrelated rows, failed and
+oversized reads, and dependency changes during mutation and between independent
+boots. A cache-priming read never authorizes a metadata or option write. A
+post-commit observer mismatch is recovery debt, not evidence that the completed
+mutation or a competing writer rolled back.
+
 `adapter-package-validate` is a static regression guard for that boundary in
 package runtime PHP. It refuses known direct process, transaction, raw-DML and
 include spellings, but it is not a hostile-PHP sandbox; digest review and

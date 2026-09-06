@@ -547,6 +547,7 @@
                         "table:term_relationships",
                         "table:term_taxonomy",
                         "table:terms",
+                        "table:termmeta",
                         "table:users",
                         "table:usermeta"
                     ],

@@ -10,7 +10,7 @@
         "ninja-forms": "35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011",
         "paid-memberships-pro": "e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253",
         "polylang": "60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548",
-        "rank-math": "c4a5cc259a772312224a7fc29b68d52df40d4c6f0baecafd0385959db7d567d6",
+        "rank-math": "82bf25b2f69967e9dc7106050b64e466d609c73cc13a129bd3141d7fba1e3c29",
         "redirection": "7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16",
         "the-events-calendar": "cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee",
         "woocommerce": "9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0",
@@ -31,7 +31,7 @@
         "ninja-forms": "7127febed3e8b907cd05d30b62ba5788a5c9157c8163e766d4453557c7e3d017",
         "paid-memberships-pro": "b5674ba2258dfc6e764608d06305fdad785f8b3812bc6e5894ef5954cc84f717",
         "polylang": "ce528f0361b733048822c182039f572689c91a002de82c57f596d3dfef1c6e13",
-        "rank-math": "cd7d9043a9bc9b9e831b194e8858e702a2bf15048ec44c9d68eb267b7d31ebc2",
+        "rank-math": "0438889b2214868e51d7ac01731ea7b84295f680bb31899ac23e6a3f964f2f5b",
         "redirection": "e1979af988710e99decbcf9efb8c778352deedcb7cd59f488056d07a7733bf50",
         "the-events-calendar": "c76dcf086a1b7e7d4027435b267bb440103147f17ad2841ab1179c15057196d6",
         "woocommerce": "03e14b06b1cd939badc819297f137e02d3eadd2c8c0bb175e0f1c7858c24112c",
@@ -42,7 +42,7 @@
     },
     "pin_sets": {
         "rank-world": {
-            "manifest_hash": "2c68ffb2aa973b0b2bc25e1254c8cb60c00a8f7a06e2c269929ea077fab920d7",
+            "manifest_hash": "27fa8f6f8276c05f6faea27c6dc9282079e9af5891837b5c7058bdbf7fc8e897",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -62,7 +62,7 @@
                 "wps-hide-login",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "67eca63f8b2deafaa933f1349d71cbef481bbe2209cbf2e90ff5133bbb805676"
+            "snapshot_sha256": "b25d11ced4a164d196a1e18d17f3d5388de370df98ac0fa4a8fbc937104cab77"
         },
         "core+elementor+yoast+contact-form-7": {
             "manifest_hash": "0447fed067e86aaa6bf8593a1a83cbea94e9b011d0f2a5820db723152cb72caa",

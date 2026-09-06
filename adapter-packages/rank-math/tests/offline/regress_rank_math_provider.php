@@ -97,6 +97,18 @@ namespace {
 
     function url_to_postid(string $url): int {
         $GLOBALS['rank_math_test_url_to_postid_calls']++;
+        if (($GLOBALS['rank_math_test_cold_termmeta_cache'] ?? false) === true) {
+            // 87881374's complete child report records this exact core
+            // update_meta_cache() shape inside four-plugin route resolution.
+            $database = $GLOBALS['wpdb'];
+            $database->get_results(
+                "SELECT term_id, meta_key, meta_value FROM {$database->termmeta} "
+                    . 'WHERE term_id IN (25) ORDER BY meta_id ASC',
+                ARRAY_A
+            );
+            $phase = $GLOBALS['rank_math_test_in_native_process'] ? 'native' : 'projection';
+            $GLOBALS['rank_math_test_termmeta_cache_reads'][$phase]++;
+        }
         if (($GLOBALS['rank_math_test_cold_postmeta_cache'] ?? false) === true) {
             // WordPress's pretty-permalink WP_Query primes post metadata even
             // when Rank Math only asks for the resolved post id.
@@ -422,6 +434,7 @@ namespace {
                 'term_taxonomy_id', 'term_id', 'taxonomy', 'description', 'parent', 'count',
             ],
             'terms' => ['term_id', 'name', 'slug', 'term_group'],
+            'termmeta' => ['meta_id', 'term_id', 'meta_key', 'meta_value'],
             'users' => [
                 'ID', 'user_login', 'user_pass', 'user_nicename', 'user_email', 'user_url',
                 'user_registered', 'user_activation_key', 'user_status', 'display_name',
@@ -778,6 +791,8 @@ namespace {
         $GLOBALS['rank_math_test_cache_flush_calls'] = 0;
         $GLOBALS['rank_math_test_permalink_calls'] = 0;
         $GLOBALS['rank_math_test_url_to_postid_calls'] = 0;
+        $GLOBALS['rank_math_test_cold_termmeta_cache'] = false;
+        $GLOBALS['rank_math_test_termmeta_cache_reads'] = ['native' => 0, 'projection' => 0];
         $GLOBALS['rank_math_test_url_to_postid_override'] = null;
         $GLOBALS['rank_math_test_in_native_process'] = false;
         $GLOBALS['rank_math_test_rebuild_links_override'] = null;
@@ -806,7 +821,7 @@ namespace {
         $db = FakeWpdb::install();
         foreach ([
             'postmeta', 'posts', 'options', 'comments', 'term_relationships', 'term_taxonomy', 'terms',
-            'users', 'usermeta',
+            'termmeta', 'users', 'usermeta',
         ] as $table) {
             $db->setColumns($table, rank_math_test_columns()[$table]);
             $db->setTableEngine($table, 'InnoDB');
@@ -916,6 +931,7 @@ namespace {
         $db->seedTable('term_relationships', []);
         $db->seedTable('term_taxonomy', []);
         $db->seedTable('terms', []);
+        $db->seedTable('termmeta', []);
         $db->seedTable('users', [[
             'ID' => 1,
             'user_login' => 'admin',
@@ -1419,6 +1435,189 @@ namespace {
             && !str_contains($schemaFailure, 'sk_rank_math_schema'),
         'schema discovery failure is loud and value-redacted'
     );
+
+    $termmetaRows = [
+        ['meta_id' => 7, 'term_id' => 25, 'meta_key' => 'participant_route', 'meta_value' => 'native-value'],
+        ['meta_id' => 9, 'term_id' => 25, 'meta_key' => 'participant_route', 'meta_value' => 'duplicate-value'],
+        ['meta_id' => 11, 'term_id' => 99, 'meta_key' => 'unrelated_runtime', 'meta_value' => 'preserve'],
+    ];
+    $termmetaWitnesses = [];
+    foreach ([false, true] as $cold) {
+        $provider = rank_math_test_reset('link');
+        $GLOBALS['wpdb']->seedTable('terms', [
+            ['term_id' => 25, 'name' => 'Native category', 'slug' => 'native-category', 'term_group' => 0],
+            ['term_id' => 99, 'name' => 'Unrelated category', 'slug' => 'unrelated-category', 'term_group' => 0],
+        ]);
+        $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+        $optionsBefore = $GLOBALS['wpdb']->rows('options');
+        $GLOBALS['rank_math_test_cold_termmeta_cache'] = $cold;
+        $nativeReceipt = null;
+        try {
+            $nativeReceipt = $provider->invoke('rebuild_all_link_state', []);
+        } catch (Throwable $failure) {
+            wprism_check(false, 'native term-meta cache cold=' . (int) $cold . ' unexpectedly refused: ' . $failure->getMessage());
+        }
+        wprism_check_same(true, $nativeReceipt['verified'] ?? null,
+            'term-meta cache cold=' . (int) $cold . ' reaches verified provider and independent observer');
+        wprism_check($GLOBALS['rank_math_test_process_calls'] > 0,
+            'term-meta cache cold=' . (int) $cold . ' executes the native repair callback');
+        if ($cold) {
+            wprism_check($GLOBALS['rank_math_test_termmeta_cache_reads']['native'] > 0
+                && $GLOBALS['rank_math_test_termmeta_cache_reads']['projection'] > 0,
+                'cold term metadata is read through both native mutation and read-only projection profiles');
+        }
+        $termmetaWitnesses[] = $nativeReceipt['after'] ?? null;
+        wprism_check_same($termmetaRows, $GLOBALS['wpdb']->rows('termmeta'),
+            'term-meta cache cold=' . (int) $cold . ' preserves complete duplicate, unrelated and native rows');
+        wprism_check_same($optionsBefore, $GLOBALS['wpdb']->rows('options'),
+            'term-meta cache cold=' . (int) $cold . ' cannot gain an incidental durable cache-write permission');
+    }
+    wprism_check(is_array($termmetaWitnesses[0]) && $termmetaWitnesses[0] === $termmetaWitnesses[1],
+        'cold metadata priming and an already warm native cache produce identical complete receipts');
+
+    foreach ([
+        'metadata identity' => static function (array &$rows): void { $rows[0]['meta_id'] = 8; },
+        'term identity' => static function (array &$rows): void { $rows[0]['term_id'] = 99; },
+        'metadata name' => static function (array &$rows): void { $rows[0]['meta_key'] = 'changed-route'; },
+        'metadata value' => static function (array &$rows): void { $rows[0]['meta_value'] = "binary-\xff\0"; },
+        'duplicate deletion' => static function (array &$rows): void { array_splice($rows, 1, 1); },
+        'unrelated row change' => static function (array &$rows): void { $rows[2]['meta_value'] = 'changed'; },
+    ] as $label => $mutate) {
+        rank_math_test_reset('link');
+        $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+        $before = rank_math_test_projection();
+        $changedRows = $termmetaRows;
+        $mutate($changedRows);
+        $GLOBALS['wpdb']->seedTable('termmeta', $changedRows);
+        $after = rank_math_test_projection();
+        wprism_check($before['dependency_hash'] !== $after['dependency_hash']
+            && $before['dependency_state_hash'] !== $after['dependency_state_hash'],
+            "$label remains visible in both complete and cross-process durable dependency witnesses");
+        $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+        wprism_check_same($before, rank_math_test_projection(),
+            "$label comparison does not mutate the native rows or projection contract");
+    }
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+    $tables = ['rank_math_internal_links', 'rank_math_internal_meta', 'postmeta', 'options', 'termmeta'];
+    $before = array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables);
+    $GLOBALS['rank_math_test_url_to_postid_override'] = static function (string $_url, bool $native): ?int {
+        if ($native) {
+            $rows = $GLOBALS['wpdb']->rows('termmeta');
+            $rows[0]['meta_value'] = 'concurrent native dependency change';
+            $GLOBALS['wpdb']->seedTable('termmeta', $rows);
+        }
+        return null;
+    };
+    wprism_check_throws(static fn(): array => rank_math_test_execute_child(), RuntimeException::class,
+        'term metadata drift during the native callback cannot receive verified success',
+        'route dependencies changed during native repair');
+    wprism_check($GLOBALS['rank_math_test_process_calls'] > 0,
+        'term metadata drift control reaches native repair before refusing');
+    wprism_check_same($before, array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables),
+        'term metadata drift rolls back every original link, count, marker, option and metadata row');
+
+    foreach ([false, true] as $nativeOnly) {
+        rank_math_test_reset('link');
+        $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+        $before = array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables);
+        $GLOBALS['rank_math_test_url_to_postid_override'] = static function (string $_url, bool $native) use ($nativeOnly): ?int {
+            if (!$nativeOnly || $native) {
+                $GLOBALS['wpdb']->query("UPDATE wp_termmeta SET meta_value='unreviewed-write' WHERE meta_id=7");
+            }
+            return null;
+        };
+        wprism_check_throws(static fn(): array => rank_math_test_execute_child(),
+            \WPrism\DatabaseQueryIsolationViolationException::class,
+            'term-meta writes remain refused in native-only=' . (int) $nativeOnly,
+            'a native database mutation escaped its declared physical-table profile');
+        wprism_check_same($before, array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables),
+            'refused term-meta write native-only=' . (int) $nativeOnly . ' preserves every original row');
+    }
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+    rank_math_test_set_option('rank_math_modules', []);
+    $GLOBALS['rank_math_test_cold_termmeta_cache'] = true;
+    $disabledMetadata = $provider->invoke('rebuild_all_link_state', []);
+    wprism_check_same(false, $disabledMetadata['after']['enabled'] ?? null,
+        'disabled link-counter repair does not acquire native route work');
+    wprism_check_same(['native' => 0, 'projection' => 0], $GLOBALS['rank_math_test_termmeta_cache_reads'],
+        'disabled link-counter repair does not prime term metadata');
+    wprism_check_same($termmetaRows, $GLOBALS['wpdb']->rows('termmeta'),
+        'disabled link-counter cleanup preserves complete term metadata');
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+    $betweenChildren = false;
+    $GLOBALS['rank_math_test_after_result'] = static function () use (&$betweenChildren): void {
+        if (count($GLOBALS['rank_math_test_command_calls']) === 1) {
+            $rows = $GLOBALS['wpdb']->rows('termmeta');
+            $rows[0]['meta_value'] = 'competing write after committed child';
+            $GLOBALS['wpdb']->seedTable('termmeta', $rows);
+            $betweenChildren = true;
+        }
+    };
+    wprism_check_throws(static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'a same-count term-meta change between mutation and observer cannot publish verified success',
+        'fresh-process receipt disagrees with independent parent readback');
+    wprism_check($betweenChildren && $GLOBALS['rank_math_test_process_calls'] > 0
+        && count($GLOBALS['rank_math_test_command_calls']) === 2,
+        'the inter-process term-meta race follows real native repair and reaches the independent observer');
+    wprism_check_same('competing write after committed child', $GLOBALS['wpdb']->rows('termmeta')[0]['meta_value'],
+        'post-commit observation refuses recovery debt without claiming rollback of a competing writer');
+
+    foreach ([1048576, 1048577] as $rowBytes) {
+        rank_math_test_reset('link');
+        // The four projected columns contribute 1 + 2 + 1 + value bytes.
+        $GLOBALS['wpdb']->seedTable('termmeta', [[
+            'meta_id' => 7, 'term_id' => 25, 'meta_key' => 'r',
+            'meta_value' => str_repeat('x', $rowBytes - 4),
+        ]]);
+        $failure = null;
+        $projection = null;
+        try {
+            $projection = rank_math_test_projection();
+        } catch (Throwable $caught) {
+            $failure = $caught;
+        }
+        $valueReads = array_values(array_filter($GLOBALS['wpdb']->queries(),
+            static fn(string $sql): bool => str_starts_with($sql, 'SELECT `meta_id`, `term_id`, `meta_key`, `meta_value`')));
+        if ($rowBytes === 1048576) {
+            wprism_check($failure === null && is_array($projection) && $valueReads !== [],
+                'term metadata at the exact reviewed raw-row byte bound reaches the value witness');
+        } else {
+            wprism_check($failure instanceof RuntimeException
+                && str_contains($failure->getMessage(), 'Rank Math route-term-meta projection exceeds its reviewed byte bound'),
+                'term metadata one byte above the reviewed bound refuses at the database-side census');
+            wprism_check_same([], $valueReads,
+                'an oversized metadata value never reaches a value-bearing projection page');
+        }
+        wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
+            "term-meta byte-bound observation $rowBytes never invokes native mutation");
+    }
+
+    rank_math_test_reset('link');
+    $GLOBALS['wpdb']->seedTable('termmeta', $termmetaRows);
+    $before = array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables);
+    $GLOBALS['wpdb']->failNextQuery('private_term_meta_read_canary',
+        'SELECT COUNT(*) AS row_count, COALESCE(SUM(COALESCE(OCTET_LENGTH(`meta_id`), 0) + COALESCE(OCTET_LENGTH(`term_id`), 0)');
+    $failure = null;
+    try {
+        rank_math_test_execute_child();
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    wprism_check($failure instanceof RuntimeException
+        && str_contains($failure->getMessage(), 'provider checked read failed: Rank Math route-term-meta projection')
+        && !str_contains($failure->getMessage(), 'private_term_meta_read_canary'),
+        'a failed term-meta census cannot become an empty successful dependency witness or expose SQL error values');
+    wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
+        'a failed term-meta dependency read refuses before native repair');
+    wprism_check_same($before, array_map(static fn(string $table): array => $GLOBALS['wpdb']->rows($table), $tables),
+        'failed term-meta dependency observation preserves every original row');
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_cold_postmeta_cache'] = true;

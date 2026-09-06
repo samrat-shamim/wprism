@@ -99,7 +99,7 @@ wprism_check_same(
         'option:sticky_posts', 'option:tag_base', 'option:woocommerce_permalinks',
         'option:wp_page_for_privacy_policy', 'table:comments', 'table:postmeta', 'table:posts',
         'table:rank_math_internal_links', 'table:rank_math_internal_meta', 'table:term_relationships',
-        'table:term_taxonomy', 'table:terms', 'table:users', 'table:usermeta',
+        'table:term_taxonomy', 'table:terms', 'table:termmeta', 'table:users', 'table:usermeta',
     ],
     $rebuildContract['reads'] ?? null,
     'A4: native permalink and URL resolution declares its complete direct read boundary'
