@@ -950,7 +950,16 @@ foreach ($keys as $suffix => $key) {
         throw new RuntimeException("core deletion fixture native read exceeded its byte witness");
     }
     $state[$suffix] = ["count" => count($rows), "sha256" => hash("sha256", $bytes)];
+    if ($suffix === "wprism_map") {
+        // CaptureIdentity restores these tuples from durable UUID metadata;
+        // SidebarState cannot reconstruct ledger-only widget identity.
+        $restorable = array_values(array_filter($rows, static fn(array $row): bool =>
+            in_array($row["id_kind"], ["post", "term", "term_taxonomy"], true)));
+        $restorableMap = ["count" => count($restorable), "sha256" => hash("sha256",
+            json_encode($restorable, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))];
+    }
 }
+$state["restorable_map"] = $restorableMap;
 echo wp_json_encode($state, JSON_UNESCAPED_SLASHES);
 '
 }
@@ -1327,11 +1336,23 @@ pass "missing reverse-reference guard infrastructure fails closed"
 # Clearing environment-bound history does not remove the durable UUIDs or
 # native posts preserved by these refusals. A plan must observe those posts
 # and report missing-base conflicts, not reinterpret them as already deleted.
+# Ordinary Capture::snapshot repairs maps from embedded UUIDs; only strict
+# observation forbids that maintenance. Freeze the exact restorable tuples
+# before clearing history, retain every native-table check, and prove a fixed
+# point without inventing widget UUIDs or a last-synced state baseline.
 TOMBSTONES=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' | wc -l | tr -d '[:space:]')
 require_observed_nonempty "repository tombstone count before fresh-target plan" "$TOMBSTONES"
+capture_wprism_json_success FRESH_IDENTITY_BASELINE 'core existing target native and restorable identity baseline' core_deletion_native_state
+require_observed_nonempty 'core existing target native and restorable identity baseline' "$FRESH_IDENTITY_BASELINE"
+jq -e '.restorable_map.count > 0' <<<"$FRESH_IDENTITY_BASELINE" >/dev/null \
+  || fail 'fresh-target fixture has no durable identity mappings to restore'
 wp_conf2 db query 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' >/dev/null
 capture_wprism_json_success FRESH_NATIVE_BEFORE 'core unmapped target native and ledger baseline' core_deletion_native_state
 require_observed_nonempty "core unmapped target native and ledger baseline" "$FRESH_NATIVE_BEFORE"
+jq -en --argjson baseline "$FRESH_IDENTITY_BASELINE" --argjson before "$FRESH_NATIVE_BEFORE" '
+  {count:0,sha256:"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"} as $empty |
+  $before == ($baseline | .wprism_map=$empty | .wprism_state=$empty | .restorable_map=$empty)
+' >/dev/null || fail 'fresh-target fixture did not clear exactly map and state history'
 capture_wprism_json_checked FRESH_PLAN 'conf2 unmapped existing-target plan' assert_wprism_json_required_environment \
   wp_conf2 wprism plan --repo=/siterepo --format=json
 require_wprism_answered "conf2 wprism plan fresh target deletion interpretation" json "$FRESH_PLAN"
@@ -1342,5 +1363,16 @@ jq -e --argjson count "$TOMBSTONES" '
 ' <<<"$FRESH_PLAN" >/dev/null || fail 'unmapped existing target entities lost their missing-base deletion conflicts'
 capture_wprism_json_success FRESH_NATIVE_AFTER 'core unmapped target native and ledger readback' core_deletion_native_state
 require_observed_nonempty "core unmapped target native and ledger readback" "$FRESH_NATIVE_AFTER"
-[ "$FRESH_NATIVE_BEFORE" = "$FRESH_NATIVE_AFTER" ] || fail 'fresh-target plan persisted identity or native-state changes'
-pass "unmapped existing target entities remain deletion conflicts, with no inferred absence or native/ledger mutation"
+jq -en --argjson baseline "$FRESH_IDENTITY_BASELINE" --argjson before "$FRESH_NATIVE_BEFORE" --argjson after "$FRESH_NATIVE_AFTER" '
+  $after == ($before | .wprism_map=$baseline.restorable_map | .restorable_map=$baseline.restorable_map)
+' >/dev/null || fail 'fresh-target plan changed more than its exact embedded-identity map repair'
+capture_wprism_json_checked FRESH_REPEAT_PLAN 'conf2 repaired-map missing-base repeat plan' assert_wprism_json_required_environment \
+  wp_conf2 wprism plan --repo=/siterepo --format=json
+require_wprism_answered 'conf2 repaired-map missing-base repeat plan' json "$FRESH_REPEAT_PLAN"
+jq -en --argjson first "$FRESH_PLAN" --argjson repeated "$FRESH_REPEAT_PLAN" '
+  [$first.deleted,$first.delete,$first.delete_conflict] == [$repeated.deleted,$repeated.delete,$repeated.delete_conflict]
+' >/dev/null || fail 'repairing an identity map changed the pending missing-base deletion conflicts'
+capture_wprism_json_success FRESH_NATIVE_REPEATED 'core repaired-map native and ledger fixed point' core_deletion_native_state
+require_observed_nonempty 'core repaired-map native and ledger fixed point' "$FRESH_NATIVE_REPEATED"
+[ "$FRESH_NATIVE_AFTER" = "$FRESH_NATIVE_REPEATED" ] || fail 'repeated fresh-target plan changed native or ledger state'
+pass "unmapped existing target entities remain deletion conflicts; exact embedded maps repair once, without minting identity or a state baseline"

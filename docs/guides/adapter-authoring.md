@@ -1574,6 +1574,17 @@ plugin faithfully.
    first apply can correctly report a false-for-the-scenario conflict as soon
    as quiesced global state is restored.
 
+   Distinguish minting identity from restoring an existing embedded UUID's
+   ledger tuple. Ordinary `plan` uses the maintenance-aware snapshot: it may
+   repair those tuples and prune stale maps, but it does not mint missing
+   post/term UUID metadata or a last-synced state hash. Strict explain/export
+   observations have a different, zero-write contract. A test that clears a
+   map must freeze the exact recoverable tuples beforehand, prove only that
+   repair occurred, and repeat the plan with unchanged native and ledger
+   witnesses. Keep ledger-only widget identities out of the recoverable set;
+   their lost UUIDs cannot be reconstructed from native metadata. See the
+   final fresh-target check in `sandbox/conformance/checks/core.sh`.
+
 ### Getting the harness those tests need
 
 Adoption assembles package and platform sources into
