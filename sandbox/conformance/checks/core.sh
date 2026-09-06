@@ -1377,6 +1377,18 @@ require_observed_nonempty "repository tombstone count before fresh-target plan" 
 mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp"
 CORE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$PAIR_SOURCE_ROOT/sandbox/tmp/wprism-core-native.XXXXXX")
 printf 'core native diagnostics (unverified): %s\n' "$CORE_NATIVE_EVIDENCE" >&2
+(
+. "$PAIR_SOURCE_ROOT/sandbox/tests/lib/wordpress_cron_window.sh"
+core_cron_window_transport() {
+  $COMPOSE run --rm -T --no-deps --user root --entrypoint sh cli2 \
+    -c 'cd /var/www/html/wp-content/mu-plugins && exec sh "$@"' sh "$@"
+}
+trap 'wordpress_cron_window_exit "$?"' EXIT
+trap 'exit 130' INT TERM
+# a56cad09 retained exactly one unexpected change: doing_cron.option_value.
+# Freeze spawning before the first native boot, retain every option row, and
+# keep the guard through the repeat read. Cleanup never boots WordPress.
+wordpress_cron_window_begin wp_conf2 core_cron_window_transport
 core_capture_plan_native_state FRESH_IDENTITY_BASELINE 'core existing target native and restorable identity baseline' identity-baseline
 require_observed_nonempty 'core existing target native and restorable identity baseline' "$FRESH_IDENTITY_BASELINE"
 jq -e '.restorable_map.count > 0' <<<"$FRESH_IDENTITY_BASELINE" >/dev/null \
@@ -1411,3 +1423,5 @@ core_capture_plan_native_state FRESH_NATIVE_REPEATED 'core repaired-map native a
 require_observed_nonempty 'core repaired-map native and ledger fixed point' "$FRESH_NATIVE_REPEATED"
 [ "$FRESH_NATIVE_AFTER" = "$FRESH_NATIVE_REPEATED" ] || fail 'repeated fresh-target plan changed native or ledger state'
 pass "unmapped existing target entities remain deletion conflicts; exact embedded maps repair once, without minting identity or a state baseline"
+)
+# END core fresh native window

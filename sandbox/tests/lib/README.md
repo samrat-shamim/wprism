@@ -17,6 +17,7 @@ not standalone suites.
 | `ShellProbe.php` | `\WPrismTest\ShellProbe` — actual command/acceptance block extraction and isolated Bash execution with private, separately observed stdout/stderr; each capsule owns its commands, payloads and assertions |
 | `PrivateRefusalReceipt.php` | `\WPrismTest\PrivateRefusalReceipt` — bounded private-record freshness, mode/inode and exact v2 graph verification; callers declare the command, reason and ordered class/message/parent/edge profile and receive only message digests. Its separate diagnostic snapshot/delta API can preserve at most four new records/1 MiB of raw bytes (base64-encoded in a private sink), explicitly unverified and never as capability evidence. |
 | `private_command_capture.sh` | `wprism_private_command_capture` — one private snapshot → command → fresh-delta lifecycle, shared by host and native commands. Caller-owned argv arrays supply the native snapshot, collector and silent validator; the collector receives the saved baseline stdout path, and the validator receives an owned capture stem. All five stage transports/statuses survive disposable cleanup in fifteen `0600` files under one `0700` sink. |
+| `wordpress_cron_window.sh` | Test-only, owner-scoped prevention of new WP-Cron spawning during a complete native-row comparison. The caller supplies its WP runner and an outside-WordPress shell transport bound to the same site's MU directory; native PHP proves the guard loaded before the protected body. |
 | `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
 | `pair_live_ownership.sh` | the direct-live evidence state machine: exact-worktree mounts, engine/root-bound pair leases, partial-up teardown, exact site/scratch removal, checked release, and the sole post-cleanup PASS |
 
@@ -65,6 +66,22 @@ command-specific success/refusal assertions after this diagnostic boundary.
 Diagnostics are outside the protected command's transaction. A post-command
 diagnostic failure invalidates the test evidence; it does not claim that the
 already-finished command rolled back.
+
+`wordpress_cron_window_begin <wp_runner> <mu_directory_transport>` belongs in a
+caller-owned, `set -e` subshell after sourcing `conformance/asserts.sh` and the
+helper. Install `trap 'wordpress_cron_window_exit "$?"' EXIT` and
+`trap 'exit 130' INT TERM` before begin; do not put that subshell in an `if` or
+`||` condition, which disables its normal errexit semantics. The transport
+executes the supplied `sh` argv and stdin in the exact site's MU directory,
+without booting WordPress. Atomic no-replacement publication precedes a native
+`DISABLE_WP_CRON === true` and owner-token check. Cleanup runs on success,
+failure and interruption, refuses foreign or replaced guards, preserves a body
+failure and makes an unproven removal fail a successful body. This prevents
+new `spawn_cron()` calls only: already-running workers, unrelated writers and
+lazy transient expiration remain visible to the full-row comparison. No
+database rows are removed or omitted. `regress-wordpress-cron-window` exercises
+the actual remote payload and native PHP with failed/ambiguous transports,
+warnings, collisions, wrong premises, signals and cleanup failures.
 
 Run private inspection as the target CLI uid **outside WordPress**. Docker
 callers mount the exact candidate file read-only for that invocation, e.g.

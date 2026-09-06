@@ -568,12 +568,17 @@ wprism_check($fresh['bucket'] === 'delete_conflict'
 
 $freshStart = strpos($source, 'TOMBSTONES=$(find');
 $freshEnd = strpos($source, 'pass "unmapped existing target entities', (int) $freshStart);
+$closedWindowEnd = strpos($source, '# END core fresh native window', (int) $freshStart);
+if (is_int($closedWindowEnd)) {
+    $freshEnd = $closedWindowEnd;
+}
 wprism_check(is_int($freshStart) && is_int($freshEnd), 'fresh-target witness includes the actual history-clearing setup');
 $freshBlock = substr($source, (int) $freshStart, (int) $freshEnd - (int) $freshStart);
 $freshSetup = <<<'SH'
 set -euo pipefail
 root="$1" fixture_answer="$2" mutation="$3" native_snapshots="$4"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+pass() { :; }
 . "$root/sandbox/conformance/asserts.sh"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-fresh.XXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
@@ -582,7 +587,15 @@ PAIR_SOURCE_ROOT="$scratch/checkout"
 mkdir -p "$CONF_REPO1/state/deletions" "$CONF_REPO1/.wprism"
 mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp" "$PAIR_SOURCE_ROOT/sandbox/tests/lib" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures"
 ln -s "$root/sandbox/tests/lib/private_command_capture.sh" "$PAIR_SOURCE_ROOT/sandbox/tests/lib/private_command_capture.sh"
+ln -s "$root/sandbox/tests/lib/wordpress_cron_window.sh" "$PAIR_SOURCE_ROOT/sandbox/tests/lib/wordpress_cron_window.sh"
 ln -s "$root/sandbox/conformance/fixtures/core-native-state-evidence.php" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-native-state-evidence.php"
+mkdir "$scratch/mu"
+COMPOSE=core_fixture_compose
+core_fixture_compose() {
+  while [ "$1" != cli2 ]; do shift; done
+  shift 4 # cli2, -c, directory-binding command, sh; execute the actual remote payload.
+  (cd "$scratch/mu" && sh "$@")
+}
 touch "$CONF_REPO1/state/deletions/fixture.json"
 grep() {
   if [ "$mutation" = native-after-large-stderr ] && [ -f "${CORE_NATIVE_EVIDENCE:-}/native-after.stderr" ]; then
@@ -591,6 +604,10 @@ grep() {
   command grep "$@"
 }
 wp_conf2() {
+  if [ "$1" = eval ]; then
+    php -r 'require $argv[1]; eval($argv[2]);' "$scratch/mu/wprism-native-read-window.php" "$2"
+    return
+  fi
   if [ "$1 $2" = 'db query' ]; then
     [ "$3" = 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' ] || return 95
     touch "$scratch/cleared"
@@ -619,7 +636,10 @@ core_deletion_native_state() {
   [ "$mutation" != "$boundary-empty" ] || return 0
   [ "$mutation" != "$boundary-large-stderr" ] || printf '%1048577s' '' >&2
   if [ "${1:-witness}" = private ]; then
-    jq -c --arg boundary "$boundary" '.[$boundary]' <<<"$native_snapshots"
+    if [ "$mutation" = cron-churn ] && [ ! -f "$scratch/mu/wprism-native-read-window.php" ] \
+        && [ "$boundary" = native-after ]; then
+      jq -c '.unfrozen_cron' <<<"$native_snapshots"
+    else jq -c --arg boundary "$boundary" '.[$boundary]' <<<"$native_snapshots"; fi
     case "$mutation" in
       "$boundary-mode:"*) touch "$CORE_NATIVE_EVIDENCE/$boundary.${mutation##*:}"; chmod 0644 "$CORE_NATIVE_EVIDENCE/$boundary.${mutation##*:}" ;;
       "$boundary-hardlink") ln "$CORE_NATIVE_EVIDENCE/$boundary.stdout" "$scratch/private-hardlink" ;;
@@ -635,6 +655,10 @@ foreach ($nativeTables as $table) {
 $freshTables['wprism_map'] = array_map(static fn(string $kind): array => [
     'uuid' => $uuid, 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => '7',
 ], ['post', 'term', 'term_taxonomy', 'widget:block']);
+$freshTables['options'] = [
+    ['option_id' => '1', 'option_name' => '_transient_doing_cron', 'option_value' => 'clock-before'],
+    ['option_id' => '2', 'option_name' => 'core_native_mutation_tooth', 'option_value' => 'durable-before'],
+];
 $nativeDiagnostic = static function (array $tables): array {
     $witness = [];
     foreach ($tables as $table => $rows) {
@@ -648,7 +672,8 @@ $nativeDiagnostic = static function (array $tables): array {
     return ['format' => 'wprism-core-native-state-diagnostic/v1', 'purpose' => 'diagnostic_only',
         'verified' => false, 'tables' => $tables, 'witness' => $witness];
 };
-$freshMutations = ['ready', 'old-deleted', 'wrong-reason', 'wrong-count', 'clear-nonzero',
+$freshMutations = ['ready', 'cron-churn', 'cron-write-through-guard', 'durable-option-write',
+    'old-deleted', 'wrong-reason', 'wrong-count', 'clear-nonzero',
     'native-after-no-restoration', 'native-after-missing-table', 'native-after-mode:stdout',
     'native-after-mode:stderr', 'native-after-mode:exit', 'native-after-hardlink', 'native-after-large-stderr',
     'native-after-record:format', 'native-after-record:purpose', 'native-after-record:verified',
@@ -686,7 +711,15 @@ foreach ($freshMutations as $mutation) {
                 $tables[$changedTable][] = $freshTables[$changedTable][0];
             }
         }
+        if ($stage === 'native-after' && in_array($mutation, ['cron-write-through-guard', 'durable-option-write'], true)) {
+            $tables['options'][$mutation === 'durable-option-write' ? 1 : 0]['option_value'] = 'real-change';
+        }
         $snapshots[$stage] = $nativeDiagnostic($tables);
+        if ($stage === 'native-after') {
+            $unfrozen = $tables;
+            $unfrozen['options'][0]['option_value'] = 'clock-after';
+            $snapshots['unfrozen_cron'] = $nativeDiagnostic($unfrozen);
+        }
         if ($mutation === "$stage-change:restorable_map") {
             $snapshots[$stage]['witness']['restorable_map']['sha256'] = str_repeat('0', 64);
         } elseif ($mutation === "$stage-missing-table") {
@@ -736,6 +769,7 @@ foreach ($freshMutations as $mutation) {
     }
     $cleanupProof = <<<'SH'
 . "$root/sandbox/lib/pair_siterepo.sh"
+[ ! -e "$scratch/mu/wprism-native-read-window.php" ] || fail 'cron guard survived the complete observation window'
 # Exercise the real in-place reset against this test's own site, including
 # its permission broadening. A diagnostic stored inside the site is lost.
 pair_siterepo_clear_root "$CONF_REPO1"
@@ -746,7 +780,7 @@ printf 'FRESH_READY\n'
 SH;
     [$status, $stdout, $stderr] = ShellProbe::run($helpers . "\n" . $freshSetup . "\n" . $freshBlock . "\n" . $cleanupProof,
         [$root, json_encode($answer, JSON_THROW_ON_ERROR), $mutation, json_encode($snapshots, JSON_THROW_ON_ERROR)], $root);
-    wprism_check($mutation === 'ready' ? $status === 0 && str_contains($stdout, 'FRESH_READY')
+    wprism_check(in_array($mutation, ['ready', 'cron-churn'], true) ? $status === 0 && str_contains($stdout, 'FRESH_READY')
         : $status !== 0 && !str_contains($stdout, 'FRESH_READY'), "actual unmapped-target final plan distinguishes $mutation at the exact maintenance boundary");
     wprism_check(!str_contains($stdout . $stderr, 'private-core-native-value'),
         "actual $mutation native diagnostic rows never enter the public stream");

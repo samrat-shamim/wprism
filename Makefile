@@ -1722,6 +1722,9 @@ regress-scalar-reference-intersection:
 regress-core-conformance-evidence:
 	php sandbox/tests/offline/guards/regress_core_conformance_evidence.php
 
+regress-wordpress-cron-window:
+	php sandbox/tests/offline/guards/regress_wordpress_cron_window.php
+
 # The lock/concurrency and repository-state refusals an orchestrator meets on
 # capture/plan/apply/deploy each reach --format=json as their own reason code
 # instead of `<command>_failed` + details_redacted, produced by the real

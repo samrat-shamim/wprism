@@ -2249,6 +2249,20 @@ library.
    zero-exit PHP warning on each stream, retaining a healthy control. Correct
    payloads do not make ignored diagnostics into valid evidence.
 
+   A complete-row read window must control its test-owned background writers,
+   not hide their rows. Core's retained native evidence localized one
+   unexpected difference to `_transient_doing_cron.option_value`; its fresh-map
+   comparison now uses `sandbox/tests/lib/wordpress_cron_window.sh` before the
+   first baseline boot through the repeated read. The shared helper proves an
+   owner-scoped `DISABLE_WP_CRON` MU guard in the selected site's native PHP and
+   removes it outside WordPress on every exit. This is test infrastructure,
+   not engine behavior or a generic promise of database quiescence: an already
+   running worker, another writer or lazy expiration can still change rows and
+   must still fail the comparison. Keep every option row in the witness, and
+   retain negative controls for an actual cron-row write through the guard and
+   a durable option change. Do not add transient exclusions, cache warm-ups or
+   production special cases to make a read-only assertion pass.
+
    The source-SHA binding is part of the evidence. A green run against another
    checkout is not evidence for the candidate. The package validator requires
    this matrix for every certified plugin adapter, requires every active pin to
