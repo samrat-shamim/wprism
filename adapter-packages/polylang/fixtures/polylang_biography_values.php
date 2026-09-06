@@ -5,15 +5,21 @@ declare(strict_types=1);
 final class PolylangBiographyValues {
     public const KEYS = ['description', 'description_fr', 'description_ar'];
 
-    public static function authored(string $home): array {
+    public static function authored(string $home, string $control = 'safe'): array {
         $home = rtrim($home, '/');
         // Default English uses description, not description_en: Polylang
         // 3.8.6 admin-filters.php:47-54 writes exactly this native key roster.
-        return [
+        $values = [
             'description' => '<strong>English author 東京 🚀</strong> <a href="' . $home . '/biography-en/">About &amp; work</a>',
             'description_fr' => '<em>Auteur français 東京 🚀</em> <a href="' . $home . '/biography-fr/">Œuvres &amp; parcours</a>',
             'description_ar' => '<strong>كاتب عربي বাংলা 🚀</strong> <a href="' . $home . '/biography-ar/">السيرة والأعمال</a>',
         ];
+        if ($control !== 'safe') {
+            $hostile = self::hostile();
+            if (!array_key_exists($control, $hostile)) throw new RuntimeException('Polylang biography control is unsupported');
+            $values['description_fr'] = $hostile[$control];
+        }
+        return $values;
     }
 
     public static function hostile(): array {

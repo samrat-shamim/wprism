@@ -7,8 +7,11 @@ require_once __DIR__ . '/EvidenceSizeProfile.php';
 
 /** Admit one retained command's complete object output without interpreting its meaning. */
 final class PrivateCommandOutput {
-    public static function readObject(string $stem, ?string $stderrPattern = null, string $profile = EvidenceSizeProfile::COMPACT): string {
+    public static function readObject(string $stem, ?string $stderrPattern = null, string $profile = EvidenceSizeProfile::COMPACT, int $expectedExit = 0): string {
         $limits = EvidenceSizeProfile::limits($profile);
+        if ($expectedExit < 0 || $expectedExit > 255) {
+            throw new \RuntimeException('private command output requires an exact process exit status');
+        }
         if (!str_starts_with($stem, '/')) {
             throw new \RuntimeException('private command output requires an absolute stem');
         }
@@ -30,8 +33,10 @@ final class PrivateCommandOutput {
             }
             $streams[$suffix] = $bytes;
         }
-        if ($streams['exit'] !== "0\n") {
-            throw new \RuntimeException('private command output did not succeed');
+        if ($streams['exit'] !== $expectedExit . "\n") {
+            throw new \RuntimeException($expectedExit === 0
+                ? 'private command output did not succeed'
+                : 'private command output did not return its expected exit status');
         }
         foreach (explode("\n", $streams['stderr']) as $line) {
             if ($line !== '' && ($stderrPattern === null || preg_match($stderrPattern, $line) !== 1)) {

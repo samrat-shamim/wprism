@@ -400,6 +400,16 @@ adapter ownership. Then run native conformance and relevant combinations. Adding
 this profile moves package identity: recompile and re-pin, never bypass a stale
 artifact. New native profiles require an engine contract and evidence first.
 
+Prove each hostile value through ordinary Capture, Plan and Apply, not merely
+by observing that native KSES would change it. Separate unsafe existing rows
+from unsafe desired repository values: the latter must still pass the portable
+compiler before reaching the native gate. A profile editor may sanitize before
+storage, so fixture-only raw fault injection must compare-and-swap the exact
+owned row and restore only that preimage. Retain complete canonical files,
+policy and native owner/neighbor rows before and after each refusal; compare
+them before undoing the fixture's own edit. Polylang's biography fixture follows
+this split with source Capture and target Plan/Apply controls.
+
 ### Deleting what you author
 
 Authoring a post type does not make its rows deletable through WPrism. A capture
@@ -1611,6 +1621,13 @@ plugin faithfully.
    root cause. Reuse `sandbox/tests/lib/PrivateRefusalReceipt.php` with a
    caller-declared graph profile; do not grow a capsule-owned private-store
    parser. Bind the source or target CLI service explicitly for each call.
+   `PrivateRefusalReceipt::collect()` verifies the same raw bytes it retains,
+   preserving a diagnostic and null receipt when the expected cause is wrong.
+   Its `assertCollection()` re-verifies those bytes after transport instead of
+   trusting a copied digest receipt. Admit the exact command exit separately:
+   `PrivateCommandOutput::readObject(..., expectedExit: 1)` keeps the same
+   bounded single-object and private-file checks as its default zero-status
+   path. A failed post-command observer must not prevent private collection.
    A host deploy is a mixed phase stream, not a standalone agent JSON answer:
    its transport-detail renderer sends the refusal to stderr and may append
    the private-evidence hint after it. Test the complete phase/envelope trace

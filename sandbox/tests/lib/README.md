@@ -17,7 +17,7 @@ not standalone suites.
 | `ShellProbe.php` | `\WPrismTest\ShellProbe` — actual command/acceptance block extraction and isolated Bash execution with private, separately observed stdout/stderr; each capsule owns its commands, payloads and assertions |
 | `EvidenceSizeProfile.php` | `\WPrismTest\EvidenceSizeProfile` — closed, caller-selected diagnostic budgets. `compact/v1` retains the original limits; `conformance-tree/v1` admits one complete fixture tree up to 1 MiB of content, 1792 KiB encoded, inside a 2 MiB command stream. A record cannot select its own budget. |
 | `FilesystemTreeEvidence.php` | `\WPrismTest\FilesystemTreeEvidence` — exact private tree bytes retained through the engine's confined, race-checked snapshot; defaults to 256 KiB of content and 480 KiB per encoded record. Both evidence profiles retain the 4096-entry/256 KiB metadata boundary. Its closed decoder verifies paths, topology, sizes and hashes after disposable cleanup. This is diagnostic data, not canonical publication or capability authority. |
-| `PrivateCommandOutput.php` | `\WPrismTest\PrivateCommandOutput` — complete nonempty JSON-object admission from an owned `0700`/`0600` command capture, with bounded streams, exact zero status and a caller-declared stderr prelude. The shared reader does not interpret plugin state or confer evidence authority. |
+| `PrivateCommandOutput.php` | `\WPrismTest\PrivateCommandOutput` — complete nonempty JSON-object admission from an owned `0700`/`0600` command capture, with bounded streams, exact status and a caller-declared stderr prelude. Status defaults to zero; `expectedExit: 1` admits only that exact refusal status without relaxing file, stream or object checks. The shared reader does not interpret plugin state or confer evidence authority. |
 | `RepositoryConvergence.php` | `\WPrismTest\RepositoryConvergence` — compares compiler-owned semantic entity hashes, exact policy/code/effects/deletion inputs and the complete media catalog. Strict equality is the default; each explicitly named target-only signature requires a separate fixture-owned native preservation proof. No field-name normalizer or plugin exception lives in this helper. |
 | `PrivateRefusalReceipt.php` | `\WPrismTest\PrivateRefusalReceipt` — bounded private-record freshness, mode/inode and exact v2 graph verification; callers declare the command, reason and ordered class/message/parent/edge profile and receive only message digests. Its separate diagnostic snapshot/delta API can preserve at most four new records/1 MiB of raw bytes (base64-encoded in a private sink), explicitly unverified and never as capability evidence. |
 | `private_command_capture.sh` | `wprism_private_command_capture` — one private snapshot → command → fresh-delta lifecycle, shared by host and native commands. Caller-owned argv arrays supply the native snapshot, collector and silent validator; the collector receives the saved baseline stdout path, and the validator receives an owned capture stem. All five stage transports/statuses survive disposable cleanup in fifteen `0600` files under one `0700` sink. |
@@ -54,6 +54,15 @@ only `command`, `reason_code`, and ordered `nodes`; each node declares only
 node index. No runtime cause selects or modifies a profile. Failures throw a
 value-free `RuntimeException`; successful receipts contain only the command,
 format, one-new-record count, ordered message digests, and `verified: true`.
+
+`collect($directory, $baseline, $profile)` retains the exact raw diagnostic
+bytes and verifies those same bytes, avoiding a second read that could observe
+a different graph. Its private `wprism-private-refusal-collection/v1` envelope
+keeps the diagnostic even when verification fails, with a null receipt and a
+value-free error. `assertCollection($collection, $profile)` re-verifies the raw
+graph after transport; a copied success receipt beside coherently rehashed but
+unrelated diagnostic bytes cannot pass. Collection is test evidence only, not
+a signature or a substitute for the invocation's admitted freshness baseline.
 
 `wprism_private_command_capture` does not interpret a native refusal graph or
 turn a retained record into a passing certificate. The owner binds the exact

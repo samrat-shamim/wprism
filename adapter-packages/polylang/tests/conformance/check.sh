@@ -386,6 +386,9 @@ require_wprism_answered 'Polylang zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null || fail "Polylang no-op apply reran effects or mutated state: $ZERO_APPLY"
 pass 'Polylang zero-change plan/apply is mutation-free and idempotent'
 
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-biography-refusals.sh"
+polylang_biography_refusals_check
+
 if [ "${POLYLANG_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "Polylang $POLYLANG_EXPECTED_VERSION exact boundary consumed the full portable fixture"
   return 0 2>/dev/null || exit 0

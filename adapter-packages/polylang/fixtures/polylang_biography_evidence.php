@@ -31,15 +31,15 @@ final class PolylangBiographyEvidence {
         return $bytes;
     }
 
-    private static function nativeOutput(string $stem, string $pair, string $service): string {
+    public static function nativeOutput(string $stem, string $pair, string $service, int $expectedExit = 0): string {
         if (preg_match('/^[a-z][a-z0-9]{2,23}$/D', $pair) !== 1 || !in_array($service, ['cli1', 'cli2'], true)) {
             throw new RuntimeException('Polylang biography native transport identity is invalid');
         }
         $prelude = '/^ ?Container wprism-' . preg_quote($pair, '/') . '-' . $service . '-run-[a-f0-9]+ (Creating|Created) *$/D';
-        return PrivateCommandOutput::readObject($stem, $prelude);
+        return PrivateCommandOutput::readObject($stem, $prelude, expectedExit: $expectedExit);
     }
 
-    public static function assertNative(array $native): void {
+    public static function assertNative(array $native, string $control = 'safe'): void {
         if (self::keys($native) !== ['admin_id', 'biographies', 'default_shadow', 'format', 'home', 'hostile_oracle', 'metadata', 'orphan_rows', 'users']
             || $native['format'] !== 'polylang-biography-native/v1'
             || !is_string($native['home']) || preg_match('~^http://localhost:[0-9]+$~D', $native['home']) !== 1
@@ -52,6 +52,7 @@ final class PolylangBiographyEvidence {
         $lastUser = 0;
         $admin = null;
         $metaIds = [];
+        $metadataBytes = 0;
         foreach ($native['users'] as $position => $user) {
             if (!is_array($user) || self::keys($user) !== ['ID', 'display_name', 'user_activation_key', 'user_email', 'user_login', 'user_nicename', 'user_pass', 'user_registered', 'user_status', 'user_url']
                 || count(array_filter($user, 'is_string')) !== count($user)
@@ -75,6 +76,8 @@ final class PolylangBiographyEvidence {
                 }
                 $lastMeta = (int) $row['meta_id'];
                 $metaIds[$row['meta_id']] = true;
+                $metadataBytes += strlen($row['meta_key']) + strlen($row['meta_value'] ?? '');
+                if (count($metaIds) > 512 || $metadataBytes > 32768) throw new RuntimeException('Polylang biography complete metadata exceeds its fixture budget');
             }
             if ($user['user_login'] === 'admin') {
                 if ($admin !== null || $user['ID'] !== $native['admin_id']) throw new RuntimeException('Polylang biography exact login is ambiguous');
@@ -85,7 +88,7 @@ final class PolylangBiographyEvidence {
         if (array_filter($admin, static fn(array $row): bool => $row['meta_key'] === 'description_en') !== []) {
             throw new RuntimeException('Polylang biography default shadow key must be absent in native storage');
         }
-        $expected = PolylangBiographyValues::authored($native['home']);
+        $expected = PolylangBiographyValues::authored($native['home'], $control);
         $api = [];
         foreach ($expected as $key => $value) {
             $raw = array_values(array_filter($admin, static fn(array $row): bool => $row['meta_key'] === $key));
@@ -103,12 +106,12 @@ final class PolylangBiographyEvidence {
         }
     }
 
-    public static function capture(string $repo, string $nativeStem, string $pair, string $service): array {
+    public static function capture(string $repo, string $nativeStem, string $pair, string $service, string $nativeControl = 'safe', string $canonicalControl = 'safe'): array {
         if (function_exists('wp_kses')) {
             throw new RuntimeException('Polylang biography requires its standalone host compiler and exact native transport');
         }
         $native = json_decode(self::nativeOutput($nativeStem, $pair, $service), true, 32, JSON_THROW_ON_ERROR);
-        self::assertNative($native);
+        self::assertNative($native, $nativeControl);
         $tree = FilesystemTreeEvidence::capture($repo, 'state', EvidenceSizeProfile::CONFORMANCE_TREE);
         $policy = \WPrism\Policy::load($repo, adapterLibrary: \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 3)));
         $artifact = \WPrism\RepositoryCompiler::compile($repo, $policy);
@@ -117,18 +120,18 @@ final class PolylangBiographyEvidence {
             throw new RuntimeException('Polylang biography compilation changed its tree or loaded a native sanitizer');
         }
         $record = ['format' => 'polylang-biography-evidence/v1', 'native' => $native, 'tree' => $tree, 'compiled' => $compiled];
-        self::assertRecord($record);
+        self::assertRecord($record, $nativeControl, $canonicalControl);
         return $record;
     }
 
-    public static function assertRecord(array $record): void {
+    public static function assertRecord(array $record, string $nativeControl = 'safe', string $canonicalControl = 'safe'): void {
         if (self::keys($record) !== ['compiled', 'format', 'native', 'tree'] || $record['format'] !== 'polylang-biography-evidence/v1') {
             throw new RuntimeException('Polylang biography evidence envelope is malformed');
         }
-        self::assertNative($record['native']);
+        self::assertNative($record['native'], $nativeControl);
         FilesystemTreeEvidence::assertRecord($record['tree'], 'state', EvidenceSizeProfile::CONFORMANCE_TREE);
         $rows = array_values(array_filter($record['tree']['files'], static fn(array $file): bool => $file['path'] === UserMetaState::path('admin')));
-        $expected = UserMetaState::document('admin', PolylangBiographyValues::authored('{{home}}'));
+        $expected = UserMetaState::document('admin', PolylangBiographyValues::authored('{{home}}', $canonicalControl));
         if (count($rows) !== 1 || base64_decode($rows[0]['contents_base64'], true) !== Canon::encode($expected)
             || Canon::encode($record['compiled']) !== Canon::encode($expected)) {
             throw new RuntimeException('Polylang biography canonical and compiled intent must retain exact home tokens');
@@ -146,8 +149,8 @@ if (isset($argv) && realpath($argv[0]) === __FILE__) {
     try {
         if (count($argv) === 6 && $argv[1] === 'seed') {
             echo PolylangBiographyEvidence::seedReceipt($argv[2], $argv[3], $argv[4], $argv[5]);
-        } elseif (count($argv) === 6 && $argv[1] === 'capture') {
-            echo json_encode(PolylangBiographyEvidence::capture($argv[2], $argv[3], $argv[4], $argv[5]), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        } elseif (in_array(count($argv), [6, 8], true) && $argv[1] === 'capture') {
+            echo json_encode(PolylangBiographyEvidence::capture($argv[2], $argv[3], $argv[4], $argv[5], $argv[6] ?? 'safe', $argv[7] ?? 'safe'), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
         } elseif (count($argv) === 4 && $argv[1] === 'compare') {
             $source = json_decode(PrivateCommandOutput::readObject($argv[2], null, EvidenceSizeProfile::CONFORMANCE_TREE), true, 32, JSON_THROW_ON_ERROR);
             $target = json_decode(PrivateCommandOutput::readObject($argv[3], null, EvidenceSizeProfile::CONFORMANCE_TREE), true, 32, JSON_THROW_ON_ERROR);

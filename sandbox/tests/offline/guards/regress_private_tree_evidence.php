@@ -183,6 +183,19 @@ $reset();
 $write('stderr', " Container bound-cli1-run-abcd Created \n");
 wprism_check_same($answer, PrivateCommandOutput::readObject($stem, '/^ Container bound-cli1-run-[a-f0-9]+ Created $/D'), 'only the caller-bound lifecycle prelude is admitted');
 wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), RuntimeException::class, 'host-only observations admit no nonempty diagnostic prelude');
+$reset();
+foreach ([1, 17, 255] as $expectedExit) {
+    $write('exit', $expectedExit . "\n");
+    wprism_check_same($answer, PrivateCommandOutput::readObject($stem, expectedExit: $expectedExit), 'explicit expected process status admits one unchanged complete object');
+    wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), RuntimeException::class, 'expected nonzero status cannot weaken default success admission');
+}
+foreach (["0\n", "2\n", "01\n", "1", "1\n2\n", "-1\n", "256\n"] as $wrongExit) {
+    $write('exit', $wrongExit);
+    wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, expectedExit: 1), RuntimeException::class, 'fixed refusal status rejects a different or malformed process result');
+}
+foreach ([-1, 256] as $unsupportedExit) {
+    wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, expectedExit: $unsupportedExit), RuntimeException::class, 'caller cannot select a status outside the process boundary');
+}
 foreach (['nonzero', 'bad-exit', 'duplicate', 'array', 'empty-object', 'noise', 'large-stdout', 'large-stderr', 'large-exit', 'directory-mode',
     'stdout-mode', 'stderr-mode', 'exit-mode', 'missing', 'hardlink', 'symlink'] as $fault) {
     $reset();
@@ -205,6 +218,10 @@ foreach (['nonzero', 'bad-exit', 'duplicate', 'array', 'empty-object', 'noise', 
         case 'symlink': rename("$stem.stdout", "$scratch/shared"); symlink("$scratch/shared", "$stem.stdout"); break;
     }
     wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), Throwable::class, "private output admission refuses $fault");
+    if (!in_array($fault, ['nonzero', 'bad-exit', 'large-exit', 'exit-mode', 'missing'], true)) {
+        $write('exit', "1\n");
+        wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, expectedExit: 1), Throwable::class, "fixed-status refusal retains private admission checks for $fault");
+    }
     if ($fault === 'hardlink') unlink("$scratch/shared");
     if ($fault === 'symlink') { unlink("$stem.stdout"); unlink("$scratch/shared"); }
 }

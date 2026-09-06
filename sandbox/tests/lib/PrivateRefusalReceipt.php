@@ -103,8 +103,59 @@ final class PrivateRefusalReceipt {
         if (count($current) !== count($baseline) + 1 || count($new) !== 1) {
             self::fail('the invocation did not append exactly one ' . $profile['command'] . ' refusal record');
         }
+        return self::verifyRecord(self::read($directory . '/' . $new[0]), $profile);
+    }
+
+    /** Retain the exact bytes being verified, including when the cause is wrong. */
+    public static function collect(string $directory, string $baselineJson, array $profile): string {
+        self::checkProfile($profile);
+        $diagnostic = json_decode(self::diagnosticNewRecords($directory, $baselineJson, $profile['command']), true, 32, JSON_THROW_ON_ERROR);
+        $receipt = $error = null;
         try {
-            $record = json_decode(self::read($directory . '/' . $new[0]), true, 32, JSON_THROW_ON_ERROR);
+            $receipt = json_decode(self::verifyDiagnostic($diagnostic, $profile), true, 32, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $failure) {
+            $error = ['class' => get_class($failure), 'message_sha256' => hash('sha256', $failure->getMessage())];
+        }
+        return json_encode(['format' => 'wprism-private-refusal-collection/v1', 'diagnostic' => $diagnostic,
+            'receipt' => $receipt, 'error' => $error], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
+    /** Re-verify transported raw bytes; a copied digest receipt is insufficient. */
+    public static function assertCollection(array $collection, array $profile): void {
+        if (!self::exactKeys($collection, ['diagnostic', 'error', 'format', 'receipt'])
+            || $collection['format'] !== 'wprism-private-refusal-collection/v1' || $collection['error'] !== null
+            || !is_array($collection['diagnostic']) || !is_array($collection['receipt'])) {
+            self::fail('the retained collection does not prove its exact cause');
+        }
+        $receipt = json_decode(self::verifyDiagnostic($collection['diagnostic'], $profile), true, 32, JSON_THROW_ON_ERROR);
+        if ($collection['receipt'] !== $receipt) self::fail('the retained receipt does not match its raw cause graph');
+    }
+
+    private static function verifyDiagnostic(array $diagnostic, array $profile): string {
+        self::checkProfile($profile);
+        if (!self::exactKeys($diagnostic, ['command', 'format', 'new_records', 'purpose', 'records', 'verified'])
+            || $diagnostic['command'] !== $profile['command'] || $diagnostic['format'] !== 'wprism-private-refusal-diagnostic/v1'
+            || $diagnostic['new_records'] !== 1 || $diagnostic['purpose'] !== 'diagnostic_only' || $diagnostic['verified'] !== false
+            || !is_array($diagnostic['records']) || !array_is_list($diagnostic['records']) || count($diagnostic['records']) !== 1) {
+            self::fail('the retained diagnostic does not contain exactly one fresh command record');
+        }
+        $raw = $diagnostic['records'][0];
+        if (!is_array($raw) || !self::exactKeys($raw, ['bytes', 'contents_base64', 'name', 'sha256'])
+            || !is_string($raw['name']) || !self::validName($raw['name'], $profile['command'])
+            || !is_int($raw['bytes']) || $raw['bytes'] < 1 || $raw['bytes'] > self::RECORD_LIMIT
+            || !is_string($raw['contents_base64']) || strlen($raw['contents_base64']) > 4 * (int) ceil(self::RECORD_LIMIT / 3)
+            || !is_string($raw['sha256'])) {
+            self::fail('the retained diagnostic record is malformed or unbounded');
+        }
+        $bytes = base64_decode($raw['contents_base64'], true);
+        if (!is_string($bytes) || base64_encode($bytes) !== $raw['contents_base64'] || strlen($bytes) !== $raw['bytes']
+            || hash('sha256', $bytes) !== $raw['sha256']) self::fail('the retained diagnostic bytes do not match their identity');
+        return self::verifyRecord($bytes, $profile);
+    }
+
+    private static function verifyRecord(string $bytes, array $profile): string {
+        try {
+            $record = json_decode($bytes, true, 32, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             self::fail('the appended refusal record is not bounded JSON');
         }

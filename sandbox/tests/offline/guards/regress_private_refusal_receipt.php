@@ -103,6 +103,37 @@ wprism_check_same([
     ]],
     'verified' => false,
 ], $diagnostic, 'diagnostic retention preserves bounded raw bytes while explicitly making no expected-cause claim');
+$collection = json_decode(PrivateRefusalReceipt::collect($directory, $baseline, $profile), true, 32, JSON_THROW_ON_ERROR);
+PrivateRefusalReceipt::assertCollection($collection, $profile);
+wprism_check_same($diagnostic, $collection['diagnostic'], 'combined collection verifies the exact retained bytes rather than rereading a mutable record');
+wprism_check_same(json_decode($receipt, true, 32, JSON_THROW_ON_ERROR), $collection['receipt'], 'combined collection retains the original digest receipt unchanged');
+foreach (['extra-envelope', 'wrong-format', 'error', 'missing-receipt', 'wrong-receipt', 'extra-diagnostic', 'wrong-command',
+    'wrong-count', 'verified-diagnostic', 'empty-records', 'duplicate-record', 'wrong-name', 'raw-size', 'raw-digest', 'raw-base64', 'forged-cause'] as $fault) {
+    $bad = $collection;
+    switch ($fault) {
+        case 'extra-envelope': $bad['accepted'] = true; break;
+        case 'wrong-format': $bad['format'] = 'foreign'; break;
+        case 'error': $bad['error'] = ['message' => 'not verified']; break;
+        case 'missing-receipt': $bad['receipt'] = null; break;
+        case 'wrong-receipt': $bad['receipt']['node_message_sha256'][1] = str_repeat('a', 64); break;
+        case 'extra-diagnostic': $bad['diagnostic']['accepted'] = true; break;
+        case 'wrong-command': $bad['diagnostic']['command'] = 'plan'; break;
+        case 'wrong-count': $bad['diagnostic']['new_records'] = 2; break;
+        case 'verified-diagnostic': $bad['diagnostic']['verified'] = true; break;
+        case 'empty-records': $bad['diagnostic']['records'] = []; break;
+        case 'duplicate-record': $bad['diagnostic']['records'][] = $bad['diagnostic']['records'][0]; break;
+        case 'wrong-name': $bad['diagnostic']['records'][0]['name'] = $other; break;
+        case 'raw-size': $bad['diagnostic']['records'][0]['bytes']++; break;
+        case 'raw-digest': $bad['diagnostic']['records'][0]['sha256'] = str_repeat('a', 64); break;
+        case 'raw-base64': $bad['diagnostic']['records'][0]['contents_base64'] .= "\n"; break;
+        case 'forged-cause':
+            $forged = array_replace($record, PrivateRefusalEvidence::graph(new PrivateEvidenceException('public boundary', new RuntimeException('unrelated cause'))));
+            $bytes = json_encode($forged, JSON_THROW_ON_ERROR);
+            $bad['diagnostic']['records'][0] = ['name' => $new, 'bytes' => strlen($bytes), 'contents_base64' => base64_encode($bytes), 'sha256' => hash('sha256', $bytes)];
+            break;
+    }
+    $refuses(fn() => PrivateRefusalReceipt::assertCollection($bad, $profile), 'transported collection ' . $fault);
+}
 $afterDiagnostic = PrivateRefusalReceipt::diagnosticSnapshot($directory, 'apply');
 $emptyDiagnostic = json_decode(
     PrivateRefusalReceipt::diagnosticNewRecords($directory, $afterDiagnostic, 'apply'),
@@ -191,6 +222,11 @@ foreach ($mutations as $label => [$path, $value]) {
     unset($slot);
     $write($directory . '/' . $new, $changed);
     $refuses(fn() => PrivateRefusalReceipt::verify($directory, $baseline, $profile), $label);
+    $failedCollection = json_decode(PrivateRefusalReceipt::collect($directory, $baseline, $profile), true, 32, JSON_THROW_ON_ERROR);
+    wprism_check($failedCollection['receipt'] === null && is_array($failedCollection['error'])
+        && base64_decode($failedCollection['diagnostic']['records'][0]['contents_base64'], true) === json_encode($changed, JSON_THROW_ON_ERROR),
+        'failed combined collection retains the complete ' . $label . ' without a success receipt');
+    $refuses(fn() => PrivateRefusalReceipt::assertCollection($failedCollection, $profile), 'failed collected ' . $label);
 }
 foreach (['', '{}{}', str_repeat('[', 33) . '0' . str_repeat(']', 33)] as $invalidBytes) {
     $write($directory . '/' . $new, $invalidBytes);
