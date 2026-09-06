@@ -1307,11 +1307,11 @@ wprism_check(
     'runtime module setup and fresh registered-active readbacks prove every exact Rank Math role and table before authoring'
 );
 
-preg_match_all('/^run_leg (forward reverse|reverse forward)$/m', $live, $legs);
+preg_match_all('/^run_leg (forward reverse|reverse forward) "\$meta_mode"$/m', $live, $legs);
 wprism_check_same(
     ['forward reverse', 'reverse forward'],
     $legs[1] ?? [],
-    'both pairwise-opposed source/target plugin-load orders run the complete parameterized product path'
+    'both pairwise-opposed source/target plugin-load orders run the complete product path for each metadata mode'
 );
 $sourceOrderReadback = strpos($live, 'SOURCE_ORDER=$(active_plugin_order wp1)');
 $targetOrderReadback = strpos($live, 'TARGET_ORDER=$(active_plugin_order wp2)');
@@ -2743,8 +2743,8 @@ wprism_check(
         && $ownedReset < $secondUp
         && $secondUp < $secondLeg
         && $secondLeg < $complete
-        && substr_count($live, 'pair_live_ownership_reset') === 1,
-    'the first order starts only after generic lease publication and the sole reset occurs between its two owned legs'
+        && substr_count($live, 'pair_live_ownership_reset') === 2,
+    'the first order starts only after generic lease publication and reset sites separate load orders and metadata modes'
 );
 $ownershipHelper = (string) file_get_contents($root . '/sandbox/tests/lib/pair_live_ownership.sh');
 wprism_check(

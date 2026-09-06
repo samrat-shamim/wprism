@@ -2249,6 +2249,28 @@ library.
    zero-exit PHP warning on each stream, retaining a healthy control. Correct
    payloads do not make ignored diagnostics into valid evidence.
 
+   Prove a coherent **source** at the actual Capture boundary, after all native
+   authoring lifecycle work. In the Rank Math/ACF/Polylang/Woo combination,
+   fresh raw metadata and API readbacks showed that Polylang post-meta sync
+   already copied the English ACF value to German before Capture. Disabling
+   sync preserved distinct values; re-enabling it and saving through Woo
+   propagated a common value. Exercise both valid intents through the round
+   trip, including a different target setting. A successful setter or one
+   Action Scheduler assertion does not prove the rest of the source graph.
+
+   Native authoring has ordering too: new post types and language rewrite
+   configuration must be prepared before a native link index is treated as
+   ready. The same source-only diagnostic had three correct internal URLs
+   with unresolved targets. Soft rewrite preparation, a fresh request and
+   native Rank processing resolved every edge, changing only targets/counts
+   in the complete source observation. This is fixture manufacture, not an
+   engine cache warm-up or a recovery-observer workaround. Retain bounded
+   private source observations across pair cleanup, verify raw rows alongside
+   plugin APIs, and refuse incoherence before capture. Derive incoming counts
+   from the entire explicitly checked fixture graph: a third CPT linking to
+   the English product contributes just as the German product does. Apply and
+   retry must use that same complete graph oracle.
+
    A complete-row read window must control its test-owned background writers,
    not hide their rows. Core's retained native evidence localized one
    unexpected difference to `_transient_doing_cron.option_value`; its fresh-map

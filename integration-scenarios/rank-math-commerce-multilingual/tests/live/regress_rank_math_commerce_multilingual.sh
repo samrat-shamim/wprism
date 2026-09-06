@@ -349,8 +349,9 @@ echo wp_json_encode([
 ' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');"
 }
 
-create_languages() { # <wp1|wp2>
-  local side="$1"
+create_languages() { # <wp1|wp2> <independent|synchronized>
+  local side="$1" meta_mode="$2"
+  case "$meta_mode" in independent|synchronized) ;; *) fail 'unknown Polylang metadata fixture mode' ;; esac
   "$side" eval '
 $languages = [
     ["locale"=>"en_US","slug"=>"en","name"=>"English","rtl"=>0,"term_group"=>0,"flag"=>"us"],
@@ -379,9 +380,11 @@ $options["post_types"] = ["product"];
 $options["redirect_lang"] = false;
 $options["rewrite"] = true;
 $options["taxonomies"] = ["product_cat"];
-$options["sync"] = ["taxonomies", "post_meta", "post_date"];
+$mode = (string) getenv("WPRISM_RMCOMBO_META_MODE");
+if (!in_array($mode, ["independent", "synchronized"], true)) throw new RuntimeException("unknown metadata fixture mode");
+$options["sync"] = $mode === "synchronized" ? ["taxonomies", "post_meta", "post_date"] : ["taxonomies", "post_date"];
 update_option("polylang", $options);
-' >/dev/null
+' --exec="putenv('WPRISM_RMCOMBO_META_MODE=$meta_mode');" >/dev/null
 }
 
 active_plugin_order() { # <wp1|wp2>
@@ -685,6 +688,11 @@ foreach ($products as $language => $product) {
     ));
     $rows[$language] = [
         "acf" => get_field("rmcombo_badge", $post->ID),
+        "acf_metadata_api" => get_post_meta($post->ID, "rmcombo_badge", true),
+        "acf_raw" => $readRows($wpdb->prepare(
+            "SELECT meta_key,meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key IN (%s,%s) ORDER BY meta_key,meta_id LIMIT 3",
+            $post->ID, "rmcombo_badge", "_rmcombo_badge"
+        )),
         "canonical" => get_post_meta($post->ID, "rank_math_canonical_url", true),
         "content" => $post->post_content,
         "description" => get_post_meta($post->ID, "rank_math_description", true),
@@ -761,6 +769,10 @@ if ($neighbor instanceof WP_Post) {
         "title"=>get_post_meta($neighbor->ID,"rank_math_title",true),
     ];
 }
+$polylang = get_option("polylang");
+if (!is_array($polylang) || !is_array($polylang["sync"] ?? null) || !is_array(PLL()->options["sync"])) {
+    throw new RuntimeException("combined native synchronization option is unavailable");
+}
 echo wp_json_encode([
     "book" => $book instanceof WP_Post ? [
         "content"=>$book->post_content,"id"=>(int)$book->ID,"links"=>$bookLinks,
@@ -774,6 +786,7 @@ echo wp_json_encode([
     ],
     "modules" => array_values((array) get_option("rank_math_modules", [])),
     "neighbor" => $neighborState,
+    "polylang_sync" => ["stored"=>$polylang["sync"], "loaded"=>PLL()->options["sync"]],
     "products" => $rows,
     "redirection" => $redirection,
     "redirection_cache" => $redirectionCache,
@@ -931,9 +944,124 @@ persist_active_plugin_order() { # <side> <forward|reverse>
   "wp$side" option update active_plugins "$plugins" --format=json >/dev/null
 }
 
-run_leg() { # <source order> <target order>
-local source_order="$1" target_order="$2" expected_source expected_target
-say "fresh exact four-plugin pair: source=$source_order target=$target_order"
+assert_rmcombo_acf_values() { # <complete native state> <independent|synchronized>
+  case "$2" in independent|synchronized) ;; *) fail 'unknown ACF observation mode' ;; esac
+  jq -en --argjson state "$1" --arg mode "$2" '
+    (if $mode == "synchronized" then ["taxonomies","post_meta","post_date"] else ["taxonomies","post_date"] end) as $sync |
+    $state.polylang_sync == {stored:$sync,loaded:$sync} and
+    all(["en","de"][]; . as $language |
+      (if $language == "en" or $mode == "synchronized" then "English badge 東京" else "Deutsches Abzeichen 東京" end) as $value |
+      $state.products[$language] as $product |
+      $product.acf == $value and $product.acf_metadata_api == $value and
+      $product.acf_raw == [{meta_key:"_rmcombo_badge",meta_value:"field_rmcombo_badge"},{meta_key:"rmcombo_badge",meta_value:$value}])
+  ' >/dev/null || fail 'combined ACF raw rows, APIs or synchronization mode disagree; inspect retained native evidence'
+}
+
+assert_rmcombo_link_counts() { # <complete native state>; all three authors contribute incoming edges
+  jq -en --argjson state "$1" '
+    [$state.products.en,$state.products.de,$state.book] as $entities |
+    [$entities[].links[]] as $edges |
+    all($edges[]; (.type == "internal" or .type == "external") and
+      (.url | type == "string" and length > 0) and (.target_post_id | tonumber) >= 0) and
+    all($entities[]; . as $entity | .id > 0 and
+      (.rank_counts | map_values(tonumber)) == {
+        internal_link_count:([$entity.links[] | select(.type == "internal")] | length),
+        external_link_count:([$entity.links[] | select(.type == "external")] | length),
+        incoming_link_count:([$edges[] | select(.type == "internal" and (.target_post_id | tonumber) == $entity.id)] | length)})
+  ' >/dev/null || fail 'combined native link counts disagree with the complete seeded graph'
+}
+
+prepare_rmcombo_source_native() {
+  local receipt rmcombo_host_pair="$PAIR" rmcombo_host_service=cli1
+  # e647 source-only native evidence had correct URLs but three unresolved
+  # targets. Fresh soft rewrite preparation plus native reprocessing changed
+  # only those targets/counts; every other complete source field stayed exact.
+  capture_wprism_json_checked receipt 'combined source native rewrite preparation' assert_rmcombo_host_native_json wp1 eval '
+flush_rewrite_rules(false);
+echo wp_json_encode(["flushed"=>true]);
+'
+  jq -e '. == {flushed:true}' <<<"$receipt" >/dev/null || fail 'source native rewrite preparation was not acknowledged'
+  capture_wprism_json_checked receipt 'combined source fresh routes and native link processing' assert_rmcombo_host_native_json wp1 eval '
+$routes = [];
+foreach (["en"=>["product","rmcombo-product-en"],"de"=>["product","rmcombo-product-de"],"book"=>["rmcombo_book","rmcombo-book"]] as $name=>$identity) {
+    $post = get_page_by_path($identity[1],OBJECT,$identity[0]);
+    if (!$post instanceof WP_Post) throw new RuntimeException("source routed post is absent");
+    $url = get_permalink($post);
+    $routes[$name] = ["id"=>(int)$post->ID,"url"=>$url,"resolved"=>(int)url_to_postid($url)];
+    RankMath\Links\Links::process_post_links($post->ID,$post);
+}
+echo wp_json_encode($routes);
+'
+  jq -en --argjson routes "$receipt" --argjson seed "$SOURCE_SEED" '
+    ($routes | keys) == ["book","de","en"] and
+    all(["en","de","book"][]; . as $name |
+      (if $name == "book" then $seed.book else $seed.products[$name] end) as $id |
+      $id > 0 and $routes[$name].id == $id and $routes[$name].resolved == $id)
+  ' >/dev/null || fail 'fresh source permalink routes do not resolve to their exact authored native identities'
+}
+
+capture_rmcombo_source_native() {
+  local suffix status=0
+  mkdir -p "$ROOT/sandbox/tmp"
+  SOURCE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$ROOT/sandbox/tmp/wprism-rmcombo-source-state.$PAIR.XXXXXX")
+  printf 'combined source native diagnostics (unverified): %s\n' "$SOURCE_NATIVE_EVIDENCE" >&2
+  for suffix in stdout stderr exit; do
+    (umask 077; set -C; : > "$SOURCE_NATIVE_EVIDENCE/native.$suffix")
+  done
+  wprism_private_capture_stage "$SOURCE_NATIVE_EVIDENCE" native native_state wp1 || status=$?
+  SOURCE_NATIVE=$(php "$ROOT/integration-scenarios/rank-math-commerce-multilingual/fixtures/source-native-evidence.php" \
+    "$SOURCE_NATIVE_EVIDENCE/native" "$PAIR") || fail 'combined source native capture failed bounded admission; inspect retained evidence'
+  [ "$status" -eq 0 ] || fail 'combined source native observation did not succeed'
+}
+
+assert_rmcombo_source_native() { # <seed receipt> <fresh native state> <metadata mode> <driver-owned source URL>
+  assert_rmcombo_acf_values "$2" "$3"
+  assert_rmcombo_link_counts "$2"
+  jq -en --argjson seed "$1" --argjson state "$2" --arg base "$4" '
+    $state.categories == $seed.categories and
+    $state.category_languages == {en:"en",de:"de"} and
+    $state.translations == $seed.products and $state.term_translations == $seed.categories and
+    $seed.products.en != $seed.products.de and $seed.book != $seed.products.en and $seed.book != $seed.products.de and
+    $state.modules == ["link-counter","redirections","rich-snippet"] and
+    $state.neighbor == null and $state.retired_target_counts == null and
+    $state.redirection_cache == [] and $state.stale_link_sentinels == 0 and
+    all(["en","de"][]; . as $language | $state.products[$language] as $product |
+      (if $language == "en" then "de" else "en" end) as $peer |
+      (if $language == "en" then "29" else "31" end) as $price |
+      $product.id == $seed.products[$language] and $product.id > 0 and
+      $product.language == $language and $product.primary == $seed.categories[$language] and
+      $product.price == $price and ($product.lookup.min_price | tonumber) == ($price | tonumber) and
+      ($product.lookup.max_price | tonumber) == ($price | tonumber) and $product.lookup.stock_status == "instock" and
+      $product.url == ($base + "/" + $language + "/product/rmcombo-product-" + $language + "/") and
+      $product.canonical == $product.url and $product.processed == true and
+      $product.content == ("<p>Portable " + $language + " product 東京 🚀 <a href=\"" + $state.products[$peer].url + "\">translated peer</a> <a href=\"https://external.example.test/rmcombo\">external</a></p>") and
+      ($product.links | length) == 2 and
+      ([ $product.links[].type ] | sort) == ["external","internal"] and
+      all($product.links[]; if .type == "internal" then (.target_post_id | tonumber) == $seed.products[$peer] and .url == $state.products[$peer].url
+        else (.target_post_id | tonumber) == 0 and .url == "https://external.example.test/rmcombo" end)) and
+    $state.products.en.title == "Portable Rank Math Commerce EN 東京 🚀" and
+    $state.products.de.title == "Tragbarer Rank Math Handel DE 東京 🚀" and
+    $state.products.en.description == "Portable English commerce SEO 東京." and
+    $state.products.de.description == "Tragbare deutsche Commerce-SEO 東京." and
+    $state.book.id == $seed.book and $state.book.id > 0 and $state.book.processed == true and
+    $state.book.title == "Portable custom CPT SEO 東京" and
+    $state.book.content == ("<p>Custom CPT <a href=\"" + $state.products.en.url + "\">product</a> <a href=\"https://external.example.test/rmcombo-book\">external</a></p>") and
+    ($state.book.links | length) == 2 and ([ $state.book.links[].type ] | sort) == ["external","internal"] and
+    all($state.book.links[]; if .type == "internal" then (.target_post_id | tonumber) == $seed.products.en and .url == $state.products.en.url
+      else (.target_post_id | tonumber) == 0 and .url == "https://external.example.test/rmcombo-book" end) and
+    $state.redirection == {header_code:302,hits:0,id:$seed.redirection,
+      sources:[{pattern:"rmcombo-old",comparison:"exact",ignore:""}],status:"active",url_to:$state.products.en.url}
+  ' >/dev/null || fail 'combined source authored/native premise is incoherent before capture; inspect retained evidence'
+}
+
+run_leg() { # <source order> <target order> <independent|synchronized>
+local source_order="$1" target_order="$2" meta_mode="$3" target_meta_mode expected_source expected_target
+case "$meta_mode" in
+  independent) target_meta_mode=synchronized ;;
+  synchronized) target_meta_mode=independent ;;
+  *) fail 'unknown combined metadata round-trip mode' ;;
+esac
+say "fresh exact four-plugin pair: source=$source_order target=$target_order metadata=$meta_mode"
 bash bin/pair.sh repo-host "$PAIR" both >/dev/null
 for side in 1 2; do
   "wp$side" site empty --yes >/dev/null
@@ -996,9 +1124,8 @@ jq -en --argjson source "$SOURCE_DEFAULT_FIXTURE" --argjson target "$TARGET_DEFA
 # domain. Only the TT sequence moves: term ids remain at their host-local base.
 wp1 db query 'ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=3300001' >/dev/null
 wp2 db query 'ALTER TABLE wp_term_taxonomy AUTO_INCREMENT=9300001' >/dev/null
-for side in wp1 wp2; do
-  create_languages "$side"
-done
+create_languages wp1 "$meta_mode"
+create_languages wp2 "$target_meta_mode"
 configure_rank_math wp1 source
 configure_rank_math wp2 target
 SOURCE_RANK_MATH_READY=$(rank_math_readiness wp1 source)
@@ -1079,7 +1206,6 @@ foreach (["en","de"] as $language) {
     update_post_meta($products[$language], "rank_math_description", $language === "en" ? "Portable English commerce SEO 東京." : "Tragbare deutsche Commerce-SEO 東京.");
     update_post_meta($products[$language], "rank_math_canonical_url", get_permalink($products[$language]));
     update_post_meta($products[$language], "rank_math_primary_product_cat", (string)$categories[$language]);
-    RankMath\Links\Links::process_post_links($products[$language], get_post($products[$language]));
 }
 $book = wp_insert_post([
     "post_type"=>"rmcombo_book","post_status"=>"publish","post_name"=>"rmcombo-book",
@@ -1089,7 +1215,6 @@ $book = wp_insert_post([
 ], true);
 if (is_wp_error($book) || (int)$book < 1) throw new RuntimeException("custom CPT creation failed");
 update_post_meta((int)$book,"rank_math_title","Portable custom CPT SEO 東京");
-RankMath\Links\Links::process_post_links((int)$book,get_post((int)$book));
 $redirection = RankMath\Redirections\Redirection::from([
     "sources"=>[["pattern"=>"rmcombo-old","comparison"=>"exact","ignore"=>""]],
     "url_to"=>get_permalink($products["en"]), "header_code"=>"302", "status"=>"active",
@@ -1106,14 +1231,6 @@ jq -e '
   .categories.en != .category_tts.en and .categories.de != .category_tts.de
 ' <<<"$SOURCE_SEED" >/dev/null \
   || fail "source custom product categories did not retain term/TT divergence: $SOURCE_SEED"
-SOURCE_NATIVE=$(native_state wp1)
-jq -e '
-  .scheduler == [{action_id: .scheduler[0].action_id, hook:"rmcombo_source_runtime", status:"pending", group_slug:""}] and
-  (.scheduler[0].action_id | tonumber) > 0
-' <<<"$SOURCE_NATIVE" >/dev/null \
-  || fail "source Action Scheduler witness is absent or ambiguous before capture: $SOURCE_NATIVE"
-pass 'source-only Action Scheduler state exists natively before capture'
-
 TARGET_SEED=$(capture_rmcombo_native_json 'Rank Math combination target native seed' wp2 eval '
 global $wpdb;
 $createTerm = static function (string $name, string $slug): int {
@@ -1231,6 +1348,15 @@ git -C "$R1" remote add origin "../origin-$PAIR.git"
 git -C "$R1" push -qu origin main
 establish_core_environment_bindings wp1 /siterepo admin@example.test \
   "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"
+prepare_rmcombo_source_native
+capture_rmcombo_source_native
+assert_rmcombo_source_native "$SOURCE_SEED" "$SOURCE_NATIVE" "$meta_mode" "http://${PAIR}1.invalid"
+jq -e '
+  .scheduler == [{action_id: .scheduler[0].action_id, hook:"rmcombo_source_runtime", status:"pending", group_slug:""}] and
+  (.scheduler[0].action_id | tonumber) > 0
+' <<<"$SOURCE_NATIVE" >/dev/null \
+  || fail 'source Action Scheduler witness is absent or ambiguous before capture; inspect retained native evidence'
+pass 'source-only Action Scheduler state exists natively before capture'
 capture_wprism_json_checked SOURCE_CAPTURE 'Rank Math combination source capture' assert_rmcombo_warning_free_capture \
   wp1 wprism capture --repo=/siterepo --format=json
 jq -e '.warnings == []' <<<"$SOURCE_CAPTURE" >/dev/null \
@@ -1562,7 +1688,7 @@ jq -en --argjson source_fixture "$SOURCE_DEFAULT_FIXTURE" \
   ($identity | map(.id_kind)) == ["term","term_taxonomy"] and
   all($identity[]; .uuid == $uuid and .entity_type == "term" and .local_id == $target_fixture.term_id)
 ' >/dev/null || fail "portable Woo default UUID did not resolve to the target matching native coordinate: $TARGET_DEFAULT_NATIVE / $TARGET_DEFAULT_IDENTITY"
-jq -en --argjson source "$SOURCE_SEED" --argjson hostile "$TARGET_SEED" \
+jq -en --arg meta_mode "$meta_mode" --argjson source "$SOURCE_SEED" --argjson hostile "$TARGET_SEED" \
   --argjson hostile_native "$HOSTILE_NATIVE" --argjson target "$TARGET" '
   ($target.products.en.id == $hostile.products.en) and
   ($target.products.de.id == $hostile.products.de) and
@@ -1586,7 +1712,7 @@ jq -en --argjson source "$SOURCE_SEED" --argjson hostile "$TARGET_SEED" \
   ($target.products.en.primary == $target.categories.en) and
   ($target.products.de.primary == $target.categories.de) and
   ($target.products.en.acf == "English badge 東京") and
-  ($target.products.de.acf == "Deutsches Abzeichen 東京") and
+  ($target.products.de.acf == (if $meta_mode == "synchronized" then "English badge 東京" else "Deutsches Abzeichen 東京" end)) and
   ($target.products.en.price == "29") and ($target.products.de.price == "31") and
   (($target.products.en.lookup.min_price | tonumber) == 29) and
   (($target.products.de.lookup.min_price | tonumber) == 31) and
@@ -1597,15 +1723,12 @@ jq -en --argjson source "$SOURCE_SEED" --argjson hostile "$TARGET_SEED" \
   ([ $target.products.de.links[] | select(.type == "internal") ][0].target_post_id | tonumber) == $target.products.en.id and
   ([ $target.products.en.links[] | select(.type == "external") ][0].target_post_id | tonumber) == 0 and
   ([ $target.products.de.links[] | select(.type == "external") ][0].target_post_id | tonumber) == 0 and
-  ($target.products.en.rank_counts | map_values(tonumber)) == {external_link_count:1,incoming_link_count:1,internal_link_count:1} and
-  ($target.products.de.rank_counts | map_values(tonumber)) == {external_link_count:1,incoming_link_count:1,internal_link_count:1} and
   ($target.products.en.processed == true) and ($target.products.de.processed == true) and
   ($target.book.processed == true) and
   ($target.book.title == "Portable custom CPT SEO 東京") and
   ($target.book.links | length) == 2 and
   ([ $target.book.links[].type ] | sort) == ["external","internal"] and
   ([ $target.book.links[] | select(.type == "internal") ][0].target_post_id | tonumber) == $target.products.en.id and
-  ($target.book.rank_counts | map_values(tonumber)) == {external_link_count:1,incoming_link_count:0,internal_link_count:1} and
   ($target.products.en.title == "Portable Rank Math Commerce EN 東京 🚀") and
   ($target.products.de.title == "Tragbarer Rank Math Handel DE 東京 🚀") and
   ($target.products.en.description == "Portable English commerce SEO 東京.") and
@@ -1625,6 +1748,8 @@ jq -en --argjson source "$SOURCE_SEED" --argjson hostile "$TARGET_SEED" \
   ($target.scheduler | all(.hook == "rmcombo_target_runtime" and .status == "pending" and .group_slug == "")) and
   ($target.stale_link_sentinels == 0)
 ' >/dev/null || fail "combined native state did not converge across local identities: $TARGET"
+assert_rmcombo_link_counts "$TARGET"
+assert_rmcombo_acf_values "$TARGET" "$meta_mode"
 pass 'Woo, Polylang, ACF, Rank Math and a site-defined CPT converge while target runtime survives'
 
 EN_BODY=$(product_response rmcombo-product-en)
@@ -1756,9 +1881,9 @@ jq -en --argjson baseline "$TARGET_RUNTIME" --argjson retried "$RETRY_NATIVE" '
   ($retried.products.en.links | length) == 3 and
   ([ $retried.products.en.links[].type ] | sort) == ["external","external","internal"] and
   ([ $retried.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 1 and
-  ($retried.products.en.rank_counts | map_values(tonumber)) == {external_link_count:2,incoming_link_count:1,internal_link_count:1} and
-  ($retried.products.de.rank_counts | map_values(tonumber)) == {external_link_count:1,incoming_link_count:1,internal_link_count:1}
+  ($retried.products.de.rank_counts == $baseline.products.de.rank_counts)
 ' >/dev/null || fail "combined retry did not converge the exact new link projection in isolation: $RETRY_NATIVE"
+assert_rmcombo_link_counts "$RETRY_NATIVE"
 pass 'provider failure and retry preserve every Woo, Polylang, ACF, taxonomy, module, CPT and target-runtime witness outside the intended Rank Math projection'
 
 say 'combined recapture and repeated apply are exact no-ops'
@@ -1821,11 +1946,12 @@ pass 'both direct deletion forms refuse before combined portable, derived, or ta
 # The generic lease is the sole fresh-namespace authority: under the shared
 # lock it proves Compose/name/ports/roots/install markers plus both persistent
 # schemas absent, then binds that complete fact to this exact process. Arm
-# cleanup only after publication and hold the token through both legs.
+# cleanup only after publication and hold the token through all four lanes.
 pair_live_ownership_acquire mariadb
 say "bring up caller-allocated Rank Math combination pair at candidate $HEAD"
 pair_live_ownership_up --artifacts --headless
-run_leg forward reverse
+for meta_mode in independent synchronized; do
+run_leg forward reverse "$meta_mode"
 
 # The reverse-order leg reuses only the pair this process already created.
 # Reset stays here, between completed legs, and is never an ownership shortcut.
@@ -1833,6 +1959,11 @@ run_leg forward reverse
   || fail 'Rank Math combination lost pair ownership before its second leg'
 pair_live_ownership_reset
 pair_live_ownership_up --artifacts --headless
-run_leg reverse forward
+run_leg reverse forward "$meta_mode"
+if [ "$meta_mode" = independent ]; then
+  pair_live_ownership_reset
+  pair_live_ownership_up --artifacts --headless
+fi
+done
 
 pair_live_ownership_complete '✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED'
