@@ -6,12 +6,11 @@
  *
  * Runs the exact same sequence Capture::run() does around
  * agent/src/Publication/Publish.php (lock -> recover -> write staged entities -> swap),
- * deliberately slowed down (usleep between each staged file) so the parent
- * test has a wide, reliable window to SIGKILL this process partway through
- * writing the staging directory — well before it could reach swap(), the
- * only step that ever touches the published dir. If the parent's kill
- * lands as intended, execution simply stops dead mid-loop: no shutdown
- * function, no catch block, nothing — exactly what a real OOM-kill does.
+ * then sends itself SIGKILL immediately after its first staged file. The
+ * former parent-side 300ms sleep could kill a slow-starting child before any
+ * staging existed (the delayed-startup lane reproduces this). A real signal
+ * at the completed write leaves pending entities and never reaches swap(),
+ * application cleanup or a shutdown function, exactly like an OOM-kill.
  */
 
 require __DIR__ . '/../../../agent/src/Kernel/Canon.php';
@@ -21,9 +20,13 @@ use WPrism\Canon;
 use WPrism\Publish;
 
 $stateDir = $argv[1] ?? null;
-if (!$stateDir) {
-    fwrite(STDERR, "usage: capture_publish_kill_driver.php <stateDir>\n");
+$startup = $argv[2] ?? 'immediate';
+if (!$stateDir || !in_array($startup, ['immediate', 'delayed-startup'], true)) {
+    fwrite(STDERR, "usage: capture_publish_kill_driver.php <stateDir> [immediate|delayed-startup]\n");
     exit(2);
+}
+if ($startup === 'delayed-startup') {
+    usleep(1_000_000);
 }
 
 $lock = Publish::lock($stateDir);
@@ -34,14 +37,15 @@ for ($i = 1; $i <= 200; $i++) {
     $entities[] = ['path' => "posts/post/entity-$i.json", 'content' => str_repeat("x", 200) . "\n"];
 }
 
-$slowWriter = function (string $path, string $content): void {
+$killWriter = function (string $path, string $content): void {
     Canon::write_file($path, $content);
-    usleep(5_000); // 5ms/file * 200 files = ~1s of wall time to write the staging dir
+    posix_kill(getmypid(), SIGKILL);
+    throw new RuntimeException('staged-write SIGKILL did not terminate the driver');
 };
 
-Publish::write_entities(Publish::stage_dir($stateDir), $entities, $slowWriter);
+Publish::write_entities(Publish::stage_dir($stateDir), $entities, $killWriter);
 
-// Only reached if the parent's kill missed its window entirely.
+// Reaching publication means the crash checkpoint was bypassed.
 Publish::swap($stateDir);
 Publish::unlock($lock);
 echo "driver: completed without being killed\n";
