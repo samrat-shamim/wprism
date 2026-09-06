@@ -2271,6 +2271,12 @@ library.
    the English product contributes just as the German product does. Apply and
    retry must use that same complete graph oracle.
 
+   Rendered language identifiers are not interchangeable with WordPress
+   locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`
+   while Open Graph retains `en_US`/`de_DE`; regional variants change that
+   native rule. Assert the exact fixture's complete alternate map, and refuse
+   duplicate or malformed language tags before projection can discard them.
+
    A complete-row read window must control its test-owned background writers,
    not hide their rows. Core's retained native evidence localized one
    unexpected difference to `_transient_doing_cron.option_value`; its fresh-map

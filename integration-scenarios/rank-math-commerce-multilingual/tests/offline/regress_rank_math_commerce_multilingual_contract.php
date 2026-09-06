@@ -2030,6 +2030,93 @@ wprism_check(
         && !str_contains($live, "grep -Fq 'hreflang='"),
     'the live oracle asserts exact link rows, retired-target counts and head semantics rather than lower bounds or token greps'
 );
+
+// Optional second root replays the preceding HTML observer/caller while every
+// unrelated owner stays current. c6d's actual HTML had short hreflangs and
+// regional OG locales; parser loss must not conceal duplicate language tags.
+$headSource = isset($argv[2]) ? (string) file_get_contents($argv[2]
+    . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh') : $live;
+$headDefinitionStart = strpos($headSource, 'head_projection() {');
+$headDefinitionEnd = strpos($headSource, 'redirection_response() {', $headDefinitionStart ?: 0);
+$headCallerStart = strpos($headSource, 'EN_HEAD=$(head_projection');
+$headCallerEndToken = "pass 'exact reciprocal hreflang, canonical and Open Graph state renders on both products'";
+$headCallerEnd = strpos($headSource, $headCallerEndToken, $headCallerStart ?: 0);
+if ($headDefinitionStart === false || $headDefinitionEnd === false || $headCallerStart === false || $headCallerEnd === false) {
+    throw new LogicException('the actual combined HTML observer and acceptance window are absent');
+}
+$headDefinition = substr($headSource, $headDefinitionStart, $headDefinitionEnd - $headDefinitionStart);
+$headCaller = substr($headSource, $headCallerStart, $headCallerEnd + strlen($headCallerEndToken) - $headCallerStart);
+$headState = ['products' => ['en' => ['url' => 'http://rmcombohead2.invalid/en/product/rmcombo-product-en/'],
+    'de' => ['url' => 'http://rmcombohead2.invalid/de/product/rmcombo-product-de/']]];
+$headFixtures = [];
+foreach (['en', 'de'] as $language) {
+    $title = $language === 'en' ? 'Portable Rank Math Commerce EN 東京 🚀' : 'Tragbarer Rank Math Handel DE 東京 🚀';
+    $description = $language === 'en' ? 'Portable English commerce SEO 東京.' : 'Tragbare deutsche Commerce-SEO 東京.';
+    $url = $headState['products'][$language]['url'];
+    $headFixtures[$language] = ['title' => $title, 'description' => $description, 'canonical' => $url,
+        'og_title' => $title, 'og_description' => $description, 'og_url' => $url,
+        'og_locale' => $language === 'en' ? 'en_US' : 'de_DE',
+        'alternates' => ['en' => $headState['products']['en']['url'], 'de' => $headState['products']['de']['url']]];
+}
+$headHtml = static function (array $head, string $extra = ''): string {
+    $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $html = '<html><head><meta charset="UTF-8"><title>' . $escape($head['title']) . '</title>'
+        . '<link rel="canonical" href="' . $escape($head['canonical']) . '">'
+        . '<meta name="description" content="' . $escape($head['description']) . '">';
+    foreach (['title', 'description', 'url', 'locale'] as $field) {
+        $html .= '<meta property="og:' . $field . '" content="' . $escape($head['og_' . $field]) . '">';
+    }
+    foreach ($head['alternates'] as $language => $url) {
+        $html .= '<link rel="alternate" href="' . $escape($url) . '" hreflang="' . $escape($language) . '">';
+    }
+    return $html . $extra . '</head><body>Native product 東京</body></html>';
+};
+$runHeads = static function (array $heads, string $extra = '') use ($headDefinition, $headCaller, $headHtml, $headState, $root): array {
+    $probe = "set -euo pipefail\nEN_BODY=\"\$1\" DE_BODY=\"\$2\" TARGET=\"\$3\"\n"
+        . "fail() { exit 1; }\npass() { printf 'HEAD_READY\\n'; }\n" . $headDefinition . "\n" . $headCaller;
+    return WPrismTest\ShellProbe::run($probe,
+        [$headHtml($heads['en'], $extra), $headHtml($heads['de']), json_encode($headState, JSON_THROW_ON_ERROR)], $root);
+};
+foreach (['native' => '', 'feed' => '<link rel="alternate" type="application/rss+xml" href="http://rmcombohead2.invalid/feed/">'] as $case => $extra) {
+    [$status, $stdout, $stderr] = $runHeads($headFixtures, $extra);
+    wprism_check($status === 0 && $stdout === "HEAD_READY\n" && $stderr === '',
+        "actual HTML observer/caller accepts $case short native hreflangs with regional OG locales");
+}
+foreach (['en', 'de'] as $language) {
+    foreach (array_keys($headFixtures[$language]) as $field) {
+        $changed = $headFixtures;
+        if ($field === 'alternates') {
+            $changed[$language][$field]['en'] .= ':wrong';
+        } else {
+            $changed[$language][$field] .= ':wrong';
+        }
+        [$status, $stdout] = $runHeads($changed);
+        wprism_check($status !== 0 && !str_contains($stdout, 'HEAD_READY'),
+            "actual HTML acceptance refuses $language.$field drift");
+    }
+}
+$regionalHeads = $headFixtures;
+foreach (['en', 'de'] as $language) {
+    $regionalHeads[$language]['alternates'] = ['en-US' => $headState['products']['en']['url'], 'de-DE' => $headState['products']['de']['url']];
+}
+[$status, $stdout] = $runHeads($regionalHeads);
+wprism_check($status !== 0 && !str_contains($stdout, 'HEAD_READY'),
+    'the actual fixture does not substitute WordPress regional locales for native reciprocal language keys');
+foreach ([
+    'additional-language' => '<link rel="alternate" hreflang="fr" href="http://rmcombohead2.invalid/fr/product/">',
+    'duplicate-language' => '<link rel="alternate" hreflang="en" href="' . $headState['products']['en']['url'] . '">',
+    'missing-href' => '<link rel="alternate" hreflang="fr">',
+    'empty-hreflang' => '<link rel="alternate" hreflang="" href="http://rmcombohead2.invalid/product/">',
+] as $case => $extra) {
+    [$status, $stdout] = $runHeads($headFixtures, $extra);
+    wprism_check($status !== 0 && !str_contains($stdout, 'HEAD_READY'), "actual HTML acceptance refuses $case");
+    if ($case !== 'additional-language') {
+        [$status] = WPrismTest\ShellProbe::run("set -euo pipefail\n" . $headDefinition . "\n" . 'head_projection <<<"$1"',
+            [$headHtml($headFixtures['en'], $extra)], $root);
+        wprism_check($status !== 0, "the actual HTML parser refuses lossy $case before producing a map");
+    }
+}
+
 wprism_check(
     str_contains($live, '($failed | .products.en.content = $baseline.products.en.content) == $baseline')
         && str_contains($live, '| .products.en.rank_counts = $baseline.products.en.rank_counts) == $baseline')

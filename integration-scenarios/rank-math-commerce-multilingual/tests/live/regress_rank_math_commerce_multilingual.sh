@@ -836,7 +836,9 @@ $alternates = [];
 foreach ($xpath->query("//head/link[@rel=\"alternate\"]") ?: [] as $node) {
     $language = $node->attributes?->getNamedItem("hreflang")?->nodeValue;
     $href = $node->attributes?->getNamedItem("href")?->nodeValue;
-    if (is_string($language) && $language !== "" && is_string($href) && $href !== "") $alternates[$language] = $href;
+    if ($language === null) continue; // Feed alternates have no language claim.
+    if ($language === "" || !is_string($href) || $href === "" || array_key_exists($language, $alternates)) exit(3);
+    $alternates[$language] = $href;
 }
 ksort($alternates, SORT_STRING);
 echo json_encode([
@@ -1756,6 +1758,8 @@ EN_BODY=$(product_response rmcombo-product-en)
 DE_BODY=$(product_response rmcombo-product-de)
 EN_HEAD=$(head_projection <<<"$EN_BODY")
 DE_HEAD=$(head_projection <<<"$DE_BODY")
+# Pinned Polylang 3.8.6 wp_head() removes the country when no second regional
+# variant exists. c6d's actual HTML proved en/de while OG retains en_US/de_DE.
 jq -en --argjson en "$EN_HEAD" --argjson de "$DE_HEAD" --argjson state "$TARGET" '
   $en.title == "Portable Rank Math Commerce EN 東京 🚀" and
   $en.description == "Portable English commerce SEO 東京." and
@@ -1765,10 +1769,8 @@ jq -en --argjson en "$EN_HEAD" --argjson de "$DE_HEAD" --argjson state "$TARGET"
   $de.description == "Tragbare deutsche Commerce-SEO 東京." and
   $de.canonical == $state.products.de.url and $de.og_url == $state.products.de.url and
   $de.og_title == $de.title and $de.og_description == $de.description and $de.og_locale == "de_DE" and
-  $en.alternates["en-US"] == $state.products.en.url and
-  $en.alternates["de-DE"] == $state.products.de.url and
-  $de.alternates["en-US"] == $state.products.en.url and
-  $de.alternates["de-DE"] == $state.products.de.url
+  $en.alternates == {en:$state.products.en.url,de:$state.products.de.url} and
+  $de.alternates == $en.alternates
 ' >/dev/null || fail "exact canonical/OG/reciprocal hreflang head state diverged: en=$EN_HEAD de=$DE_HEAD"
 pass 'exact reciprocal hreflang, canonical and Open Graph state renders on both products'
 
