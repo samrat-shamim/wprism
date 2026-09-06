@@ -833,6 +833,45 @@ $polylang = get_option("polylang");
 if (!is_array($polylang) || !is_array($polylang["sync"] ?? null) || !is_array(PLL()->options["sync"])) {
     throw new RuntimeException("combined native synchronization option is unavailable");
 }
+// c837 retained seven target-only canonical records but only the CURRENT
+// translation mappings. Preserve every physical taxonomy row and membership,
+// including detached groups, before adoption and after recapture. These are
+// private observations, not permission to ignore extras or delete old groups.
+$taxonomyGraph = [];
+foreach ([
+    "terms" => [$wpdb->terms, "term_id", 256,
+        "term_id,LEFT(BINARY name,1025) AS name,LEFT(BINARY slug,1025) AS slug,term_group",
+        ["term_id"=>20,"name"=>1024,"slug"=>1024,"term_group"=>20]],
+    "term_taxonomy" => [$wpdb->term_taxonomy, "term_taxonomy_id", 256,
+        "term_taxonomy_id,term_id,taxonomy,LEFT(BINARY description,8193) AS description,parent,count",
+        ["term_taxonomy_id"=>20,"term_id"=>20,"taxonomy"=>32,"description"=>8192,"parent"=>20,"count"=>20]],
+    "term_relationships" => [$wpdb->term_relationships, "object_id,term_taxonomy_id", 1024,
+        "object_id,term_taxonomy_id,term_order",
+        ["object_id"=>20,"term_taxonomy_id"=>20,"term_order"=>11]],
+] as $name => [$table, $order, $limit, $columns, $bounds]) {
+    $count = $readValue("SELECT COUNT(*) FROM {$table}");
+    if (!is_string($count) || !preg_match("/^(0|[1-9][0-9]{0,3})$/D", $count) || (int) $count > $limit) {
+        throw new RuntimeException("combined native taxonomy inventory count is invalid or exceeds its bound");
+    }
+    $observed = $readRows("SELECT {$columns} FROM {$table} ORDER BY {$order} LIMIT " . ($limit + 1));
+    if (!array_is_list($observed) || count($observed) !== (int) $count) {
+        throw new RuntimeException("combined native taxonomy inventory is incomplete or changed during observation");
+    }
+    foreach ($observed as $row) {
+        if (!is_array($row) || array_keys($row) !== array_keys($bounds)) {
+            throw new RuntimeException("combined native taxonomy inventory row is incomplete");
+        }
+        foreach ($bounds as $column => $bytes) {
+            if (!is_string($row[$column]) || strlen($row[$column]) > $bytes) {
+                throw new RuntimeException("combined native taxonomy inventory value is invalid or exceeds its bound");
+            }
+        }
+    }
+    $taxonomyGraph[$name] = $observed;
+}
+if (strlen(json_encode($taxonomyGraph, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) > 262144) {
+    throw new RuntimeException("combined native taxonomy inventory exceeds its total byte bound");
+}
 echo wp_json_encode([
     "book" => $book instanceof WP_Post ? [
         "content"=>$book->post_content,"id"=>(int)$book->ID,"links"=>$bookLinks,
@@ -853,6 +892,7 @@ echo wp_json_encode([
     "retired_target_counts" => $retiredTargetCounts,
     "scheduler" => $scheduler,
     "stale_link_sentinels" => $staleLinkSentinels,
+    "taxonomy_graph" => $taxonomyGraph,
     "term_translations" => array_map("intval", pll_get_term_translations($catEn->term_id)),
     "translations" => array_map("intval", pll_get_post_translations($en->ID)),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -1529,7 +1569,7 @@ jq -en --argjson source "$SOURCE_SEED" --argjson target "$TARGET_SEED" '
   $target.category_tts.de != $source.category_tts.de
 ' >/dev/null || fail "custom product categories lost their within-host and cross-host divergence: $SOURCE_SEED / $TARGET_SEED"
 seed_rmcombo_stale_links
-HOSTILE_NATIVE=$(native_state wp2)
+capture_rmcombo_native_state HOSTILE_NATIVE wp2 target-hostile
 jq -e '
   .modules == ["redirections","rich-snippet"] and
   all(.products[], .book;
@@ -2099,10 +2139,10 @@ jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$NOOP" >/dev/null \
 capture_wprism_json_checked TARGET_RECAPTURE 'Rank Math combination target recapture' \
   assert_rmcombo_warning_free_recapture \
   rmcombo_capture_target_recapture
+capture_rmcombo_native_state TARGET_FINAL wp2 target-final
 FINAL_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-final" || true)
 rm -rf "$R2/.tmp-rmcombo-final"
 [ -z "$FINAL_DIFF" ] || fail "combined target recapture differs: $FINAL_DIFF"
-capture_rmcombo_native_state TARGET_FINAL wp2 target-final
 jq -en --argjson retried "$RETRY_RUNTIME" --argjson final "$TARGET_FINAL" '
   $final == $retried and $final.products.en.processed == true and $final.products.de.processed == true
 ' >/dev/null || fail "combined final native/runtime state was not an exact no-op: $TARGET_FINAL"

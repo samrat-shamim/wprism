@@ -180,7 +180,7 @@ foreach (['flush-warning', 'flush-nonzero', 'routes-warning', 'routes-nonzero', 
 $targetRoot = is_dir($argv[2] ?? '') ? $argv[2] : $root;
 $targetSource = (string) file_get_contents($targetRoot . $relative . '/tests/live/regress_rank_math_commerce_multilingual.sh');
 $targetCalls = [];
-foreach (['TARGET' => 'target-initial', 'TARGET_RUNTIME' => 'target-after-redirect',
+foreach (['HOSTILE_NATIVE' => 'target-hostile', 'TARGET' => 'target-initial', 'TARGET_RUNTIME' => 'target-after-redirect',
     'FAILURE_NATIVE' => 'target-after-failure', 'RETRY_NATIVE' => 'target-after-retry',
     'RETRY_RUNTIME' => 'target-after-retry-redirect',
     'TARGET_FINAL' => 'target-final', 'DELETE_REFUSAL_NATIVE' => 'target-delete-refusal'] as $variable => $phase) {
@@ -402,4 +402,141 @@ wprism_check(str_contains($current, 'for meta_mode in independent synchronized; 
 wprism_check(str_contains($current, 'assert_rmcombo_link_counts "$TARGET"')
     && str_contains($current, 'assert_rmcombo_link_counts "$RETRY_NATIVE"'),
     'initial Apply and retry consume the complete three-author graph count oracle');
+
+// Execute the bytes Bash actually submits, including raw serialized group
+// descriptions. c837 observed only the selected current translation group;
+// a detached or singleton group was invisible until canonical recapture.
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+$graphRoot = is_dir($argv[4] ?? '') ? $argv[4] : $root;
+$graphSource = (string) file_get_contents($graphRoot . $relative . '/tests/live/regress_rank_math_commerce_multilingual.sh');
+$graphFunctionStart = strpos($graphSource, 'native_state() {');
+$graphFunctionEnd = strpos($graphSource, "\nproduct_response() {", $graphFunctionStart ?: 0);
+if ($graphFunctionStart === false || $graphFunctionEnd === false) throw new RuntimeException('actual native taxonomy observer is absent');
+$graphProbe = <<<'SH'
+set -euo pipefail
+wp1() {
+  [ "$#" -eq 2 ] && [ "$1" = eval ] || return 81
+  php -r 'echo base64_encode($argv[1]);' "$2"
+}
+capture_rmcombo_native_json() { shift; "$@"; }
+SH;
+[$status, $encodedProgram, $stderr] = ShellProbe::run($graphProbe . "\n"
+    . substr($graphSource, $graphFunctionStart, $graphFunctionEnd - $graphFunctionStart) . "\nnative_state wp1\n", [], $root);
+$nativeProgram = base64_decode($encodedProgram, true);
+wprism_check($status === 0 && $stderr === '' && is_string($nativeProgram), 'native taxonomy observer crosses the actual Bash-to-PHP boundary');
+$nativeProgram = is_string($nativeProgram) ? $nativeProgram : '';
+$readersStart = strpos($nativeProgram, '$readRows =');
+$readersEnd = strpos($nativeProgram, '$en =', $readersStart ?: 0);
+$graphStart = strpos($nativeProgram, '$taxonomyGraph = [];');
+$graphEnd = strpos($nativeProgram, 'echo wp_json_encode([', $graphStart ?: 0);
+$graphProgram = $readersStart === false || $readersEnd === false || $graphStart === false || $graphEnd === false ? ''
+    : substr($nativeProgram, $readersStart, $readersEnd - $readersStart) . substr($nativeProgram, $graphStart, $graphEnd - $graphStart);
+wprism_check($graphProgram !== '' && str_contains($nativeProgram, '"taxonomy_graph" => $taxonomyGraph'),
+    'actual native observation publishes its complete bounded taxonomy graph');
+$graphFixture = [
+    'terms' => [
+        ['term_id' => '321', 'name' => 'Catalog 東京', 'slug' => 'catalog-en', 'term_group' => '0'],
+        ['term_id' => '322', 'name' => 'Katalog', 'slug' => 'catalog-de', 'term_group' => '0'],
+        ['term_id' => '323', 'name' => 'pll_current', 'slug' => 'pll_current', 'term_group' => '0'],
+        ['term_id' => '324', 'name' => 'pll_detached', 'slug' => 'pll_detached', 'term_group' => '0'],
+        ['term_id' => '325', 'name' => 'pll_singleton', 'slug' => 'pll_singleton', 'term_group' => '0'],
+    ],
+    'term_taxonomy' => [
+        ['term_taxonomy_id' => '921', 'term_id' => '321', 'taxonomy' => 'product_cat', 'description' => 'A "quoted" \\ catalog 東京', 'parent' => '0', 'count' => '1'],
+        ['term_taxonomy_id' => '922', 'term_id' => '322', 'taxonomy' => 'product_cat', 'description' => '', 'parent' => '321', 'count' => '1'],
+        ['term_taxonomy_id' => '923', 'term_id' => '323', 'taxonomy' => 'post_translations', 'description' => serialize(['en' => 311, 'de' => 312]), 'parent' => '0', 'count' => '2'],
+        ['term_taxonomy_id' => '924', 'term_id' => '324', 'taxonomy' => 'term_translations', 'description' => serialize(['en' => 321, 'de' => 322]), 'parent' => '0', 'count' => '0'],
+        ['term_taxonomy_id' => '925', 'term_id' => '325', 'taxonomy' => 'term_translations', 'description' => serialize(['en' => 322]), 'parent' => '0', 'count' => '1'],
+    ],
+    'term_relationships' => [
+        ['object_id' => '311', 'term_taxonomy_id' => '921', 'term_order' => '7'],
+        ['object_id' => '311', 'term_taxonomy_id' => '923', 'term_order' => '0'],
+        ['object_id' => '312', 'term_taxonomy_id' => '922', 'term_order' => '0'],
+        ['object_id' => '312', 'term_taxonomy_id' => '923', 'term_order' => '0'],
+        ['object_id' => '322', 'term_taxonomy_id' => '925', 'term_order' => '0'],
+    ],
+];
+$runGraph = static function (array $fixture, ?Closure $fault = null, string $prefix = 'wp_') use ($graphProgram): array {
+    $wpdb = WPrismTest\FakeWpdb::install($prefix);
+    foreach ($fixture as $table => $rows) $wpdb->seedTable($table, $rows);
+    if ($fault !== null) $fault($wpdb);
+    $taxonomyGraph = null;
+    $exception = null;
+    try {
+        eval($graphProgram);
+    } catch (Throwable $caught) {
+        $exception = $caught;
+    }
+    return [$taxonomyGraph, $exception, $wpdb->queries()];
+};
+foreach (['wp_', 'foreign_site_'] as $prefix) {
+    [$observed, $exception, $queries] = $runGraph($graphFixture, null, $prefix);
+    wprism_check($exception === null && $observed === $graphFixture,
+        "$prefix native graph retains divergent term/TT IDs, every raw description, detached/singleton groups and ordered memberships");
+    wprism_check(count($queries) === 6 && count(array_filter($queries, static fn(string $sql): bool => str_starts_with($sql, 'SELECT '))) === 6,
+        "$prefix graph performs only its three counted and bounded read-only inventories");
+    if ($exception !== null) fwrite(STDERR, $exception->getMessage() . "\n");
+}
+if ($graphProgram !== '') {
+    foreach (array_keys($graphFixture) as $table) {
+        foreach (['count-error', 'rows-error', 'false-result', 'null-result', 'short-result', 'missing-column', 'extra-column', 'null-value'] as $fault) {
+            $inject = static function (WPrismTest\FakeWpdb $db) use ($table, $fault, $graphFixture): void {
+                if ($fault === 'count-error' || $fault === 'rows-error') {
+                    $db->failNextQuery('private-native-taxonomy-error', $fault === 'count-error' ? "SELECT COUNT(*) FROM wp_$table" : "FROM wp_$table ORDER BY");
+                    return;
+                }
+                $rows = $graphFixture[$table];
+                if ($fault === 'short-result') array_pop($rows);
+                if ($fault === 'missing-column') array_pop($rows[0]);
+                if ($fault === 'extra-column') $rows[0]['unknown'] = 'private';
+                if ($fault === 'null-value') $rows[0][array_key_first($rows[0])] = null;
+                $db->returnNextGetResultsAs(match ($fault) { 'false-result' => false, 'null-result' => null, default => $rows }, "FROM wp_$table ORDER BY");
+            };
+            [, $exception] = $runGraph($graphFixture, $inject);
+            wprism_check($exception instanceof RuntimeException && str_starts_with($exception->getMessage(), 'combined native '),
+                "actual $table native graph refuses $fault without accepting a partial roster");
+        }
+    }
+    foreach (['terms' => 256, 'term_taxonomy' => 256, 'term_relationships' => 1024] as $table => $limit) {
+        $fixture = $graphFixture;
+        $fixture[$table] = [];
+        for ($i = 1; $i <= $limit; $i++) {
+            $row = $graphFixture[$table][0];
+            $row[array_key_first($row)] = (string) $i;
+            $fixture[$table][] = $row;
+        }
+        [, $exception] = $runGraph($fixture);
+        wprism_check($exception === null, "actual $table inventory admits its exact row bound $limit");
+        $row[array_key_first($row)] = (string) ($limit + 1);
+        $fixture[$table][] = $row;
+        [, $exception, $queries] = $runGraph($fixture);
+        wprism_check($exception instanceof RuntimeException && str_contains($exception->getMessage(), 'count is invalid or exceeds')
+            && !array_filter($queries, static fn(string $sql): bool => str_contains($sql, "FROM wp_$table ORDER BY")),
+            "actual $table overflow refuses before transferring rows");
+    }
+    foreach (['name' => ['terms', 1024], 'slug' => ['terms', 1024], 'description' => ['term_taxonomy', 8192]] as $column => [$table, $limit]) {
+        foreach ([$limit, $limit + 1, $limit * 2] as $size) {
+            $fixture = $graphFixture;
+            $fixture[$table][0][$column] = str_repeat('x', $size);
+            [$observed, $exception] = $runGraph($fixture);
+            wprism_check($size === $limit ? $exception === null && $observed === $fixture : $exception instanceof RuntimeException,
+                "actual $column read distinguishes exact $limit-byte bound from $size bytes without truncation acceptance");
+        }
+    }
+    $fixture = $graphFixture;
+    $fixture['term_taxonomy'] = [];
+    for ($i = 1; $i <= 33; $i++) {
+        $row = $graphFixture['term_taxonomy'][0];
+        $row['term_taxonomy_id'] = (string) $i;
+        $row['description'] = str_repeat('x', 8192);
+        $fixture['term_taxonomy'][] = $row;
+    }
+    [, $exception] = $runGraph($fixture);
+    wprism_check($exception instanceof RuntimeException && str_contains($exception->getMessage(), 'total byte bound'),
+        'individually admitted rows cannot exceed the complete taxonomy evidence byte budget');
+}
+$finalCapture = strpos($graphSource, 'capture_rmcombo_native_state TARGET_FINAL wp2 target-final');
+$rawComparison = strpos($graphSource, 'FINAL_DIFF=$(diff -rq');
+wprism_check($finalCapture !== false && $rawComparison !== false && $finalCapture < $rawComparison,
+    'the final native taxonomy graph survives a failed raw canonical comparison and disposable cleanup');
 wprism_check_summary('combined source and target native evidence');

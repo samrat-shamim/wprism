@@ -2049,9 +2049,16 @@ different one.
 ### 6. Exercise it
 
 Re-run the loop on a clean environment: capture, apply to a second environment,
-recapture, and diff. A round-trip whose recaptured `state/` is byte-identical
-is the only evidence that the classification is right. `wp wprism lint` is the
-companion check — it flags id-shaped values at undeclared paths, which is
+recapture, and compare every managed entity through the engine's declared
+semantic hash basis. Retain both raw captures: byte equality is a useful
+stronger check where it applies, but is not the universal contract. As
+`spec/repo-format.md` §Adapter manifests states, Capture includes
+observed derived fields while update preserves the target's plugin-owned
+values; `Canon::post_hash_basis()` excludes only manifest-declared derived
+fields. Do not copy a fixture-specific list of ignored fields or discard
+unexpected files. Any target-only entities need an exact native preimage and
+preservation proof, separately from managed-entity convergence. `wp wprism lint`
+is the companion check — it flags id-shaped values at undeclared paths, which is
 exactly the shape a missing `ref`/`json_refs` declaration takes. Its findings
 are plan-time signals, not proof of corruption; each carries its own caveat
 note, because small ids legitimately coincide with counts, versions, and
@@ -2291,6 +2298,16 @@ library.
    service. Prove retained evidence remains readable after site cleanup and
    does not alter or waive the full native comparison. Diagnose the actual
    before/after difference before expanding a mutation allowance.
+
+   Include the pre-adoption target, not just the first successful Apply. The
+   c837 combined recapture retained seven target-only files, but current
+   Polylang API mappings could not identify older detached translation groups.
+   Preserve the complete bounded term, term-taxonomy and relationship rosters,
+   with raw serialized descriptions and distinct term/TT coordinates. Count
+   before bounded transfer and reject short, malformed or oversized reads.
+   Keep the post-recapture native observation before the comparison can fail.
+   A matching taxonomy name, generated slug prefix or empty membership is not
+   authority to ignore or delete an entity; establish its exact lineage first.
 
    A declared cache invalidation is not a runtime-preservation defect. The
    combined c76 retry removed only the applied redirect's derived cache, as

@@ -1,5 +1,5 @@
 <?php
-/** Replay the actual recapture acceptance/teardown caller; only WP-CLI is a fixture seam. */
+/** Replay the actual recapture acceptance/teardown caller; WordPress observations are fixture seams. */
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
@@ -23,8 +23,9 @@ $slice = static function (string $bytes, string $start, string $end): string {
     return substr($bytes, $a, $b - $a);
 };
 $assertions = $slice($live, 'assert_rmcombo_warning_free_capture() {', "\nassert_rmcombo_default_apply_ready() {");
-$definitions = $slice($live, 'rmcombo_canonical_observation() {', 'run_leg() {');
-$window = ShellProbe::captureBlock($caller, 'TARGET_RECAPTURE', 'capture_rmcombo_native_state TARGET_FINAL');
+$definitions = $slice($live, 'capture_rmcombo_native_state() {', 'assert_rmcombo_source_native() {')
+    . $slice($live, 'rmcombo_canonical_observation() {', 'run_leg() {');
+$window = ShellProbe::captureBlock($caller, 'TARGET_RECAPTURE', 'jq -en --argjson retried "$RETRY_RUNTIME" --argjson final "$TARGET_FINAL"');
 $scratch = sys_get_temp_dir() . '/wprism-canonical-recapture-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700);
 $remove = static function (string $path): void {
@@ -45,6 +46,10 @@ R1="$ROOT/sandbox/siterepo/${PAIR}1" R2="$ROOT/sandbox/siterepo/${PAIR}2"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 . "$root/sandbox/conformance/asserts.sh"
 . "$root/sandbox/tests/lib/private_command_capture.sh"
+native_state() {
+  [ "$*" = wp2 ] || return 56
+  printf '{"post_recapture":true}\n'
+}
 wp2() {
   [ "$*" = 'wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final --format=json' ] || return 55
   : >"$ROOT/command-called"
@@ -74,8 +79,11 @@ $setup = static function (string $fault) use ($scratch, $root, $raw, &$sequence)
     $case = $scratch . '/case-' . ++$sequence;
     foreach (['sandbox/tmp', 'sandbox/tests', 'sandbox/siterepo/rmcombocanonical1/state/posts/product',
         'sandbox/siterepo/rmcombocanonical2', 'fixture-recapture/posts/product', 'fixture-recapture/empty',
-        'sandbox/siterepo/rmcombocanonical1/state/empty'] as $directory) mkdir($case . '/' . $directory, 0700, true);
+        'sandbox/siterepo/rmcombocanonical1/state/empty',
+        'integration-scenarios/rank-math-commerce-multilingual'] as $directory) mkdir($case . '/' . $directory, 0700, true);
     symlink($root . '/sandbox/tests/lib', $case . '/sandbox/tests/lib');
+    symlink($root . '/integration-scenarios/rank-math-commerce-multilingual/fixtures',
+        $case . '/integration-scenarios/rank-math-commerce-multilingual/fixtures');
     foreach ($raw as $name => $bytes) {
         file_put_contents($case . '/sandbox/siterepo/rmcombocanonical1/state/' . $name, $bytes);
         file_put_contents($case . '/fixture-recapture/' . $name, $bytes);
@@ -119,6 +127,12 @@ foreach (['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong
     wprism_check_same(0700, fileperms($sink) & 07777, "$fault sink stays private");
     foreach ($files as $file) wprism_check_same(0600, fileperms($file) & 07777, "$fault private stream " . basename($file));
     $remove($case . '/sandbox/siterepo');
+    if (in_array($fault, ['ready', 'command-compose', 'mismatch'], true)) {
+        $nativeSinks = glob($case . '/sandbox/tmp/wprism-rmcombo-native.rmcombocanonical.target-final.*') ?: [];
+        wprism_check(count($nativeSinks) === 1
+            && PrivateCommandOutput::readObject($nativeSinks[0] . '/native') === "{\"post_recapture\":true}\n",
+            "$fault retains the complete post-recapture native observation even when the canonical comparison fails");
+    }
     if (!in_array($fault, ['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong-site', 'command-noise', 'command-pointer',
         'command-warning', 'command-json-warning',
         'command-empty', 'command-duplicate', 'command-nonzero'], true)) continue;
