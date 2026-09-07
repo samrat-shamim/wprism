@@ -115,9 +115,14 @@ finally {
     putenv('WPRISM_TEST_MODE');
     putenv('WPRISM_TEST_FAIL_DB_CONTEXT');
 }
-native_keyed_require($appendFailure instanceof DatabaseMutationException
-    && $appendFailure->getMessage() === 'ledger upsert key/value append (injected)',
-    'native interrupted batch did not reach its declared append fault');
+if (!$appendFailure instanceof DatabaseMutationException
+    || $appendFailure->mutationContext !== 'ledger upsert key/value append (injected)') {
+    // A fixture assertion must settle its transaction before throwing too;
+    // otherwise shutdown hooks obscure the original failure with quarantine.
+    if ($appendFailure !== null) Db::rollback_after_failure($appendFailure, 'native unexpected append rollback');
+    else Db::rollback('native missing append fault rollback');
+    throw new RuntimeException('native interrupted batch did not reach its declared append fault', 0, $appendFailure);
+}
 $commitFailure = null;
 try { Db::commit('native keyed-value swallowed append commit'); }
 catch (Throwable $caught) {
