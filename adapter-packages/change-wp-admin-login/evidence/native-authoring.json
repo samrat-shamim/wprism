@@ -1,0 +1,48 @@
+{
+  "format": "wprism-aio-login-authoring-observation/v1",
+  "source_commit": "9f7178e69b3818bfe5f0037d7f25d47cd43e8a08",
+  "artifact": {
+    "version": "2.4.1",
+    "sha256": "f025beff401cabc7c4d7c8ee3d549a26197d698e17b5e018ddbabd471b46722b"
+  },
+  "commands": [
+    "native REST save/refusal inventory via authenticated WordPress REST dispatch",
+    "authenticated HTTP Customizer publish",
+    "authenticated HTTP Permalinks save",
+    "fresh-process native GET/readback",
+    "wp wprism journal-report --manifests=core --format=json",
+    "wp wprism coverage --repo=/siterepo --format=json",
+    "wp wprism adapter-probe --tables=aio_login_enumeration_logs,aio_login_login_attempts,aio_login_login_lockouts --format=json",
+    "wprism adapter-draft --name=change-wp-admin-login --match=^(aio|rwl) --seed=coverage.json --evidence=probe.json"
+  ],
+  "observed": {
+    "rest_writes_and_refusals": 25,
+    "customizer_settings": 48,
+    "native_get_routes": 32,
+    "raw_plugin_options": 111
+  },
+  "records": {
+    "native-writers.json": {
+      "sha256": "2c9399dd33513802cc6845ad60bace13aa57b1d2f4ed98c18f0af92295066c6c"
+    },
+    "customizer.json": {
+      "sha256": "a87a4acb863f66e2e5559e6ac48942d747ed8f3a63d3131c1497f273de75649d"
+    },
+    "native-readback.json": {
+      "sha256": "2ab4280fdbac4c22d48a84bc4d656902ff32fb4639665dade0da0d8b30ad12bc"
+    },
+    "journal.json": {
+      "sha256": "4686dbc0019c1da559ad9e5484047c46ec3d5ccd6a30135f66fcd6c6d03c5fb3"
+    },
+    "coverage.json": {
+      "sha256": "7271a9fc7ac398c467591800971a0a63478809ebba0fb33663bff34b828e40ae"
+    },
+    "probe.json": {
+      "sha256": "c2bf8b16f206be26e73a96a79842115fcb858a1517eef1b63b8847cd19edeca8"
+    },
+    "draft.json": {
+      "sha256": "72082e594bf96d84271dce43a347f3a5b09e3f3be272e52fd8b10a298716ba87"
+    }
+  },
+  "scope": "Disposable single-site native authoring observation; no deployment, production-readiness or paid-feature claim."
+}

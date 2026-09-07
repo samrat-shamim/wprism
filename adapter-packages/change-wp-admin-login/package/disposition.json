@@ -1,0 +1,54 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "plugin-specific entity deletion"
+      ]
+    },
+    "entity_sections": [],
+    "field_sections": [
+      "options"
+    ],
+    "lifecycle_phases": [],
+    "operations": [
+      "capture",
+      "compile",
+      "recapture"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-package-contract",
+      "regress-native-options"
+    ]
+  },
+  "reason": "Experimental exact-artifact declarations and native authoring inventory. Source-to-target deployment, hostile target state, lifecycle and combination evidence remain under development; this is not a production authorization.",
+  "status": "experimental",
+  "supported_versions": {
+    "plugin": "change-wp-admin-login/change-wp-admin-login.php",
+    "range": {
+      "min": "2.4.1",
+      "max": "2.4.2"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "The platform single-site boundary excludes network route settings."
+    },
+    {
+      "operation": "all",
+      "surface": "premium",
+      "reason": "The pinned artifact is the free edition. SMS, magic links, advanced redirects, social login, premium templates and Google Fonts require separate paid-artifact evidence."
+    },
+    {
+      "operation": "delete",
+      "surface": "deletions.*",
+      "reason": "No plugin-owned entity keyspace or entity deletion selector is declared; authored options use the generic option-state deletion protocol once apply is qualified."
+    }
+  ]
+}

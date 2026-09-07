@@ -1,0 +1,593 @@
+{
+  "name": "change-wp-admin-login",
+  "spec_version": 3,
+  "plugin": "change-wp-admin-login/change-wp-admin-login.php",
+  "version_range": {
+    "min": "2.4.1",
+    "max": "2.4.2"
+  },
+  "engine_features": [
+    "conditional-json-refs/v1",
+    "plugin-incompatibility/v1",
+    "spec-window/v1"
+  ],
+  "incompatible_plugins": [
+    "aio-login-pro/aio-login-pro.php",
+    "wps-hide-login/wps-hide-login.php"
+  ],
+  "option_autoload": "preserve",
+  "option_namespaces": [
+    {
+      "match": "^(?:aio_login(?:_|$)|rwl_)"
+    }
+  ],
+  "options": {
+    "aio_login__customization_templates": {
+      "class": "authored"
+    },
+    "aio_login__cwpal_enable": {
+      "class": "authored"
+    },
+    "aio_login__update": {
+      "class": "runtime"
+    },
+    "aio_login__version": {
+      "class": "runtime"
+    },
+    "aio_login_background_color": {
+      "class": "authored"
+    },
+    "aio_login_background_image": {
+      "class": "authored",
+      "ref": "post"
+    },
+    "aio_login_background_image_mobile": {
+      "class": "authored",
+      "ref": "post",
+      "allow_pii": true
+    },
+    "aio_login_block_ip_address_enable": {
+      "class": "runtime"
+    },
+    "aio_login_change_login_url_enable": {
+      "class": "runtime"
+    },
+    "aio_login_configured_providers_list": {
+      "class": "runtime"
+    },
+    "aio_login_custom-css": {
+      "class": "authored"
+    },
+    "aio_login_customizer_reset_ui": {
+      "class": "runtime"
+    },
+    "aio_login_disable_logo": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_background_position": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_background_repeat": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_background_size": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_bg_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_border_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_border_radius": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_hover_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_padding": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_padding_tb": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_shadow": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_shadow_opacity": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_size": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_text_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_btn_text_size": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_border": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_border_radius": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_min_height": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_padding": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_shadow": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_shadow_opacity": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_transparent": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_form_width": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_input_bg_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_input_margin": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_input_text_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_input_width": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_label_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_label_font_size": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_link_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_remember_font_size": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_remember_label_color": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_el_text_font_family": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_elements_settings": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_favicon": {
+      "class": "authored",
+      "ref": "post"
+    },
+    "aio_login_forgot_background_color": {
+      "class": "authored"
+    },
+    "aio_login_forgot_background_image": {
+      "class": "authored",
+      "ref": "post"
+    },
+    "aio_login_google_recaptcha_enable": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_v2_secret_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_v2_site_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_v2_theme": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_v3_secret_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_v3_site_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_v3_threshold": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_validated": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_google_recaptcha_version": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_hcaptcha_enable": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_hcaptcha_secret_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_hcaptcha_site_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_hcaptcha_size": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_hcaptcha_theme": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_hcaptcha_validated": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_limit_attempts_enable": {
+      "class": "authored"
+    },
+    "aio_login_limit_attempts_lockout_message": {
+      "class": "authored"
+    },
+    "aio_login_limit_attempts_maximum_attempts": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_limit_attempts_timeout": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_login_page_title": {
+      "class": "authored"
+    },
+    "aio_login_logo": {
+      "class": "authored",
+      "ref": "post"
+    },
+    "aio_login_logo_height": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_logo_title": {
+      "class": "authored"
+    },
+    "aio_login_logo_url": {
+      "class": "authored"
+    },
+    "aio_login_logo_width": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_magic_link_enable": {
+      "class": "runtime"
+    },
+    "aio_login_magic_link_max_requests": {
+      "class": "runtime"
+    },
+    "aio_login_magic_link_skip_2fa": {
+      "class": "runtime"
+    },
+    "aio_login_magic_link_validity_unit": {
+      "class": "runtime"
+    },
+    "aio_login_magic_link_validity_value": {
+      "class": "runtime"
+    },
+    "aio_login_margin_bottom": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_notifications_slack_enabled": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_notifications_slack_events": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_notifications_slack_url": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_notifications_webhook_enabled": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_notifications_webhook_events": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_notifications_webhook_url": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_otp_block_duration": {
+      "class": "runtime"
+    },
+    "aio_login_otp_email_block_duration": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_otp_email_enable": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_otp_email_expiration": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_otp_email_length": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_otp_email_max_retries": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_otp_email_resend_timer": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_otp_email_skip_2fa": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_otp_length_hardened_6": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_allowed_countries": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_block_duration": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_default_country": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_default_country_iso": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_enable": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_expiration": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_length": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_max_retries": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_resend_timer": {
+      "class": "runtime"
+    },
+    "aio_login_otp_sms_skip_2fa": {
+      "class": "runtime"
+    },
+    "aio_login_otp_twilio_account_sid": {
+      "class": "runtime"
+    },
+    "aio_login_otp_twilio_auth_token": {
+      "class": "runtime"
+    },
+    "aio_login_otp_twilio_sender_number": {
+      "class": "runtime"
+    },
+    "aio_login_pro__two_factor_auth_enable": {
+      "class": "runtime"
+    },
+    "aio_login_pro_login_redirection_enabled": {
+      "class": "authored"
+    },
+    "aio_login_pro_login_redirection_fallback_custom_url": {
+      "class": "authored"
+    },
+    "aio_login_pro_login_redirection_fallback_enabled": {
+      "class": "authored"
+    },
+    "aio_login_pro_login_redirection_fallback_type": {
+      "class": "authored"
+    },
+    "aio_login_pro_login_redirection_rules": {
+      "class": "authored",
+      "json_refs": [
+        {
+          "path": "$.login_target_value",
+          "kind": "post",
+          "cast": "string",
+          "when": {
+            "key": "login_target_type",
+            "equals": "page",
+            "otherwise": [
+              "custom"
+            ]
+          }
+        },
+        {
+          "path": "$.logout_target_value",
+          "kind": "post",
+          "cast": "string",
+          "when": {
+            "key": "logout_target_type",
+            "equals": "page",
+            "otherwise": [
+              "custom"
+            ]
+          }
+        }
+      ]
+    },
+    "aio_login_trusted_proxies": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_trusted_proxy_header": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_turnstile_enable": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_turnstile_secret_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_turnstile_site_key": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_turnstile_theme": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_turnstile_validated": {
+      "class": "env",
+      "required": false
+    },
+    "aio_login_user_enumeration_comments": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_user_enumeration_duration": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_user_enumeration_enable": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_user_enumeration_log": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_user_enumeration_login_registration": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_user_enumeration_oembed": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_user_enumeration_rest_api": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_user_enumeration_sitemaps": {
+      "class": "authored",
+      "lint_ok": true
+    },
+    "aio_login_woocommerce_integration_enabled": {
+      "class": "runtime"
+    },
+    "aio_login_woocommerce_magic_link_checkout": {
+      "class": "runtime"
+    },
+    "aio_login_woocommerce_magic_link_enabled": {
+      "class": "runtime"
+    },
+    "aio_login_woocommerce_magic_link_login": {
+      "class": "runtime"
+    },
+    "aio_login_woocommerce_magic_link_registration": {
+      "class": "runtime"
+    },
+    "rwl_page": {
+      "class": "authored"
+    },
+    "rwl_page_input": {
+      "class": "runtime"
+    },
+    "rwl_redirect": {
+      "class": "runtime"
+    },
+    "rwl_redirect_field": {
+      "class": "authored"
+    }
+  },
+  "user_meta": {
+    "aio_login_phone": {
+      "class": "runtime"
+    },
+    "aio_login_phone_iso": {
+      "class": "runtime"
+    },
+    "aio_login_phone_local": {
+      "class": "runtime"
+    },
+    "aio_login_pro__two_factor_auth_enable": {
+      "class": "runtime"
+    },
+    "aio_login_prompt_add_phone": {
+      "class": "runtime"
+    }
+  },
+  "tables": {
+    "aio_login_enumeration_logs": {
+      "class": "runtime"
+    },
+    "aio_login_login_attempts": {
+      "class": "runtime"
+    },
+    "aio_login_login_lockouts": {
+      "class": "runtime"
+    }
+  },
+  "notes": [
+    "Official AIO Login (change-wp-admin-login) 2.4.1, SHA-256 f025beff401cabc7c4d7c8ee3d549a26197d698e17b5e018ddbabd471b46722b. Native REST writers, authenticated Customizer publish and Permalinks save, fresh-process API readback, provenance, coverage and live schema probing establish this experimental inventory. Production readiness remains unproven.",
+    "includes/login-controller/class-login-redirection.php stores string page IDs or custom URL strings at each event target_value, selected by the sibling target_type. The free native save-rule endpoint permits one all_users rule and refuses user/user_role conditions; native updates exercise each ID/URL variant. The generic conditional-json-refs codec owns both representations.",
+    "includes/login-customization/class-login-customizer.php registers the authored design controls and synchronizes aio_login_el_* into aio_login_elements_settings. class-login-customization-output-pro-fallback.php:119-173 reads legacy values and overlays each present modern option on every render. Both native authored representations are preserved; rendering needs no generated CSS file or second adapter projection.",
+    "The five image selectors resolve attachments through wp_get_attachment_url. Dimension, CSS, toggle, duration, retry and OTP-length values are measured non-reference settings; their numeric values are not entity IDs.",
+    "Captcha provider selection, credentials and successful validation are one per-environment authentication configuration. Helper::update_configured_providers_snapshot derives its local cache from those local credentials and Pro social settings. Portable applies do not change that configuration; configure and validate each environment through its native plugin settings.",
+    "Login/enumeration tables, OTP challenges, login failures, IP telemetry, phone numbers, 2FA enrollment, Freemius licensing and activation/migration markers remain target local. Paid SMS, magic links, advanced redirect conditions, social login and premium design/Google Fonts are outside the exact free artifact contract.",
+    "The namespace declares ownership without classifying unknown future options. A new key must be reviewed explicitly; a blanket prefix exclusion would hide new authored configuration.",
+    "aio_login_background_image_mobile is an attachment ID written by the native Customizer image control, not a phone number. Its exact allow_pii exception bypasses only the mobile-name heuristic; the scalar post reference still binds and rewrites the identity."
+  ],
+  "interpreter": "change-wp-admin-login"
+}

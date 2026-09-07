@@ -1,0 +1,22 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "change-wp-admin-login",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {
+    "contract-dependency": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "clean-target": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "dirty-target": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "identity-references": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "native-behavior": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "derived-state": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "deletion": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "failure-recovery": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "concurrency-idempotence": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "lifecycle": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "data-boundary": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
+    "scope-platform": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed."
+  },
+  "blocked": {},
+  "not_applicable": {}
+}

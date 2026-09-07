@@ -1,0 +1,25 @@
+{
+  "entry": {
+    "mode": "capture-plan",
+    "pin": [
+      "core",
+      "change-wp-admin-login"
+    ],
+    "plugins": [
+      {
+        "slug": "change-wp-admin-login",
+        "version": "2.4.1"
+      }
+    ],
+    "post_types": [
+      "post",
+      "page",
+      "attachment"
+    ],
+    "taxonomies": [
+      "category",
+      "post_tag"
+    ]
+  },
+  "manifest": "change-wp-admin-login"
+}

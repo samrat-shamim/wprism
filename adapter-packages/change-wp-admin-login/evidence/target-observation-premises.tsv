@@ -1,0 +1,7 @@
+# format wprism-target-observation-premises/v1
+# expected observations=4 fixtures=0
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/seed.sh	capture_wprism_json_success AIO_NATIVE 'AIO native REST writer inventory'
+observation	tests/conformance/seed.sh	capture_wprism_json_success AIO_NATIVE 'AIO fresh-process native readback'
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success AIO_NATIVE 'AIO native capture readback'
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success AIO_CANONICAL 'AIO complete canonical options'
