@@ -2236,6 +2236,15 @@ wprism adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
   --out=<site-repo>/adapters/wpforms.json --force
 ```
 
+`adapter-probe --format=json` emits one formatted JSON document. In a live
+shell harness, use the shared `capture_wprism_json_document` helper: it keeps
+stdout separate from transport stderr, accepts compact or formatted objects
+and arrays, and refuses runtime diagnostics, extra stdout or a nonzero exit
+before publishing the value. The compact-envelope helper is for commands that
+emit their answer on one line after action receipts. AIO Login authoring reached
+the probe successfully but its former last-line reader rejected the closing
+brace; flattening or discarding that output would have hidden the actual schema.
+
 Note what that example gives you on a **freshly activated** plugin, because it
 is the state you are most likely to run it in. A plugin creates its tables at
 activation and fills them only through use, so every one of the six
