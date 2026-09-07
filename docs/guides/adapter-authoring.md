@@ -162,7 +162,9 @@ A new capsule also extends the source census: run `make
 regress-spec-v3-digest-neutrality regress-spec-v3-document
 regress-spec-v3-dry-run regress-spec-window` before the full gate. The literal
 identity baseline must cover the actual library, not merely agree with its own
-two pin lists. Preserve every existing per-adapter digest and smaller pin set
+named pin lists. When a new capsule conflicts with an existing world, add a
+compatible world and prove the union still covers the full library. Preserve
+every existing per-adapter digest and smaller pin set
 unless that adapter's identity inputs changed. The current whole-registry
 address and frozen snapshots still move when an unpinned disposition is added;
 § v3.4's WP-4.5 addressing proposal is explicitly unimplemented. Re-measuring
@@ -2036,7 +2038,13 @@ decision. Native settings and inactive assignments remain local; init does not
 invent widget identities, remove instances, or infer references from their
 values. A selected non-local classification without widget grammar still
 blocks instead of being downgraded. Once the adapter declares the widget type,
-the structural widget grammar owns portable instances.
+the structural widget grammar owns portable instances. Repeat that scope review
+after native settings writers: WordPress's Customizer can turn an empty legacy
+widget option into a numbered, unassigned instance. A conformance seed that
+creates its site configuration directly must prove the inactive/unassigned
+premise and record the same exact local decision through `wprism classify`.
+Retain native before/after bytes; do not put another component's widget scope in
+the plugin manifest or erase the instance to bypass capture.
 
 An **active** assignment is different: its complete sidebar is an authored
 layout, and excluding one widget option cannot make a partial layout safe to

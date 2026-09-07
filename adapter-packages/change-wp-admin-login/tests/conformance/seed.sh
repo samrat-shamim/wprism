@@ -10,4 +10,11 @@ python3 "$AIO_CAPSULE/fixtures/native/customizer.py" "http://localhost:$CONF1_PO
 cp "$AIO_CAPSULE/fixtures/native/observe.php" "$CONF_REPO1/.tmp-aio-observe.php"
 capture_wprism_json_success AIO_NATIVE 'AIO fresh-process native readback' wp_conf1 eval-file /siterepo/.tmp-aio-observe.php --use-include
 printf '%s\n' "$AIO_NATIVE" > "$AIO_EVIDENCE/native-readback.json"
+cp "$AIO_CAPSULE/fixtures/native/local-widgets.php" "$CONF_REPO1/.tmp-aio-local-widgets.php"
+capture_wprism_json_success AIO_WIDGETS_BEFORE 'Customizer widget scope premise' wp_conf1 eval-file /siterepo/.tmp-aio-local-widgets.php --use-include
+printf '%s\n' "$AIO_WIDGETS_BEFORE" > "$AIO_EVIDENCE/local-widgets-before.json"
+capture_wprism_json_success AIO_WIDGET_SCOPE 'Explicit local widget scope' wp_conf1 wprism classify --repo=/siterepo --set='options:widget_categories=runtime;options:widget_rss=runtime' --format=json
+printf '%s\n' "$AIO_WIDGET_SCOPE" > "$AIO_EVIDENCE/local-widget-scope.json"
+capture_wprism_json_success AIO_WIDGETS_AFTER 'Local widget native preservation' wp_conf1 eval-file /siterepo/.tmp-aio-local-widgets.php --use-include
+[ "$AIO_WIDGETS_BEFORE" = "$AIO_WIDGETS_AFTER" ] || fail 'Widget scope classification changed native state'
 pass 'AIO native REST, authenticated Customizer and Permalinks writers persist the observed inventory'

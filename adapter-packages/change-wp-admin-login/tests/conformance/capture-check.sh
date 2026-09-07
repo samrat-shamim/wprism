@@ -7,3 +7,5 @@ cp "$AIO_CAPSULE/fixtures/native/verify-canonical.php" "$CONF_REPO1/.tmp-aio-ver
 capture_wprism_json_success AIO_CANONICAL 'AIO complete canonical options' wp_conf1 eval-file /siterepo/.tmp-aio-verify-canonical.php --use-include
 printf '%s\n' "$AIO_CANONICAL" > "tmp/plugin-adapters/change-wp-admin-login/conformance-${CONF_PAIR}/canonical-readback.json"
 pass 'AIO native consumers still observe the authored configuration after capture'
+capture_wprism_json_success AIO_WIDGETS_AFTER 'Local widget capture preservation' wp_conf1 eval-file /siterepo/.tmp-aio-local-widgets.php --use-include
+[ "$AIO_WIDGETS_AFTER" = "$(cat "tmp/plugin-adapters/change-wp-admin-login/conformance-${CONF_PAIR}/local-widgets-before.json")" ] || fail 'Capture changed local widget state'
