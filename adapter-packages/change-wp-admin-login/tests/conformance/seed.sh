@@ -3,6 +3,7 @@ set -euo pipefail
 AIO_CAPSULE=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 AIO_EVIDENCE="tmp/plugin-adapters/change-wp-admin-login/conformance-${CONF_PAIR}"
 mkdir -p "$AIO_EVIDENCE"
+cp "$AIO_CAPSULE/fixtures/native/design.png" "$CONF_REPO1/.tmp-aio-design.png"
 cp "$AIO_CAPSULE/fixtures/native/seed.php" "$CONF_REPO1/.tmp-aio-seed.php"
 capture_wprism_json_success AIO_NATIVE 'AIO native REST writer inventory' wp_conf1 eval-file /siterepo/.tmp-aio-seed.php --use-include
 printf '%s\n' "$AIO_NATIVE" > "$AIO_EVIDENCE/native-writers.json"

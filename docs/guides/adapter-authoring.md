@@ -2599,6 +2599,14 @@ library.
    a distinct canonical lease store, and a non-directory root in shared harness
    tests; never add adapter-specific directory creation to hide a lease bug.
 
+   Exercise fixture media through `MediaCapture` offline before a live round
+   trip. AIO Login's initial 1px PNG passed WordPress metadata inspection but
+   failed the engine's complete container check because its IDAT CRC was
+   invalid. Share the exact image file between the native upload seed and
+   the offline check; synthetic attachment identities do not establish that
+   the plugin's image bytes can cross the media boundary. Keep the malformed
+   file as a refusal control, without relaxing the production validator.
+
    Positive round trips must also provision the three required core bindings.
    `establish_core_environment_bindings` in `sandbox/conformance/asserts.sh`
    takes a WP runner, repository, and the driver's expected `admin_email`,

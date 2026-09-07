@@ -25,7 +25,8 @@ foreach (['login', 'logout'] as $event) {
     $pages[$event] = $id;
 }
 require_once ABSPATH . 'wp-admin/includes/image.php';
-$bytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aBfkAAAAASUVORK5CYII=');
+$bytes = file_get_contents('/siterepo/.tmp-aio-design.png');
+if ($bytes === false) throw new RuntimeException('native design image is absent');
 $upload = wp_upload_bits('aio-native-design.png', null, $bytes);
 if ($upload['error']) throw new RuntimeException('native upload failed');
 $media = wp_insert_attachment(['post_title' => 'AIO native design', 'post_mime_type' => 'image/png', 'post_status' => 'inherit'], $upload['file'], 0, true);
