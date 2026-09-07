@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=32 fixtures=0
+# expected observations=43 fixtures=0
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/seed.sh	capture_wprism_json_success AIO_NATIVE 'AIO native REST writer inventory'
 observation	tests/conformance/seed.sh	capture_wprism_json_success AIO_NATIVE 'AIO fresh-process native readback'
@@ -33,3 +33,14 @@ observation	tests/live/regress_native_roundtrip.sh	capture_wprism_json_refusal A
 observation	tests/live/regress_native_roundtrip.sh	capture_wprism_json_checked APPLY_JSON 'AIO explicit reinstall reconciliation'
 observation	tests/live/regress_native_roundtrip.sh	capture_wprism_json_success AIO_NATIVE 'AIO native reinstall behavior'
 observation	tests/live/regress_native_roundtrip.sh	capture_wprism_json_checked APPLY_JSON 'AIO repeated reinstall apply'
+observation	tests/conformance/check.sh	capture_wprism_json_success AIO_NATIVE 'AIO conformance complete canonical values'
+observation	tests/conformance/check.sh	capture_wprism_json_success AIO_NATIVE 'AIO conformance native API behavior'
+observation	tests/conformance/check.sh	capture_wprism_json_success AIO_SECURITY 'AIO conformance native password lockout'
+observation	tests/conformance/check.sh	capture_wprism_json_checked AIO_REPEAT 'AIO conformance repeated apply'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_success AIO_VERSION 'AIO exact artifact versions and lifecycle premise'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_success AIO_DEPLOY 'AIO boundary native activation'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_checked AIO_APPLY 'AIO exact boundary apply'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_success AIO_VERSION 'AIO official old artifact premise'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_success AIO_BEFORE 'AIO old artifact state baseline'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_refusal AIO_REFUSAL 'AIO exact old-version cause'
+observation	tests/certify/version-matrix.sh	capture_wprism_json_success AIO_AFTER 'AIO old artifact state preservation'

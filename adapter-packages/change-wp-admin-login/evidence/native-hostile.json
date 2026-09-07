@@ -1,12 +1,12 @@
 {
   "format": "wprism-adapter-native-hostile-evidence/v1",
   "adapter": "change-wp-admin-login",
-  "source_commit": "8e8c6b53",
-  "pair": "aiohostile03",
+  "source_commit": "12b28a46",
+  "pair": "aiocapsule02",
   "plugin_version": "2.4.1",
   "refusal_version": "2.4.0",
   "status": "passed",
-  "execution": "Direct WordPress deploy/apply qualification; does not authorize host release.",
+  "execution": "Committed capsule-owned direct WordPress deploy/apply qualification; does not authorize host release.",
   "coverage": [
     "native source/target update conflict and explicit resolution",
     "both conditional reference branches consumed by native redirects",
@@ -18,7 +18,8 @@
     "native uninstall cleanup and enumeration-log residue",
     "missing code and official below-range version refuse before mutation",
     "exact reinstall, explicit local credential provisioning and conflict recovery",
-    "complete byte-identical recapture after each accepted revision"
+    "complete byte-identical recapture after each accepted revision",
+    "native three-wrong-password lockout rejects a correct password with authored Bengali message"
   ],
   "native_uninstall_residue": {
     "table": "{prefix}aio_login_enumeration_logs",
@@ -82,28 +83,29 @@
   ],
   "retained_sha256": {
     "conflict-refusal.json": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
-    "conflict-resolved.json": "6fb4574b71604f2ff9622eb950d35025219248acc236f558cf647512dcd64020",
-    "reversed-native-branches.json": "2163de83a5a71ca016cbe488e4b70cda939b04deae8cdf7e177c80124bd3d1e9",
+    "conflict-resolved.json": "8bff6081e063d3230d62b40a921f8cd44d43d2f870e716786a661a159337f9b0",
+    "reversed-native-branches.json": "81d9f8e0e4045791aaf0ec0f88d9d96530aed0f87ea93ce159c04d1d31e2e603",
     "malformed-refusal.json": "d32f9061a41f993811e31583dbf56f65c77fd0647a3ae872f002f96012df4ac9",
     "malformed-publication.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "recovered-capture.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "delete-refusal.json": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
-    "delete-applied.json": "0c50913fcdf43b2415a86a75eecc65ad50d3224c88e0795aefd7ec172907fe86",
+    "delete-applied.json": "c5f3f53251f25c406ea4e36bf65d84efca3ee6b031ae15d91685a81c38dd177d",
     "delete-native.json": "5f76525f6421662c7d14766d8d59e9bc80797ea4e2f6255a9a1d246e938b097c",
     "deleted.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "reactivate.json": "707ea0d30d4b3d7abc6110500958061adf7c21412630243bfc0f2c7b3eb0e77a",
-    "uninstall-after.json": "7941b08e77d9dc38a75fe153dcd480c297d6a8c7badf61ba0453d4bf53efbdc1",
+    "reactivate.json": "cb0aefd33b3265f1294adfc1ec316f23c3ec795e985be27b5e16decca1131186",
+    "uninstall-after.json": "61f83382a934a2985c6d83942dd92d2e6f908f0dc4c1270bb8973e9eae2100d2",
     "missing-code-refusal.json": "c588ce24afb3f3275c112fccd8df7bd6c6d7e0ca54a05da46b6697df085e093b",
     "old-version-refusal.json": "c588ce24afb3f3275c112fccd8df7bd6c6d7e0ca54a05da46b6697df085e093b",
-    "reinstall-deploy.json": "746c15214871a1262e9a2de09361ad4d0aabb1f8d493eb704b14f45719493370",
+    "reinstall-deploy.json": "fbb5c6f78831c161c505c826d5419ef57844803bd8be490c0cc41de00aa31ec4",
     "reinstall-conflict-refusal.json": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
-    "reinstall-apply.json": "02af49f99484c0f8985fb8e692288c24995f037ad00d2263ef5f1904dc2090b0",
+    "reinstall-apply.json": "3e0544662253f658fb1ae3ae873397da2d33a6570e01116831a0c3b4edcee190",
     "reinstall-native.json": "d1dc27a5d613236f5548d217a7249df2788588ce78ebb3d75cb57b6aa9130f35",
     "reinstalled.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "reinstall-repeated-apply.json": "29e1d72b9f9fcf7b707676e11ae6fd9b328021c7b2fe5600bc367ccb7ba178ae"
+    "reinstall-repeated-apply.json": "0ed54a42c2f58ae8ffc87a9f4cb65108dd876c5383c6d7a6d13fc59492eeb1a1",
+    "security.json": "33748effce37ed1f10dc22727b68d314acaae6be54e3bf0588a7dcf5ce7dd34f"
   },
   "limits": [
-    "Native password lockout enforcement added after this run; its dedicated assertion requires the next committed capsule run.",
-    "No external CAPTCHA, geolocation, email or notification delivery claim."
+    "No external CAPTCHA, geolocation, email or notification delivery claim.",
+    "Standard host conformance and exact version-matrix runner are separate qualification gates."
   ]
 }

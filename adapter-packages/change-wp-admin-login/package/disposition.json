@@ -21,11 +21,14 @@
   "evidence": {
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
-      "regress-package-contract",
-      "regress-native-options"
+      "conformance-change-wp-admin-login",
+      "exact-artifact-version-matrix",
+      "regress-native-options",
+      "regress-native-roundtrip",
+      "regress-dependency-preflight"
     ]
   },
-  "reason": "Experimental exact-artifact declarations and native authoring inventory. Source-to-target deployment, hostile target state, lifecycle and combination evidence remain under development; this is not a production authorization.",
+  "reason": "Experimental exact AIO Login 2.4.1 adapter with exercised native source-to-target, hostile-state, reference, option deletion and lifecycle qualification. Standard host conformance, version-matrix integration and final readiness review remain; this preview does not authorize production release.",
   "status": "experimental",
   "supported_versions": {
     "plugin": "change-wp-admin-login/change-wp-admin-login.php",

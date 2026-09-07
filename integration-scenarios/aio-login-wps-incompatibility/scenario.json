@@ -1,0 +1,7 @@
+{
+    "format": "wprism-adapter-integration-scenario/v1",
+    "participants": [
+        "change-wp-admin-login",
+        "wps-hide-login"
+    ]
+}

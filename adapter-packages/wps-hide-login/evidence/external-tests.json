@@ -1,0 +1,6 @@
+{
+    "format": "wprism-adapter-external-evidence/v1",
+    "tests": {
+        "regress-aio-login-wps-incompatibility": "integration-scenarios/aio-login-wps-incompatibility/tests/offline/regress_aio_login_wps_incompatibility.php"
+    }
+}
