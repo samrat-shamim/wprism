@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/JsonRefs.php';
+require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
@@ -52,13 +53,12 @@ require_once __DIR__ . '/../Kernel/Secrets.php';
  *      the WP Abilities integration), STRING on the real builder save
  *      (`"id":"14"`, ajax-actions.php:36-52 rebuilds a jQuery serializeArray()
  *      FLAT input list, so every leaf reaching update() is a string).
- *      This grammar's answer is PRESERVATION, not normalisation: the mode
- *      rewrites DECLARED PATHS ONLY and re-encodes everything else from the
- *      decoded document, so an undeclared `$.id` survives absent-as-absent,
- *      int-as-int and string-as-string with no rule written for it. An adapter
- *      that DOES declare it must declare one type, and a source that disagrees
- *      refuses BY NAME (assert_source_type()) — which makes the three write
- *      paths visible to the author instead of silently mis-typing two of them.
+ *      Preserving that id undeclared is NOT portability: the plugin uses it
+ *      for the submitted form identity, so a source-local id can select an
+ *      unrelated target form. `body-ref-preserve-type/v1` admits a declared
+ *      `cast: preserve` path: the canonical envelope retains int/string type
+ *      beside an ordinary identity token. Missing paths stay missing; present
+ *      references resolve through the existing ledger before native writes.
  *
  * THE IDENTITY ROUND-TRIP PRECONDITION, AND WHY IT IS FIRST. Before any
  * substitution, the decoded document is re-encoded and compared to the input
@@ -103,6 +103,9 @@ final class BodyRefGrammar {
      * one of them moves.
      */
     public const FEATURE = 'structured-body-refs/v1';
+
+    /** A nested cast vocabulary extension, never a second identity keyspace. */
+    public const PRESERVED_TYPE_FEATURE = 'body-ref-preserve-type/v1';
 
     /** The top-level section this feature claims. */
     public const SECTION = 'body_refs';
@@ -157,7 +160,7 @@ final class BodyRefGrammar {
      * `verbatim` with an extra refusal surface.
      *
      * The `{path, kind, cast}` triple itself is NOT validated here. It is handed
-     * to `ReferenceRules::value_rule()` — the shipped validator that already
+     * to `ReferenceRules::body_json_refs()` — the shipped validator that already
      * owns the minimal JSONPath dialect (`$`, `.`, `..`, `.*`), the reference
      * keyspace name grammar, the `cast: "string"` vocabulary and the
      * overlapping-path NFA intersection. So an author writing a body path gets
@@ -170,6 +173,12 @@ final class BodyRefGrammar {
         $postTypes = is_array($manifest['post_types'] ?? null) ? $manifest['post_types'] : [];
         $section = $manifest[self::SECTION] ?? null;
         self::assert_body_mode_gate($manifest, $label);
+        $preserveTypes = self::declares_feature($manifest, self::PRESERVED_TYPE_FEATURE);
+        if ($preserveTypes && !self::declares_feature($manifest)) {
+            throw new \RuntimeException(
+                "wprism: $label engine feature '" . self::PRESERVED_TYPE_FEATURE . "' requires '" . self::FEATURE . "'"
+            );
+        }
 
         if ($section !== null) {
             if (!is_array($section) || array_is_list($section) || $section === []) {
@@ -180,7 +189,7 @@ final class BodyRefGrammar {
                 );
             }
             foreach ($section as $postType => $decl) {
-                self::validate_one((string) $postType, $decl, "$label " . self::SECTION . '.' . (string) $postType, $postTypes);
+                self::validate_one((string) $postType, $decl, "$label " . self::SECTION . '.' . (string) $postType, $postTypes, $preserveTypes);
             }
         }
 
@@ -231,11 +240,13 @@ final class BodyRefGrammar {
             'json_refs_entry' => [
                 'required' => ReferenceRules::JSON_REF_REQUIRED,
                 'optional' => ReferenceRules::JSON_REF_OPTIONAL,
+                'preserved_type' => 'cast: preserve requires ' . self::PRESERVED_TYPE_FEATURE
+                    . '; canonical state retains the native int/string type in a closed typed-reference envelope',
             ],
             'sentinels' => 'a declared json_refs path => a list of literal string values that pass through '
                 . 'capture and apply untouched, because they are in-band markers rather than ids',
             'validated_by' => 'WPrism\\BodyRefGrammar::validate_body_refs(), and each json_refs entry by '
-                . 'WPrism\\ReferenceRules::value_rule() — the same JSONPath dialect, keyspace grammar and '
+                . 'WPrism\\ReferenceRules::body_json_refs() — the same JSONPath dialect, keyspace grammar and '
                 . 'overlapping-path refusal `post_meta`/`options` already use',
         ];
     }
@@ -254,9 +265,9 @@ final class BodyRefGrammar {
      *
      * @param array<string,mixed> $manifest
      */
-    public static function declares_feature(array $manifest): bool {
+    public static function declares_feature(array $manifest, string $name = self::FEATURE): bool {
         foreach ((array) ($manifest['engine_features'] ?? []) as $feature) {
-            if ($feature === self::FEATURE) {
+            if ($feature === $name) {
                 return true;
             }
         }
@@ -308,7 +319,7 @@ final class BodyRefGrammar {
     /**
      * @param array<string,mixed> $postTypes this manifest's own post_types section
      */
-    private static function validate_one(string $postType, mixed $decl, string $where, array $postTypes): void {
+    private static function validate_one(string $postType, mixed $decl, string $where, array $postTypes, bool $preserveTypes): void {
         $mode = is_array($postTypes[$postType] ?? null) ? ($postTypes[$postType]['body'] ?? null) : null;
         if ($mode !== self::BODY_MODE) {
             throw new \RuntimeException(
@@ -344,7 +355,14 @@ final class BodyRefGrammar {
         // the `cast` vocabulary, and the overlapping-path refusal — is the
         // shipped validator's answer, reported at the author's own locator
         // ("$where.json_refs[0]").
-        ReferenceRules::value_rule(['json_refs' => $refs], $where);
+        foreach ($refs as $ref) {
+            if (is_array($ref) && ($ref['cast'] ?? null) === 'preserve' && !$preserveTypes) {
+                throw new \RuntimeException(
+                    "wprism: $where cast=preserve requires engine feature '" . self::PRESERVED_TYPE_FEATURE . "'"
+                );
+            }
+        }
+        ReferenceRules::body_json_refs($refs, $where, $preserveTypes);
 
         $declaredPaths = [];
         foreach ($refs as $ref) {
@@ -535,7 +553,8 @@ final class BodyRefGrammar {
             // StructuredReferenceCodec::capture()'s rule, restated because a
             // body carries the same hazard as a meta value and must not be
             // allowed a softer one.
-            return $token;
+            return $token !== null && ($ref['cast'] ?? null) === 'preserve'
+                ? IdentityTokenCodec::encode_typed($token, get_debug_type($value)) : $token;
         });
 
         return self::encode($decoded, $context);
@@ -555,6 +574,14 @@ final class BodyRefGrammar {
             $tokenToId,
             $context
         ): mixed {
+            if (($ref['cast'] ?? null) === 'preserve') {
+                $typed = IdentityTokenCodec::decode_typed($value, (string) $ref['kind']);
+                $id = $tokenToId($typed['ref']);
+                if ($id <= 0) {
+                    throw new \RuntimeException("wprism: $context repository body path '$locator' resolved to a nonpositive id");
+                }
+                return $typed['type'] === 'string' ? (string) $id : $id;
+            }
             if (!is_string($value) || !str_starts_with($value, '{{')) {
                 // A raw id at a declared path in CANONICAL state is the exact
                 // condition `Lint`'s `unrewritten_registered_ref` reports.
@@ -570,20 +597,21 @@ final class BodyRefGrammar {
             $id = $tokenToId($value);
 
             return self::encode_id($id, $ref);
-        });
+        }, true);
 
         return self::encode($decoded, $context);
     }
 
     /**
      * Every declared reference position in a decoded body that is a REWRITE
-     * CANDIDATE, read-only and throwing nothing.
+     * CANDIDATE, read-only. Legacy fixed-cast reporting remains nonthrowing;
+     * negotiated typed references use the same strict decoder as Apply.
      *
      * This is the lint-side and reporting-side half of the traversal below.
      * Read-only because `Review` sits ABOVE `Grammar` on `tools/modules.json`'s
      * ladder: this class hands back positions and the linter builds its own
      * findings, rather than this class reaching up into `LintFinding`.
-     * Throwing nothing because the two conditions the write path refuses — an
+     * The legacy arm throws nothing because the two conditions the write path refuses — an
      * undecodable body and a declared path resolving to a container — already
      * refuse at capture with their own named diagnostics, and a linter that
      * raised a second, differently-worded copy of a refusal would make the
@@ -591,9 +619,11 @@ final class BodyRefGrammar {
      *
      * @param array<mixed> $decoded
      * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>} $rule
+     * @param bool $includeContainers the compiler must reject declared leaves that resolve to containers;
+     *                               lint retains historical fixed-cast reporting and decodes typed refs strictly
      * @return list<array{value:mixed,ref:array<string,mixed>,locator:string}>
      */
-    public static function reference_positions(array $decoded, array $rule): array {
+    public static function reference_positions(array $decoded, array $rule, bool $includeContainers = false): array {
         $positions = [];
         foreach ((array) ($rule['json_refs'] ?? []) as $ref) {
             if (!is_array($ref) || !is_string($ref['path'] ?? null)) {
@@ -604,10 +634,18 @@ final class BodyRefGrammar {
             JsonRefs::walk(
                 $decoded,
                 JsonRefs::parse_path($path),
-                function (&$container, $key, string $locator) use ($ref, $sentinels, &$positions): void {
+                function (&$container, $key, string $locator) use ($ref, $sentinels, $includeContainers, &$positions): void {
                     $value = $container[$key];
-                    if (is_array($value) || !self::is_rewrite_candidate($value, $sentinels)) {
+                    if (!self::is_rewrite_candidate($value, $sentinels)) {
                         return;
+                    }
+                    if (!$includeContainers) {
+                        if (($ref['cast'] ?? null) === 'preserve'
+                            && (is_array($value) || (is_string($value) && str_starts_with($value, '{{')))) {
+                            $value = IdentityTokenCodec::decode_typed($value, (string) $ref['kind'])['ref'];
+                        } elseif (is_array($value)) {
+                            return;
+                        }
                     }
                     $positions[] = ['value' => $value, 'ref' => $ref, 'locator' => $locator];
                 },
@@ -631,16 +669,16 @@ final class BodyRefGrammar {
      * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>} $rule
      * @param callable(mixed,array<string,mixed>,string):mixed $rewrite
      */
-    private static function walk(array &$decoded, array $rule, callable $rewrite): void {
+    private static function walk(array &$decoded, array $rule, callable $rewrite, bool $allowTypedReferences = false): void {
         foreach ($rule['json_refs'] as $ref) {
             $path = (string) $ref['path'];
             $sentinels = array_values((array) ($rule['sentinels'][$path] ?? []));
             JsonRefs::walk(
                 $decoded,
                 JsonRefs::parse_path($path),
-                function (&$container, $key, string $locator) use ($ref, $sentinels, $rewrite): void {
+                function (&$container, $key, string $locator) use ($ref, $sentinels, $rewrite, $allowTypedReferences): void {
                     $value = $container[$key];
-                    if (is_array($value)) {
+                    if (is_array($value) && !($allowTypedReferences && ($ref['cast'] ?? null) === 'preserve')) {
                         throw new \RuntimeException(
                             "wprism: body_refs path '" . (string) $ref['path'] . "' resolved to a container at "
                             . "'$locator' rather than a scalar reference — a reference path addresses ONE id, so "
@@ -698,6 +736,16 @@ final class BodyRefGrammar {
      * @param array<string,mixed> $ref
      */
     private static function assert_source_type(mixed $value, array $ref, string $locator, string $context): void {
+        if (($ref['cast'] ?? null) === 'preserve') {
+            if ((is_int($value) && $value > 0)
+                || (is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value) === 1
+                    && (string) (int) $value === $value)) {
+                return;
+            }
+            throw new \RuntimeException(
+                "wprism: $context body path '$locator' with cast=preserve requires a positive integer or an exactly representable decimal ID string"
+            );
+        }
         $declared = (($ref['cast'] ?? null) === 'string') ? 'string' : 'int';
         $numeric = is_int($value) || (is_string($value) && preg_match('/^[0-9]+$/D', $value) === 1);
         if (!$numeric) {

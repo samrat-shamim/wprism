@@ -2490,7 +2490,7 @@ to `blocks` — so a JSON body was mis-read rather than left alone.
 
 `json_refs` is the SHIPPED dialect, not a new one: the same minimal JSONPath (`$`, `.`, `..`, `.*`), the
 same `kind` keyspace names, the same `cast: "string"`, and the same overlapping-path refusal, because
-`BodyRefGrammar::validate_one()` hands the list to `ReferenceRules::value_rule()` rather than
+`BodyRefGrammar::validate_one()` hands the list to `ReferenceRules::body_json_refs()` rather than
 re-implementing any of it. `key_refs` is refused BY NAME: an id-keyed map inside a post body has no
 measured demand, and this engine does not claim a shape it has never seen.
 
@@ -2515,14 +2515,30 @@ the per-path TYPE in both directions: apply writes the DECLARED type, so a sourc
 disagrees with the declaration refuses at capture — `AttrIdCodecGrammar::assert_source_type()`'s rule
 (§ v3.2's WP-6.1 pair) reached through a different door.
 
-**Optionality and type variance are answered by PRESERVATION, not by a rule.** The measured `$.id` on the
-same plugin is ABSENT on the template create path, an INT on the `['builder' => false]` path and a STRING
-on the real builder save, because the builder posts a flat jQuery input list and every leaf that reaches
-`update()` is a string. This mode rewrites DECLARED PATHS ONLY and reproduces everything else from the
-decode, so an adapter that does not declare `$.id` keeps all three shapes as it found them, with no rule
-written for any of them. An adapter that DOES declare it must declare one type, and the capture refusal
-then names the write path it has not accounted for — which makes the variance visible instead of
-silently mis-typing two paths out of three.
+**Optional self-references still need rebinding.** The measured `$.id` is ABSENT on the template create
+path, an INT on the `['builder' => false]` path and a STRING on the real builder save. Preserving it
+undeclared reproduces bytes but leaves a source-local form identity that can select an unrelated target
+form. A manifest declaring **`body-ref-preserve-type/v1`** as well as `spec-window/v1` and
+`structured-body-refs/v1` may use `{"path":"$.id","kind":"post","cast":"preserve"}`. This value-vocabulary
+feature claims no new top-level section and does not widen option/meta or block-attribute casts.
+
+Capture accepts a positive native integer or an exactly representable canonical positive decimal string.
+Negative/overflow/leading-zero IDs, booleans, floats and undeclared literals refuse. Missing paths remain
+missing; `null`, `""`, `0`, `"0"` and declared sentinels retain the existing absence/literal semantics.
+Present references become a closed, ordered object with exactly `format`, `type`, `ref`:
+
+```json
+{"format":"wprism-typed-reference/v1","type":"string","ref":"{{post:019200cc-0000-7000-8000-000000000012}}"}
+```
+
+`type` is exactly `int` or `string`; `ref` is the existing ordinary identity token in the declared
+keyspace. Apply resolves that token through the existing ledger and emits a positive target-local ID in
+the retained type. The pure `IdentityTokenCodec` owns strict envelope decoding; compiler, Apply and lint
+reuse it. Extra/missing/reordered fields, wrong format/type/keyspace, bare tokens and malformed token
+framing refuse. The JSON decode/re-encode precondition also rejects duplicate JSON keys. Compiler
+portability validates every declared JSON-body reference, including fixed-cast paths, before any target
+mutation. The `ref` name avoids the credential role denoted by `token`; neither the envelope nor its
+surrounding configuration receives a secret/PII clearance exemption.
 
 **What the mode does NOT claim, stated so it cannot be inferred.** It rewrites declared reference paths
 and nothing else. The same measured bodies bake the source site's absolute home URL into
@@ -2542,13 +2558,15 @@ verdicts with a fourth sentence about a body mode, telling a `spec_version: 2` a
 feature when what is wrong is the version their whole document declares. The one case left for the late
 gate is the one no key can express: the mode declared with no `body_refs` section at all.
 
-**No shipped manifest declares it, so no adapter digest moves** (AGENTS.md rule 2). The sufficiency proof
-is the previously-rejected candidate authored end to end as a FIXTURE adapter, driven through the real
+**No shipped manifest declares it, so no adapter digest moves** (AGENTS.md rule 2). The grammar proof
+uses the previously-rejected candidate as a FIXTURE adapter, driven through the real
 `PostCapture` seam over four `post_content` values captured from a live pair through the plugin's own
 write paths — `sandbox/tests/fixtures/wpforms-body/`. That provenance is the point: a hand-written
 fixture body has no confirmations, no page reference and no sentinel, which is why the ledger's own
 one-sentence description of this coordinate was measurably wrong until the entities were authored through
-the plugin instead of through `wp post create --post_content=…`.
+the plugin instead of through `wp post create --post_content=…`. This fixture is not a WPForms product
+claim: same-site URL rebinding, native materialization/submission and location reconstruction still need
+their own implementation and evidence.
 
 ### v3.21 The certificate ARM rides in the feature's roster row
 

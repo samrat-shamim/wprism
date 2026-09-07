@@ -60,16 +60,14 @@ namespace WPrism {
 
     final class SidebarState { public const ENTITY_TYPE = 'sidebar'; }
 
-    final class ReferenceRules {
-        /** @return array<string,mixed> */
-        public static function attached_meta_key(array $declaration, string $key): array {
-            return (array) (($declaration['keys'] ?? [])[$key] ?? []);
-        }
-    }
 }
 
 namespace {
     $root = dirname(__DIR__, 4);
+    // JSON-body portability uses the same pure path/reference grammar as
+    // attached metadata. Load that real dependency instead of shadowing it
+    // with a lookup-only double that cannot coexist with BodyRefGrammar.
+    require_once $root . '/agent/src/Kernel/ReferenceRules.php';
     $validatorPath = "$root/agent/src/Repository/RepositoryPortableShapeValidator.php";
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {

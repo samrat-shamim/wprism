@@ -344,6 +344,7 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [BodyRefGrammar::SECTION => 'field'],
         ],
+        BodyRefGrammar::PRESERVED_TYPE_FEATURE => ['since' => 3, 'keys' => []],
     ];
 
     /**

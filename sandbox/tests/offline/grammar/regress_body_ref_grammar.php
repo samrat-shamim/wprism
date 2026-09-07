@@ -2,7 +2,8 @@
 /**
  * WP-6.5 — `body_refs` and the `json` post-type body mode: structured
  * post-body reference paths, and the previously-rejected candidate that proves
- * them SUFFICIENT.
+ * the original fixed-cast demand. Groups G/H close the later optional
+ * int-or-string self-reference gap; none of this is WPForms product support.
  *
  * WHAT THIS SUITE IS FOR. `tools/engine-gaps.json` recorded the demand as the
  * primitive `structured_post_body_reference_paths` — the ledger's #1 open
@@ -665,7 +666,7 @@ wprism_check_throws(
 );
 
 // ===========================================================================
-// D. THE SUFFICIENCY PROOF — the rejected candidate through the REAL
+// D. THE FIXED-CAST PROOF — the rejected candidate through the REAL
 //    PostCapture product seam, on the real captured bytes
 // ===========================================================================
 
@@ -750,9 +751,9 @@ wprism_check(
     'D2: a field id inside smart-tag prose is untouched, escaping included'
 );
 
-// D3 — THE LEDGER'S WRONG SENTENCE, measured three ways. `$.id` is undeclared
-// here, so all three shapes survive as themselves: this is the primitive's
-// answer to an optional, type-variant key.
+// D3 — The legacy undeclared-path behavior stays byte-identical, but it is
+// not safe portability for a real reference. G/H prove that a declared
+// preserve-type path rebinds this self ID when target identities diverge.
 foreach ([
     ['form-a', 'ABSENT on the template path', static fn(array $d): bool => !array_key_exists('id', $d)],
     ['form-pathb', 'INT on the builder=false path', static fn(array $d): bool => ($d['id'] ?? null) === 12],
@@ -955,5 +956,259 @@ wprism_check_same(
     count($aPositions),
     'E3: form-a has no confirmations.page at all, so the declared scan reports nothing — no field_id, no fields.<n>.id, no smart tags'
 );
+
+// F — A declared JSON-body reference is canonical repository authority, not
+// merely a best-effort lint hint. WPForms' page/self references expose the same
+// portability obligation already enforced for meta and serialized bodies.
+// Exercise the compiler's real portability pass with the real loaded policy;
+// a native ID or a token for another keyspace must not reach materialization.
+require_once $root . '/agent/src/Repository/RepositoryPortableShapeValidator.php';
+$bodyPortability = static function (string $body) use ($policy): array {
+    $findings = [];
+    $validator = new WPrism\RepositoryPortableShapeValidator($policy,
+        static function (string $code, string $path, string $locator, string $message, ?string $relatedPath) use (&$findings): void {
+            $findings[] = ['code'=>$code, 'path'=>$path, 'locator'=>$locator, 'message'=>$message, 'related_path'=>$relatedPath];
+        });
+    $validator->validate([['type'=>'post', 'path'=>'posts/wpforms/form.md',
+        'data'=>['type'=>'wpforms', 'uuid'=>'019200cc-0000-7000-8000-000000000012', 'author'=>null, 'parent'=>null, 'meta'=>[]],
+        'body'=>$body]]);
+    return $findings;
+};
+$confirmationBody = static fn(mixed $page): string => json_encode(
+    ['settings'=>['confirmations'=>[1=>['page'=>$page]]]], JSON_THROW_ON_ERROR
+);
+foreach (['{{post:' . $pageUuid . '}}', 'previous_page', null, '', 0, '0'] as $portable) {
+    wprism_check_same([], $bodyPortability($confirmationBody($portable)),
+        'F: canonical JSON references, declared sentinels and native unset conventions remain admissible');
+}
+foreach ([42, '42', '{{term:' . $pageUuid . '}}', ['unexpected'=>'container'], '{{post:malformed}}'] as $nonportable) {
+    $findings = $bodyPortability($confirmationBody($nonportable));
+    wprism_check(count($findings) === 1 && $findings[0]['code'] === 'nonportable_reference'
+        && $findings[0]['path'] === 'posts/wpforms/form.md',
+        'F: the compiler portability pass refuses an invalid declared JSON-body reference: ' . get_debug_type($nonportable));
+}
+foreach (['not-json', '{"settings":{}}', '{"settings":{"confirmations":{"1":{"page":"https://source.example/a"}}}}'] as $malformedBody) {
+    $findings = $bodyPortability($malformedBody);
+    wprism_check(count($findings) === 1 && $findings[0]['code'] === 'schema_content_mismatch',
+        'F: non-JSON or non-reencodable body framing refuses before reference validation');
+}
+
+require_once $root . '/sandbox/tests/lib/frozen_policy.php';
+require_once $root . '/agent/src/Code/Code.php';
+require_once $root . '/agent/src/Code/CodeStateContract.php';
+require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+$compileSite = WPrismTest\FrozenPolicy::site([$wpforms], WPRISM_SPEC_VERSION);
+$compileSite['policy']['post_types'] = ['wpforms'];
+$compilePolicy = WPrismTest\FrozenPolicy::policy([$wpforms], $compileSite);
+$compileRoot = sys_get_temp_dir() . '/wprism-json-body-compiler-' . bin2hex(random_bytes(8));
+mkdir($compileRoot . '/state/posts/wpforms', 0700, true);
+mkdir($compileRoot . '/media', 0700);
+register_shutdown_function(static fn() => manifest_fixture_remove_tree($compileRoot));
+Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($compileSite));
+$formUuid = '019200cc-0000-7000-8000-000000000012';
+$formFront = ['uuid'=>$formUuid, 'type'=>'wpforms', 'slug'=>'portable-form', 'title'=>'Portable form', 'status'=>'publish',
+    'date'=>'2026-09-07 00:00:00', 'date_gmt'=>'2026-09-07 00:00:00', 'modified'=>'2026-09-07 00:00:00',
+    'modified_gmt'=>'2026-09-07 00:00:00', 'author'=>null, 'parent'=>null, 'menu_order'=>0,
+    'comment_status'=>'closed', 'ping_status'=>'closed', 'excerpt'=>'', 'meta'=>(object)[], 'terms'=>(object)[]];
+$formPath = '/state/posts/wpforms/' . $formUuid . '--portable-form.md';
+foreach (['canonical'=>'{{post:' . $formUuid . '}}', 'raw-int'=>42, 'raw-string'=>'42',
+    'wrong-kind'=>'{{term:' . $formUuid . '}}', 'container'=>['id'=>42]] as $case => $page) {
+    $bytes = Canon::post_file($formFront, $confirmationBody($page));
+    Canon::write_file($compileRoot . $formPath, $bytes);
+    $diagnostics = [];
+    try {
+        WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $compilePolicy);
+    } catch (WPrism\RepositoryCompilationException $invalid) {
+        $diagnostics = $invalid->diagnostics;
+    }
+    wprism_check($case === 'canonical' ? $diagnostics === [] : in_array('nonportable_reference', array_column($diagnostics, 'code'), true),
+        "F: complete repository compiler classifies $case through the shared JSON portability check");
+    wprism_check_same($bytes, file_get_contents($compileRoot . $formPath), "F: $case compilation leaves canonical input bytes unchanged");
+}
+
+// G — The native form ID is optional, but not environment-independent. Its
+// int/string variation needs one declared path whose canonical token retains
+// the original scalar type, not an undeclared source ID or a post-Apply fix.
+$preserveManifest = $variant([
+    'engine_features'=>['body-ref-preserve-type/v1', 'spec-window/v1', 'structured-body-refs/v1'],
+    'body_refs'=>['wpforms'=>['json_refs'=>[['path'=>'$.id', 'kind'=>'post', 'cast'=>'preserve']]]],
+]);
+$preservePolicy = null;
+try { $preservePolicy = $load(['wpforms'=>$preserveManifest]); }
+catch (RuntimeException $failure) { wprism_check(false, 'G: the negotiated body scalar-type feature loads: ' . $failure->getMessage()); }
+$withoutPreserveFeature = $preserveManifest;
+$withoutPreserveFeature['engine_features'] = ['spec-window/v1', 'structured-body-refs/v1'];
+wprism_check_throws(static fn() => $load(['wpforms'=>$withoutPreserveFeature]), RuntimeException::class,
+    'G: preserve-type syntax without its feature refuses by feature name', 'body-ref-preserve-type/v1');
+$withoutBodyFeature = $preserveManifest;
+$withoutBodyFeature['engine_features'] = ['body-ref-preserve-type/v1', 'spec-window/v1'];
+unset($withoutBodyFeature['body_refs']);
+$withoutBodyFeature['post_types']['wpforms']['body'] = 'verbatim';
+wprism_check_throws(static fn() => $load(['wpforms'=>$withoutBodyFeature]), RuntimeException::class,
+    'G: the scalar-type extension requires the structured body feature', "requires 'structured-body-refs/v1'");
+wprism_check_throws(static fn() => WPrism\ReferenceRules::value_rule(
+    ['json_refs'=>[['path'=>'$.id', 'kind'=>'post', 'cast'=>'preserve']]], 'ordinary metadata'
+), RuntimeException::class, 'G: ordinary metadata retains its fixed-cast vocabulary', "cast must be 'string'");
+
+if ($preservePolicy !== null) {
+    $preserveRule = $preservePolicy->body_ref_rule('wpforms');
+    $wpdb = FakeWpdb::install();
+    $bindForm = static function (int $id, ?int $oldId = null) use ($wpdb, $formUuid): void {
+        $rows = [['id'=>1, 'uuid'=>$formUuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>$id]];
+        if ($oldId !== null) $rows[] = ['id'=>2, 'uuid'=>'019200cc-0000-7000-8000-000000000099',
+            'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>$oldId];
+        $wpdb->seedTable('wp_wprism_map', $rows);
+    };
+    foreach (['form-pathb', 'form-pathc'] as $nativePath) {
+        $raw = $capture($nativePath);
+        $nativeDocument = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        $bindForm((int)$nativeDocument['id']);
+        $warnings = [];
+        $canonicalBody = BodyRefGrammar::capture($raw, $preserveRule, $idToToken($tokensFor()),
+            static function (string $warning) use (&$warnings): void { $warnings[] = $warning; }, 'native form');
+        $typedId = ['format'=>'wprism-typed-reference/v1', 'type'=>get_debug_type($nativeDocument['id']),
+            'ref'=>'{{post:' . $formUuid . '}}'];
+        wprism_check_same($typedId, json_decode($canonicalBody, true)['id'], "G: $nativePath captures its native scalar type with a normal post token");
+        wprism_check_same([], $warnings, "G: $nativePath has no unresolved self reference");
+        wprism_check_same($typedId['ref'], BodyRefGrammar::reference_positions(json_decode($canonicalBody, true), $preserveRule)[0]['value'],
+            "G: $nativePath lint positions use the same strict typed decoder");
+        $bindForm(42, (int)$nativeDocument['id']);
+        $targetBody = BodyRefGrammar::apply($canonicalBody, $preserveRule, $tokenToId($tokensFor()), 'target form');
+        $expected = $nativeDocument;
+        $expected['id'] = is_string($nativeDocument['id']) ? '42' : 42;
+        wprism_check_same(json_encode($expected, JSON_THROW_ON_ERROR), $targetBody,
+            "G: $nativePath rebinds to the real target ID despite a hostile old-ID collision and preserves every other byte");
+        wprism_check_same($canonicalBody, BodyRefGrammar::capture($targetBody, $preserveRule,
+            $idToToken($tokensFor()), static function (): void {}, 'target form'), "G: $nativePath recapture is a typed fixed point");
+    }
+    foreach ([[], ['id'=>null], ['id'=>''], ['id'=>0], ['id'=>'0']] as $absence) {
+        $raw = json_encode($absence + ['title'=>'Unset form'], JSON_THROW_ON_ERROR);
+        $neverResolve = static function (): never { throw new RuntimeException('unset value reached the ledger'); };
+        wprism_check_same($raw, BodyRefGrammar::apply(BodyRefGrammar::capture($raw, $preserveRule,
+            $neverResolve, static function (): void {}, 'unset form'), $preserveRule, $neverResolve, 'unset form'),
+            'G: missing/null/empty/zero forms retain their native absence convention without a fabricated ID');
+    }
+    foreach ([-1, '-1', '00', '042', (string)PHP_INT_MAX . '0', false, true, 1.5, ['id'=>12]] as $invalidId) {
+        wprism_check_throws(static fn() => BodyRefGrammar::capture(json_encode(['id'=>$invalidId], JSON_THROW_ON_ERROR),
+            $preserveRule, $idToToken($tokensFor()), static function (): void {}, 'invalid form'), RuntimeException::class,
+            'G: preserve-type capture refuses a noncanonical native ID: ' . get_debug_type($invalidId));
+    }
+
+    // H — Git is an input boundary too. A valid self-reference must compile
+    // through the ordinary reference graph; malformed envelopes must refuse
+    // in compiler, lint and Apply without reaching a target lookup or write.
+    require_once $root . '/agent/src/Review/Lint.php';
+    $wpdb->seedTable('wp_posts', [['ID'=>42, 'post_type'=>'wpforms', 'post_title'=>'Target form', 'post_status'=>'publish']])
+        ->seedTable('wp_terms', [])->seedTable('wp_term_taxonomy', []);
+    $typedCompileSite = WPrismTest\FrozenPolicy::site([$preserveManifest], WPRISM_SPEC_VERSION);
+    $typedCompileSite['policy']['post_types'] = ['wpforms'];
+    $typedCompilePolicy = WPrismTest\FrozenPolicy::policy([$preserveManifest], $typedCompileSite);
+    Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($typedCompileSite));
+    $validTyped = ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>'{{post:' . $formUuid . '}}'];
+    $typedCases = [
+        'int'=>$validTyped,
+        'string'=>array_replace($validTyped, ['type'=>'string']),
+        'null'=>null, 'empty'=>'', 'zero-int'=>0, 'zero-string'=>'0',
+        'raw-int'=>42, 'raw-string'=>'42', 'bare-token'=>$validTyped['ref'],
+        'missing-format'=>['type'=>'int', 'ref'=>$validTyped['ref']],
+        'unknown-format'=>array_replace($validTyped, ['format'=>'wprism-typed-reference/v2']),
+        'wrong-type'=>array_replace($validTyped, ['type'=>'float']),
+        'nonstring-type'=>array_replace($validTyped, ['type'=>true]),
+        'raw-token'=>array_replace($validTyped, ['ref'=>42]),
+        'malformed-token'=>array_replace($validTyped, ['ref'=>'{{post:malformed}}']),
+        'token-trailing-newline'=>array_replace($validTyped, ['ref'=>$validTyped['ref'] . "\n"]),
+        'wrong-kind'=>array_replace($validTyped, ['ref'=>'{{term:' . $formUuid . '}}']),
+        'extra-key'=>$validTyped + ['extra'=>'unexpected'],
+        'wrong-order'=>['type'=>'int', 'format'=>$validTyped['format'], 'ref'=>$validTyped['ref']],
+        'list'=>[$validTyped],
+    ];
+    $portableCases = ['int', 'string', 'null', 'empty', 'zero-int', 'zero-string'];
+    foreach ($typedCases as $case => $value) {
+        $body = json_encode(['id'=>$value, 'title'=>'Portable form'], JSON_THROW_ON_ERROR);
+        $bytes = Canon::post_file($formFront, $body);
+        Canon::write_file($compileRoot . $formPath, $bytes);
+        $diagnostics = [];
+        try {
+            WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $typedCompilePolicy);
+        } catch (WPrism\RepositoryCompilationException $invalid) {
+            $diagnostics = $invalid->diagnostics;
+        }
+        $portable = in_array($case, $portableCases, true);
+        wprism_check($portable ? $diagnostics === [] : in_array('nonportable_reference', array_column($diagnostics, 'code'), true),
+            "H: full compiler classifies typed $case at the canonical portability boundary");
+        wprism_check_same($bytes, file_get_contents($compileRoot . $formPath), "H: $case leaves source post bytes unchanged");
+        wprism_check_same(Canon::encode($typedCompileSite), file_get_contents($compileRoot . '/site.wprism.json'),
+            "H: $case leaves content pins and source policy unchanged");
+        if ($portable) {
+            wprism_check_same([], WPrism\Lint::scan_tree($compileRoot . '/state', $typedCompilePolicy),
+                "H: lint reads valid typed $case without a false numeric finding");
+            continue;
+        }
+        $lookups = 0;
+        $lookup = static function () use (&$lookups): int { ++$lookups; return 42; };
+        wprism_check_throws(static fn() => BodyRefGrammar::apply($body, $preserveRule, $lookup, 'hostile canonical form'),
+            RuntimeException::class, "H: Apply refuses typed $case", 'wprism: malformed typed reference');
+        wprism_check_same(0, $lookups, "H: $case never reaches identity resolution");
+        if ($case === 'raw-int' || $case === 'raw-string') {
+            $findings = WPrism\Lint::scan_tree($compileRoot . '/state', $typedCompilePolicy);
+            wprism_check_same(['unrewritten_registered_ref'], array_column($findings, 'class'),
+                "H: lint still reports native $case as an unrewritten declared reference");
+            wprism_check_same(42, $findings[0]['matches']['id'] ?? null,
+                "H: the native $case finding is grounded in the actual target form row");
+        } else {
+            wprism_check_throws(static fn() => WPrism\Lint::scan_tree($compileRoot . '/state', $typedCompilePolicy),
+                RuntimeException::class, "H: lint cannot silently skip malformed typed $case", 'wprism: malformed typed reference');
+        }
+    }
+    $rawTyped = json_encode($validTyped, JSON_THROW_ON_ERROR);
+    foreach (['{"id":' . $rawTyped . ',"id":' . $rawTyped . '}',
+        '{"id":{"format":"wprism-typed-reference\\/v1","type":"string","type":"int","ref":"' . $validTyped['ref'] . '"}}'] as $duplicateKeys) {
+        $lookups = 0;
+        wprism_check_throws(static fn() => BodyRefGrammar::apply($duplicateKeys, $preserveRule,
+            static function () use (&$lookups): int { ++$lookups; return 42; }, 'duplicate key'),
+            RuntimeException::class, 'H: duplicate JSON keys fail exact framing before typed decoding', 'decode/re-encode round trip');
+        wprism_check_same(0, $lookups, 'H: duplicate-key framing never resolves a target identity');
+    }
+    foreach ([0, -42] as $invalidTargetId) {
+        wprism_check_throws(static fn() => BodyRefGrammar::apply(json_encode(['id'=>$validTyped], JSON_THROW_ON_ERROR),
+            $preserveRule, static fn(): int => $invalidTargetId, 'invalid target mapping'), RuntimeException::class,
+            'H: a nonpositive target mapping cannot fabricate an unset typed reference', 'resolved to a nonpositive id');
+    }
+    foreach (['credential'=>['api_key'=>'ghp_0123456789abcdefghijklmnopqrstuv'],
+        'personal-data'=>['email'=>'alice@example.test']] as $role => $protected) {
+        $nativeBody = json_encode(['id'=>12, 'settings'=>$protected], JSON_THROW_ON_ERROR);
+        wprism_check_throws(static fn() => BodyRefGrammar::capture($nativeBody, $preserveRule,
+            $idToToken($tokensFor()), static function (): void {}, 'protected form'), RuntimeException::class,
+            "H: preserve-type capture still applies the complete $role guard", 'refusing to capture json authored configuration');
+        $protectedBytes = Canon::post_file($formFront, json_encode(['id'=>$validTyped, 'settings'=>$protected], JSON_THROW_ON_ERROR));
+        Canon::write_file($compileRoot . $formPath, $protectedBytes);
+        wprism_check_throws(static fn() => WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $typedCompilePolicy),
+            WPrism\RepositoryAuthorizationException::class,
+            "H: a typed reference does not bypass canonical $role clearance", 'repository authorization failed');
+        wprism_check_same($protectedBytes, file_get_contents($compileRoot . $formPath),
+            "H: canonical $role refusal preserves exact input bytes");
+    }
+
+    // Same native fixtures through PostCapture, not only the pure codec. The
+    // policy selects the grammar and the ordinary Tokens facade owns lookup.
+    $nativeTokens = $tokensFor();
+    $typedPostCapture = new PostCapture($preservePolicy, $nativeTokens, new EntityMetaCapture(
+        $preservePolicy, $nativeTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    $wpdb->seedTable('wp_postmeta', [])->seedTable('wp_term_relationships', [])->seedTable('wp_term_taxonomy', [])
+        ->seedTable('wp_terms', [])->seedTable('wp_users', []);
+    foreach (['form-pathb', 'form-pathc'] as $nativePath) {
+        $raw = $capture($nativePath);
+        $nativeId = json_decode($raw, true)['id'];
+        $bindForm((int)$nativeId);
+        $post = $formPost($raw, $nativePath);
+        $post->ID = (int)$nativeId;
+        $entity = $typedPostCapture->capture($post, $formUuid, []);
+        [, $captured] = Canon::parse_post_file($entity['entity']['content']);
+        wprism_check_same(array_replace($validTyped, ['type'=>get_debug_type($nativeId)]), json_decode($captured, true)['id'],
+            "H: real PostCapture rebinds the $nativePath self-reference with its native scalar type");
+    }
+}
 
 wprism_check_summary('regress_body_ref_grammar');

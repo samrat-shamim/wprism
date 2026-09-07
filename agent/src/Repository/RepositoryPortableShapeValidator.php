@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
+
 // This is a pure canonical-tree portability pass. Normal direct loads close
 // every named collaborator; focused fixtures may preload narrow doubles, so
 // retain the conditional boundary used by sibling compiler seams.
@@ -34,6 +36,7 @@ if (!class_exists(PersonalData::class, false)) {
 if (!class_exists(Secrets::class, false)) {
     require_once __DIR__ . '/../Kernel/Secrets.php';
 }
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 
 final class RepositoryPortableShapeValidator {
     private const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -92,6 +95,10 @@ final class RepositoryPortableShapeValidator {
                 if (method_exists($this->policy, 'body_mode')
                     && $this->policy->body_mode((string) ($d['type'] ?? '')) === 'serialized') {
                     $this->validate_serialized_body((string) ($entity['body'] ?? ''), $path);
+                }
+                if (method_exists($this->policy, 'body_mode')
+                    && $this->policy->body_mode((string) ($d['type'] ?? '')) === BodyRefGrammar::BODY_MODE) {
+                    $this->validate_json_body((string) ($entity['body'] ?? ''), (string) $d['type'], $path);
                 }
                 if (($d['parent'] ?? null) !== null) {
                     $this->validate_declared_ref($d['parent'], 'post', $path, 'parent');
@@ -455,6 +462,39 @@ final class RepositoryPortableShapeValidator {
             : is_string($value) && preg_match('/^\{\{' . preg_quote($kind, '/') . ':[0-9a-f-]{36}\}\}$/', $value);
         if (!$valid) {
             $this->add('nonportable_reference', $path, $locator, "declared $kind reference must be a canonical token, never a raw target id");
+        }
+    }
+
+    private function validate_json_body(string $body, string $postType, string $path): void {
+        try {
+            $decoded = BodyRefGrammar::decode($body, "$path body");
+        } catch (\Throwable $_invalid) {
+            $this->add('schema_content_mismatch', $path, 'body',
+                'json post body must reproduce its exact bytes through the declared JSON codec');
+            return;
+        }
+        $rule = $this->policy->body_ref_rule($postType);
+        if ($rule === null) {
+            $this->add('schema_content_mismatch', $path, 'body', 'json post body has no declared reference rule');
+            return;
+        }
+        // Lint deliberately skips containers, but a compiler cannot: the
+        // old JSON arm admitted raw native IDs, wrong keyspaces and containers
+        // at declared paths while meta references already refused them here.
+        // Grammar owns paths, sentinels and unset conventions; this pass owns
+        // canonical token shape. Neither needs a plugin-specific JSON walker.
+        foreach (BodyRefGrammar::reference_positions($decoded, $rule, true) as $position) {
+            if (($position['ref']['cast'] ?? null) === 'preserve') {
+                try {
+                    IdentityTokenCodec::decode_typed($position['value'], (string) $position['ref']['kind']);
+                } catch (\RuntimeException) {
+                    $this->add('nonportable_reference', $path, 'body' . $position['locator'],
+                        'type-preserving body reference must be a canonical typed-reference envelope');
+                }
+                continue;
+            }
+            $this->validate_declared_ref($position['value'], (string) $position['ref']['kind'],
+                $path, 'body' . $position['locator']);
         }
     }
 

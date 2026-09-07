@@ -1451,7 +1451,15 @@ block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
 `mixed-column-codecs/v1` admits the measured plain/serialized/NULL container
 inside that section without claiming a second top-level key;
 `structured-body-refs/v1` claims `body_refs`, a declared path grammar into JSON
-post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
+post bodies; `body-ref-preserve-type/v1` admits `cast: "preserve"` on those paths
+when a native writer stores the same reference as either an integer or a string.
+It requires the structured-body feature and leaves ordinary meta/options and
+block-attribute casts unchanged. Missing self IDs stay missing; present IDs
+must be declared and rebound, not preserved as source-local numbers. The
+canonical typed-reference envelope retains the native type beside an ordinary
+identity token; exact compiler, lint and Apply validation reject malformed
+envelopes without a plugin-owned rewrite. See `spec/repo-format.md` § v3.20.
+`structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
 `{"evidence": [{source, locator, observation}, …]}` and optionally
 `{"answered": [{question, answer}, …]}`, with every member a non-empty string

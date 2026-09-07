@@ -170,7 +170,18 @@ final class EngineGapsTest extends TestCase
             static fn (array $row): bool => $row['primitive'] === $primitive
         ));
         self::assertCount(1, $aggregated, 'shared demand was split into more than one primitive row');
-        $expectedCandidates = [$sourceCandidate, 'Aggregation probe'];
+        // A committed primitive can already have multiple native consumers.
+        // Adding WPForms' body-URL demand exposed the old two-owner assumption;
+        // derive the exact owner set from coordinates, not from ranked output.
+        $expectedOwners = [];
+        foreach ($ledger['candidates'] as $candidate) {
+            foreach ($candidate['coordinates'] as $coordinate) {
+                if (!isset($coordinate['closed_by']) && $coordinate['primitive_required'] === $primitive) {
+                    $expectedOwners[(string) $candidate['candidate']] = true;
+                }
+            }
+        }
+        $expectedCandidates = array_keys($expectedOwners);
         sort($expectedCandidates, SORT_STRING);
         self::assertSame(
             $expectedCandidates,
