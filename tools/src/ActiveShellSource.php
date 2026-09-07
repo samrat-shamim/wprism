@@ -80,8 +80,21 @@ final class ActiveShellSource
     /** @return array{code:string,comment:string,line:int}|null */
     public static function statement(string $source, string $needle): ?array
     {
+        $matches = self::statements($source, $needle);
+        return count($matches) === 1 ? $matches[0] : null;
+    }
+
+    /**
+     * Census callers may accept repeated reachable commands; unique-premise
+     * callers must keep statement()'s refusal of ambiguity. A fresh-pair loop
+     * legitimately acquires once per lane, not once per source file.
+     *
+     * @return list<array{code:string,comment:string,line:int}>
+     */
+    public static function statements(string $source, string $needle): array
+    {
         if ($needle === '') {
-            return null;
+            return [];
         }
         $matches = [];
         $lines = self::lines($source);
@@ -101,7 +114,7 @@ final class ActiveShellSource
             }
             $matches[] = $line;
         }
-        return count($matches) === 1 ? $matches[0] : null;
+        return $matches;
     }
 
     /** @return list<string> */
