@@ -3541,6 +3541,27 @@ $wpdb = $typedRowFixture();
 $typedRowTransaction(static fn(): int => $typedRowInvoke('update', 'wp_wprism_provider_state', ['provider_value' => null]));
 wprism_check_same([['provider_key' => 'keep', 'provider_value' => null]], provider_database_session_rows($wpdb),
     'typed UPDATE retains SQL null instead of coercing it to an empty string');
+$wpdb = $typedRowFixture()->seedTable('wp_wprism_provider_state', [
+    ['provider_key' => '7', 'provider_value' => 'before'], ['provider_key' => '7.4', 'provider_value' => 'untouched'],
+]);
+wprism_check_same(1, $typedRowTransaction(static fn(): int => ProviderSdk::database_update('wp_wprism_provider_state',
+    ['provider_value' => '0009'], ['provider_key' => '7.4'], 'distinct SDK update formats', '%s', '%d')),
+    'SDK update keeps distinct explicit data and predicate formats');
+wprism_check_same([['provider_key' => '7', 'provider_value' => '0009'], ['provider_key' => '7.4', 'provider_value' => 'untouched']],
+    provider_database_session_rows($wpdb), 'data format cannot be dropped or swapped with the numeric predicate format');
+$wpdb = $typedRowFixture();
+$typedRowTransaction(static fn(): int => ProviderSdk::database_insert('wp_wprism_provider_state',
+    ['provider_key' => 'formatted', 'provider_value' => '0009'], 'explicit SDK insert formats', ['%s', '%d']));
+wprism_check_same('9', (string) provider_database_session_rows($wpdb)[1]['provider_value'],
+    'SDK insert forwards its explicit field-format roster rather than falling back to string inference');
+$wpdb = $typedRowFixture()->seedTable('wp_wprism_provider_state', [
+    ['provider_key' => 'null', 'provider_value' => null], ['provider_key' => 'empty', 'provider_value' => ''],
+]);
+wprism_check_same(1, $typedRowTransaction(static fn(): int => ProviderSdk::database_update('wp_wprism_provider_state',
+    ['provider_value' => 'changed'], ['provider_value' => null], 'SDK null equality predicate', '%s', '%d')),
+    'SDK null equality uses IS NULL independently of the explicit predicate format');
+wprism_check_same([['provider_key' => 'null', 'provider_value' => 'changed'], ['provider_key' => 'empty', 'provider_value' => '']],
+    provider_database_session_rows($wpdb), 'null equality cannot accidentally update an empty-string sibling');
 
 // A physical row descriptor is observation data, never authority. Exercise
 // the SDK facade under the same engine-bound runtime used by real scopes.
