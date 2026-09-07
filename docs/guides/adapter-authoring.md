@@ -2360,6 +2360,20 @@ different one.
 
 ### 6. Exercise it
 
+A capsule-owned live driver starts with these exact first three active shell
+statements, before changing directory, constructing flags, or acquiring a pair:
+
+```bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+```
+
+`regress-fetch-artifact` checks this preamble across discovered capsule callers.
+The early physical package scope keeps later shell branches and child commands
+from selecting the aggregate artifact library. A late literal package slug can
+fetch the right artifact in one run while violating that caller contract.
+
 Independent live lanes require a fresh **whole pair**, not just fresh database
 rows. `pair.sh reset` deliberately clears databases and repository contents
 while retaining webroot volumes. Reusing those volumes after deleting native

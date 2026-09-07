@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-AIO_CAPSULE=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+AIO_CAPSULE="$PACKAGE_ROOT"
 # Keep BASH_SOURCE absolute before changing cwd so capsule-relative sourced
 # hooks resolve identically under the package runner and a direct invocation.
 [[ ${BASH_SOURCE[0]} = /* ]] || exec bash "$AIO_CAPSULE/tests/live/regress_native_roundtrip.sh" "$@"
@@ -22,7 +24,6 @@ wp_conf1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp_conf2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 export CONF_REPO1="siterepo/${CONF_PAIR}1" CONF_REPO2="siterepo/${CONF_PAIR}2"
 PAIR_COMPOSE=("${COMPOSE[@]}")
-export WPRISM_ARTIFACT_PACKAGE=change-wp-admin-login
 . bin/fetch-artifact.sh
 for side in 1 2; do
   AIO_ARTIFACT=$(fetch_artifact change-wp-admin-login 2.4.1 "cli$side")
