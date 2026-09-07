@@ -1497,8 +1497,12 @@ Named first/terminal segments and no recursive descent keep the scope explicit;
 intermediate wildcards and list mapping use the existing reference dialect.
 Only matched scalar values and their field roles are cleared. Keys, containers,
 unreviewed siblings and all secrets remain protected. The same authority is
-checked during Capture and immutable compilation; merely declaring the feature
-does not clear anything. Decide whether each destination is genuinely authored
+checked during body capture, final candidate clearance and immutable compilation;
+merely declaring the feature does not clear anything. A component-only
+`PostCapture` positive is not publication evidence: exercise the complete
+candidate and `wp wprism capture`, including an unreviewed sibling and a secret
+inside the reviewed path, and prove refusal preserves prior state and identity.
+Decide whether each destination is genuinely authored
 and portable before reviewing it: an environment-specific address needs an
 environment contract, not a privacy exception that copies it to every target.
 

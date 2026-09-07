@@ -435,16 +435,18 @@ $gates->guardSecret('options', 'integration_settings', [
 ], []);
 check(true, 'authorization endpoints and credential help labels are not credential fields');
 
+$contentPolicy = new WPrism\Policy();
 $bodySecret = refusal(static fn() => $gates->assertCanonicalContent([[
     'type' => 'page',
     'path' => 'posts/page/fixture--clearance.md',
     'content' => WPrism\Canon::post_file([
         'uuid' => 'fixture',
+        'type' => 'page',
         'title' => 'Clearance',
         'excerpt' => '',
         'author' => null,
     ], 'Deployment note: api_key=MixedCredential-2026-Value'),
-]]));
+]], $contentPolicy));
 check($bodySecret->reasonCode === 'secret_state_refused', 'labelled credential-shaped prose blocks before publication');
 
 $bodyPii = refusal(static fn() => $gates->assertCanonicalContent([[
@@ -452,11 +454,12 @@ $bodyPii = refusal(static fn() => $gates->assertCanonicalContent([[
     'path' => 'posts/page/fixture--clearance.md',
     'content' => WPrism\Canon::post_file([
         'uuid' => 'fixture',
+        'type' => 'page',
         'title' => 'Clearance',
         'excerpt' => '',
         'author' => null,
     ], 'Private contact: person@example.test'),
-]]));
+]], $contentPolicy));
 check($bodyPii->reasonCode === 'personal_data_refused', 'PII embedded in prose blocks before publication');
 
 $longBodySecret = refusal(static fn() => $gates->assertCanonicalContent([[
@@ -464,11 +467,12 @@ $longBodySecret = refusal(static fn() => $gates->assertCanonicalContent([[
     'path' => 'posts/page/fixture--long-clearance.md',
     'content' => WPrism\Canon::post_file([
         'uuid' => 'fixture-long',
+        'type' => 'page',
         'title' => 'Long clearance',
         'excerpt' => '',
         'author' => null,
     ], str_repeat('ordinary text ', 6000) . ' token=LongCredential-2026-Blocked'),
-]]));
+]], $contentPolicy));
 check($longBodySecret->reasonCode === 'secret_state_refused', 'long canonical prose is windowed instead of bypassing clearance');
 
 $ipv6Pii = refusal(static fn() => $gates->assertCanonicalContent([[
@@ -476,11 +480,12 @@ $ipv6Pii = refusal(static fn() => $gates->assertCanonicalContent([[
     'path' => 'posts/page/fixture--ipv6-clearance.md',
     'content' => WPrism\Canon::post_file([
         'uuid' => 'fixture-ipv6',
+        'type' => 'page',
         'title' => 'IPv6 clearance',
         'excerpt' => '',
         'author' => null,
     ], 'Private client address: 2001:db8:85a3::8a2e:370:7334'),
-]]));
+]], $contentPolicy));
 check($ipv6Pii->reasonCode === 'personal_data_refused', 'IPv6 embedded in prose participates in PII clearance');
 
 $gates->assertCanonicalContent([[
@@ -488,12 +493,81 @@ $gates->assertCanonicalContent([[
     'path' => 'posts/page/fixture--ordinary-date.md',
     'content' => WPrism\Canon::post_file([
         'uuid' => 'fixture-date',
+        'type' => 'page',
         'title' => 'Release 2026-08-30',
         'excerpt' => '',
         'author' => null,
     ], 'Published on 2026-08-30 with build 1234567.'),
-]]);
+]], $contentPolicy);
 check(true, 'ordinary dates and numeric build ids do not false-positive as phone numbers');
+
+// The final guard must use the post's policy, not its path, body contents or
+// an earlier entity's exception. No plugin identity participates in this rule.
+$contentPolicy->manifests = [[
+    'name' => 'body-clearance-fixture',
+    'post_types' => [
+        'reviewed_form' => ['class' => 'authored', 'body' => 'json'],
+        'unreviewed_form' => ['class' => 'authored', 'body' => 'json'],
+    ],
+    'body_refs' => [
+        'reviewed_form' => ['json_refs' => [], 'pii_paths' => ['$.settings.notifications.*.email']],
+        'unreviewed_form' => ['json_refs' => []],
+    ],
+]];
+$jsonEntity = static fn(string $body, array $front = []): array => [
+    'type' => 'post',
+    'path' => 'posts/reviewed_form/fixture--clearance.md',
+    'content' => WPrism\Canon::post_file(array_replace([
+        'uuid' => 'fixture', 'type' => 'reviewed_form', 'title' => 'Public form',
+        'excerpt' => '', 'author' => null,
+    ], $front), $body),
+];
+$reviewed = ['settings' => ['notifications' => [1 => ['email' => 'operations@example.test']]]];
+$reviewedEntity = $jsonEntity(json_encode($reviewed, JSON_THROW_ON_ERROR));
+$beforeReviewed = $reviewedEntity;
+$gates->assertCanonicalContent([$reviewedEntity], $contentPolicy);
+check($reviewedEntity === $beforeReviewed, 'publication clearance honors reviewed JSON scalar paths without changing canonical bytes');
+
+foreach ([
+    'unreviewed value' => [array_replace($reviewed, ['copy' => 'private@example.test']), []],
+    'unreviewed field role' => [array_replace($reviewed, ['contact_email' => 'Not a literal address']), []],
+    'matched container' => [['settings' => ['notifications' => [1 => ['email' => ['value' => 'private@example.test']]]]], []],
+    'private associative key' => [['settings' => ['notifications' => ['private@example.test' => ['email' => 'operations@example.test']]]], []],
+    'another JSON post type' => [$reviewed, ['type' => 'unreviewed_form']],
+    'path claiming another type' => [$reviewed, ['type' => 'page']],
+    'front title' => [$reviewed, ['title' => 'private@example.test']],
+    'front excerpt' => [$reviewed, ['excerpt' => 'private@example.test']],
+    'front author' => [$reviewed, ['author' => 'private@example.test']],
+    'front alt' => [$reviewed, ['alt' => 'private@example.test']],
+] as $case => [$document, $front]) {
+    $hostileEntity = $jsonEntity(json_encode($document, JSON_THROW_ON_ERROR), $front);
+    $hostile = refusal(static fn() => $gates->assertCanonicalContent([$reviewedEntity, $hostileEntity], $contentPolicy));
+    check($hostile->reasonCode === 'personal_data_refused', "$case retains the public PII refusal after a reviewed JSON entity");
+    check(!str_contains(json_encode($hostile->payload()), 'private@example.test'), "$case never echoes private bytes in the public refusal");
+}
+$secretEntity = $jsonEntity(json_encode([
+    'settings' => ['notifications' => [1 => ['email' => 'sk_live_CLEARANCE123456789012']]],
+], JSON_THROW_ON_ERROR));
+$reviewedSecret = refusal(static fn() => $gates->assertCanonicalContent([$secretEntity], $contentPolicy));
+check($reviewedSecret->reasonCode === 'secret_state_refused', 'an exact PII exception never clears secrets in that field');
+check(!str_contains(json_encode($reviewedSecret->payload()), 'sk_live_'), 'reviewed-field secret bytes stay out of public diagnostics');
+
+foreach ([
+    ['type' => 'term', 'path' => 'terms/category/fixture.json', 'content' => WPrism\Canon::encode(['name' => 'private@example.test'])],
+    ['type' => 'menu', 'path' => 'menus/fixture.json', 'content' => WPrism\Canon::encode(['name' => 'private@example.test', 'items' => []])],
+    ['type' => 'user-meta', 'path' => 'user-meta/fixture.json', 'content' => WPrism\Canon::encode(['login' => 'private@example.test'])],
+] as $otherEntity) {
+    $other = refusal(static fn() => $gates->assertCanonicalContent([$reviewedEntity, $otherEntity], $contentPolicy));
+    check($other->reasonCode === 'personal_data_refused', "{$otherEntity['type']} fields never inherit a preceding post body's privacy paths");
+}
+$malformedBodyFailure = null;
+try {
+    $gates->assertCanonicalContent([$jsonEntity('{"settings":')], $contentPolicy);
+} catch (RuntimeException $failure) {
+    $malformedBodyFailure = $failure;
+}
+check($malformedBodyFailure !== null && str_contains($malformedBodyFailure->getMessage(), 'not a JSON document'),
+    'malformed JSON cannot fall back to raw framing and bypass declaration-aware clearance');
 
 foreach ([
     'Completed at 2026-02-03 04:05:06 UTC',
