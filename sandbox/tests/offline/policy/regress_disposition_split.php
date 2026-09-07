@@ -306,6 +306,21 @@ const WPRISM_PRE_DURABLE_OBSERVER_RANK_DIGEST = '82bf25b2f69967e9dc7106050b64e46
 const WPRISM_PRE_DURABLE_OBSERVER_MANIFEST_HASH = '27fa8f6f8276c05f6faea27c6dc9282079e9af5891837b5c7058bdbf7fc8e897';
 const WPRISM_PRE_DURABLE_OBSERVER_SNAPSHOT_SHA = 'b25d11ced4a164d196a1e18d17f3d5388de370df98ac0fa4a8fbc937104cab77';
 
+// Moving KSES out of Polylang's portable classifier changes only its package
+// identity. The engine feature does not move other capsules or dispositions.
+const PRE_NATIVE_VALUE_POLYLANG_DIGEST = '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548';
+const PRE_NATIVE_VALUE_RANK_MANIFEST_HASH = '79b9d1cefcd7756ee845f888e5ca90b8a172053710617b6e3d03218dc9a76b9e';
+const PRE_NATIVE_VALUE_YOAST_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
+const PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA = 'c2ce88f5164a59e0ecd307ba35bb322b3b9edff72d5569c06138643dafc72aa6';
+const PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA = '1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114';
+const PRE_NATIVE_VALUE_REGISTRY_SHA = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
+
+// The cold-cache correction changes interpreter bytes, not the manifest or
+// disposition. Frozen policy snapshots remain exact; active executable pins move.
+const PRE_COLD_CACHE_POLYLANG_DIGEST = '7c871d4b4dfbc3e71fbc9b7257df569e08b528023a2198f35da91eb57cd6862d';
+const PRE_COLD_CACHE_RANK_MANIFEST_HASH = 'f910e4f248fc034230db88497fe13c13adf69e56209981a0f3c8b2bfde33c0cd';
+const PRE_COLD_CACHE_YOAST_MANIFEST_HASH = '0d786231657aa37c64fcb31a9751a561da410482c84c6145d3f4e961f6e2f71a';
+
 /**
  * The duplicate durable-context declaration correction changes only the
  * WooCommerce manifest row. Preserve the immediately preceding fleet-visible
@@ -337,7 +352,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
-    'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
+    'polylang' => '933ff6b878ef3545597b9111aeade9aa13d54389a168f9a44ddee89984991e17',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
@@ -347,11 +362,11 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '79b9d1cefcd7756ee845f888e5ca90b8a172053710617b6e3d03218dc9a76b9e';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '6c799d1d913321bb0d440d4f1413792ab8f0b6528b1186c0891498e9c6ae83ba';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'dfd90f30a212b7ff026ec1f747fe4628e31f6b88c3519a08fbf17015d5842f30';
 const WPRISM_CURRENT_REGISTRY_SHA = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'c2ce88f5164a59e0ecd307ba35bb322b3b9edff72d5569c06138643dafc72aa6';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'ef66e57722b855c8ec0a8bca12324ad84032b67e44ac7ffe6598d6e767e2070b';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '9e139f3acb9eb3b9ee5514a4971a5ff2eb8109364923dd01951f6aed1e939ee2';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -657,6 +672,22 @@ wprism_check_same(
     'the current WPrism greenfield baseline pins every shipped adapter digest explicitly; a disposition split that '
     . 'changes any manifest row is a measured identity failure'
 );
+wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'polylang' => PRE_NATIVE_VALUE_POLYLANG_DIGEST,
+]))), 'the native value declaration moves only Polylang, not the generic engine consumers');
+wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+    && PRE_NATIVE_VALUE_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
+    && PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
+    && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
+wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, WPRISM_CURRENT_REGISTRY_SHA,
+    'the portable/native boundary correction leaves reviewed disposition bytes unchanged');
+wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'polylang' => PRE_COLD_CACHE_POLYLANG_DIGEST,
+]))), 'the cold-cache correction moves only Polylang executable identity');
+wprism_check(PRE_COLD_CACHE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+    && PRE_COLD_CACHE_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH,
+    'both compatible worlds require recompile and re-pin after the cold-cache interpreter correction');
 $movedNames = [];
 foreach ($observed as $name => $digest) {
     if (($frozenDigests[$name] ?? '') !== $digest) {

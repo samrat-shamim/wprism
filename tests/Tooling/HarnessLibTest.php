@@ -73,6 +73,22 @@ final class HarnessLibTest extends TestCase
         return $db;
     }
 
+    public function testNestedConditionGroupsRemainDistinctFromArithmeticOperands(): void
+    {
+        $db = $this->seededDb();
+        foreach ([
+            '((meta_id = 2))' => ['2'],
+            '(((meta_id <=> 2)))' => ['2'],
+            'post_id = 7 AND ((meta_id = 1 AND OCTET_LENGTH(meta_value) = 3))' => ['1'],
+            'post_id = 7 AND ((meta_id = 1) OR ((meta_id = 3)))' => ['1'],
+            'NOT (((meta_id = 2)))' => ['1', '3'],
+            '((meta_id + 1)) = 3' => ['2'],
+            '(meta_id + (1)) = 3' => ['2'],
+        ] as $condition => $expected) {
+            self::assertSame($expected, $db->get_col("SELECT meta_id FROM wp_postmeta WHERE $condition ORDER BY meta_id"));
+        }
+    }
+
     // ------------------------------------------------------ path constants
 
     /**
@@ -783,6 +799,262 @@ final class HarnessLibTest extends TestCase
         $db->get_results(
             'SELECT post_type, COUNT(*) AS entities, bogus FROM wp_posts /* malformed full-apply probe */'
         );
+    }
+
+    /** @return iterable<string,array{string,string,string,string,bool,string}> */
+    public static function fullApplyPruningCases(): iterable
+    {
+        foreach (['wp_', 'tenant_'] as $prefix) {
+            foreach ([['post', 'posts', 'ID', 'po'], ['term', 'terms', 'term_id', 't'],
+                ['term_taxonomy', 'term_taxonomy', 'term_taxonomy_id', 'tt']] as [$kind, $table, $column, $alias]) {
+                foreach ([false, true] as $profiled) {
+                    yield $prefix . $kind . ($profiled ? '-profiled' : '-legacy') => [$kind, $table, $column, $alias, $profiled, $prefix];
+                }
+            }
+        }
+    }
+
+    /** @return array{FakeWpdb,list<array<string,mixed>>,string} */
+    private function pruningFixture(string $kind, string $table, string $column, string $alias, bool $profiled, string $prefix): array
+    {
+        $map = $prefix . 'wprism_map';
+        $physical = $prefix . $table;
+        $rows = [
+            ['uuid' => 'live', 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => 7],
+            ['uuid' => 'orphan', 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => 8],
+            ['uuid' => 'other-kind', 'entity_type' => 'fixture', 'id_kind' => 'widget_fixture', 'local_id' => 8],
+            ['uuid' => 'another-live', 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => '9'],
+        ];
+        $db = FakeWpdb::install($prefix)->enableFullApplySqlExtensions()
+            ->seedTable($map, $rows)->setColumns($map, ['uuid' => 'char(36)', 'entity_type' => 'varchar(64)', 'id_kind' => 'varchar(64)', 'local_id' => 'bigint'])
+            ->seedTable($physical, [[$column => '7', 'unrelated_id' => 8], [$column => 9, 'unrelated_id' => 8]])
+            ->setColumns($physical, [$column => 'bigint', 'unrelated_id' => 'bigint']);
+        $nonce = str_repeat('a', 64);
+        $db->query("SET @wprism_tx_session = '$nonce'");
+        $sql = $profiled
+            ? "DELETE FROM `$map` WHERE CONNECTION_ID() = '1' AND BINARY @wprism_tx_session = BINARY '$nonce' AND (id_kind = '$kind' AND NOT EXISTS (SELECT 1 FROM `$physical` $alias WHERE $alias.`$column` = `$map`.`local_id`))"
+            : "DELETE m FROM $map m LEFT JOIN $physical $alias ON $alias.$column = m.local_id WHERE m.id_kind = '$kind' AND $alias.$column IS NULL";
+
+        return [$db, $rows, $sql];
+    }
+
+    #[DataProvider('fullApplyPruningCases')]
+    public function testFullApplyPruningUsesExactSeededBackingAndRollsBack(string $kind, string $table, string $column, string $alias, bool $profiled, string $prefix): void
+    {
+        [$db, $before, $sql] = $this->pruningFixture($kind, $table, $column, $alias, $profiled, $prefix);
+        $physicalBefore = $db->rows($prefix . $table);
+        $db->query('START TRANSACTION');
+        $db->query('SAVEPOINT `before_prune`');
+        self::assertSame(1, $db->query($sql), 'the exact missing backing row must be removed, not acknowledged as a no-op');
+        self::assertSame(1, $db->rows_affected);
+        self::assertSame([$before[0], $before[2], $before[3]], $db->rows($prefix . 'wprism_map'));
+        self::assertSame($physicalBefore, $db->rows($prefix . $table));
+        self::assertSame($sql, $db->last_query);
+        self::assertSame('', $db->last_error);
+        self::assertSame(0, $db->query($sql), 'a repeated prune reaches a real fixed point');
+        $db->query('ROLLBACK TO SAVEPOINT `before_prune`');
+        self::assertSame($before, $db->rows($prefix . 'wprism_map'));
+        self::assertSame(1, $db->query($sql));
+        $db->query('ROLLBACK');
+        self::assertSame($before, $db->rows($prefix . 'wprism_map'));
+        $db->failNextQuery('prune transport failed', 'DELETE');
+        self::assertFalse($db->query($sql));
+        self::assertSame('prune transport failed', $db->last_error);
+        self::assertSame($before, $db->rows($prefix . 'wprism_map'));
+        self::assertSame(1, $db->query($sql));
+        self::assertSame('', $db->last_error);
+    }
+
+    public function testFullApplyPruningHonorsConnectionAndExactSessionNonce(): void
+    {
+        [$db, $before, $sql] = $this->pruningFixture('term', 'terms', 'term_id', 't', true, 'wp_');
+        $db->query('START TRANSACTION');
+        self::assertSame(1, $db->query($sql));
+        $db->setConnectionId(2);
+        self::assertSame($before, $db->rows('wp_wprism_map'), 'disconnect rolls back the actual prune');
+        self::assertSame(0, $db->query($sql), 'an old connection predicate cannot mutate the replacement');
+        $db->setConnectionId(1);
+        self::assertSame(0, $db->query($sql), 'a recycled connection id lacks the original nonce');
+        $nonce = str_repeat('b', 64);
+        $db->query("SET @wprism_tx_session = '$nonce'");
+        self::assertSame(0, $db->query($sql), 'another generation is not the original exact nonce');
+        self::assertSame($before, $db->rows('wp_wprism_map'));
+    }
+
+    public function testFullApplyPruningRequiresExplicitCompleteSchemaFixtures(): void
+    {
+        foreach (['missing-table', 'missing-primary-column', 'missing-map-column'] as $fault) {
+            [$db, $before, $sql] = $this->pruningFixture('post', 'posts', 'ID', 'po', false, 'wp_');
+            if ($fault === 'missing-table') {
+                $db->query('DROP TABLE wp_posts');
+            } elseif ($fault === 'missing-primary-column') {
+                $db->seedTable('wp_posts', [['different_id' => 7]])->setColumns('wp_posts', ['different_id' => 'bigint']);
+            } else {
+                $db->seedTable('wp_wprism_map', [['id_kind' => 'post']])->setColumns('wp_wprism_map', ['id_kind' => 'varchar(64)']);
+            }
+            $before = $db->rows('wp_wprism_map');
+            try {
+                $db->query($sql);
+                self::fail("pruning accepted $fault");
+            } catch (LogicException $failure) {
+                self::assertStringContainsString('FakeWpdb:', $failure->getMessage());
+                if ($fault !== 'missing-table') {
+                    self::assertStringContainsString($sql, $failure->getMessage(), 'closed-handler diagnostics must name the failing statement, not a previous SET');
+                }
+            }
+            self::assertSame($before, $db->rows('wp_wprism_map'));
+        }
+    }
+
+    public function testFullApplyPruningKeepsSqlNullAndKindComparisonSemantics(): void
+    {
+        [$db, $before, $sql] = $this->pruningFixture('post', 'posts', 'ID', 'po', true, 'wp_');
+        $before[] = ['uuid' => 'case-folded', 'entity_type' => 'fixture', 'id_kind' => 'POST', 'local_id' => 11];
+        $before[] = ['uuid' => 'null-kind', 'entity_type' => 'fixture', 'id_kind' => null, 'local_id' => 12];
+        $before[] = ['uuid' => 'null-local', 'entity_type' => 'fixture', 'id_kind' => 'post', 'local_id' => null];
+        $db->seedTable('wp_wprism_map', $before)->seedTable('wp_posts', [['ID' => null], ['ID' => '0007']]);
+        self::assertSame(4, $db->query($sql));
+        self::assertSame([$before[0], $before[2], $before[5]], $db->rows('wp_wprism_map'));
+        $db->seedTable('wp_posts', []);
+        self::assertSame(1, $db->query($sql), 'an explicitly empty physical table really prunes all matching rows');
+        self::assertSame([$before[2], $before[5]], $db->rows('wp_wprism_map'));
+    }
+
+    public function testFullApplyPruningCannotSkipTheInstalledQueryGate(): void
+    {
+        [$db, $before, $sql] = $this->pruningFixture('post', 'posts', 'ID', 'po', true, 'wp_');
+        $driverCalls = 0;
+        $db->onQuery(static function () use (&$driverCalls): null {
+            ++$driverCalls;
+            return null;
+        });
+        $saved = [];
+        foreach (['wp_filter', 'wp_current_filter'] as $key) {
+            $saved[$key] = [array_key_exists($key, $GLOBALS), $GLOBALS[$key] ?? null];
+        }
+        $gate = new class() {
+            public bool $refuse = false;
+            public int $calls = 0;
+
+            public function hook_name(): string
+            {
+                return 'query';
+            }
+
+            /** @param array{string} $arguments */
+            public function apply_filters(string $query, array $arguments): string
+            {
+                ++$this->calls;
+                if ($this->refuse) {
+                    throw new \RuntimeException('prune query gate refused');
+                }
+                return 'SELECT local_id FROM wp_wprism_map';
+            }
+        };
+        $GLOBALS['wp_filter'] = ['query' => $gate];
+        $GLOBALS['wp_current_filter'] = [];
+        try {
+            $db->resetLog();
+            self::assertSame(4, $db->query($sql), 'the filtered SELECT runs, not the original recognized DELETE');
+            self::assertSame(1, $gate->calls);
+            self::assertSame(1, $driverCalls);
+            self::assertSame(['SELECT local_id FROM wp_wprism_map'], $db->queries());
+            self::assertSame($before, $db->rows('wp_wprism_map'));
+            $db->resetLog();
+            $gate->refuse = true;
+            try {
+                $db->query($sql);
+                self::fail('the recognized prune outran its installed query authority');
+            } catch (\RuntimeException $failure) {
+                self::assertSame('prune query gate refused', $failure->getMessage());
+            }
+            self::assertSame(2, $gate->calls);
+            self::assertSame(1, $driverCalls, 'refusal happens before driver interception');
+            self::assertSame([], $db->queries());
+            self::assertSame($before, $db->rows('wp_wprism_map'));
+        } finally {
+            foreach ($saved as $key => [$present, $value]) {
+                if ($present) {
+                    $GLOBALS[$key] = $value;
+                } else {
+                    unset($GLOBALS[$key]);
+                }
+            }
+        }
+    }
+
+    /** @return iterable<string,array{string,list<int>,list<int>}> */
+    public static function typedPruningCases(): iterable
+    {
+        foreach (['wp_', 'tenant_'] as $prefix) {
+            yield $prefix . 'unreferenced' => [$prefix, [], [0, 2, 3]];
+            yield $prefix . 'one-preserved' => [$prefix, [8], [0, 1, 2, 3]];
+            yield $prefix . 'both-preserved' => [$prefix, [8, 11], [0, 1, 2, 3, 4]];
+        }
+    }
+
+    #[DataProvider('typedPruningCases')]
+    public function testTypedPruningExecutesOnlyTheExactUnprotectedMissingRows(string $prefix, array $keep, array $remaining): void
+    {
+        [$db, $before, $sql] = $this->pruningFixture('fixture_row', 'fixture_rows', 'row_id', 'src', true, $prefix);
+        $before[] = ['uuid' => 'another-orphan', 'entity_type' => 'fixture_rows', 'id_kind' => 'fixture_row', 'local_id' => 11];
+        $db->seedTable($prefix . 'wprism_map', $before);
+        if ($keep !== []) {
+            $sql = str_replace("id_kind = 'fixture_row'", "id_kind = 'fixture_row' AND local_id NOT IN (" . implode(',', $keep) . ')', $sql);
+        }
+        $db->query('START TRANSACTION');
+        $db->query('SAVEPOINT `typed_prune`');
+        self::assertSame(count($before) - count($remaining), $db->query($sql));
+        self::assertSame(array_map(static fn (int $index): array => $before[$index], $remaining), $db->rows($prefix . 'wprism_map'));
+        self::assertSame($sql, $db->last_query);
+        $db->query('ROLLBACK TO SAVEPOINT `typed_prune`');
+        self::assertSame($before, $db->rows($prefix . 'wprism_map'));
+        $db->failNextQuery('typed prune failed', 'DELETE');
+        self::assertFalse($db->query($sql));
+        self::assertSame($before, $db->rows($prefix . 'wprism_map'));
+        self::assertSame(count($before) - count($remaining), $db->query($sql));
+        $db->setConnectionId(2);
+        self::assertSame($before, $db->rows($prefix . 'wprism_map'), 'replacement connection rolls back actual typed pruning');
+        self::assertSame(0, $db->query($sql), 'stale connection and nonce cannot prune the replacement session');
+        self::assertSame($before, $db->rows($prefix . 'wprism_map'));
+    }
+
+    public function testTypedPruningKeepsNullNotInUnknownInsteadOfDeletingIt(): void
+    {
+        [$db, $before, $sql] = $this->pruningFixture('fixture_row', 'fixture_rows', 'row_id', 'src', true, 'wp_');
+        $before[] = ['uuid' => 'null-local', 'entity_type' => 'fixture_rows', 'id_kind' => 'fixture_row', 'local_id' => null];
+        $db->seedTable('wp_wprism_map', $before);
+        $protected = str_replace("id_kind = 'fixture_row'", "id_kind = 'fixture_row' AND local_id NOT IN (8)", $sql);
+        self::assertSame(0, $db->query($protected), 'SQL NULL NOT IN has unknown truth and cannot authorize deletion');
+        self::assertSame($before, $db->rows('wp_wprism_map'));
+        self::assertSame(2, $db->query($sql), 'without NOT IN both unbacked matching rows are deleted');
+        self::assertSame([$before[0], $before[2], $before[3]], $db->rows('wp_wprism_map'));
+    }
+
+    public function testTypedPruningRefusesBroadenedOrUnfencedPredicates(): void
+    {
+        foreach (['unfenced', 'extra-predicate', 'wrong-join', 'noncanonical-keep', 'foreign-prefix', 'no-opt-in'] as $fault) {
+            [$db, $before, $sql] = $this->pruningFixture('fixture_row', 'fixture_rows', 'row_id', 'src', true, 'wp_');
+            $sql = match ($fault) {
+                'unfenced' => preg_replace("/CONNECTION_ID\(\) = '1' AND BINARY @wprism_tx_session = BINARY '[a-f0-9]{64}' AND /", '', $sql),
+                'extra-predicate' => $sql . ' OR 1=1',
+                'wrong-join' => str_replace('src.`row_id` = `wp_wprism_map`.`local_id`', 'src.`row_id` != `wp_wprism_map`.`local_id`', $sql),
+                'noncanonical-keep' => str_replace("id_kind = 'fixture_row'", "id_kind = 'fixture_row' AND local_id NOT IN (08)", $sql),
+                'foreign-prefix' => str_replace('`wp_fixture_rows`', '`other_fixture_rows`', $sql),
+                default => $sql,
+            };
+            if ($fault === 'no-opt-in') {
+                $db = FakeWpdb::install()->seedTable('wp_wprism_map', $before)
+                    ->seedTable('wp_fixture_rows', [['row_id' => 7]]);
+            }
+            try {
+                $db->query($sql);
+                self::fail("typed prune accepted $fault");
+            } catch (LogicException $failure) {
+                self::assertStringContainsString('FakeWpdb:', $failure->getMessage());
+            }
+            self::assertSame($before, $db->rows('wp_wprism_map'));
+        }
     }
 
     public function testEnabledFullApplyExtensionsRefuseMalformedStatementsPerHandlerFamily(): void

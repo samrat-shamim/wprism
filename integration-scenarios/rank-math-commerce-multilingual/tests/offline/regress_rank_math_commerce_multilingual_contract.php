@@ -135,6 +135,53 @@ foreach ($orders as $pins) {
 $rankMath = Canon::decode(Canon::read_file(
     $root . '/adapter-packages/rank-math/package/manifest.json'
 ));
+// The live retry observer has one URL-selected cache row. Independently run
+// the declared invalidation through the generic public materializer with
+// adversarial cache primary keys, shared URLs and a second owned URL, so that
+// accepting the derived effect cannot hide a whole-table/URL/id-column purge.
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+require_once $root . '/agent/src/Apply/TypedTableMaterializer.php';
+$wpdb = \WPrismTest\FakeWpdb::install();
+$redirectDeclaration = $policy->table_rule('rank_math_redirections');
+$redirectRow = ['id' => 31, 'sources' => serialize([['pattern' => 'rmcombo-old', 'comparison' => 'exact', 'ignore' => '']]),
+    'url_to' => 'https://target.invalid/old/', 'header_code' => '301', 'status' => 'active',
+    'hits' => 42, 'created' => '2026-01-02 03:04:05', 'updated' => '2026-02-03 04:05:06', 'last_accessed' => '2026-03-04 05:06:07'];
+$cacheRows = [
+    ['id' => 81, 'from_url' => 'rmcombo-old', 'redirection_id' => 31, 'object_id' => 0, 'object_type' => 'any', 'is_redirected' => 1],
+    ['id' => 82, 'from_url' => 'another-owned-url', 'redirection_id' => 31, 'object_id' => 0, 'object_type' => 'any', 'is_redirected' => 1],
+    ['id' => 31, 'from_url' => 'rmcombo-old', 'redirection_id' => 77, 'object_id' => 999, 'object_type' => 'post', 'is_redirected' => 1],
+    ['id' => 83, 'from_url' => 'foreign-url', 'redirection_id' => 77, 'object_id' => 998, 'object_type' => 'post', 'is_redirected' => 0],
+];
+$wpdb->seedTable('wp_rank_math_redirections', [$redirectRow]);
+$wpdb->seedTable('wp_rank_math_redirections_cache', $cacheRows);
+$wpdb->setTableEngine('wp_rank_math_redirections', 'InnoDB');
+$wpdb->setTableEngine('wp_rank_math_redirections_cache', 'InnoDB');
+$materializer = new \WPrism\TypedTableMaterializer(
+    static fn(): array => ['rank_math_redirections' => $redirectDeclaration],
+    static fn(): array => [],
+    static fn(string $uuid, string $kind): ?int => $uuid === '11111111-1111-4111-8111-111111111111' && $kind === 'rank_math_redirection' ? 31 : null,
+    static function (): void { throw new RuntimeException('retained redirect identity must not be replaced'); },
+    static fn(): int => 0,
+    static fn(): array => [],
+    static fn(): bool => false,
+    static fn(mixed $value): string => serialize($value),
+    static function (): void { throw new RuntimeException('Rank Math does not declare object-cache invalidation'); },
+    static fn(string $table): array => $policy->column_codec_rules($table)
+);
+$redirectEntity = ['type' => 'rank_math_redirections', 'data' => [
+    'uuid' => '11111111-1111-4111-8111-111111111111', 'columns' => [
+        'sources' => $redirectRow['sources'], 'url_to' => 'https://target.invalid/en/product/rmcombo-product-en/',
+        'header_code' => '302', 'status' => 'active',
+    ],
+]];
+wprism_check_same(false, $materializer->ensureRow($redirectEntity), 'combined typed-row retry retains its existing redirect identity');
+$materializer->finalizeRow(new class {
+    public function detokenize_text(string $value): string { return $value; }
+}, $redirectEntity);
+wprism_check_same(array_slice($cacheRows, 2), $wpdb->rows('wp_rank_math_redirections_cache'),
+    'generic typed-row retry invalidates every owned cache URL and preserves complete foreign rows even with colliding URL/primary key');
+wprism_check_same([array_replace($redirectRow, $redirectEntity['data']['columns'])], $wpdb->rows('wp_rank_math_redirections'),
+    'generic typed-row retry updates only authored rule columns and preserves hits and every runtime clock');
 $actions = $rankMath['actions'] ?? [];
 wprism_check(!array_key_exists('triggers', $actions[2] ?? []),
     'Rank Math declares its native repair as site-complete rather than a partial product/CPT trigger list');
@@ -275,7 +322,6 @@ foreach ([
     ['COLLISION_RESTORED_CAPTURE', 'Rank Math combination collision-restored capture'],
     ['RETRY_SOURCE_CAPTURE', 'Rank Math combination retry source capture'],
     ['TARGET_RECAPTURE', 'Rank Math combination target recapture'],
-    ['DELETE_SOURCE_CAPTURE', 'Rank Math combination deletion source capture'],
 ] as [$answer, $label]) {
     $capture = "capture_wprism_json_checked $answer";
     $position = strpos($live, $capture);
@@ -284,7 +330,8 @@ foreach ([
         $position !== false
             && substr_count($live, $capture) === 1
             && str_contains($window, "'$label'")
-            && str_contains($window, 'assert_rmcombo_warning_free_capture'),
+            && str_contains($window, $answer === 'TARGET_RECAPTURE'
+                ? 'assert_rmcombo_warning_free_recapture' : 'assert_rmcombo_warning_free_capture'),
         "$answer retains complete-stream, warning-free positive capture evidence"
     );
 }
@@ -305,11 +352,11 @@ foreach ([
     'reference_intersection_failed',
     'reference-intersection refusal partially published canonical state',
     'portable Woo default UUID did not resolve to the target matching native coordinate',
-    'direct deletion remains refusal-only across the combined adapter boundary',
-    'deletion_writer_exclusion_required',
-    'combined direct deletion refusal changed native or target-runtime state',
-    'signed promotion is exercised by the SSH scenario extension',
-    'combined target recapture differs',
+    'unsupported custom-CPT deletion refuses before canonical publication or target mutation',
+    'combined unsupported deletion refusal changed native or target-runtime state',
+    'no source tombstone is published and target native state is preserved',
+    'assert_rmcombo_semantic_recapture',
+    'combined semantic/native convergence receipt is incomplete',
 ] as $witness) {
     wprism_check(str_contains($live, $witness), "the candidate-bound live scenario pins: $witness");
 }
@@ -1905,19 +1952,19 @@ foreach ([
         'INITIAL',
         'Rank Math commerce/multilingual initial apply',
         'assert_rmcombo_default_apply_ready',
-        'TARGET=$(native_state wp2)',
+        'capture_rmcombo_native_state TARGET wp2 target-initial',
     ],
     [
         'RETRY',
         'Rank Math combination provider retry',
         'assert_rmcombo_default_apply_ready',
-        'RETRY_NATIVE=$(native_state wp2)',
+        'capture_rmcombo_native_state RETRY_NATIVE wp2 target-after-retry',
     ],
     [
         'NOOP',
         'Rank Math combination no-op apply',
         'assert_rmcombo_default_apply_ready',
-        'wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-final',
+        'capture_wprism_json_checked TARGET_RECAPTURE',
     ],
 ] as [$answer, $label, $callback, $observation]) {
     $checkedCapture = strpos(
@@ -2118,8 +2165,10 @@ foreach ([
 }
 
 wprism_check(
-    str_contains($live, '($failed | .products.en.content = $baseline.products.en.content) == $baseline')
-        && str_contains($live, '| .products.en.rank_counts = $baseline.products.en.rank_counts) == $baseline')
+    str_contains($live, '$failed == ($baseline | .products.en.content +=')
+        && str_contains($live, 'assert_rmcombo_retry_projection "$TARGET_RUNTIME" "$RETRY_NATIVE"')
+        && str_contains($live, 'assert_rmcombo_redirect_transition "$RETRY_NATIVE" "$RETRY_RUNTIME"')
+        && str_contains($live, '--argjson retried "$RETRY_RUNTIME" --argjson final "$TARGET_FINAL"')
         && str_contains($live, '$final == $retried')
         && str_contains($live, 'provider:rank-math-state/rebuild_all_link_state'),
     'failure, retry and no-op phases retain exact target-only witnesses and bind the selected Rank Math action source'
@@ -2264,27 +2313,30 @@ foreach ($cleanupCases as $case) {
 wprism_check(str_contains($live, 'diff -r "$R1/state" "$R1/.tmp-rmcombo-collision-restored"'),
     'native cleanup still requires complete canonical equality through a fresh Capture');
 
-$directDeletion = strpos($live, "say 'direct deletion remains refusal-only across the combined adapter boundary'");
-$withheldRefusal = strpos($live, 'DELETE_WITHHELD_RC=0');
-$exclusionRefusal = strpos($live, '.reason_code == "deletion_writer_exclusion_required"');
-$refusalObservation = strpos($live, 'DELETE_REFUSAL_NATIVE=$(native_state wp2)');
+$directDeletion = strpos($live, "say 'unsupported custom-CPT deletion refuses before canonical publication or target mutation'");
+$sourceRefusal = strpos($live, 'assert_rmcombo_unsupported_deletion capture "$DELETE_SOURCE_RC"');
+$planRefusal = strpos($live, 'assert_rmcombo_unsupported_deletion plan "$DELETE_PLAN_RC"');
+$applyRefusal = strpos($live, 'assert_rmcombo_unsupported_deletion apply "$DELETE_DIRECT_RC"');
+$refusalObservation = strpos($live, 'capture_rmcombo_native_state DELETE_REFUSAL_NATIVE wp2 target-delete-refusal');
 $refusalEquality = strpos(
     $live,
     '--argjson before "$TARGET_FINAL" --argjson after "$DELETE_REFUSAL_NATIVE" \'$after == $before\''
 );
 wprism_check(
     $directDeletion !== false
-        && $withheldRefusal !== false
-        && $exclusionRefusal !== false
+        && $sourceRefusal !== false
+        && $planRefusal !== false
+        && $applyRefusal !== false
         && $refusalObservation !== false
         && $refusalEquality !== false
-        && $directDeletion < $withheldRefusal
-        && $withheldRefusal < $exclusionRefusal
-        && $exclusionRefusal < $refusalObservation
+        && $directDeletion < $sourceRefusal
+        && $sourceRefusal < $planRefusal
+        && $planRefusal < $applyRefusal
+        && $applyRefusal < $refusalObservation
         && $refusalObservation < $refusalEquality
         && !str_contains($live, 'promote target --with-deletes')
         && !str_contains($live, 'promote complete: verified committed receipt; traffic exclusion released'),
-    'the Docker scenario proves both direct deletion refusals and exact native-state preservation, never a fabricated success'
+    'the Docker scenario proves unsupported Capture, Plan and Apply with exact native-state preservation, never fabricated deletion authority'
 );
 
 $sshDeletionPath = $root . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/'

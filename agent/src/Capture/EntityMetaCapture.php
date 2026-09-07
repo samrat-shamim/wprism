@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
+
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/OrderPreserved.php';
@@ -173,6 +175,7 @@ final class EntityMetaCapture {
     ): array {
         $value = PlainData::decode($rawValue, "$ownerLabel meta $key");
         PlainData::assert($value, "$ownerLabel meta $key");
+        NativeValueValidation::assert_native($value, $rule, "$ownerLabel meta $key");
         if (array_key_exists('repeated_rows', $rule) && !is_scalar($value)) {
             throw new \RuntimeException(
                 "wprism: repeated-row authored meta '$key' on $ownerLabel requires one scalar value per database row"

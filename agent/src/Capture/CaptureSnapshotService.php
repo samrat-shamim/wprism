@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CaptureTransaction.php';
+require_once __DIR__ . '/LifecycleReferenceView.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Repository/CompiledArtifact.php';
@@ -177,13 +178,20 @@ final class CaptureSnapshotService {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
         Identity::assert_embedded_unique();
-        Ledger::prune_dead_map();
         $policy ??= Policy::load($repo);
         CaptureTransaction::assert_engine_support($policy, true);
-        $capture = new CaptureCandidateBuilder($repo, $policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);
-        Snapshot::prune_option_name_ref_map($policy, $repositoryOptions);
+        // Lifecycle observation cannot erase canonical history before the
+        // full guard distinguishes native deletion from a genuinely fresh
+        // site. Both core and declared references use one read-only view.
+        $references = new LifecycleReferenceView($policy, $repositoryOptions);
+        $capture = new CaptureCandidateBuilder(
+            $repo,
+            $policy,
+            captureIdentityLookup: $references->uuidFor(...),
+            prepareCaptureReferences: $references->prepare(...)
+        );
         $repositoryValues = $repositoryOptions === null ? [] : OptionState::values($repositoryOptions);
         $dynamicResolverValues = [];
         if (isset($repositoryValues['stylesheet'])) {

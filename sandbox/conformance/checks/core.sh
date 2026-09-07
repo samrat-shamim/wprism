@@ -1380,8 +1380,7 @@ printf 'core native diagnostics (unverified): %s\n' "$CORE_NATIVE_EVIDENCE" >&2
 (
 . "$PAIR_SOURCE_ROOT/sandbox/tests/lib/wordpress_cron_window.sh"
 core_cron_window_transport() {
-  $COMPOSE run --rm -T --no-deps --user root --entrypoint sh cli2 \
-    -c 'cd /var/www/html/wp-content/mu-plugins && exec sh "$@"' sh "$@"
+  wordpress_cron_window_compose_transport cli2 "$@"
 }
 trap 'wordpress_cron_window_exit "$?"' EXIT
 trap 'exit 130' INT TERM

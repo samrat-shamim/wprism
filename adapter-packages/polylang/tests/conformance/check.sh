@@ -353,6 +353,14 @@ for language in en fr ar; do
     grep -Eqi "<html[^>]+dir=[\"']rtl[\"']" <<<"$FRONT" || fail 'Arabic frontend did not expose native RTL document direction'
     grep -Fq 'محتوى عربي قابل للنقل' <<<"$FRONT" || fail 'Arabic frontend did not consume its translated content'
   fi
+  BIOGRAPHY_EXPECTED=$(php -r '
+require $argv[1];
+$keys = ["en" => "description", "fr" => "description_fr", "ar" => "description_ar"];
+echo PolylangBiographyValues::authored($argv[2])[$keys[$argv[3]]];
+' "${WPRISM_ARTIFACT_LIBRARY_ROOT:-..}/adapter-packages/polylang/fixtures/polylang_biography_values.php" \
+    "http://localhost:${CONF2_PORT}" "$language")
+  [ -n "$BIOGRAPHY_EXPECTED" ] && grep -Fq "$BIOGRAPHY_EXPECTED" <<<"$FRONT" \
+    || fail "Polylang $language frontend did not consume the exact target-local author biography"
 done
 REST=$(curl -fsSL "http://localhost:${CONF2_PORT}/wp-json/wp/v2/posts/$POST_EN_ID") || fail 'conf2 Polylang REST post request failed'
 jq -e --argjson id "$POST_EN_ID" '.id == $id and (.content.rendered | contains("English portable body 東京 🚀"))' <<<"$REST" >/dev/null \
@@ -367,6 +375,9 @@ jq -e --argjson id "$PAGE_EN_ID" '.id == $id and .status == "publish" and (.cont
   || fail "Polylang target REST API did not consume the translated target page: $PAGE_REST"
 pass 'frontend language switching, per-language menus, public post/page routes, Arabic RTL, media URLs and REST all consume target-local state'
 
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-biography.sh"
+polylang_biography_check
+
 ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'Polylang zero-change plan' json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null || fail "Polylang retry retained work: $ZERO_PLAN"
@@ -374,6 +385,9 @@ ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --for
 require_wprism_answered 'Polylang zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null || fail "Polylang no-op apply reran effects or mutated state: $ZERO_APPLY"
 pass 'Polylang zero-change plan/apply is mutation-free and idempotent'
+
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-biography-refusals.sh"
+polylang_biography_refusals_check
 
 if [ "${POLYLANG_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "Polylang $POLYLANG_EXPECTED_VERSION exact boundary consumed the full portable fixture"
@@ -505,34 +519,12 @@ jq -s -e 'any(.[]; .slug == "fr" and (.meta | has("_pll_strings_translations") |
 rm -rf "$EMPTY_STRINGS_STATE"
 pass 'populated Polylang string catalogs are authored while the exact empty sentinel remains target-local runtime state'
 
-DELETE_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-polylang-delete-row.json"
-wp_conf1 eval '
-  global $wpdb; $term=get_term_by("slug","ar","language");
-  $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->terms} WHERE term_id=%d",$term->term_id),ARRAY_A);
-  file_put_contents("/siterepo/.tmp-polylang-delete-row.json",wp_json_encode($row));
-  if (1!==$wpdb->delete($wpdb->terms,["term_id"=>(int)$term->term_id])) throw new RuntimeException($wpdb->last_error);
-  clean_term_cache((int)$term->term_id,"language");
-' >/dev/null
-DELETE_RC=0
-DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json) || DELETE_RC=$?
-require_wprism_answered 'Polylang unsupported language deletion capture' json "$DELETE_OUT"
-[ "$DELETE_RC" -ne 0 ] && jq -e '
-  .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
-  any(.diagnostics[]?; .code == "unsupported_deletion" and (.surface | contains("term:")))
-' <<<"$DELETE_OUT" >/dev/null || fail "Polylang language deletion did not refuse atomically: $DELETE_OUT"
-[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BASELINE" ] \
-  || fail 'Polylang unsupported language deletion published a tombstone'
-wp_conf1 eval '
-  global $wpdb; $row=json_decode(file_get_contents("/siterepo/.tmp-polylang-delete-row.json"),true);
-  if (false===$wpdb->insert($wpdb->terms,$row)) throw new RuntimeException($wpdb->last_error);
-  clean_term_cache((int)$row["term_id"],"language");
-' >/dev/null
-rm -f "$BACKUP" "$DELETE_BACKUP"
+rm -f "$BACKUP"
 wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-polylang-restored" \
-  || fail 'Polylang source did not restore exactly after malformed/secret/strings/deletion probes'
+  || fail 'Polylang source did not restore exactly after malformed/secret/strings probes'
 rm -rf "$CONF_REPO1/.tmp-polylang-restored"
-pass 'malformed groups/language metadata, switcher schema/secrets and language deletion refuse atomically; reviewed string catalogs capture without publication'
+pass 'malformed groups/language metadata and switcher schema/secrets refuse; reviewed string catalogs capture without publication'
 
 # Managed source and target edits form a true three-way conflict. Unforced
 # apply must be mutation-free; explicit repository authority then converges.
@@ -749,10 +741,20 @@ wp_conf2 plugin uninstall polylang >/dev/null
 wp_conf2 plugin is-installed polylang >/dev/null 2>&1 && fail 'Polylang complete uninstall left plugin code installed'
 DESTRUCTIVE_RESIDUE=$(wp_conf2 eval '
   global $wpdb;
+  $count = static function (string $sql): int {
+    global $wpdb;
+    $wpdb->last_error = "";
+    $value = $wpdb->get_var($sql);
+    if ($wpdb->last_error !== "" || (!is_int($value) && !is_string($value))
+        || filter_var($value, FILTER_VALIDATE_INT) === false || (int) $value < 0) {
+      throw new RuntimeException("Polylang native uninstall count did not complete");
+    }
+    return (int) $value;
+  };
   echo wp_json_encode([
-    "option_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name IN ('\''polylang'\'', '\''widget_polylang'\'')"),
-    "taxonomy_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ('\''language'\'', '\''term_language'\'', '\''post_translations'\'', '\''term_translations'\'')"),
-    "switcher_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '\''_pll_menu_item'\''"),
+    "option_rows" => $count("SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name IN ('\''polylang'\'', '\''widget_polylang'\'')"),
+    "taxonomy_rows" => $count("SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ('\''language'\'', '\''term_language'\'', '\''post_translations'\'', '\''term_translations'\'')"),
+    "switcher_rows" => $count("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '\''_pll_menu_item'\''"),
     "neighbor" => get_option("wprism_polylang_undeclared_neighbor"),
   ]);
 ' | awk 'NF { line=$0 } END { print line }')
@@ -766,10 +768,10 @@ wp_conf2 plugin install "$POLYLANG_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get polylang --field=version)" = 3.8.6 ] || fail 'Polylang complete-uninstall reinstall reported wrong version'
 REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'Polylang deploy after complete uninstall and exact reinstall' json "$REINSTALL_DEPLOY"
-LOST_PLAN_RC=0
-LOST_PLAN=$(wp_conf2 wprism plan --repo=/siterepo 2>&1) || LOST_PLAN_RC=$?
-[ "$LOST_PLAN_RC" -ne 0 ] && grep -q 'widget identity history is missing' <<<"$LOST_PLAN" \
-  || fail "Polylang destructive uninstall did not refuse lost widget history exactly: $LOST_PLAN"
+# Full Plan inspects retained maps before pruning; complete uninstall removes
+# backing rows, so the later ApplyPlanner widget-history gate is not this premise.
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-uninstall-refusal.sh"
+polylang_uninstall_refusal_check
 STALE_IDENTITY_RC=0
 STALE_IDENTITY=$(wp_conf2 wprism identity-import --repo=/siterepo --in=/siterepo/.tmp-polylang-remove-all-identity.json 2>&1) \
   || STALE_IDENTITY_RC=$?
@@ -854,5 +856,8 @@ diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-polylang-final" \
   || fail 'Polylang final recovered state was not byte-identical'
 rm -rf "$CONF_REPO2/.tmp-polylang-final"
 pass 'deactivate/reactivate, default uninstall residue, absent-code refusal, complete-uninstall refusal, database restore and final native recovery are clean'
+
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-language-deletion.sh"
+polylang_language_deletion_check
 
 echo 'polylang conformance checks passed'

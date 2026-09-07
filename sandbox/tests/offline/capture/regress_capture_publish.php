@@ -459,8 +459,8 @@ echo "\n== P5: end-to-end capture-cycle simulation ==\n";
 // P6 — real process kill (SIGKILL) mid-staging: the actual crash scenario
 // ======================================================================
 echo "\n== P6: real SIGKILL mid-publish ==\n";
-{
-    $root = fresh_root('kill');
+foreach (['immediate', 'delayed-startup'] as $startup) {
+    $root = fresh_root('kill_' . $startup);
     $stateDir = "$root/state";
     write_tree($stateDir, ['before.json' => "PUBLISHED-BEFORE-THE-KILL\n"]);
 
@@ -468,29 +468,36 @@ echo "\n== P6: real SIGKILL mid-publish ==\n";
     check(is_file($driver), 'P6 precondition: kill-driver support script exists');
 
     $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-    $proc = proc_open(['php', $driver, $stateDir], $descriptors, $pipes);
-    check(is_resource($proc), 'P6a: child capture process spawned');
+    $proc = proc_open([PHP_BINARY, $driver, $stateDir, $startup], $descriptors, $pipes);
+    check(is_resource($proc), "P6a $startup: child capture process spawned");
 
     if (is_resource($proc)) {
-        // Give it time to acquire the lock, run recover(), and get partway
-        // through writing a deliberately large, deliberately slowed-down
-        // staging tree (see the driver script) -- well before it could
-        // reach swap(). Then SIGKILL it, exactly like an OOM-killer would.
-        usleep(300_000);
-        proc_terminate($proc, SIGKILL);
-        // Drain pipes so proc_close() doesn't hang on a full buffer, then
-        // reap the process.
-        stream_get_contents($pipes[1]);
-        stream_get_contents($pipes[2]);
+        // The child injects SIGKILL only after a real staged write. Waiting
+        // for that process, not 300ms of host time, establishes the crash
+        // premise even when startup exceeds the former kill window.
+        $killStdout = stream_get_contents($pipes[1]);
+        $killStderr = stream_get_contents($pipes[2]);
         fclose($pipes[1]);
         fclose($pipes[2]);
+        // EOF can precede the kernel's wait status becoming observable.
+        $killDeadline = hrtime(true) + 5_000_000_000;
+        do {
+            $killed = proc_get_status($proc);
+            if (!$killed['running']) break;
+            usleep(1_000);
+        } while (hrtime(true) < $killDeadline);
+        if ($killed['running']) proc_terminate($proc, SIGKILL);
         proc_close($proc);
+        check(!$killed['running'] && $killed['signaled'] && $killed['termsig'] === SIGKILL
+            && $killStdout === '' && $killStderr === '',
+            "P6a $startup: child terminated by SIGKILL without application output or cleanup");
 
         check(
             read_tree($stateDir) === ['before.json' => "PUBLISHED-BEFORE-THE-KILL\n"],
             'P6b: the published tree is BYTE-IDENTICAL to before the kill -- a real SIGKILL mid-staging never touched it'
         );
-        check(is_dir(Publish::stage_dir($stateDir)), 'P6c: a partially-written staging dir was left behind (expected -- evidence for the next recover())');
+        check(read_tree(Publish::stage_dir($stateDir)) === ['posts/post/entity-1.json' => str_repeat('x', 200) . "\n"],
+            "P6c $startup: exactly the first staged entity survives the kill, with 199 entities still unwritten");
 
         // The lock must be free again -- SIGKILL closes the fd, which
         // releases the flock() the OS was holding for that process.

@@ -2823,6 +2823,36 @@ cannot echo or replace a constrained static rule. These are boundary refusals,
 not implicit merging of missing constraints. Manifest edits change adapter
 identity and require recompile plus explicit re-pin.
 
+### v3.26 `native-value-validation/v1` — explicit native metadata predicates
+
+This feature adds no top-level section, token kind, or version-integer change.
+A declaring v3 adapter can put `native_value_validation` on an authored
+post/term/user metadata rule or metadata pattern. An interpreter-returned
+metadata rule requires exactly one declaring, feature-enrolled v3 owner. The
+only profile is the exact object
+`{"profile":"wordpress-kses/v1","context":"pre_user_description"}`. Unknown
+profiles, contexts, fields, non-authored classes, option declarations, and site
+policy declarations refuse. The feature row publishes the engine-owned grammar.
+
+Portable compilation checks strings of at most 1,048,576 bytes, valid UTF-8,
+without C0 controls other than tab, newline and carriage return, or DEL. It
+never loads WordPress or calls a native sanitizer. Compilation alone therefore
+does not authorize native materialization. Capture checks raw decoded values
+before tokenization and the complete canonical candidate before publication;
+target Plan checks the desired canonical tree before snapshot work; Apply checks
+fully resolved values, unchanged locked-context predicates, and every owned
+preimage before metadata reconciliation. Repeated post/term rows are checked
+individually. Every native check requires byte-identical
+`wp_kses(value, 'pre_user_description')`; missing APIs and changed/non-string
+output refuse. No sanitizer output replaces authored bytes.
+
+Another adapter cannot hide a native predicate through static pin order, and an
+interpreter cannot strip a constrained static rule. Site policy may exclude an
+entire static owned value as runtime/derived/env, but cannot substitute a weaker
+authored rule. Existing dynamic cross-owner refusals remain in force. Package
+identity includes these declarations and hooks, so adoption requires normal
+recompilation and explicit re-pinning after an edit.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

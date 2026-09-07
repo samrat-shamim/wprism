@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
 require_once __DIR__ . '/MetaOwnerRangeLock.php';
 
 /**
@@ -178,6 +179,7 @@ final class ApplyFieldMaterializer {
                 );
             }
             $wireValues = [];
+            $nativeValues = [];
             $seenCanonical = [];
             foreach ($values as $one) {
                 if ($repeated && !is_scalar($one)) {
@@ -202,6 +204,8 @@ final class ApplyFieldMaterializer {
             $seenWire = [];
             foreach ($values as $one) {
                 $resolved = $this->resolveMetaValue($one, $rule, "$ownerLabel meta $key");
+                NativeValueValidation::assert_native($resolved, $rule, "$ownerLabel meta $key");
+                if (array_key_exists(NativeValueValidation::FIELD, $rule)) $nativeValues[] = $resolved;
                 $wire = maybe_serialize($resolved);
                 $wire = $wire === null ? null : (string) $wire;
                 $wireFingerprint = "v\0" . serialize($wire);
@@ -213,7 +217,7 @@ final class ApplyFieldMaterializer {
                 $seenWire[$wireFingerprint] = true;
                 $wireValues[] = $wire;
             }
-            $desired[$key] = ['repeated' => $repeated, 'values' => $wireValues];
+            $desired[$key] = ['repeated' => $repeated, 'values' => $wireValues, 'native_values' => $nativeValues, 'rule' => $rule];
         }
 
         $purpose = $termMeta
@@ -266,6 +270,22 @@ final class ApplyFieldMaterializer {
                 throw new \RuntimeException(
                     "wprism: authored $ownerLabel meta '$key' disagrees with the locked target context"
                 );
+            }
+            NativeValueValidation::assert_same_predicate($declaration['rule'], $rule, "$ownerLabel meta $key");
+            foreach ($declaration['native_values'] as $value) {
+                NativeValueValidation::assert_native($value, $rule, "$ownerLabel meta $key");
+            }
+        }
+        // Validate every owned preimage before the first deletion, including
+        // duplicates and omitted keys. Reconciliation cannot launder a value
+        // that Capture would refuse under the same native contract.
+        foreach ($envMeta as $row) {
+            $rule = ($termMeta
+                ? $this->policy->meta_rule_for_term($row['meta_key'], $envFlat)
+                : $this->policy->meta_rule_for_post($row['meta_key'], $envFlat)) ?? [];
+            if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
+                $where = "$ownerLabel meta " . $row['meta_key'];
+                NativeValueValidation::assert_native(PlainData::decode($row['meta_value'], $where), $rule, $where);
             }
         }
         $expectedRepeated = [];

@@ -90,6 +90,7 @@ if (!class_exists('WP_CLI')) {
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once dirname(__DIR__, 4) . '/adapter-packages/polylang/fixtures/polylang_language_factory_double.php';
 
 // AttachmentNativeMetadataGenerator audits WordPress's native callback
 // registry directly. This target has no plugin bootstrap, so the exact

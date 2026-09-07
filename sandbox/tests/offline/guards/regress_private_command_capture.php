@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/lib/check.php';
 require_once dirname(__DIR__, 2) . '/lib/ShellProbe.php';
+require_once dirname(__DIR__, 2) . '/lib/PrivateCommandOutput.php';
+require_once dirname(__DIR__, 2) . '/lib/PrivateRefusalReceipt.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PrivateRefusalEvidence.php';
 
 use WPrismTest\ShellProbe;
 
@@ -153,5 +156,128 @@ foreach (glob($mergedRoot . '/diagnostic.*') ?: [] as $sink) {
 }
 foreach (glob($mergedRoot . '/*') ?: [] as $file) unlink($file);
 rmdir($mergedRoot);
+
+// Execute the actual initial-Apply call site and shared native PHP reader;
+// only Docker transport and the protected command are controlled offline.
+// The previous unwrapped call must lose its private record on simulated pair
+// teardown, even though it still correctly refuses the public command.
+$source = (string) file_get_contents($root . '/sandbox/conformance/run.sh');
+$start = strpos($source, "capture_wprism_json_checked \\\n  APPLY_JSON");
+$end = strpos($source, 'export APPLY_JSON', $start ?: 0);
+if ($start === false || $end === false) throw new RuntimeException('missing initial conformance Apply call site');
+$block = substr($source, $start, $end - $start);
+$nativeProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PROBE_ROOT="$2" PROBE_CASE="$3"
+WPRISM_ARTIFACT_LIBRARY_ROOT="$PROBE_ROOT" CONF_PAIR=conformanceprobe
+ADOPT_BY_SLUG=terms,posts,menus REV=fixture-revision
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
+. "$ROOT/sandbox/tests/lib/conformance_private_command.sh"
+compose_fixture() {
+  [ "$1" = 'quoted " compose argument' ] || return 80
+  shift
+  [ "$#" -eq 14 ] && [ "$1 $2 $3 $4" = 'run --rm -T --volume' ] \
+    && [ "$5" = "$PROBE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" ] \
+    && [ "$6" = --volume ] \
+    && [ "$7" = "$PROBE_ROOT/sandbox/tests/lib/conformance_private_command.php:/wprism-test/conformance_private_command.php:ro" ] \
+    && [ "$8 $9 ${10} ${11}" = '--entrypoint php cli2 /wprism-test/conformance_private_command.php' ] \
+    && [ "${13} ${14}" = 'apply /siterepo/.wprism/refusals' ] || return 81
+  local mode="${12}" status=0
+  printf '%s\n' "$mode" >>"$PROBE_ROOT/trace"
+  case "$PROBE_CASE:$mode" in
+    baseline-invalid:snapshot|collector-invalid:collect) printf '{}\n'; return ;;
+    baseline-foreign:snapshot) printf '{"command":"plan","baseline":"[]"}\n'; return ;;
+    collector-empty:collect) return ;;
+    baseline-failed:snapshot|collector-failed:collect) printf 'private-reader-canary\n' >&2; return 7 ;;
+    baseline-noisy:snapshot|collector-noisy:collect) printf 'PHP Warning: private-reader-canary\n' >&2 ;;
+    wrong-site:collect) printf ' Container wprism-foreign-cli2-run-0123456789ab Created \n' >&2 ;;
+    *) printf ' Container wprism-conformanceprobe-cli2-run-0123456789ab Creating \n Container wprism-conformanceprobe-cli2-run-0123456789ab Created \n' >&2 ;;
+  esac
+  php "$ROOT/sandbox/tests/lib/conformance_private_command.php" "$mode" apply "$PROBE_ROOT/refusals" || status=$?
+  if [ "$PROBE_CASE:$mode" = collector-extra-json:collect ]; then printf '{}\n'; fi
+  return "$status"
+}
+PAIR_COMPOSE=(compose_fixture 'quoted " compose argument')
+wp_conf2() {
+  [ "$#" -eq 7 ] && [ "$1 $2 $3 $4 $5 $6 $7" = 'wprism apply --repo=/siterepo --adopt-by-slug=terms,posts,menus --default-author=admin --revision=fixture-revision --json' ] || return 82
+  printf 'command\n' >>"$PROBE_ROOT/trace"
+  if [ "$PROBE_CASE" != ready ] && [ "$PROBE_CASE" != stale ]; then
+    cp "$PROBE_ROOT/new-record" "$PROBE_ROOT/refusals/20260907-120001-apply-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+    chmod 600 "$PROBE_ROOT/refusals/20260907-120001-apply-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+    if [ "$PROBE_CASE" = maximum-records ]; then
+      local name
+      for name in cccccccccccccccccccccccc dddddddddddddddddddddddd eeeeeeeeeeeeeeeeeeeeeeee; do
+        cp "$PROBE_ROOT/new-record" "$PROBE_ROOT/refusals/20260907-120001-apply-$name.json"
+        chmod 600 "$PROBE_ROOT/refusals/20260907-120001-apply-$name.json"
+      done
+    fi
+  fi
+  case "$PROBE_CASE" in
+    ready) printf '{"ok":true,"canary":"clean","verification":{"result":"pass"},"warnings":[]}\n'; return 0 ;;
+    public-noisy) printf 'PHP Warning: public diagnostic\n' >&2; printf '{"ok":true,"canary":"clean","verification":{"result":"pass"},"warnings":[]}\n'; return 0 ;;
+    *) printf '{"ok":false,"error":"apply_failed"}\n'; return 1 ;;
+  esac
+}
+SH;
+$nativeRecord = json_encode(['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'apply', 'reason_code' => 'apply_failed',
+    ...\WPrism\PrivateRefusalEvidence::graph(new RuntimeException('retained initial Apply private canary'))], JSON_THROW_ON_ERROR);
+$nativeCases = ['ready', 'refusal', 'stale', 'malformed-record', 'maximum-records', 'public-noisy', 'baseline-invalid', 'baseline-foreign',
+    'baseline-failed', 'baseline-noisy', 'collector-invalid', 'collector-empty', 'collector-extra-json', 'collector-failed',
+    'collector-noisy', 'wrong-site', 'prior-unwrapped'];
+foreach ($nativeCases as $case) {
+    $directory = $scratch . '/conformance " ' . $case;
+    mkdir($directory . '/sandbox/tests', 0700, true);
+    mkdir($directory . '/sandbox/tmp', 0700);
+    symlink($root . '/sandbox/tests/lib', $directory . '/sandbox/tests/lib');
+    mkdir($directory . '/refusals', 0700);
+    file_put_contents($directory . '/new-record', match ($case) {
+        'malformed-record' => "broken JSON\0private canary", 'maximum-records' => str_pad($nativeRecord, 262144), default => $nativeRecord,
+    });
+    file_put_contents($directory . '/refusals/20260907-120000-apply-aaaaaaaaaaaaaaaaaaaaaaaa.json', $nativeRecord);
+    chmod($directory . '/refusals/20260907-120000-apply-aaaaaaaaaaaaaaaaaaaaaaaa.json', 0600);
+    $actualBlock = $case === 'prior-unwrapped' ? str_replace("  conformance_private_command cli2 apply \\\n", '', $block) : $block;
+    [$status, $stdout, $stderr] = ShellProbe::run($nativeProbe . "\n" . $actualBlock . "\nprintf 'APPLY_ACCEPTED\\n'\n", [$root, $directory, $case], $root);
+    wprism_check($case === 'ready' ? $status === 0 && str_contains($stdout, 'APPLY_ACCEPTED')
+        : $status !== 0 && !str_contains($stdout, 'APPLY_ACCEPTED'), "$case: the real conformance initial Apply preserves its success/refusal gate");
+    wprism_check(!str_contains($stdout . $stderr, 'private canary') && !str_contains($stdout . $stderr, 'private-reader-canary'),
+        "$case: actual conformance never publishes private record or reader bytes");
+    $sinks = glob($directory . '/sandbox/tmp/wprism-conformance-apply.conformanceprobe.*') ?: [];
+    $trace = is_file($directory . '/trace') ? file_get_contents($directory . '/trace') : '';
+    if ($case === 'prior-unwrapped') {
+        wprism_check($sinks === [] && $trace === "command\n", 'prior unwrapped call loses private evidence despite correctly refusing the command');
+    } else {
+        wprism_check(count($sinks) === 1 && $trace === (str_starts_with($case, 'baseline-') ? "snapshot\n" : "snapshot\ncommand\ncollect\n"),
+            "$case: exact shared lifecycle validates baseline first and collects after every executed initial Apply");
+    }
+    // Model owned-pair teardown before decoding host records: no subsequent
+    // native read can manufacture or repair the retained cause.
+    foreach (glob($directory . '/refusals/*') ?: [] as $file) unlink($file);
+    rmdir($directory . '/refusals');
+    if (in_array($case, ['ready', 'refusal', 'stale', 'malformed-record', 'maximum-records', 'public-noisy'], true) && count($sinks) === 1) {
+        $diagnostic = json_decode(\WPrismTest\PrivateCommandOutput::readObject($sinks[0] . '/private',
+            '/\A Container wprism-conformanceprobe-cli2-run-[a-f0-9]{12} (?:Creating|Created) \z/',
+            \WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE), true, 32, JSON_THROW_ON_ERROR);
+        \WPrismTest\PrivateRefusalReceipt::assertDiagnostic($diagnostic, 'apply');
+        wprism_check_same(in_array($case, ['ready', 'stale'], true) ? []
+            : array_fill(0, $case === 'maximum-records' ? 4 : 1, (string) file_get_contents($directory . '/new-record')),
+            array_map(static fn(array $row): string => base64_decode($row['contents_base64'], true), $diagnostic['records']),
+            "$case: exact fresh private bytes survive disposable cleanup without copying the old matching cause");
+    }
+    foreach ($sinks as $sink) {
+        $files = glob($sink . '/*') ?: [];
+        wprism_check(count($files) === 15 && (fileperms($sink) & 0777) === 0700
+            && count(array_filter($files, static fn(string $file): bool => (fileperms($file) & 0777) === 0600)) === 15,
+            "$case: actual conformance retains all fifteen private transport/status files");
+        foreach ($files as $file) unlink($file);
+        rmdir($sink);
+    }
+    unlink($directory . '/sandbox/tests/lib');
+    rmdir($directory . '/sandbox/tests');
+    rmdir($directory . '/sandbox/tmp');
+    rmdir($directory . '/sandbox');
+    foreach (glob($directory . '/*') ?: [] as $file) unlink($file);
+    rmdir($directory);
+}
 rmdir($scratch);
 wprism_check_summary('regress_private_command_capture');

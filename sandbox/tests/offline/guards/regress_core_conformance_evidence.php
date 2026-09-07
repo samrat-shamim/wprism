@@ -593,7 +593,7 @@ mkdir "$scratch/mu"
 COMPOSE=core_fixture_compose
 core_fixture_compose() {
   while [ "$1" != cli2 ]; do shift; done
-  shift 4 # cli2, -c, directory-binding command, sh; execute the actual remote payload.
+  shift # cli2; the shared transport binds the MU workdir and shell entrypoint.
   (cd "$scratch/mu" && sh "$@")
 }
 touch "$CONF_REPO1/state/deletions/fixture.json"

@@ -5,6 +5,8 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/MetaOwnerRangeLock.php';
@@ -92,6 +94,8 @@ final class UserMetaMaterializer {
         }
         $frontMeta = (array) ($front['meta'] ?? []);
         $desired = [];
+        $nativeValues = [];
+        $desiredRules = [];
         foreach ($frontMeta as $key => $value) {
             $rule = $this->policy->meta_rule_for_user((string) $key, $frontMeta) ?? [];
             if (($rule['class'] ?? '') !== 'authored') {
@@ -115,6 +119,9 @@ final class UserMetaMaterializer {
             } elseif (is_string($value)) {
                 $value = $this->tokens->detokenize_text($value);
             }
+            NativeValueValidation::assert_native($value, $rule, "user '$login' meta $key");
+            if (array_key_exists(NativeValueValidation::FIELD, $rule)) $nativeValues[(string) $key] = $value;
+            $desiredRules[(string) $key] = $rule;
             $desired[(string) $key] = maybe_serialize($value);
         }
 
@@ -131,6 +138,32 @@ final class UserMetaMaterializer {
             $slot = "k\0" . $row['meta_key'];
             if (!isset($exactMetaIds[$slot])) {
                 $exactMetaIds[$slot] = MetaRows::positive_id($row['meta_id']);
+            }
+        }
+        // Prove the complete locked desired context and every owned preimage
+        // before any mutation; a failed native predicate must not be hidden
+        // by deleting an omitted key or collapsing a duplicate row.
+        $lockedContext = $flat;
+        foreach ($desired as $key => $value) {
+            $lockedContext[(string) $key] = $value ?? '';
+        }
+        foreach ($desired as $key => $value) {
+            $rule = $this->policy->meta_rule_for_user((string) $key, $lockedContext) ?? [];
+            if (($rule['class'] ?? null) !== 'authored') {
+                throw new \RuntimeException(
+                    "wprism: user-meta '$key' for exact login '$login' is not authored in the locked target context"
+                );
+            }
+            NativeValueValidation::assert_same_predicate($desiredRules[$key], $rule, "user '$login' meta $key");
+            if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
+                NativeValueValidation::assert_native($nativeValues[$key], $rule, "user '$login' meta $key");
+            }
+        }
+        foreach ($rows as $row) {
+            $rule = $this->policy->meta_rule_for_user((string) $row['meta_key'], $flat) ?? [];
+            if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
+                $where = "user '$login' meta " . $row['meta_key'];
+                NativeValueValidation::assert_native(PlainData::decode($row['meta_value'] ?? '', $where), $rule, $where);
             }
         }
         $kept = [];
@@ -156,25 +189,7 @@ final class UserMetaMaterializer {
             }
             $kept[$slot] = true;
         }
-        // Same locked-context rule as ApplyFieldMaterializer::reconcileMetaTable()
-        // (see the rationale there): recheck against the map this reconciliation
-        // establishes, so a sibling-classified key whose sibling THIS roster
-        // supplies is not rejected on a user that does not carry the pair yet.
-        // ACF fields on users are a shipped claim (manifests/interpreters/acf.php's
-        // user_meta_rule() reaching the same shadow-key machinery), and the
-        // deletion pass above deliberately keeps asking the witnessed map,
-        // because those rows exist now.
-        $lockedContext = $flat;
         foreach ($desired as $key => $value) {
-            $lockedContext[(string) $key] = $value ?? '';
-        }
-        foreach ($desired as $key => $value) {
-            $rule = $this->policy->meta_rule_for_user((string) $key, $lockedContext);
-            if (($rule['class'] ?? null) !== 'authored') {
-                throw new \RuntimeException(
-                    "wprism: user-meta '$key' for exact login '$login' is not authored in the locked target context"
-                );
-            }
             $this->fieldMaterializer->upsert_locked_authored_meta(
                 $wpdb->usermeta,
                 'user_id',

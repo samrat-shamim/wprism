@@ -83,6 +83,7 @@
     "ManifestExecutableLoader",
     "NativeDatabaseProfile",
     "NativeTableDefinition",
+    "NativeValueValidation",
     "LockedOptionRows",
     "OptionState",
           "CommandRefusal",
@@ -106,6 +107,7 @@
           "ReferenceShapeGrammar",
           "ScalarReferenceIntersection",
           "TermCoordinateWitness",
+          "TermRows",
           "TableGraph",
           "TableSchema",
           "IdentityTokenCodec",
@@ -146,7 +148,7 @@
             ]
           }
         ],
-  "file_count": 65,
+  "file_count": 67,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -174,6 +176,7 @@
     "ManifestExecutableLoader.php",
     "NativeDatabaseProfile.php",
     "NativeTableDefinition.php",
+    "NativeValueValidation.php",
           "MediaPayloadAuthority.php",
           "MetaRows.php",
           "OptionState.php",
@@ -203,6 +206,7 @@
           "TableGraph.php",
           "TableSchema.php",
           "TermCoordinateWitness.php",
+          "TermRows.php",
     "TextTokenizer.php",
     "TransactionAuthority.php",
     "TransactionalTableBoundary.php",
@@ -451,6 +455,7 @@
           "CompiledArtifact",
           "Snapshot",
           "RepositoryCompiler",
+          "RepositoryValueValidation",
           "SidebarState",
           "CanonicalSurfaces",
           "CanonicalLedgerMapGuard",
@@ -509,7 +514,7 @@
             ]
           }
         ],
-        "file_count": 28,
+        "file_count": 29,
         "files": [
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
@@ -533,6 +538,7 @@
           "RepositoryReferenceGraphValidator.php",
           "RepositorySchemaValidator.php",
           "RepositoryStateFileCatalog.php",
+          "RepositoryValueValidation.php",
           "SchemaSettlementIntent.php",
           "SidebarState.php",
           "Snapshot.php",
@@ -667,7 +673,7 @@
             ]
           }
         ],
-        "file_count": 19,
+        "file_count": 20,
         "files": [
           "Capture.php",
           "CaptureCandidateBuilder.php",
@@ -680,6 +686,7 @@
           "CaptureTransaction.php",
           "EntityMetaCapture.php",
           "InitialCaptureBoundary.php",
+          "LifecycleReferenceView.php",
           "MediaCapture.php",
           "MenuCapture.php",
           "OptionsCapture.php",

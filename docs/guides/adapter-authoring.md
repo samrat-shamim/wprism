@@ -366,6 +366,60 @@ Do not align all fixture ids or filter warnings to turn the unsupported domain
 into a positive case. See
 [the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
 
+### Portable validation versus WordPress-native predicates
+
+Run your real adapter through the standalone `RepositoryCompiler`, with no
+WordPress bootstrap or sanitizer stubs. Classification and repository diagnostics
+are portable code: they cannot call plugin runtime or WordPress APIs. A test
+double for `wp_kses` masked this boundary in Polylang until the four-plugin
+recapture comparison compiled its complete user-meta sidecars on the host.
+
+Exercise the actual host command with an attachment-bearing repository, using
+both absolute and caller-relative paths. `RepositoryMediaCatalog` anchors its
+media directory to the caller's working directory once, for ordinary, historical
+and staged compilation. Individual immutable media files still require absolute
+physical paths and full link/hash checks; path admission belongs in that shared
+repository boundary, not in each adapter fixture or the raw media-file authority.
+Sidecar-only evidence missed this in Polylang, while conformance's
+`siterepo/<pair>` argument failed on all three media blobs. Retain the shared
+confined tree observer and never omit attachments to make host evidence pass.
+
+When authored metadata must already satisfy native KSES, a v3 manifest declares
+`native-value-validation/v1` and adds the following field to its authored rule:
+
+```json
+"native_value_validation": {
+  "profile": "wordpress-kses/v1",
+  "context": "pre_user_description"
+}
+```
+
+This is a closed engine profile, not an arbitrary sanitizer callback. Exact
+post/term/user metadata, metadata patterns, and a feature-enrolled interpreter's
+metadata answer can use it. The engine retains bounded UTF-8 string checks during
+compilation; Capture validates native input and the canonical candidate; target
+Plan validates before snapshot work; Apply validates resolved values, locked
+classification, and all owned preimages before metadata writes. Repeated
+post/term rows are checked individually. A missing native API or changed output
+refuses; the engine never sanitizes and silently changes authored bytes.
+
+Test host compilation separately from real WordPress validation. Cover safe HTML
+and Unicode, size/control-byte refusals, missing APIs, unsafe desired and existing
+rows, repeated/duplicate values, URL rebinding, site overrides, and conflicting
+adapter ownership. Then run native conformance and relevant combinations. Adding
+this profile moves package identity: recompile and re-pin, never bypass a stale
+artifact. New native profiles require an engine contract and evidence first.
+
+Prove each hostile value through ordinary Capture, Plan and Apply, not merely
+by observing that native KSES would change it. Separate unsafe existing rows
+from unsafe desired repository values: the latter must still pass the portable
+compiler before reaching the native gate. A profile editor may sanitize before
+storage, so fixture-only raw fault injection must compare-and-swap the exact
+owned row and restore only that preimage. Retain complete canonical files,
+policy and native owner/neighbor rows before and after each refusal; compare
+them before undoing the fixture's own edit. Polylang's biography fixture follows
+this split with source Capture and target Plan/Apply controls.
+
 ### Deleting what you author
 
 Authoring a post type does not make its rows deletable through WPrism. A capture
@@ -847,6 +901,23 @@ the adapter; never widen the engine's table gate to accommodate an incomplete
 profile. Exact `option:` surfaces admit leading underscores (private options,
 transients and shadow keys), with the same 128-byte bound and no wildcards;
 the other four surface namespaces keep their existing first-byte grammar.
+
+Capture and Plan observations cannot borrow a provider's cache-write authority.
+If a native getter rebuilds a transient on a cold or expired cache, select a
+side-effect-free native interpretation API over bounded physical inputs, or
+report the unsupported observation. Do not warm the cache, toggle a permanent
+plugin constant, bypass native validation, or widen the capture table profile.
+For term inputs, `ProviderSdk::term_rows($taxonomy, $maxRows, $maxBytes, $context)`
+reads one exact taxonomy from the caller's already-established snapshot. Both
+physical term tables must already be readable. The engine admits a size roster
+before bounded hash/value batches, preserves raw driver bytes, and refuses an
+orphan, duplicate identity, failed read, changed roster or exceeded budget.
+It does not apply WordPress filters or interpret language, flag, locale or other
+plugin semantics. Polylang's capture hook uses this split with its public native
+language factory, retaining custom-flag refusals without calling its cache-backed
+language-list getter. Exercise empty, cold, warm-but-stale and hostile native
+callback cases through the actual protected capture hook; pure helper tests
+cannot establish that the adapter chose the safe native API.
 
 When declared plugin tables may legitimately be absent, use
 `ProviderSdk::database_schema_snapshot($context, $physicalTables, $read)`.
@@ -1553,9 +1624,28 @@ plugin faithfully.
    Apply failure. Use `sandbox/tests/lib/private_command_capture.sh` to collect
    the bounded fresh delta before caller assertions or disposable teardown,
    with the owner binding its exact native transport and command inventory.
+   The shared conformance driver's initial Apply already uses
+   `conformance_private_command` (`sandbox/tests/lib/conformance_private_command.sh`):
+   its native reader runs outside WordPress as the site's CLI uid, and its
+   host decoder retains complete records in a private, non-disposable sink.
+   This closes the `ee27e3b9` Polylang run's lost-cause gap: successful source
+   Capture and target deploy did not explain the later redacted Apply refusal.
+   Reuse that binding for driver-owned native commands; do not wrap every
+   `wp_env` invocation and interfere with capsule-owned exact-cause collectors.
    A diagnostic-only record remains unverified; expected-cause acceptance
    still requires the separate exact profile below. Never expose the private
    cause publicly or call a diagnostic failure a product rollback.
+   A canonical fixed-point failure also needs the complete files, not merely
+   `diff -rq` names or hashes. The combined commerce scenario at `9952f144`
+   lost both trees during teardown, leaving managed product differences
+   indistinguishable from target-only authored entities. Use the shared
+   `FilesystemTreeEvidence` reader with `private_command_capture.sh` to retain
+   source-before, source-after and recapture bytes before comparing or deleting
+   them. Its engine-backed confinement and closed byte/topology decoder remain
+   generic test machinery; the caller owns the selected roots, phase binding
+   and equality assertion. Preserve target-only files and empty directories in
+   this diagnostic. Do not normalize away differences to make the test pass,
+   and do not treat a successfully retained record as proof of equality.
    Inspect private records from a standalone, non-WordPress process running as
    the target CLI identity: the store is intentionally `0700`/`0600`, so host
    traversal that happens to work through Docker Desktop is not portable to a
@@ -1566,6 +1656,13 @@ plugin faithfully.
    root cause. Reuse `sandbox/tests/lib/PrivateRefusalReceipt.php` with a
    caller-declared graph profile; do not grow a capsule-owned private-store
    parser. Bind the source or target CLI service explicitly for each call.
+   `PrivateRefusalReceipt::collect()` verifies the same raw bytes it retains,
+   preserving a diagnostic and null receipt when the expected cause is wrong.
+   Its `assertCollection()` re-verifies those bytes after transport instead of
+   trusting a copied digest receipt. Admit the exact command exit separately:
+   `PrivateCommandOutput::readObject(..., expectedExit: 1)` keeps the same
+   bounded single-object and private-file checks as its default zero-status
+   path. A failed post-command observer must not prevent private collection.
    A host deploy is a mixed phase stream, not a standalone agent JSON answer:
    its transport-detail renderer sends the refusal to stderr and may append
    the private-evidence hint after it. Test the complete phase/envelope trace
@@ -1626,6 +1723,28 @@ plugin faithfully.
    that tree's permissions and reset removes its contents. Verify retention
    after cleanup, not just before it. Its diagnostic-only record is not a passing certificate;
    a malformed, warning-bearing, oversized or mismatched observation refuses.
+
+   Put reusable capsule shell helpers in `fixtures/`, not beside class-named
+   test entrypoints. Source them through the explicit
+   `"$(dirname "${BASH_SOURCE[0]}")/../../fixtures/<name>.sh"` form.
+   From the live harness's `sandbox/` working directory,
+   `. tests/lib/private_command_capture.sh` is the reviewed shared transport
+   dependency; this admits that exact helper, not arbitrary neighboring shell
+   files. For complete canonical trees exceeding the compact 256 KiB content
+   budget, select `EvidenceSizeProfile::CONFORMANCE_TREE` explicitly in both
+   capture and retained admission. It permits one 1 MiB tree inside a 2 MiB
+   private command stream; roster and metadata bounds do not grow. Keep
+   before/after records separate and never truncate a tree to fit a budget.
+
+   Execute a PHP fixture with `wp eval-file --use-include` when it declares
+   `strict_types` or resolves sibling files through `__DIR__`. WP-CLI's default
+   evaluation mode is not an ordinary file include: the first native Polylang
+   biography seed at `8ed15717` failed before its premise check with
+   `strict_types declaration must be the very first statement`. The documented
+   [include mode](https://developer.wordpress.org/cli/commands/eval-file/)
+   preserves normal file semantics and the normal WordPress bootstrap. Do not
+   strip the declaration, add a loader shim, or skip WordPress to mask that
+   invocation error; pin the actual caller's arguments offline as well.
 
 ### Getting the harness those tests need
 
@@ -2038,13 +2157,35 @@ different one.
 ### 6. Exercise it
 
 Re-run the loop on a clean environment: capture, apply to a second environment,
-recapture, and diff. A round-trip whose recaptured `state/` is byte-identical
-is the only evidence that the classification is right. `wp wprism lint` is the
-companion check — it flags id-shaped values at undeclared paths, which is
+recapture, and compare every managed entity through the engine's declared
+semantic hash basis. Retain both raw captures: byte equality is a useful
+stronger check where it applies, but is not the universal contract. As
+`spec/repo-format.md` §Adapter manifests states, Capture includes
+observed derived fields while update preserves the target's plugin-owned
+values; `Canon::post_hash_basis()` excludes only manifest-declared derived
+fields. Do not copy a fixture-specific list of ignored fields or discard
+unexpected files. Any target-only entities need an exact native preimage and
+preservation proof, separately from managed-entity convergence. `wp wprism lint`
+is the companion check — it flags id-shaped values at undeclared paths, which is
 exactly the shape a missing `ref`/`json_refs` declaration takes. Its findings
 are plan-time signals, not proof of corruption; each carries its own caveat
 note, because small ids legitimately coincide with counts, versions, and
 ordering indexes.
+
+For host-side evidence, compile each complete staged capture with
+`RepositoryCompiler::compile_staged()` and its own real repository/media root,
+then use `sandbox/tests/lib/RepositoryConvergence.php`. It compares semantic
+entity identities plus policy, code, effects, deletions and the complete media
+catalog. An explicitly named target-only signature is admissible only after
+the scenario proves its native preimage survived Apply and that Capture minted
+the exact corresponding UUID. Keep before-Apply, before-Capture and
+after-Capture observations separate: a declared provider may rebuild a derived
+marker row, while Capture may add identity metadata; neither permits omitting
+other metadata rows or accepting changes to authored fields. The four-plugin
+scenario also checks each extra canonical entity against its complete preserved
+authored preimage, including detached translation-group descriptions and
+memberships. Retained raw bytes remain diagnostic evidence; they are not a
+substitute for full compiler validation, nor permission to delete target content.
 
 **A finding on state your out-of-tree adapter declared blocks capture.** For a
 shipped or certified adapter every finding stays the advisory warning it always
@@ -2270,6 +2411,100 @@ library.
    from the entire explicitly checked fixture graph: a third CPT linking to
    the English product contributes just as the German product does. Apply and
    retry must use that same complete graph oracle.
+
+   Retain complete **target** observations at phase boundaries too. The
+   combined retry at db96 had a successful command receipt but failed native
+   isolation after its pre-retry Bash value was lost during teardown. The
+   final value alone cannot identify the changed field. Reuse the same private
+   capture transport and bounded reader for initial state, post-HTTP runtime,
+   failed Apply, retry and fixed point, binding the reader to the exact target
+   service. Prove retained evidence remains readable after site cleanup and
+   does not alter or waive the full native comparison. Diagnose the actual
+   before/after difference before expanding a mutation allowance.
+
+   Include the pre-adoption target, not just the first successful Apply. The
+   c837 combined recapture retained seven target-only files, but current
+   Polylang API mappings could not identify older detached translation groups.
+   Preserve the complete bounded term, term-taxonomy and relationship rosters,
+   with raw serialized descriptions and distinct term/TT coordinates. Count
+   before bounded transfer and reject short, malformed or oversized reads.
+   Keep the post-recapture native observation before the comparison can fail.
+   A matching taxonomy name, generated slug prefix or empty membership is not
+   authority to ignore or delete an entity; establish its exact lineage first.
+
+   A declared cache invalidation is not a runtime-preservation defect. The
+   combined c76 retry removed only the applied redirect's derived cache, as
+   its existing `redirection_id` invalidation requires. Assert the complete
+   expected state, including that precise removal; do not drop the cache
+   field from comparison. Exercise the generic materializer with foreign rows
+   sharing a URL or colliding cache primary key, then prove native HTTP
+   reconstructs the owned cache and advances exactly one hit. Fixed-point
+   comparisons start from that post-HTTP state, not the earlier receipt.
+
+   Post-type authorship alone does not grant deletion. For an unsupported
+   custom CPT, prove missing-source Capture refuses before publishing a
+   tombstone, then use its real compiled hash/revision to construct an
+   otherwise valid synthetic intent and prove Plan/Apply compilation refuses
+   before target mutation. Compare complete canonical trees even when files
+   were already dirty, and restore only the test-owned synthetic target
+   intent. Do not reinterpret this as an external-exclusion refusal or a
+   successful signed deletion; those are separate capability boundaries.
+
+   An unsupported-deletion fixture must still be valid native storage.
+   Removing only a language's `terms` row leaves a `term_taxonomy` orphan;
+   bounded term observation correctly refuses that malformed input before
+   deletion policy runs. For Polylang 3.8.6, add an unused language with the
+   native `no_default_cat` option, establish its identities with ordinary
+   Capture, and delete it through the native language API. Observe the
+   refusal preimage **after** that fixture mutation. Native deletion also
+   clears runtime metadata, so its effects must not be attributed to Capture.
+   If exact restoration is not available, run this control last and destroy
+   the owned pair; re-adding a language mints different native identities.
+
+   Complete native preservation can use unfiltered `wp db export -` outside
+   WordPress, a separate `SHOW FULL TABLES` inventory, and the shared
+   `SqlDumpEvidence`/`PrivateCommandOutput` readers. Bind deterministic dump
+   flags at the producer, retain every table's schema and row bytes, assert
+   nonempty fixture tables and stale ledger identities, and compare exact
+   streams. Never normalize runtime values or accept equal empty dumps.
+   Keep database credentials and dump bytes in the private evidence sink.
+
+   Complete uninstall and isolated missing-widget history are different
+   premises. Full Plan/Apply checks retained canonical maps before dead-map
+   pruning; missing backing data must reach `canonical_identity_recovery_required`,
+   not a later planner's widget-history check. Require the exact public
+   envelope and complete fresh private cause, with database/repository preimages
+   taken after native uninstall and exact-code reinstall. Keep the stale map
+   as evidence and prove it survives the refusal. Database-matched restoration
+   is a separate subsequent control; neither pruning history nor accepting any
+   nonzero exit proves safe recovery.
+
+   Exercise options-only lifecycle observation before that full identity gate,
+   too. It must retain canonical core and declared typed mappings after native
+   deletion, even when an option read fails. Its capture-only lookup checks
+   physical presence without reconciling the durable map: dangling option
+   references still drop, while the subsequent full Plan can still refuse
+   the missing backing rows. This is not an embedded-UUID ownership proof and
+   must not broaden lifecycle observation into all plugin tables. Use the
+   shared row-backed prune harness; a canned successful DELETE cannot prove
+   preservation. The core product regression is
+   `sandbox/tests/offline/capture/regress_lifecycle_identity_preservation.php`.
+
+   For scalar typed kinds intersecting `option_name_refs`, merely removing a
+   prune is insufficient: another scalar, list, structured-value or key
+   reference may otherwise tokenize a deleted row. `LifecycleReferenceView`
+   reuses the existing bounded option namespace and exact physical-key reader,
+   retaining the same live/canonical option-name witnesses without deleting
+   maps. An absent owner table keeps the lifecycle projection needed before
+   activation; metadata permission must not grant row reads if it appears
+   after the transaction profile was fixed. Exercise read failures, presence
+   changes, stale authority and retry cache reset, and prove every native row
+   and canonical byte survives. Canonical option names are separate bounded
+   work items, like live options: exercise more than 1,024 retained names so
+   preparing the roster cannot accidentally impose one callback's SQL quota
+   on the whole namespace. Keep the per-item and enclosing callback limits
+   unchanged. Full-state identity reconciliation remains a
+   separate guarded boundary; do not recreate it inside a plugin executable.
 
    Rendered language identifiers are not interchangeable with WordPress
    locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`

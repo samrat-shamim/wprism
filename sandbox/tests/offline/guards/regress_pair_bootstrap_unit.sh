@@ -1732,20 +1732,28 @@ run_flock_lock_sigkill_case() {
 }
 
 run_pair_lock_cancellation_case() {
-  local mode="$1" signal="$2" signal_label label
+  local mode="$1" signal="$2" startup="${3:-ready}" signal_label label
   case "$signal" in
     TERM) signal_label=term ;;
     KILL) signal_label=kill ;;
     *) fail "unsupported lock-cancellation signal: $signal" ;;
   esac
   label="${mode}_lock_${signal_label}"
+  case "$startup" in
+    ready) ;;
+    cancel-before-reader)
+      [ "$mode:$signal" = python:TERM ] || fail 'startup cancellation requires the Python TERM lane'
+      label="${label}_startup"
+      ;;
+    *) fail 'unknown helper startup premise' ;;
+  esac
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
     log="$TMP/$label/docker.log" gate="$TMP/$label/gate" \
     output1="$TMP/$label/holder.log" output2="$TMP/$label/contender.log" \
     canonical_root="$TMP/$label/canonical" lock_path \
     holder="holder${mode}${signal_label}" contender="contender${mode}${signal_label}" \
     first_pid contender_pid first_ready=0 i status1=0 status2=0 \
-    helper_count ls_held ls_before ls_after waiter path_value
+    helper_count ls_held ls_before ls_after waiter path_value helper_started=0
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$gate"
   copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
@@ -1755,6 +1763,37 @@ run_pair_lock_cancellation_case() {
   if [ "$mode" = python ]; then
     install_python_lock_path "$fake_bin"
     path_value="$fake_bin"
+  fi
+  if [ "$startup" = cancel-before-reader ]; then
+    # Observe the real parent's join, which follows its cancellation write and
+    # FIFO close. Delay only this contender's real Python payload until then;
+    # no timeout, signal, cancellation or lock operation is replaced.
+    export WPRISM_PAIR_TEST_REAL_PYTHON="$(PATH="$ORIGINAL_PATH" command -v python3)"
+    [ -L "$fake_bin/python3" ] || fail 'Python startup fixture would replace a non-symlink'
+    rm "$fake_bin/python3"
+    cat > "$fake_bin/python3" <<'DELAYED_PYTHON'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${WPRISM_PAIR_TEST_DELAY_READER:-0}" = 1 ]; then
+  [ "$#" = 6 ] && [ "$1" = -c ] || exit 64
+  : > "$WPRISM_PAIR_TEST_RACE_GATE/helper-before-reader"
+  while [ ! -f "$WPRISM_PAIR_TEST_RACE_GATE/owner-joining-helper" ]; do
+    kill -0 "$6" 2>/dev/null || break
+    sleep 0.01
+  done
+fi
+exec "$WPRISM_PAIR_TEST_REAL_PYTHON" "$@"
+DELAYED_PYTHON
+    chmod +x "$fake_bin/python3"
+    cat > "$case_root/cancellation-env.sh" <<'CANCELLATION_ENV'
+wait() {
+  if [ "${PAIR_BUDGET_LOCK_MODE:-}" = python ] && [ "$#" = 1 ] \
+      && [ "$1" = "${PAIR_BUDGET_LOCK_HELPER_PID:-}" ]; then
+    : > "$WPRISM_PAIR_TEST_RACE_GATE/owner-joining-helper"
+  fi
+  builtin wait "$@"
+}
+CANCELLATION_ENV
   fi
   lock_path="$canonical_root/sandbox/siterepo/.pair-budget.lock"
   export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -1779,10 +1818,26 @@ run_pair_lock_cancellation_case() {
     || abort_lock_cancellation_case "$gate" "$first_pid" "$first_pid" \
       "$label holder did not reach the lock-holder gate"
 
-  env PATH="$path_value" "$case_root/sandbox/bin/pair.sh" up "$contender" 9913 9914 --headless \
-    >"$output2" 2>&1 &
+  if [ "$startup" = cancel-before-reader ]; then
+    env PATH="$path_value" BASH_ENV="$case_root/cancellation-env.sh" WPRISM_PAIR_TEST_DELAY_READER=1 \
+      "$case_root/sandbox/bin/pair.sh" up "$contender" 9913 9914 --headless >"$output2" 2>&1 &
+  else
+    env PATH="$path_value" "$case_root/sandbox/bin/pair.sh" up "$contender" 9913 9914 --headless \
+      >"$output2" 2>&1 &
+  fi
   contender_pid=$!
-  sleep 0.2
+  if [ "$startup" = cancel-before-reader ]; then
+    for i in $(seq 1 300); do
+      if [ -f "$gate/helper-before-reader" ]; then helper_started=1; break; fi
+      pid_running "$contender_pid" || break
+      sleep 0.01
+    done
+    [ "$helper_started" = 1 ] \
+      || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
+        "$label did not reach the controlled before-reader boundary"
+  else
+    sleep 0.2
+  fi
   [ ! -e "$case_root/sandbox/siterepo/${contender}1" ] \
     || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
       "$label contender created side-1 state while the holder owned the lock"
@@ -1798,6 +1853,11 @@ run_pair_lock_cancellation_case() {
       "$label contender did not exit promptly after SIG$signal"
   fi
   wait "$contender_pid" 2>/dev/null || status2=$?
+  if [ "$startup" = cancel-before-reader ]; then
+    [ -f "$gate/owner-joining-helper" ] \
+      || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
+        "$label never joined its real helper after closing the FIFO"
+  fi
   [ "$status2" -ne 0 ] \
     || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
       "$label contender unexpectedly succeeded after SIG$signal"
@@ -2619,6 +2679,9 @@ run_pair_lock_cancellation_case flock KILL
 
 say "Python fcntl contender TERM cancellation (fake compose; no Docker/DB)"
 run_pair_lock_cancellation_case python TERM
+
+say "Python cancellation queued before the helper opens its FIFO reader (fake compose; no Docker/DB)"
+run_pair_lock_cancellation_case python TERM cancel-before-reader
 
 say "Python fcntl contender SIGKILL cancellation (fake compose; no Docker/DB)"
 run_pair_lock_cancellation_case python KILL

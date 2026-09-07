@@ -18,6 +18,11 @@
         },
         {
             "member": "conformance/run.sh",
+            "target": "tests/lib/conformance_private_command.sh",
+            "note": "The estate-bound reference harness retains initial Apply diagnostics through the shared native CLI-uid reader before disposable cleanup. Its private transport needs the repository pair estate, not the standalone offline kit."
+        },
+        {
+            "member": "conformance/run.sh",
             "target": "bin/fetch-artifact.sh",
             "note": "run.sh is the estate-bound member: it cd's to its own parent and drives a disposable env pair through docker (run.sh:70, :172-173). It is shipped as the reference round-trip harness — the one file that states what an adapter has to survive — not as something a kit user runs unmodified."
         }
@@ -52,8 +57,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "WPrismTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 228986,
-            "sha256": "55d45c4cc92da64d3c6a09d8eefae446b76742aaca702149579d637ffbd79a03"
+            "bytes": 233281,
+            "sha256": "420192f94a42456f68aa239b2a003ad913c89a2403e09b80115e6ad142fbd473"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -100,8 +105,8 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 38048,
-            "sha256": "f3f257a09f1089e26a53fc1fc69a4b7459ba564a39988d29d41b015a03ee7e30"
+            "bytes": 38134,
+            "sha256": "e3a05b03664a4a8c0cc762bda96b0c5996d07dba2f69738383ae2df5b5f7115d"
         },
         {
             "path": "conformance/asserts.sh",
@@ -132,8 +137,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 5009,
-            "sha256": "100658ff8ff4837568adf653fc95dc2775b44a1e01ad25d8796be62f0c1b01d6"
+            "bytes": 5315,
+            "sha256": "e303366844f7f491ffc391265b373a15dde1de74d2513a66703649881592bc21"
         }
     ]
 }

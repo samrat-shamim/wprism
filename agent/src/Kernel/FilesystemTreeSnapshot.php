@@ -172,6 +172,10 @@ final class FilesystemTreeSnapshot {
         self::assert_directory_version($directory, $initial['stat'], $relative, $subject);
 
         foreach ($initial['roster'] as $entry => $stat) {
+            // readdir() returns strings, but PHP coerces canonical integer
+            // names used as map keys. Restore that exact spelling before a
+            // top-level name reaches a strict path parameter or result row.
+            $entry = (string) $entry;
             self::assert_directory_version($directory, $initial['stat'], $relative, $subject);
             $childRelative = $relative === '' ? $entry : $relative . '/' . $entry;
             $path = $root . '/' . $childRelative;
@@ -211,7 +215,7 @@ final class FilesystemTreeSnapshot {
     /**
      * @return array{
      *   stat:array<string|int,mixed>,
-     *   roster:array<string,array<string|int,mixed>>
+     *   roster:array<array-key,array<string|int,mixed>>
      * }
      */
     private static function directory_snapshot(
@@ -280,8 +284,8 @@ final class FilesystemTreeSnapshot {
     }
 
     /**
-     * @param array<string,array<string|int,mixed>> $initial
-     * @param array<string,array<string|int,mixed>> $final
+     * @param array<array-key,array<string|int,mixed>> $initial
+     * @param array<array-key,array<string|int,mixed>> $final
      */
     private static function assert_same_directory_roster(
         array $initial,

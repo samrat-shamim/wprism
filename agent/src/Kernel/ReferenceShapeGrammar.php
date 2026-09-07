@@ -6,6 +6,7 @@ namespace WPrism;
 // bootstrap order.
 require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/ScalarReferenceIntersection.php';
+require_once __DIR__ . '/NativeValueValidation.php';
 
 /**
  * Pure loader-time grammar for reference-valued manifest declarations.
@@ -35,7 +36,9 @@ final class ReferenceShapeGrammar {
                     in_array($section, ['post_meta', 'term_meta'], true),
                     $manifestFeatures && $section === 'options'
                         && ($source['spec_version'] ?? 0) >= 3
-                        && in_array(ScalarReferenceIntersection::FEATURE, (array) ($source['engine_features'] ?? []), true)
+                        && in_array(ScalarReferenceIntersection::FEATURE, (array) ($source['engine_features'] ?? []), true),
+                    $manifestFeatures && $section !== 'options' && ($source['spec_version'] ?? 0) >= 3
+                        && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true)
                 );
             }
         }
@@ -46,12 +49,19 @@ final class ReferenceShapeGrammar {
                         $rule,
                         "$label.{$section}[$i]",
                         false,
-                        in_array($section, ['post_meta_patterns', 'meta_patterns'], true)
+                        in_array($section, ['post_meta_patterns', 'meta_patterns'], true),
+                        false,
+                        $manifestFeatures && in_array($section, ['post_meta_patterns', 'meta_patterns'], true)
+                            && ($source['spec_version'] ?? 0) >= 3
+                            && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true)
                     );
                 }
             }
         }
         foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
+            if (array_key_exists(NativeValueValidation::FIELD, $declaration)) {
+                throw new \RuntimeException("wprism: $label.dynamic_options.$name cannot declare a native metadata predicate");
+            }
             if (array_key_exists(ScalarReferenceIntersection::FIELD, $declaration)
                 || array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $declaration)) {
                 throw new \RuntimeException(
@@ -95,8 +105,13 @@ final class ReferenceShapeGrammar {
         string $where,
         bool $allowSubKeys = false,
         bool $allowRepeatedRows = false,
-        bool $allowIntersection = false
+        bool $allowIntersection = false,
+        bool $allowNativeValidation = false
     ): void {
+        if (array_key_exists(NativeValueValidation::FIELD, $rule) && !$allowNativeValidation) {
+            throw new \RuntimeException("wprism: $where native value validation belongs only to metadata in a v3 adapter declaring " . NativeValueValidation::FEATURE);
+        }
+        NativeValueValidation::assert_rule($rule, $where);
         if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule) && !$allowIntersection) {
             throw new \RuntimeException(
                 "wprism: $where." . ScalarReferenceIntersection::FIELD

@@ -90,11 +90,16 @@ $slugs = [
     'fr' => 'portable-polylang-story-fr',
     'ar' => 'portable-polylang-story-ar',
 ];
+$publisher = get_user_by('login', 'admin');
+if (!$publisher instanceof WP_User) {
+    throw new RuntimeException('Polylang source publisher premise is missing');
+}
 $posts = [];
 foreach (['en', 'fr', 'ar'] as $language) {
     $postId = wp_insert_post([
         'post_type' => 'post',
         'post_status' => 'publish',
+        'post_author' => (int) $publisher->ID,
         'post_title' => $titles[$language],
         'post_name' => $slugs[$language],
         'post_content' => $postContent[$language],
@@ -115,10 +120,6 @@ pll_save_post_translations($posts);
 // carry post ids, so capture/apply must rebind two more translated groups
 // rather than merely copy public posts. Trash is deliberately absent: it is a
 // deletion/tombstone boundary, not an authored post state.
-$publisher = get_user_by('login', 'admin');
-if (!$publisher instanceof WP_User) {
-    throw new RuntimeException('Polylang source publisher premise is missing');
-}
 $previousUserId = get_current_user_id();
 wp_set_current_user((int) $publisher->ID);
 if (!current_user_can('publish_posts')) {
@@ -388,5 +389,8 @@ jq -e '
   .sync == ["taxonomies","post_meta","post_date"] and
   (.nav_menus | type == "object")
 ' "$OPTION_FILE" >/dev/null || fail 'Polylang portable option premise did not persist through the plugin storage path'
+
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-biography.sh"
+polylang_biography_seed source
 
 pass 'Polylang source owns divergent high post/page/pattern/term/media/menu graphs, every persistent non-deletion status, RTL and long UTF-8 data, portable settings, and both optional switcher stores'

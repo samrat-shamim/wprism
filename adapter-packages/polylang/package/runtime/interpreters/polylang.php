@@ -140,7 +140,8 @@ final class Polylang {
         }
         $value = PlainData::decode($allMeta[$key] ?? '', "Polylang user meta $key");
         $this->assert_biography($value, "live user meta $key");
-        return ['class' => 'authored', 'allow_pii' => true, 'missing_user' => 'block'];
+        return ['class' => 'authored', 'allow_pii' => true, 'missing_user' => 'block',
+            'native_value_validation' => ['profile' => 'wordpress-kses/v1', 'context' => 'pre_user_description']];
     }
 
     public function option_rule(string $name, array $allOptions): ?array {
@@ -1039,31 +1040,35 @@ final class Polylang {
                 "wprism: Polylang $where must be valid UTF-8 without unsafe control bytes"
             );
         }
-        if (!function_exists('wp_kses')) {
-            throw new \RuntimeException(
-                "wprism: Polylang $where cannot prove the native pre_user_description KSES boundary"
-            );
-        }
-        $sanitized = wp_kses($value, 'pre_user_description');
-        if (!is_string($sanitized) || !hash_equals($value, $sanitized)) {
-            throw new \RuntimeException(
-                "wprism: Polylang $where is not already canonical under the native pre_user_description KSES boundary"
-            );
-        }
+        // Classification and repository diagnostics run in the standalone
+        // compiler too. The returned native profile delegates actual KSES to
+        // Capture, target planning and resolved-value Apply, never a host stub.
     }
 
     private function assert_source_language_flags(mixed $runtime): void {
-        $model = is_object($runtime) ? ($runtime->model ?? null) : null;
-        if (!is_object($model) || !is_callable([$model, 'get_languages_list'])) {
+        $options = is_object($runtime) ? ($runtime->options ?? null) : null;
+        if (!is_object($options) || !class_exists('WP_Term') || !class_exists('PLL_Language_Factory')
+            || !method_exists('PLL_Language_Factory', 'get_from_terms')) {
             throw new \RuntimeException(
                 'wprism: Polylang native option capture cannot audit language flag dependencies'
             );
         }
-        $languages = $model->get_languages_list();
-        if (!is_array($languages) || !array_is_list($languages) || count($languages) > 512) {
-            throw new \RuntimeException('wprism: Polylang language flag audit returned an invalid bounded language list');
+        // Languages::get_from_taxonomies() in 3.8.6 writes its transient even
+        // for an empty target. A warm singleton can instead hide stale terms.
+        // The engine reads this transaction's bounded physical roster; the
+        // public native factory retains bundled/custom flag and filter semantics
+        // without granting option writes to capture or warming a cache first.
+        $rows = \WPrism\ProviderSdk::term_rows('language', 512, 4194304, 'Polylang language flag audit');
+        foreach ($rows as $row) {
+            $this->assert_language_description($row['description'], 'live language description');
+            $this->language_slug($row['slug'], false, 'language flag audit slug');
         }
-        foreach ($languages as $language) {
+        usort($rows, static fn(array $left, array $right): int =>
+            ((int) $left['term_group'] <=> (int) $right['term_group'])
+            ?: ((int) $left['term_id'] <=> (int) $right['term_id']));
+        $factory = new \PLL_Language_Factory($options);
+        foreach ($rows as $row) {
+            $language = $factory->get_from_terms(['language' => new \WP_Term((object) $row)]);
             if (!is_object($language)) {
                 throw new \RuntimeException('wprism: Polylang language flag audit returned a malformed language');
             }

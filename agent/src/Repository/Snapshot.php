@@ -1375,44 +1375,22 @@ final class Snapshot {
      * id still has to match an authored option_name_refs rule for its own
      * id_kind, and canonical tokens must resolve through the existing ledger.
      *
+     * @param null|list<string> $liveOptionNames The producer's bounded namespace, when already observed in its transaction.
+     * @param null|\Closure(\Closure():void):void $observeCanonicalName The caller's complete per-name observation boundary.
      * @return array<string,int[]> id_kind => local ids to exclude from dead-map pruning
      */
     public static function option_name_ref_preserved_ids(
         Policy $policy,
-        ?array $repositoryOptions = null
+        ?array $repositoryOptions = null,
+        ?array $liveOptionNames = null,
+        ?\Closure $observeCanonicalName = null
     ): array {
-        return self::snapshot_pruner($policy)->option_name_ref_preserved_ids($repositoryOptions);
+        return self::snapshot_pruner($policy)->option_name_ref_preserved_ids($repositoryOptions, $liveOptionNames, $observeCanonicalName);
     }
 
     /** Full capture dead-map hygiene for every declared typed-table row. */
     public static function prune_dead_map(Policy $policy, ?array $repositoryOptions = null): void {
         self::snapshot_pruner($policy)->prune_dead_map(self::row_tables($policy), $repositoryOptions);
-    }
-
-    /**
-     * Narrow dead-map hygiene for Capture::snapshot_options_core(). An
-     * option_name_refs rule embeds a declared table row id in the option NAME
-     * itself, so a stale mapping for that id_kind would mint a token for a
-     * deleted row and let Apply resolve an orphan option back to the deleted
-     * local id. The lifecycle boundary must reconcile those id_kinds, but it
-     * must not enter the full typed-table pruner: a plugin may be inactive and
-     * its declared table absent while its lifecycle hook is about to create it.
-     * Ledger::prune_dead_table_map() already has the required absent-table
-     * skip, so this method supplies only the option_name_refs intersection.
-     *
-     * Composite-ref tables remain excluded here: no current option-name
-     * reference resolves a packed tuple, and lifecycle capture intentionally
-     * runs before plugin activation may recreate the owning table. Full
-     * capture prunes them safely through their exact two-column tuple.
-     */
-    public static function prune_option_name_ref_map(
-        Policy $policy,
-        ?array $repositoryOptions = null
-    ): void {
-        self::snapshot_pruner($policy)->prune_option_name_ref_map(
-            static fn(): array => self::row_tables($policy),
-            $repositoryOptions
-        );
     }
 
     /**

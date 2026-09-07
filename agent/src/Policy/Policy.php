@@ -107,6 +107,7 @@ require_once __DIR__ . '/../Grammar/FieldGrammar.php';
 // issue #3348 slice 20: user-meta safety grammar, required here for the same
 // "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Grammar/UserMetaGrammar.php';
+require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
 // issue #3348 slice 21: whole-entity scope declaration grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ScopeGrammar.php';
@@ -2197,6 +2198,10 @@ final class Policy {
         if ($this->interpreterInstances !== null) {
             return $this->interpreterInstances;
         }
+        // Interpreter hooks consume the same bounded observation SDK as
+        // providers; the executable loader must supply it without relying on
+        // a prior provider invocation or the additive classmap fallback.
+        require_once __DIR__ . '/../Adapter/ProviderSdk.php';
         $this->interpreterInstances = [];
         foreach ($this->manifests as $m) {
             $name = $m['interpreter'] ?? null;
@@ -2895,6 +2900,18 @@ final class Policy {
             }
             $owner = $owners === [] ? "interpreter $name" : (string) ($owners[0]['name'] ?? '?');
             $source = $owners === [] ? $owner : $owner . " (interpreter $name)";
+            if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
+                if (!in_array($section, ['post_meta', 'term_meta', 'user_meta'], true) || count($owners) !== 1
+                    || ($owners[0]['spec_version'] ?? 0) < 3
+                    || !in_array(NativeValueValidation::FEATURE, (array)($owners[0]['engine_features'] ?? []), true)) {
+                    throw new \RuntimeException("wprism: interpreter '$name' native value validation requires an exact v3 metadata owner declaring " . NativeValueValidation::FEATURE);
+                }
+                NativeValueValidation::assert_rule($rule, "$source $section.$key");
+            }
+            if (array_key_exists(NativeValueValidation::FIELD, $static['rule'] ?? [])
+                && ($rule[NativeValueValidation::FIELD] ?? null) != $static['rule'][NativeValueValidation::FIELD]) {
+                throw new \RuntimeException("wprism: interpreter '$name' cannot remove or change a static native value predicate");
+            }
             if ($hook === 'option_rule' && $owners !== []) {
                 $rule = self::with_option_autoload($rule, $owners[0]);
             }
@@ -4242,6 +4259,9 @@ final class Policy {
         }
         if ($key === '') {
             throw new \RuntimeException('wprism: policy key must not be empty');
+        }
+        if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
+            throw new \RuntimeException('wprism: native value validation requires an adapter-owned declaration, not a site policy override');
         }
         $class = $rule['class'] ?? '';
         if (!in_array($class, self::CLASSES, true)) {

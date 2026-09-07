@@ -15,8 +15,14 @@ not standalone suites.
 | `frozen_policy.php` | `\WPrismTest\FrozenPolicy` — the `wprism-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
 | `ConformanceVector.php` | `\WPrismTest\ConformanceVector` — the `wprism-conformance-vector/v1` grammar and its offline replay driver |
 | `ShellProbe.php` | `\WPrismTest\ShellProbe` — actual command/acceptance block extraction and isolated Bash execution with private, separately observed stdout/stderr; each capsule owns its commands, payloads and assertions |
+| `EvidenceSizeProfile.php` | `\WPrismTest\EvidenceSizeProfile` — closed, caller-selected diagnostic budgets. `compact/v1` retains the original limits; `conformance-tree/v1` admits one complete fixture tree up to 1 MiB of content, 1792 KiB encoded, inside a 2 MiB command stream. A record cannot select its own budget. |
+| `FilesystemTreeEvidence.php` | `\WPrismTest\FilesystemTreeEvidence` — exact private tree bytes retained through the engine's confined, race-checked snapshot; defaults to 256 KiB of content and 480 KiB per encoded record. Both evidence profiles retain the 4096-entry/256 KiB metadata boundary. Its closed decoder verifies paths, topology, sizes and hashes after disposable cleanup. This is diagnostic data, not canonical publication or capability authority. |
+| `PrivateCommandOutput.php` | `\WPrismTest\PrivateCommandOutput` — `readObject()` admits a complete nonempty JSON object; `readBytes()` retains opaque output, including binary or empty streams, without normalization. Both require owned `0700`/`0600` files, bounded streams, exact status and a caller-declared stderr prelude. Status defaults to zero; `expectedExit: 1` admits only that exact refusal status without relaxing transport checks. Owners must validate opaque protocol completeness and nonempty fixture premises: equal empty dumps are not database-preservation evidence. |
+| `SqlDumpEvidence.php` | `\WPrismTest\SqlDumpEvidence` — admits native MySQL/MariaDB dump framing, the complete independently observed base-table roster (128 tables maximum), and caller-declared nonempty table premises within the existing 2-MiB stream profile. Callers bind an unfiltered `wp db export -` outside WordPress with deterministic producer flags. Row bytes, schema and table identities remain exact: no SQL row walker, value decoder, restoration or normalizer lives here. |
+| `RepositoryConvergence.php` | `\WPrismTest\RepositoryConvergence` — compares compiler-owned semantic entity hashes, exact policy/code/effects/deletion inputs and the complete media catalog. Strict equality is the default; each explicitly named target-only signature requires a separate fixture-owned native preservation proof. No field-name normalizer or plugin exception lives in this helper. |
 | `PrivateRefusalReceipt.php` | `\WPrismTest\PrivateRefusalReceipt` — bounded private-record freshness, mode/inode and exact v2 graph verification; callers declare the command, reason and ordered class/message/parent/edge profile and receive only message digests. Its separate diagnostic snapshot/delta API can preserve at most four new records/1 MiB of raw bytes (base64-encoded in a private sink), explicitly unverified and never as capability evidence. |
 | `private_command_capture.sh` | `wprism_private_command_capture` — one private snapshot → command → fresh-delta lifecycle, shared by host and native commands. Caller-owned argv arrays supply the native snapshot, collector and silent validator; the collector receives the saved baseline stdout path, and the validator receives an owned capture stem. All five stage transports/statuses survive disposable cleanup in fifteen `0600` files under one `0700` sink. |
+| `conformance_private_command.sh` / `.php` | Binds that lifecycle to the conformance harness's exact Compose argv and CLI identity. The initial Apply keeps complete private diagnostic records outside the disposable pair. Native reads do not boot WordPress; host admission uses the explicit 2-MiB stream profile and shared raw-record decoder. |
 | `wordpress_cron_window.sh` | Test-only, owner-scoped prevention of new WP-Cron spawning during a complete native-row comparison. The caller supplies its WP runner and an outside-WordPress shell transport bound to the same site's MU directory; native PHP proves the guard loaded before the protected body. |
 | `ssh_adopt_extension.sh` | closed helpers for digest-verified plugin install, exact active code inventory, consecutive immutable releases, engine-derived atomic post tombstones, and shared upload/effect/code-release enrollment inside `regress_ssh_adopt.sh`; the parent owns checkpoint/exclusion state and cleanup |
 | `pair_live_ownership.sh` | the direct-live evidence state machine: exact-worktree mounts, engine/root-bound pair leases, partial-up teardown, exact site/scratch removal, checked release, and the sole post-cleanup PASS |
@@ -51,6 +57,15 @@ node index. No runtime cause selects or modifies a profile. Failures throw a
 value-free `RuntimeException`; successful receipts contain only the command,
 format, one-new-record count, ordered message digests, and `verified: true`.
 
+`collect($directory, $baseline, $profile)` retains the exact raw diagnostic
+bytes and verifies those same bytes, avoiding a second read that could observe
+a different graph. Its private `wprism-private-refusal-collection/v1` envelope
+keeps the diagnostic even when verification fails, with a null receipt and a
+value-free error. `assertCollection($collection, $profile)` re-verifies the raw
+graph after transport; a copied success receipt beside coherently rehashed but
+unrelated diagnostic bytes cannot pass. Collection is test evidence only, not
+a signature or a substitute for the invocation's admitted freshness baseline.
+
 `wprism_private_command_capture` does not interpret a native refusal graph or
 turn a retained record into a passing certificate. The owner binds the exact
 site, command inventory and bounded reader. Both baseline validation and delta
@@ -66,6 +81,17 @@ command-specific success/refusal assertions after this diagnostic boundary.
 Diagnostics are outside the protected command's transaction. A post-command
 diagnostic failure invalidates the test evidence; it does not claim that the
 already-finished command rolled back.
+
+`PrivateRefusalReceipt::assertDiagnostic($record, $command)` validates the
+transported diagnostic envelope, sorted unique command-scoped names, counts,
+bounds and exact raw-byte identities. Zero records are valid diagnostic data,
+not proof of success. Even malformed raw JSON can be retained for diagnosis;
+only the separate exact-profile verifier can establish an expected cause.
+`verifyDiagnostic($record, $profile)` exposes that same verifier for retained
+diagnostics after disposable cleanup. It requires exactly one record and the
+complete caller-declared graph; an empty diagnostic or an unrelated cause is
+not a successful receipt. The invocation still owns its admitted pre-command
+baseline and native fresh-delta collection.
 
 `wordpress_cron_window_begin <wp_runner> <mu_directory_transport>` belongs in a
 caller-owned, `set -e` subshell after sourcing `conformance/asserts.sh` and the
@@ -297,6 +323,19 @@ supplies explicit column/index fixtures and checks that profile's refusal of
 raw schema-qualified reads. Opted-in metadata projections still pass through
 the ordinary query gate, interception, logging and error-reset pipeline; they
 must never manufacture an answer before the active authority sees the query.
+
+The closed `enableFullApplySqlExtensions()` dead-map DELETEs are also
+row-backed, not no-op acknowledgements. Seed the map and physical tables plus
+their exact `id_kind`/`local_id` and primary-key columns, including empty-table
+controls. Only the existing three core LEFT JOIN shapes and connection/nonce-
+fenced NOT EXISTS shapes are recognized, including the exact declared scalar
+table/primary-key form and optional canonical positive `local_id NOT IN (...)`
+preservation list. Protected rows remain, including SQL-null/unknown predicates.
+This does not enable general join
+deletion or subqueries. A missing physical row removes the matching tuple,
+affected counts are exact, and query gates, failures, savepoint rollback and
+connection replacement apply. This is what lets an options-only lifecycle
+test detect identity-history loss before a later canonical guard runs.
 
 Joins are refused with ONE exception, added when the engine's own term-deletion
 path turned out to need it: a single `LEFT JOIN` whose `ON` is exactly one

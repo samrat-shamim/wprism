@@ -18,6 +18,7 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 require_once __DIR__ . '/../Policy/ScopeDiscovery.php';
 require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
+require_once __DIR__ . '/../Repository/RepositoryValueValidation.php';
 require_once __DIR__ . '/TermCapture.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Grammar/Blocks.php';
@@ -66,18 +67,22 @@ final class CaptureCandidateBuilder {
      *        environment binding instead of the live one (Tokens' docblock);
      *        plan's foreign-bound comparison observation is the only caller.
      * @param null|\Closure(object):?string $unmappedTermObserver Only a full non-minting plan may compare an unmanaged native row with desired natural identity.
+     * @param null|\Closure(int,string):?string $captureIdentityLookup Observation-local reference projection; it never changes apply-direction bindings or the durable ledger.
+     * @param null|\Closure(array,?DatabaseWorkAuthority):void $prepareCaptureReferences Bind that lookup from the bounded options namespace inside the lifecycle transaction.
      */
     public function __construct(
         string $repo,
         private Policy $policy,
         ?array $binding = null,
         private readonly ?array $canonicalShortcodeTree = null,
-        private readonly ?\Closure $unmappedTermObserver = null
+        private readonly ?\Closure $unmappedTermObserver = null,
+        ?\Closure $captureIdentityLookup = null,
+        ?\Closure $prepareCaptureReferences = null
     ) {
         $this->repo = rtrim($repo, '/');
         $this->tokens = $binding === null
-            ? new Tokens()
-            : new Tokens((string) $binding['home'], (string) $binding['uploads']);
+            ? new Tokens(captureIdentityLookup: $captureIdentityLookup)
+            : new Tokens((string) $binding['home'], (string) $binding['uploads'], $captureIdentityLookup);
         $this->tokens->policy = $policy;
         $this->safetyGates = new CaptureSafetyGates($this->repo);
         $this->captureIdentity = new CaptureIdentity();
@@ -163,7 +168,8 @@ final class CaptureCandidateBuilder {
             $this->unmappedTermObserver === null ? null : function (int $id, string $taxonomy): ?string {
                 $native = $this->unmappedTerms[$id][$taxonomy] ?? null;
                 return $native === null ? null : ($this->unmappedTermObserver)($native);
-            }
+            },
+            $prepareCaptureReferences
         );
     }
 
@@ -371,6 +377,7 @@ final class CaptureCandidateBuilder {
         $this->assertOptionGates();
         $this->safetyGates->assertContentReferences($this->tokens);
         $this->safetyGates->assertCanonicalContent($entities);
+        RepositoryValueValidation::assert_native_tree($entities, $this->policy);
         return [
             'entities' => $entities,
             'media' => $media,

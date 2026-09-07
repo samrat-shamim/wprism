@@ -1534,37 +1534,100 @@ class FakeWpdb {
             . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}'";
     }
 
-    private function isFullApplyPruneQuery(string $query): bool {
+    /** @return null|array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} */
+    private function fullApplyPruneQuery(string $query): ?array {
         $map = $this->tableName('wprism_map');
         $normalized = $this->fullApplySql($query);
-        $expected = [
-            "DELETE m FROM $map m LEFT JOIN {$this->tableName('posts')} po ON po.ID = m.local_id WHERE m.id_kind = 'post' AND po.ID IS NULL",
-            "DELETE m FROM $map m LEFT JOIN {$this->tableName('terms')} t ON t.term_id = m.local_id WHERE m.id_kind = 'term' AND t.term_id IS NULL",
-            "DELETE m FROM $map m LEFT JOIN {$this->tableName('term_taxonomy')} tt ON tt.term_taxonomy_id = m.local_id WHERE m.id_kind = 'term_taxonomy' AND tt.term_taxonomy_id IS NULL",
-        ];
-        if (in_array($normalized, $expected, true)) {
-            return true;
-        }
-        $conditions = [
-            "id_kind = 'post' AND NOT EXISTS (SELECT 1 FROM `{$this->tableName('posts')}` po WHERE po.`ID` = `$map`.`local_id`)",
-            "id_kind = 'term' AND NOT EXISTS (SELECT 1 FROM `{$this->tableName('terms')}` t WHERE t.`term_id` = `$map`.`local_id`)",
-            "id_kind = 'term_taxonomy' AND NOT EXISTS (SELECT 1 FROM `{$this->tableName('term_taxonomy')}` tt WHERE tt.`term_taxonomy_id` = `$map`.`local_id`)",
-        ];
-        $prefix = "DELETE FROM `$map` WHERE CONNECTION_ID() = '";
-        if (!str_starts_with($normalized, $prefix)) {
-            return false;
-        }
-        $suffix = substr($normalized, strlen($prefix));
-        foreach ($conditions as $condition) {
+        foreach ([['post', 'posts', 'ID', 'po'], ['term', 'terms', 'term_id', 't'],
+            ['term_taxonomy', 'term_taxonomy', 'term_taxonomy_id', 'tt']] as [$kind, $table, $column, $alias]) {
+            $table = $this->tableName($table);
+            $intent = ['map' => $map, 'table' => $table, 'column' => $column, 'kind' => $kind, 'connection' => null, 'nonce' => null, 'keep' => []];
+            if ($normalized === "DELETE m FROM $map m LEFT JOIN $table $alias ON $alias.$column = m.local_id WHERE m.id_kind = '$kind' AND $alias.$column IS NULL") {
+                return $intent;
+            }
+            $condition = "id_kind = '$kind' AND NOT EXISTS (SELECT 1 FROM `$table` $alias WHERE $alias.`$column` = `$map`.`local_id`)";
             if (preg_match(
-                "/^[1-9][0-9]*' AND BINARY @wprism_tx_session = BINARY '[a-f0-9]{64}' AND \\("
+                '/\A' . preg_quote("DELETE FROM `$map` WHERE CONNECTION_ID() = '", '/')
+                    . "([1-9][0-9]*)' AND BINARY @wprism_tx_session = BINARY '([a-f0-9]{64})' AND \\("
                     . preg_quote($condition, '/') . '\\)$/D',
-                $suffix
+                $normalized,
+                $match
             ) === 1) {
-                return true;
+                return array_replace($intent, ['connection' => $match[1], 'nonce' => $match[2]]);
             }
         }
-        return false;
+        // Ledger's declared scalar-row pruner is the same bounded anti-join,
+        // with a policy-selected table/PK and optional positive keep IDs. Do
+        // not turn that one shape into general subquery or multi-table DELETE
+        // support: the exact receiver, session fences and src equality matter.
+        $typed = '/\A' . preg_quote("DELETE FROM `$map` WHERE CONNECTION_ID() = '", '/')
+            . "([1-9][0-9]*)' AND BINARY @wprism_tx_session = BINARY '([a-f0-9]{64})' AND \\("
+            . "id_kind = '([a-z][a-z0-9_]{0,63})'(?: AND local_id NOT IN \\(([1-9][0-9]*(?:,[1-9][0-9]*)*)\\))?"
+            . ' AND NOT EXISTS \\(SELECT 1 FROM `(' . preg_quote($this->prefix, '/') . '[A-Za-z0-9_]+)` src'
+            . ' WHERE src.`([A-Za-z0-9_]{1,64})` = ' . preg_quote("`$map`.`local_id`", '/') . '\\)\\)\\z/';
+        if (preg_match($typed, $normalized, $match) === 1 && strlen($match[5]) <= 64) {
+            $keep = [];
+            foreach ($match[4] === '' ? [] : explode(',', $match[4]) as $raw) {
+                $id = filter_var($raw, FILTER_VALIDATE_INT);
+                if (!is_int($id) || $id <= 0 || (string) $id !== $raw) {
+                    return null;
+                }
+                $keep[] = $id;
+            }
+            return ['map' => $map, 'table' => $match[5], 'column' => $match[6], 'kind' => $match[3],
+                'connection' => $match[1], 'nonce' => $match[2], 'keep' => $keep];
+        }
+        return null;
+    }
+
+    /** @param array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} $intent */
+    private function executeFullApplyPrune(array $intent): array {
+        $map = $this->requireTable($intent['map']);
+        $table = $this->requireTable($intent['table']);
+        foreach ([$map => ['id_kind', 'local_id'], $table => [$intent['column']]] as $name => $columns) {
+            if (array_diff($columns, $this->knownColumns($name)) !== []) {
+                throw $this->unsupported('ledger prune requires the exact seeded map and backing columns');
+            }
+        }
+        if ($intent['connection'] !== null
+            && ($intent['connection'] !== (string) $this->connectionId || $intent['nonce'] !== $this->transactionSessionNonce)) {
+            return ['kind' => 'affected', 'affected' => 0];
+        }
+        // The prior no-op assumed every map was backed, making lifecycle
+        // history loss untestable. Use the shared SQL comparison semantics and
+        // ordinary execute/run pipeline so rollback, fences and failures apply.
+        $remaining = [];
+        $affected = 0;
+        foreach ($this->store[$map] as $row) {
+            $backed = false;
+            if (self::compare($row['id_kind'] ?? null, $intent['kind']) === 0) {
+                $localId = $row['local_id'] ?? null;
+                $excluded = false;
+                foreach ($intent['keep'] as $id) {
+                    if ($localId === null || self::compare($localId, $id) === 0) {
+                        $excluded = true;
+                        break;
+                    }
+                }
+                if ($excluded) {
+                    $remaining[] = $row;
+                    continue;
+                }
+                foreach ($this->store[$table] as $physical) {
+                    if (self::compare($physical[$intent['column']] ?? null, $localId) === 0) {
+                        $backed = true;
+                        break;
+                    }
+                }
+                if (!$backed) {
+                    $affected++;
+                    continue;
+                }
+            }
+            $remaining[] = $row;
+        }
+        $this->store[$map] = $remaining;
+        return ['kind' => 'affected', 'affected' => $affected];
     }
 
     /** @return list<array<string,mixed>> */
@@ -1886,15 +1949,6 @@ class FakeWpdb {
             $this->log('query', $sql);
             $this->rows_affected = $affected;
             return ['kind' => 'affected', 'affected' => $affected];
-        }
-        if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyPruneQuery($sql)) {
-            // Ledger::prune_dead_map() is a deliberately live-only LEFT JOIN
-            // in the general fake grammar. Full apply's fixture seeds no
-            // orphan rows; preserve that exact no-op result while keeping the
-            // statement visible in the query log.
-            $this->log('query', $sql);
-            $this->rows_affected = 0;
-            return ['kind' => 'affected', 'affected' => 0];
         }
         if ($transactionOutcome === 'inactive_false') {
             $trimmed = rtrim(trim($sql), "; \t\n\r");
@@ -2351,10 +2405,15 @@ class FakeWpdb {
         if ($trimmed === '') {
             throw new \LogicException('FakeWpdb: empty SQL statement');
         }
-        // These seven opt-in read projections share the same transport as
-        // parsed SELECTs. Returning from get_row/get_results skipped the
-        // active query gate, error injection, logging and stale-error reset.
+        $this->currentSql = $trimmed;
+        // Closed opt-in projections and pruning share the ordinary transport.
+        // Returning before execute skipped the active query gate, error
+        // injection, logging, transaction rollback and stale-error reset.
         if ($this->fullApplySqlExtensionsEnabled) {
+            $prune = $this->fullApplyPruneQuery($sql);
+            if ($prune !== null) {
+                return $this->executeFullApplyPrune($prune);
+            }
             $witness = $this->fullApplyCanonicalPostWitnessRow($sql);
             if ($witness !== false) {
                 return ['kind' => 'rows', 'rows' => is_array($witness) ? [$witness] : []];
@@ -2749,7 +2808,6 @@ class FakeWpdb {
                 ]],
             ];
         }
-        $this->currentSql = $trimmed;
         if (preg_match('/^(.*)\s+FOR\s+UPDATE$/isD', $trimmed, $locking) === 1) {
             if (preg_match('/\bFROM\s+`?([A-Za-z0-9_]{1,64})`?/is', $trimmed, $tableMatch) !== 1) {
                 throw $this->unsupported('SELECT FOR UPDATE without an exact table');
@@ -2771,6 +2829,20 @@ class FakeWpdb {
                     $key = $this->tableName($target[1]) . "\0option_name\0" . $optionName;
                     if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
                         throw new \RuntimeException('FakeWpdb: simulated InnoDB row lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
+                } elseif ($table === $this->users && preg_match(
+                    '/^SELECT ID, user_login FROM `?[A-Za-z0-9_]{1,64}`? FORCE INDEX \(`[^`]+`\) '
+                    . "WHERE user_login = '((?:[^'\\\\]|\\\\.)*)' ORDER BY ID ASC LIMIT 3 FOR UPDATE$/D",
+                    $trimmed,
+                    $login
+                ) === 1) {
+                    // UserMetaMaterializer locks the complete collation-equal
+                    // login range, then selects exact bytes in PHP. The row
+                    // interpreter below still executes the full bounded read.
+                    $key = $table . "\0user_login\0" . strtolower(stripslashes($login[1]));
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB login-range lock wait timeout');
                     }
                     $this->rowLocks[$key] = $this->connectionId;
                 } elseif (str_ends_with($table, 'actionscheduler_groups')
@@ -3989,7 +4061,10 @@ class FakeWpdb {
 
     /**
      * Distinguish `( cond )` from `( expr )`: only a parenthesised group whose
-     * body contains a bare comparison/AND/OR at depth 1 is a condition.
+     * body contains a comparison/AND/OR is a condition, including an entirely
+     * nested group such as ((id = 7)). Arithmetic-only nesting stays an
+     * operand. TermRows' single-row size predicate exposed the old depth-1
+     * test: valid doubly-grouped SQL was misparsed as scalar arithmetic.
      */
     private function conditionFollows(): bool {
         $depth = 0;
@@ -4006,10 +4081,7 @@ class FakeWpdb {
                 }
                 continue;
             }
-            if ($depth !== 1) {
-                continue;
-            }
-            if ($token['t'] === 'op' && in_array($token['v'], ['=', '!=', '<>', '<', '<=', '>', '>='], true)) {
+            if ($token['t'] === 'op' && in_array($token['v'], ['=', '!=', '<>', '<', '<=', '>', '>=', '<=>'], true)) {
                 return true;
             }
             if ($token['t'] === 'word'

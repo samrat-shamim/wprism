@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../Kernel/FilesystemTreeSnapshot.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/PhpLiteralData.php';
+require_once __DIR__ . '/../Kernel/TermRows.php';
 require_once __DIR__ . '/../Policy/LegacyRuntimeExecutionDebt.php';
 if (!class_exists(ManifestProviderRuntime::class, false)) {
     require_once __DIR__ . '/ManifestProviderRuntime.php';
@@ -82,6 +83,13 @@ final class ProviderSdk {
     /** Read a digest-witnessed PHP return-literal without executing target bytes. */
     public static function php_literal_data(string $path, string $expectedSha256): mixed {
         return PhpLiteralData::read($path, $expectedSha256);
+    }
+
+    /** Physical term inputs from the caller's snapshot, without native cache writes. */
+    public static function term_rows(string $taxonomy, int $maxRows, int $maxBytes, string $context): array {
+        global $wpdb;
+        DatabaseQueryIsolation::assert_profile_contains([$wpdb->terms, $wpdb->term_taxonomy], false, $context);
+        return TermRows::taxonomy($taxonomy, $maxRows, $maxBytes, $context);
     }
 
     public static function checked_get_var(string $sql, string $context, $wpdb = null): mixed {

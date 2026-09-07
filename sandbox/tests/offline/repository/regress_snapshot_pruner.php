@@ -187,6 +187,17 @@ $pruner = $makePruner();
 $preserved = $pruner->option_name_ref_preserved_ids($canonical);
 $check($preserved === ['thing' => [7, 9]],
     'live and canonical witnesses deduplicate into sorted exact positive local ids');
+$canonicalObservations = 0;
+$scopedPreserved = $pruner->option_name_ref_preserved_ids($canonical, ['plugin_11_settings'],
+    static function (Closure $observe) use (&$canonicalObservations): void {
+        $canonicalObservations++;
+        $observe();
+    });
+$check($scopedPreserved === ['thing' => [7, 11]] && $canonicalObservations === 1,
+    'each complete canonical name enters the supplied observation boundary exactly once');
+$throws(static fn() => $pruner->option_name_ref_preserved_ids($canonical, [], static function (Closure $observe): void {
+    throw new RuntimeException('fixture canonical observation refused');
+}), 'fixture canonical observation refused', 'a canonical observation boundary refusal propagates without pruning');
 
 $unrelated = OptionState::document([
     "unrelated_{{thing:$uuid}}_settings" => OptionState::deleted(OptionState::present('old', 'yes')),
@@ -198,6 +209,23 @@ $throws(
 );
 
 $wpdb->optionScanFails = true;
+$readsBeforeSuppliedNames = count($wpdb->reads);
+$check($pruner->option_name_ref_preserved_ids($canonical, ['plugin_11_settings', 'plugin_11_settings'])
+    === ['thing' => [7, 11]],
+    'a supplied bounded namespace replaces the live scan but retains exact canonical witnesses');
+$check($pruner->option_name_ref_preserved_ids(null, []) === [],
+    'an explicitly empty observation does not fall back to a later database scan');
+$check(!in_array('SELECT `option_name` FROM `wp_options`', array_slice($wpdb->reads, $readsBeforeSuppliedNames), true),
+    'supplied names need no namespace query, including when the database scan would fail');
+foreach ([[7], ['named' => 'plugin_7_settings']] as $badNames) {
+    $throws(
+        static fn() => $pruner->option_name_ref_preserved_ids(null, $badNames),
+        'requires a list of names',
+        'malformed caller-supplied namespace names refuse without pruning'
+    );
+}
+$check($pruner->option_name_ref_preserved_ids(null, ['plugin_0007_settings']) === [],
+    'a spelling outside the authored matcher cannot preserve a local identity');
 $throws(
     static fn() => $pruner->option_name_ref_preserved_ids(),
     'wp_options scan failed',
@@ -283,40 +311,8 @@ $check($wpdb->queries === [],
     'composite pruning skips an absent lifecycle-owned table without mutating its ledger');
 $wpdb->missingTables = [];
 
-$lifecyclePruneWpdb = FakeWpdb::install()
-    ->seedTable('wp_wprism_map', [[
-        'uuid' => $uuid,
-        'entity_type' => 'things',
-        'id_kind' => 'thing',
-        'local_id' => 7,
-    ]])
-    ->setTableEngine('wp_wprism_map', 'InnoDB')
-    ->seedTable('wp_options', [
-        ['option_name' => 'plugin_9_settings'],
-        ['option_name' => 'plugin_7_settings'],
-    ])
-    ->setTableEngine('wp_options', 'InnoDB')
-    ->seedTable('wp_things', [])
-    ->setTableEngine('wp_things', 'InnoDB')
-    ->enableInformationSchema()
-    ->acknowledgeNextQueryWithoutExecution('NOT EXISTS');
-$pruner->prune_option_name_ref_map(static fn(): array => $rowTables, $canonical);
-$lifecycleDeletes = array_values(array_filter(
-    $lifecyclePruneWpdb->queries(),
-    static fn(string $sql): bool => str_starts_with($sql, 'DELETE FROM `wp_wprism_map`')
-));
-$check(count($lifecycleDeletes) === 1
-    && str_contains($lifecycleDeletes[0], "id_kind = 'thing'")
-    && str_contains($lifecycleDeletes[0], 'FROM `wp_things` src'),
-    'lifecycle pruning touches only the option-name-referenced row kind');
-$check(!str_contains($lifecycleDeletes[0], "id_kind = 'other'")
-    && !str_contains($lifecycleDeletes[0], "id_kind = 'join'"),
-    'lifecycle pruning excludes unrelated and composite row kinds');
-$wpdb = $snapshotWpdb;
-
 $noRefsPolicy = new Policy();
 $noRefsPolicy->manifests = [['name' => 'no-option-name-refs']];
-$noRefsRowsRead = false;
 $noRefsPruner = new SnapshotPruner(
     $noRefsPolicy,
     static fn(array $document): array => OptionState::records($document),
@@ -333,12 +329,8 @@ $noRefsPruner = new SnapshotPruner(
     },
     static fn(array $decl): bool => TableGraph::is_composite_ref($decl)
 );
-$noRefsPruner->prune_option_name_ref_map(static function () use (&$noRefsRowsRead): array {
-    $noRefsRowsRead = true;
-    throw new \RuntimeException('row-table discovery must stay lazy without option-name refs');
-});
-$check(!$noRefsRowsRead,
-    'lifecycle pruning returns before row-table discovery when no option-name refs exist');
+$check($noRefsPruner->option_name_ref_preserved_ids(null, []) === [],
+    'the preservation witness is empty without option-name reference rules');
 
 require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
 $check(Snapshot::option_name_ref_preserved_ids($policy, $canonical) === $preserved,
@@ -352,9 +344,10 @@ $invalidNoRefsPolicy->manifests = [[
         'second' => $row('duplicate'),
     ],
 ]];
-Snapshot::prune_option_name_ref_map($invalidNoRefsPolicy);
+require_once __DIR__ . '/../../../../agent/src/Capture/LifecycleReferenceView.php';
+new \WPrism\LifecycleReferenceView($invalidNoRefsPolicy, null);
 $check(true,
-    'Snapshot lifecycle facade preserves the no-rules short circuit before unrelated graph validation');
+    'lifecycle references preserve the no-rules short circuit before unrelated graph validation');
 
 $snapshotLines = file(__DIR__ . '/../../../../agent/src/Repository/Snapshot.php');
 $methodSource = static function (string $name) use ($snapshotLines): string {
@@ -368,7 +361,6 @@ $methodSource = static function (string $name) use ($snapshotLines): string {
 $delegates = [
     'option_name_ref_preserved_ids' => 'snapshot_pruner($policy)->option_name_ref_preserved_ids',
     'prune_dead_map' => 'snapshot_pruner($policy)->prune_dead_map',
-    'prune_option_name_ref_map' => 'snapshot_pruner($policy)->prune_option_name_ref_map',
 ];
 foreach ($delegates as $method => $call) {
     $source = $methodSource($method);

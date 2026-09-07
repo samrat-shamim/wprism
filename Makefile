@@ -735,6 +735,9 @@ regress-promotion-unit:
 regress-lifecycle-options-snapshot:
 	php sandbox/tests/offline/code-half/regress_lifecycle_options_snapshot.php
 
+regress-lifecycle-identity-preservation:
+	php sandbox/tests/offline/capture/regress_lifecycle_identity_preservation.php
+
 # Fatal-safe control-plane bootstrap: WPRISM_JOURNAL must not call WordPress
 # option/filter APIs before after_wp_config_load has loaded the normal runtime.
 regress-journal-bootstrap:
@@ -1713,6 +1716,22 @@ regress-private-refusal-receipt:
 regress-private-command-capture:
 	php sandbox/tests/offline/guards/regress_private_command_capture.php
 
+.PHONY: regress-private-tree-evidence
+regress-private-tree-evidence:
+	php sandbox/tests/offline/guards/regress_private_tree_evidence.php
+
+.PHONY: regress-sql-dump-evidence
+regress-sql-dump-evidence:
+	php sandbox/tests/offline/guards/regress_sql_dump_evidence.php
+
+.PHONY: regress-repository-convergence
+regress-repository-convergence:
+	php sandbox/tests/offline/repository/regress_repository_convergence.php
+
+.PHONY: regress-native-value-validation
+regress-native-value-validation:
+	php sandbox/tests/offline/apply/regress_native_value_validation.php
+
 # One scalar must satisfy every declared local-id consumer without guessing.
 .PHONY: regress-scalar-reference-intersection
 regress-scalar-reference-intersection:
@@ -1938,6 +1957,10 @@ regress-capture-secret-scan:
 # with a fake wpdb/policy/token fixture; no Docker or WordPress bootstrap.
 regress-user-meta-capture:
 	php sandbox/tests/offline/capture/regress_user_meta_capture.php
+
+.PHONY: regress-term-rows
+regress-term-rows:
+	php sandbox/tests/offline/capture/regress_term_rows.php
 
 # issue #3349: direct post/term metadata discovery + classification boundary.
 # Pure PHP with fake wpdb/policy/token fixtures; no Docker or WordPress.

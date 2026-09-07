@@ -4,8 +4,8 @@ namespace WPrism;
 /**
  * Policy-aware identity pruning for authored typed tables (issue #3349).
  *
- * This boundary owns the option-name preservation witness and the two map-
- * pruning scopes used by full capture and lifecycle-options capture. It does
+ * This boundary owns the option-name preservation witness and full-capture
+ * map pruning. Lifecycle observation reuses the witness without pruning. It does
  * not load Snapshot, Policy, Ledger, OptionState, or WordPress bootstrap code:
  * the compatibility facade injects those runtime capabilities explicitly.
  */
@@ -48,9 +48,19 @@ final class SnapshotPruner {
      * preservation only: it never mints or rebinds a mapping and never widens
      * option ownership.
      *
+     * @param null|list<string> $liveOptionNames A caller's already bounded, same-snapshot namespace observation; null keeps the maintenance scan.
+     * @param null|\Closure(\Closure():void):void $observeCanonicalName Execute one complete canonical-name witness within the caller's observation boundary.
      * @return array<string,int[]> id_kind => local ids excluded from pruning
      */
-    public function option_name_ref_preserved_ids(?array $repositoryOptions = null): array {
+    public function option_name_ref_preserved_ids(
+        ?array $repositoryOptions = null,
+        ?array $liveOptionNames = null,
+        ?\Closure $observeCanonicalName = null
+    ): array {
+        if ($liveOptionNames !== null && (!array_is_list($liveOptionNames)
+            || count(array_filter($liveOptionNames, 'is_string')) !== count($liveOptionNames))) {
+            throw new \LogicException('wprism: option-name identity observation requires a list of names');
+        }
         $rulesByKind = [];
         foreach ($this->policy->option_name_ref_rules() as $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
@@ -72,18 +82,21 @@ final class SnapshotPruner {
             '',
             (string) ($wpdb->options ?? (($wpdb->prefix ?? 'wp_') . 'options'))
         );
-        if ($optionsTable !== '') {
+        if ($liveOptionNames !== null || $optionsTable !== '') {
             // A failed option scan is not the same thing as an empty option
             // table. Fail closed before the following dead-map DELETE.
-            $wpdb->last_error = '';
-            $live = $wpdb->get_results("SELECT `option_name` FROM `$optionsTable`", ARRAY_A);
-            if ($live === false || $live === null || !empty($wpdb->last_error)) {
-                throw new \RuntimeException(
-                    'wprism: cannot reconcile option_name_refs identities because the wp_options scan failed'
-                );
+            $live = $liveOptionNames;
+            if ($live === null) {
+                $wpdb->last_error = '';
+                $live = $wpdb->get_results("SELECT `option_name` FROM `$optionsTable`", ARRAY_A);
+                if ($live === false || $live === null || !empty($wpdb->last_error)) {
+                    throw new \RuntimeException(
+                        'wprism: cannot reconcile option_name_refs identities because the wp_options scan failed'
+                    );
+                }
             }
             foreach ($live as $row) {
-                $name = (string) ($row['option_name'] ?? '');
+                $name = $liveOptionNames === null ? (string) ($row['option_name'] ?? '') : $row;
                 $details = $this->policy->option_name_ref_match_details($name);
                 if ($details === null || ($details['rule']['class'] ?? '') !== 'authored') {
                     continue;
@@ -108,51 +121,58 @@ final class SnapshotPruner {
         // after the live option row has already gone.
         if ($repositoryOptions !== null) {
             foreach (array_keys(($this->optionRecords)($repositoryOptions)) as $name) {
-                $matched = preg_match_all(
-                    '/\{\{([a-z][a-z0-9_]*):([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}/',
-                    (string) $name,
-                    $matches,
-                    PREG_SET_ORDER
-                );
-                if ($matched === false || $matched === 0) {
-                    continue;
-                }
-                foreach ($matches as $match) {
-                    $kind = (string) ($match[1] ?? '');
-                    if (!isset($rulesByKind[$kind])) {
-                        continue;
-                    }
-                    $id = ($this->ledgerIdFor)((string) ($match[2] ?? ''), $kind);
-                    if ($id === null || $id <= 0) {
-                        continue;
-                    }
-
-                    // Canonical names are untrusted repository input until
-                    // exact authored ownership is reconstructed and proved.
-                    $tokenText = (string) ($match[0] ?? '');
-                    $replacementCount = 0;
-                    $numericName = preg_replace(
-                        '/' . preg_quote($tokenText, '/') . '/',
-                        (string) $id,
+                $observe = function () use ($name, $rulesByKind, &$preserve): void {
+                    $matched = preg_match_all(
+                        '/\{\{([a-z][a-z0-9_]*):([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}/',
                         (string) $name,
-                        1,
-                        $replacementCount
+                        $matches,
+                        PREG_SET_ORDER
                     );
-                    if ($numericName === null || $replacementCount !== 1) {
-                        throw new \RuntimeException(
-                            "wprism: canonical option token for id_kind '$kind' could not be reconstructed safely"
-                        );
+                    if ($matched === false || $matched === 0) {
+                        return;
                     }
-                    $details = $this->policy->option_name_ref_match_details($numericName);
-                    if ($details === null
-                        || ($details['rule']['class'] ?? '') !== 'authored'
-                        || (string) ($details['rule']['id_kind'] ?? '') !== $kind
-                        || ($this->strictPositiveLocalId)($details['matches']['id'][0] ?? null) !== $id) {
-                        throw new \RuntimeException(
-                            "wprism: canonical option token for id_kind '$kind' is not owned by exactly one authored option_name_refs rule"
+                    foreach ($matches as $match) {
+                        $kind = (string) ($match[1] ?? '');
+                        if (!isset($rulesByKind[$kind])) {
+                            continue;
+                        }
+                        $id = ($this->ledgerIdFor)((string) ($match[2] ?? ''), $kind);
+                        if ($id === null || $id <= 0) {
+                            continue;
+                        }
+
+                        // Canonical names are untrusted repository input until
+                        // exact authored ownership is reconstructed and proved.
+                        $tokenText = (string) ($match[0] ?? '');
+                        $replacementCount = 0;
+                        $numericName = preg_replace(
+                            '/' . preg_quote($tokenText, '/') . '/',
+                            (string) $id,
+                            (string) $name,
+                            1,
+                            $replacementCount
                         );
+                        if ($numericName === null || $replacementCount !== 1) {
+                            throw new \RuntimeException(
+                                "wprism: canonical option token for id_kind '$kind' could not be reconstructed safely"
+                            );
+                        }
+                        $details = $this->policy->option_name_ref_match_details($numericName);
+                        if ($details === null
+                            || ($details['rule']['class'] ?? '') !== 'authored'
+                            || (string) ($details['rule']['id_kind'] ?? '') !== $kind
+                            || ($this->strictPositiveLocalId)($details['matches']['id'][0] ?? null) !== $id) {
+                            throw new \RuntimeException(
+                                "wprism: canonical option token for id_kind '$kind' is not owned by exactly one authored option_name_refs rule"
+                            );
+                        }
+                        $preserve[$kind][] = $id;
                     }
-                    $preserve[$kind][] = $id;
+                };
+                if ($observeCanonicalName === null) {
+                    $observe();
+                } else {
+                    $observeCanonicalName($observe);
                 }
             }
         }
@@ -197,39 +217,4 @@ final class SnapshotPruner {
         }
     }
 
-    /**
-     * Lifecycle-options pruning restricted to row kinds referenced from an
-     * authored option-name namespace. Absent plugin tables remain an explicit
-     * skip in the injected ledger boundary.
-     *
-     * @param \Closure():array<string,array> $rowTables lazy validated roster;
-     *   it must not run when no option-name reference kind needs pruning
-     */
-    public function prune_option_name_ref_map(\Closure $rowTables, ?array $repositoryOptions = null): void {
-        $refKinds = [];
-        foreach ($this->policy->option_name_ref_rules() as $rule) {
-            $kind = (string) ($rule['id_kind'] ?? '');
-            if ($kind !== '') {
-                $refKinds[$kind] = true;
-            }
-        }
-        if (!$refKinds) {
-            return;
-        }
-
-        $tables = [];
-        foreach ($rowTables() as $name => $decl) {
-            $kind = (string) ($decl['id_kind'] ?? '');
-            if (!isset($refKinds[$kind]) || ($this->isCompositeRef)($decl)) {
-                continue;
-            }
-            $tables[$kind] = ['table' => $name, 'pk' => $decl['pk']];
-        }
-        if ($tables) {
-            ($this->pruneDeadTableMap)(
-                $tables,
-                $this->option_name_ref_preserved_ids($repositoryOptions)
-            );
-        }
-    }
 }
