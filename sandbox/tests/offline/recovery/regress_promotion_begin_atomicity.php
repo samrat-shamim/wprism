@@ -86,6 +86,10 @@ function begin_atomicity_database(?string $kvEngine = 'InnoDB'): FakeWpdb {
         'v' => json_encode(begin_atomicity_prior_session(), JSON_UNESCAPED_SLASHES),
     ]])
         ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+        ->setIndexes('wp_wprism_kv', [[
+            'Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+            'Column_name' => 'k', 'Sub_part' => null, 'Index_type' => 'BTREE', 'Visible' => 'YES', 'Ignored' => 'NO',
+        ]])
         ->setUniqueKey('wp_wprism_kv', ['k']);
     if ($kvEngine !== null) {
         $wpdb->setTableEngine('wp_wprism_kv', $kvEngine);

@@ -45,6 +45,22 @@ namespace WPrism {
         }
         public static function delete(string $table, array $where, mixed $whereFormat = null, ?string $purpose = null): int { return 1; }
         public static function insert_id(string $purpose): int { return 41; }
+        public static function upsert_keyed_strings(
+            string $table, string $keyColumn, string $valueColumn, array $rows,
+            string $context, ?TransactionAuthority $authority = null
+        ): void {
+            // This rollback-only filesystem characterization owns no SQL
+            // boundary. Its separate full-Apply sibling exercises real Db.
+            if ($table !== 'wp_wprism_kv' || $keyColumn !== 'k' || $valueColumn !== 'v') {
+                throw new \LogicException('attachment fixture received an unsupported keyed table');
+            }
+            global $wpdb;
+            foreach ($rows as [$key, $value]) {
+                $wpdb->kvRows = array_values(array_filter($wpdb->kvRows,
+                    static fn(array $row): bool => $row['k'] !== $key));
+                $wpdb->kvRows[] = ['k' => $key, 'v' => $value];
+            }
+        }
         public static function query(string $sql, string $purpose): int {
             global $wpdb;
             if (preg_match("/INSERT INTO wp_wprism_kv \(k, v\) VALUES \('((?:''|[^'])*)', '((?:''|[^'])*)'\)/", $sql, $match) === 1) {

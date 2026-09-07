@@ -351,6 +351,7 @@ foreach ([
     'wp_options' => [$index('PRIMARY', 0, 1, 'option_id'), $index('option_name', 0, 1, 'option_name')],
     'wp_users' => [$index('PRIMARY', 0, 1, 'ID'), $index('user_login', 0, 1, 'user_login')],
     'wp_usermeta' => [$index('PRIMARY', 0, 1, 'umeta_id'), $index('user_id', 1, 1, 'user_id')],
+    'wp_wprism_kv' => [$index('PRIMARY', 0, 1, 'k')],
 ] as $table => $indexes) {
     $wpdb->setIndexes($table, $indexes);
 }
