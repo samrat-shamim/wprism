@@ -141,8 +141,12 @@ cannot detect a second edit to an already-dirty file.
 - [ ] Investigate WPForms Lite as the next candidate, following
   [the authoring guide](../guides/adapter-authoring.md) and
   [production-readiness requirements](adapter-production-readiness.md).
-  Prior source inspection is preparation only. Resolve native form-body ID
-  types, references, authored settings, submissions/PII boundaries, templates,
+  The shared engine now declares `body-ref-preserve-type/v1` and a strict typed
+  identity codec; JSON-body compiler portability, lint and real PostCapture
+  coverage pass 267 assertions, including divergent IDs, malformed inputs and
+  unchanged credential/PII clearance. This is preparation, not a capsule or
+  native WPForms support claim. Resolve URL rebinding, native materialization,
+  authored settings, submissions/PII boundaries, templates,
   derived location state and lifecycle before making a support claim.
 - [ ] Select the remaining two adapters on useful product coverage and an
   honest support boundary, not ease of increasing the count. Each must own its
