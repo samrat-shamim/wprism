@@ -109,12 +109,15 @@ final class BodyRefGrammar {
     /** Environment URL rebinding in JSON configuration, not block parsing. */
     public const URL_FEATURE = 'body-url-rebinding/v1';
 
+    /** Reviewed authored scalar fields, not whole-body privacy clearance. */
+    public const PII_FEATURE = 'body-pii-paths/v1';
+
     /** The top-level section this feature claims. */
     public const SECTION = 'body_refs';
 
     /**
      * One post type's record: `json_refs` mandatory; `sentinels` and the
-     * separately negotiated `url_rebinding` are optional.
+     * separately negotiated `url_rebinding` and `pii_paths` are optional.
      *
      * The same shape `StructuredEvidence` keeps for its own record (:120-121),
      * and hoisted out of validate_one()'s inline `array_diff('json_refs',
@@ -125,7 +128,7 @@ final class BodyRefGrammar {
      * says why).
      */
     public const RECORD_REQUIRED = ['json_refs'];
-    public const RECORD_OPTIONAL = ['sentinels', 'url_rebinding'];
+    public const RECORD_OPTIONAL = ['sentinels', 'url_rebinding', 'pii_paths'];
 
     /**
      * The `post_types.<type>.body` value this feature admits.
@@ -178,7 +181,8 @@ final class BodyRefGrammar {
         self::assert_body_mode_gate($manifest, $label);
         $preserveTypes = self::declares_feature($manifest, self::PRESERVED_TYPE_FEATURE);
         $urlRebinding = self::declares_feature($manifest, self::URL_FEATURE);
-        foreach ([self::PRESERVED_TYPE_FEATURE, self::URL_FEATURE] as $extension) {
+        $piiPaths = self::declares_feature($manifest, self::PII_FEATURE);
+        foreach ([self::PRESERVED_TYPE_FEATURE, self::URL_FEATURE, self::PII_FEATURE] as $extension) {
             if (self::declares_feature($manifest, $extension) && !self::declares_feature($manifest)) {
                 throw new \RuntimeException(
                     "wprism: $label engine feature '$extension' requires '" . self::FEATURE . "'"
@@ -195,7 +199,7 @@ final class BodyRefGrammar {
                 );
             }
             foreach ($section as $postType => $decl) {
-                self::validate_one((string) $postType, $decl, "$label " . self::SECTION . '.' . (string) $postType, $postTypes, $preserveTypes, $urlRebinding);
+                self::validate_one((string) $postType, $decl, "$label " . self::SECTION . '.' . (string) $postType, $postTypes, $preserveTypes, $urlRebinding, $piiPaths);
             }
         }
 
@@ -254,6 +258,9 @@ final class BodyRefGrammar {
             'url_rebinding' => 'true only; requires ' . self::URL_FEATURE
                 . '; use the shared environment URL/query-reference text codec outside declared reference positions; '
                 . 'keys, sentinels and non-string values remain unchanged',
+            'pii_paths' => 'non-empty list of distinct paths; requires ' . self::PII_FEATURE
+                . '; named first and terminal child, no recursive descent; intermediate wildcards and list mapping '
+                . 'use the existing reference dialect; reviewed scalar values only, never keys, containers or secrets',
             'validated_by' => 'WPrism\\BodyRefGrammar::validate_body_refs(), and each json_refs entry by '
                 . 'WPrism\\ReferenceRules::body_json_refs() — the same JSONPath dialect, keyspace grammar and '
                 . 'overlapping-path refusal `post_meta`/`options` already use',
@@ -328,8 +335,11 @@ final class BodyRefGrammar {
     /**
      * @param array<string,mixed> $postTypes this manifest's own post_types section
      */
-    private static function validate_one(string $postType, mixed $decl, string $where, array $postTypes, bool $preserveTypes, bool $urlRebinding): void {
+    private static function validate_one(string $postType, mixed $decl, string $where, array $postTypes, bool $preserveTypes, bool $urlRebinding, bool $piiPaths): void {
         $optional = $urlRebinding ? '{sentinels, url_rebinding}' : '{sentinels}';
+        if ($piiPaths) {
+            $optional = substr($optional, 0, -1) . ', pii_paths}';
+        }
         $mode = is_array($postTypes[$postType] ?? null) ? ($postTypes[$postType]['body'] ?? null) : null;
         if ($mode !== self::BODY_MODE) {
             throw new \RuntimeException(
@@ -349,6 +359,12 @@ final class BodyRefGrammar {
             if ($decl['url_rebinding'] !== true) {
                 throw new \RuntimeException("wprism: $where.url_rebinding must be true — omit it to retain reference-only body behavior");
             }
+        }
+        if (array_key_exists('pii_paths', $decl)) {
+            if (!$piiPaths) {
+                throw new \RuntimeException("wprism: $where pii_paths requires engine feature '" . self::PII_FEATURE . "'");
+            }
+            self::validate_pii_paths($decl['pii_paths'], "$where.pii_paths");
         }
         $unknown = array_diff(
             array_map('strval', array_keys($decl)),
@@ -435,6 +451,24 @@ final class BodyRefGrammar {
         }
     }
 
+    private static function validate_pii_paths(mixed $paths, string $where): void {
+        if (!is_array($paths) || !array_is_list($paths) || $paths === []) {
+            throw new \RuntimeException("wprism: $where must be a non-empty list of distinct scalar-field paths");
+        }
+        $seen = [];
+        foreach ($paths as $index => $path) {
+            if (!is_string($path) || trim($path) !== $path || isset($seen[$path])) {
+                throw new \RuntimeException("wprism: {$where}[$index] must be a distinct path string without surrounding whitespace");
+            }
+            $segments = JsonRefs::parse_path($path);
+            if ($segments[0]['type'] !== 'child' || $segments[count($segments) - 1]['type'] !== 'child'
+                || in_array('desc', array_column($segments, 'type'), true)) {
+                throw new \RuntimeException("wprism: {$where}[$index] requires named first and terminal child segments and no recursive descent");
+            }
+            $seen[$path] = true;
+        }
+    }
+
     /**
      * postType => {json_refs, sentinels}, merged across a pin set.
      *
@@ -445,7 +479,7 @@ final class BodyRefGrammar {
      * paths would be read through the old one's literals.
      *
      * @param list<array<string,mixed>> $manifests
-     * @return array<string,array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true}>
+     * @return array<string,array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true,pii_paths?:list<string>}>
      */
     public static function rules(array $manifests): array {
         $out = [];
@@ -460,6 +494,9 @@ final class BodyRefGrammar {
                 ];
                 if (($decl['url_rebinding'] ?? null) === true) {
                     $out[(string) $postType]['url_rebinding'] = true;
+                }
+                if (isset($decl['pii_paths'])) {
+                    $out[(string) $postType]['pii_paths'] = $decl['pii_paths'];
                 }
             }
         }
@@ -533,7 +570,7 @@ final class BodyRefGrammar {
      * Declared reference paths become tokens. An opted-in URL text codec runs
      * only outside those positions; other native bytes survive the decode.
      *
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true,pii_paths?:list<string>} $rule
      * @param callable(int,string):?string $idToToken
      * @param callable(string):void $warn
      * @param (callable(string):string)|null $rewriteText
@@ -551,7 +588,7 @@ final class BodyRefGrammar {
                 "wprism: $context contains a $secretLabel; refusing to capture json authored configuration"
             );
         }
-        $piiLabel = PersonalData::match_deep('body', $decoded);
+        $piiLabel = PersonalData::match_deep('body', $decoded, $rule['pii_paths'] ?? []);
         if ($piiLabel !== null) {
             throw new \RuntimeException(
                 "wprism: $context contains $piiLabel; refusing to capture json authored configuration — "
@@ -591,7 +628,7 @@ final class BodyRefGrammar {
      * Tokens become target-local IDs in their declared JSON type. URL text
      * rebinding is opt-in; sentinels, keys and native scalar types are preserved.
      *
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true,pii_paths?:list<string>} $rule
      * @param callable(string):int $tokenToId
      * @param (callable(string):string)|null $rewriteText
      */
@@ -660,7 +697,7 @@ final class BodyRefGrammar {
      * operator reconcile two vocabularies for one fact.
      *
      * @param array<mixed> $decoded
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true,pii_paths?:list<string>} $rule
      * @param bool $includeContainers the compiler must reject declared leaves that resolve to containers;
      *                               lint retains historical fixed-cast reporting and decodes typed refs strictly
      * @return list<array{value:mixed,ref:array<string,mixed>,locator:string}>
@@ -709,7 +746,7 @@ final class BodyRefGrammar {
      * apply refuses to act on, or worse, the reverse.
      *
      * @param array<mixed> $decoded
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true,pii_paths?:list<string>} $rule
      * @param callable(mixed,array<string,mixed>,string):mixed $rewrite
      */
     private static function walk(array &$decoded, array $rule, callable $rewrite, bool $allowTypedReferences = false): void {

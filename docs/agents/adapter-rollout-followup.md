@@ -158,10 +158,19 @@ cannot detect a second edit to an already-dirty file.
   coverage includes divergent IDs, malformed inputs and unchanged credential/PII
   clearance. Separately negotiated `body-url-rebinding/v1` now reuses the shared
   text codec with native-coordinate reference/sentinel protection. The body suite
-  passes 320 assertions through the real compiler, PostCapture and SQL-backed
+  passes 440 assertions through the real compiler, PostCapture and SQL-backed
   PostMaterializer, including exact fixed points, source-ID collisions and
   mutation-free refusal. Recursive typed paths use shared atomic traversal so
   generated reference-envelope fields cannot become new native matches.
+  Literal notification settings exposed a separate gap: the native fixture's
+  smart tags concealed the lack of any reviewed scalar PII authority in JSON
+  bodies. New `body-pii-paths/v1` declarations use the shared JSONPath matcher
+  and privacy detector at Capture and immutable compilation. Only the exact
+  reviewed scalar values and field roles are cleared; secrets, map keys,
+  containers and unrelated form defaults still refuse. Full compiler/checked-SQL
+  materialization/recapture proves composition with typed references and URLs.
+  Literal settings are synthetic mutations of the retained native fixture;
+  native persistence and notification delivery still need capsule evidence.
   This is offline preparation, not a capsule or native
   WPForms support claim. Complete native materialization, authored settings,
   submissions/PII boundaries, templates,

@@ -7389,13 +7389,17 @@
                 "FEATURE": {
                     "value_repr": "structured-body-refs/v1"
                 },
+                "PII_FEATURE": {
+                    "value_repr": "body-pii-paths/v1"
+                },
                 "PRESERVED_TYPE_FEATURE": {
                     "value_repr": "body-ref-preserve-type/v1"
                 },
                 "RECORD_OPTIONAL": {
                     "value_repr": [
                         "sentinels",
-                        "url_rebinding"
+                        "url_rebinding",
+                        "pii_paths"
                     ]
                 },
                 "RECORD_REQUIRED": {
@@ -23942,6 +23946,31 @@
                             "has_default": false,
                             "name": "rewrite",
                             "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "scalar_position_trie": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "paths",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -51973,6 +52002,14 @@
                             "has_default": false,
                             "name": "value",
                             "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "reviewedScalarPaths",
+                            "type": "array",
                             "variadic": false
                         }
                     ],

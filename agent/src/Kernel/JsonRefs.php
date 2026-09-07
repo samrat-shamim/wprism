@@ -144,6 +144,28 @@ final class JsonRefs {
     }
 
     /**
+     * Select scalar values by the existing path dialect, retaining native key
+     * coordinates. A matched container grants no authority to its children;
+     * a dotted diagnostic locator is never an authorization key.
+     *
+     * @param array<mixed> $value
+     * @param list<string> $paths
+     * @return array<mixed> Native-key trie whose true terminals are scalar/null positions.
+     */
+    public static function scalar_position_trie(array $value, array $paths): array {
+        $positions = [];
+        foreach ($paths as $path) {
+            self::step($value, self::parse_path($path), 0,
+                static function (&$container, $key, string $locator, array $keys) use (&$positions): void {
+                    if (is_scalar($container[$key]) || $container[$key] === null) {
+                        self::protect_position($positions, $keys);
+                    }
+                }, '', []);
+        }
+        return $positions;
+    }
+
+    /**
      * Apply a text codec outside positions owned by the existing reference
      * dialect. A declared literal sentinel is not URL prose, and typed token
      * envelopes are not a second text surface. Selection precedes rewriting;

@@ -2560,6 +2560,31 @@ and nested keys `a` then `b` can print the same dotted locator but must not prot
 values. Keys, non-string scalars and undeclared plugin-local field IDs are unchanged. Capture and Apply
 must receive the product's text codec when opted in; missing machinery refuses before reference work.
 
+**Reviewed scalar privacy exceptions are separately negotiated.** A manifest declaring
+`body-pii-paths/v1`, `spec-window/v1` and `structured-body-refs/v1` may add `pii_paths` to a post type's
+`body_refs` record. It is a non-empty list of distinct JSON paths, for example
+`["$.settings.notifications.*.email", "$.settings.notifications.*.replyto"]`. Each path uses the existing
+reference dialect, with a named first and terminal child and no recursive descent. Intermediate
+wildcards select repeated record maps; lists retain the dialect's transparent mapping. Malformed,
+duplicate, whitespace-padded, root-wildcard and terminal-wildcard declarations refuse at manifest load.
+Omission grants no exception, including when the feature itself is declared. A replacement body rule
+does not inherit earlier pins' privacy paths.
+
+The permission covers only each matched scalar/null value and that field's semantic PII role. It does
+not cover associative key bytes, containers, their descendants, unrelated siblings or secrets. A path
+that currently selects a container grants no clearance to it; ordinary recursive checking still runs.
+Selection uses native key coordinates, not ambiguous dotted locators, and changes no stored value.
+Capture and immutable-repository authorization repeat the same selection over their respective decoded
+documents, before publication or target mutation. The whole-body secret gate remains unconditional;
+reference validation, exact JSON framing and URL rebinding retain their independent contracts.
+
+This is reviewed authority to place an authored field in canonical state, not a claim that email is
+non-personal, an environment-value substitution mechanism, or authority to capture form responses.
+The motivating regression replaces the native fixture's notification smart tags with synthetic literal
+recipient/sender/reply-to settings: without this feature both PostCapture and repository authorization
+refuse. The shared compiler/materializer/recapture regression proves the scoped exception composes with
+typed references and URLs. It does not establish native WPForms support or notification delivery.
+
 **What the mode does NOT claim.** Without URL opt-in, the measured
 `settings.confirmations.<n>.redirect` remains source-bound and retains its exact legacy warning.
 With opt-in, that URL is rebound, but a remaining home URL in a preserved literal/key or an unsupported

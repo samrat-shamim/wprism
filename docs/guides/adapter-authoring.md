@@ -1480,6 +1480,16 @@ literal sentinels are protected; keys and non-string types stay unchanged.
 An omitted flag preserves the reference-only behavior and warnings. A remaining
 source URL is still a scoped limitation, not portable support. See
 `spec/repo-format.md` § v3.20.
+`body-pii-paths/v1` separately admits `pii_paths` on that same body record.
+It is a reviewed list of exact scalar-field paths, not whole-body `allow_pii`.
+Named first/terminal segments and no recursive descent keep the scope explicit;
+intermediate wildcards and list mapping use the existing reference dialect.
+Only matched scalar values and their field roles are cleared. Keys, containers,
+unreviewed siblings and all secrets remain protected. The same authority is
+checked during Capture and immutable compilation; merely declaring the feature
+does not clear anything. Decide whether each destination is genuinely authored
+and portable before reviewing it: an environment-specific address needs an
+environment contract, not a privacy exception that copies it to every target.
 `structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
 `{"evidence": [{source, locator, observation}, …]}` and optionally
@@ -1561,6 +1571,14 @@ plugin faithfully.
    to `true`. Prove it composes with the body's declared reference casts and
    literal sentinels through the real compiler, post materializer and recapture;
    an isolated string-codec pass is not evidence of database-boundary correctness.
+   Exercise literal operational settings as well as smart tags. WPForms'
+   `{admin_email}` fixture does not prove a literal notification destination
+   can be captured. When a genuine authored scalar needs reviewed PII authority,
+   declare its exact `pii_paths` entry with `body-pii-paths/v1`; retain a hostile
+   form default, sibling, map key, container and credential beside the positive
+   settings. Both Capture and immutable compilation must refuse those hostile
+   cases without altering canonical or native state. Never infer clearance in
+   a draft, suppress a detector, or add a plugin-name exception to the engine.
 5. Exercise activation, complete the plugin's documented onboarding, then make
    one real admin save, one front-end read, an update, and a deletion before
    declaring the option/table inventory complete. Activation is not proof of

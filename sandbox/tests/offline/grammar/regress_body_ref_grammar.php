@@ -1500,4 +1500,244 @@ foreach (['ref', 'type', 'format', 'nested-ref'] as $recursiveCase) {
     }
 }
 
+// K — Native notification destinations are authored configuration, but their
+// privacy review must not authorize unrelated form defaults or response data.
+$notificationManifest = $urlManifest;
+$notificationManifest['engine_features'][] = 'body-pii-paths/v1';
+sort($notificationManifest['engine_features'], SORT_STRING);
+$notificationPaths = array_map(static fn(string $field): string => '$.settings.notifications.*.' . $field,
+    ['email', 'replyto', 'sender_name', 'sender_address']);
+$notificationManifest['body_refs']['wpforms']['pii_paths'] = $notificationPaths;
+$missingPiiFeature = $notificationManifest;
+$missingPiiFeature['engine_features'] = $urlManifest['engine_features'];
+wprism_check_throws(static fn() => $load(['wpforms'=>$missingPiiFeature]), RuntimeException::class,
+    'K: a body path exception requires this manifest to negotiate its feature', 'pii_paths requires engine feature');
+$missingBodyFeature = $notificationManifest;
+$missingBodyFeature['engine_features'] = ['body-pii-paths/v1', 'spec-window/v1'];
+unset($missingBodyFeature['post_types'], $missingBodyFeature['body_refs']);
+wprism_check_throws(static fn() => $load(['wpforms'=>$missingBodyFeature]), RuntimeException::class,
+    'K: the privacy extension cannot negotiate independently of structured bodies', "requires 'structured-body-refs/v1'");
+foreach ([null, true, false, [], 'email', ['path'=>'$.settings.email'], [12], [null], [''], ['$'],
+    ['$.settings.email', '$.settings.email'], [' $.settings.email'], ["$.settings.email\n"],
+    ['$.settings[0].email'], ['$.*.email'], ['$.settings.*'], ['$..email'], ['$.settings..email']] as $invalidPiiPaths) {
+    $invalidPiiManifest = $notificationManifest;
+    $invalidPiiManifest['body_refs']['wpforms']['pii_paths'] = $invalidPiiPaths;
+    wprism_check_throws(static fn() => $load(['wpforms'=>$invalidPiiManifest]), RuntimeException::class,
+        'K: malformed, duplicate, recursive or whole-scope privacy paths refuse at actual manifest load');
+}
+$notificationPolicy = $load(['wpforms'=>$notificationManifest]);
+wprism_check_same($notificationPaths, $notificationPolicy->body_ref_rule('wpforms')['pii_paths'] ?? null,
+    'K: the actual manifest loader and Policy retain the exact reviewed scalar paths');
+$unusedPiiManifest = $notificationManifest;
+unset($unusedPiiManifest['body_refs']['wpforms']['pii_paths']);
+$unusedPiiPolicy = $load(['wpforms'=>$unusedPiiManifest]);
+wprism_check(!array_key_exists('pii_paths', $unusedPiiPolicy->body_ref_rule('wpforms')),
+    'K: declaring the feature without paths grants no privacy exception');
+wprism_check(!array_key_exists('pii_paths', BodyRefGrammar::rules([$notificationManifest, $urlManifest])['wpforms']),
+    'K: replacing a body rule cannot inherit an earlier manifest privacy exception');
+$missingPiiFeature['name'] = 'unreviewed-body';
+wprism_check_throws(static fn() => $load(['wpforms'=>$notificationManifest, 'unreviewed-body'=>$missingPiiFeature]),
+    RuntimeException::class, 'K: another loaded adapter cannot grant the missing feature', 'pii_paths requires engine feature');
+$notificationSite = WPrismTest\FrozenPolicy::site([$notificationManifest], WPRISM_SPEC_VERSION);
+$notificationSite['policy']['post_types'] = ['wpforms'];
+$notificationCompilePolicy = WPrismTest\FrozenPolicy::policy([$notificationManifest], $notificationSite);
+$notificationDocument = json_decode($capture('form-b'), true, 512, JSON_THROW_ON_ERROR);
+$notificationDocument['settings']['notifications'][1] += [
+    'sender_name'=>'WPrism product team', 'sender_address'=>'forms@example.test',
+];
+$notificationDocument['settings']['notifications'][1]['email'] = 'operations@example.test';
+$notificationDocument['settings']['notifications'][1]['replyto'] = 'support@example.test';
+$notificationBody = json_encode($notificationDocument, JSON_THROW_ON_ERROR);
+$notificationTokens = new Tokens('http://localhost:9620', 'http://localhost:9620/wp-content/uploads');
+$notificationTokens->policy = $notificationPolicy;
+$wpdb->seedTable('wp_wprism_map', [['id'=>1, 'uuid'=>$formUuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>4]]);
+$notificationCapture = new PostCapture($notificationPolicy, $notificationTokens, new EntityMetaCapture(
+    $notificationPolicy, $notificationTokens, static function (): void {}, static function (): void {}, static function (): void {}
+), new MediaCapture());
+try {
+    $notificationEntity = $notificationCapture->capture($formPost($notificationBody, 'notification-form'), $formUuid, []);
+    [, $notificationCanonical] = Canon::parse_post_file($notificationEntity['entity']['content']);
+    wprism_check_same($notificationDocument['settings']['notifications'],
+        json_decode($notificationCanonical, true)['settings']['notifications'],
+        'K: real PostCapture retains reviewed literal notification fields without rewriting their values');
+} catch (RuntimeException $failure) {
+    wprism_check(false, 'K: real PostCapture admits reviewed notification configuration: ' . $failure->getMessage());
+}
+$notificationExpected = $notificationDocument;
+$notificationExpected['settings']['confirmations'][1]['page'] = '{{post:' . $formUuid . '}}';
+$notificationExpected['settings']['confirmations'][2]['redirect'] = '{{home}}/recon-thank-you/';
+Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($notificationSite));
+Canon::write_file($compileRoot . $formPath, Canon::post_file($formFront, json_encode($notificationExpected, JSON_THROW_ON_ERROR)));
+try {
+    WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $notificationCompilePolicy);
+    wprism_check(true, 'K: the immutable repository compiler admits the same reviewed notification fields');
+} catch (RuntimeException $failure) {
+    wprism_check(false, 'K: compiler admits reviewed notification configuration: ' . $failure->getMessage());
+}
+
+// Compiler and Capture share exact scalar authority. Every adversary retains
+// the positive notification fields so rejecting the original email cannot
+// accidentally satisfy the negative case before the hostile sibling is read.
+$notificationAdversaries = [
+    'unreviewed-default'=>static function (array $doc): array {
+        $doc['fields'][2]['default_value'] = 'visitor@example.test'; return $doc;
+    },
+    'unreviewed-message'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['message'] = 'Contact visitor@example.test'; return $doc;
+    },
+    'semantic-sibling'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['phone'] = 'not-a-number'; return $doc;
+    },
+    'reviewed-container'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['email'] = ['primary'=>'visitor@example.test']; return $doc;
+    },
+    'reviewed-empty-container'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['email'] = []; return $doc;
+    },
+    'reviewed-list'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['replyto'] = ['visitor@example.test']; return $doc;
+    },
+    'wildcard-map-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['visitor@example.test'] = ['email'=>'operations@example.test']; return $doc;
+    },
+    'ip-map-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['192.0.2.44'] = ['email'=>'operations@example.test']; return $doc;
+    },
+    'dotted-map-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['1.email'] = 'visitor@example.test'; return $doc;
+    },
+    'embedded-authority'=>static function (array $doc): array {
+        $doc['pii_paths'] = ['$.settings.customer_email'];
+        $doc['settings']['customer_email'] = 'visitor@example.test'; return $doc;
+    },
+    'contextual-address'=>static function (array $doc): array {
+        $doc['settings']['shipping'] = ['state'=>'CA']; return $doc;
+    },
+    'credential-reviewed-leaf'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['replyto'] = 'ghp_0123456789abcdefghijklmnopqrstuv'; return $doc;
+    },
+    'credential-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['ghp_0123456789abcdefghijklmnopqrstuv'] = ['email'=>'operations@example.test']; return $doc;
+    },
+    'credential-container'=>static function (array $doc): array {
+        $doc['settings']['password'] = ['primary'=>'GeneratedValue-2026-Blocked']; return $doc;
+    },
+];
+$notificationSnapshot = static fn(): array => array_combine(['wp_posts', 'wp_postmeta', 'wp_wprism_map'],
+    array_map(static fn(string $table): array => $wpdb->rows($table), ['wp_posts', 'wp_postmeta', 'wp_wprism_map']));
+$notificationBeforeAdversaries = $notificationSnapshot();
+foreach ($notificationAdversaries as $case => $mutateNotification) {
+    $hostileNativeBody = json_encode($mutateNotification($notificationDocument), JSON_THROW_ON_ERROR);
+    $wpdb->resetLog();
+    wprism_check_throws(static fn() => $notificationCapture->capture($formPost($hostileNativeBody, 'hostile-notification'), $formUuid, []),
+        RuntimeException::class, "K: PostCapture refuses $case despite legitimate reviewed notifications",
+        'refusing to capture json authored configuration');
+    $hostileCanonicalBytes = Canon::post_file($formFront, json_encode($mutateNotification($notificationExpected), JSON_THROW_ON_ERROR));
+    Canon::write_file($compileRoot . $formPath, $hostileCanonicalBytes);
+    $clearanceFindings = [];
+    try {
+        WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $notificationCompilePolicy);
+    } catch (WPrism\RepositoryAuthorizationException $failure) {
+        $clearanceFindings = $failure->diagnostics;
+    }
+    wprism_check_same([str_starts_with($case, 'credential-') ? 'repository_secret_not_allowed' : 'repository_pii_not_allowed'],
+        array_column($clearanceFindings, 'code'), "K: immutable compiler classifies $case through the same exact clearance authority");
+    wprism_check_same($hostileCanonicalBytes, file_get_contents($compileRoot . $formPath),
+        "K: $case preserves the complete rejected canonical post");
+    wprism_check_same($notificationBeforeAdversaries, $notificationSnapshot(), "K: $case preserves every native profile table");
+    wprism_check_same([], array_values(array_filter($wpdb->queries(),
+        static fn(string $sql): bool => preg_match('/^(?:INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql) === 1)),
+        "K: $case attempts no database mutation");
+}
+
+foreach (['legacy'=>$urlPolicy, 'feature-only'=>$unusedPiiPolicy] as $case => $unreviewedPolicy) {
+    $unreviewedTokens = clone $notificationTokens;
+    $unreviewedTokens->policy = $unreviewedPolicy;
+    $unreviewedCapture = new PostCapture($unreviewedPolicy, $unreviewedTokens, new EntityMetaCapture(
+        $unreviewedPolicy, $unreviewedTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    wprism_check_throws(static fn() => $unreviewedCapture->capture($formPost($notificationBody, 'unreviewed-notification'), $formUuid, []),
+        RuntimeException::class, "K: $case policy still refuses literal notification PII", 'contains email address');
+}
+
+// An unrelated body schema exercises the same native-coordinate machinery:
+// transparent lists, missing paths, null/scalar types and dotted-key aliases.
+foreach ([
+    'list-values'=>[['contacts'=>[['email'=>'one@example.test'], ['email'=>'two@example.test']]], ['$.contacts.email'], null],
+    'typed-values'=>[['settings'=>['email'=>null, 'phone'=>42, 'address'=>false]],
+        ['$.settings.email', '$.settings.phone', '$.settings.address'], null],
+    'missing-path'=>[['settings'=>['title'=>'Public form']], ['$.settings.email'], null],
+    'container-is-not-descendants'=>[['settings'=>['slot'=>['email'=>'one@example.test']]], ['$.settings.slot'], 'email address'],
+    'terminal-key-bytes'=>[['settings'=>['one@example.test'=>'public']], ['$.settings.*'], 'email address'],
+    'dotted-key-alias'=>[['groups'=>['a'=>['member'=>['email'=>'reviewed@example.test']],
+        'a.member'=>['email'=>'unreviewed@example.test']]], ['$.groups.*.member.email'], 'email address'],
+    'independent-nested-review'=>[['settings'=>['slot'=>['email'=>'one@example.test']]],
+        ['$.settings.slot', '$.settings.slot.email'], null],
+] as $case => [$value, $paths, $expectedLabel]) {
+    $valueBefore = $value;
+    wprism_check_same($expectedLabel, WPrism\PersonalData::match_deep('body', $value, $paths),
+        "K: shared scalar privacy selection handles $case without a second JSONPath dialect");
+    wprism_check_same($valueBefore, $value, "K: privacy selection never rewrites $case input bytes or keys");
+}
+
+// Complete engine product round trip with the earlier typed/self-reference
+// and URL fixture, now carrying the separately reviewed notification fields.
+$notificationRoundTripNative = $nativeUrlDocument;
+$notificationRoundTripNative['settings']['notifications'] = $notificationDocument['settings']['notifications'];
+$notificationRoundTripExpected = $urlExpectedCanonical;
+$notificationRoundTripExpected['settings']['notifications'] = $notificationDocument['settings']['notifications'];
+$notificationRoundTripTarget = $urlExpectedTarget;
+$notificationRoundTripTarget['settings']['notifications'] = $notificationDocument['settings']['notifications'];
+$sourceUrlTokens->policy = $notificationCompilePolicy;
+$targetUrlTokens->policy = $notificationCompilePolicy;
+$bindForm(12);
+$roundTripCapture = new PostCapture($notificationCompilePolicy, $sourceUrlTokens, new EntityMetaCapture(
+    $notificationCompilePolicy, $sourceUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+), new MediaCapture());
+$roundTripSourcePost = $formPost(json_encode($notificationRoundTripNative, JSON_THROW_ON_ERROR), 'notification-round-trip');
+$roundTripSourcePost->ID = 12;
+$roundTripEntity = $roundTripCapture->capture($roundTripSourcePost, $formUuid, []);
+[, $roundTripCanonicalBody] = Canon::parse_post_file($roundTripEntity['entity']['content']);
+wprism_check_same(json_encode($notificationRoundTripExpected, JSON_THROW_ON_ERROR), $roundTripCanonicalBody,
+    'K: PostCapture composes exact PII authority with preserved ID types, sentinels and the shared URL codec');
+$roundTripCanonicalBytes = Canon::post_file($formFront, $roundTripCanonicalBody);
+Canon::write_file($compileRoot . $formPath, $roundTripCanonicalBytes);
+$notificationCompiled = WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $notificationCompilePolicy);
+$wpdb->seedTable('wp_posts', [$targetPost, $foreignPost])->seedTable('wp_postmeta', []);
+$bindForm(42, 12);
+$notificationFieldMaterializer = new WPrism\ApplyFieldMaterializer($notificationCompilePolicy, $targetUrlTokens);
+$notificationMaterializer = new WPrism\PostMaterializer($notificationCompilePolicy, $targetUrlTokens, $notificationFieldMaterializer,
+    new WPrism\RelationshipMaterializer($notificationCompilePolicy, $notificationFieldMaterializer),
+    new WPrism\AttachmentMaterializer($notificationCompilePolicy, $notificationFieldMaterializer, $notificationCompiled, $compileRoot));
+$notificationWarnings = [];
+WPrism\Db::start_repeatable_read('reviewed JSON notification test', $urlDbProfile);
+$notificationFieldMaterializer->begin_authored_transaction();
+WPrism\CacheInvalidationTransaction::begin();
+try {
+    $notificationMaterializer->finalize_post($formFront, $roundTripCanonicalBody, null, $notificationWarnings, []);
+    $notificationFirstRows = $wpdb->rows('wp_posts');
+    wprism_check_same(json_encode($notificationRoundTripTarget, JSON_THROW_ON_ERROR), $notificationFirstRows[0]['post_content'],
+        'K: checked-SQL PostMaterializer emits exact divergent-ID/URL target bytes with literal notification fields unchanged');
+    wprism_check_same($foreignPost, $notificationFirstRows[1], 'K: notification materialization preserves the foreign source-ID collision');
+    $notificationMaterializer->finalize_post($formFront, $roundTripCanonicalBody, null, $notificationWarnings, []);
+    wprism_check_same($notificationFirstRows, $wpdb->rows('wp_posts'), 'K: repeating real materialization preserves complete target rows');
+    wprism_check_same([], $notificationWarnings, 'K: reviewed notification materialization has no warning or fallback');
+    WPrism\Db::commit('reviewed JSON notification test');
+    WPrism\CacheInvalidationTransaction::finish();
+} finally {
+    $notificationFieldMaterializer->end_authored_transaction();
+    WPrism\CacheInvalidationTransaction::end();
+}
+$notificationRecapture = new PostCapture($notificationCompilePolicy, $targetUrlTokens, new EntityMetaCapture(
+    $notificationCompilePolicy, $targetUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+), new MediaCapture());
+$notificationRecaptured = $notificationRecapture->capture((object)$wpdb->rows('wp_posts')[0], $formUuid, []);
+[, $notificationRecapturedBody] = Canon::parse_post_file($notificationRecaptured['entity']['content']);
+wprism_check_same($roundTripCanonicalBody, $notificationRecapturedBody,
+    'K: compiler, checked SQL and actual PostCapture preserve the exact complete body fixed point');
+wprism_check_same($roundTripCanonicalBytes, file_get_contents($compileRoot . $formPath),
+    'K: positive materialization and recapture leave the complete canonical source unchanged');
+wprism_check_same(Canon::encode($notificationSite), file_get_contents($compileRoot . '/site.wprism.json'),
+    'K: all positive and hostile cases leave source pins and exact reviewed authority unchanged');
+
 wprism_check_summary('regress_body_ref_grammar');

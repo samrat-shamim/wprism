@@ -264,7 +264,9 @@ final class RepositoryAuthorization {
             'body',
             self::post_body_for_clearance($policy, $postType, (string) ($entity['body'] ?? ''), $path),
             [],
-            'platform'
+            'platform',
+            $policy->body_mode($postType) === BodyRefGrammar::BODY_MODE
+                ? ($policy->body_ref_rule($postType)['pii_paths'] ?? []) : []
         );
         if (array_key_exists('password_binding', $front)) {
             $expected = null;
@@ -963,7 +965,8 @@ final class RepositoryAuthorization {
         }
     }
 
-    /** Re-run capture's clearance on the immutable bytes plan/apply consume. */
+    /** Re-run capture's clearance on the immutable bytes plan/apply consume.
+     *  @param list<string> $reviewedScalarPaths */
     private static function authorize_sensitivity(
         array &$out,
         string $path,
@@ -972,7 +975,8 @@ final class RepositoryAuthorization {
         string $field,
         mixed $value,
         array $rule,
-        ?string $source
+        ?string $source,
+        array $reviewedScalarPaths = []
     ): void {
         if (empty($rule['allow_secret']) && Secrets::clearance_match_deep($field, $value) !== null) {
             self::finding(
@@ -980,7 +984,7 @@ final class RepositoryAuthorization {
                 $surface, $field, 'secret', $source
             );
         }
-        if (empty($rule['allow_pii']) && PersonalData::match_deep($field, $value) !== null) {
+        if (empty($rule['allow_pii']) && PersonalData::match_deep($field, $value, $reviewedScalarPaths) !== null) {
             self::finding(
                 $out, 'repository_pii_not_allowed', $path, $uuid,
                 $surface, $field, 'pii', $source

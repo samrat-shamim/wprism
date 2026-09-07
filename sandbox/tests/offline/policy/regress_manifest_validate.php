@@ -1601,8 +1601,11 @@ check(
     ]
     && ($bodyRefsGrammar['url_rebinding'] ?? null) === 'true only; requires ' . \WPrism\BodyRefGrammar::URL_FEATURE
         . '; use the shared environment URL/query-reference text codec outside declared reference positions; '
-        . 'keys, sentinels and non-string values remain unchanged',
-    '`body_refs` publishes its exact record, shared reference grammar and negotiated type/URL refinements'
+        . 'keys, sentinels and non-string values remain unchanged'
+    && ($bodyRefsGrammar['pii_paths'] ?? null) === 'non-empty list of distinct paths; requires ' . \WPrism\BodyRefGrammar::PII_FEATURE
+        . '; named first and terminal child, no recursive descent; intermediate wildcards and list mapping '
+        . 'use the existing reference dialect; reviewed scalar values only, never keys, containers or secrets',
+    '`body_refs` publishes its exact record, shared reference grammar and negotiated type/URL/scalar-clearance refinements'
 );
 $attrGrammar = $engineFeatures['implemented']['attr-id-codecs/v1']['sections']['attr_id_codecs']['grammar'] ?? [];
 check(

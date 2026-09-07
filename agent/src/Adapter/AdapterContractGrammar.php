@@ -346,6 +346,7 @@ final class AdapterContractGrammar {
         ],
         BodyRefGrammar::PRESERVED_TYPE_FEATURE => ['since' => 3, 'keys' => []],
         BodyRefGrammar::URL_FEATURE => ['since' => 3, 'keys' => []],
+        BodyRefGrammar::PII_FEATURE => ['since' => 3, 'keys' => []],
     ];
 
     /**

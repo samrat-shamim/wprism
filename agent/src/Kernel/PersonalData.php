@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/JsonRefs.php';
+
 /**
  * Conservative PII detector for values entering canonical state.
  *
@@ -27,15 +29,24 @@ final class PersonalData {
         'store', 'tax', 'venue',
     ];
 
-    /** Return a short PII label, or null when no conservative signal matches. */
-    public static function match_deep(string $key, $value): ?string {
+    /**
+     * Reviewed paths exempt only the selected scalar value and its field role,
+     * never key bytes, a container, or descendants of a matched container.
+     * Callers must obtain these paths from their validated authority, not the
+     * value being scanned. No paths preserves the existing whole-value gate.
+     *
+     * @param list<string> $reviewedScalarPaths
+     */
+    public static function match_deep(string $key, $value, array $reviewedScalarPaths = []): ?string {
         $keyMatch = self::match_key($key, []);
         if ($keyMatch !== null
             && !self::is_template_reference($value)
             && !self::is_technical_control($key, $value)) {
             return $keyMatch;
         }
-        return self::match_value_deep($value, [$key]);
+        $positions = $reviewedScalarPaths !== [] && is_array($value)
+            ? JsonRefs::scalar_position_trie($value, $reviewedScalarPaths) : [];
+        return self::match_value_deep($value, [$key], $positions);
     }
 
     /** @param list<string> $ancestors */
@@ -57,14 +68,18 @@ final class PersonalData {
         return null;
     }
 
-    /** @param list<string> $ancestors */
-    private static function match_value_deep($value, array $ancestors): ?string {
+    /** @param list<string> $ancestors
+     *  @param array<mixed> $reviewedPositions */
+    private static function match_value_deep($value, array $ancestors, array $reviewedPositions = []): ?string {
         if (is_array($value)) {
             foreach ($value as $childKey => $child) {
+                $position = $reviewedPositions[$childKey] ?? [];
+                $reviewedScalar = $position === true && (is_scalar($child) || $child === null);
                 $childAncestors = $ancestors;
                 if (is_string($childKey)) {
                     $keyMatch = self::match_key($childKey, $ancestors);
                     if ($keyMatch !== null
+                        && !$reviewedScalar
                         && !self::is_template_reference($child)
                         && !self::is_technical_control($childKey, $child)) {
                         return $keyMatch;
@@ -79,7 +94,10 @@ final class PersonalData {
                     }
                     $childAncestors[] = $childKey;
                 }
-                $label = self::match_value_deep($child, $childAncestors);
+                if ($reviewedScalar) {
+                    continue;
+                }
+                $label = self::match_value_deep($child, $childAncestors, is_array($position) ? $position : []);
                 if ($label !== null) {
                     return $label;
                 }

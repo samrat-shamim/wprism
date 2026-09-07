@@ -94,6 +94,18 @@
         "sandbox/tests/offline/grammar/regress_reference_contract.php"
       ]
     },
+    "reviewed_structured_scalar_pii_paths": {
+      "title": "reviewed scalar-field privacy authority inside structured bodies",
+      "status": "shipped",
+      "definition": "The separately negotiated body-pii-paths/v1 feature admits exact scalar-field pii_paths in a JSON body record. The existing JSONPath matcher selects native coordinates for PersonalData; Capture and immutable compilation share that authority without rewriting values or exempting key bytes, containers, siblings or secrets. This is authored-field review, not environment substitution or response-data capture.",
+      "evidence": [
+        "agent/src/Grammar/BodyRefGrammar.php",
+        "agent/src/Kernel/JsonRefs.php",
+        "agent/src/Kernel/PersonalData.php",
+        "agent/src/Repository/RepositoryAuthorization.php",
+        "sandbox/tests/offline/grammar/regress_body_ref_grammar.php"
+      ]
+    },
     "post_apply_registration_boundary": {
       "title": "a verified post-apply type-registration/process boundary",
       "status": "open",
@@ -189,6 +201,19 @@
             "sandbox/tests/offline/grammar/regress_reference_contract.php",
             "sandbox/tests/offline/grammar/regress_body_ref_grammar.php",
             "sandbox/tests/fixtures/wpforms-body/form-b.post_content.raw.json"
+          ]
+        },
+        {
+          "coordinate": "post_types.wpforms.body.notification_privacy",
+          "cannot_represent": "Replacing the retained native fixture's notification smart tags with synthetic literal recipient/sender/reply-to settings reproduces refusal in both real PostCapture and immutable-repository authorization. JSON bodies previously had no exact reviewed PII exception. body-pii-paths/v1 now admits pii_paths through the existing path dialect, restricted to named first/terminal segments and no recursive descent. The generic detector selects only native scalar coordinates and keeps key bytes, containers, unreviewed siblings and all secrets protected. Complete compiler, checked-SQL materializer and PostCapture tests prove exact typed-reference/URL/notification composition, hostile-input refusals and source/native preservation. Native writer persistence and notification delivery remain adapter evidence, not implied by these synthetic literal mutations.",
+          "primitive_required": "reviewed_structured_scalar_pii_paths",
+          "remedy_phrase": "reviewed scalar privacy paths without whole-body or secret clearance",
+          "closed_by": [
+            "agent/src/Grammar/BodyRefGrammar.php",
+            "agent/src/Kernel/JsonRefs.php",
+            "agent/src/Kernel/PersonalData.php",
+            "agent/src/Repository/RepositoryAuthorization.php",
+            "sandbox/tests/offline/grammar/regress_body_ref_grammar.php"
           ]
         },
         {
