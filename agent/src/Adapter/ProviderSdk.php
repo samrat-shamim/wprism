@@ -53,6 +53,8 @@ if (!class_exists(Providers::class, false)) {
  * reviewed public diagnostics without reimplementing the checked read.
  */
 final class ProviderSdk {
+    public const PHYSICAL_TABLE_ROWS_FEATURE = 'provider-physical-table-rows/v1';
+    public const TYPED_ROW_MUTATIONS_FEATURE = 'provider-typed-row-mutations/v1';
     public const DATABASE_POSTIMAGE_APPLIED = 'applied';
     public const DATABASE_POSTIMAGE_NOT_APPLIED = 'not_applied';
     public const DATABASE_POSTIMAGE_UNKNOWN = 'unknown';

@@ -957,7 +957,11 @@ third party's schema semantics.
 
 For complete physical input and preservation witnesses, use
 `ProviderSdk::physical_table_rows($descriptor, $context)` inside an already
-active contract snapshot or transaction. Its closed descriptor names `table`,
+active contract snapshot or transaction. A consuming manifest must declare
+`provider-physical-table-rows/v1` alongside `spec-window/v1`; older v3 engines
+then refuse the named dependency before loading executable behavior. The
+provider-protocol feature alone does not version SDK methods.
+Its closed descriptor names `table`,
 ordered unique `columns`, an `identity` list of one to four distinct selected
 positive-integer columns (for example `['ID']` or
 `['object_id', 'term_taxonomy_id']`),
@@ -1014,7 +1018,12 @@ operation to the SDK and its engine tests first. Never send raw DML, call
 `database_insert($table, $data, $context, $format = null)` and
 `database_update($table, $data, $where, $context, $format = null,
 $whereFormat = null)` reuse the engine's existing wpdb field codec and return
-affected-row counts. Update/delete predicates must be nonempty. The capsule
+affected-row counts. A manifest consuming either must declare
+`provider-typed-row-mutations/v1` alongside `spec-window/v1`. This requirement
+is independent of physical observation: declare only the APIs the capsule
+actually uses, before publishing its new digest. Neither feature grants a
+table, transaction, predicate or native hook effect.
+Update/delete predicates must be nonempty. The capsule
 still owns semantic row selection and before/after preservation proofs; these
 methods do not infer an upsert key, regenerate IDs, run native hooks or clear
 WordPress caches. Reconcile existing derived rows in place when physical

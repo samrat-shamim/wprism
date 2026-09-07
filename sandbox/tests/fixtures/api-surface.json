@@ -59088,6 +59088,12 @@
                 },
                 "DATABASE_POSTIMAGE_UNKNOWN": {
                     "value_repr": "unknown"
+                },
+                "PHYSICAL_TABLE_ROWS_FEATURE": {
+                    "value_repr": "provider-physical-table-rows/v1"
+                },
+                "TYPED_ROW_MUTATIONS_FEATURE": {
+                    "value_repr": "provider-typed-row-mutations/v1"
                 }
             },
             "final": true,
