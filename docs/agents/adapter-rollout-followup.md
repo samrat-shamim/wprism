@@ -21,19 +21,28 @@ reviewed and exercised through the product path.
 
 ## Immediate continuation after PR #586
 
-- [ ] Finish the pre-command Polylang uninstall oracle. Bind the first cause
+- [x] Finish the pre-command Polylang uninstall oracle. Bind the first cause
   from the genuine compiled order and native removed-family premises, including
   menu items inline under their owner and marker-only widget storage after
   reinstall. Shared bounded SQL column projection belongs in test
   infrastructure; the engine's existing plain-data codec owns serialization.
   The capsule owns native uninstall semantics, not a second SQL parser.
-- [ ] Run fresh exact-source native uninstall/recovery and run-last language
-  deletion evidence. The latest native sweep stopped at pre-command dump
-  admission, before protected Plan, postimages or a fresh private cause.
-  Re-admitting retained bytes after fixing framing is not that missing run.
+  Commit `7833585f` passes shared SQL projection (117 assertions), the capsule
+  uninstall oracle (123 assertions), and the complete local gate.
+- [x] Run fresh exact-source native uninstall/recovery and run-last language
+  deletion evidence. The full `polybiok09` Polylang 3.8.6 sweep on clean
+  `7833585f` passed in 585.99 seconds, including the protected Plan refusal,
+  exact public/private cause, unchanged complete database and canonical trees,
+  restore/reinstall/new-intent recovery, and unused-language deletion refusal.
+  Post-teardown admission of both evidence records also passed. Unsupported
+  language deletion is still a refusal, not a newly enabled capability.
 - [ ] Exercise the corrected compiler/native recapture oracle across all four
-  combination lanes below. Native biography and all 25 hostile KSES command
-  cases have evidence; no complete Polylang or combination sweep is claimed.
+  combination lanes below. The `rmcombofinal01` run passed native deployment,
+  frontend/redirect behavior, hostile ownership and provider recovery, then
+  exposed a test-only ACF `plain_data` assumption during recapture acceptance.
+  Its retained state passes the corrected oracle (46 managed entities, one
+  preserved post and six terms); this replay is not a completed lane. Fresh
+  four-lane and later custom-CPT deletion evidence remains required.
 - [ ] Obtain fresh independent review of the newest checkpoint deltas and this
   continuation. Agent execution was usage-limited at the interim merge; old
   reviews do not certify later changes. The owner's partial merge does not

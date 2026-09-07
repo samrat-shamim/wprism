@@ -1644,7 +1644,15 @@ plugin faithfully.
    them. Its engine-backed confinement and closed byte/topology decoder remain
    generic test machinery; the caller owns the selected roots, phase binding
    and equality assertion. Preserve target-only files and empty directories in
-   this diagnostic. Do not normalize away differences to make the test pass,
+   this diagnostic. Retain the compiler's selected policy and media inputs too:
+   `rmcombofinal01` kept the complete state trees but could not recompile them
+   after teardown until its missing media was recovered from the hash-verified
+   upstream artifact. The scenario's v2 diagnostic now retains both sites'
+   policy/media trees before and after, and requires them unchanged before
+   compiler-backed acceptance. A native scalar may still have a `plain_data`
+   declaration (ACF text fields do); distinguish a codec from the stored value's
+   shape, and reproduce the real interpreter rule in the offline oracle.
+   Do not normalize away differences to make the test pass,
    and do not treat a successfully retained record as proof of equality.
    Inspect private records from a standalone, non-WordPress process running as
    the target CLI identity: the store is intentionally `0700`/`0600`, so host

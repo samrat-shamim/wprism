@@ -28,6 +28,8 @@ $definitions = $slice($live, 'capture_rmcombo_native_state() {', 'assert_rmcombo
 $retentionEnd = str_contains($caller, 'capture_rmcombo_native_state PRESERVATION_AFTER')
     ? 'capture_rmcombo_native_state PRESERVATION_AFTER' : 'FINAL_DIFF=';
 $window = ShellProbe::captureBlock($caller, 'TARGET_RECAPTURE', $retentionEnd);
+$hostGate = $slice((string)file_get_contents(dirname(__DIR__, 2) . '/fixtures/recapture-convergence.php'),
+    "    \$phase = 'canonical_observations';", '    $library = AdapterLibrary::fromSourceTree($root);');
 $scratch = sys_get_temp_dir() . '/wprism-canonical-recapture-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700);
 $remove = static function (string $path): void {
@@ -61,6 +63,8 @@ wp2() {
     *) cp -R "$ROOT/fixture-recapture" "$R2/.tmp-rmcombo-final" ;;
   esac
   [ "$fault" != source-drift ] || printf 'source changed during capture' >>"$R1/state/state.json"
+  [ "$fault" != source-policy-drift ] || printf '\n' >>"$R1/site.wprism.json"
+  [ "$fault" != target-media-drift ] || printf 'changed' >>"$R2/media/asset.bin"
   [ "$fault" != command-compose ] || printf ' Container wprism-%s-cli2-run-abcd %s \n' "$PAIR" Creating "$PAIR" Created >&2
   [ "$fault" != command-wrong-site ] || printf ' Container wprism-%s-cli1-run-abcd Created \n' "$PAIR" >&2
   [ "$fault" != command-noise ] || printf 'unrecognized command diagnostic\n' >&2
@@ -90,6 +94,17 @@ $setup = static function (string $fault) use ($scratch, $root, $raw, &$sequence)
         file_put_contents($case . '/sandbox/siterepo/rmcombocanonical1/state/' . $name, $bytes);
         file_put_contents($case . '/fixture-recapture/' . $name, $bytes);
     }
+    foreach (['1','2'] as $side) {
+        $repo=$case . '/sandbox/siterepo/rmcombocanonical' . $side;
+        file_put_contents($repo . '/site.wprism.json', '{"spec_version":3,"side":"' . $side . '"}' . "\n");
+        mkdir($repo . '/media',0700);
+        file_put_contents($repo . '/media/asset.bin', "media-$side\0\xff");
+    }
+    $sourceRepo=$case . '/sandbox/siterepo/rmcombocanonical1';
+    $targetRepo=$case . '/sandbox/siterepo/rmcombocanonical2';
+    if ($fault === 'missing-source-policy') unlink($sourceRepo . '/site.wprism.json');
+    if ($fault === 'linked-target-media') { rename($targetRepo . '/media',$case . '/linked-media'); symlink($case . '/linked-media',$targetRepo . '/media'); }
+    if ($fault === 'large-target-media') file_put_contents($targetRepo . '/media/asset.bin',str_repeat('x',FilesystemTreeEvidence::MAX_BYTES + 1));
     if ($fault === 'mismatch') {
         file_put_contents($case . '/fixture-recapture/posts/product/en.md', "different managed body\0\xff");
         file_put_contents($case . '/fixture-recapture/posts/product/neighbor.md', 'target-only authored entity');
@@ -102,18 +117,18 @@ $setup = static function (string $fault) use ($scratch, $root, $raw, &$sequence)
     return $case;
 };
 $readySink = null;
-foreach (['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong-site', 'command-noise', 'command-pointer',
+foreach (['ready', 'mismatch', 'source-drift', 'source-policy-drift', 'target-media-drift', 'command-compose', 'command-wrong-site', 'command-noise', 'command-pointer',
     'command-warning', 'command-json-warning', 'command-empty',
     'command-duplicate', 'command-nonzero', 'missing-target', 'linked-target', 'large-target',
-    'missing-source', 'linked-source', 'large-source'] as $fault) {
+    'missing-source', 'linked-source', 'large-source', 'missing-source-policy', 'linked-target-media', 'large-target-media'] as $fault) {
     $case = $setup($fault);
     [$status, $stdout, $stderr] = ShellProbe::run($probe . "\n" . $assertions . "\n" . $definitions . "\n" . $window . "\nprintf 'CANONICAL_READY\\n'\n",
         [$root, $case, $fault], $root);
-    $healthy = in_array($fault, ['ready', 'command-compose', 'mismatch', 'source-drift'], true);
+    $healthy = in_array($fault, ['ready', 'command-compose', 'mismatch', 'source-drift', 'source-policy-drift', 'target-media-drift'], true);
     wprism_check($healthy ? $status === 0 && str_contains($stdout, 'CANONICAL_READY') : $status !== 0 && !str_contains($stdout, 'CANONICAL_READY'),
         "actual private retention classifies $fault before separate semantic acceptance (exit $status)");
     if ($healthy && $status !== 0) fwrite(STDERR, substr($stderr, 0, 2048));
-    if (in_array($fault, ['missing-source', 'linked-source', 'large-source'], true)) {
+    if (in_array($fault, ['missing-source', 'linked-source', 'large-source', 'missing-source-policy', 'linked-target-media', 'large-target-media'], true)) {
         wprism_check(!file_exists($case . '/command-called'), "$fault baseline failure prevents the product command");
     } else {
         wprism_check(file_exists($case . '/command-called'), "$fault exercises the exact selected product command");
@@ -128,6 +143,16 @@ foreach (['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong
     wprism_check_same(15, count($files), "$fault retains all five stages and their three streams");
     wprism_check_same(0700, fileperms($sink) & 07777, "$fault sink stays private");
     foreach ($files as $file) wprism_check_same(0600, fileperms($file) & 07777, "$fault private stream " . basename($file));
+    if ($healthy) {
+        $admit = static function (string $root, string $canonical) use ($hostGate): void {
+            $pair='rmcombocanonical';
+            eval('use WPrismTest\FilesystemTreeEvidence; use WPrismTest\PrivateCommandOutput;' . $hostGate);
+        };
+        $accepted=false;
+        try { $admit($case,$sink); $accepted=true; } catch (RuntimeException) {}
+        wprism_check($accepted === !in_array($fault,['source-drift','source-policy-drift','target-media-drift'],true),
+            "actual host input gate requires an unchanged source, policy and media: $fault");
+    }
     $remove($case . '/sandbox/siterepo');
     if (in_array($fault, ['ready', 'command-compose', 'mismatch'], true)) {
         $nativeSinks = glob($case . '/sandbox/tmp/wprism-rmcombo-native.rmcombocanonical.target-final.*') ?: [];
@@ -135,7 +160,7 @@ foreach (['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong
             && PrivateCommandOutput::readObject($nativeSinks[0] . '/native') === "{\"post_recapture\":true}\n",
             "$fault retains the complete post-recapture native observation even when the canonical comparison fails");
     }
-    if (!in_array($fault, ['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong-site', 'command-noise', 'command-pointer',
+    if (!in_array($fault, ['ready', 'mismatch', 'source-drift', 'source-policy-drift', 'target-media-drift', 'command-compose', 'command-wrong-site', 'command-noise', 'command-pointer',
         'command-warning', 'command-json-warning',
         'command-empty', 'command-duplicate', 'command-nonzero'], true)) continue;
     $beforeBytes = PrivateCommandOutput::readObject($sink . '/baseline');
@@ -145,9 +170,22 @@ foreach (['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong
     FilesystemTreeEvidence::assertRecord($before['source'], 'state');
     FilesystemTreeEvidence::assertRecord($after['source'], 'state');
     FilesystemTreeEvidence::assertRecord($after['recapture'], '.tmp-rmcombo-final');
+    wprism_check(is_array($before['inputs'] ?? null) && is_array($after['inputs'] ?? null),
+        "$fault retains both policies and complete media trees after teardown");
     wprism_check_same(hash('sha256', $beforeBytes), $after['baseline_sha256'], "$fault retains its exact source-before binding after site teardown");
     $decode = static fn(array $tree): array => array_column(array_map(static fn(array $row): array =>
         ['path' => $row['path'], 'value' => base64_decode($row['contents_base64'], true)], $tree['files']), 'value', 'path');
+    foreach (['source'=>'1','target'=>'2'] as $side=>$number) {
+        foreach (['site.wprism.json'=>['site.wprism.json'=>'{"spec_version":3,"side":"' . $number . '"}' . "\n"],
+            'media'=>['asset.bin'=>"media-$number\0\xff"]] as $relative=>$expectedInput) {
+            FilesystemTreeEvidence::assertRecord($before['inputs'][$side][$relative],$relative);
+            FilesystemTreeEvidence::assertRecord($after['inputs'][$side][$relative],$relative);
+            wprism_check_same($expectedInput,$decode($before['inputs'][$side][$relative]),"$fault retains exact before $side/$relative");
+            if ($fault === 'source-policy-drift' && $side === 'source' && $relative === 'site.wprism.json') $expectedInput['site.wprism.json'].="\n";
+            if ($fault === 'target-media-drift' && $side === 'target' && $relative === 'media') $expectedInput['asset.bin'].='changed';
+            wprism_check_same($expectedInput,$decode($after['inputs'][$side][$relative]),"$fault retains separate exact after $side/$relative");
+        }
+    }
     wprism_check_same($raw, $decode($before['source']), "$fault preserves every original source byte and pathname");
     $expected = $raw;
     if ($fault === 'source-drift') $expected['state.json'] .= 'source changed during capture';
@@ -166,7 +204,8 @@ foreach (['ready', 'mismatch', 'source-drift', 'command-compose', 'command-wrong
 if (is_array($readySink)) {
     [$case, $sink, $beforeBytes, $afterBytes] = $readySink;
     foreach (['ready', 'pair', 'phase', 'authority', 'format', 'extra', 'binding', 'source-root', 'recapture-root',
-        'source-content', 'recapture-content', 'file-root', 'baseline-bytes'] as $fault) {
+        'source-content', 'recapture-content', 'file-root', 'baseline-bytes', 'old-format', 'input-owner', 'input-roster',
+        'policy-root', 'policy-content', 'policy-missing', 'media-content'] as $fault) {
         $record = json_decode($afterBytes, true, 32, JSON_THROW_ON_ERROR);
         switch ($fault) {
             case 'pair': $record['pair'] = 'foreignpair'; break;
@@ -180,6 +219,13 @@ if (is_array($readySink)) {
             case 'source-content': $record['source']['files'][0]['contents_base64'] = base64_encode('different'); break;
             case 'recapture-content': $record['recapture']['files'][0]['contents_base64'] = base64_encode('different'); break;
             case 'file-root': $record['recapture']['directories'] = []; break;
+            case 'old-format': $record['format'] = 'wprism-private-canonical-observation/v1'; break;
+            case 'input-owner': unset($record['inputs']['target']); break;
+            case 'input-roster': $record['inputs']['target']['foreign']=[]; break;
+            case 'policy-root': $record['inputs']['source']['site.wprism.json']['root']='other'; break;
+            case 'policy-content': $record['inputs']['source']['site.wprism.json']['files'][0]['contents_base64']=base64_encode('different'); break;
+            case 'policy-missing': $record['inputs']['source']['site.wprism.json']['files']=[]; break;
+            case 'media-content': $record['inputs']['target']['media']['files'][0]['contents_base64']=base64_encode('different'); break;
         }
         file_put_contents($sink . '/private.stdout', json_encode($record, JSON_THROW_ON_ERROR));
         file_put_contents($sink . '/baseline.stdout', $beforeBytes . ($fault === 'baseline-bytes' ? "\n" : ''));

@@ -76,10 +76,14 @@ final class RecaptureConvergence {
             $key = $row['meta_key'];
             $rule = $term ? $policy->meta_rule_for_term($key, $flat) : $policy->meta_rule_for_post($key, $flat);
             if (($rule['class'] ?? null) !== 'authored') continue;
+            // ACF's native text field is plain_data. That codec is not a
+            // container claim: the scalar/no-URL precondition below makes its
+            // URL-leaf pass an identity without copying that engine walker.
             self::demand(!isset($out[$key]) && empty($rule['ref']) && empty($rule['json_refs']) && empty($rule['key_refs'])
-                && empty($rule['plain_data']) && empty($rule['order_preserving']) && !isset($rule['repeated_rows']), 'target-only fixture gained unsupported authored metadata semantics');
+                && empty($rule['order_preserving']) && !isset($rule['repeated_rows']), 'target-only fixture gained unsupported authored metadata semantics');
             $value = PlainData::decode($row['meta_value'], 'target-only metadata evidence');
-            self::demand(is_scalar($value) && (!is_string($value) || (!str_contains($value, '://') && !str_contains($value, '{{'))), 'target-only fixture metadata is no longer plain scalar data');
+            self::demand(is_scalar($value) && (!is_string($value) || (!str_contains($value, '://')
+                && !str_contains($value, ':\/\/') && !str_contains($value, '{{'))), 'target-only fixture metadata is no longer plain scalar data');
             $out[$key] = $value;
         }
         return (object)$out;

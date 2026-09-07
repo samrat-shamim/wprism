@@ -1303,8 +1303,16 @@ if (preg_match("/^[a-z][a-z0-9]{2,23}$/D",$argv[2])!==1 || !in_array($argv[3],["
 }
 $source=$argv[1]."/sandbox/siterepo/".$argv[2]."1";
 $target=$argv[1]."/sandbox/siterepo/".$argv[2]."2";
-$record=["format"=>"wprism-private-canonical-observation/v1","authority"=>false,"pair"=>$argv[2],"phase"=>$argv[3],
+$record=["format"=>"wprism-private-canonical-observation/v2","authority"=>false,"pair"=>$argv[2],"phase"=>$argv[3],
     "source"=>\WPrismTest\FilesystemTreeEvidence::capture($source,"state")];
+// Compilation also reads policy and content-addressed media. The old state-
+// only record lost those inputs at teardown (rmcombofinal01), so a preserved
+// canonical body alone could not reproduce the exact compiler decision.
+foreach (["source"=>$source,"target"=>$target] as $side=>$repo) {
+    foreach (["site.wprism.json","media"] as $relative) {
+        $record["inputs"][$side][$relative]=\WPrismTest\FilesystemTreeEvidence::capture($repo,$relative);
+    }
+}
 if ($argv[3]==="recapture") {
     if (!str_ends_with($argv[4],"/baseline.stdout")) throw new RuntimeException("canonical baseline binding is invalid");
     $baseline=\WPrismTest\PrivateCommandOutput::readObject(substr($argv[4],0,-7));
@@ -1322,9 +1330,16 @@ require $argv[1]."/sandbox/tests/lib/PrivateCommandOutput.php";
 $phase=match(basename($argv[3])) {"baseline"=>"baseline","private"=>"recapture",default=>throw new RuntimeException("canonical evidence phase is invalid")};
 $record=json_decode(\WPrismTest\PrivateCommandOutput::readObject($argv[3]),true,32,JSON_THROW_ON_ERROR);
 $keys=array_keys($record);sort($keys,SORT_STRING);
-$expected=$phase==="baseline" ? ["authority","format","pair","phase","source"] : ["authority","baseline_sha256","format","pair","phase","recapture","source"];
-if ($keys!==$expected || $record["format"]!=="wprism-private-canonical-observation/v1" || $record["authority"]!==false
+$expected=$phase==="baseline" ? ["authority","format","inputs","pair","phase","source"] : ["authority","baseline_sha256","format","inputs","pair","phase","recapture","source"];
+if ($keys!==$expected || $record["format"]!=="wprism-private-canonical-observation/v2" || $record["authority"]!==false
     || $record["pair"]!==$argv[2] || $record["phase"]!==$phase) throw new RuntimeException("canonical evidence envelope is invalid");
+if (!is_array($record["inputs"]) || array_keys($record["inputs"])!==["source","target"]) throw new RuntimeException("canonical input owners are incomplete");
+foreach ($record["inputs"] as $inputs) {
+    if (!is_array($inputs) || array_keys($inputs)!==["site.wprism.json","media"]) throw new RuntimeException("canonical inputs are incomplete");
+    foreach ($inputs as $relative=>$tree) \WPrismTest\FilesystemTreeEvidence::assertRecord($tree,$relative);
+    $policy=$inputs["site.wprism.json"];
+    if ($policy["directories"]!==[] || count($policy["files"])!==1 || $policy["files"][0]["path"]!=="site.wprism.json") throw new RuntimeException("canonical policy is not one regular file");
+}
 \WPrismTest\FilesystemTreeEvidence::assertRecord($record["source"],"state");
 if (($record["source"]["directories"][0]??null)!=="") throw new RuntimeException("canonical source is not a directory tree");
 if ($phase==="recapture") {
@@ -1363,7 +1378,7 @@ rmcombo_capture_target_recapture() {
   local canonical_collect=(rmcombo_canonical_observation recapture)
   local canonical_validator=(rmcombo_validate_canonical_observation)
   # 9952 kept only diff -rq filenames, then removed both trees on failure.
-  # Retain exact source-before/source-after and recapture bytes before the
+  # Retain exact source-before/source-after, policy, media and recapture bytes before the
   # unchanged comparison can trigger teardown; this does not bless equality.
   wprism_private_command_capture "$ROOT/sandbox/tmp/wprism-rmcombo-canonical.$PAIR" \
     canonical_snapshot canonical_collect canonical_validator -- \
