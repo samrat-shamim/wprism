@@ -174,10 +174,27 @@ cannot detect a second edit to an already-dirty file.
   Native-only success is not Capture/Apply evidence. The current release's
   QR-code settings also require page and attachment references
   (`qr_code_page_id`, `qr_code_logo_id`) plus URL rebinding of both configured
-  and generated destinations. Exercise the native admin writer and determine
-  the Lite/Pro residue boundary before ratifying those declarations; the older
-  fixture has no QR coverage. Rebuild locations for stored inactive widgets as
-  well as page embeds, according to the plugin's own locator semantics.
+  and generated destinations. Fresh exact `59d9bc4e` authenticated HTTP admin
+  reconnaissance passed the native general/validation writers, invalid-nonce
+  preservation, real media import, five QR save cases and repeated native save.
+  Lite's sanitizer retains imported custom-logo settings and their attachment
+  ID despite the license-gated control being unavailable. Decide and enforce
+  that residue boundary before ratifying support; saved bytes alone do not
+  prove the paid feature works in Lite. No QR browser-generation or portable
+  materialization claim is made. The earlier simulated CLI admin attempt
+  emitted PHP warnings and failed its settings readback; it is not evidence.
+  The successful HTTP record and server diagnostics survived exact teardown
+  and were re-admitted alongside all six other command records.
+
+  Native location observations also establish two provider constraints:
+  replaying a stored widget option with an empty old value appends a duplicate,
+  while a page embedding a nonexistent form causes native orphan location
+  metadata. Page replay alone is idempotent, so it cannot stand in for widget
+  repair evidence. The capsule needs complete bounded input/reference
+  validation, a declared recoverable derived keyspace, synchronous repair and
+  independent readback. Rebuild locations for stored inactive widgets as well
+  as page embeds, according to the plugin's own locator semantics. Neither a
+  scheduling receipt nor replaying a delta hook is a complete rebuild.
   Native onboarding then exposed a shared initialization gap: its ready
   proposal did not acknowledge populated undeclared widget families, so the
   baseline failed at the existing Capture guard. The planner now uses the
@@ -193,8 +210,17 @@ cannot detect a second edit to an already-dirty file.
   storage now chunks values inside the original transaction and unchanged
   callback budgets, with whole-field validation, unique-key proof, complete
   readback and rollback/quarantine controls. `regress-ledger-large-values`
-  covers this engine contract; fresh native onboarding and the updated full
-  gate remain required before treating the storage repair as verified.
+  covers this engine contract. Exact `59d9bc4e` passed the complete local gate
+  (363 shared suites; composer 1,292 tests / 34,753 assertions), release gate,
+  and the shared native database boundary on both MariaDB and MySQL. A fresh
+  WPForms authoring run captured the canonical and separate 4,944-file code
+  baselines, explicitly provisioned the three required core environment
+  bindings and reached clean host status with every excluded widget row
+  unchanged. Journal, coverage, inventory, probe and both draft steps passed;
+  all 18 retained command records were re-admitted after exact pair cleanup.
+  Initial host `init` exited 1 at the documented environment-required handoff,
+  not at code-descriptor storage. This verifies the shared repair and authoring
+  sequence, not WPForms Capture/Apply or production readiness.
 - [ ] Select the remaining two adapters on useful product coverage and an
   honest support boundary, not ease of increasing the count. Each must own its
   capsule-local declaration, reviewed disposition, exact official artifacts,

@@ -1573,10 +1573,23 @@ plugin faithfully.
    clears uploads with `wp site empty --uploads`, recreate and verify the
    ordinary WordPress uploads root through `wp_mkdir_p` before apply; apply is
    right to refuse a missing or symlinked production root.
+   For admin-only writers, prove the authenticated actor, native request
+   lifecycle, registered writer and persisted readback together. A loaded class
+   or manually fired `admin_init` is insufficient. If a simulated CLI admin
+   request warns or fails, retain that failure and exercise an authenticated
+   HTTP admin request with its nonce and server diagnostics; do not suppress
+   warnings or manually load plugin internals to manufacture readiness.
 6. Trace the plugin hooks skipped by WPrism's direct writes. Cache invalidation,
    generated files, rewrite flushes, index tables, and type registration need a
    bounded provider with value-level verification or an explicit unsupported
    disposition.
+   A native delta handler is not necessarily a rebuild API: WPForms' widget
+   locator appends duplicate locations when the same nonempty settings are
+   replayed with an empty old value, and its post handler can write location
+   metadata for a nonexistent form. Validate the complete bounded input and
+   target roster before mutation, declare the exact recoverable derived
+   keyspace, and prove a complete value-level fixed point. Neither invoking
+   that handler twice nor scheduling its asynchronous scan establishes repair.
 7. Mutate the proposed manifest in tests: remove a ref, broaden a namespace,
    switch a runtime field to authored, and create a conflicting second owner.
    Each false claim must fail for the reason the production path would fail.
@@ -1953,6 +1966,18 @@ green; when testing this boundary, retain the refused layout and prove both
 readiness and Capture preserve it. WPForms reconnaissance exposed the previous
 false-ready proposal; `regress-init-widgets` exercises the actual planner,
 bounded native reader and unchanged Capture guards.
+
+A completed baseline is not yet a clean environment. Host `init` can report
+both canonical and separate code baseline commits, then exit 1 because required
+`admin_email`, `home` or `siteurl` bindings have not been provisioned. Preserve
+those baselines; inspect the complete plan, provision the driver's deliberately
+chosen values through public `env-set --stdin`, and require a fresh host
+`status` to be clean before proceeding. Do not rerun initialization, infer
+intent from whatever values happen to be installed, or accept the nonzero
+handoff as a successful status check. Disposable conformance uses
+`establish_core_environment_bindings` as described below. WPForms reconnaissance
+exercised this exact baseline → explicit provisioning → clean-status sequence;
+it is distinct from a failed baseline publication or uncertain recovery.
 
 For a failed **fresh** initialization, `.wprism/refusals/` is intentionally
 absent: creating that directory would violate first-init compensation. Preserve
