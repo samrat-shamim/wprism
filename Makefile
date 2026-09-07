@@ -23,6 +23,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-live-pair-ownership regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-proof-legacy-pair
 .PHONY: regress-text-tokenizer
 .PHONY: regress-structured-reference-codec
+.PHONY: regress-conditional-json-refs
 .PHONY: regress-url-query-reference-codec
 .PHONY: regress-rank-math-commerce-multilingual regress-rank-math-yoast-incompatibility
 .PHONY: regress-lint-primitives
@@ -2219,6 +2220,9 @@ regress-text-tokenizer:
 
 regress-structured-reference-codec:
 	php sandbox/tests/offline/grammar/regress_structured_reference_codec.php
+
+regress-conditional-json-refs:
+	php sandbox/tests/offline/grammar/regress_conditional_json_refs.php
 
 regress-url-query-reference-codec:
 	php sandbox/tests/offline/grammar/regress_url_query_reference_codec.php

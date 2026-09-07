@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/JsonRefs.php';
+require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
 require_once __DIR__ . '/Pending.php';
 require_once __DIR__ . '/LintFinding.php';
 
@@ -36,6 +37,7 @@ final class StructuredReferenceScanner {
                 function (&$container, $key, string $matchedLocator) use (
                     &$declaredLocators, &$findings, $rel, $rule, $resolveId
                 ): void {
+                    if (!ReferenceCondition::matches($container, $rule, $matchedLocator)) return;
                     $declaredLocators[$matchedLocator] = true;
                     $value = $container[$key];
                     if (is_array($value)) {

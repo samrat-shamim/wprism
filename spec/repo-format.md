@@ -981,7 +981,8 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements eleven features, and the first one is what the other ten ride:
+The implemented feature roster is emitted by `wprism manifest-validate --emit-schema`;
+the following features use its `spec-window/v1` channel:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -2916,6 +2917,49 @@ entire static owned value as runtime/derived/env, but cannot substitute a weaker
 authored rule. Existing dynamic cross-owner refusals remain in force. Package
 identity includes these declarations and hooks, so adoption requires normal
 recompilation and explicit re-pinning after an edit.
+
+### v3.27 `conditional-json-refs/v1` — sibling-discriminated structural references
+
+A v3 adapter declaring this feature may add `when` to an ordinary `json_refs`
+entry on an option, option subkey, metadata rule, metadata pattern, dynamic
+option subkey, or attached table metadata key. It adds no top-level section or
+token kind. Site-authored conditions, taxonomy descriptions and `body_refs`
+are not admitted by this feature. An interpreter answer requires exactly one
+v3 owner declaring the same feature and passes the same value-rule grammar.
+
+```json
+{
+  "path": "$.login_target_value",
+  "kind": "post",
+  "cast": "string",
+  "when": {"key": "login_target_type", "equals": "page", "otherwise": ["custom"]}
+}
+```
+
+`when` has exactly these three keys. `key` is an exact sibling key of at most
+128 bytes in the existing reference-path key alphabet. `equals` is a nonempty
+UTF-8 string of at most 128 bytes without control bytes; `otherwise` lists one
+to sixteen distinct strings under the same constraints, excluding `equals`.
+The reference path must end at an exact key, distinct from the discriminator.
+No declared reference path may also rewrite a discriminator. Existing
+overlapping-reference refusals remain unchanged.
+
+Each matched record must contain either the exact `equals` value or an exact
+listed alternative. Missing, non-string and unknown discriminators refuse;
+an unknown variant is never treated as portable text. Only the selected branch
+uses the typed identity codec. Selected source values must be positive native
+integers or canonical decimal strings within the PHP integer range, or the
+existing null/empty/zero/false unset conventions. Selected canonical values
+must instead be tokens in the declared keyspace or unset values. The ordinary
+`cast` controls the restored representation. Explicitly unselected branches
+retain their value and still pass through ordinary URL rewriting and the
+secret/PII gates; the discriminator grants no clearance exception.
+
+Capture, immutable repository validation, lint and SQL materialization use
+the same sibling selection. The negotiated feature leaves unconditional
+reference behavior unchanged. AIO Login 2.4.1's native redirect rule is the
+measured demand: `page` stores a decimal string while `custom` stores a URL;
+unconditional reference apply changed the latter to `"0"`.
 
 ## Ledger tables (per environment, never in the repo)
 

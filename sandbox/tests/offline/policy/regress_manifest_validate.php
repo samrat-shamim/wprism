@@ -2627,13 +2627,14 @@ check(
 // The pure reference-valued declaration shape grammar belongs to
 // ReferenceShapeGrammar; Policy retains the later keyspace/sidecar pass
 // because that pass needs the full declared-table set. Keep every site and
-// manifest loader path wired directly to the extracted collaborator.
+// manifest loader path wired directly to the extracted collaborator. Runtime
+// interpreter answers also delegate there with their owner's negotiated features.
 $referenceShapeGrammar = new ReflectionClass('WPrism\\ReferenceShapeGrammar');
 check(
     $referenceShapeGrammar->hasMethod('validate_reference_shapes')
         && $referenceShapeGrammar->getMethod('validate_reference_shapes')->isPublic()
         && !$policyReflection->hasMethod('validate_reference_shapes')
-        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 0
+        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1
         && substr_count($manifestValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1
         && substr_count($sitePolicyValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1,
     'reference-valued declaration shape grammar lives in ReferenceShapeGrammar while the site validator owns site loading'

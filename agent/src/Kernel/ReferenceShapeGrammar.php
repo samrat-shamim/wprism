@@ -7,6 +7,7 @@ namespace WPrism;
 require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/NativeValueValidation.php';
+require_once __DIR__ . '/ReferenceCondition.php';
 
 /**
  * Pure loader-time grammar for reference-valued manifest declarations.
@@ -24,6 +25,8 @@ final class ReferenceShapeGrammar {
      * byte-for-byte identical to Policy's former implementation.
      */
     public static function validate_reference_shapes(array $source, string $label, bool $manifestFeatures = false): void {
+        $conditionalRefs = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
+            && in_array(ReferenceCondition::FEATURE, (array) ($source['engine_features'] ?? []), true);
         foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
             foreach (($source[$section] ?? []) as $name => $rule) {
                 if (!is_array($rule) || array_is_list($rule)) {
@@ -38,7 +41,8 @@ final class ReferenceShapeGrammar {
                         && ($source['spec_version'] ?? 0) >= 3
                         && in_array(ScalarReferenceIntersection::FEATURE, (array) ($source['engine_features'] ?? []), true),
                     $manifestFeatures && $section !== 'options' && ($source['spec_version'] ?? 0) >= 3
-                        && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true)
+                        && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true),
+                    $conditionalRefs
                 );
             }
         }
@@ -53,7 +57,8 @@ final class ReferenceShapeGrammar {
                         false,
                         $manifestFeatures && in_array($section, ['post_meta_patterns', 'meta_patterns'], true)
                             && ($source['spec_version'] ?? 0) >= 3
-                            && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true)
+                            && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true),
+                        $conditionalRefs
                     );
                 }
             }
@@ -72,7 +77,7 @@ final class ReferenceShapeGrammar {
                 if (is_array($rule) && !array_is_list($rule)) {
                     self::validate_reference_value_rule(
                         $rule,
-                        "$label.dynamic_options.$name.sub_keys.$key"
+                        "$label.dynamic_options.$name.sub_keys.$key", false, false, false, false, $conditionalRefs
                     );
                 }
             }
@@ -95,7 +100,7 @@ final class ReferenceShapeGrammar {
                         "wprism: $label.tables.$table.keys.$key must be an attached-meta rule object"
                     );
                 }
-                self::validate_reference_value_rule($rule, "$label.tables.$table.keys.$key");
+                self::validate_reference_value_rule($rule, "$label.tables.$table.keys.$key", false, false, false, false, $conditionalRefs);
             }
         }
     }
@@ -106,7 +111,8 @@ final class ReferenceShapeGrammar {
         bool $allowSubKeys = false,
         bool $allowRepeatedRows = false,
         bool $allowIntersection = false,
-        bool $allowNativeValidation = false
+        bool $allowNativeValidation = false,
+        bool $conditionalRefs = false
     ): void {
         if (array_key_exists(NativeValueValidation::FIELD, $rule) && !$allowNativeValidation) {
             throw new \RuntimeException("wprism: $where native value validation belongs only to metadata in a v3 adapter declaring " . NativeValueValidation::FEATURE);
@@ -119,7 +125,7 @@ final class ReferenceShapeGrammar {
                     . ScalarReferenceIntersection::FEATURE
             );
         }
-        ReferenceRules::value_rule($rule, $where);
+        ReferenceRules::value_rule($rule, $where, $conditionalRefs);
         if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
             throw new \RuntimeException(
                 "wprism: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"
@@ -132,7 +138,7 @@ final class ReferenceShapeGrammar {
         }
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
             if (is_array($subRule) && !array_is_list($subRule)) {
-                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false, false);
+                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false, false, false, false, $conditionalRefs);
             }
         }
     }

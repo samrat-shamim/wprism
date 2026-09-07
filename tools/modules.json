@@ -93,6 +93,7 @@
           "StructuredValue",
           "Uuid",
           "ReferenceRules",
+          "ReferenceCondition",
           "DurableFilesystem",
           "ReferenceScopeClassifier",
           "PathSafety",
@@ -148,7 +149,7 @@
             ]
           }
         ],
-  "file_count": 67,
+  "file_count": 68,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -195,6 +196,7 @@
           "ReferenceKindGrammar.php",
           "ReferencePath.php",
           "ReferenceRules.php",
+          "ReferenceCondition.php",
           "ReferenceScopeClassifier.php",
           "ReferenceShapeGrammar.php",
           "ScalarReferenceIntersection.php",

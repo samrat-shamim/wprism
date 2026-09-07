@@ -246,6 +246,7 @@ return [
     'WPrism\\RebuildActionNegotiator' => 'src/Rebuild/RebuildActionNegotiator.php',
     'WPrism\\RebuildRequest' => 'src/Rebuild/RebuildRequest.php',
     'WPrism\\RebuildSelection' => 'src/Rebuild/RebuildSelection.php',
+    'WPrism\\ReferenceCondition' => 'src/Kernel/ReferenceCondition.php',
     'WPrism\\ReferenceGraph' => 'src/Repository/ReferenceGraph.php',
     'WPrism\\ReferenceKeyspaceGrammar' => 'src/Kernel/ReferenceKeyspaceGrammar.php',
     'WPrism\\ReferenceKindGrammar' => 'src/Kernel/ReferenceKindGrammar.php',

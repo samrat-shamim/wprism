@@ -377,6 +377,30 @@ Do not align all fixture ids or filter warnings to turn the unsupported domain
 into a positive case. See
 [the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
 
+### A reference whose type depends on a sibling
+
+Exercise every variant of a native settings record before assigning a path a
+reference kind. AIO Login 2.4.1's REST `login-redirection/save-rule` writes a
+decimal string to `login_target_value` for `login_target_type: page`, and a
+URL at the same coordinate for `custom`. An unconditional `json_refs` rule
+captures the page identity but changes the URL to `"0"` during apply.
+
+For ordinary option and metadata structures, declare
+`conditional-json-refs/v1` and use the existing path with a closed sibling
+condition: `"when": {"key":"login_target_type", "equals":"page",
+"otherwise":["custom"]}`. The named branch uses the existing reference and
+cast; the listed alternative retains ordinary text/URL semantics. Missing or
+new variants refuse. The condition is not a general JSONPath filter, a
+privacy exception, or support for a native feature that was not exercised.
+The exact grammar and admitted surfaces are in
+[the format specification](../../spec/repo-format.md#v327-conditional-json-refsv1--sibling-discriminated-structural-references).
+
+Prove both branches through native authoring, Capture, complete repository
+compilation, SQL Apply with divergent IDs, and recapture. Include a changed
+or missing discriminator, wrong-kind token, malformed native ID, and a secret
+beside the positive data. `regress-conditional-json-refs` is the shared engine
+pin; each plugin still needs its own native writer and behavior evidence.
+
 ### Portable validation versus WordPress-native predicates
 
 Run your real adapter through the standalone `RepositoryCompiler`, with no

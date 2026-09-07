@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/JsonRefs.php';
+require_once __DIR__ . '/ReferenceCondition.php';
 
 /**
  * Pure structural codec for manifest-declared json_refs and key_refs.
@@ -33,7 +34,9 @@ final class StructuredReferenceCodec {
                 $idToToken,
                 $warn
             ): void {
+                if (!ReferenceCondition::matches($container, $rule, $locator)) return;
                 $current = $container[$key];
+                ReferenceCondition::assert_native($current, $rule, $locator);
                 if (is_array($current)) {
                     return; // A declared path resolved to a container, not a scalar id.
                 }
@@ -64,8 +67,10 @@ final class StructuredReferenceCodec {
     public static function apply($value, array $jsonRefs, ?array $keyRefs, callable $tokenToId) {
         foreach ($jsonRefs as $rule) {
             $segments = JsonRefs::parse_path($rule['path']);
-            JsonRefs::walk($value, $segments, function (&$container, $key) use ($rule, $tokenToId): void {
+            JsonRefs::walk($value, $segments, function (&$container, $key, string $locator) use ($rule, $tokenToId): void {
+                if (!ReferenceCondition::matches($container, $rule, $locator)) return;
                 $current = $container[$key];
+                ReferenceCondition::assert_canonical($current, $rule, $locator);
                 if ($current === null || $current === '' || is_array($current)) {
                     return;
                 }

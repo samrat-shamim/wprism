@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
+require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
 
 // This is a pure canonical-tree portability pass. Normal direct loads close
 // every named collaborator; focused fixtures may preload narrow doubles, so
@@ -376,7 +377,9 @@ final class RepositoryPortableShapeValidator {
                 $copy,
                 JsonRefs::parse_path((string) $ref['path']),
                 function (&$container, $key, string $matchedLocator) use ($ref, $path, $locator): void {
+                    if (!ReferenceCondition::matches($container, $ref, $locator . $matchedLocator)) return;
                     $leaf = $container[$key];
+                    ReferenceCondition::assert_canonical($leaf, $ref, $locator . $matchedLocator);
                     if ($leaf === null || $leaf === '' || $leaf === 0 || $leaf === '0' || $leaf === false
                         || is_array($leaf)) {
                         return; // declared unset/container conventions

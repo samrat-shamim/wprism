@@ -261,6 +261,7 @@ wprism_check_same(
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
+        'conditional-json-refs/v1',
         'invalidate-vocabulary/v1',
         'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
@@ -276,7 +277,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries seventeen IMPLEMENTED features, and five claim sections v3 did not have — '
+    'v3.2: the vocabulary carries eighteen IMPLEMENTED features, and five claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked five times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
+
 // Manifest validation is a pure offline pass with several entry points of
 // its own (the frozen-snapshot path, the offline harnesses that load this
 // file directly). The native-action vocabulary is part of that pass, so it
@@ -2900,6 +2902,17 @@ final class Policy {
             }
             $owner = $owners === [] ? "interpreter $name" : (string) ($owners[0]['name'] ?? '?');
             $source = $owners === [] ? $owner : $owner . " (interpreter $name)";
+            if (ReferenceCondition::uses($rule)) {
+                if (count($owners) !== 1 || ($owners[0]['spec_version'] ?? 0) < 3
+                    || !in_array(ReferenceCondition::FEATURE, (array) ($owners[0]['engine_features'] ?? []), true)) {
+                    throw new \RuntimeException("wprism: interpreter '$name' conditional references require an exact v3 owner declaring " . ReferenceCondition::FEATURE);
+                }
+                ReferenceShapeGrammar::validate_reference_shapes(
+                    ['spec_version' => $owners[0]['spec_version'], 'engine_features' => $owners[0]['engine_features'], $section => [$key => $rule]],
+                    $source,
+                    true
+                );
+            }
             if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
                 if (!in_array($section, ['post_meta', 'term_meta', 'user_meta'], true) || count($owners) !== 1
                     || ($owners[0]['spec_version'] ?? 0) < 3

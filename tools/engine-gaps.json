@@ -161,6 +161,16 @@
         "agent/src/Apply/TypedTableMaterializer.php",
         "adapter-packages/paid-memberships-pro/package/manifest.json"
       ]
+    },
+    "conditional_structured_references": {
+      "title": "closed sibling-discriminated structural references",
+      "status": "shipped",
+      "definition": "Feature-negotiated json_refs conditions select an ordinary typed reference only for an exact sibling discriminator, preserve listed non-reference variants through the text codec, and refuse unknown variants before publication or SQL mutation. Body and taxonomy-description reference declarations remain outside this feature.",
+      "evidence": [
+        "agent/src/Kernel/ReferenceCondition.php",
+        "agent/src/Kernel/StructuredReferenceCodec.php",
+        "sandbox/tests/offline/grammar/regress_conditional_json_refs.php"
+      ]
     }
   },
   "candidates": [
@@ -506,6 +516,31 @@
         }
       ],
       "closing": "Closed by the Rank Math one-prompt authoring exercise at the reusable platform boundaries rather than with plugin-name branches. Schema settlement publishes exact recovery authority before the first lifecycle/provider mutation and creates only the declared empty tables under an authenticated checkpoint. The incompatibility feature makes the competing Yoast composition fail identically in both manifest and active-plugin orders before repository or target mutation."
+    },
+    {
+      "id": "aio-login-conditional-references",
+      "candidate": "AIO Login",
+      "versions_probed": [
+        "2.4.1"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "change-wp-admin-login"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "options.aio_login_pro_login_redirection_rules.json_refs",
+          "cannot_represent": "The native REST writer stores decimal page IDs as strings and custom URLs at identical login_target_value/logout_target_value coordinates, selected by sibling target-type fields. Applying unconditional json_refs converted a custom URL to string 0.",
+          "primitive_required": "conditional_structured_references",
+          "closed_by": [
+            "agent/src/Kernel/ReferenceCondition.php",
+            "agent/src/Kernel/StructuredReferenceCodec.php",
+            "agent/src/Repository/RepositoryPortableShapeValidator.php",
+            "sandbox/tests/offline/grammar/regress_conditional_json_refs.php"
+          ]
+        }
+      ],
+      "closing": "The shared conditional-json-refs/v1 declaration reuses the existing JSON-path traversal, identity ledger, URL codec, linter and checked option materializer. Offline evidence includes immutable compilation and divergent-ID SQL round trips. This closes the representation gap; the adapter still requires its own native behavior and production-readiness evidence."
     }
   ]
 }
