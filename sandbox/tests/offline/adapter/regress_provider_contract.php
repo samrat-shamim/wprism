@@ -1489,7 +1489,7 @@ require $engine . '/agent/src/Kernel/OptionState.php';
 require $engine . '/agent/src/Policy/Policy.php';
 require $engine . '/agent/src/Code/CodeCompatibility.php';
 require $engine . '/agent/src/Promotion/Deploy.php';
-require $engine . '/agent/src/Adapter/Providers.php';
+require_once $engine . '/agent/src/Adapter/Providers.php';
 $manifest = json_decode(getenv('WPRISM_PROBE_MANIFEST'), true);
 // $libraryDir is the parent's scratch package projection. The v6 wire proves shipped
 // membership against that library instead of trusting the snapshot, so publish

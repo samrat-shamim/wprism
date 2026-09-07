@@ -23,7 +23,7 @@ $root = dirname(__DIR__, 4);
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
 require $root . '/agent/src/Policy/Policy.php';
-require $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
 
 use WPrism\Policy;
 
