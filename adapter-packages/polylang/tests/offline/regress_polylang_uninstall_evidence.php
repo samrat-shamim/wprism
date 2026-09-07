@@ -124,7 +124,7 @@ $raw = ['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'plan', '
     ...PrivateRefusalEvidence::graph($reason)];
 $write("$scratch/refusals/20260907-090001-plan-111111111111111111111111.json", json_encode($raw, JSON_THROW_ON_ERROR));
 $diagnostic = PrivateRefusalReceipt::diagnosticNewRecords("$scratch/refusals", $baseline, 'plan');
-PrivateRefusalReceipt::verifyDiagnostic(json_decode($diagnostic, true), PolylangUninstallEvidence::profile());
+PrivateRefusalReceipt::verifyDiagnostic(json_decode($diagnostic, true), PolylangUninstallEvidence::profile($snapshot));
 wprism_check(true, 'actual full-Plan snapshot cause matches the complete two-node native uninstall profile');
 
 // Synthetic native-dump transport, not a live database certificate. Its exact
@@ -133,9 +133,14 @@ $roster = implode('', array_map(static fn(string $table): string => "$table\tBAS
 $dump = "-- MariaDB dump 10.19 Distrib 11.4\n";
 foreach ($tables as $table) {
     $dump .= "-- Table structure for table `$table`\nCREATE TABLE `$table` (\n  `id` int NOT NULL\n);\n-- Dumping data for table `$table`\n";
-    $dump .= $table === 'wp_wprism_map'
-        ? "INSERT INTO `$table` (`uuid`, `entity_type`, `id_kind`, `local_id`) VALUES ('$uuid','widget','widget_polylang',1);\n"
-        : "INSERT INTO `$table` (`id`) VALUES (1);\n";
+    $dump .= match ($table) {
+        'wp_wprism_map' => "INSERT INTO `$table` (`uuid`, `entity_type`, `id_kind`, `local_id`) VALUES ('$uuid','widget','widget_polylang',1);\n",
+        'wp_posts' => "INSERT INTO `$table` (`ID`) VALUES (9);\n",
+        'wp_terms' => "INSERT INTO `$table` (`term_id`) VALUES (9);\n",
+        'wp_term_taxonomy' => "INSERT INTO `$table` (`term_taxonomy_id`) VALUES (9);\n",
+        'wp_options' => "INSERT INTO `$table` (`option_id`, `option_name`, `option_value`, `autoload`) VALUES (9,'neighbor','kept','yes');\n",
+        default => "INSERT INTO `$table` (`id`) VALUES (1);\n",
+    };
 }
 $dump .= "-- Dump completed\n";
 $reset = static function () use ($transport, $snapshot, $roster, $dump, $public, $diagnostic): void {
@@ -147,6 +152,30 @@ $reset = static function () use ($transport, $snapshot, $roster, $dump, $public,
 $reset();
 PolylangUninstallEvidence::verify($scratch, 'polyoffline');
 wprism_check(true, 'uninstall verifier admits the exact cause and complete native/repository preservation');
+// Reinstall creates the native marker but cannot recreate the removed mapped
+// instance. Decode the retained option through PlainData, not a capsule parser.
+$widgetRow = static fn(string $value): string => "INSERT INTO `wp_options` (`option_id`, `option_name`, `option_value`, `autoload`) VALUES (10,'widget_polylang','"
+    . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "','yes');\n";
+foreach ([[], ['_multiwidget' => 1], ['_multiwidget' => '1'], [2 => ['title' => "Other 東京 ' \\"], '_multiwidget' => 1]] as $instances) {
+    $reset();
+    $markerDump = str_replace('-- Dump completed', $widgetRow(serialize($instances)) . '-- Dump completed', $dump);
+    foreach (['before', 'after'] as $stage) $transport("$stage-database", $markerDump);
+    PolylangUninstallEvidence::verify($scratch, 'polyoffline');
+    wprism_check(true, 'exact marker-only or unrelated native widget instances do not imply the removed mapped instance survived');
+}
+foreach (['retained-instance' => serialize([1 => ['title' => 'Retained'], '_multiwidget' => 1]),
+    'invalid-marker' => serialize(['_multiwidget' => 0]), 'invalid-instance-id' => serialize(['bad' => []]),
+    'invalid-instance-settings' => serialize([2 => 'not an array']), 'scalar-option' => serialize('not an array'),
+    'object-option' => 'O:8:"stdClass":0:{}', 'recursive-option' => 'a:1:{i:1;R:1;}',
+    'malformed-option' => 'a:1:{', 'trailing-option' => serialize([]) . 'extra',
+    'duplicate-option' => serialize(['_multiwidget' => 1])] as $fault => $value) {
+    $reset();
+    $rows = $widgetRow($value);
+    if ($fault === 'duplicate-option') $rows .= $widgetRow($value);
+    $transport('before-database', str_replace('-- Dump completed', $rows . '-- Dump completed', $dump));
+    wprism_check_throws(static fn() => PolylangUninstallEvidence::database($scratch, 'before', 'polyoffline', $snapshot),
+        RuntimeException::class, "pre-command widget storage refuses $fault without reading a private cause");
+}
 foreach (['success', 'generic-error', 'extra-public-detail', 'database-change', 'state-change', 'media-change', 'policy-change',
     'empty-widgets', 'missing-canonical-widget', 'missing-map', 'wrong-map-kind', 'duplicate-map', 'empty-dump', 'partial-dump',
     'empty-roster', 'wrong-service', 'database-exit', 'private-exit', 'unrelated-cause', 'missing-previous', 'no-new-record'] as $fault) {
@@ -331,6 +360,102 @@ foreach (['healthy', 'empty-roster', 'wrong-baseline', 'command-success', 'post-
             PolylangUninstallEvidence::verify($lane, 'polyoffline');
             wprism_check(true, 'successful complete caller evidence remains independently re-admissible');
         }
+    }
+}
+// Genuine compiler + full snapshot, with both removed families competing.
+// Menu items follow their owner in guard order even when their own UUID is
+// on the opposite side of the term. The old widget-only profile must fail.
+$widgetProfile = PolylangUninstallEvidence::profile($snapshot);
+$orderedUuid = static fn(int $n): string => sprintf('%08d-0000-4000-8000-%012d', $n, $n);
+foreach (['term-first' => [1, 2, 3, 'term'], 'menu-first-item-later' => [2, 1, 9, 'post'],
+    'term-first-item-earlier' => [2, 3, 1, 'term']] as $case => [$termOrder, $menuOrder, $itemOrder, $firstKind]) {
+    $termUuid = $orderedUuid($termOrder); $menuUuid = $orderedUuid($menuOrder); $itemUuid = $orderedUuid($itemOrder);
+    $caseRepo = "$scratch/$case-repo";
+    foreach (['state/options', 'state/sidebars', 'state/terms/term_language', 'state/menus', 'media'] as $directory) mkdir("$caseRepo/$directory", 0700, true);
+    $write("$caseRepo/site.wprism.json", Canon::encode(['spec_version' => WPRISM_SPEC_VERSION,
+        'manifests' => ['core', 'polylang'], 'policy' => ['post_types' => [], 'taxonomies' => ['term_language']]]));
+    $write("$caseRepo/state/options/core.json", file_get_contents("$repo/state/options/core.json"));
+    $write("$caseRepo/state/sidebars/sidebar-1.json", file_get_contents("$repo/state/sidebars/sidebar-1.json"));
+    $write("$caseRepo/state/terms/term_language/$termUuid--pll_en.json", Canon::encode(['uuid' => $termUuid, 'taxonomy' => 'term_language',
+        'name' => 'English', 'slug' => 'pll_en', 'parent' => null, 'description' => '', 'meta' => (object) [], 'relationships' => (object) []]));
+    $write("$caseRepo/state/menus/candidate.json", Canon::encode(['uuid' => $menuUuid, 'name' => 'Candidate', 'slug' => 'candidate',
+        'locations' => [], 'items' => [['uuid' => $itemUuid, 'type' => 'custom', 'object' => 'custom', 'ref' => '#pll_switcher',
+            'parent' => null, 'position' => 1, 'title' => 'Language switcher 東京', 'attr_title' => '', 'classes' => [],
+            'description' => '', 'target' => '', 'xfn' => '', 'meta' => ['_pll_menu_item' => ['dropdown' => 1, 'force_home' => 0,
+                'hide_current' => 0, 'hide_if_no_translation' => 0, 'show_flags' => 0, 'show_names' => 1]]]]]));
+    $casePolicy = Policy::load($caseRepo, adapterLibrary: AdapterLibrary::fromSourceTree($root));
+    $caseCompiled = RepositoryCompiler::compile($caseRepo, $casePolicy);
+    $caseSnapshot = PolylangUninstallEvidence::snapshot($caseRepo);
+    $caseProfile = PolylangUninstallEvidence::profile($caseSnapshot);
+    wprism_check_same($firstKind, PolylangUninstallEvidence::removed($caseSnapshot)[0]['kind'], "genuine compiled native-owned order selects $case");
+
+    $caseDb = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions()->enableJoinedCaptureSql();
+    WpStore::reset()->seedOptions(['home' => 'https://uninstall.example.test']);
+    foreach ($caseDb->tables() as $table) $caseDb->seedTable($table, [])->setTableEngine($table, 'InnoDB');
+    foreach (TableSchema::core_capture_required_columns() as $property => $columns) {
+        $caseDb->seedTable($caseDb->$property, [])->setColumns($caseDb->$property, array_fill_keys($columns, 'longtext'))->setTableEngine($caseDb->$property, 'InnoDB');
+    }
+    Ledger::ensure();
+    foreach ($caseDb->tables() as $table) $caseDb->setTableEngine($table, 'InnoDB');
+    $caseMaps = [
+        ['uuid' => $uuid, 'entity_type' => 'widget', 'id_kind' => 'widget_polylang', 'local_id' => 1],
+        ['uuid' => $termUuid, 'entity_type' => 'term', 'id_kind' => 'term', 'local_id' => 41],
+        ['uuid' => $termUuid, 'entity_type' => 'term', 'id_kind' => 'term_taxonomy', 'local_id' => 42],
+        ['uuid' => $menuUuid, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 30],
+        ['uuid' => $menuUuid, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 31],
+        ['uuid' => $itemUuid, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 60],
+    ];
+    $caseDb->seedTable('wp_wprism_map', $caseMaps)
+        ->seedTable('wp_terms', [['term_id' => 30, 'name' => 'Candidate', 'slug' => 'candidate', 'term_group' => 0]])
+        ->seedTable('wp_term_taxonomy', [['term_taxonomy_id' => 31, 'term_id' => 30, 'taxonomy' => 'nav_menu', 'description' => '', 'parent' => 0, 'count' => 0]])
+        ->seedTable('wp_termmeta', [['meta_id' => 1, 'term_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $menuUuid]]);
+    $caseBefore = array_map($caseDb->rows(...), $tables);
+    $caseOffset = count($caseDb->queries());
+    $caseReason = null;
+    try { CaptureSnapshotService::snapshot($caseRepo, false, $caseCompiled, $casePolicy); }
+    catch (CommandRefusalException $failure) { $caseReason = $failure; }
+    if (!$caseReason instanceof CommandRefusalException) throw new RuntimeException('competing canonical identities did not reach actual full-Plan refusal');
+    wprism_check_same($caseProfile['reason_code'], $caseReason->reasonCode, "actual full-Plan $case reaches canonical identity recovery");
+    wprism_check_same($caseBefore, array_map($caseDb->rows(...), $tables), "actual $case preserves every native row and complete map tuple");
+    wprism_check_same($ensureStatements, $mutationStatements(array_slice($caseDb->queries(), $caseOffset)), "actual $case performs only established idempotent ledger ensure statements");
+    wprism_check_same($caseSnapshot, PolylangUninstallEvidence::snapshot($caseRepo), "actual $case preserves complete canonical/media/policy bytes");
+    $caseRefusals = "$scratch/$case-refusals"; mkdir($caseRefusals, 0700);
+    $caseBaseline = PrivateRefusalReceipt::diagnosticSnapshot($caseRefusals, 'plan');
+    $caseRaw = ['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'plan', 'reason_code' => $caseReason->reasonCode,
+        ...PrivateRefusalEvidence::graph($caseReason)];
+    $write("$caseRefusals/20260907-090001-plan-111111111111111111111111.json", json_encode($caseRaw, JSON_THROW_ON_ERROR));
+    $caseDiagnostic = json_decode(PrivateRefusalReceipt::diagnosticNewRecords($caseRefusals, $caseBaseline, 'plan'), true, 32, JSON_THROW_ON_ERROR);
+    PrivateRefusalReceipt::verifyDiagnostic($caseDiagnostic, $caseProfile);
+    wprism_check(true, "actual complete private cause matches independently pre-bound $case profile");
+    wprism_check_throws(static fn() => PrivateRefusalReceipt::verifyDiagnostic($caseDiagnostic, $widgetProfile), RuntimeException::class,
+        "prior widget-only native uninstall expectation fails actual $case");
+    $casePublic = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'plan',
+        'reason_code' => $caseReason->reasonCode, ...$caseReason->payload()];
+    PolylangUninstallEvidence::assertPublic($casePublic);
+
+    // Synthetic transport of complete native-shaped rows, not a live run.
+    $mapSql = '';
+    foreach (array_slice($caseMaps, 1) as $row) $mapSql .= "INSERT INTO `wp_wprism_map` (`uuid`, `entity_type`, `id_kind`, `local_id`) VALUES ('{$row['uuid']}','{$row['entity_type']}','{$row['id_kind']}',{$row['local_id']});\n";
+    $caseDump = str_replace('-- Dump completed', $mapSql . '-- Dump completed', $dump);
+    foreach (['before', 'after'] as $stage) {
+        $transport($stage, $caseSnapshot); $transport("$stage-tables", $roster); $transport("$stage-database", $caseDump);
+    }
+    $transport('command', $casePublic, 1); $transport('private', $caseDiagnostic);
+    PolylangUninstallEvidence::verify($scratch, 'polyoffline');
+    wprism_check(true, "complete retained $case passes exact native-premise and actual product-cause admission");
+    foreach (['missing-term-map', 'wrong-term-kind', 'wrong-term-type', 'duplicate-map', 'retained-term', 'retained-tt', 'retained-switcher'] as $fault) {
+        $bad = match ($fault) {
+            'missing-term-map' => str_replace($termUuid, $orderedUuid(8), $caseDump),
+            'wrong-term-kind' => str_replace("'$termUuid','term','term',41", "'$termUuid','term','post',41", $caseDump),
+            'wrong-term-type' => str_replace("'$termUuid','term'", "'$termUuid','post'", $caseDump),
+            'duplicate-map' => str_replace('-- Dump completed', $mapSql . '-- Dump completed', $caseDump),
+            'retained-term' => str_replace('-- Dump completed', "INSERT INTO `wp_terms` (`term_id`) VALUES (41);\n-- Dump completed", $caseDump),
+            'retained-tt' => str_replace('-- Dump completed', "INSERT INTO `wp_term_taxonomy` (`term_taxonomy_id`) VALUES (42);\n-- Dump completed", $caseDump),
+            'retained-switcher' => str_replace('-- Dump completed', "INSERT INTO `wp_posts` (`ID`) VALUES (60);\n-- Dump completed", $caseDump),
+        };
+        $transport('before-database', $bad);
+        wprism_check_throws(static fn() => PolylangUninstallEvidence::database($scratch, 'before', 'polyoffline', $caseSnapshot),
+            RuntimeException::class, "pre-command $case refuses $fault before any private cause can influence it");
     }
 }
 wprism_check_summary('regress_polylang_uninstall_evidence');

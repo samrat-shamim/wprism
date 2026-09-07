@@ -2469,6 +2469,13 @@ library.
    streams. Never normalize runtime values or accept equal empty dumps.
    Keep database credentials and dump bytes in the private evidence sink.
 
+   If an absence premise needs selected native IDs or option values, use the
+   shared `SqlDumpEvidence::projectColumns()` after complete-roster admission.
+   Bind `--complete-insert --skip-extended-insert` at the producer; the bounded
+   projection lexes every field without importing SQL or copying unrelated
+   bodies into a plugin-specific value walker. Decode serialized plain values
+   with the engine's `PlainData` codec, never an executable unserializer.
+
    Complete uninstall and isolated missing-widget history are different
    premises. Full Plan/Apply checks retained canonical maps before dead-map
    pruning; missing backing data must reach `canonical_identity_recovery_required`,
@@ -2478,6 +2485,16 @@ library.
    as evidence and prove it survives the refusal. Database-matched restoration
    is a separate subsequent control; neither pruning history nor accepting any
    nonzero exit proves safe recovery.
+
+   Prebind the expected first cause from the genuinely compiled preimage and
+   the native uninstall's removed families, not from the observed exception.
+   Compiler order is top-level identity order with menu items visited inline
+   under their owner; globally sorting item UUIDs selects the wrong cause.
+   Prove every removed family's complete retained map and absent backing IDs
+   before the command. Reinstallation can recreate a marker-only
+   `widget_polylang` option: prove the mapped instances are gone, not that the
+   option name is absent. Exercise term-first, menu-first and widget-only
+   product paths, including items whose UUID sorts on either side of a term.
 
    Exercise options-only lifecycle observation before that full identity gate,
    too. It must retain canonical core and declared typed mappings after native
