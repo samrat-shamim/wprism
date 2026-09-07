@@ -3405,7 +3405,7 @@ wprism_check(
 // A physical row descriptor is observation data, never authority. Exercise
 // the SDK facade under the same engine-bound runtime used by real scopes.
 $physicalDescriptor = ['table' => 'wp_posts', 'columns' => ['ID', 'post_content'],
-    'identity' => 'ID', 'max_rows' => 8, 'max_raw_bytes' => 1024, 'mode' => 'rows'];
+    'identity' => ['ID'], 'max_rows' => 8, 'max_raw_bytes' => 1024, 'mode' => 'rows'];
 $physicalFixture = static function (): FakeWpdb {
     Db::forget_transaction_tracking();
     return FakeWpdb::install()->enableInformationSchema()

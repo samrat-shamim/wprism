@@ -52080,6 +52080,9 @@
                 "MAX_COLUMNS": {
                     "value_repr": 32
                 },
+                "MAX_IDENTITY_COLUMNS": {
+                    "value_repr": 4
+                },
                 "MAX_RAW_BYTES": {
                     "value_repr": 33554432
                 },

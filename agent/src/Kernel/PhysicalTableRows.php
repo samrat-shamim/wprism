@@ -12,7 +12,7 @@ require_once __DIR__ . '/MetaRows.php';
  *
  * Native reconstruction needs source bytes and an unchanged-remainder witness,
  * not another package-owned SQL pager. This first contract deliberately observes
- * one whole table in one positive-integer identity order: no predicates, joins,
+ * one whole table in one positive-integer identity-tuple order: no predicates, joins,
  * schema inference, native callbacks or caller-authored SQL. A bounded size
  * roster precedes hashing and payload allocation; every batch must meet its
  * exact identities, null shapes, lengths and hashes. The enclosing engine scope
@@ -21,6 +21,7 @@ require_once __DIR__ . '/MetaRows.php';
 final class PhysicalTableRows {
     public const MAX_ROWS = 16384;
     public const MAX_COLUMNS = 32;
+    public const MAX_IDENTITY_COLUMNS = 4;
     public const MAX_CELLS = 262144;
     public const MAX_RAW_BYTES = 33554432;
     public const MAX_CELL_BYTES = 1048576;
@@ -28,7 +29,7 @@ final class PhysicalTableRows {
     private const BATCH_BYTES = 4194304;
 
     /**
-     * @param array{table:string,columns:list<string>,identity:string,max_rows:int,max_raw_bytes:int,mode:string} $descriptor
+     * @param array{table:string,columns:list<string>,identity:list<string>,max_rows:int,max_raw_bytes:int,mode:string} $descriptor
      * @return array{row_count:int,raw_bytes:int,rows_sha256:string,rows?:list<array<string,?string>>}
      */
     public static function observe(array $descriptor, string $context): array {
@@ -38,34 +39,51 @@ final class PhysicalTableRows {
         $identity = $descriptor['identity'];
         DatabaseQueryIsolation::assert_profile_contains([$table], false, $context);
 
-        $sizeColumns = ["LEFT(BINARY `$identity`, 21) AS _wprism_identity"];
+        $identityColumns = $identityKeys = [];
+        foreach ($identity as $position => $column) {
+            $identityColumns[] = "LEFT(BINARY `$column`, 21) AS _wprism_identity_$position";
+            $identityKeys[] = '_wprism_identity_' . $position;
+        }
+        $order = implode(', ', array_map(static fn(string $column): string => "`$column` ASC", $identity));
+        $sizeColumns = $identityColumns;
         foreach ($columns as $position => $column) {
             $sizeColumns[] = "OCTET_LENGTH(`$column`) AS _wprism_size_$position";
         }
+        $rowLimit = min($descriptor['max_rows'], intdiv(self::MAX_CELLS, count($columns)));
         $sizeSql = 'SELECT ' . implode(', ', $sizeColumns) . " FROM `$table`"
-            . " ORDER BY `$identity` ASC LIMIT " . ($descriptor['max_rows'] + 1);
+            . " ORDER BY $order LIMIT " . ($rowLimit + 1);
         $roster = self::read($sizeSql, [], $context);
         if (count($roster) > $descriptor['max_rows']
             || count($roster) > intdiv(self::MAX_CELLS, count($columns))) {
             self::fail($context, 'row or cell-count budget exceeded');
         }
-        $sizeKeys = ['_wprism_identity'];
+        $sizeKeys = $identityKeys;
         foreach (array_keys($columns) as $position) $sizeKeys[] = '_wprism_size_' . $position;
-        $rawBytes = $previousId = 0;
+        $rawBytes = 0;
+        $previousIds = null;
         foreach ($roster as $row) {
-            $id = is_array($row) ? MetaRows::positive_id($row['_wprism_identity'] ?? null) : null;
-            if (!is_array($row) || array_keys($row) !== $sizeKeys || $id === null || $id <= $previousId) {
+            if (!is_array($row) || array_keys($row) !== $sizeKeys) {
                 self::fail($context, 'size roster has malformed, duplicate or unordered identities');
             }
-            $previousId = $id;
+            $ids = [];
+            foreach ($identityKeys as $key) {
+                $id = MetaRows::positive_id($row[$key]);
+                if ($id === null) self::fail($context, 'size roster has malformed, duplicate or unordered identities');
+                $ids[] = $id;
+            }
+            if ($previousIds !== null && $ids <= $previousIds) {
+                self::fail($context, 'size roster has malformed, duplicate or unordered identities');
+            }
+            $previousIds = $ids;
             $rowBytes = 0;
             foreach ($columns as $position => $column) {
                 $bytes = $row['_wprism_size_' . $position];
-                if ($bytes === null && $column !== $identity) continue;
+                $identityPosition = array_search($column, $identity, true);
+                if ($bytes === null && $identityPosition === false) continue;
                 $size = self::size($bytes);
                 if ($size === null || $size > self::MAX_CELL_BYTES
                     || $size > $descriptor['max_raw_bytes'] - $rawBytes
-                    || ($column === $identity && $size !== strlen($row['_wprism_identity']))) {
+                    || ($identityPosition !== false && $size !== strlen($row[$identityKeys[$identityPosition]]))) {
                     self::fail($context, 'size roster has an invalid field or exceeds the byte budget');
                 }
                 $rawBytes += $size;
@@ -77,7 +95,8 @@ final class PhysicalTableRows {
         $digest = hash_init('sha256');
         hash_update($digest, "wprism-physical-table-rows/v1\0");
         self::hash_string($digest, $table);
-        self::hash_string($digest, $identity);
+        hash_update($digest, pack('N', count($identity)));
+        foreach ($identity as $column) self::hash_string($digest, $column);
         hash_update($digest, pack('N', count($columns)));
         foreach ($columns as $column) self::hash_string($digest, $column);
         $resultRows = [];
@@ -111,7 +130,8 @@ final class PhysicalTableRows {
             || !is_string($descriptor['table'])
             || !is_array($descriptor['columns']) || !array_is_list($descriptor['columns'])
             || $descriptor['columns'] === [] || count($descriptor['columns']) > self::MAX_COLUMNS
-            || !is_string($descriptor['identity'])
+            || !is_array($descriptor['identity']) || !array_is_list($descriptor['identity'])
+            || $descriptor['identity'] === [] || count($descriptor['identity']) > self::MAX_IDENTITY_COLUMNS
             || !is_int($descriptor['max_rows']) || $descriptor['max_rows'] < 1 || $descriptor['max_rows'] > self::MAX_ROWS
             || !is_int($descriptor['max_raw_bytes']) || $descriptor['max_raw_bytes'] < 1
             || $descriptor['max_raw_bytes'] > self::MAX_RAW_BYTES
@@ -127,8 +147,12 @@ final class PhysicalTableRows {
             }
             $seen[strtolower($column)] = true;
         }
-        if (!in_array($descriptor['identity'], $descriptor['columns'], true)) {
-            throw new \InvalidArgumentException('wprism: physical table observation identity must be an explicit selected column');
+        $seenIdentity = [];
+        foreach ($descriptor['identity'] as $column) {
+            if (!is_string($column) || !in_array($column, $descriptor['columns'], true) || isset($seenIdentity[$column])) {
+                throw new \InvalidArgumentException('wprism: physical table observation identity must name distinct explicit selected columns');
+            }
+            $seenIdentity[$column] = true;
         }
     }
 
@@ -139,8 +163,11 @@ final class PhysicalTableRows {
         $identity = $descriptor['identity'];
         $predicates = $args = [];
         foreach ($batch as $row) {
-            $parts = ["`$identity` = %d"];
-            $args[] = (int) $row['_wprism_identity'];
+            $parts = [];
+            foreach ($identity as $position => $column) {
+                $parts[] = "`$column` = %d";
+                $args[] = (int) $row['_wprism_identity_' . $position];
+            }
             foreach ($columns as $position => $column) {
                 $bytes = $row['_wprism_size_' . $position];
                 if ($bytes === null) {
@@ -152,10 +179,14 @@ final class PhysicalTableRows {
             }
             $predicates[] = '(' . implode(' AND ', $parts) . ')';
         }
+        $order = implode(', ', array_map(static fn(string $column): string => "`$column` ASC", $identity));
         $tail = " FROM `$table` WHERE (" . implode(' OR ', $predicates) . ')'
-            . " ORDER BY `$identity` ASC LIMIT " . (count($batch) + 1);
-        $hashColumns = ["LEFT(BINARY `$identity`, 21) AS _wprism_identity"];
-        $hashKeys = ['_wprism_identity'];
+            . " ORDER BY $order LIMIT " . (count($batch) + 1);
+        $hashColumns = $hashKeys = [];
+        foreach ($identity as $position => $column) {
+            $hashColumns[] = "LEFT(BINARY `$column`, 21) AS _wprism_identity_$position";
+            $hashKeys[] = '_wprism_identity_' . $position;
+        }
         foreach ($columns as $position => $column) {
             $hashColumns[] = "SHA2(`$column`, 256) AS _wprism_hash_$position";
             $hashKeys[] = '_wprism_hash_' . $position;
@@ -164,8 +195,12 @@ final class PhysicalTableRows {
         $hashes = self::read($hashSql, $args, $context);
         if (count($hashes) !== count($batch)) self::fail($context, 'hash roster changed after size admission');
         foreach ($hashes as $offset => $row) {
-            if (!is_array($row) || array_keys($row) !== $hashKeys || $row['_wprism_identity'] !== $batch[$offset]['_wprism_identity']) {
+            if (!is_array($row) || array_keys($row) !== $hashKeys) {
                 self::fail($context, 'hash roster has malformed or changed identities');
+            }
+            foreach (array_keys($identity) as $position) {
+                $key = '_wprism_identity_' . $position;
+                if ($row[$key] !== $batch[$offset][$key]) self::fail($context, 'hash roster has malformed or changed identities');
             }
             foreach (array_keys($columns) as $position) {
                 $hash = $row['_wprism_hash_' . $position];
@@ -179,8 +214,13 @@ final class PhysicalTableRows {
         $rows = self::read('SELECT ' . $select . $tail, $args, $context);
         if (count($rows) !== count($batch)) self::fail($context, 'value roster changed after size admission');
         foreach ($rows as $offset => $row) {
-            if (!is_array($row) || array_keys($row) !== $columns || $row[$identity] !== $batch[$offset]['_wprism_identity']) {
+            if (!is_array($row) || array_keys($row) !== $columns) {
                 self::fail($context, 'value roster has malformed or changed identities');
+            }
+            foreach ($identity as $position => $column) {
+                if ($row[$column] !== $batch[$offset]['_wprism_identity_' . $position]) {
+                    self::fail($context, 'value roster has malformed or changed identities');
+                }
             }
             hash_update($digest, 'R');
             foreach ($columns as $position => $column) {

@@ -29,21 +29,24 @@ function physical_rows_fixture(?array $rows = null): FakeWpdb {
 
 function physical_rows_descriptor(array $changes = []): array {
     return array_replace([
-        'table' => 'wp_posts', 'columns' => ['ID', 'post_content', 'post_title'], 'identity' => 'ID',
+        'table' => 'wp_posts', 'columns' => ['ID', 'post_content', 'post_title'], 'identity' => ['ID'],
         'max_rows' => 128, 'max_raw_bytes' => 8388608, 'mode' => 'rows',
     ], $changes);
 }
 
 function physical_rows_observe(array $changes = []): array {
+    $descriptor = physical_rows_descriptor($changes);
     return ProviderDatabaseSession::read_only_snapshot('physical rows fixture',
-        NativeDatabaseProfile::read_only(['wp_posts']),
-        static fn(): array => PhysicalTableRows::observe(physical_rows_descriptor($changes), 'physical rows fixture'));
+        NativeDatabaseProfile::read_only([$descriptor['table']]),
+        static fn(): array => PhysicalTableRows::observe($descriptor, 'physical rows fixture'));
 }
 
 /** Independent framing oracle: no serialized PHP arrays or canonical JSON can select the byte meaning. */
 function physical_rows_expected_hash(array $descriptor, array $rows): string {
     $frame = "wprism-physical-table-rows/v1\0";
-    foreach ([$descriptor['table'], $descriptor['identity']] as $name) $frame .= pack('N', strlen($name)) . $name;
+    $frame .= pack('N', strlen($descriptor['table'])) . $descriptor['table'];
+    $frame .= pack('N', count($descriptor['identity']));
+    foreach ($descriptor['identity'] as $name) $frame .= pack('N', strlen($name)) . $name;
     $frame .= pack('N', count($descriptor['columns']));
     foreach ($descriptor['columns'] as $name) $frame .= pack('N', strlen($name)) . $name;
     foreach ($rows as $row) {
@@ -91,10 +94,100 @@ wprism_check_same('130', $manyObserved['rows'][129]['ID'], 'the final partial ba
 wprism_check_same(6, count(array_filter($db->queries(), static fn(string $sql): bool => str_contains($sql, ' AS _wprism_hash_0'))),
     'each batch independently reads field hashes before and after its payload');
 
+// A 32-column table reaches MAX_CELLS at 8,192 rows, before MAX_ROWS.
+// Admission must bound the driver transfer, not merely refuse the allocated roster.
+$wideColumns = ['ID'];
+for ($index = 1; $index < PhysicalTableRows::MAX_COLUMNS; $index++) $wideColumns[] = 'column_' . $index;
+$wideRows = [];
+for ($id = 1; $id <= 8193; $id++) $wideRows[] = array_replace(array_fill_keys($wideColumns, null), ['ID' => $id]);
+$db = physical_rows_fixture($wideRows)->setColumns('wp_posts', array_fill_keys($wideColumns, 'bigint'));
+wprism_check_throws(static fn() => physical_rows_observe(['columns' => $wideColumns, 'max_rows' => PhysicalTableRows::MAX_ROWS]),
+    RuntimeException::class, 'cell frontier refuses the complete over-budget roster', 'cell-count budget exceeded');
+$sizeQueries = array_values(array_filter($db->queries(), static fn(string $sql): bool => str_contains($sql, ' AS _wprism_size_0')));
+wprism_check_same(1, count($sizeQueries), 'wide-table refusal performs just one size admission');
+wprism_check(str_ends_with($sizeQueries[0], ' LIMIT 8193'), 'cell frontier constrains the initial query to its 8,192 rows plus one overflow witness');
+wprism_check(count(array_filter($db->queries(), static fn(string $sql): bool => str_contains($sql, ' AS _wprism_hash_'))) === 0,
+    'cell-count overflow never hashes target payloads');
+unset($wideRows);
+
+$tupleDescriptor = ['table' => 'wp_term_relationships', 'columns' => ['object_id', 'term_taxonomy_id', 'term_order'],
+    'identity' => ['object_id', 'term_taxonomy_id']];
+$tupleExpected = [
+    ['object_id' => '2', 'term_taxonomy_id' => '3', 'term_order' => '0'],
+    ['object_id' => '2', 'term_taxonomy_id' => '100', 'term_order' => '1'],
+    ['object_id' => '9', 'term_taxonomy_id' => '11', 'term_order' => '0'],
+    ['object_id' => '10', 'term_taxonomy_id' => '1', 'term_order' => '0'],
+];
+$tupleFixture = static function (array $rows) use ($tupleDescriptor): FakeWpdb {
+    // FakeWpdb derives comparison types from stored PHP scalars. Native bigint
+    // coordinates are integers in the fixture and strings only at driver egress.
+    foreach ($rows as &$row) {
+        foreach ($tupleDescriptor['identity'] as $column) {
+            if (is_string($row[$column]) && (string) (int) $row[$column] === $row[$column]) $row[$column] = (int) $row[$column];
+        }
+    }
+    unset($row);
+    return physical_rows_fixture()->seedTable('wp_term_relationships', $rows)
+        ->setColumns('wp_term_relationships', array_fill_keys($tupleDescriptor['columns'], 'bigint'))
+        ->setTableEngine('wp_term_relationships', 'InnoDB');
+};
+$tupleFixture(array_reverse($tupleExpected));
+$tupleObserved = physical_rows_observe($tupleDescriptor);
+wprism_check_same($tupleExpected, $tupleObserved['rows'], 'composite physical identities use numeric lexicographic order and retain shared first coordinates');
+wprism_check_same(physical_rows_expected_hash(physical_rows_descriptor($tupleDescriptor), $tupleExpected),
+    $tupleObserved['rows_sha256'], 'composite identity arity and each exact name bind the independent binary-frame oracle');
+$reversedIdentity = physical_rows_observe(array_replace($tupleDescriptor, ['identity' => array_reverse($tupleDescriptor['identity'])]));
+wprism_check($tupleObserved['rows_sha256'] !== $reversedIdentity['rows_sha256'], 'identity order is part of the physical witness');
+$tupleFixture([$tupleExpected[0], $tupleExpected[0]]);
+wprism_check_throws(static fn() => physical_rows_observe($tupleDescriptor), RuntimeException::class,
+    'duplicate complete identity tuple refuses', 'duplicate or unordered');
+foreach (['0', '-1', '03', '3.0', '3e0', '9223372036854775808', str_repeat('9', 30), null] as $badId) {
+    $db = $tupleFixture([array_replace($tupleExpected[0], ['term_taxonomy_id' => $badId])]);
+    wprism_check_throws(static fn() => physical_rows_observe($tupleDescriptor), RuntimeException::class,
+        'every composite coordinate must be a bounded canonical positive integer: ' . json_encode($badId));
+    wprism_check(count(array_filter($db->queries(), static fn(string $sql): bool => str_contains($sql, ' AS _wprism_hash_'))) === 0,
+        'malformed second identity coordinate cannot reach hashing');
+}
+$tupleSizes = $tupleHashes = [];
+foreach ($tupleExpected as $row) {
+    $size = $hash = ['_wprism_identity_0' => $row['object_id'], '_wprism_identity_1' => $row['term_taxonomy_id']];
+    foreach ($tupleDescriptor['columns'] as $index => $column) {
+        $size['_wprism_size_' . $index] = (string) strlen($row[$column]);
+        $hash['_wprism_hash_' . $index] = hash('sha256', $row[$column]);
+    }
+    $tupleSizes[] = $size;
+    $tupleHashes[] = $hash;
+}
+$tupleFixture($tupleExpected)->returnNextGetResultsAs([$tupleSizes[1], $tupleSizes[0], $tupleSizes[2], $tupleSizes[3]], ' AS _wprism_size_0');
+wprism_check_throws(static fn() => physical_rows_observe($tupleDescriptor), RuntimeException::class,
+    'driver ordering that reverses only the second coordinate refuses', 'duplicate or unordered');
+$tupleFixture($tupleExpected)->returnNextGetResultsAs([$tupleSizes[0], $tupleSizes[1], $tupleSizes[3], $tupleSizes[2]], ' AS _wprism_size_0');
+wprism_check_throws(static fn() => physical_rows_observe($tupleDescriptor), RuntimeException::class,
+    'driver ordering that reverses the first coordinate refuses', 'duplicate or unordered');
+$tupleHashes[0]['_wprism_identity_1'] = '4';
+$tupleFixture($tupleExpected)->returnNextGetResultsAs($tupleHashes, ' AS _wprism_hash_0');
+wprism_check_throws(static fn() => physical_rows_observe($tupleDescriptor), RuntimeException::class,
+    'hash roster must retain every identity coordinate', 'changed identities');
+$changedTupleValues = $tupleExpected;
+$changedTupleValues[0]['term_taxonomy_id'] = '4';
+$tupleFixture($tupleExpected)->returnNextGetResultsAs($changedTupleValues, 'SELECT `object_id`, `term_taxonomy_id`, `term_order`');
+wprism_check_throws(static fn() => physical_rows_observe($tupleDescriptor), RuntimeException::class,
+    'payload roster must retain every identity coordinate', 'changed identities');
+$manyTuples = [];
+for ($id = 1; $id <= 130; $id++) $manyTuples[] = ['object_id' => (string) (1 + intdiv($id - 1, 65)),
+    'term_taxonomy_id' => (string) (1 + ($id - 1) % 65), 'term_order' => '0'];
+$tupleFixture(array_reverse($manyTuples));
+wprism_check_same($manyTuples, physical_rows_observe(array_replace($tupleDescriptor, ['max_rows' => 130]))['rows'],
+    'composite identities retain colliding first coordinates across all three transfer batches');
+
 $invalid = [
     ['table' => 'wp_posts; DELETE'], ['columns' => []], ['columns' => ['ID', 'id']],
     ['columns' => ['ID', 'post_content AS stolen']], ['columns' => [7]],
-    ['columns' => ['post_content']], ['identity' => 'ID DESC'], ['identity' => ['ID']],
+    ['columns' => array_merge($wideColumns, ['column_33'])],
+    ['columns' => ['post_content']], ['identity' => ['ID DESC']], ['identity' => 'ID'],
+    ['identity' => []], ['identity' => ['ID', 'ID']], ['identity' => ['id']],
+    ['identity' => [7]], ['identity' => [1 => 'ID']],
+    ['identity' => ['ID', 'post_content', 'post_title', 'four', 'five']],
     ['max_rows' => 0], ['max_rows' => PhysicalTableRows::MAX_ROWS + 1], ['max_rows' => '1'],
     ['max_raw_bytes' => 0], ['max_raw_bytes' => PhysicalTableRows::MAX_RAW_BYTES + 1], ['max_raw_bytes' => 1.0],
     ['mode' => 'values'], ['mode' => false], ['where' => '1=1'], ['visitor' => static fn() => null],
@@ -121,6 +214,33 @@ $db = physical_rows_fixture([['ID' => 7, 'post_content' => str_repeat('x', Physi
 wprism_check_same(PhysicalTableRows::MAX_CELL_BYTES + 1, physical_rows_observe()['raw_bytes'], 'one exact maximum-size native cell is admitted');
 $db = physical_rows_fixture([['ID' => 7, 'post_content' => str_repeat('x', PhysicalTableRows::MAX_CELL_BYTES + 1), 'post_title' => null]]);
 wprism_check_throws(static fn() => physical_rows_observe(), RuntimeException::class, 'one oversized native cell refuses before its payload');
+
+$largeColumns = ['ID', 'a', 'b', 'c', 'd'];
+$largeCell = str_repeat('z', PhysicalTableRows::MAX_CELL_BYTES);
+$largeRow = ['ID' => 1, 'a' => $largeCell, 'b' => $largeCell, 'c' => $largeCell, 'd' => substr($largeCell, 1)];
+$largeDescriptor = ['columns' => $largeColumns, 'max_raw_bytes' => PhysicalTableRows::MAX_RAW_BYTES, 'mode' => 'digest'];
+$db = physical_rows_fixture([$largeRow])->setColumns('wp_posts', array_fill_keys($largeColumns, 'longtext'));
+wprism_check_same(4194304, physical_rows_observe($largeDescriptor)['raw_bytes'], 'one exactly 4 MiB row fits the bounded batch');
+$db = physical_rows_fixture([array_replace($largeRow, ['d' => $largeCell])])->setColumns('wp_posts', array_fill_keys($largeColumns, 'longtext'));
+wprism_check_throws(static fn() => physical_rows_observe($largeDescriptor), RuntimeException::class,
+    'a row with individually valid cells but 4 MiB plus one byte refuses', 'bounded transfer size');
+wprism_check(count(array_filter($db->queries(), static fn(string $sql): bool => str_contains($sql, ' AS _wprism_hash_'))) === 0,
+    'per-row transfer overflow is refused before field hashing');
+$largeRows = [];
+for ($id = 1; $id <= 8; $id++) $largeRows[] = array_replace($largeRow, ['ID' => $id]);
+$db = physical_rows_fixture($largeRows)->setColumns('wp_posts', array_fill_keys($largeColumns, 'longtext'));
+$largeDigest = physical_rows_observe($largeDescriptor);
+wprism_check_same(PhysicalTableRows::MAX_RAW_BYTES, $largeDigest['raw_bytes'], 'the exact 32 MiB aggregate frontier is inclusive');
+wprism_check(!array_key_exists('rows', $largeDigest), 'maximum aggregate digest mode retains no payload in its result');
+wprism_check_same(16, count(array_filter($db->queries(), static fn(string $sql): bool => str_contains($sql, ' AS _wprism_hash_0'))),
+    'eight maximum-byte batches are bounded independently of the 64-row frontier');
+$largeRows[] = ['ID' => 9, 'a' => null, 'b' => null, 'c' => null, 'd' => null];
+$db = physical_rows_fixture($largeRows)->setColumns('wp_posts', array_fill_keys($largeColumns, 'longtext'));
+wprism_check_throws(static fn() => physical_rows_observe($largeDescriptor), RuntimeException::class,
+    'the 32 MiB aggregate plus one identity byte refuses before hashing', 'byte budget');
+wprism_check(count(array_filter($db->queries(), static fn(string $sql): bool => str_contains($sql, ' AS _wprism_hash_'))) === 0,
+    'aggregate byte overflow cannot reach field hashing');
+unset($largeRows, $largeRow, $largeCell);
 
 foreach (['grow-before-hash', 'grow-before-values', 'same-size-before-values', 'same-size-after-values',
     'null-before-values', 'append-before-final-roster', 'remove-before-final-roster'] as $fault) {
