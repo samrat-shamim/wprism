@@ -6,6 +6,18 @@
 # This prevents new spawn_cron() writes, not pre-existing workers or other
 # asynchronous writers. It neither filters database rows nor deletes transients.
 
+wordpress_cron_window_compose_transport() { # <cli1|cli2> <remote shell argv...>
+  local service="$1"
+  local -a compose
+  shift
+  case "$service" in cli1|cli2) ;; *) return 1 ;; esac
+  read -r -a compose <<<"${COMPOSE:?}"
+  # Pair bind mounts leave the MU parent root-owned. Only guard installation
+  # and exact-byte removal use root; the native WP premise keeps the site uid.
+  "${compose[@]}" run --rm -T --no-deps --user root \
+    --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh "$service" "$@"
+}
+
 wordpress_cron_window_dispatch() { # <prepare|release>
   # Bash 3.2 misparses case arms inside a heredoc nested in $(...). Keep the
   # remote source outside the response capture so macOS executes these bytes.

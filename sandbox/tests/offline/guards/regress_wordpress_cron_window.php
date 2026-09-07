@@ -90,4 +90,70 @@ foreach ([
             "actual cron-window transport, native PHP guard, and cleanup classify $shell/$mutation");
     }
 }
+// The pair's CLI uid cannot create a guard in its root-owned MU parent
+// (polybiok07). Reject that exact transport before any body can run; owner
+// suites separately execute their callbacks through this shared transport.
+$composeProbe = <<<'SH'
+set -euo pipefail
+root="$1" service="$2" mutation="$3"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-cron-compose.XXXXXX")
+trap 'find "$scratch" -depth -delete' EXIT
+mkdir "$scratch/mu"
+COMPOSE='cron_fixture_compose -p fixture'
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$root/sandbox/conformance/asserts.sh"
+. "$root/sandbox/tests/lib/wordpress_cron_window.sh"
+cron_fixture_compose() {
+  local expected
+  for expected in -p fixture run --rm -T --no-deps --user root \
+      --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh "$service"; do
+    [ "${1:-}" = "$expected" ] || return 77
+    shift
+  done
+  [ "$#" -eq 4 ] && [ "$1" = -s ] && [ "$2" = -- ] || return 78
+  printf '%s\n' "$3" >>"$scratch/transport"
+  (cd "$scratch/mu" && sh "$@")
+}
+wp_runner() {
+  printf 'wp-native\n' >>"$scratch/transport"
+  php -r 'require $argv[1]; eval($argv[2]);' "$scratch/mu/wprism-native-read-window.php" "$2"
+}
+SH;
+$composeBody = <<<'SH'
+set +e
+(
+  set -e
+  trap 'wordpress_cron_window_exit "$?"' EXIT
+  wordpress_cron_window_begin wp_runner owner_transport
+  touch "$scratch/body"
+)
+status=$?
+set -e
+[ ! -e "$scratch/mu/wprism-native-read-window.php" ] || exit 79
+if [ "$mutation" = ready ]; then
+  [ "$status" -eq 0 ] && [ -f "$scratch/body" ] \
+    && [ "$(cat "$scratch/transport")" = $'prepare\nwp-native\nrelease' ]
+else
+  [ "$status" -ne 0 ] && [ ! -e "$scratch/body" ] && [ ! -e "$scratch/transport" ]
+fi
+SH;
+$shared = file_get_contents($root . '/sandbox/tests/lib/wordpress_cron_window.sh');
+if (preg_match('/^wordpress_cron_window_compose_transport\(\).*?^\}/ms', $shared, $match) !== 1) {
+    throw new RuntimeException('shared cron Compose callback is missing');
+}
+$unprivileged = str_replace('--user root ', '', $match[0], $removed);
+if ($removed !== 1) throw new RuntimeException('cron Compose counterfactual lost its exact uid boundary');
+foreach (['cli1', 'cli2'] as $service) {
+    foreach (['ready', 'unprivileged'] as $mutation) {
+        $script = $composeProbe . "\nowner_transport() { wordpress_cron_window_compose_transport \"\$service\" \"\$@\"; }\n"
+            . ($mutation === 'ready' ? '' : $unprivileged . "\n") . $composeBody;
+        foreach (['path', 'system'] as $shell) {
+            [$status, $stdout, $stderr] = $shell === 'path'
+                ? ShellProbe::run($script, [$root, $service, $mutation], $root)
+                : ShellProbe::run('exec /bin/bash -c "$1" shell-probe "${@:2}"', [$script, $root, $service, $mutation], $root);
+            wprism_check($status === 0, "actual $service Compose transport and guard lifecycle classify $shell/$mutation");
+            if ($status !== 0) fwrite(STDERR, substr($stdout . $stderr, 0, 2048) . "\n");
+        }
+    }
+}
 wprism_check_summary('WordPress cron window');

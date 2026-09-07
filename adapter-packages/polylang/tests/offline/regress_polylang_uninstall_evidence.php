@@ -195,6 +195,18 @@ foreach (['success', 'generic-error', 'extra-public-detail', 'database-change', 
 }
 
 $shell = file_get_contents(dirname(__DIR__, 2) . '/fixtures/polylang-uninstall-refusal.sh');
+$transportProbe = <<<'SH'
+set -euo pipefail
+. "$1/sandbox/tests/lib/wordpress_cron_window.sh"
+. "$1/adapter-packages/polylang/fixtures/polylang-uninstall-refusal.sh"
+COMPOSE='fixture_compose -p polyoffline'
+fixture_compose() {
+  [ "$#" -eq 17 ] && [ "$*" = '-p polyoffline run --rm -T --no-deps --user root --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh cli2 -s -- prepare 11111111111111111111111111111111' ]
+}
+polylang_uninstall_mu -s -- prepare 11111111111111111111111111111111
+SH;
+[$transportStatus] = ShellProbe::run($transportProbe, [$root], $root);
+wprism_check($transportStatus === 0, 'actual uninstall guard callback binds shared root-owned MU transport to target cli2');
 $start = strpos($shell, '  # Always retain postimages');
 $end = strpos($shell, "\n)", $start);
 if ($start === false || $end === false) throw new RuntimeException('actual uninstall command/collection block is missing');

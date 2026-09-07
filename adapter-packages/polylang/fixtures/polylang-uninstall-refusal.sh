@@ -3,7 +3,7 @@
 # only after the ordinary Plan proves its exact refusal and preservation.
 
 polylang_uninstall_mu() {
-  "${PAIR_COMPOSE[@]}" run --rm -T --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh cli2 "$@"
+  wordpress_cron_window_compose_transport cli2 "$@"
 }
 
 polylang_uninstall_refusal_check() (

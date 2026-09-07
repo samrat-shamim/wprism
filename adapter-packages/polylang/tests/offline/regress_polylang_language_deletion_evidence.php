@@ -259,4 +259,16 @@ foreach (['ready', 'command-success', 'snapshot-failure', 'database-failure', 'p
     wprism_check($fault === 'ready' ? $status === 0 && str_contains($output, 'VERIFIED') : $status !== 0 && !str_contains($output, 'VERIFIED'),
         "actual shell cannot report a deletion pass for $fault without silent successful verification");
 }
+$transportProbe = <<<'SH'
+set -euo pipefail
+. "$1/sandbox/tests/lib/wordpress_cron_window.sh"
+. "$1/adapter-packages/polylang/fixtures/polylang-language-deletion.sh"
+COMPOSE='fixture_compose -p polyoffline'
+fixture_compose() {
+  [ "$#" -eq 17 ] && [ "$*" = '-p polyoffline run --rm -T --no-deps --user root --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh cli1 -s -- prepare 11111111111111111111111111111111' ]
+}
+polylang_language_deletion_mu -s -- prepare 11111111111111111111111111111111
+SH;
+[$transportStatus] = ShellProbe::run($transportProbe, [$root], $root);
+wprism_check($transportStatus === 0, 'actual deletion guard callback binds shared root-owned MU transport to source cli1');
 wprism_check_summary('Polylang language deletion evidence');

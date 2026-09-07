@@ -4,7 +4,7 @@
 # is allowed to masquerade as restoration of the original native identity.
 
 polylang_language_deletion_mu() {
-  "${PAIR_COMPOSE[@]}" run --rm -T --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh cli1 "$@"
+  wordpress_cron_window_compose_transport cli1 "$@"
 }
 
 polylang_language_deletion_check() (
