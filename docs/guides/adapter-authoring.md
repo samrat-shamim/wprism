@@ -982,6 +982,17 @@ an incomplete diagnostic is not an exact-cause certificate. Do not add a
 plugin-owned subprocess logger or publish opaque child output to recover a
 missing cause.
 
+When two successful fresh children disagree, the engine retains a private
+`wprism-provider-postimage-comparison/v1` record alongside the unchanged
+recovery refusal. Each compared value carries its exact PHP-serialized byte
+count and SHA-256, preserving the types and key order the strict comparison
+used. Up to 1,024 bytes per value are retained as base64; larger values carry
+`retained_complete: false` and no byte payload. These are inert diagnostic
+bytes, never runtime unserialization input. The bounded record fits the private
+Throwable recorder without field truncation. A hash-only omission is not an
+exact postimage reconstruction, and the comparison grants no retry bypass.
+This belongs in the shared process boundary, not a plugin-owned logger.
+
 The same rule applies to engine-owned native children. `rewrite.flush` uses
 the shared rejected-capture helper for unknown exit statuses, warnings and
 malformed or invalid receipts, and retains a launch exception privately. Its

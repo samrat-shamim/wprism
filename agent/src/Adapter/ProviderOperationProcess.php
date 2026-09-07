@@ -6,6 +6,7 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/BoundedChildProcess.php';
 require_once __DIR__ . '/../Kernel/PrivateRefusalEvidence.php';
+require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
 require_once __DIR__ . '/ManifestProviderRuntime.php';
 if (!class_exists(AdapterLibrary::class, false)) {
@@ -40,6 +41,10 @@ final class ProviderOperationProcess {
     private const MAX_POLICY_SNAPSHOT_BYTES = 16777216;
     private const MAX_PATH_BYTES = 4096;
     private const MAX_SEMANTIC_RESULT_BYTES = 524288;
+    // Two base64-encoded 1024-byte images plus fixed framing fit the private
+    // recorder's 4096-byte message field. Larger images retain exact size and
+    // digest with explicit omission, never a falsely complete truncated value.
+    private const POSTIMAGE_DIAGNOSTIC_BYTES = 1024;
     private const STDOUT_BYTES = 786432;
     private const STDERR_BYTES = 262144;
     private const CHILD_COMMAND = 'eval \'\\WPrism\\ProviderOperationProcess::child_main();\'';
@@ -239,10 +244,15 @@ final class ProviderOperationProcess {
             if (!is_array($observed)
                 || array_keys($observedResult) !== ['postimage']
                 || $claimed !== $observed) {
-                throw new \RuntimeException(
+                throw new PrivateEvidenceException(
                     "wprism: manifest-provider '$adapter' capability '$capability' fresh-process receipt "
                     . 'disagrees with independent parent readback (performed in a second fresh child); '
-                    . 'recovery_required'
+                    . 'recovery_required',
+                    new \RuntimeException(Canon::encode([
+                        'claimed' => self::private_postimage_witness($claimed),
+                        'format' => 'wprism-provider-postimage-comparison/v1',
+                        'observed' => self::private_postimage_witness($observed),
+                    ]))
                 );
             }
             if (hrtime(true) >= $deadlineNanoseconds) {
@@ -256,6 +266,27 @@ final class ProviderOperationProcess {
         }
         /** @var array{before:mixed,after:mixed,verified:true} $receipt */
         return $receipt;
+    }
+
+    /**
+     * The failed comparison is engine-owned, not an adapter's diagnostic
+     * executable. Serialize retains the types and key order `!==` compared;
+     * canonical JSON would erase ordering differences before hashing. These
+     * bytes are inert private evidence and are never unserialized by runtime.
+     *
+     * @return array{bytes:int,contents_base64:?string,encoding:string,retained_complete:bool,sha256:string,type:string}
+     */
+    private static function private_postimage_witness(mixed $value): array {
+        $bytes = serialize($value);
+        $complete = strlen($bytes) <= self::POSTIMAGE_DIAGNOSTIC_BYTES;
+        return [
+            'bytes' => strlen($bytes),
+            'contents_base64' => $complete ? base64_encode($bytes) : null,
+            'encoding' => 'php-serialize-base64',
+            'retained_complete' => $complete,
+            'sha256' => hash('sha256', $bytes),
+            'type' => get_debug_type($value),
+        ];
     }
 
     /** Execute the fixed stdin protocol inside a WP-CLI child. */

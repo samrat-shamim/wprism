@@ -14,7 +14,7 @@ final class FixtureFresh extends ManifestProviderRuntime {
     /** @return array{before:array{value:string},after:array{value:string},verified:true} */
     protected function invoke_execute(array $args): array {
         $value = $args['value'] ?? null;
-        if (!is_string($value) || !in_array($value, ['after', 'dml', 'large', 'private-failure', 'recurse'], true)) {
+        if (!is_string($value) || !in_array($value, ['after', 'bounded', 'dml', 'large', 'private-failure', 'recurse'], true)) {
             throw new \RuntimeException('fixture received unexpected args');
         }
         if ($value === 'private-failure') {
@@ -29,6 +29,7 @@ final class FixtureFresh extends ManifestProviderRuntime {
             ? self::$state
             : self::readDurableRecord($durablePath)['value'];
         $after = $value === 'large' ? str_repeat('x', 530000) : $value;
+        if ($value === 'bounded') $after = str_repeat('a', 997);
         if ($durablePath !== null) {
             self::writeDurableRecord($durablePath, $after);
             // The observer below accepts a durable record only from a clean

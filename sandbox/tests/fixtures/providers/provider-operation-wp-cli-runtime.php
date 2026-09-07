@@ -127,8 +127,20 @@ $GLOBALS['argv'] = [$driver, $repo, $state];
 require $driver;
 PHP;
         $store = \wprism_wp_store();
-        $GLOBALS['wprism_provider_operation_request_identities'][] =
-            (new \ReflectionProperty(\WPrism\ProviderOperationProcess::class, 'pendingIdentity'))->getValue();
+        $identity = (new \ReflectionProperty(\WPrism\ProviderOperationProcess::class, 'pendingIdentity'))->getValue();
+        $GLOBALS['wprism_provider_operation_request_identities'][] = $identity;
+        if (($identity['operation'] ?? null) === 'observe'
+            && array_key_exists('wprism_provider_operation_between_children_value', $GLOBALS)) {
+            // A distinct actor changes the durable fixture between real child
+            // boots. The production observer and comparison must see it; no
+            // receipt or response parser is replaced by the test.
+            $record = json_decode((string) file_get_contents($state), true, 64, JSON_THROW_ON_ERROR);
+            $record['value'] = $GLOBALS['wprism_provider_operation_between_children_value'];
+            $bytes = \WPrism\Canon::encode($record);
+            if (file_put_contents($state, $bytes) !== strlen($bytes)) {
+                throw new \RuntimeException('cannot change durable state between provider children');
+            }
+        }
         $GLOBALS['wprism_provider_operation_prelaunch_cache_views'][] = $store->cache === [];
         $process = proc_open(
             [PHP_BINARY, '-r', $wrapper, $driver, $repo, $state, $injectedStderr, $transportCase],

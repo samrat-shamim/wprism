@@ -48,7 +48,20 @@ reviewed and exercised through the product path.
   attachment derivative after DB-only reset; the complete retained cause and
   final pair cleanup were verified. The scenario now uses the existing shared
   full-teardown/fresh-acquisition lifecycle between lanes, with an executable
-  resource-isolation counterfactual. All four fresh lanes remain required.
+  resource-isolation counterfactual. Fresh `rmcombofinal03` on exact `1f48bce7`
+  passed both independent lanes and synchronized/source-forward/target-reverse,
+  including repeat Apply and custom-CPT deletion refusals; all three canonical
+  input/native preservation records re-admitted after teardown. The fourth
+  synchronized/source-reverse/target-forward lane passed initial Apply and
+  native frontend/redirect controls, then refused its provider retry because
+  Rank Math's claimed postimage differed from the independent second child's
+  observation. The complete 4,301-byte cause graph is retained; the two compared
+  postimages were not, so the underlying differing field is not yet known.
+  The run exited 1 after 1,702.68 seconds and exact cleanup passed. The shared
+  process boundary now retains bounded private comparison evidence for future
+  mismatches, with deterministic real-child coverage; that diagnostic fix does
+  not close the native failure or weaken the comparison. The fourth full lane
+  remains required.
 - [ ] Obtain fresh independent review of the newest checkpoint deltas and this
   continuation. Agent execution was usage-limited at the interim merge; old
   reviews do not certify later changes. The owner's partial merge does not
