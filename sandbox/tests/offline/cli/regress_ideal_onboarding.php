@@ -2301,12 +2301,15 @@ $passthroughTimedProcess = HostProcess::run(
     65536
 );
 wprism_check_same(124, $passthroughTimedProcess['exit'], 'the shared runner enforces an explicit passthrough deadline');
+// This positive case proves the explicit output budget, not host throughput.
+// The parallel corpus exhausted its former 1s allowance (exit 124), while the
+// isolated case passed; separate 50/100ms cases above pin deadline enforcement.
 $transferBudgetProcess = HostProcess::run(
     [PHP_BINARY, '-r', 'usleep(50000); fwrite(STDOUT, str_repeat("t", 2000000));'],
     null,
     [],
     false,
-    1000,
+    10000,
     4000000
 );
 wprism_check_same(0, $transferBudgetProcess['exit'], 'an explicit transfer budget admits a slower multi-megabyte operation');
