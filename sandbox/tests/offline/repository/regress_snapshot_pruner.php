@@ -187,6 +187,17 @@ $pruner = $makePruner();
 $preserved = $pruner->option_name_ref_preserved_ids($canonical);
 $check($preserved === ['thing' => [7, 9]],
     'live and canonical witnesses deduplicate into sorted exact positive local ids');
+$canonicalObservations = 0;
+$scopedPreserved = $pruner->option_name_ref_preserved_ids($canonical, ['plugin_11_settings'],
+    static function (Closure $observe) use (&$canonicalObservations): void {
+        $canonicalObservations++;
+        $observe();
+    });
+$check($scopedPreserved === ['thing' => [7, 11]] && $canonicalObservations === 1,
+    'each complete canonical name enters the supplied observation boundary exactly once');
+$throws(static fn() => $pruner->option_name_ref_preserved_ids($canonical, [], static function (Closure $observe): void {
+    throw new RuntimeException('fixture canonical observation refused');
+}), 'fixture canonical observation refused', 'a canonical observation boundary refusal propagates without pruning');
 
 $unrelated = OptionState::document([
     "unrelated_{{thing:$uuid}}_settings" => OptionState::deleted(OptionState::present('old', 'yes')),

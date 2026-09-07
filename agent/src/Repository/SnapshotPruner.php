@@ -49,9 +49,14 @@ final class SnapshotPruner {
      * option ownership.
      *
      * @param null|list<string> $liveOptionNames A caller's already bounded, same-snapshot namespace observation; null keeps the maintenance scan.
+     * @param null|\Closure(\Closure():void):void $observeCanonicalName Execute one complete canonical-name witness within the caller's observation boundary.
      * @return array<string,int[]> id_kind => local ids excluded from pruning
      */
-    public function option_name_ref_preserved_ids(?array $repositoryOptions = null, ?array $liveOptionNames = null): array {
+    public function option_name_ref_preserved_ids(
+        ?array $repositoryOptions = null,
+        ?array $liveOptionNames = null,
+        ?\Closure $observeCanonicalName = null
+    ): array {
         if ($liveOptionNames !== null && (!array_is_list($liveOptionNames)
             || count(array_filter($liveOptionNames, 'is_string')) !== count($liveOptionNames))) {
             throw new \LogicException('wprism: option-name identity observation requires a list of names');
@@ -116,51 +121,58 @@ final class SnapshotPruner {
         // after the live option row has already gone.
         if ($repositoryOptions !== null) {
             foreach (array_keys(($this->optionRecords)($repositoryOptions)) as $name) {
-                $matched = preg_match_all(
-                    '/\{\{([a-z][a-z0-9_]*):([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}/',
-                    (string) $name,
-                    $matches,
-                    PREG_SET_ORDER
-                );
-                if ($matched === false || $matched === 0) {
-                    continue;
-                }
-                foreach ($matches as $match) {
-                    $kind = (string) ($match[1] ?? '');
-                    if (!isset($rulesByKind[$kind])) {
-                        continue;
-                    }
-                    $id = ($this->ledgerIdFor)((string) ($match[2] ?? ''), $kind);
-                    if ($id === null || $id <= 0) {
-                        continue;
-                    }
-
-                    // Canonical names are untrusted repository input until
-                    // exact authored ownership is reconstructed and proved.
-                    $tokenText = (string) ($match[0] ?? '');
-                    $replacementCount = 0;
-                    $numericName = preg_replace(
-                        '/' . preg_quote($tokenText, '/') . '/',
-                        (string) $id,
+                $observe = function () use ($name, $rulesByKind, &$preserve): void {
+                    $matched = preg_match_all(
+                        '/\{\{([a-z][a-z0-9_]*):([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}/',
                         (string) $name,
-                        1,
-                        $replacementCount
+                        $matches,
+                        PREG_SET_ORDER
                     );
-                    if ($numericName === null || $replacementCount !== 1) {
-                        throw new \RuntimeException(
-                            "wprism: canonical option token for id_kind '$kind' could not be reconstructed safely"
-                        );
+                    if ($matched === false || $matched === 0) {
+                        return;
                     }
-                    $details = $this->policy->option_name_ref_match_details($numericName);
-                    if ($details === null
-                        || ($details['rule']['class'] ?? '') !== 'authored'
-                        || (string) ($details['rule']['id_kind'] ?? '') !== $kind
-                        || ($this->strictPositiveLocalId)($details['matches']['id'][0] ?? null) !== $id) {
-                        throw new \RuntimeException(
-                            "wprism: canonical option token for id_kind '$kind' is not owned by exactly one authored option_name_refs rule"
+                    foreach ($matches as $match) {
+                        $kind = (string) ($match[1] ?? '');
+                        if (!isset($rulesByKind[$kind])) {
+                            continue;
+                        }
+                        $id = ($this->ledgerIdFor)((string) ($match[2] ?? ''), $kind);
+                        if ($id === null || $id <= 0) {
+                            continue;
+                        }
+
+                        // Canonical names are untrusted repository input until
+                        // exact authored ownership is reconstructed and proved.
+                        $tokenText = (string) ($match[0] ?? '');
+                        $replacementCount = 0;
+                        $numericName = preg_replace(
+                            '/' . preg_quote($tokenText, '/') . '/',
+                            (string) $id,
+                            (string) $name,
+                            1,
+                            $replacementCount
                         );
+                        if ($numericName === null || $replacementCount !== 1) {
+                            throw new \RuntimeException(
+                                "wprism: canonical option token for id_kind '$kind' could not be reconstructed safely"
+                            );
+                        }
+                        $details = $this->policy->option_name_ref_match_details($numericName);
+                        if ($details === null
+                            || ($details['rule']['class'] ?? '') !== 'authored'
+                            || (string) ($details['rule']['id_kind'] ?? '') !== $kind
+                            || ($this->strictPositiveLocalId)($details['matches']['id'][0] ?? null) !== $id) {
+                            throw new \RuntimeException(
+                                "wprism: canonical option token for id_kind '$kind' is not owned by exactly one authored option_name_refs rule"
+                            );
+                        }
+                        $preserve[$kind][] = $id;
                     }
-                    $preserve[$kind][] = $id;
+                };
+                if ($observeCanonicalName === null) {
+                    $observe();
+                } else {
+                    $observeCanonicalName($observe);
                 }
             }
         }

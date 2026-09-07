@@ -73894,6 +73894,14 @@
                             "name": "liveOptionNames",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "observeCanonicalName",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -74625,6 +74633,14 @@
                             "has_default": true,
                             "name": "liveOptionNames",
                             "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "observeCanonicalName",
+                            "type": "?Closure",
                             "variadic": false
                         }
                     ],

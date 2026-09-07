@@ -520,4 +520,59 @@ foreach ([[], ['table' => 'wp_lifecycle_rows', 'pk' => 'id'], ['wp_lifecycle_row
     wprism_check_same($offset, count($f['db']->queries()), 'invalid physical identifiers refuse before database access');
 }
 
+// Canonical option names are independent bounded work items, just like live
+// options. A single preparation quota must not cap an otherwise admitted
+// namespace at the 1,025th retained name or widen the underlying SQL budget.
+$f = $typedFixture('healthy', 'none', false);
+$records = OptionState::records(json_decode(file_get_contents($f['repo'] . '/state/options/core.json'), true, 64, JSON_THROW_ON_ERROR));
+$mapped = $f['db']->rows('wp_wprism_map');
+$physical = $f['db']->rows('wp_lifecycle_rows');
+$names = [];
+for ($index = 1; $index <= 1100; $index++) {
+    $uuid = sprintf('60000000-0000-4000-8000-%012d', $index);
+    $label = 'owner-' . $index;
+    Canon::write_file($f['repo'] . '/state/tables/lifecycle_rows/' . $uuid . '--' . $label . '.json', Canon::encode([
+        'uuid' => $uuid, 'table' => 'lifecycle_rows', 'columns' => ['label' => $label], 'meta' => (object) [],
+    ]));
+    $name = 'lifecycle_{{lifecycle_row:' . $uuid . '}}_settings';
+    $names[] = $name;
+    $records[$name] = OptionState::absent();
+    $mapped[] = ['uuid' => $uuid, 'entity_type' => 'lifecycle_rows', 'id_kind' => 'lifecycle_row', 'local_id' => 1000 + $index];
+    $physical[] = ['id' => 1000 + $index, 'label' => $label];
+}
+Canon::write_file($f['repo'] . '/state/options/core.json', Canon::encode(OptionState::document($records)));
+$f['compiled'] = RepositoryCompiler::compile($f['repo'], $f['policy']);
+$f['db']->seedTable('wp_wprism_map', $mapped)->seedTable('wp_lifecycle_rows', $physical);
+$scaleTrees = static fn(string $repo): array => array_map(
+    static fn(string $boundary): array => FilesystemTreeEvidence::capture($repo, $boundary, WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE),
+    ['state', 'media', 'site.wprism.json', 'adapters']
+);
+$beforeRows = $native($f['db']);
+$beforeTrees = $scaleTrees($f['repo']);
+try {
+    $snapshot = CaptureSnapshotService::snapshotOptionsCore($f['repo'], false, $f['compiled'], $f['policy']);
+    $captured = OptionState::records(json_decode($snapshot['options/core']['content'], true, 64, JSON_THROW_ON_ERROR));
+    wprism_check(array_map(static fn(string $name): ?array => $captured[$name] ?? null, $names)
+        === array_fill(0, 1100, OptionState::absent()), '1,100 independent canonical names retain their exact absent projection');
+} catch (Throwable $failure) {
+    wprism_check(false, '1,100 canonical-name observations must fit independent work items: ' . $failure->getMessage());
+}
+wprism_check_same($beforeRows, $native($f['db']), 'large canonical-name observation preserves every native row and mapping');
+wprism_check_same($beforeTrees, $scaleTrees($f['repo']), 'large canonical-name observation preserves complete repository bytes');
+
+$scaleView = new LifecycleReferenceView($f['policy'], OptionState::document($records));
+try {
+    CaptureTransaction::run($f['policy'], static function (DatabaseWorkAuthority $authority) use ($scaleView): void {
+        WPrism\DatabaseQueryIsolation::work_unit($authority, static function () use ($scaleView, $authority): void {
+            $scaleView->prepare([], $authority);
+        });
+    }, optionsOnly: true);
+    wprism_check(false, 'nested canonical observations must not refresh an enclosing callback budget');
+} catch (WPrism\DatabaseQueryIsolationViolationException $failure) {
+    wprism_check_same('wprism: native database callback exceeded its statement-count boundary', $failure->getMessage(),
+        'an enclosing callback keeps its unchanged statement quota across all canonical-name work items');
+}
+wprism_check_same($beforeRows, $native($f['db']), 'enclosing-budget refusal preserves all native rows and mappings');
+wprism_check_same($beforeTrees, $scaleTrees($f['repo']), 'enclosing-budget refusal preserves complete repository bytes');
+
 wprism_check_summary('lifecycle identity preservation');

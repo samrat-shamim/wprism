@@ -2499,7 +2499,11 @@ library.
    activation; metadata permission must not grant row reads if it appears
    after the transaction profile was fixed. Exercise read failures, presence
    changes, stale authority and retry cache reset, and prove every native row
-   and canonical byte survives. Full-state identity reconciliation remains a
+   and canonical byte survives. Canonical option names are separate bounded
+   work items, like live options: exercise more than 1,024 retained names so
+   preparing the roster cannot accidentally impose one callback's SQL quota
+   on the whole namespace. Keep the per-item and enclosing callback limits
+   unchanged. Full-state identity reconciliation remains a
    separate guarded boundary; do not recreate it inside a plugin executable.
 
    Rendered language identifiers are not interchangeable with WordPress

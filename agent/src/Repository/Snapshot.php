@@ -1376,14 +1376,16 @@ final class Snapshot {
      * id_kind, and canonical tokens must resolve through the existing ledger.
      *
      * @param null|list<string> $liveOptionNames The producer's bounded namespace, when already observed in its transaction.
+     * @param null|\Closure(\Closure():void):void $observeCanonicalName The caller's complete per-name observation boundary.
      * @return array<string,int[]> id_kind => local ids to exclude from dead-map pruning
      */
     public static function option_name_ref_preserved_ids(
         Policy $policy,
         ?array $repositoryOptions = null,
-        ?array $liveOptionNames = null
+        ?array $liveOptionNames = null,
+        ?\Closure $observeCanonicalName = null
     ): array {
-        return self::snapshot_pruner($policy)->option_name_ref_preserved_ids($repositoryOptions, $liveOptionNames);
+        return self::snapshot_pruner($policy)->option_name_ref_preserved_ids($repositoryOptions, $liveOptionNames, $observeCanonicalName);
     }
 
     /** Full capture dead-map hygiene for every declared typed-table row. */

@@ -46,14 +46,24 @@ final class LifecycleReferenceView {
         $this->authority = null;
         $this->preserved = [];
         $this->presence = [];
-        DatabaseQueryIsolation::work_unit($authority, function () use ($optionValues): void {
-            // Canonical numeric option names become PHP integer map keys;
-            // their original decimal spelling still belongs to the namespace.
-            $names = array_map('strval', array_keys($optionValues));
-            foreach (Snapshot::option_name_ref_preserved_ids($this->policy, $this->previousOptions, $names) as $kind => $ids) {
-                $this->preserved[$kind] = array_fill_keys($ids, true);
+        DatabaseQueryIsolation::work_unit($authority, static function (): void {});
+        // Canonical numeric option names become PHP integer map keys;
+        // their original decimal spelling still belongs to the namespace.
+        $names = array_map('strval', array_keys($optionValues));
+        $preserved = Snapshot::option_name_ref_preserved_ids(
+            $this->policy,
+            $this->previousOptions,
+            $names,
+            static function (\Closure $observe) use ($authority): void {
+                // The namespace is a roster, not one database work item.
+                // Each canonical name owns its complete identity witness;
+                // enclosing native callback budgets still cannot be reset.
+                DatabaseQueryIsolation::work_unit($authority, $observe);
             }
-        });
+        );
+        foreach ($preserved as $kind => $ids) {
+            $this->preserved[$kind] = array_fill_keys($ids, true);
+        }
         $this->authority = $authority;
     }
 

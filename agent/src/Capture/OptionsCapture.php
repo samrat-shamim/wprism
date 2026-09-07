@@ -101,9 +101,7 @@ final class OptionsCapture {
             // bounded namespace, not a pre-transaction prune or a second scan
             // that could change which missing typed identities are retained.
             $allOptionValues = $this->all_options_map();
-            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($allOptionValues, $workAuthority): void {
-                ($this->prepareCaptureReferences)($allOptionValues, $workAuthority);
-            });
+            ($this->prepareCaptureReferences)($allOptionValues, $workAuthority);
         }
 
         $out = [];
