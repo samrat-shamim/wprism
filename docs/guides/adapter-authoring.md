@@ -1597,6 +1597,15 @@ refuses by name. Value-vocabulary features add no certificate surface of their
 own: `mixed-column-codecs/v1` leaves the surface owned by
 `typed-column-codecs/v1`, while `manifest-provider-runtime/v1` claims no state.
 
+When adding an engine feature, update the independent literal vocabulary
+expectations in `regress_spec_v3_document.php` and `regress_spec_v3_dry_run.php`
+alongside its owner and generated API/wire projections. Keep those expectations
+literal: deriving them from the new roster would stop checking its exact set.
+Run `make regress-spec-v3-document regress-spec-v3-dry-run regress-spec-window`
+and `make release-gate` before the full aggregate. New runtime APIs also need
+host-load admission/refusal controls; an existing provider-protocol feature
+does not automatically promise later SDK methods.
+
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be
 certified at all — published with the one fact an author most needs about it:

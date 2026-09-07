@@ -250,6 +250,8 @@ wprism_check_same(
 // eleven while claiming `incompatible_plugins`, and the fixed manifest-provider
 // child protocol made it twelve. Scalar reference intersection made thirteen;
 // native value validation makes fourteen, both without a new top-level section.
+// The three JSON-body refinements make seventeen; independent provider row
+// observation and mutation API requirements make nineteen, still without keys.
 // Policy checks the exact interpreter owner's enrollment, not another vocabulary.
 // The sixth section-claiming
 // name remains `body_refs`
@@ -268,6 +270,8 @@ wprism_check_same(
         'native-value-validation/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
+        'provider-physical-table-rows/v1',
+        'provider-typed-row-mutations/v1',
         'scalar-reference-intersection/v1',
         'schema-settlement/v1',
         'spec-window/v1',
@@ -276,7 +280,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries seventeen IMPLEMENTED features, and five claim sections v3 did not have — '
+    'v3.2: the vocabulary carries nineteen IMPLEMENTED features, and five claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked five times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by
