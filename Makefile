@@ -735,6 +735,9 @@ regress-promotion-unit:
 regress-lifecycle-options-snapshot:
 	php sandbox/tests/offline/code-half/regress_lifecycle_options_snapshot.php
 
+regress-lifecycle-identity-preservation:
+	php sandbox/tests/offline/capture/regress_lifecycle_identity_preservation.php
+
 # Fatal-safe control-plane bootstrap: WPRISM_JOURNAL must not call WordPress
 # option/filter APIs before after_wp_config_load has loaded the normal runtime.
 regress-journal-bootstrap:

@@ -67,18 +67,20 @@ final class CaptureCandidateBuilder {
      *        environment binding instead of the live one (Tokens' docblock);
      *        plan's foreign-bound comparison observation is the only caller.
      * @param null|\Closure(object):?string $unmappedTermObserver Only a full non-minting plan may compare an unmanaged native row with desired natural identity.
+     * @param null|\Closure(int,string):?string $captureIdentityLookup Observation-local reference projection; it never changes apply-direction bindings or the durable ledger.
      */
     public function __construct(
         string $repo,
         private Policy $policy,
         ?array $binding = null,
         private readonly ?array $canonicalShortcodeTree = null,
-        private readonly ?\Closure $unmappedTermObserver = null
+        private readonly ?\Closure $unmappedTermObserver = null,
+        ?\Closure $captureIdentityLookup = null
     ) {
         $this->repo = rtrim($repo, '/');
         $this->tokens = $binding === null
-            ? new Tokens()
-            : new Tokens((string) $binding['home'], (string) $binding['uploads']);
+            ? new Tokens(captureIdentityLookup: $captureIdentityLookup)
+            : new Tokens((string) $binding['home'], (string) $binding['uploads'], $captureIdentityLookup);
         $this->tokens->policy = $policy;
         $this->safetyGates = new CaptureSafetyGates($this->repo);
         $this->captureIdentity = new CaptureIdentity();

@@ -2479,6 +2479,17 @@ library.
    is a separate subsequent control; neither pruning history nor accepting any
    nonzero exit proves safe recovery.
 
+   Exercise options-only lifecycle observation before that full identity gate,
+   too. It must retain canonical post/term/taxonomy mappings after native
+   deletion, even when an option read fails. Its capture-only lookup checks
+   physical presence without reconciling the durable map: dangling option
+   references still drop, while the subsequent full Plan can still refuse
+   the missing backing rows. This is not an embedded-UUID ownership proof and
+   must not broaden lifecycle observation into all plugin tables. Use the
+   shared row-backed prune harness; a canned successful DELETE cannot prove
+   preservation. The core product regression is
+   `sandbox/tests/offline/capture/regress_lifecycle_identity_preservation.php`.
+
    Rendered language identifiers are not interchangeable with WordPress
    locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`
    while Open Graph retains `en_US`/`de_DE`; regional variants change that

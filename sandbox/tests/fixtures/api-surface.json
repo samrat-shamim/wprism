@@ -9348,6 +9348,14 @@
                             "name": "unmappedTermObserver",
                             "type": "?Closure",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "captureIdentityLookup",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -23819,6 +23827,31 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture_reference_uuid_for": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localId",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "kind",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": true,
                     "visibility": "public"
                 },
@@ -76903,6 +76936,14 @@
                             "has_default": true,
                             "name": "uploadsUrl",
                             "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "captureIdentityLookup",
+                            "type": "?Closure",
                             "variadic": false
                         }
                     ],

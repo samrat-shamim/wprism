@@ -155,8 +155,14 @@ final class Tokens {
      * The override is observation-only: apply's own Tokens (detokenize
      * direction) is always constructed bare, so writes bind to this
      * environment. See ApplyPlanBuilder::build() `rebind_from`.
+     *
+     * @param null|\Closure(int,string):?string $captureIdentityLookup Immutable capture-only identity view; apply still resolves the durable map.
      */
-    public function __construct(?string $home = null, ?string $uploadsUrl = null) {
+    public function __construct(
+        ?string $home = null,
+        ?string $uploadsUrl = null,
+        private readonly ?\Closure $captureIdentityLookup = null
+    ) {
         $this->home = untrailingslashit($home ?? (string) get_option('home'));
         if ($uploadsUrl === null) {
             $up = wp_upload_dir(null, false);
@@ -325,7 +331,9 @@ final class Tokens {
         if ($kind === '' || $id <= 0) {
             return null;
         }
-        $uuid = Ledger::uuid_for($id, $kind);
+        $uuid = $this->captureIdentityLookup === null
+            ? Ledger::uuid_for($id, $kind)
+            : ($this->captureIdentityLookup)($id, $kind);
         return IdentityTokenCodec::encode($refKind, $uuid);
     }
 

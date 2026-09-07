@@ -485,6 +485,40 @@ final class Ledger {
         return $uuid ?: null;
     }
 
+    /**
+     * Read-only reference projection for an observer that cannot reconcile
+     * identity history. The three core domains keep prune_dead_map()'s exact
+     * physical-presence semantics without deleting the tuple needed by the
+     * subsequent full canonical guard. Presence is not an ownership proof:
+     * CanonicalMapWitness still owns embedded UUID/type/relationship checks.
+     * Declared typed and widget kinds retain their separate capture contracts.
+     */
+    public static function capture_reference_uuid_for(int $localId, string $kind): ?string {
+        global $wpdb;
+        $uuid = self::uuid_for($localId, $kind);
+        if ($uuid === null) {
+            return null;
+        }
+        $physical = match ($kind) {
+            self::KIND_POST => [$wpdb->posts, 'ID'],
+            self::KIND_TERM => [$wpdb->terms, 'term_id'],
+            self::KIND_TT => [$wpdb->term_taxonomy, 'term_taxonomy_id'],
+            default => null,
+        };
+        if ($physical === null) {
+            return $uuid;
+        }
+        [$table, $column] = $physical;
+        $present = self::checked_get_var($wpdb->prepare(
+            "SELECT 1 FROM `$table` WHERE `$column` = %d LIMIT 1",
+            $localId
+        ), 'capture reference physical presence');
+        if ($present !== null && $present !== '1' && $present !== 1) {
+            throw new \RuntimeException('wprism: ledger capture reference presence returned a malformed value');
+        }
+        return $present === null ? null : $uuid;
+    }
+
     public static function set(string $uuid, string $entityType, string $kind, int $localId): void {
         global $wpdb;
         if (!Uuid::is($uuid) || $localId <= 0) {

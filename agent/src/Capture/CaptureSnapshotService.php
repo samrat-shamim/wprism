@@ -177,10 +177,16 @@ final class CaptureSnapshotService {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
         Identity::assert_embedded_unique();
-        Ledger::prune_dead_map();
         $policy ??= Policy::load($repo);
         CaptureTransaction::assert_engine_support($policy, true);
-        $capture = new CaptureCandidateBuilder($repo, $policy);
+        // This lifecycle observer has no entity reconciliation authority.
+        // Pruning here erased canonical term/post history before full Plan's
+        // guard could distinguish native deletion from a genuinely fresh site.
+        $capture = new CaptureCandidateBuilder(
+            $repo,
+            $policy,
+            captureIdentityLookup: Ledger::capture_reference_uuid_for(...)
+        );
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);
         Snapshot::prune_option_name_ref_map($policy, $repositoryOptions);
