@@ -165,6 +165,7 @@ return [
     'WPrism\\LifecycleExecutor' => 'src/Promotion/LifecycleExecutor.php',
     'WPrism\\LifecycleJournal' => 'src/Promotion/LifecycleJournal.php',
     'WPrism\\LifecyclePlanner' => 'src/Promotion/LifecyclePlanner.php',
+    'WPrism\\LifecycleReferenceView' => 'src/Capture/LifecycleReferenceView.php',
     'WPrism\\LifecycleSettlement' => 'src/Adapter/LifecycleSettlement.php',
     'WPrism\\Lint' => 'src/Review/Lint.php',
     'WPrism\\LintEnvironment' => 'src/Review/LintEnvironment.php',

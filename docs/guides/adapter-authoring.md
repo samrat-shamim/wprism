@@ -2480,7 +2480,7 @@ library.
    nonzero exit proves safe recovery.
 
    Exercise options-only lifecycle observation before that full identity gate,
-   too. It must retain canonical post/term/taxonomy mappings after native
+   too. It must retain canonical core and declared typed mappings after native
    deletion, even when an option read fails. Its capture-only lookup checks
    physical presence without reconciling the durable map: dangling option
    references still drop, while the subsequent full Plan can still refuse
@@ -2489,6 +2489,18 @@ library.
    shared row-backed prune harness; a canned successful DELETE cannot prove
    preservation. The core product regression is
    `sandbox/tests/offline/capture/regress_lifecycle_identity_preservation.php`.
+
+   For scalar typed kinds intersecting `option_name_refs`, merely removing a
+   prune is insufficient: another scalar, list, structured-value or key
+   reference may otherwise tokenize a deleted row. `LifecycleReferenceView`
+   reuses the existing bounded option namespace and exact physical-key reader,
+   retaining the same live/canonical option-name witnesses without deleting
+   maps. An absent owner table keeps the lifecycle projection needed before
+   activation; metadata permission must not grant row reads if it appears
+   after the transaction profile was fixed. Exercise read failures, presence
+   changes, stale authority and retry cache reset, and prove every native row
+   and canonical byte survives. Full-state identity reconciliation remains a
+   separate guarded boundary; do not recreate it inside a plugin executable.
 
    Rendered language identifiers are not interchangeable with WordPress
    locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`

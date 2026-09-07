@@ -359,9 +359,11 @@ final class CaptureTransaction {
                 static fn(array $rule): string => (string) ($rule['id_kind'] ?? ''),
                 $policy->option_name_ref_rules()
             ), true);
+            $presenceTables = [];
             foreach ($policy->declared_tables() as $name => $declaration) {
                 if (isset($refKinds[(string) ($declaration['id_kind'] ?? '')])) {
                     $table = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+                    $presenceTables[] = $table;
                     if (self::declared_table_exists($table)) {
                         $tables[] = $table;
                     }
@@ -371,7 +373,7 @@ final class CaptureTransaction {
                 $tables,
                 static fn($table): bool => is_string($table) && $table !== ''
             )));
-            return NativeDatabaseProfile::read_only($tables);
+            return NativeDatabaseProfile::schema_read_only($tables, array_values(array_unique($presenceTables)));
         }
 
         $tables = [

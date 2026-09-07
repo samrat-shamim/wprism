@@ -324,11 +324,14 @@ raw schema-qualified reads. Opted-in metadata projections still pass through
 the ordinary query gate, interception, logging and error-reset pipeline; they
 must never manufacture an answer before the active authority sees the query.
 
-The closed `enableFullApplySqlExtensions()` core dead-map DELETEs are also
+The closed `enableFullApplySqlExtensions()` dead-map DELETEs are also
 row-backed, not no-op acknowledgements. Seed the map and physical tables plus
 their exact `id_kind`/`local_id` and primary-key columns, including empty-table
 controls. Only the existing three core LEFT JOIN shapes and connection/nonce-
-fenced NOT EXISTS shapes are recognized; this does not enable general join
+fenced NOT EXISTS shapes are recognized, including the exact declared scalar
+table/primary-key form and optional canonical positive `local_id NOT IN (...)`
+preservation list. Protected rows remain, including SQL-null/unknown predicates.
+This does not enable general join
 deletion or subqueries. A missing physical row removes the matching tuple,
 affected counts are exact, and query gates, failures, savepoint rollback and
 connection replacement apply. This is what lets an options-only lifecycle

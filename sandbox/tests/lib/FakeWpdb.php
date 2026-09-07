@@ -1534,14 +1534,14 @@ class FakeWpdb {
             . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}'";
     }
 
-    /** @return null|array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string} */
+    /** @return null|array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} */
     private function fullApplyPruneQuery(string $query): ?array {
         $map = $this->tableName('wprism_map');
         $normalized = $this->fullApplySql($query);
         foreach ([['post', 'posts', 'ID', 'po'], ['term', 'terms', 'term_id', 't'],
             ['term_taxonomy', 'term_taxonomy', 'term_taxonomy_id', 'tt']] as [$kind, $table, $column, $alias]) {
             $table = $this->tableName($table);
-            $intent = ['map' => $map, 'table' => $table, 'column' => $column, 'kind' => $kind, 'connection' => null, 'nonce' => null];
+            $intent = ['map' => $map, 'table' => $table, 'column' => $column, 'kind' => $kind, 'connection' => null, 'nonce' => null, 'keep' => []];
             if ($normalized === "DELETE m FROM $map m LEFT JOIN $table $alias ON $alias.$column = m.local_id WHERE m.id_kind = '$kind' AND $alias.$column IS NULL") {
                 return $intent;
             }
@@ -1556,10 +1556,31 @@ class FakeWpdb {
                 return array_replace($intent, ['connection' => $match[1], 'nonce' => $match[2]]);
             }
         }
+        // Ledger's declared scalar-row pruner is the same bounded anti-join,
+        // with a policy-selected table/PK and optional positive keep IDs. Do
+        // not turn that one shape into general subquery or multi-table DELETE
+        // support: the exact receiver, session fences and src equality matter.
+        $typed = '/\A' . preg_quote("DELETE FROM `$map` WHERE CONNECTION_ID() = '", '/')
+            . "([1-9][0-9]*)' AND BINARY @wprism_tx_session = BINARY '([a-f0-9]{64})' AND \\("
+            . "id_kind = '([a-z][a-z0-9_]{0,63})'(?: AND local_id NOT IN \\(([1-9][0-9]*(?:,[1-9][0-9]*)*)\\))?"
+            . ' AND NOT EXISTS \\(SELECT 1 FROM `(' . preg_quote($this->prefix, '/') . '[A-Za-z0-9_]+)` src'
+            . ' WHERE src.`([A-Za-z0-9_]{1,64})` = ' . preg_quote("`$map`.`local_id`", '/') . '\\)\\)\\z/';
+        if (preg_match($typed, $normalized, $match) === 1 && strlen($match[5]) <= 64) {
+            $keep = [];
+            foreach ($match[4] === '' ? [] : explode(',', $match[4]) as $raw) {
+                $id = filter_var($raw, FILTER_VALIDATE_INT);
+                if (!is_int($id) || $id <= 0 || (string) $id !== $raw) {
+                    return null;
+                }
+                $keep[] = $id;
+            }
+            return ['map' => $map, 'table' => $match[5], 'column' => $match[6], 'kind' => $match[3],
+                'connection' => $match[1], 'nonce' => $match[2], 'keep' => $keep];
+        }
         return null;
     }
 
-    /** @param array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string} $intent */
+    /** @param array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} $intent */
     private function executeFullApplyPrune(array $intent): array {
         $map = $this->requireTable($intent['map']);
         $table = $this->requireTable($intent['table']);
@@ -1580,8 +1601,20 @@ class FakeWpdb {
         foreach ($this->store[$map] as $row) {
             $backed = false;
             if (self::compare($row['id_kind'] ?? null, $intent['kind']) === 0) {
+                $localId = $row['local_id'] ?? null;
+                $excluded = false;
+                foreach ($intent['keep'] as $id) {
+                    if ($localId === null || self::compare($localId, $id) === 0) {
+                        $excluded = true;
+                        break;
+                    }
+                }
+                if ($excluded) {
+                    $remaining[] = $row;
+                    continue;
+                }
                 foreach ($this->store[$table] as $physical) {
-                    if (self::compare($physical[$intent['column']] ?? null, $row['local_id'] ?? null) === 0) {
+                    if (self::compare($physical[$intent['column']] ?? null, $localId) === 0) {
                         $backed = true;
                         break;
                     }

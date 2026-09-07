@@ -491,21 +491,27 @@ final class Ledger {
      * physical-presence semantics without deleting the tuple needed by the
      * subsequent full canonical guard. Presence is not an ownership proof:
      * CanonicalMapWitness still owns embedded UUID/type/relationship checks.
-     * Declared typed and widget kinds retain their separate capture contracts.
+     * A policy-aware observer may supply the exact physical table/column for
+     * a declared scalar kind; other kinds retain their own capture contracts.
+     *
+     * @param null|array{string,string} $physical Reviewed physical table and primary-key column, not a policy discovery callback.
      */
-    public static function capture_reference_uuid_for(int $localId, string $kind): ?string {
+    public static function capture_reference_uuid_for(int $localId, string $kind, ?array $physical = null): ?string {
         global $wpdb;
-        $uuid = self::uuid_for($localId, $kind);
-        if ($uuid === null) {
-            return null;
-        }
-        $physical = match ($kind) {
+        $physical ??= match ($kind) {
             self::KIND_POST => [$wpdb->posts, 'ID'],
             self::KIND_TERM => [$wpdb->terms, 'term_id'],
             self::KIND_TT => [$wpdb->term_taxonomy, 'term_taxonomy_id'],
             default => null,
         };
-        if ($physical === null) {
+        if ($physical !== null && (array_keys($physical) !== [0, 1]
+            || !is_string($physical[0]) || !is_string($physical[1])
+            || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $physical[0]) !== 1
+            || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $physical[1]) !== 1)) {
+            throw new \LogicException('wprism: capture reference requires an exact physical key');
+        }
+        $uuid = self::uuid_for($localId, $kind);
+        if ($uuid === null || $physical === null) {
             return $uuid;
         }
         [$table, $column] = $physical;

@@ -2792,17 +2792,16 @@ $check(
     'lifecycle and full snapshot options/core hashes are identical'
 );
 
-// 2b. A stale custom identity used by option_name_refs must be pruned before
-// tokenization. The table exists, but local id 42 was deleted; the lifecycle
-// path must match the full path without giving Apply a token that resolves to
-// a nonexistent row. This is deliberately separate from the clean-install
-// absent-table case above: the targeted prune must skip that case while still
-// handling a present table's dead mapping.
+// A live option-name witness retains its owner's mapping after native row
+// deletion so the full guard/planner can reconcile them together. This old
+// semantic fake used to delete it despite local_id NOT IN (42); the actual
+// row-backed product proof is regress_lifecycle_identity_preservation.php.
 $refPolicy = $policy(false);
 $refPolicy->manifests[0]['option_name_refs'] = [[
     'class' => 'authored',
     'id_kind' => 'wc_zone_method',
     'match' => '^woocommerce_[a-z0-9_]+_(?<id>[0-9]+)_settings$',
+    'autoload' => 'yes',
 ]];
 $refPolicy->manifests[0]['tables'] = [
     'woocommerce_shipping_zone_methods' => [
@@ -2838,30 +2837,27 @@ $wpdb->map = [[
     'id' => 42,
 ]];
 $narrowWithStaleMap = Capture::snapshot_options_core('/unused', false, $compiled, $refPolicy);
-$check($wpdb->map === [], 'lifecycle options snapshot prunes a stale option-name custom identity');
+$check(count($wpdb->map) === 1 && $wpdb->map[0]['id'] === 42,
+    'lifecycle options snapshot retains the canonical mapping required by its live option-name witness');
+$staleName = 'woocommerce_flat_rate_{{wc_zone_method:' . $STALE_ZONE_METHOD_UUID . '}}_settings';
+$staleRecords = OptionState::records(Canon::decode($narrowWithStaleMap['options/core']['content']));
 $check(
-    $narrowWithStaleMap['options/core']['content'] === $lifecycle['options/core']['content'],
-    'stale option-name identity cannot change narrow canonical options bytes'
+    ($staleRecords[$staleName]['value'] ?? null) === ['title' => 'Flat rate'],
+    'lifecycle projection retains settings whose native owner has been deleted'
 );
 $check(
-    $narrowWithStaleMap['options/core']['hash'] === $lifecycle['options/core']['hash'],
-    'stale option-name identity cannot change narrow canonical options hash'
+    hash('sha256', $narrowWithStaleMap['options/core']['content']) === $narrowWithStaleMap['options/core']['hash'],
+    'retained settings keep the ordinary canonical content hash'
 );
 $tokens = new WPrism\Tokens();
-$check($tokens->id_to_token(42, 'wc_zone_method') === null, 'deleted custom row cannot mint an orphan option token');
-$orphanRejected = false;
-try {
-    $tokens->token_to_id('{{wc_zone_method:' . $STALE_ZONE_METHOD_UUID . '}}');
-} catch (RuntimeException $e) {
-    $orphanRejected = str_contains($e->getMessage(), 'unresolvable ref');
-}
-$check($orphanRejected, 'apply-direction token resolution rejects the pruned custom identity');
+$check($tokens->id_to_token(42, 'wc_zone_method') === '{{wc_zone_method:' . $STALE_ZONE_METHOD_UUID . '}}',
+    'raw ledger tokenization still sees retained history; the full canonical guard owns reconciliation');
+unset($wpdb->optionRows['woocommerce_flat_rate_42_settings']);
 
 // 2b. Capture's own options-only builder must reject a malformed local-id
 // spelling even when a legacy manifest regex is broad. Keep the owning table
-// out of this synthetic policy so Snapshot's preservation prune is skipped;
-// this isolates the OptionsCapture consumer rather than merely
-// re-testing Snapshot's live scan.
+// out of this synthetic policy: rejecting a malformed name does not depend
+// on discovering or reconciling its owner table.
 $captureMalformedPolicy = $policy(false);
 $captureMalformedPolicy->manifests[0]['option_name_refs'] = [[
     'class' => 'authored',
@@ -3542,33 +3538,6 @@ $sidebarExpectReject(
     fn() => SidebarState::witness('text', 3),
     'nested too deeply',
     'SidebarState witness rejects excessively deep serialized arrays'
-);
-
-$wpdb->optionRows = [
-    'authored_setting' => ['option_value' => 'site-value', 'autoload' => 'yes'],
-    'active_plugins' => ['option_value' => serialize(['fixture/fixture.php']), 'autoload' => 'yes'],
-    'template' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
-    'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
-    'woocommerce_flat_rate_42_settings' => [
-        'option_value' => serialize(['title' => 'Flat rate']),
-        'autoload' => 'yes',
-    ],
-];
-$wpdb->map = [[
-    'uuid' => $STALE_ZONE_METHOD_UUID,
-    'entity_type' => 'woocommerce_shipping_zone_methods',
-    'kind' => 'wc_zone_method',
-    'id' => 42,
-]];
-$fullWithStaleMap = Capture::snapshot('/unused', false, $compiled, $refPolicy);
-$check($wpdb->map === [], 'full snapshot prunes the same stale option-name custom identity');
-$check(
-    $narrowWithStaleMap['options/core']['content'] === $fullWithStaleMap['options/core']['content'],
-    'narrow/full snapshots remain canonical-byte identical with a stale option-name identity'
-);
-$check(
-    $narrowWithStaleMap['options/core']['hash'] === $fullWithStaleMap['options/core']['hash'],
-    'narrow/full snapshots remain canonical-hash identical with a stale option-name identity'
 );
 
 // 2c. A lifecycle snapshot spans the switch from the target's currently

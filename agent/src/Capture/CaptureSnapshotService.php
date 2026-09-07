@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CaptureTransaction.php';
+require_once __DIR__ . '/LifecycleReferenceView.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Repository/CompiledArtifact.php';
@@ -179,17 +180,18 @@ final class CaptureSnapshotService {
         Identity::assert_embedded_unique();
         $policy ??= Policy::load($repo);
         CaptureTransaction::assert_engine_support($policy, true);
-        // This lifecycle observer has no entity reconciliation authority.
-        // Pruning here erased canonical term/post history before full Plan's
-        // guard could distinguish native deletion from a genuinely fresh site.
+        $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
+        $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);
+        // Lifecycle observation cannot erase canonical history before the
+        // full guard distinguishes native deletion from a genuinely fresh
+        // site. Both core and declared references use one read-only view.
+        $references = new LifecycleReferenceView($policy, $repositoryOptions);
         $capture = new CaptureCandidateBuilder(
             $repo,
             $policy,
-            captureIdentityLookup: Ledger::capture_reference_uuid_for(...)
+            captureIdentityLookup: $references->uuidFor(...),
+            prepareCaptureReferences: $references->prepare(...)
         );
-        $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
-        $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);
-        Snapshot::prune_option_name_ref_map($policy, $repositoryOptions);
         $repositoryValues = $repositoryOptions === null ? [] : OptionState::values($repositoryOptions);
         $dynamicResolverValues = [];
         if (isset($repositoryValues['stylesheet'])) {

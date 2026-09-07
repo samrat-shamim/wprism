@@ -40,14 +40,18 @@ final class OptionsCapture {
     /** @var array<int,array{option:string,id_kind:string,id:int}> */
     private array $unscopedOptionNameRefs = [];
 
-    /** @param null|callable(int,string):?string $unmappedTermObserver Same-snapshot full-plan identity witness, never an option-only identity lookup. */
+    /**
+     * @param null|callable(int,string):?string $unmappedTermObserver Same-snapshot full-plan identity witness, never an option-only identity lookup.
+     * @param null|\Closure(array,?DatabaseWorkAuthority):void $prepareCaptureReferences Prepare the capture-only lookup from this producer's bounded namespace.
+     */
     public function __construct(
         Policy $policy,
         Tokens $tokens,
         callable $guardSecret,
         callable $classifyScope,
         callable $rowExists,
-        ?callable $unmappedTermObserver = null
+        ?callable $unmappedTermObserver = null,
+        private readonly ?\Closure $prepareCaptureReferences = null
     ) {
         $this->policy = $policy;
         $this->tokens = $tokens;
@@ -88,6 +92,20 @@ final class OptionsCapture {
         $this->unscopedRefs = [];
         $this->unscopedOptionNameRefs = [];
 
+        $allOptionValues = null;
+        if ($this->prepareCaptureReferences !== null) {
+            if (!$lifecycleHandoffProjection || $workAuthority === null) {
+                throw new \LogicException('wprism: lifecycle reference preparation requires its bound options observation');
+            }
+            // Value refs can precede option-name refs. Both must use the same
+            // bounded namespace, not a pre-transaction prune or a second scan
+            // that could change which missing typed identities are retained.
+            $allOptionValues = $this->all_options_map();
+            DatabaseQueryIsolation::work_unit($workAuthority, function () use ($allOptionValues, $workAuthority): void {
+                ($this->prepareCaptureReferences)($allOptionValues, $workAuthority);
+            });
+        }
+
         $out = [];
         $processed = [];
         $liveCanonicalNames = [];
@@ -115,7 +133,7 @@ final class OptionsCapture {
 
         // One journal-independent scan feeds namespace discovery and every
         // option-name-reference matcher.
-        $allOptionValues = $this->all_options_map();
+        $allOptionValues ??= $this->all_options_map();
         foreach (array_keys($allOptionValues) as $name) {
             DatabaseQueryIsolation::work_unit($workAuthority, function () use (
                 $name, $allOptionValues, $forceUnresolvedRefs, &$processed, &$liveCanonicalNames, &$out

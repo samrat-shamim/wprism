@@ -68,6 +68,7 @@ final class CaptureCandidateBuilder {
      *        plan's foreign-bound comparison observation is the only caller.
      * @param null|\Closure(object):?string $unmappedTermObserver Only a full non-minting plan may compare an unmanaged native row with desired natural identity.
      * @param null|\Closure(int,string):?string $captureIdentityLookup Observation-local reference projection; it never changes apply-direction bindings or the durable ledger.
+     * @param null|\Closure(array,?DatabaseWorkAuthority):void $prepareCaptureReferences Bind that lookup from the bounded options namespace inside the lifecycle transaction.
      */
     public function __construct(
         string $repo,
@@ -75,7 +76,8 @@ final class CaptureCandidateBuilder {
         ?array $binding = null,
         private readonly ?array $canonicalShortcodeTree = null,
         private readonly ?\Closure $unmappedTermObserver = null,
-        ?\Closure $captureIdentityLookup = null
+        ?\Closure $captureIdentityLookup = null,
+        ?\Closure $prepareCaptureReferences = null
     ) {
         $this->repo = rtrim($repo, '/');
         $this->tokens = $binding === null
@@ -166,7 +168,8 @@ final class CaptureCandidateBuilder {
             $this->unmappedTermObserver === null ? null : function (int $id, string $taxonomy): ?string {
                 $native = $this->unmappedTerms[$id][$taxonomy] ?? null;
                 return $native === null ? null : ($this->unmappedTermObserver)($native);
-            }
+            },
+            $prepareCaptureReferences
         );
     }
 
