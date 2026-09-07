@@ -40,8 +40,26 @@ rebuild, settings consumers beyond the general/validation slice, submissions,
 template conversion and plugin combinations still require full conformance.
 
 The capsule owns an exact-artifact `capture-plan` entry and native source
-seed/observation hooks, but that new workflow has not yet run against a fresh
-candidate-bound pair. Its fourth offline suite independently admits complete
+seed/observation hooks. Its first candidate-bound run at `a91dd096` admitted
+the native seed, then refused capture because final candidate clearance did
+not receive the JSON body's reviewed privacy paths. The shared capture-layer
+fix at `f2fb4d50` passes policy explicitly and reuses the existing JSON grammar
+and scalar matcher. Actual candidate/transaction regressions cover admitted
+bytes, repeat capture, mutation-free strict observation and refusal rollback.
+
+The fresh `f2fb4d50` native run published the five source posts, then failed
+lint on `wpforms_settings.modern-markup = "1"` coinciding with form ID 1.
+Neither failed run is a conformance pass. Both owned pairs were removed and
+diagnostic records retained. The capsule now reviews its five native flag
+fields explicitly as non-references beside the existing stylesheet enum.
+Pinned native source defines their boolean/enum semantics; 115 new offline
+assertions exercise real capture/lint, exact value preservation, a colliding
+unreviewed sibling and independent secret/PII refusals. Only WPForms' identity
+and pin sets containing it change; the disposition registry and all other
+adapter identities remain unchanged. Recompile/re-pin; never bypass mismatch.
+A fresh complete native profile remains required after this declaration edit.
+
+The conformance-probe offline suite independently admits complete
 actual PostCapture output and rejects malformed/failed native transport,
 canonical drift and accidental target acceptance (76 assertions). The target
 hook fails explicitly until the missing round-trip assertions exist. This work

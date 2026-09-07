@@ -2373,6 +2373,16 @@ tokenizes it, or write the reviewed `lint_ok: true` on that declaration. A
 the evidence for the review, and `lint_ok` is the review. Certifying the adapter
 returns its findings to advisory.
 
+Test reviewed non-reference fields against actual colliding small IDs. The
+WPForms native writer stores `modern-markup` as string `"0"`/`"1"`; a fresh
+form with post ID 1 exposed the missing review in its named option subkey.
+Review the owning flag/enum declaration from the pinned native writer and
+consumer, then use the existing per-subkey `lint_ok`, not a blanket parent
+exception or a linter change that hides every small integer. The capsule's
+`regress_settings_lint.php` drives real option capture and lint with boolean,
+integer and string flag representations, an unreviewed numeric sibling, and
+secret/PII refusal controls. A non-reference review grants no privacy exception.
+
 An experimental adapter that deliberately excludes `apply` uses the narrower
 `mode: "capture-plan"` conformance profile instead. It still boots a fresh
 exact-artifact pair, authors state through the plugin's own APIs, runs capture,
