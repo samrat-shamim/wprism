@@ -8,6 +8,8 @@ use WPrismTest\SqlDumpEvidence;
 
 $tables = SqlDumpEvidence::tables("wp_users\tBASE TABLE\nwp_options\tBASE TABLE\n");
 wprism_check_same(['wp_options', 'wp_users'], $tables, 'full table inventory is admitted without depending on database collation order');
+wprism_check_same($tables, SqlDumpEvidence::tables("wp_users\tBASE TABLE\nwp_options\tBASE TABLE\n\n"),
+    'native WP-CLI terminal separator is framing, not an unsupported table or a reason to trim interior rows');
 $dump = "-- MariaDB dump 10.19 Distrib 11.4\n";
 foreach ($tables as $table) {
     $dump .= "-- Table structure for table `$table`\nCREATE TABLE `$table` (\n  `id` int NOT NULL\n);\n"
@@ -16,17 +18,21 @@ foreach ($tables as $table) {
 $dump .= "-- Dump completed\n";
 SqlDumpEvidence::assertComplete($dump, $tables, $tables);
 wprism_check(true, 'native complete dump with separately observed roster and nonempty rows is admitted');
-foreach (["/*M!999999\\- enable the sandbox mode */\n" . $dump, str_replace('MariaDB dump', 'MySQL dump', $dump)] as $variant) {
+foreach (["/*M!999999\\- enable the sandbox mode */\n" . $dump,
+    "/*M!999999\\- enable the sandbox mode */ \n" . $dump,
+    str_replace('MariaDB dump', 'MySQL dump', $dump)] as $variant) {
     SqlDumpEvidence::assertComplete($variant, $tables, $tables);
     wprism_check(true, 'native MySQL and MariaDB header forms preserve the same complete-data contract');
 }
 foreach (['', "wp_users\tBASE TABLE", "wp_users\tVIEW\n", "wp_users\tBASE TABLE\nwp_users\tBASE TABLE\n",
-    "wp_users\tBASE TABLE\n\n", "unsafe`table\tBASE TABLE\n", "PHP Warning\n", str_repeat('x', 32769),
+    "wp_users\tBASE TABLE\n\n\n", "wp_users\tBASE TABLE\n\nwp_options\tBASE TABLE\n",
+    "\nwp_users\tBASE TABLE\n", "\n", "\n\n", "unsafe`table\tBASE TABLE\n", "PHP Warning\n", str_repeat('x', 32769),
     implode('', array_map(static fn(int $n): string => "table_$n\tBASE TABLE\n", range(1, 129)))] as $bad) {
     wprism_check_throws(static fn() => SqlDumpEvidence::tables($bad), RuntimeException::class, 'incomplete, unsafe, duplicate, unsupported or oversized table inventory refuses');
 }
 foreach (['empty', 'missing-header', 'missing-footer', 'trailing-noise', 'dated-footer', 'table-subset', 'schema-subset',
-    'data-subset', 'empty-data', 'duplicate-schema', 'foreign-table', 'oversized'] as $fault) {
+    'data-subset', 'empty-data', 'duplicate-schema', 'foreign-table', 'oversized', 'header-two-spaces',
+    'header-tab', 'header-noise', 'header-warning'] as $fault) {
     $bad = match ($fault) {
         'empty' => '',
         'missing-header' => substr($dump, strpos($dump, "\n") + 1),
@@ -40,6 +46,10 @@ foreach (['empty', 'missing-header', 'missing-footer', 'trailing-noise', 'dated-
         'duplicate-schema' => str_replace("CREATE TABLE `wp_users` (\n", "CREATE TABLE `wp_users` (\nCREATE TABLE `wp_users` (\n", $dump),
         'foreign-table' => str_replace("-- Dump completed\n", "INSERT INTO `foreign` (`id`) VALUES (1);\n-- Dump completed\n", $dump),
         'oversized' => str_replace('-- Dump completed', str_repeat('x', 2097153) . "\n-- Dump completed", $dump),
+        'header-two-spaces' => "/*M!999999\\- enable the sandbox mode */  \n" . $dump,
+        'header-tab' => "/*M!999999\\- enable the sandbox mode */\t\n" . $dump,
+        'header-noise' => "/*M!999999\\- enable the sandbox mode */ extra\n" . $dump,
+        'header-warning' => "/*M!999999\\- enable the sandbox mode */ \nPHP Warning\n" . $dump,
     };
     wprism_check_throws(static fn() => SqlDumpEvidence::assertComplete($bad, $tables, $tables), RuntimeException::class, "dump admission refuses $fault");
 }

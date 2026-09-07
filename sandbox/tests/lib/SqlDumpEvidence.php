@@ -13,7 +13,11 @@ final class SqlDumpEvidence {
             throw new \RuntimeException('database table inventory is empty, incomplete or oversized');
         }
         $tables = [];
-        foreach (explode("\n", substr($bytes, 0, -1)) as $line) {
+        // WP-CLI db query appends one empty terminal line to the native batch
+        // result (polybiok08). Admit that framing, never arbitrary trim or an
+        // interior empty row; callers retain and compare the original bytes.
+        $terminator = str_ends_with($bytes, "\n\n") ? 2 : 1;
+        foreach (explode("\n", substr($bytes, 0, -$terminator)) as $line) {
             if (preg_match('/\A([A-Za-z0-9_]{1,64})\tBASE TABLE\z/', $line, $match) !== 1) {
                 throw new \RuntimeException('database table inventory has an unsupported entry');
             }
@@ -50,7 +54,7 @@ final class SqlDumpEvidence {
             throw new \RuntimeException('database dump requires a complete roster and nonempty fixture premises');
         }
         if (strlen($bytes) > EvidenceSizeProfile::limits(EvidenceSizeProfile::CONFORMANCE_TREE)['stdout_bytes']
-            || preg_match('/\A(?:\/\*(?:M)?![^\n]*\*\/\n)?-- (?:MySQL|MariaDB) dump [^\n]+\n/', $bytes) !== 1
+            || preg_match('/\A(?:\/\*(?:M)?![^\n]*\*\/ ?\n)?-- (?:MySQL|MariaDB) dump [^\n]+\n/', $bytes) !== 1
             || !str_ends_with($bytes, "-- Dump completed\n")) {
             throw new \RuntimeException('database dump is oversized or missing its native header/completion marker');
         }
