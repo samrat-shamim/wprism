@@ -1,4 +1,4 @@
-# Adapter rollout: remaining work after the first checkpoint
+# Adapter rollout: remaining work after the checkpoint merges
 
 PR [#583](https://github.com/duotronic-ai/wprism/pull/583) was merged at the
 owner's request as an interim checkpoint, not as completion of the adapter
@@ -7,10 +7,44 @@ This work plan carries the unfinished criteria into the follow-up; it is not
 a capability declaration, disposition, generated inventory, or evidence of a
 passing run.
 
+The owner requested another interim merge on 2026-09-07. PR
+[#586](https://github.com/duotronic-ai/wprism/pull/586) merged as
+`99edadfd23718d4a170991c646cabdfdbb49e86f`, with its committed tree identical to
+the locally gated `15dae689409dcc8cd9c46b31fc823038f49983e8` checkpoint.
+The merge was verified against freshly fetched main. This continuation starts
+from that squash; uncommitted follow-up work was not part of the merge.
+
 At that checkpoint the catalog has **17 product adapters: 16 plugins plus
 core**. The regression-only `wprism-agency-cpt` capsule does not count toward
 twenty. Three additional product adapters remain to be selected, authored,
 reviewed and exercised through the product path.
+
+## Immediate continuation after PR #586
+
+- [ ] Finish the pre-command Polylang uninstall oracle. Bind the first cause
+  from the genuine compiled order and native removed-family premises, including
+  menu items inline under their owner and marker-only widget storage after
+  reinstall. Shared bounded SQL column projection belongs in test
+  infrastructure; the engine's existing plain-data codec owns serialization.
+  The capsule owns native uninstall semantics, not a second SQL parser.
+- [ ] Run fresh exact-source native uninstall/recovery and run-last language
+  deletion evidence. The latest native sweep stopped at pre-command dump
+  admission, before protected Plan, postimages or a fresh private cause.
+  Re-admitting retained bytes after fixing framing is not that missing run.
+- [ ] Exercise the corrected compiler/native recapture oracle across all four
+  combination lanes below. Native biography and all 25 hostile KSES command
+  cases have evidence; no complete Polylang or combination sweep is claimed.
+- [ ] Obtain fresh independent review of the newest checkpoint deltas and this
+  continuation. Agent execution was usage-limited at the interim merge; old
+  reviews do not certify later changes. The owner's partial merge does not
+  close this requirement for rollout completion.
+
+PR #586 ships generic portable/native metadata validation, bounded term input,
+cold-cache Polylang observation, filesystem/media path fixes, and lifecycle
+identity preservation. Narrow observation no longer prunes durable canonical
+maps before the full identity guard can refuse missing backing rows. Polylang
+package identity intentionally moved; recompile and explicitly re-pin existing
+sites. Other adapter digests and public refusal contracts remain unchanged.
 
 ## First: finish the existing integration evidence
 
@@ -116,11 +150,20 @@ interim checkpoint.
 
 ## Evidence and completion
 
-The checkpoint passed `make regress-offline-all` (355 suites), `composer check`
+The first checkpoint passed `make regress-offline-all` (355 suites), `composer check`
 (1,253 tests / 33,668 assertions), `make release-gate`, changed-file syntax and
 diff checks. Those are commit-bound historical results, not automatic evidence
 for future changes. Its final combination attempt exited 1; owned pair
 resources were cleaned up and private captures retained separately.
+
+The second checkpoint's exact tree passed `make regress-offline-all` (361
+shared suites; 17 packages / 64 package tests / 7 scenario gates / 4 scenarios),
+`composer check` (1,289 tests / 34,730 assertions), `make release-gate`, changed
+syntax and diff checks; doctor reported 21 OK / 0 WARN / 0 FAIL. Its native
+uninstall sweep exited 1 at pre-command evidence admission. Retained biography,
+eight final trees and both complete 16-table exports were re-admitted after
+the shared framing fix. No protected uninstall Plan or complete scenario-lane
+pass is implied. Owned pairs were removed; foreign containers were untouched.
 
 For each follow-up change, run the full offline gate and the minimal live set
 that executes the changed paths, as required by
