@@ -333,8 +333,65 @@ final class SidebarState {
         }
     }
 
-    /** Validate the multi-instance family before any row is used. */
-    private static function load_widget_options(Policy $policy, array $declared, bool $scanUndeclared): array {
+    /**
+     * Count undeclared families and active layout references without returning
+     * settings. Init must use the same bounded reader and native array grammar
+     * as Capture: an option-only exclusion cannot authorize an incomplete
+     * sidebar file (capture() refuses every undeclared active assignment).
+     *
+     * @return array{families:array<string,array{type:string,instances:int,class:?string}>,active:array<string,list<string>>}
+     */
+    public static function unmanaged_inventory(Policy $policy): array {
+        $declared = $policy->widget_types();
+        $families = [];
+        self::load_widget_options(
+            $policy,
+            $declared,
+            false,
+            static function (string $name, string $type, array $instances) use ($policy, $declared, &$families): void {
+                if ($instances === [] || isset($declared[$type])) return;
+                $classification = $policy->option_rule($name);
+                $families[$name] = [
+                    'type' => $type,
+                    'instances' => count($instances),
+                    'class' => $classification['class'] ?? null,
+                ];
+            }
+        );
+        $sidebars = self::load_sidebars_option();
+        unset($sidebars['array_version'], $sidebars['wp_inactive_widgets']);
+        ksort($sidebars, SORT_STRING);
+        $active = [];
+        foreach ($sidebars as $sidebar => $instanceKeys) {
+            if (!is_string($sidebar) || $sidebar === '' || str_contains($sidebar, '/')
+                || !is_array($instanceKeys) || !array_is_list($instanceKeys)) {
+                throw new \RuntimeException("wprism: sidebars_widgets has an invalid sidebar '$sidebar' shape");
+            }
+            foreach ($instanceKeys as $position => $instanceKey) {
+                $parsed = is_string($instanceKey) ? self::parse_widget_instance_key($instanceKey) : null;
+                if ($parsed === null) {
+                    throw new \RuntimeException("wprism: sidebar '$sidebar' has malformed widget instance id at position $position");
+                }
+                [$type] = $parsed;
+                if (!isset($declared[$type]) && !in_array($sidebar, $active[$type] ?? [], true)) {
+                    $active[$type][] = $sidebar;
+                }
+            }
+        }
+        ksort($active, SORT_STRING);
+        return ['families' => $families, 'active' => $active];
+    }
+
+    /**
+     * Validate the multi-instance family before any row is used.
+     * @param ?\Closure(string,string,array<int,array<string,mixed>>):void $observeFamily
+     */
+    private static function load_widget_options(
+        Policy $policy,
+        array $declared,
+        bool $scanUndeclared,
+        ?\Closure $observeFamily = null
+    ): array {
         global $wpdb;
         $wpdb->last_error = '';
         $preflight = $wpdb->get_results(
@@ -417,6 +474,7 @@ final class SidebarState {
             }
             $type = substr($name, 7);
             $instances = self::decode_widget_family($name, $row['option_value']);
+            if ($observeFamily !== null) $observeFamily($name, $type, $instances);
             if ($instances && !isset($declared[$type]) && $scanUndeclared) {
                 // issue #3264: the deliberate-exclusion escape hatch every
                 // other loud gate in this engine already has (options.

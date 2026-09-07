@@ -36,7 +36,7 @@ reviewed and exercised through the product path.
   restore/reinstall/new-intent recovery, and unused-language deletion refusal.
   Post-teardown admission of both evidence records also passed. Unsupported
   language deletion is still a refusal, not a newly enabled capability.
-- [ ] Exercise the corrected compiler/native recapture oracle across all four
+- [x] Exercise the corrected compiler/native recapture oracle across all four
   combination lanes below. The `rmcombofinal01` run passed native deployment,
   frontend/redirect behavior, hostile ownership and provider recovery, then
   exposed a test-only ACF `plain_data` assumption during recapture acceptance.
@@ -60,8 +60,17 @@ reviewed and exercised through the product path.
   The run exited 1 after 1,702.68 seconds and exact cleanup passed. The shared
   process boundary now retains bounded private comparison evidence for future
   mismatches, with deterministic real-child coverage; that diagnostic fix does
-  not close the native failure or weaken the comparison. The fourth full lane
-  remains required.
+  not close the native failure or weaken the comparison. Fresh
+  `rmcombofinal04` on exact clean/pushed `dbcb233a` completed all four lanes
+  in 1,936.83 seconds with exit 0, including provider retry, full recapture,
+  zero-action repeated Apply, custom-CPT refusals and restoration. The actual
+  scenario validator and shared readers re-admitted all four canonical/native
+  preservation records after teardown; exact owned cleanup also passed.
+- [ ] Diagnose the intermittent `rmcombofinal03` provider-readback mismatch.
+  It did not recur in the complete fourth run. A green rerun and improved
+  private diagnostics do not identify the differing field or establish an
+  underlying mutation fix; no weakened comparison or recovery bypass is
+  justified.
 - [ ] Obtain fresh independent review of the newest checkpoint deltas and this
   continuation. Agent execution was usage-limited at the interim merge; old
   reviews do not certify later changes. The owner's partial merge does not
@@ -106,15 +115,18 @@ sites. Other adapter digests and public refusal contracts remain unchanged.
   declares that invalidation by `redirection_id`. The scenario now requires
   that precise effect and a subsequent native 302/cache refill. A successful
   command receipt is not evidence that a failed native assertion passed.
-- [ ] Complete fresh live evidence for the corrected custom-CPT deletion
+- [x] Complete fresh live evidence for the corrected custom-CPT deletion
   boundary. No pinned adapter grants `post:rmcombo_book` deletion: source
   Capture must refuse `unsupported_deletion` without publishing a tombstone,
   and an otherwise valid synthetic target intent must fail Plan/Apply
   compilation without canonical or native mutation. This does not establish
-  signed deletion support for that CPT.
-- [ ] Complete all four scenario lanes: independent and synchronized metadata,
+  signed deletion support for that CPT. All four `rmcombofinal04` lanes pass
+  these controls with complete canonical and native preservation, followed by
+  fixture restoration.
+- [x] Complete all four scenario lanes: independent and synchronized metadata,
   each with opposed source/target plugin load orders. The first checkpoint's
-  partial runs do not stand in for fixed-point or later-lane evidence.
+  partial runs do not stand in for fixed-point or later-lane evidence. The
+  complete `rmcombofinal04` run and post-teardown admission now supply it.
 - [ ] Close four-plugin SSH adoption/readiness and signed-deletion evidence.
   Diagnose native capability inventory and the loaded generation through the
   normal product path, retaining `DISALLOW_FILE_MODS` and external writer
@@ -154,6 +166,27 @@ cannot detect a second edit to an already-dirty file.
   WPForms support claim. Complete native materialization, authored settings,
   submissions/PII boundaries, templates,
   derived location state and lifecycle before making a support claim.
+  The first disposable native probe of official Lite 2.0.1.1 passed authenticated
+  setup-wizard REST writes/session revocation, native form/template creation,
+  update and duplication, three stored widget families, and frontend rendering.
+  It confirms absent, integer and string body IDs are real native variants;
+  form-tag labels in an update body do not themselves assign taxonomy terms.
+  Native-only success is not Capture/Apply evidence. The current release's
+  QR-code settings also require page and attachment references
+  (`qr_code_page_id`, `qr_code_logo_id`) plus URL rebinding of both configured
+  and generated destinations. Exercise the native admin writer and determine
+  the Lite/Pro residue boundary before ratifying those declarations; the older
+  fixture has no QR coverage. Rebuild locations for stored inactive widgets as
+  well as page embeds, according to the plugin's own locator semantics.
+  Native onboarding then exposed a shared initialization gap: its ready
+  proposal did not acknowledge populated undeclared widget families, so the
+  baseline failed at the existing Capture guard. The planner now uses the
+  bounded SidebarState reader to propose exact local exclusions for unassigned
+  or parked families, discloses them before confirmation, and blocks undeclared
+  active layouts instead of publishing partial sidebars. Existing non-local
+  policy decisions are never downgraded. Actual-planner/SidebarState regression
+  coverage is in `regress-init-widgets`; fresh native onboarding and the updated
+  complete local gate remain required before treating this repair as verified.
 - [ ] Select the remaining two adapters on useful product coverage and an
   honest support boundary, not ease of increasing the count. Each must own its
   capsule-local declaration, reviewed disposition, exact official artifacts,

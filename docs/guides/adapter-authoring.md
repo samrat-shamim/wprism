@@ -1919,6 +1919,34 @@ hand you the CPT or taxonomy you are writing the adapter *for*. Read `wprism ini
 --format=json`'s `unmanaged_scope_left_local` advisories (or the host
 renderer's `UNMANAGED SCOPE …` lines) for what init already decided instead.
 
+The same onboarding boundary applies to stored widget families. A populated
+family with no selected `widgets{}` grammar and no active sidebar assignment
+receives an exact `policy.options.widget_<type> = {"class":"runtime"}` rule,
+shown as `UNMANAGED WIDGET` before confirmation. Marker-only families get no
+decision. Native settings and inactive assignments remain local; init does not
+invent widget identities, remove instances, or infer references from their
+values. A selected non-local classification without widget grammar still
+blocks instead of being downgraded. Once the adapter declares the widget type,
+the structural widget grammar owns portable instances.
+
+An **active** assignment is different: its complete sidebar is an authored
+layout, and excluding one widget option cannot make a partial layout safe to
+publish. Init therefore reports `undeclared_active_widget` before confirmation,
+even with `--allow-unmanaged-plugins`. Install the reviewed widget declaration,
+or deliberately remove its active assignments in WordPress before requesting a
+fresh proposal. Do not remove native widgets merely to turn an evidence run
+green; when testing this boundary, retain the refused layout and prove both
+readiness and Capture preserve it. WPForms reconnaissance exposed the previous
+false-ready proposal; `regress-init-widgets` exercises the actual planner,
+bounded native reader and unchanged Capture guards.
+
+For a failed **fresh** initialization, `.wprism/refusals/` is intentionally
+absent: creating that directory would violate first-init compensation. Preserve
+any sealed `.wprism-init-attempt` evidence and use a reviewed human-mode target
+rerun to inspect the diagnostic; the host's redacted envelope is not the cause.
+An interrupted or uncertain publication is a recovery decision, not permission
+to retry blindly. See [the CLI refusal contract](../../cli/README.md).
+
 ### 1. Observe
 
 Exercise the plugin on a real environment — create the entities through the

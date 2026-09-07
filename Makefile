@@ -3065,6 +3065,10 @@ regress-spec-migration-rehearsal:
 regress-init-contract:
 	php sandbox/tests/offline/cli/regress_init_contract.php
 
+.PHONY: regress-init-widgets
+regress-init-widgets:
+	php sandbox/tests/offline/cli/regress_init_widgets.php
+
 regress-bound-helper:
 	php sandbox/tests/offline/capture/regress_bound_helper.php
 

@@ -17,6 +17,7 @@ require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/../Repository/SidebarState.php';
 
 /**
  * Builds the read-only, content-addressed initialization proposal.
@@ -339,6 +340,10 @@ final class InitPlanner {
             $advisories = array_merge($advisories, $unmanagedScope['advisories']);
         }
 
+        $widgets = self::unmanaged_widgets($policy);
+        $advisories = array_merge($advisories, $widgets['advisories']);
+        $unsupported = array_merge($unsupported, $widgets['blockers']);
+
         $resolved = RepositoryCompiler::resolved_adapters($policy);
         $adapterRows = [];
         foreach ($resolved as $row) {
@@ -360,7 +365,7 @@ final class InitPlanner {
             'code' => $code['declaration'],
             'manifests' => $pins,
             'policy' => [
-                'options' => new \stdClass(),
+                'options' => $widgets['options'] === [] ? new \stdClass() : $widgets['options'],
                 'post_meta' => new \stdClass(),
                 'post_types' => $postTypes,
                 'taxonomies' => $taxonomies,
@@ -831,6 +836,55 @@ final class InitPlanner {
             $unsupported[] = $row;
         }
         return ['advisories' => $advisories, 'selected' => $selected, 'unsupported' => $unsupported];
+    }
+
+    /**
+     * A ready proposal must acknowledge the exact families its baseline would
+     * otherwise refuse. Native WPForms reconnaissance reached confirmation
+     * with a stored unassigned widget and failed at SidebarState's guard.
+     * Inactive exclusions are policy, not new widget grammar. Active layout
+     * ownership and existing non-local classifications remain blocking.
+     *
+     * @return array{options:array<string,array{class:string}>,advisories:list<array<string,string>>,blockers:list<array<string,string>>}
+     */
+    public static function unmanaged_widgets(Policy $policy): array {
+        $inventory = SidebarState::unmanaged_inventory($policy);
+        $options = $advisories = $blockers = [];
+        foreach ($inventory['active'] as $type => $sidebars) {
+            foreach ($sidebars as $sidebar) {
+                $blockers[] = [
+                    'code' => 'undeclared_active_widget',
+                    'extension' => "$sidebar:$type",
+                    'kind' => 'widget',
+                    'reason' => "active sidebar '$sidebar' contains undeclared widget type '$type'; a sidebar is one complete authored layout, so excluding its option cannot make that layout portable",
+                    'remediation' => 'install a reviewed adapter declaring this widget type, or remove its active sidebar assignments through WordPress before requesting a new init proposal',
+                ];
+            }
+        }
+        foreach ($inventory['families'] as $name => $family) {
+            if (isset($inventory['active'][$family['type']])
+                || in_array($family['class'], ['runtime', 'env'], true)) continue;
+            if ($family['class'] !== null) {
+                $blockers[] = [
+                    'code' => 'widget_classification_without_grammar',
+                    'extension' => $name,
+                    'kind' => 'widget',
+                    'reason' => 'this populated widget family has a non-local classification but no selected widget grammar; init cannot replace that existing classification with a local exclusion',
+                    'remediation' => 'review the owning declaration and install its widget grammar, or explicitly classify the family as runtime or env before requesting a new init proposal',
+                ];
+                continue;
+            }
+            $options[$name] = ['class' => 'runtime'];
+            $advisories[] = [
+                'code' => 'unmanaged_widget_left_local',
+                'extension' => $name,
+                'kind' => 'widget',
+                'reason' => $family['instances'] . ' stored instance(s) have no selected widget grammar and no active sidebar assignment; left local as runtime, with no settings or widget identity captured',
+                'remediation' => 'install a reviewed adapter declaring this widget type before making its instances portable; initialization preserves their current native settings and inactive assignments',
+            ];
+        }
+        ksort($options, SORT_STRING);
+        return ['options' => $options, 'advisories' => $advisories, 'blockers' => $blockers];
     }
 
     /**
