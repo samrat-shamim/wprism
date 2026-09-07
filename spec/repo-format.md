@@ -1171,20 +1171,20 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-20 documents, 1,425 lines, 63,711 bytes — the same entries, the same profile, addressed as 20 roots
+21 documents, 1,479 lines, 65,369 bytes — the current entries and profile, addressed as 21 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
 review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
-virgin-target settlement correction and the experimental WPForms capsule, all without changing the split topology.)
+virgin-target settlement correction and the experimental WPForms and AIO Login capsules, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
 rests on: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own disposition into that
 adapter's row (`:82`) and the row hashed is its `digest` (`:162`), so a canonical-encoding difference of
 one byte in one document would move that adapter's digest and every `site.wprism.json` pin naming it. It is
-proved rather than argued: `regress_disposition_split.php` pins all 18 shipped digests through two
-maximal compatible worlds, both worlds' `manifest_hash` and snapshot, and `registry_sha256` as
+proved rather than argued: `regress_disposition_split.php` pins all 20 shipped digests through three
+compatible worlds, their `manifest_hash` and snapshot, and `registry_sha256` as
 explicit current greenfield literals. Separate frozen constants preserve the pre-move capture, and the
 suite carries one case per enumerated Canon-encoding hazard, in three verdicts rather than one. A nested LIST re-ordered and a UTF-8 prose
 `reason` re-composed each MOVE a digest, so the equality above is a measurement and not a tautology. Map
@@ -1680,7 +1680,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 19 adapter names, 21 `id_kind`s, 16 provider ids = 56 identities, all of which already pass the one
+- 20 adapter names, 21 `id_kind`s, 16 provider ids = 57 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **28** of them — the 7 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 21 `id_kind`s, every one of

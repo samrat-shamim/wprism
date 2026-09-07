@@ -37,8 +37,8 @@
  * are the two blocks where that is a real constraint rather than an accident of
  * three-element lists.
  *
- * The block that does NOT reproduce is named, because "16 of 17" invites the
- * question: `wpforms-lite` is an `exercise-fixture`. No probe outcome implies
+ * The two blocks that do NOT reproduce are named: `wpforms-lite` and
+ * `change-wp-admin-login` use `exercise-fixture`. No probe outcome implies
  * that role — it records a test's intent, not a version's behaviour — so the
  * search never proposes it, and it is not a bisection result to reproduce.
  *
@@ -173,12 +173,12 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
 wprism_check_same(
     16,
     count($bisectionShaped),
-    '16 of the 17 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '16 of the 18 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 wprism_check_same(
-    ['wpforms-lite'],
+    ['change-wp-admin-login', 'wpforms-lite'],
     array_keys($exerciseOnly),
-    'the one block that is not a bisection result is exercise-fixture only, so the search never proposes it'
+    'unqualified blocks with exercise/refusal fixtures are not bisection results, so the search never proposes it'
 );
 
 // The lock authors its rows oldest-first inside each block, which is the order

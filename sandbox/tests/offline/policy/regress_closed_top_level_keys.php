@@ -380,6 +380,7 @@ wprism_check_same(
 );
 wprism_check_same(
     [
+        'change-wp-admin-login',
         'code-snippets',
         'elementor',
         'ninja-forms',

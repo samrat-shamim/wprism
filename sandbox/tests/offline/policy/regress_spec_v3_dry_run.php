@@ -744,6 +744,7 @@ $report('engine features this engine implements: '
 
 wprism_check_same(
     [
+        'change-wp-admin-login',
         'code-snippets',
         'elementor',
         'ninja-forms',

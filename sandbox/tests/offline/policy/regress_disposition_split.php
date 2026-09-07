@@ -345,6 +345,7 @@ const POST_CONTEXT_CHANNEL_SNAPSHOT_SHA = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea
 const WPRISM_CURRENT_DIGESTS = [
     'acf' => 'c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d',
     'advanced-editor-tools' => 'cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d',
+    'change-wp-admin-login' => '022288108f1fec735bb27a09e7c24f4b2995b2a6740e072421d00ae57098a201',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
@@ -365,9 +366,9 @@ const WPRISM_CURRENT_DIGESTS = [
 ];
 const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '968c2eb9047d3c915f39e9dd094ae9cc04daf1b7e1fa175fb91a7bbaa0eb2226';
 const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '7df2e24bc021a38e55554df9eab308fa4e36116c05941d0f80730c815b2ffb54';
-const WPRISM_CURRENT_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'c54d19c1c4722335f9f2e3a586baed2ff47c8cd8aff962d4b24cd6c9f5cbd4a3';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'c6e85f18d1da81585d333c29deffcfed673c91df7ff5aecc054d7bbcd36fa9c3';
+const WPRISM_CURRENT_REGISTRY_SHA = '8346bb98281dffa2e4cfdf219e54596c7c7bebe009ff23711847c9ba938ac706';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '51f3ed99b75b3d3640f754f577ef850e4c0496073453e7636a2011a3b85f8848';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'aedd2c9b946b28f258cb26a50bcf0be9ac4bb20212f60a35d1c14b85aa656647';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -377,10 +378,12 @@ wprism_check(
 $shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
-wprism_check_same($actualNames, $shippedNames, 'the literal identity baseline includes every actual package, not only its own two-world union');
-$rankWorldPins = array_values(array_diff($shippedNames, ['yoast']));
-$yoastWorldPins = array_values(array_diff($shippedNames, ['rank-math']));
+wprism_check_same($actualNames, $shippedNames, 'the literal identity baseline includes every actual package, not only its own compatible-world union');
+$rankWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'yoast']));
+$yoastWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'rank-math']));
+$aioPins = ['core', 'change-wp-admin-login'];
 $shippedPolicies = [
+    'aio-world' => Policy::load(null, $aioPins, adapterLibrary: $adapterLibrary),
     'rank-world' => Policy::load(null, $rankWorldPins, adapterLibrary: $adapterLibrary),
     'yoast-world' => Policy::load(null, $yoastWorldPins, adapterLibrary: $adapterLibrary),
 ];
@@ -396,9 +399,9 @@ foreach ($shippedPolicies as $world => $policy) {
     }
 }
 ksort($observed, SORT_STRING);
-$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins)));
+$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins, $aioPins)));
 sort($worldUnion, SORT_STRING);
-wprism_check_same($shippedNames, $worldUnion, 'the two maximal compatible worlds jointly cover every shipped subject');
+wprism_check_same($shippedNames, $worldUnion, 'the compatible-world union covers every shipped subject');
 wprism_check_same(['rank-math'], array_values(array_diff($rankWorldPins, $yoastWorldPins)), 'the Rank-compatible world differs only by Rank Math');
 wprism_check_same(['yoast'], array_values(array_diff($yoastWorldPins, $rankWorldPins)), 'the Yoast-compatible world differs only by Yoast');
 wprism_check_same(
@@ -685,9 +688,9 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
 $priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['wpforms-lite']);
+unset($priorRegistry['manifests']['wpforms-lite'], $priorRegistry['manifests']['change-wp-admin-login']);
 wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 18 pre-existing reviewed dispositions remain byte-identical after adding the WPForms preview');
+    'all 18 pre-existing reviewed dispositions remain byte-identical after adding the WPForms and AIO Login previews');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
     'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
@@ -809,7 +812,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(20, $documentCount, 'the reviewed source is 20 documents: 19 subjects and the profiles map');
+wprism_check_same(21, $documentCount, 'the reviewed source is 21 documents: 20 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

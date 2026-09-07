@@ -112,15 +112,17 @@ sort($shipped, SORT_STRING);
 // an adapter no longer requires copying a second name/count into this suite.
 wprism_check_same(ShippedIdentityInventory::ADAPTER_NAMES, $shipped, 'the measured library exactly matches the generated shipped inventory');
 
-$rankWorldPins = array_values(array_diff($shipped, ['yoast']));
-$yoastWorldPins = array_values(array_diff($shipped, ['rank-math']));
+$rankWorldPins = array_values(array_diff($shipped, ['change-wp-admin-login', 'yoast']));
+$yoastWorldPins = array_values(array_diff($shipped, ['change-wp-admin-login', 'rank-math']));
 $rankWorldPolicy = Policy::load(null, $rankWorldPins, true, null, $adapterLibrary);
 $yoastWorldPolicy = Policy::load(null, $yoastWorldPins, true, null, $adapterLibrary);
-$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins)));
+$aioPins = ['core', 'change-wp-admin-login'];
+$aioPolicy = Policy::load(null, $aioPins, true, null, $adapterLibrary);
+$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins, $aioPins)));
 sort($worldUnion, SORT_STRING);
-wprism_check_same(18, count($rankWorldPins), 'the maximal Rank Math world excludes only Yoast');
-wprism_check_same(18, count($yoastWorldPins), 'the maximal Yoast world excludes only Rank Math');
-wprism_check_same($shipped, $worldUnion, 'the two executable worlds cover every shipped adapter');
+wprism_check_same(18, count($rankWorldPins), 'the established Rank Math world excludes Yoast and the separate AIO Login candidate');
+wprism_check_same(18, count($yoastWorldPins), 'the established Yoast world excludes Rank Math and the separate AIO Login candidate');
+wprism_check_same($shipped, $worldUnion, 'the three executable worlds cover every shipped adapter');
 
 // The behavioral probes below need WooCommerce and Rank Math but not Yoast.
 // Keep them attached to one valid site policy rather than manufacturing the
@@ -210,7 +212,7 @@ function edc_adapter(array $report, string $name): array {
     return [];
 }
 
-echo "\n== the measured baseline: every shipped adapter across two maximal compatible worlds ==\n";
+echo "\n== the measured baseline: every shipped adapter across three compatible worlds ==\n";
 
 $rankWorldFixture = edc_derived_fixture($rankWorldPolicy);
 $yoastWorldFixture = edc_derived_fixture($yoastWorldPolicy);
@@ -235,12 +237,17 @@ foreach ([
     wprism_check_same([], $report['unattributed'], "$label attributes every derived surface");
 }
 
+$aioBaseline = EffectDeclarationCoverage::from_facts($aioPolicy, ['rows' => edc_derived_fixture($aioPolicy)]);
+wprism_check_same(0, $aioBaseline['totals']['outside_declaration'], 'AIO Login and core have no write outside declared authority');
+wprism_check_same([], $aioBaseline['unattributed'], 'AIO Login and core attribute every declared fixture surface');
+
 $coveredAdapters = array_values(array_unique(array_merge(
     array_column($rankWorldBaseline['adapters'], 'adapter'),
-    array_column($yoastWorldBaseline['adapters'], 'adapter')
+    array_column($yoastWorldBaseline['adapters'], 'adapter'),
+    array_column($aioBaseline['adapters'], 'adapter')
 )));
 sort($coveredAdapters, SORT_STRING);
-wprism_check_same($shipped, $coveredAdapters, 'the two coherent reports cover every shipped adapter without inventing an all-adapter policy');
+wprism_check_same($shipped, $coveredAdapters, 'the coherent reports cover every shipped adapter without inventing an all-adapter policy');
 
 // The remaining single-policy probes use this valid maximal world.
 $fixture = $rankWorldFixture;

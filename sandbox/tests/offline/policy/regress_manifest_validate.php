@@ -592,10 +592,10 @@ check(
 );
 
 // Bare/default and --all deliberately ask whether every shipped adapter can
-// coexist. Rank Math and Yoast cannot: both own one SEO plugin slot, so that
+// coexist. The first sorted conflict is AIO Login plus WPS Hide Login; that
 // broad composition must refuse while every isolated row above stays green.
-$rankMathYoastIncompatibility = "wprism: manifest 'rank-math' for plugin 'seo-by-rank-math/rank-math.php' "
-    . "declares plugin 'wordpress-seo/wp-seo.php' incompatible, and pinned manifest(s) {'yoast'} claim that plugin "
+$firstShippedIncompatibility = "wprism: manifest 'change-wp-admin-login' for plugin 'change-wp-admin-login/change-wp-admin-login.php' "
+    . "declares plugin 'wps-hide-login/wps-hide-login.php' incompatible, and pinned manifest(s) {'wps-hide-login'} claim that plugin "
     . '— incompatible plugin adapters cannot share one policy; pin only one';
 foreach ([
     'the bare default' => [$repo, '--format=json'],
@@ -610,9 +610,9 @@ foreach ([
     check(
         $allAdapters['exit'] === 1
             && ($allAdaptersReport['status'] ?? null) === 'error'
-            && ($allAdaptersReport['pinned_set']['message'] ?? null) === $rankMathYoastIncompatibility
+            && ($allAdaptersReport['pinned_set']['message'] ?? null) === $firstShippedIncompatibility
             && $allRowsGreen,
-        "$label validates every manifest alone, then refuses only the unsupported Rank Math plus Yoast composition"
+        "$label validates every manifest alone, then refuses only the unsupported AIO Login plus WPS Hide Login composition"
     );
 }
 

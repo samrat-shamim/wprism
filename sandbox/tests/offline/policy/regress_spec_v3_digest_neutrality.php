@@ -39,13 +39,15 @@ use WPrism\Policy;
 // snapshot. Every pre-existing adapter digest and smaller pin set stays exact;
 // the registry-wide addressing cost is still the explicit WP-4.5 boundary.
 // The subsequent native-flag review moves only WPForms and its containing pin
-// sets. The disposition registry and every other adapter remain byte-pinned.
-const BASELINE_FIXTURE_SHA256 = '8eaa43d1e94f20635f6e2846c8121ce1f95679b89aef3f27b1062a0a5eaa1244';
+// sets. Adding AIO Login preserves those pins and adds a separate compatible
+// world; the whole-registry address moves again under the documented WP-4.5
+// boundary, while all pre-existing adapter digests remain byte-pinned.
+const BASELINE_FIXTURE_SHA256 = '3f04a1cff0473fc19b63ae001e068dd25693d2cd19c295db413827e86591379e';
 const RANK_WORLD_MANIFEST_HASH = '968c2eb9047d3c915f39e9dd094ae9cc04daf1b7e1fa175fb91a7bbaa0eb2226';
 const YOAST_WORLD_MANIFEST_HASH = '7df2e24bc021a38e55554df9eab308fa4e36116c05941d0f80730c815b2ffb54';
-const REGISTRY_SHA256 = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'c54d19c1c4722335f9f2e3a586baed2ff47c8cd8aff962d4b24cd6c9f5cbd4a3';
-const YOAST_WORLD_SNAPSHOT_SHA256 = 'c6e85f18d1da81585d333c29deffcfed673c91df7ff5aecc054d7bbcd36fa9c3';
+const REGISTRY_SHA256 = '8346bb98281dffa2e4cfdf219e54596c7c7bebe009ff23711847c9ba938ac706';
+const RANK_WORLD_SNAPSHOT_SHA256 = '51f3ed99b75b3d3640f754f577ef850e4c0496073453e7636a2011a3b85f8848';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'aedd2c9b946b28f258cb26a50bcf0be9ac4bb20212f60a35d1c14b85aa656647';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
@@ -78,18 +80,19 @@ $baselineNames = array_keys((array) ($baseline['adapter_digests'] ?? []));
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
 wprism_check_same($actualNames, $baselineNames, 'the literal identity baseline covers the actual library, including newly added capsules');
-wprism_check_same(array_values(array_diff($baselineNames, ['yoast'])), $rankPins, 'the Rank-compatible world is exactly all shipped adapters except Yoast');
-wprism_check_same(array_values(array_diff($baselineNames, ['rank-math'])), $yoastPins, 'the Yoast-compatible world is exactly all shipped adapters except Rank Math');
+wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'yoast'])), $rankPins, 'the Rank-compatible world is the original subject set except Yoast');
+wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'rank-math'])), $yoastPins, 'the Yoast-compatible world is the original subject set except Rank Math');
 wprism_check_same(18, count($rankPins), 'the Rank-compatible maximal world contains 18 adapters');
 wprism_check_same(18, count($yoastPins), 'the Yoast-compatible maximal world contains 18 adapters');
-$worldUnion = array_values(array_unique(array_merge($rankPins, $yoastPins)));
+$worldUnion = array_values(array_unique(array_merge($rankPins, $yoastPins, $baseline['pin_sets']['core+change-wp-admin-login']['pins'])));
 sort($worldUnion, SORT_STRING);
-wprism_check_same($baselineNames, $worldUnion, 'the two compatible worlds jointly cover all shipped adapters');
+wprism_check_same($baselineNames, $worldUnion, 'the compatible worlds jointly cover all shipped adapters');
 wprism_check_same(['rank-math'], array_values(array_diff($rankPins, $yoastPins)), 'only Rank Math distinguishes the Rank-compatible world');
 wprism_check_same(['yoast'], array_values(array_diff($yoastPins, $rankPins)), 'only Yoast distinguishes the Yoast-compatible world');
 
 echo "\nPART 1 — exact adapter identity map\n";
 $worldPolicies = [
+    'core+change-wp-admin-login' => Policy::load(null, $baseline['pin_sets']['core+change-wp-admin-login']['pins'], adapterLibrary: $adapterLibrary),
     'rank-world' => Policy::load(null, $rankPins, adapterLibrary: $adapterLibrary),
     'yoast-world' => Policy::load(null, $yoastPins, adapterLibrary: $adapterLibrary),
 ];
@@ -108,7 +111,7 @@ ksort($observedDigests, SORT_STRING);
 wprism_check_same(
     $baseline['adapter_digests'] ?? null,
     $observedDigests,
-    'the union of both valid maximal worlds exactly matches all 19 shipped adapter digests'
+    'the compatible-world union exactly matches all 20 shipped adapter digests'
 );
 wprism_check_same(
     array_keys($baseline['adapter_digests'] ?? []),
@@ -171,6 +174,7 @@ wprism_check_same(
     'the reviewed disposition registry exactly matches the current WPrism address every host contract pins'
 );
 $worldSnapshotHashes = [
+    'core+change-wp-admin-login' => $baseline['pin_sets']['core+change-wp-admin-login']['snapshot_sha256'],
     'rank-world' => RANK_WORLD_SNAPSHOT_SHA256,
     'yoast-world' => YOAST_WORLD_SNAPSHOT_SHA256,
 ];
