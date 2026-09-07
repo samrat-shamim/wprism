@@ -16117,6 +16117,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assert_original_all_hook_absent": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "assert_permit_consumed": {
                     "abstract": false,
                     "final": false,
@@ -20700,6 +20717,47 @@
                         }
                     ],
                     "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read_row": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "database",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::MAX_OPTION_VALUE_BYTES",
+                            "has_default": true,
+                            "name": "maxValueBytes",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
                     "static": true,
                     "visibility": "public"
                 }
