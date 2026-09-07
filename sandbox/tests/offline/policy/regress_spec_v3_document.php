@@ -424,7 +424,7 @@ wprism_check_same(
 // subsection whose "Enforced today:" line says "yes" about one half must not be
 // readable as a claim about the other.
 wprism_check(
-    count($adapterLibrary->packages()) === 18
+    count($adapterLibrary->packages()) === 19
         && !file_exists($repo . '/manifests')
         && array_reduce(
             $adapterLibrary->packages(),
@@ -863,9 +863,9 @@ wprism_check(
     . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
 );
 wprism_check_same(
-    18,
+    19,
     $entryCount,
-    'and the entry count the subsection states for the monolith it replaced is the number of subject documents now'
+    'the current split has exactly 19 subject documents, independently of the historical monolith count'
 );
 wprism_check_same(['fse'], $profileNames, 'and `profiles` is the one row the split gave its own document');
 

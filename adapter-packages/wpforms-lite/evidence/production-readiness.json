@@ -1,0 +1,22 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "wpforms-lite",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {
+    "contract-dependency": "Experimental exact 2.0.1.1 declarations; fresh installation, adjacent artifact refusal and upgrade workflow remain to be exercised through capsule conformance.",
+    "clean-target": "Native source-to-target deploy/apply is not yet exercised with this capsule.",
+    "dirty-target": "Hostile target values, extra rows and divergent IDs need complete native before/after witnesses.",
+    "identity-references": "Offline native-body replay covers declared coordinates; native target IDs, widgets, tags, media and scope closure still require end-to-end evidence.",
+    "native-behavior": "Reconnaissance covers native writers, but target render, submission, mail, template conversion and all settings consumers remain unproven.",
+    "derived-state": "wpforms_form_locations needs a bounded plugin-owned derivation over engine-owned read/write authority, with exact postconditions.",
+    "deletion": "No selectors declared; native captured deletion and independent valid-intent compiler/plan/apply refusal with preservation are pending.",
+    "failure-recovery": "Provider and lifecycle failure injection, rollback and retry remain unproven.",
+    "concurrency-idempotence": "Native concurrent writes and complete target/recapture fixed points remain to be exercised with the capsule.",
+    "lifecycle": "Activation, retirement, downgrade/refusal, recovery and installation-local state preservation remain pending.",
+    "data-boundary": "Named PII paths and native bodies have offline controls; native full target settings, secrets, runtime submissions/payment rows and Pro residues remain to be proven.",
+    "scope-platform": "Explicit post/template/tag/sidebar scope, real plugin combinations and the supported platform boundary remain unproven."
+  },
+  "blocked": {},
+  "not_applicable": {}
+}

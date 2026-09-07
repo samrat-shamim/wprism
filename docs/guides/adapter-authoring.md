@@ -45,6 +45,7 @@ adapter-packages/<name>/
     conformance/{entry.json,seed.sh,check.sh}
     certify/version-matrix.sh
   fixtures/                          # capsule-owned historical/probe inputs
+    <workflow>/                     # native PHP, shell helpers and host readers
   evidence/
     artifacts.lock.json              # exact official artifact URLs + sha256
     production-readiness.json        # all 12 hostile scenario families
@@ -156,6 +157,16 @@ A provider-only edit can move its adapter and compatible manifest hashes while
 leaving manifest JSON, the disposition registry and policy snapshots unchanged.
 Run both identity owners before the aggregate: capsule validation does not
 replace those cross-library identity checks.
+
+A new capsule also extends the source census: run `make
+regress-spec-v3-digest-neutrality regress-spec-v3-document
+regress-spec-v3-dry-run regress-spec-window` before the full gate. The literal
+identity baseline must cover the actual library, not merely agree with its own
+two pin lists. Preserve every existing per-adapter digest and smaller pin set
+unless that adapter's identity inputs changed. The current whole-registry
+address and frozen snapshots still move when an unpinned disposition is added;
+§ v3.4's WP-4.5 addressing proposal is explicitly unimplemented. Re-measuring
+that baseline does not close this architectural limitation.
 
 ## The minimal worked example
 
@@ -1490,6 +1501,18 @@ checked during Capture and immutable compilation; merely declaring the feature
 does not clear anything. Decide whether each destination is genuinely authored
 and portable before reviewing it: an environment-specific address needs an
 environment contract, not a privacy exception that copies it to every target.
+
+Mixed option blobs use their existing per-subkey `allow_pii` review, not body
+paths. Exercise native values through the real capture guard before ratifying
+them: WPForms' `validation-email` is operator-authored validation copy, but its
+name triggers the semantic email-field guard even when the value is only a
+message and placeholder. Review that exact authored subkey with a source-backed
+reason; do not clear the parent blob or reclassify credentials as authored.
+Keep unreviewed subkeys target-local and test that secrets still refuse inside
+the reviewed field. The capsule's `regress_settings_and_embeds.php` exercises
+native settings with hostile excluded siblings and independent secret/PII
+controls through `OptionsCapture` and `CaptureSafetyGates`.
+
 `structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
 `{"evidence": [{source, locator, observation}, …]}` and optionally
@@ -2450,7 +2473,14 @@ library.
    admitted and refusal artifact URL/version/SHA-256 in
    `evidence/artifacts.lock.json`, and
    own the fresh-install, adjacent-version, in-range upgrade, and out-of-range
-   refusal workflow at `tests/certify/version-matrix.sh`. The normal driver is:
+   refusal workflow at `tests/certify/version-matrix.sh`.
+
+   A plugin may already have an exercise pin in the shared platform fragment
+   before it has a capsule. Move that subject's complete version map into its
+   new owner, preserving existing URL/digest/role values; do not leave two
+   owners or weaken the aggregate reader's duplicate-subject refusal. An old
+   exercise pin is not automatically certification or refusal evidence. The
+   normal driver is:
 
    ```sh
    candidate_sha=$(git rev-parse HEAD)
@@ -2705,7 +2735,13 @@ library.
    `tests/conformance/entry.json` (the entry declares the pin set, artifacts,
    and state the round trip must preserve), and the mandatory `seed.sh` and
    `check.sh`. Add `postdeploy.sh`/`postapply.sh` only at the lifecycle seam
-   their names describe. Run the candidate-bound gate from its exact commit:
+   their names describe. Test directories admit class-named executable suites
+   and these closed hook names, not arbitrary helper filenames. Put reusable
+   native PHP, shell transport and host readers under `fixtures/<workflow>/`
+   and reference them from the hooks; do not hide them in `tests/lib` or label
+   them as independent regressions. The package validator uses the runner's
+   same closed discovery boundary before reporting success.
+   Run the candidate-bound gate from its exact commit:
 
    ```sh
    candidate_sha=$(git rev-parse HEAD)
@@ -2740,6 +2776,10 @@ library.
    primitive is `blocked`; missing coverage is `gaps`; neither may be hidden as
    `not_applicable`. See
    [the production-readiness contract](../agents/adapter-production-readiness.md).
+   An experimental preview keeps these unfinished families explicitly
+   `unready` and does not count as production-ready coverage. Isolated package
+   validation refuses `certified` while any family remains a gap or blocked;
+   a disposition edit cannot substitute for closing its evidence.
 7. **Own combinations at the participant boundary.** When two or more adapters
    interact, create `integration-scenarios/<scenario>/scenario.json` with a
    sorted `participants` list and convention-named gates under

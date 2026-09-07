@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "wpforms-lite": {
+      "2.0.0.4": {
+        "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.4.zip",
+        "sha256": "3deaa115c6ed18fe3ef21f327239cf9573f78f97b1f4cc8204abfaf910689608",
+        "role": "exercise-fixture"
+      },
+      "2.0.1.1": {
+        "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.1.1.zip",
+        "sha256": "6245074790df01a6e24a42587e024132b4a28fac499d1a8fa12ebf5580e4852b",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}

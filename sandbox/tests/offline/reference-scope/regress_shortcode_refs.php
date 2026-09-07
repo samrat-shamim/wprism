@@ -255,7 +255,7 @@ require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Review/Pending.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
-require __DIR__ . '/../../../../agent/src/Grammar/Shortcodes.php';
+require_once __DIR__ . '/../../../../agent/src/Grammar/Shortcodes.php';
 require __DIR__ . '/../../../../agent/src/Review/Lint.php';
 require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 // issue #3259: Shortcodes::queue_unscoped() calls Capture::

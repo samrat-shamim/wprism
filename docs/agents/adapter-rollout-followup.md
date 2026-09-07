@@ -19,6 +19,57 @@ core**. The regression-only `wprism-agency-cpt` capsule does not count toward
 twenty. Three additional product adapters remain to be selected, authored,
 reviewed and exercised through the product path.
 
+The follow-up now includes an **experimental WPForms Lite capsule**, not an
+eighteenth production-ready adapter. Its initial exact-artifact declaration
+uses shared JSON references, native type preservation, URL/query rebinding,
+scoped body privacy, block string-ID codecs, shortcode references, mixed-option
+subkeys and widget capture without any plugin-specific executable. All twelve
+readiness families remain explicit gaps until their full product evidence is
+complete. Its disposition claims only capture, compile and recapture to the
+cited offline boundary; no plan, deploy, apply, deletion or lifecycle support.
+The locked 2.0.1.1 ZIP is labeled an exercise fixture, not certified evidence.
+
+Eleven retained native body variants now live inside the capsule, including
+optional/string/integer identities, templates, duplication, QR page/logo
+references and literal notifications. Exact source capture, divergent-ID body
+codec replay, immutable compiler admission/refusal, mixed settings, shortcode
+and block references, active/inactive widgets and preservation are exercised
+by its package-local offline suites. QR bodies are explicitly re-encoded
+native snapshots, not original storage bytes. Native target behavior, location
+rebuild, settings consumers beyond the general/validation slice, submissions,
+template conversion and plugin combinations still require full conformance.
+
+The capsule owns an exact-artifact `capture-plan` entry and native source
+seed/observation hooks, but that new workflow has not yet run against a fresh
+candidate-bound pair. Its fourth offline suite independently admits complete
+actual PostCapture output and rejects malformed/failed native transport,
+canonical drift and accidental target acceptance (76 assertions). The target
+hook fails explicitly until the missing round-trip assertions exist. This work
+also closes Blocks' missing Shortcodes dependency in the shared grammar layer
+(237 -> 236 known bootstrap gaps), with standalone scanner and actual capture
+regressions. No plugin runtime executable was added.
+
+Package validation now enforces certified => ready directly: four mutation
+controls prove that both gaps and blocked primitives refuse for certified
+adapters while remaining explicit in non-authorizing experimental previews.
+The global gate still requires every nonexcluded capsule's full twelve-family
+ledger, and every certified product must be ready. Experimental WPForms cannot
+inflate the ready catalog or bypass the real capability readiness blocker.
+Validation also runs the same closed test-tree discovery as the package runner:
+native helper files belong under capsule fixtures, while tests contain only
+class-named suites and fixed hooks. Two red/green mutation controls cover early
+refusal of misplaced helpers and non-executing admission at the fixture owner.
+
+The new capsule also re-exercised the known WP-4.5 addressing gap: adding its
+disposition changes the whole-registry hash and frozen policy snapshots even
+for older pin sets. Existing per-adapter digests and smaller manifest pin sets
+remain unchanged. The literal baseline now independently checks actual library
+membership and includes WPForms in both compatible maximal worlds. That is an
+honest census/identity update, not per-subject registry addressing. Trace and
+close the documented addressing boundary through contract/frozen-policy
+consumers before claiming that catalog growth is isolated from unrelated
+registry contracts; do not solve it with a reader fallback or hash bypass.
+
 ## Immediate continuation after PR #586
 
 - [x] Finish the pre-command Polylang uninstall oracle. Bind the first cause

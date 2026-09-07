@@ -1,0 +1,5 @@
+# format wprism-target-observation-premises/v1
+# expected observations=2 fixtures=0
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/capture-check.sh	require_observed_nonempty "WPForms native capture observation"
+observation	tests/conformance/seed.sh	require_observed_nonempty "WPForms native source seed"

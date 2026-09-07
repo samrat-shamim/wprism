@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 require_once __DIR__ . '/AttrIdCodecGrammar.php';
+require_once __DIR__ . '/Shortcodes.php';
 
 /**
  * Structure-aware content rewriting via the official block parser:

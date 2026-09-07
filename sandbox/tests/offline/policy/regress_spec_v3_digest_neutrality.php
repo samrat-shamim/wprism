@@ -35,15 +35,15 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-// Polylang's cold-cache interpreter correction changes only its executable
-// address. The manifest and disposition bytes and frozen snapshots stay exact;
-// regress_disposition_split.php retains the prior active executable pins.
-const BASELINE_FIXTURE_SHA256 = '050d3c7092ec088d15ca1e4687786246d21b54c59258bb7396ca38925e37b6ab';
-const RANK_WORLD_MANIFEST_HASH = '6c799d1d913321bb0d440d4f1413792ab8f0b6528b1186c0891498e9c6ae83ba';
-const YOAST_WORLD_MANIFEST_HASH = 'dfd90f30a212b7ff026ec1f747fe4628e31f6b88c3519a08fbf17015d5842f30';
-const REGISTRY_SHA256 = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'ef66e57722b855c8ec0a8bca12324ad84032b67e44ac7ffe6598d6e767e2070b';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '9e139f3acb9eb3b9ee5514a4971a5ff2eb8109364923dd01951f6aed1e939ee2';
+// Adding WPForms expands the two maximal worlds and the whole-registry
+// snapshot. Every pre-existing adapter digest and smaller pin set stays exact;
+// the registry-wide addressing cost is still the explicit WP-4.5 boundary.
+const BASELINE_FIXTURE_SHA256 = '34476da56458ccf242c87955c0076c4cd6db5a7837fbc7007692d973d7b70c5f';
+const RANK_WORLD_MANIFEST_HASH = 'bd6022a133930e5e6cb970bc5def723734b180b53434ce294c3c6f169801b715';
+const YOAST_WORLD_MANIFEST_HASH = '9d7ab5625b12c6fa4bfbb3cfde3ab3a48e0340a94254a13e657d158e577f04b6';
+const REGISTRY_SHA256 = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
+const RANK_WORLD_SNAPSHOT_SHA256 = '984a3fa2c761b931e71ee174d02e31ceec4b045d371813f5a5a00db3c4cfa6c0';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'd708a9b06155619aa7e9864be72e21ea4b9c9250b93d7bba889a1c191bb581a6';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
@@ -73,10 +73,13 @@ if (!is_array($rankPins) || !is_array($yoastPins)) {
     throw new RuntimeException('baseline compatible-world pins are unavailable');
 }
 $baselineNames = array_keys((array) ($baseline['adapter_digests'] ?? []));
+$actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
+sort($actualNames, SORT_STRING);
+wprism_check_same($actualNames, $baselineNames, 'the literal identity baseline covers the actual library, including newly added capsules');
 wprism_check_same(array_values(array_diff($baselineNames, ['yoast'])), $rankPins, 'the Rank-compatible world is exactly all shipped adapters except Yoast');
 wprism_check_same(array_values(array_diff($baselineNames, ['rank-math'])), $yoastPins, 'the Yoast-compatible world is exactly all shipped adapters except Rank Math');
-wprism_check_same(17, count($rankPins), 'the Rank-compatible maximal world contains 17 adapters');
-wprism_check_same(17, count($yoastPins), 'the Yoast-compatible maximal world contains 17 adapters');
+wprism_check_same(18, count($rankPins), 'the Rank-compatible maximal world contains 18 adapters');
+wprism_check_same(18, count($yoastPins), 'the Yoast-compatible maximal world contains 18 adapters');
 $worldUnion = array_values(array_unique(array_merge($rankPins, $yoastPins)));
 sort($worldUnion, SORT_STRING);
 wprism_check_same($baselineNames, $worldUnion, 'the two compatible worlds jointly cover all shipped adapters');
@@ -103,7 +106,7 @@ ksort($observedDigests, SORT_STRING);
 wprism_check_same(
     $baseline['adapter_digests'] ?? null,
     $observedDigests,
-    'the union of both valid maximal worlds exactly matches all 18 shipped adapter digests'
+    'the union of both valid maximal worlds exactly matches all 19 shipped adapter digests'
 );
 wprism_check_same(
     array_keys($baseline['adapter_digests'] ?? []),

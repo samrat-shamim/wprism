@@ -82,6 +82,31 @@ final class AdapterPackageTestsTest extends TestCase
         self::assertContains('evidence-wiring:2', $result['checks']);
     }
 
+    public function testValidatorRejectsConformanceHelpersOutsideTheFixtureBoundary(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/adapter-packages/acf/tests/conformance/native.php', '<?php');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Unknown adapter test file for 'acf' in tests/conformance");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorAdmitsFixtureHelpersWithoutExecutingThem(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/fixtures/capture-plan/native.php',
+            '<?php throw new RuntimeException("fixture helpers must not execute during validation");'
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+        $found = AdapterPackageTestDiscovery::discover($root, 'acf');
+
+        self::assertContains('test-discovery:' . count($found['tests']), $result['checks']);
+        self::assertNotContains('native', $result['evidence_tests']);
+    }
+
     public function testEvidenceCatalogDiscoversLocalAndParticipantOwnedGates(): void
     {
         $tests = AdapterPackageValidator::discoverableEvidence(dirname(__DIR__, 2), 'rank-math');
@@ -879,6 +904,41 @@ final class AdapterPackageTestsTest extends TestCase
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    /** @return iterable<string,array{0:string}> */
+    public static function unclosedReadinessBuckets(): iterable
+    {
+        yield 'missing evidence' => ['gaps'];
+        yield 'missing primitive' => ['blocked'];
+    }
+
+    #[DataProvider('unclosedReadinessBuckets')]
+    public function testCertifiedPackageCannotRetainUnclosedReadiness(string $bucket): void
+    {
+        $root = $this->validatorFixture();
+        self::openReadinessFamily($root, $bucket);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Certified adapter package 'acf' must have ready production-readiness evidence");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    #[DataProvider('unclosedReadinessBuckets')]
+    public function testExperimentalPackageCanRetainExplicitUnclosedReadiness(string $bucket): void
+    {
+        $root = $this->validatorFixture();
+        self::openReadinessFamily($root, $bucket);
+        $path = $root . '/adapter-packages/acf/package/disposition.json';
+        $disposition = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($disposition);
+        $disposition['status'] = 'experimental';
+        self::write($path, json_encode($disposition, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+        self::assertContains('production-readiness', $result['checks']);
+    }
+
     public function testValidatorRejectsReadinessEvidenceFromASiblingCapsule(): void
     {
         $root = $this->validatorFixture();
@@ -1443,12 +1503,12 @@ PHP
     public function testValidatorAcceptsACanonicalPackageRelativeShellSource(): void
     {
         $root = $this->validatorFixture();
-        self::write($root . '/adapter-packages/acf/tests/conformance/helper.sh', "#!/usr/bin/env bash\n:\n");
+        self::write($root . '/adapter-packages/acf/fixtures/helper.sh', "#!/usr/bin/env bash\n:\n");
         self::write(
             $root . '/adapter-packages/acf/tests/conformance/regress_source.sh',
             <<<'SH'
 #!/usr/bin/env bash
-. "$(dirname "${BASH_SOURCE[0]}")/helper.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/helper.sh"
 SH
         );
 
@@ -1474,7 +1534,7 @@ SH
         $shared = 'sandbox/' . $source;
         self::write($root . '/' . $shared, (string) file_get_contents(dirname(__DIR__, 2) . '/' . $shared));
         self::write(
-            $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
+            $root . '/adapter-packages/acf/fixtures/private-capture.sh',
             "#!/usr/bin/env bash\n. $source\n"
         );
         self::assertSame('acf', AdapterPackageValidator::validate($root, 'acf')['adapter']);
@@ -1485,7 +1545,7 @@ SH
     {
         $root = $this->validatorFixture();
         self::write(
-            $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
+            $root . '/adapter-packages/acf/fixtures/private-capture.sh',
             "#!/usr/bin/env bash\n. $source\n"
         );
         $this->expectException(RuntimeException::class);
@@ -1498,7 +1558,7 @@ SH
         $root = $this->validatorFixture();
         self::write($root . '/sandbox/tests/lib/private_neighbor.sh', "#!/usr/bin/env bash\n:\n");
         self::write(
-            $root . '/adapter-packages/acf/tests/conformance/private-capture.sh',
+            $root . '/adapter-packages/acf/fixtures/private-capture.sh',
             "#!/usr/bin/env bash\n. tests/lib/private_neighbor.sh\n"
         );
         $this->expectException(RuntimeException::class);
@@ -1509,12 +1569,12 @@ SH
     public function testValidatorAcceptsAnAssignmentPrefixedCanonicalPackageRelativeShellSource(): void
     {
         $root = $this->validatorFixture();
-        self::write($root . '/adapter-packages/acf/tests/conformance/helper.sh', "#!/usr/bin/env bash\n:\n");
+        self::write($root . '/adapter-packages/acf/fixtures/helper.sh', "#!/usr/bin/env bash\n:\n");
         self::write(
             $root . '/adapter-packages/acf/tests/conformance/regress_prefixed_source.sh',
             <<<'SH'
 #!/usr/bin/env bash
-MODE=x . "$(dirname "${BASH_SOURCE[0]}")/helper.sh"
+MODE=x . "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/helper.sh"
 SH
         );
 
@@ -2589,6 +2649,18 @@ SH
         );
 
         return [$root, $package];
+    }
+
+    private static function openReadinessFamily(string $root, string $bucket): void
+    {
+        $path = $root . '/adapter-packages/acf/evidence/production-readiness.json';
+        $record = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($record);
+        self::assertArrayHasKey('clean-target', $record['covered']);
+        unset($record['covered']['clean-target']);
+        $record[$bucket]['clean-target'] = 'Deliberately unclosed for the certification-boundary control.';
+        $record['readiness'] = 'unready';
+        self::write($path, json_encode($record, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
     }
 
     private static function replaceReadinessEvidence(string $root, string $from, string $to): void

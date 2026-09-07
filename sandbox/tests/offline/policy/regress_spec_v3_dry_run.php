@@ -466,20 +466,20 @@ foreach ($unionKeys as $key) {
 }
 $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ? '(none)' : implode(', ', $knownUnused)));
 
-// F1 — the difference, enumerated in both directions. Redirection's
+// F1 — the difference, enumerated in both directions. Redirection's and WPForms'
 // feature-claimed keys deliberately sit in § v3.21's roster rather than
 // duplicating the signer partition.
 wprism_check_same(
-    ['column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    ['attr_id_codecs', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $unknownInUse,
-    'F1: the only shipped keys outside the signer partition are classified by Redirection\'s declared feature roster'
+    'F1: every shipped key outside the signer partition belongs to an explicitly declared feature roster'
 );
 wprism_check_same(
     [],
     array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
     'F1: every shipped key outside the partition has a certificate arm in the feature roster'
 );
-wprism_check_same(34, count($unionKeys), 'F1: the in-use union is 34 keys');
+wprism_check_same(36, count($unionKeys), 'F1: the in-use union is 36 keys');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
@@ -753,6 +753,7 @@ wprism_check_same(
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wpforms-lite',
         'yoast',
         'yoast-duplicate-post',
     ],

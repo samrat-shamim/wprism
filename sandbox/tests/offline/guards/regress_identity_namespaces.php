@@ -296,6 +296,7 @@ wprism_check_same(
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wpforms-lite',
         'yoast-duplicate-post',
         'yoast',
     ],
@@ -324,7 +325,7 @@ wprism_check_same(
 $unprefixed = $namespaceVerdict($manifest('cache', 3), 'cache');
 wprism_check(
     is_string($unprefixed) && str_contains($unprefixed, "the unprefixed name 'cache'")
-        && str_contains($unprefixed, 'closed reserved list of 18 names')
+        && str_contains($unprefixed, 'closed reserved list of 19 names')
         && str_contains($unprefixed, '§ v3.9'),
     'an unprefixed out-of-tree name refuses BY NAME, naming the closed list and the section that decided it'
 );

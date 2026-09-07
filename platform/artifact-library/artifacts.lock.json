@@ -1,13 +1,5 @@
 {
-  "plugins": {
-    "wpforms-lite": {
-      "2.0.0.4": {
-        "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.4.zip",
-        "sha256": "3deaa115c6ed18fe3ef21f327239cf9573f78f97b1f4cc8204abfaf910689608",
-        "role": "exercise-fixture"
-      }
-    }
-  },
+  "plugins": {},
   "themes": {
     "twentytwentyone": {
       "2.8": {

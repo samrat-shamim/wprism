@@ -1097,7 +1097,9 @@ run_invalid_artifact_lock_preflight_case() {
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   copy_pair_launcher "$case_root/sandbox/bin"
   copy_artifact_library_runtime "$case_root"
-  jq '.plugins["wpforms-lite"]["2.0.0.4"].role = "unknown-role"' \
+  jq 'if .themes.twentytwentyone["2.8"].role == "exercise-fixture"
+      then .themes.twentytwentyone["2.8"].role = "unknown-role"
+      else error("expected the platform-owned theme fixture") end' \
     "$ROOT/platform/artifact-library/artifacts.lock.json" \
     > "$case_root/platform/artifact-library/artifacts.lock.json"
   chmod +x "$case_root/sandbox/bin/pair.sh"
