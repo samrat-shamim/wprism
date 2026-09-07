@@ -617,7 +617,7 @@ $knownGapsByFile = [
     'RefreshExport' => ['Canon', 'Capture', 'Code', 'CompiledRepository', 'Deletion', 'Identity', 'Ledger', 'Policy', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay'],
     'RelationshipMaterializer' => ['Db', 'Ledger'],
     'RepositoryAuthorization' => ['Canon', 'OptionState', 'Policy', 'ReferenceRules', 'RepositoryCompiler', 'SidebarState', 'Snapshot'],
-    'RepositoryCompiler' => ['Canon', 'Code', 'CodeCompilationException', 'CodeStateContract', 'Policy', 'RepositoryAuthorization', 'SidebarState', 'UserMetaState'],
+    'RepositoryCompiler' => ['Canon', 'Code', 'CodeCompilationException', 'CodeStateContract', 'Policy', 'SidebarState', 'UserMetaState'],
     'ScopeClosure' => ['CompiledRepository', 'Policy', 'SidebarState', 'UserMetaState'],
     'ScopeContract' => ['Canon', 'CompiledRepository', 'Deletion', 'Policy', 'ReferenceGraph'],
     'ScopedApply' => ['Canon', 'CompiledRepository', 'Db', 'Ledger', 'Policy', 'ReferenceGraph', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'SidebarState', 'Snapshot', 'Uuid'],
@@ -639,11 +639,10 @@ foreach ($knownGapsByFile as $basename => $names) {
 
 $gaps = find_gaps($sources, $classFiles, $knownGaps);
 
-// The Review ownership correction closed ten explicit gaps by giving the
-// relocated writers their own requirements and removing Pending's DDL
-// dependency (258 -> 247); retain the previous eight-pair deletion tripwire
-// below that reviewed baseline rather than making real gap closure fail.
-check(count($knownGaps) >= 238, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
+// The standalone compiler regression closes its RepositoryAuthorization gap
+// (238 -> 237). Sidebar validation now reads the pure kind-width contract,
+// while its capture/apply Ledger dependency remains visible legacy debt.
+check(count($knownGaps) >= 237, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
 fwrite(STDOUT, 'known gaps: ' . count($knownGaps) . " (explicit baseline; new pairs fail)\n");
 // The allowlist cannot become a dead, copy-pasted escape hatch: every entry
 // must still be observed in the current baseline.  Then mutate concrete
@@ -668,6 +667,9 @@ foreach ([
     ['AttachmentNativeMetadataGenerator', 'CompiledRepository', 'CompiledArtifact'],
     ['AttachmentNativeMetadataGenerator', 'AttachmentFilesystemTransaction'],
     ['AttachmentNativeMetadataGenerator', 'AttachmentMaterializer'],
+    ['SidebarState', 'ReferenceKindGrammar'],
+    ['Ledger', 'ReferenceKindGrammar'],
+    ['RepositoryCompiler', 'RepositoryAuthorization'],
 ] as $edge) {
     [$file, $dependency] = $edge;
     $requiredFile = $edge[2] ?? $dependency;

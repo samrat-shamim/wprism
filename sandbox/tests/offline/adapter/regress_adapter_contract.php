@@ -49,7 +49,7 @@ require_once __DIR__ . '/../policy/manifest_fixtures.php';
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
-require __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
 require __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 
 use WPrism\Canon;

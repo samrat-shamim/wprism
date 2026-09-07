@@ -169,9 +169,19 @@ cannot detect a second edit to an already-dirty file.
   reviewed scalar values and field roles are cleared; secrets, map keys,
   containers and unrelated form defaults still refuse. Full compiler/checked-SQL
   materialization/recapture proves composition with typed references and URLs.
-  Literal settings are synthetic mutations of the retained native fixture;
-  native persistence and notification delivery still need capsule evidence.
-  This is offline preparation, not a capsule or native
+  The original literal-setting cases were synthetic mutations of a native
+  fixture. A fresh exact `86f7f891` WPForms Lite 2.0.1.1 native save/re-save now
+  proves literal notification persistence, real PostCapture/compilation and
+  refusal of an email-valued unreviewed field default, with unchanged canonical
+  inputs and complete posts/postmeta/map witnesses around those read-only
+  operations. Positive body restoration does not claim whole-table restoration:
+  the native form writer creates revisions. All three command records re-admit
+  after exact pair cleanup; the strengthened host reader also replays actual
+  immutable compilation and has 43 transport/semantic acceptance controls.
+  Its standalone replay exposed a compiler load-order gap. The engine now
+  loads its own immutable authorization pass and shares a pure identity-kind
+  width with ledger schema, preserving scanner isolation from database code.
+  This remains a synthetic policy fixture, not a capsule or native
   WPForms support claim. Complete native materialization, authored settings,
   submissions/PII boundaries, templates,
   derived location state and lifecycle before making a support claim.

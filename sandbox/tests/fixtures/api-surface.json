@@ -65448,7 +65448,11 @@
         },
         "WPrism\\ReferenceKindGrammar": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "LEDGER_KIND_WIDTH": {
+                    "value_repr": 64
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",

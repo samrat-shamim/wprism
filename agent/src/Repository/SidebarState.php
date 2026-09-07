@@ -10,6 +10,10 @@ require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 
+// Pure sidebar validation also runs from compiler/scanner partial loads. The
+// kind width belongs to the shared grammar, not to loading a database writer.
+require_once __DIR__ . '/../Kernel/ReferenceKindGrammar.php';
+
 /** Canonical sidebar ownership and ledger-only widget instance identity. */
 final class SidebarState {
     public const ENTITY_TYPE = 'sidebar';
@@ -96,7 +100,7 @@ final class SidebarState {
     }
 
     public static function assert_width_budget(): void {
-        if (strlen(self::LONGEST_CORE_ID_KIND) > Ledger::ID_KIND_WIDTH) {
+        if (strlen(self::LONGEST_CORE_ID_KIND) > ReferenceKindGrammar::LEDGER_KIND_WIDTH) {
             throw new \RuntimeException(
                 'wprism: widget id_kind width budget is smaller than ' . self::LONGEST_CORE_ID_KIND
             );
@@ -686,18 +690,18 @@ final class SidebarState {
      *
      * What stays is the one check that is genuinely this file's: the derived
      * `widget_<type>` ledger kind has to FIT wprism_map.id_kind, which is
-     * Ledger's schema rather than the manifest's grammar (and the reason
-     * Policy's copy cannot make it — naming Ledger there would drag a second
-     * engine class into a file whose whole point is that it loads alone).
+     * the stored identity contract rather than only the widget declaration
+     * grammar. Its pure width is shared with Ledger's schema so compiler and
+     * scanner partial loads do not construct a database-writer dependency.
      */
     private static function assert_declared_types(array $declared): void {
         foreach ($declared as $type => $rule) {
             Policy::assert_widget_grammar((string) $type, $rule);
-            if (strlen(self::kind((string) $type)) > Ledger::ID_KIND_WIDTH) {
+            if (strlen(self::kind((string) $type)) > ReferenceKindGrammar::LEDGER_KIND_WIDTH) {
                 throw new \RuntimeException(
                     "wprism: over-budget manifest widget type '$type' — its derived identity kind '"
                     . self::kind((string) $type) . "' exceeds wprism_map.id_kind (VARCHAR("
-                    . Ledger::ID_KIND_WIDTH . '))'
+                    . ReferenceKindGrammar::LEDGER_KIND_WIDTH . '))'
                 );
             }
         }
@@ -1263,7 +1267,7 @@ final class SidebarState {
     private static function parse_widget_instance_key(string $key): ?array {
         if (strlen($key) > self::MAX_OPTION_NAME_BYTES
             || preg_match('/^([a-z0-9_-]+)-([1-9][0-9]*)$/D', $key, $match) !== 1
-            || strlen(self::kind($match[1])) > Ledger::ID_KIND_WIDTH) {
+            || strlen(self::kind($match[1])) > ReferenceKindGrammar::LEDGER_KIND_WIDTH) {
             return null;
         }
         $local = self::canonical_positive_decimal($match[2]);

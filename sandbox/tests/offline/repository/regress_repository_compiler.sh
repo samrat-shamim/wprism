@@ -13,6 +13,98 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
 
+# Native adapter evidence is also compiled on a host without wprism.php. A
+# separate process prevents the wider fixture's Ledger/Snapshot/authorization
+# imports below from hiding a missing dependency in the compiler load graph.
+php -d display_errors=1 /dev/stdin "$ROOT" <<'PHP'
+<?php
+$root = $argv[1];
+require_once "$root/sandbox/tests/lib/check.php";
+require_once "$root/sandbox/tests/lib/agent_version.php";
+require_once "$root/sandbox/tests/lib/frozen_policy.php";
+wprism_test_define_agent_versions();
+set_error_handler(static function (int $level, string $message, string $file, int $line): never {
+    throw new ErrorException($message, 0, $level, $file, $line);
+});
+function get_option($name) { throw new RuntimeException('compiler contacted target options'); }
+function wp_upload_dir(...$args) { throw new RuntimeException('compiler contacted target uploads'); }
+
+wprism_check(spl_autoload_functions() === [], 'fresh compiler process has no classmap or Composer fallback');
+require_once "$root/agent/src/Repository/RepositoryCompiler.php";
+$manifest = ['name' => 'isolated-compiler-fixture', 'spec_version' => WPRISM_SPEC_VERSION,
+    'engine_features' => ['spec-window/v1', 'structured-body-refs/v1'],
+    'post_types' => ['fixture_form' => ['class' => 'authored', 'body' => 'json']],
+    'body_refs' => ['fixture_form' => ['json_refs' => [['path' => '$.id', 'kind' => 'post']]]]];
+$site = ['spec_version' => WPRISM_SPEC_VERSION, 'manifests' => [$manifest['name']],
+    'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => [],
+        'post_types' => ['fixture_form']]];
+$policy = WPrismTest\FrozenPolicy::policy([$manifest], $site);
+$uuid = '019200cc-0000-7000-8000-000000000018';
+$front = ['uuid' => $uuid, 'type' => 'fixture_form', 'slug' => 'isolated-form',
+    'title' => 'Isolated form', 'status' => 'publish', 'author' => 'user:admin',
+    'date' => '2026-09-07 00:00:00', 'date_gmt' => '2026-09-07 00:00:00',
+    'modified_gmt' => '2026-09-07 00:00:00', 'excerpt' => '', 'parent' => null,
+    'menu_order' => 0, 'comment_status' => 'closed', 'ping_status' => 'closed',
+    'meta' => (object) [], 'terms' => (object) []];
+$content = WPrism\Canon::post_file($front, json_encode([
+    'id' => '{{post:' . $uuid . '}}', 'title' => 'Isolated form',
+    'fields' => (object) ['1' => ['default' => 'Public default']],
+], JSON_THROW_ON_ERROR));
+$repo = sys_get_temp_dir() . '/wprism-compiler-direct-' . bin2hex(random_bytes(8));
+if (!mkdir($repo, 0700)) throw new RuntimeException('cannot allocate isolated compiler fixture');
+register_shutdown_function(static function () use ($repo): void {
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($repo, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($iterator as $entry) {
+        $entry->isDir() && !$entry->isLink() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
+    }
+    rmdir($repo);
+});
+$path = "$repo/state/posts/fixture_form/$uuid--isolated-form.md";
+WPrism\Canon::write_file("$repo/site.wprism.json", WPrism\Canon::encode($site));
+WPrism\Canon::write_file($path, $content);
+$compiled = WPrism\RepositoryCompiler::compile_staged("$repo/state", $repo, $policy);
+wprism_check(array_keys($compiled->tree()) === [$uuid], 'standalone compiler admits the complete authored JSON entity');
+wprism_check(file_get_contents($path) === $content, 'standalone compiler preserves exact canonical input bytes');
+$hostile = str_replace('Public default', 'visitor@example.test', $content);
+WPrism\Canon::write_file($path, $hostile);
+$codes = [];
+try {
+    WPrism\RepositoryCompiler::compile_staged("$repo/state", $repo, $policy);
+} catch (WPrism\RepositoryAuthorizationException $error) {
+    $codes = array_column($error->diagnostics, 'code');
+}
+wprism_check($codes === ['repository_pii_not_allowed'], 'standalone compiler reaches real immutable privacy authorization');
+wprism_check(file_get_contents($path) === $hostile, 'standalone compiler refusal preserves complete rejected input');
+WPrism\Canon::write_file($path, $content);
+foreach ([57, 58] as $length) {
+    $widgetType = str_repeat('w', $length);
+    $widgetManifest = $manifest;
+    $widgetManifest['widgets'] = [$widgetType => ['settings' => ['title' => ['class' => 'authored']]]];
+    $widgetPolicy = WPrismTest\FrozenPolicy::policy([$widgetManifest], $site);
+    $message = null;
+    try {
+        WPrism\RepositoryCompiler::compile_staged("$repo/state", $repo, $widgetPolicy);
+    } catch (RuntimeException $error) {
+        $message = $error->getMessage();
+    }
+    $expectedMessage = "wprism: over-budget manifest widget type '$widgetType' — its derived identity kind 'widget_"
+        . $widgetType . "' exceeds wprism_map.id_kind (VARCHAR(64))";
+    wprism_check($length === 57 ? $message === null : $message === $expectedMessage,
+        'standalone compiler preserves the exact ' . ($length + 7) . '-byte widget-kind boundary');
+    wprism_check(file_get_contents($path) === $content, 'widget-kind boundary preserves complete canonical input');
+}
+wprism_check(!isset($GLOBALS['wpdb']) && spl_autoload_functions() === []
+    && !class_exists(WPrism\Ledger::class, false), 'standalone compile and refusal load neither a target database, Ledger nor an autoloader');
+require_once "$root/agent/src/Repository/Ledger.php";
+wprism_check(WPrism\Ledger::ID_KIND_WIDTH === 64
+    && WPrism\Ledger::ID_KIND_WIDTH === WPrism\ReferenceKindGrammar::LEDGER_KIND_WIDTH,
+    'ledger schema and pure identity grammar retain one unchanged 64-byte width');
+wprism_check_summary('standalone repository compiler');
+PHP
+
 php -d display_errors=1 /dev/stdin "$ROOT" <<'PHP'
 <?php
 $root = $argv[1];

@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
+require_once __DIR__ . '/../Kernel/ReferenceKindGrammar.php';
 
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
@@ -42,7 +43,7 @@ final class Ledger {
     /** Long enough for the closed widget_<type> family (including plugin id
      * bases such as widget_tribe-widget-events-qr-code, 34) and the database's
      * own 64-byte identifier ceiling for declared custom-table kinds. */
-    public const ID_KIND_WIDTH = 64;
+    public const ID_KIND_WIDTH = ReferenceKindGrammar::LEDGER_KIND_WIDTH;
     /**
      * MySQL and MariaDB cap physical table identifiers at 64 characters.
      * Journal's SQL recognizer accepts only single-byte identifier characters,
