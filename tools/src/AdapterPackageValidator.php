@@ -54,6 +54,8 @@ final class AdapterPackageValidator
         'platform/adapter-library/',
         'sandbox/conformance/',
         'sandbox/tests/offline/apply/',
+        'sandbox/tests/offline/capture/',
+        'sandbox/tests/offline/policy/',
         'sandbox/tests/offline/grammar/',
         'sandbox/tests/offline/reference-scope/',
         'sandbox/tests/offline/repository/',

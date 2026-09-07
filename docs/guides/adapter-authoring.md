@@ -2880,7 +2880,10 @@ library.
    belongs in `evidence/target-observation-premises.tsv`; package validation
    checks both directions and its exact count header. Account for all twelve
    scenario families in `evidence/production-readiness.json`, citing the exact
-   package, shared-engine, or participant-owned scenario gates. A missing
+   package, shared-engine, or participant-owned scenario gates. Shared Capture
+   atomicity and platform-policy suites belong to the allowed shared evidence
+   roots alongside Apply, reference and repository primitives. Cite their actual
+   tests when they establish the shared half of a readiness claim. A missing
    primitive is `blocked`; missing coverage is `gaps`; neither may be hidden as
    `not_applicable`. See
    [the production-readiness contract](../agents/adapter-production-readiness.md).

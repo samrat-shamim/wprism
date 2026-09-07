@@ -1074,6 +1074,29 @@ final class AdapterPackageTestsTest extends TestCase
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    /** @return iterable<string,array{0:string}> */
+    public static function sharedCaptureAndPolicyEvidence(): iterable
+    {
+        yield 'capture atomicity' => ['sandbox/tests/offline/capture/regress_capture_atomicity.php'];
+        yield 'platform compatibility' => ['sandbox/tests/offline/policy/regress_platform_compatibility.php'];
+    }
+
+    #[DataProvider('sharedCaptureAndPolicyEvidence')]
+    public function testValidatorAcceptsSharedCaptureAndPolicyReadinessEvidence(string $evidence): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/' . $evidence, "<?php\n");
+        self::replaceReadinessEvidence(
+            $root,
+            'sandbox/tests/offline/apply/regress_fatal_mutations.php',
+            $evidence
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertContains('production-readiness', $result['checks']);
+    }
+
     public function testValidatorRejectsReadinessEvidenceOutsideClosedSharedRoots(): void
     {
         $root = $this->validatorFixture();
