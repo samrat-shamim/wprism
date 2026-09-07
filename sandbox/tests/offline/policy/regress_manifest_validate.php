@@ -1596,8 +1596,10 @@ check(
     && ($bodyRefsGrammar['json_refs_entry'] ?? null) === [
         'required' => \WPrism\ReferenceRules::JSON_REF_REQUIRED,
         'optional' => \WPrism\ReferenceRules::JSON_REF_OPTIONAL,
+        'preserved_type' => 'cast: preserve requires ' . \WPrism\BodyRefGrammar::PRESERVED_TYPE_FEATURE
+            . '; canonical state retains the native int/string type in a closed typed-reference envelope',
     ],
-    '`body_refs` publishes {json_refs, sentinels} and the {path, kind, cast} triple — the record set from BodyRefGrammar and the triple from the one JSONPath dialect ReferenceRules owns'
+    '`body_refs` publishes its exact record, shared path/kind/cast keys and negotiated type-preservation vocabulary'
 );
 $attrGrammar = $engineFeatures['implemented']['attr-id-codecs/v1']['sections']['attr_id_codecs']['grammar'] ?? [];
 check(
