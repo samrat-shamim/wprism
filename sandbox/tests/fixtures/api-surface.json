@@ -21308,6 +21308,7 @@
                     "value_repr": [
                         "acf",
                         "advanced-editor-tools",
+                        "change-wp-admin-login",
                         "classic-editor",
                         "code-snippets",
                         "contact-form-7",
@@ -52933,6 +52934,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "active_plugin_conflicts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "activePlugins",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "active_reclassifications": {
                     "abstract": false,
                     "final": false,
@@ -72839,6 +72857,7 @@
                     "value_repr": [
                         "acf",
                         "advanced-editor-tools",
+                        "change-wp-admin-login",
                         "classic-editor",
                         "code-snippets",
                         "contact-form-7",

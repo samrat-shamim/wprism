@@ -694,6 +694,18 @@ final class RepositoryAuthorization {
         // own present values plus hash-bound v2 deletion witnesses, never a
         // live target or capture-process history.
         $allOptions = OptionState::classification_values($document);
+        // A competitor need not have an adapter pin or a code payload. This
+        // common capture/compiler boundary rejects its desired activation
+        // before publication, lifecycle reconciliation, or materialization.
+        $activePlugins = OptionState::values($document)['active_plugins'] ?? [];
+        foreach ($policy->active_plugin_conflicts(is_array($activePlugins) ? $activePlugins : []) as $conflict) {
+            self::finding(
+                $out, 'repository_active_plugin_incompatible', $entity['path'], $uuid,
+                'managed_option', $conflict['incompatible_plugin'], 'incompatible', $conflict['manifest'],
+                "Remove '{$conflict['incompatible_plugin']}' from canonical active_plugins or unpin "
+                    . "'{$conflict['manifest']}', whose '{$conflict['plugin']}' contract forbids it."
+            );
+        }
         foreach (OptionState::records($document) as $name => $record) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)

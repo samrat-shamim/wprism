@@ -2815,7 +2815,7 @@ and recovery. No Rank Math branch enters `agent/src`.
 ### v3.24 `plugin-incompatibility/v1` — competing plugin contracts refuse before composition
 
 **Rider: the Rank Math and Yoast composition-boundary work package.**
-**Enforced today: yes, at shared policy finalization.** `WPRISM_SPEC_VERSION`
+**Enforced today: yes, at shared policy finalization and repository authorization.** `WPRISM_SPEC_VERSION`
 remains 3. The feature claims the top-level `incompatible_plugins` key with the
 certificate's non-surface arm. Its value is a non-empty, lexically sorted,
 duplicate-free list of exact WordPress plugin basenames in
@@ -2840,6 +2840,16 @@ provider receives the policy. Rank Math's declaration against Yoast is the
 first consumer; the participant-owned scenario executes capture and host
 deploy with both manifest and active-plugin orders and proves the same refusal
 with no repository publication or durable mutation debt.
+
+The same declaration also binds canonical `active_plugins` during repository
+authorization. A competing plugin does not need an adapter pin to load its native
+hooks: omitting that pin cannot bypass the constraint. A present incompatible
+basename emits `repository_active_plugin_incompatible` with the declaring
+manifest and exact competing basename before capture publication or target
+lifecycle work. This applies to state-only and code-enabled repositories alike;
+code-mismatch overrides cannot bypass repository authorization. The guard uses
+desired state, allowing deploy to remove a competitor from the live target when
+the canonical graph is compatible. An absent or inactive competitor is allowed.
 
 ### v3.25 `scalar-reference-intersection/v1` — one value, multiple native coordinates
 

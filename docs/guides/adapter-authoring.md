@@ -1307,6 +1307,10 @@ claims the named plugin, the shared policy finalizer emits the same refusal in
 either pin order before compilation, capture publication, promotion leases,
 lifecycle hooks, or providers. This is a non-surface compatibility constraint,
 not an operator composition override; the remedy is to pin only one adapter.
+Canonical `active_plugins` is checked during repository authorization as well:
+omitting the competing adapter pin cannot authorize its active plugin. Include
+that one-pin case in the refusal evidence. The guard reads desired state, so a
+compatible repository can still deactivate a conflicting target plugin.
 Use a participant-declared integration scenario to prove both orders against
 the exact supported plugin artifacts.
 

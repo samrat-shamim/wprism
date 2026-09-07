@@ -4169,6 +4169,33 @@ final class Policy {
     }
 
     /**
+     * Pinned compatibility constraints also bind canonical active_plugins:
+     * an unpinned competitor still loads native hooks. Consume desired state,
+     * never target state, so deploy can deactivate a conflicting target plugin.
+     * Unlike version-claim arbitration, no site override displaces this guard.
+     *
+     * @param list<string> $activePlugins
+     * @return list<array{manifest:string,plugin:string,incompatible_plugin:string}>
+     */
+    public function active_plugin_conflicts(array $activePlugins): array {
+        $conflicts = [];
+        foreach ($this->manifests as $manifest) {
+            foreach ($manifest['incompatible_plugins'] ?? [] as $other) {
+                if (in_array($other, $activePlugins, true)) {
+                    $row = [
+                        'manifest' => (string) $manifest['name'],
+                        'plugin' => (string) $manifest['plugin'],
+                        'incompatible_plugin' => (string) $other,
+                    ];
+                    $conflicts[Canon::encode($row)] = $row;
+                }
+            }
+        }
+        ksort($conflicts, SORT_STRING);
+        return array_values($conflicts);
+    }
+
+    /**
      * issue #3222: theme twin of version_ranges() above — same {min,max} +
      * version_compare() shape, same first-pin-order-wins internal fallback
      * (never actually exercised in practice: validate_no_conflicting_
