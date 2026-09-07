@@ -1,7 +1,7 @@
 {
   "format": "wprism-adapter-production-readiness-record/v1",
   "adapter": "change-wp-admin-login",
-  "readiness": "unready",
+  "readiness": "ready",
   "covered": {
     "clean-target": [
       "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
@@ -34,14 +34,35 @@
     "data-boundary": [
       "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
       "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "contract-dependency": [
+      "adapter-packages/change-wp-admin-login/package/manifest.json",
+      "adapter-packages/change-wp-admin-login/evidence/artifacts.lock.json",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_dependency_preflight.php",
+      "adapter-packages/change-wp-admin-login/tests/certify/version-matrix.sh"
+    ],
+    "failure-recovery": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php",
+      "sandbox/tests/offline/apply/regress_authored_work_units.php",
+      "sandbox/tests/offline/apply/regress_full_apply_attachment_recovery.php",
+      "sandbox/tests/offline/capture/regress_capture_atomicity.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/conformance/check.sh",
+      "sandbox/tests/offline/capture/regress_capture_atomicity.php",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/change-wp-admin-login/package/disposition.json",
+      "adapter-packages/change-wp-admin-login/tests/conformance/seed.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_dependency_preflight.php",
+      "sandbox/tests/offline/policy/regress_platform_compatibility.php",
+      "integration-scenarios/aio-login-wps-incompatibility/tests/offline/regress_aio_login_wps_incompatibility.php"
     ]
   },
-  "gaps": {
-    "contract-dependency": "Native exact, absent and official 2.4.0 refusal pass; the standard owned version-matrix entry and committed capsule rerun remain.",
-    "failure-recovery": "Native capture refusal preserves publication and ledger, then retries. Bind the applicable shared transaction and recovery evidence before readiness review.",
-    "concurrency-idempotence": "Native repeated apply/recapture pass. Bind the applicable shared capture/promotion lock evidence before readiness review.",
-    "scope-platform": "Single-site exact artifact is exercised; explicit combination scenario, standard conformance and platform boundary evidence remain."
-  },
+  "gaps": {},
   "blocked": {},
   "not_applicable": {}
 }

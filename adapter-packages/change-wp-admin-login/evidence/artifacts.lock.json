@@ -9,7 +9,7 @@
       "2.4.1": {
         "url": "https://downloads.wordpress.org/plugin/change-wp-admin-login.2.4.1.zip",
         "sha256": "f025beff401cabc7c4d7c8ee3d549a26197d698e17b5e018ddbabd471b46722b",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     }
   },

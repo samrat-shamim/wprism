@@ -1,6 +1,5 @@
 {
   "entry": {
-    "mode": "capture-plan",
     "pin": [
       "core",
       "change-wp-admin-login"

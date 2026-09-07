@@ -37,8 +37,8 @@
  * are the two blocks where that is a real constraint rather than an accident of
  * three-element lists.
  *
- * The two blocks that do NOT reproduce are named: `wpforms-lite` and
- * `change-wp-admin-login` use `exercise-fixture`. No probe outcome implies
+ * The block that does NOT reproduce is `wpforms-lite`, which
+ * uses `exercise-fixture`. No probe outcome implies
  * that role — it records a test's intent, not a version's behaviour — so the
  * search never proposes it, and it is not a bisection result to reproduce.
  *
@@ -171,12 +171,12 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
 // 6.17.1, so it is a bisection RESULT and the loops below reproduce it like any
 // other certified block. wpforms-lite is the last exercise-only block.
 wprism_check_same(
-    16,
+    17,
     count($bisectionShaped),
-    '16 of the 18 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '17 of the 18 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 wprism_check_same(
-    ['change-wp-admin-login', 'wpforms-lite'],
+    ['wpforms-lite'],
     array_keys($exerciseOnly),
     'unqualified blocks with exercise/refusal fixtures are not bisection results, so the search never proposes it'
 );

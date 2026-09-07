@@ -338,7 +338,7 @@ ksort($statuses, SORT_STRING);
 // The WPForms and AIO Login previews remain experimental beside the 17
 // certified subjects; adding a candidate cannot imply production coverage.
 wprism_check_same(
-    ['certified' => 17, 'excluded' => 1, 'experimental' => 2],
+    ['certified' => 18, 'excluded' => 1, 'experimental' => 1],
     (static function (array $words): array {
         $counts = array_count_values($words);
         ksort($counts, SORT_STRING);

@@ -42,12 +42,12 @@ use WPrism\Policy;
 // sets. Adding AIO Login preserves those pins and adds a separate compatible
 // world; the whole-registry address moves again under the documented WP-4.5
 // boundary, while all pre-existing adapter digests remain byte-pinned.
-const BASELINE_FIXTURE_SHA256 = '3f04a1cff0473fc19b63ae001e068dd25693d2cd19c295db413827e86591379e';
+const BASELINE_FIXTURE_SHA256 = 'd96fd365c8171e5d1d8d4e10e8064a3ff4b6dfe738d5aa6ca3752de145b0122d';
 const RANK_WORLD_MANIFEST_HASH = '968c2eb9047d3c915f39e9dd094ae9cc04daf1b7e1fa175fb91a7bbaa0eb2226';
 const YOAST_WORLD_MANIFEST_HASH = '7df2e24bc021a38e55554df9eab308fa4e36116c05941d0f80730c815b2ffb54';
-const REGISTRY_SHA256 = '8346bb98281dffa2e4cfdf219e54596c7c7bebe009ff23711847c9ba938ac706';
-const RANK_WORLD_SNAPSHOT_SHA256 = '51f3ed99b75b3d3640f754f577ef850e4c0496073453e7636a2011a3b85f8848';
-const YOAST_WORLD_SNAPSHOT_SHA256 = 'aedd2c9b946b28f258cb26a50bcf0be9ac4bb20212f60a35d1c14b85aa656647';
+const REGISTRY_SHA256 = '241cd807eaa6781874c750fa6797b45b67ff41666987b432126a8bbb3b0a72c3';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'f846b1a552c433f355dff4ef6b4d0e78808a81f1682b0f40693f9ff644c1b561';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '08d4b1377bab366d042e11a79ce413f79fe7755687a28d5a2602c1f72cd8bd03';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
