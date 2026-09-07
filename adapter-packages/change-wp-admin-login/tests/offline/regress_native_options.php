@@ -121,14 +121,14 @@ foreach ($native['native_cases'] as $case => $rules) {
     $tokens = new Tokens('https://aio-target.test', 'https://aio-target.test/wp-content/uploads');
     $fields = new ApplyFieldMaterializer($policy, $tokens);
     $writer = new OptionsMaterializer($policy, $tokens, $fields);
-    $apply = static function (array $desired) use ($writer, $fields): void {
+    $apply = static function (array $desired, bool $deletes = false) use ($writer, $fields): void {
         Db::start_repeatable_read('AIO native fixture', new NativeDatabaseProfile(['wp_options', 'wp_wprism_map'], ['wp_options']));
         $fields->begin_authored_transaction();
         $writer->begin_authored_transaction();
         CacheInvalidationTransaction::begin();
         try {
             $warnings = [];
-            $writer->apply_options($desired, false, $warnings);
+            $writer->apply_options($desired, $deletes, $warnings);
             Db::commit('AIO native fixture');
             $writer->commit_authored_transaction();
             CacheInvalidationTransaction::finish();
@@ -190,6 +190,35 @@ foreach ($native['native_cases'] as $case => $rules) {
         wprism_check_throws(static fn() => $compile($badDocument), RuntimeException::class, "$case compiler refuses $fault");
         wprism_check_same($stable, $target->rows('wp_options'), "$case $fault refusal cannot mutate target rows");
     }
+    $deletion = $document;
+    foreach (['aio_login_custom-css', 'aio_login_logo'] as $key) {
+        $deletion['records'][$key] = OptionState::deleted($document['records'][$key]);
+    }
+    $compile($deletion);
+    $partialDeletionObserved = false;
+    $target->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (&$partialDeletionObserved, $stable): ?string {
+        if (str_starts_with($sql, 'DELETE FROM `wp_options`') && str_contains($sql, "'aio_login_logo'")) {
+            $partialDeletionObserved = count($db->rows('wp_options')) === count($stable) - 1;
+            return 'injected AIO second option deletion failure';
+        }
+        return null;
+    });
+    wprism_check_throws(static fn() => $apply($deletion, true), WPrism\DatabaseMutationException::class,
+        "$case checked SQL refuses the second authored option deletion");
+    wprism_check($partialDeletionObserved, "$case deletion fault follows one actual option removal");
+    wprism_check_same($stable, $target->rows('wp_options'), "$case mid-delete rollback restores both raw options and neighboring values");
+    wprism_check_same($identityBase, $target->rows('wp_wprism_map'), "$case mid-delete rollback preserves identity map bytes");
+    $target->onQuery(null);
+    $apply($deletion, true);
+    $remaining = array_column($target->rows('wp_options'), null, 'option_name');
+    wprism_check(!array_key_exists('aio_login_custom-css', $remaining) && !array_key_exists('aio_login_logo', $remaining),
+        "$case authorized deletion retry removes exactly both selected options");
+    wprism_check_same(array_diff_key(array_column($stable, null, 'option_name'),
+        ['aio_login_custom-css' => true, 'aio_login_logo' => true]), $remaining,
+        "$case deletion retry preserves every unselected option byte");
+    $deletedStable = $target->rows('wp_options');
+    $apply($deletion, true);
+    wprism_check_same($deletedStable, $target->rows('wp_options'), "$case repeated deletion is byte-stable");
     foreach (['-1', '01', '1.5', '9223372036854775808', [], null, true, ''] as $invalidId) {
         $malformedRules = $rules;
         $malformedRules[0]['login_target_type'] = 'page';

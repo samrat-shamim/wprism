@@ -1,0 +1,54 @@
+{
+  "format": "wprism-adapter-native-promotion-evidence/v1",
+  "adapter": "change-wp-admin-login",
+  "plugin": "change-wp-admin-login/change-wp-admin-login.php",
+  "supported_version": "2.4.1",
+  "artifact_sha256": "f025beff401cabc7c4d7c8ee3d549a26197d698e17b5e018ddbabd471b46722b",
+  "qualified_adapter_digest": "d40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415",
+  "runs": [
+    {
+      "kind": "exact-artifact-matrix",
+      "source_commit": "90e75dde11357d75be8735db7a9bd27f794b9fe0",
+      "pair": "aiomatrix01",
+      "result": "passed",
+      "owned_pair_destroyed": true,
+      "log_sha256": "252350cb3ee3edaa93b75ac1583772e9b0574697f2330069cc05808ad50b3aa3",
+      "retained_sha256": {
+        "canonical.json": "904519d2613364ffe72909e8fbd085081c24b2c002ddc23c2e1f9d6c117a7fe9",
+        "native.json": "22982e2da450436125a0b813547615a2fbc57c261b092d29f02f2a2babfc7900",
+        "http.json": "0da9bd063aa1e5ee31af2e6c6231154bd49b50da0d43c9b249d3d63be465d850",
+        "security.json": "33748effce37ed1f10dc22727b68d314acaae6be54e3bf0588a7dcf5ce7dd34f",
+        "repeated-apply.json": "66357ae212ebe65f08b764d3af01b32a4dc7daeb20a2ef530a271cb4dca0612e",
+        "recapture.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "old-version-refusal.json": "c588ce24afb3f3275c112fccd8df7bd6c6d7e0ca54a05da46b6697df085e093b"
+      },
+      "official_refusal_version": "2.4.0",
+      "expected_cause_receipt": {
+        "command": "deploy",
+        "format": "wprism-private-refusal-check/v1",
+        "new_records": 1,
+        "node_message_sha256": [
+          "28520a63c3f4e820717bfadd61fe303c2cf43775c05b408e763fa80dede3fb06"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "kind": "host-conformance",
+      "source_commit": "32c0e6c4f6c9b1d88fe019932529bf6636d0112a",
+      "pair": "aiohost01",
+      "result": "passed",
+      "owned_pair_destroyed": true,
+      "log_sha256": "eb3eca981b9a4b50e0f3b33f193a42762ce8f482b5e2e7cc9d15eca0bd1d65ae",
+      "retained_sha256": {
+        "canonical.json": "904519d2613364ffe72909e8fbd085081c24b2c002ddc23c2e1f9d6c117a7fe9",
+        "native.json": "22982e2da450436125a0b813547615a2fbc57c261b092d29f02f2a2babfc7900",
+        "http.json": "0da9bd063aa1e5ee31af2e6c6231154bd49b50da0d43c9b249d3d63be465d850",
+        "security.json": "33748effce37ed1f10dc22727b68d314acaae6be54e3bf0588a7dcf5ce7dd34f",
+        "repeated-apply.json": "8b3cf104b7f7a1eb2ead45b2dba89643e2f3e9cdc2219b15f4aee8a9f1e797e4",
+        "recapture.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "scope": "Native behavior and host code lifecycle plus content apply are exercised against the exact free artifact. Private request bodies, cookies and OTP values remain outside the capsule. This record describes observed runs; it is not a sealed artifact certificate."
+}
