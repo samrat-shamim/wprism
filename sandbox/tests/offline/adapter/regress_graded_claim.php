@@ -335,27 +335,23 @@ foreach ($report['manifests'] as $row) {
     $statuses[(string) $row['name']] = (string) $row['status'];
 }
 ksort($statuses, SORT_STRING);
-// #561 promoted the-events-calendar experimental -> certified, which was the
-// library's only `experimental` subject. So the census is two words now, not
-// three -- a change in what the shipped library SAYS, never in what the
-// projector can say (ManifestDispositions.php:959 still accepts exactly
-// certified/experimental/excluded, and the next line measures that).
+// WPForms is a non-authorizing preview. Its experimental status must remain
+// visible beside the 17 certified subjects, not count as production coverage.
 wprism_check_same(
-    ['certified' => 17, 'excluded' => 1],
+    ['certified' => 17, 'excluded' => 1, 'experimental' => 1],
     (static function (array $words): array {
         $counts = array_count_values($words);
         ksort($counts, SORT_STRING);
         return $counts;
     })(array_values($statuses)),
-    'ManifestDispositions::report() still projects the reviewed word verbatim over 18 subjects — the binary read this rider deliberately did NOT change'
+    'ManifestDispositions::report() projects the reviewed word verbatim over 19 subjects, including the non-authorizing preview'
 );
 wprism_check(
     str_contains(
         (string) file_get_contents($wprismRoot . '/agent/src/Policy/ManifestDispositions.php'),
         "in_array(\$status, ['certified', 'experimental', 'excluded'], true)"
     ),
-    '...and `experimental` is still a word the engine accepts, so the census above records that the shipped '
-        . 'library has none left — not that the third status was retired with TEC\'s promotion'
+    '...and the census preserves all three reviewed statuses accepted by the engine'
 );
 wprism_check_same('certified', $statuses['acf'], '...`certified` still means `certified`');
 

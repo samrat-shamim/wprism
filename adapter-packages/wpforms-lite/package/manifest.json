@@ -1,0 +1,305 @@
+{
+  "name": "wpforms-lite",
+  "spec_version": 3,
+  "plugin": "wpforms-lite/wpforms.php",
+  "version_range": {
+    "min": "2.0.1.1",
+    "max": "2.0.1.2"
+  },
+  "engine_features": [
+    "attr-id-codecs/v1",
+    "body-pii-paths/v1",
+    "body-ref-preserve-type/v1",
+    "body-url-rebinding/v1",
+    "spec-window/v1",
+    "structured-body-refs/v1"
+  ],
+  "option_autoload": "preserve",
+  "options": {
+    "_wpforms_transient_existing_tables": {
+      "class": "runtime"
+    },
+    "_wpforms_transient_timeout_existing_tables": {
+      "class": "runtime"
+    },
+    "wpforms_activated": {
+      "class": "runtime"
+    },
+    "wpforms_constant_contact_version": {
+      "class": "runtime"
+    },
+    "wpforms_forms_first_created": {
+      "class": "runtime"
+    },
+    "wpforms_setup_wizard_completed": {
+      "class": "runtime"
+    },
+    "wpforms_version": {
+      "class": "runtime"
+    },
+    "wpforms_version_lite": {
+      "class": "runtime"
+    },
+    "wpforms_versions_lite": {
+      "class": "runtime"
+    },
+    "wpforms_crypto_secret_key": {
+      "class": "env",
+      "required": false
+    },
+    "wpforms_settings": {
+      "class": "env",
+      "required": false,
+      "sub_keys": {
+        "disable-css": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "Native general settings save persisted string '2'; this is the stylesheet mode, not a post ID."
+        },
+        "global-assets": {
+          "class": "authored"
+        },
+        "gdpr": {
+          "class": "authored"
+        },
+        "gdpr-disable-uuid": {
+          "class": "authored"
+        },
+        "gdpr-disable-details": {
+          "class": "authored"
+        },
+        "modern-markup": {
+          "class": "authored"
+        },
+        "modern-markup-is-set": {
+          "class": "env"
+        },
+        "modern-markup-hide-setting": {
+          "class": "env"
+        },
+        "lite-connect-enabled": {
+          "class": "env"
+        },
+        "validation-required": {
+          "class": "authored"
+        },
+        "validation-email": {
+          "class": "authored",
+          "allow_pii": true,
+          "note": "Native Settings::save_settings persists operator-authored validation copy here, not a visitor email. The semantic email-key guard needs this exact field review; no sibling or credential clearance is granted."
+        },
+        "validation-email-suggestion": {
+          "class": "authored",
+          "allow_pii": true,
+          "note": "Operator-authored suggestion message containing the native {suggestion} placeholder, not a submitted address."
+        },
+        "validation-email-restricted": {
+          "class": "authored",
+          "allow_pii": true,
+          "note": "Operator-authored rejection message, not an address allowlist or visitor data."
+        },
+        "validation-number": {
+          "class": "authored"
+        },
+        "validation-number-positive": {
+          "class": "authored"
+        },
+        "validation-minimum-price": {
+          "class": "authored"
+        },
+        "validation-confirm": {
+          "class": "authored"
+        },
+        "validation-inputmask-incomplete": {
+          "class": "authored"
+        },
+        "validation-check-limit": {
+          "class": "authored"
+        },
+        "validation-character-limit": {
+          "class": "authored"
+        },
+        "validation-word-limit": {
+          "class": "authored"
+        },
+        "validation-requiredpayment": {
+          "class": "authored"
+        },
+        "validation-creditcard": {
+          "class": "authored"
+        },
+        "validation-min": {
+          "class": "authored"
+        },
+        "validation-max": {
+          "class": "authored"
+        }
+      },
+      "note": "Only the named native general/validation controls are portable in this experimental slice. Unnamed email/payment/misc controls, credentials, integrations and installation/cloud state stay target-local; this is not an entire-options-blob grant."
+    }
+  },
+  "post_types": {
+    "wpforms": {
+      "class": "authored",
+      "body": "json"
+    },
+    "wpforms-template": {
+      "class": "authored",
+      "body": "json"
+    }
+  },
+  "taxonomies": {
+    "wpforms_form_tag": {
+      "class": "authored",
+      "object_type": [
+        "wpforms"
+      ]
+    }
+  },
+  "body_refs": {
+    "wpforms": {
+      "json_refs": [
+        {
+          "path": "$.id",
+          "kind": "post",
+          "cast": "preserve"
+        },
+        {
+          "path": "$.settings.confirmations.*.page",
+          "kind": "post",
+          "cast": "string"
+        },
+        {
+          "path": "$.settings.qr_code_page_id",
+          "kind": "post"
+        },
+        {
+          "path": "$.settings.qr_code_logo_id",
+          "kind": "post"
+        }
+      ],
+      "sentinels": {
+        "$.settings.confirmations.*.page": [
+          "previous_page"
+        ]
+      },
+      "url_rebinding": true,
+      "pii_paths": [
+        "$.settings.notifications.*.email",
+        "$.settings.notifications.*.replyto",
+        "$.settings.notifications.*.sender_name",
+        "$.settings.notifications.*.sender_address"
+      ]
+    },
+    "wpforms-template": {
+      "json_refs": [
+        {
+          "path": "$.id",
+          "kind": "post",
+          "cast": "preserve"
+        },
+        {
+          "path": "$.settings.confirmations.*.page",
+          "kind": "post",
+          "cast": "string"
+        },
+        {
+          "path": "$.settings.qr_code_page_id",
+          "kind": "post"
+        },
+        {
+          "path": "$.settings.qr_code_logo_id",
+          "kind": "post"
+        }
+      ],
+      "sentinels": {
+        "$.settings.confirmations.*.page": [
+          "previous_page"
+        ]
+      },
+      "url_rebinding": true,
+      "pii_paths": [
+        "$.settings.notifications.*.email",
+        "$.settings.notifications.*.replyto",
+        "$.settings.notifications.*.sender_name",
+        "$.settings.notifications.*.sender_address"
+      ]
+    }
+  },
+  "post_meta": {
+    "wpforms_form_locations": {
+      "class": "derived",
+      "note": "Locator rebuilds this denormalized index from embedding posts/widgets. Direct engine post writes do not run its native incremental hooks. No provider is claimed yet; deploy/apply remain unsupported until an exact, bounded, idempotent rebuild is proven."
+    }
+  },
+  "tables": {
+    "wpforms_analytics_forms": {
+      "class": "runtime"
+    },
+    "wpforms_analytics_snapshots": {
+      "class": "runtime"
+    },
+    "wpforms_logs": {
+      "class": "runtime"
+    },
+    "wpforms_payment_meta": {
+      "class": "runtime"
+    },
+    "wpforms_payments": {
+      "class": "runtime"
+    },
+    "wpforms_tasks_meta": {
+      "class": "runtime"
+    }
+  },
+  "shortcode_attrs": {
+    "wpforms": [
+      {
+        "kind": "post",
+        "path": "id"
+      }
+    ]
+  },
+  "block_attrs": {
+    "wpforms/form-selector": [
+      {
+        "kind": "post",
+        "path": "formId",
+        "type": "int"
+      }
+    ]
+  },
+  "attr_id_codecs": {
+    "wpforms/form-selector": {
+      "formId": {
+        "id_type": "string"
+      }
+    }
+  },
+  "widgets": {
+    "wpforms-widget": {
+      "settings": {
+        "title": {
+          "class": "authored"
+        },
+        "form_id": {
+          "class": "authored",
+          "ref": "post"
+        },
+        "show_title": {
+          "class": "authored"
+        },
+        "show_desc": {
+          "class": "authored"
+        }
+      }
+    }
+  },
+  "notes": [
+    "Experimental authoring capsule for the exact observed official Lite 2.0.1.1 artifact. No certification, deployment, apply, deletion, lifecycle or production-readiness claim.",
+    "Native add/update/duplicate writes prove optional integer/string self IDs and local field allocators; only declared post coordinates are references. Field IDs, numeric limits and smart-tag field operands remain local form structure.",
+    "The four exact notification scalar paths admit authored routing/display configuration, not submissions or arbitrary body PII. All keys, other values and secrets retain engine clearance checks.",
+    "QR page/logo IDs are native integers, including zero; Lite sanitization retains a custom-logo residue even when the paid logo UI is unavailable. Portability of stored references is not paid-feature support.",
+    "Runtime/payment/analytics/log tables are deliberately excluded. Shared Action Scheduler storage remains outside this capsule's ownership. Pro/addon fields, integrations, template conversion, submissions, mail transport and cross-plugin behavior still require evidence."
+  ]
+}

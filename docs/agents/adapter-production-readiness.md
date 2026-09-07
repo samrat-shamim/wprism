@@ -15,6 +15,13 @@ evidence file stays inside the capsule and exists, and no adapter can be marked
 requires human review of the named evidence; the guard proves coverage of the
 work ledger, not the truth of a product claim.
 
+An experimental preview still accounts for every family, with unfinished work
+left explicitly `unready`; it does not count toward the production-ready
+catalog and its status cannot authorize release. A `certified` disposition
+requires a `ready` record at the isolated package-validation boundary as well
+as the global gate. Changing the status cannot promote an adapter with open
+`gaps` or `blocked` families.
+
 ## Required scenario families
 
 | family | production assertion |

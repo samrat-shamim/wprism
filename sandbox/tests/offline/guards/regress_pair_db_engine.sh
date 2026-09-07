@@ -601,8 +601,10 @@ foreach ($paths as $path) {
         continue;
     }
     $count++;
-    if (WPrism\Tooling\ActiveShellSource::statement($source, 'pair_db_select_engine') === null
-        && WPrism\Tooling\ActiveShellSource::statement($source, 'pair_live_ownership_acquire') === null) {
+    // This is a presence census, not a unique-premise assertion: independent
+    // lanes repeat engine-bound acquisition after complete pair teardown.
+    if (WPrism\Tooling\ActiveShellSource::statements($source, 'pair_db_select_engine') === []
+        && WPrism\Tooling\ActiveShellSource::statements($source, 'pair_live_ownership_acquire') === []) {
         $failures[] = $path;
     }
 }

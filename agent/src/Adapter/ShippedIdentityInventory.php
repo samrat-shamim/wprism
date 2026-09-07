@@ -27,6 +27,7 @@ final class ShippedIdentityInventory
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wpforms-lite',
         'wprism-agency-cpt',
         'wps-hide-login',
         'yoast',

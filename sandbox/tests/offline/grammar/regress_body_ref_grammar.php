@@ -2,7 +2,8 @@
 /**
  * WP-6.5 — `body_refs` and the `json` post-type body mode: structured
  * post-body reference paths, and the previously-rejected candidate that proves
- * them SUFFICIENT.
+ * the original fixed-cast demand. Groups G/H close the later optional
+ * int-or-string self-reference gap; none of this is WPForms product support.
  *
  * WHAT THIS SUITE IS FOR. `tools/engine-gaps.json` recorded the demand as the
  * primitive `structured_post_body_reference_paths` — the ledger's #1 open
@@ -665,7 +666,7 @@ wprism_check_throws(
 );
 
 // ===========================================================================
-// D. THE SUFFICIENCY PROOF — the rejected candidate through the REAL
+// D. THE FIXED-CAST PROOF — the rejected candidate through the REAL
 //    PostCapture product seam, on the real captured bytes
 // ===========================================================================
 
@@ -750,9 +751,9 @@ wprism_check(
     'D2: a field id inside smart-tag prose is untouched, escaping included'
 );
 
-// D3 — THE LEDGER'S WRONG SENTENCE, measured three ways. `$.id` is undeclared
-// here, so all three shapes survive as themselves: this is the primitive's
-// answer to an optional, type-variant key.
+// D3 — The legacy undeclared-path behavior stays byte-identical, but it is
+// not safe portability for a real reference. G/H prove that a declared
+// preserve-type path rebinds this self ID when target identities diverge.
 foreach ([
     ['form-a', 'ABSENT on the template path', static fn(array $d): bool => !array_key_exists('id', $d)],
     ['form-pathb', 'INT on the builder=false path', static fn(array $d): bool => ($d['id'] ?? null) === 12],
@@ -955,5 +956,871 @@ wprism_check_same(
     count($aPositions),
     'E3: form-a has no confirmations.page at all, so the declared scan reports nothing — no field_id, no fields.<n>.id, no smart tags'
 );
+
+// F — A declared JSON-body reference is canonical repository authority, not
+// merely a best-effort lint hint. WPForms' page/self references expose the same
+// portability obligation already enforced for meta and serialized bodies.
+// Exercise the compiler's real portability pass with the real loaded policy;
+// a native ID or a token for another keyspace must not reach materialization.
+require_once $root . '/agent/src/Repository/RepositoryPortableShapeValidator.php';
+$bodyPortability = static function (string $body) use ($policy): array {
+    $findings = [];
+    $validator = new WPrism\RepositoryPortableShapeValidator($policy,
+        static function (string $code, string $path, string $locator, string $message, ?string $relatedPath) use (&$findings): void {
+            $findings[] = ['code'=>$code, 'path'=>$path, 'locator'=>$locator, 'message'=>$message, 'related_path'=>$relatedPath];
+        });
+    $validator->validate([['type'=>'post', 'path'=>'posts/wpforms/form.md',
+        'data'=>['type'=>'wpforms', 'uuid'=>'019200cc-0000-7000-8000-000000000012', 'author'=>null, 'parent'=>null, 'meta'=>[]],
+        'body'=>$body]]);
+    return $findings;
+};
+$confirmationBody = static fn(mixed $page): string => json_encode(
+    ['settings'=>['confirmations'=>[1=>['page'=>$page]]]], JSON_THROW_ON_ERROR
+);
+foreach (['{{post:' . $pageUuid . '}}', 'previous_page', null, '', 0, '0'] as $portable) {
+    wprism_check_same([], $bodyPortability($confirmationBody($portable)),
+        'F: canonical JSON references, declared sentinels and native unset conventions remain admissible');
+}
+foreach ([42, '42', '{{term:' . $pageUuid . '}}', ['unexpected'=>'container'], '{{post:malformed}}'] as $nonportable) {
+    $findings = $bodyPortability($confirmationBody($nonportable));
+    wprism_check(count($findings) === 1 && $findings[0]['code'] === 'nonportable_reference'
+        && $findings[0]['path'] === 'posts/wpforms/form.md',
+        'F: the compiler portability pass refuses an invalid declared JSON-body reference: ' . get_debug_type($nonportable));
+}
+foreach (['not-json', '{"settings":{}}', '{"settings":{"confirmations":{"1":{"page":"https://source.example/a"}}}}'] as $malformedBody) {
+    $findings = $bodyPortability($malformedBody);
+    wprism_check(count($findings) === 1 && $findings[0]['code'] === 'schema_content_mismatch',
+        'F: non-JSON or non-reencodable body framing refuses before reference validation');
+}
+
+require_once $root . '/sandbox/tests/lib/frozen_policy.php';
+require_once $root . '/agent/src/Code/Code.php';
+require_once $root . '/agent/src/Code/CodeStateContract.php';
+require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+$compileSite = WPrismTest\FrozenPolicy::site([$wpforms], WPRISM_SPEC_VERSION);
+$compileSite['policy']['post_types'] = ['wpforms'];
+$compilePolicy = WPrismTest\FrozenPolicy::policy([$wpforms], $compileSite);
+$compileRoot = sys_get_temp_dir() . '/wprism-json-body-compiler-' . bin2hex(random_bytes(8));
+mkdir($compileRoot . '/state/posts/wpforms', 0700, true);
+mkdir($compileRoot . '/media', 0700);
+register_shutdown_function(static fn() => manifest_fixture_remove_tree($compileRoot));
+Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($compileSite));
+$formUuid = '019200cc-0000-7000-8000-000000000012';
+$formFront = ['uuid'=>$formUuid, 'type'=>'wpforms', 'slug'=>'portable-form', 'title'=>'Portable form', 'status'=>'publish',
+    'date'=>'2026-09-07 00:00:00', 'date_gmt'=>'2026-09-07 00:00:00', 'modified'=>'2026-09-07 00:00:00',
+    'modified_gmt'=>'2026-09-07 00:00:00', 'author'=>null, 'parent'=>null, 'menu_order'=>0,
+    'comment_status'=>'closed', 'ping_status'=>'closed', 'excerpt'=>'', 'meta'=>(object)[], 'terms'=>(object)[]];
+$formPath = '/state/posts/wpforms/' . $formUuid . '--portable-form.md';
+foreach (['canonical'=>'{{post:' . $formUuid . '}}', 'raw-int'=>42, 'raw-string'=>'42',
+    'wrong-kind'=>'{{term:' . $formUuid . '}}', 'container'=>['id'=>42]] as $case => $page) {
+    $bytes = Canon::post_file($formFront, $confirmationBody($page));
+    Canon::write_file($compileRoot . $formPath, $bytes);
+    $diagnostics = [];
+    try {
+        WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $compilePolicy);
+    } catch (WPrism\RepositoryCompilationException $invalid) {
+        $diagnostics = $invalid->diagnostics;
+    }
+    wprism_check($case === 'canonical' ? $diagnostics === [] : in_array('nonportable_reference', array_column($diagnostics, 'code'), true),
+        "F: complete repository compiler classifies $case through the shared JSON portability check");
+    wprism_check_same($bytes, file_get_contents($compileRoot . $formPath), "F: $case compilation leaves canonical input bytes unchanged");
+}
+
+// G — The native form ID is optional, but not environment-independent. Its
+// int/string variation needs one declared path whose canonical token retains
+// the original scalar type, not an undeclared source ID or a post-Apply fix.
+$preserveManifest = $variant([
+    'engine_features'=>['body-ref-preserve-type/v1', 'spec-window/v1', 'structured-body-refs/v1'],
+    'body_refs'=>['wpforms'=>['json_refs'=>[['path'=>'$.id', 'kind'=>'post', 'cast'=>'preserve']]]],
+]);
+$preservePolicy = null;
+try { $preservePolicy = $load(['wpforms'=>$preserveManifest]); }
+catch (RuntimeException $failure) { wprism_check(false, 'G: the negotiated body scalar-type feature loads: ' . $failure->getMessage()); }
+$withoutPreserveFeature = $preserveManifest;
+$withoutPreserveFeature['engine_features'] = ['spec-window/v1', 'structured-body-refs/v1'];
+wprism_check_throws(static fn() => $load(['wpforms'=>$withoutPreserveFeature]), RuntimeException::class,
+    'G: preserve-type syntax without its feature refuses by feature name', 'body-ref-preserve-type/v1');
+$withoutBodyFeature = $preserveManifest;
+$withoutBodyFeature['engine_features'] = ['body-ref-preserve-type/v1', 'spec-window/v1'];
+unset($withoutBodyFeature['body_refs']);
+$withoutBodyFeature['post_types']['wpforms']['body'] = 'verbatim';
+wprism_check_throws(static fn() => $load(['wpforms'=>$withoutBodyFeature]), RuntimeException::class,
+    'G: the scalar-type extension requires the structured body feature', "requires 'structured-body-refs/v1'");
+wprism_check_throws(static fn() => WPrism\ReferenceRules::value_rule(
+    ['json_refs'=>[['path'=>'$.id', 'kind'=>'post', 'cast'=>'preserve']]], 'ordinary metadata'
+), RuntimeException::class, 'G: ordinary metadata retains its fixed-cast vocabulary', "cast must be 'string'");
+
+if ($preservePolicy !== null) {
+    $preserveRule = $preservePolicy->body_ref_rule('wpforms');
+    $wpdb = FakeWpdb::install();
+    $bindForm = static function (int $id, ?int $oldId = null) use ($wpdb, $formUuid): void {
+        $rows = [['id'=>1, 'uuid'=>$formUuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>$id]];
+        if ($oldId !== null) $rows[] = ['id'=>2, 'uuid'=>'019200cc-0000-7000-8000-000000000099',
+            'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>$oldId];
+        $wpdb->seedTable('wp_wprism_map', $rows);
+    };
+    foreach (['form-pathb', 'form-pathc'] as $nativePath) {
+        $raw = $capture($nativePath);
+        $nativeDocument = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        $bindForm((int)$nativeDocument['id']);
+        $warnings = [];
+        $canonicalBody = BodyRefGrammar::capture($raw, $preserveRule, $idToToken($tokensFor()),
+            static function (string $warning) use (&$warnings): void { $warnings[] = $warning; }, 'native form');
+        $typedId = ['format'=>'wprism-typed-reference/v1', 'type'=>get_debug_type($nativeDocument['id']),
+            'ref'=>'{{post:' . $formUuid . '}}'];
+        wprism_check_same($typedId, json_decode($canonicalBody, true)['id'], "G: $nativePath captures its native scalar type with a normal post token");
+        wprism_check_same([], $warnings, "G: $nativePath has no unresolved self reference");
+        wprism_check_same($typedId['ref'], BodyRefGrammar::reference_positions(json_decode($canonicalBody, true), $preserveRule)[0]['value'],
+            "G: $nativePath lint positions use the same strict typed decoder");
+        $bindForm(42, (int)$nativeDocument['id']);
+        $targetBody = BodyRefGrammar::apply($canonicalBody, $preserveRule, $tokenToId($tokensFor()), 'target form');
+        $expected = $nativeDocument;
+        $expected['id'] = is_string($nativeDocument['id']) ? '42' : 42;
+        wprism_check_same(json_encode($expected, JSON_THROW_ON_ERROR), $targetBody,
+            "G: $nativePath rebinds to the real target ID despite a hostile old-ID collision and preserves every other byte");
+        wprism_check_same($canonicalBody, BodyRefGrammar::capture($targetBody, $preserveRule,
+            $idToToken($tokensFor()), static function (): void {}, 'target form'), "G: $nativePath recapture is a typed fixed point");
+    }
+    foreach ([[], ['id'=>null], ['id'=>''], ['id'=>0], ['id'=>'0']] as $absence) {
+        $raw = json_encode($absence + ['title'=>'Unset form'], JSON_THROW_ON_ERROR);
+        $neverResolve = static function (): never { throw new RuntimeException('unset value reached the ledger'); };
+        wprism_check_same($raw, BodyRefGrammar::apply(BodyRefGrammar::capture($raw, $preserveRule,
+            $neverResolve, static function (): void {}, 'unset form'), $preserveRule, $neverResolve, 'unset form'),
+            'G: missing/null/empty/zero forms retain their native absence convention without a fabricated ID');
+    }
+    foreach ([-1, '-1', '00', '042', (string)PHP_INT_MAX . '0', false, true, 1.5, ['id'=>12]] as $invalidId) {
+        wprism_check_throws(static fn() => BodyRefGrammar::capture(json_encode(['id'=>$invalidId], JSON_THROW_ON_ERROR),
+            $preserveRule, $idToToken($tokensFor()), static function (): void {}, 'invalid form'), RuntimeException::class,
+            'G: preserve-type capture refuses a noncanonical native ID: ' . get_debug_type($invalidId));
+    }
+
+    // H — Git is an input boundary too. A valid self-reference must compile
+    // through the ordinary reference graph; malformed envelopes must refuse
+    // in compiler, lint and Apply without reaching a target lookup or write.
+    require_once $root . '/agent/src/Review/Lint.php';
+    $wpdb->seedTable('wp_posts', [['ID'=>42, 'post_type'=>'wpforms', 'post_title'=>'Target form', 'post_status'=>'publish']])
+        ->seedTable('wp_terms', [])->seedTable('wp_term_taxonomy', []);
+    $typedCompileSite = WPrismTest\FrozenPolicy::site([$preserveManifest], WPRISM_SPEC_VERSION);
+    $typedCompileSite['policy']['post_types'] = ['wpforms'];
+    $typedCompilePolicy = WPrismTest\FrozenPolicy::policy([$preserveManifest], $typedCompileSite);
+    Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($typedCompileSite));
+    $validTyped = ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>'{{post:' . $formUuid . '}}'];
+    $typedCases = [
+        'int'=>$validTyped,
+        'string'=>array_replace($validTyped, ['type'=>'string']),
+        'null'=>null, 'empty'=>'', 'zero-int'=>0, 'zero-string'=>'0',
+        'raw-int'=>42, 'raw-string'=>'42', 'bare-token'=>$validTyped['ref'],
+        'missing-format'=>['type'=>'int', 'ref'=>$validTyped['ref']],
+        'unknown-format'=>array_replace($validTyped, ['format'=>'wprism-typed-reference/v2']),
+        'wrong-type'=>array_replace($validTyped, ['type'=>'float']),
+        'nonstring-type'=>array_replace($validTyped, ['type'=>true]),
+        'raw-token'=>array_replace($validTyped, ['ref'=>42]),
+        'malformed-token'=>array_replace($validTyped, ['ref'=>'{{post:malformed}}']),
+        'token-trailing-newline'=>array_replace($validTyped, ['ref'=>$validTyped['ref'] . "\n"]),
+        'wrong-kind'=>array_replace($validTyped, ['ref'=>'{{term:' . $formUuid . '}}']),
+        'extra-key'=>$validTyped + ['extra'=>'unexpected'],
+        'wrong-order'=>['type'=>'int', 'format'=>$validTyped['format'], 'ref'=>$validTyped['ref']],
+        'list'=>[$validTyped],
+    ];
+    $portableCases = ['int', 'string', 'null', 'empty', 'zero-int', 'zero-string'];
+    foreach ($typedCases as $case => $value) {
+        $body = json_encode(['id'=>$value, 'title'=>'Portable form'], JSON_THROW_ON_ERROR);
+        $bytes = Canon::post_file($formFront, $body);
+        Canon::write_file($compileRoot . $formPath, $bytes);
+        $diagnostics = [];
+        try {
+            WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $typedCompilePolicy);
+        } catch (WPrism\RepositoryCompilationException $invalid) {
+            $diagnostics = $invalid->diagnostics;
+        }
+        $portable = in_array($case, $portableCases, true);
+        wprism_check($portable ? $diagnostics === [] : in_array('nonportable_reference', array_column($diagnostics, 'code'), true),
+            "H: full compiler classifies typed $case at the canonical portability boundary");
+        wprism_check_same($bytes, file_get_contents($compileRoot . $formPath), "H: $case leaves source post bytes unchanged");
+        wprism_check_same(Canon::encode($typedCompileSite), file_get_contents($compileRoot . '/site.wprism.json'),
+            "H: $case leaves content pins and source policy unchanged");
+        if ($portable) {
+            wprism_check_same([], WPrism\Lint::scan_tree($compileRoot . '/state', $typedCompilePolicy),
+                "H: lint reads valid typed $case without a false numeric finding");
+            continue;
+        }
+        $lookups = 0;
+        $lookup = static function () use (&$lookups): int { ++$lookups; return 42; };
+        wprism_check_throws(static fn() => BodyRefGrammar::apply($body, $preserveRule, $lookup, 'hostile canonical form'),
+            RuntimeException::class, "H: Apply refuses typed $case", 'wprism: malformed typed reference');
+        wprism_check_same(0, $lookups, "H: $case never reaches identity resolution");
+        if ($case === 'raw-int' || $case === 'raw-string') {
+            $findings = WPrism\Lint::scan_tree($compileRoot . '/state', $typedCompilePolicy);
+            wprism_check_same(['unrewritten_registered_ref'], array_column($findings, 'class'),
+                "H: lint still reports native $case as an unrewritten declared reference");
+            wprism_check_same(42, $findings[0]['matches']['id'] ?? null,
+                "H: the native $case finding is grounded in the actual target form row");
+        } else {
+            wprism_check_throws(static fn() => WPrism\Lint::scan_tree($compileRoot . '/state', $typedCompilePolicy),
+                RuntimeException::class, "H: lint cannot silently skip malformed typed $case", 'wprism: malformed typed reference');
+        }
+    }
+    $rawTyped = json_encode($validTyped, JSON_THROW_ON_ERROR);
+    foreach (['{"id":' . $rawTyped . ',"id":' . $rawTyped . '}',
+        '{"id":{"format":"wprism-typed-reference\\/v1","type":"string","type":"int","ref":"' . $validTyped['ref'] . '"}}'] as $duplicateKeys) {
+        $lookups = 0;
+        $duplicateLookup = static function () use (&$lookups): int { ++$lookups; return 42; };
+        BodyRefGrammar::apply(json_encode(['id'=>$validTyped], JSON_THROW_ON_ERROR), $preserveRule, $duplicateLookup, 'counter control');
+        wprism_check_same(1, $lookups, 'H: the duplicate-key lookup witness observes a real positive Apply');
+        $lookups = 0;
+        wprism_check_throws(static fn() => BodyRefGrammar::apply($duplicateKeys, $preserveRule,
+            $duplicateLookup, 'duplicate key'),
+            RuntimeException::class, 'H: duplicate JSON keys fail exact framing before typed decoding', 'decode/re-encode round trip');
+        wprism_check_same(0, $lookups, 'H: duplicate-key framing never resolves a target identity');
+    }
+    foreach ([0, -42] as $invalidTargetId) {
+        wprism_check_throws(static fn() => BodyRefGrammar::apply(json_encode(['id'=>$validTyped], JSON_THROW_ON_ERROR),
+            $preserveRule, static fn(): int => $invalidTargetId, 'invalid target mapping'), RuntimeException::class,
+            'H: a nonpositive target mapping cannot fabricate an unset typed reference', 'resolved to a nonpositive id');
+    }
+    foreach (['credential'=>['api_key'=>'ghp_0123456789abcdefghijklmnopqrstuv'],
+        'personal-data'=>['email'=>'alice@example.test']] as $role => $protected) {
+        $nativeBody = json_encode(['id'=>12, 'settings'=>$protected], JSON_THROW_ON_ERROR);
+        wprism_check_throws(static fn() => BodyRefGrammar::capture($nativeBody, $preserveRule,
+            $idToToken($tokensFor()), static function (): void {}, 'protected form'), RuntimeException::class,
+            "H: preserve-type capture still applies the complete $role guard", 'refusing to capture json authored configuration');
+        $protectedBytes = Canon::post_file($formFront, json_encode(['id'=>$validTyped, 'settings'=>$protected], JSON_THROW_ON_ERROR));
+        Canon::write_file($compileRoot . $formPath, $protectedBytes);
+        wprism_check_throws(static fn() => WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $typedCompilePolicy),
+            WPrism\RepositoryAuthorizationException::class,
+            "H: a typed reference does not bypass canonical $role clearance", 'repository authorization failed');
+        wprism_check_same($protectedBytes, file_get_contents($compileRoot . $formPath),
+            "H: canonical $role refusal preserves exact input bytes");
+    }
+
+    // Same native fixtures through PostCapture, not only the pure codec. The
+    // policy selects the grammar and the ordinary Tokens facade owns lookup.
+    $nativeTokens = $tokensFor();
+    $typedPostCapture = new PostCapture($preservePolicy, $nativeTokens, new EntityMetaCapture(
+        $preservePolicy, $nativeTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    $wpdb->seedTable('wp_postmeta', [])->seedTable('wp_term_relationships', [])->seedTable('wp_term_taxonomy', [])
+        ->seedTable('wp_terms', [])->seedTable('wp_users', []);
+    foreach (['form-pathb', 'form-pathc'] as $nativePath) {
+        $raw = $capture($nativePath);
+        $nativeId = json_decode($raw, true)['id'];
+        $bindForm((int)$nativeId);
+        $post = $formPost($raw, $nativePath);
+        $post->ID = (int)$nativeId;
+        $entity = $typedPostCapture->capture($post, $formUuid, []);
+        [, $captured] = Canon::parse_post_file($entity['entity']['content']);
+        wprism_check_same(array_replace($validTyped, ['type'=>get_debug_type($nativeId)]), json_decode($captured, true)['id'],
+            "H: real PostCapture rebinds the $nativePath self-reference with its native scalar type");
+    }
+}
+
+// I — URL-bearing JSON is still configuration, not block/shortcode content.
+// The native confirmation redirect in form-b must use the same URL codec as
+// serialized bodies, while explicitly owned reference/sentinel positions win.
+$urlManifest = $preserveManifest;
+$urlManifest['engine_features'][] = 'body-url-rebinding/v1';
+sort($urlManifest['engine_features'], SORT_STRING);
+$urlManifest['body_refs']['wpforms'] = [
+    'json_refs' => [
+        ['path'=>'$.id', 'kind'=>'post', 'cast'=>'preserve'],
+        ['path'=>'$.settings.confirmations.*.page', 'kind'=>'post', 'cast'=>'string'],
+        ['path'=>'$.literal', 'kind'=>'post'],
+    ],
+    'sentinels' => [
+        '$.settings.confirmations.*.page' => ['previous_page'],
+        '$.literal' => ['https://source.example/literal'],
+    ],
+    'url_rebinding' => true,
+];
+$urlPolicy = null;
+try { $urlPolicy = $load(['wpforms'=>$urlManifest]); }
+catch (RuntimeException $failure) { wprism_check(false, 'I: negotiated JSON body URL rebinding loads: ' . $failure->getMessage()); }
+$withoutUrlFeature = $urlManifest;
+$withoutUrlFeature['engine_features'] = $preserveManifest['engine_features'];
+wprism_check_throws(static fn() => $load(['wpforms'=>$withoutUrlFeature]), RuntimeException::class,
+    'I: URL syntax without its feature refuses by feature name', 'body-url-rebinding/v1');
+if ($urlPolicy !== null) {
+    foreach ([false, 0, 1, 'true', null, []] as $invalidUrlFlag) {
+        $badUrlManifest = $urlManifest;
+        $badUrlManifest['body_refs']['wpforms']['url_rebinding'] = $invalidUrlFlag;
+        wprism_check_throws(static fn() => $load(['wpforms'=>$badUrlManifest]), RuntimeException::class,
+            'I: URL rebinding is a true-only explicit capability', 'url_rebinding must be true');
+    }
+    $noUrlBodyFeature = $urlManifest;
+    $noUrlBodyFeature['engine_features'] = ['body-url-rebinding/v1', 'spec-window/v1'];
+    unset($noUrlBodyFeature['body_refs']);
+    $noUrlBodyFeature['post_types']['wpforms']['body'] = 'verbatim';
+    wprism_check_throws(static fn() => $load(['wpforms'=>$noUrlBodyFeature]), RuntimeException::class,
+        'I: URL rebinding requires the structured body feature', "requires 'structured-body-refs/v1'");
+    $urlRule = $urlPolicy->body_ref_rule('wpforms');
+    wprism_check_same(true, $urlRule['url_rebinding'] ?? null, 'I: the real Policy projection retains the opt-in codec');
+    $unusedUrlManifest = $urlManifest;
+    unset($unusedUrlManifest['body_refs']['wpforms']['url_rebinding']);
+    wprism_check(!array_key_exists('url_rebinding', $load(['wpforms'=>$unusedUrlManifest])->body_ref_rule('wpforms')),
+        'I: declaring an available feature does not enable it or change legacy rule bytes');
+
+    $sourceUrlTokens = new Tokens('https://source.example', 'https://source.example/wp-content/uploads');
+    $targetUrlTokens = new Tokens('https://target.example', 'https://target.example/wp-content/uploads');
+    $nativeUrlDocument = [
+        'id'=>12,
+        'literal'=>'https://source.example/literal',
+        'settings'=>['confirmations'=>[
+            1=>['page'=>'12', 'redirect'=>'https://source.example/thank-you/?page_id=12'],
+            2=>['page'=>'previous_page', 'redirect'=>'https://elsewhere.example/untouched'],
+        ]],
+        'media'=>'https://source.example/wp-content/uploads/2026/picture.png',
+        'text'=>'Unicode বাংলা; [gallery ids="12"] <!-- wp:image {"id":12} /-->',
+        'fields'=>[['id'=>'12', 'url'=>'https://source.example/form-field/']],
+        'https://source.example/key'=>'https://source.example/value',
+        'scalars'=>[false, null, 1, '1', []],
+    ];
+    $nativeUrlBody = json_encode($nativeUrlDocument, JSON_THROW_ON_ERROR);
+    $bindForm(12);
+    $urlCanonicalBody = BodyRefGrammar::capture($nativeUrlBody, $urlRule, $idToToken($sourceUrlTokens),
+        static function (): void {}, 'URL form', fn(string $text): string => $sourceUrlTokens->tokenize_text($text));
+    $urlExpectedCanonical = $nativeUrlDocument;
+    $urlExpectedCanonical['id'] = ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>'{{post:' . $formUuid . '}}'];
+    $urlExpectedCanonical['settings']['confirmations'][1] = ['page'=>'{{post:' . $formUuid . '}}',
+        'redirect'=>'{{home}}/thank-you/?page_id={{post:' . $formUuid . '}}'];
+    $urlExpectedCanonical['media'] = '{{uploads}}/2026/picture.png';
+    $urlExpectedCanonical['fields'][0]['url'] = '{{home}}/form-field/';
+    $urlExpectedCanonical['https://source.example/key'] = '{{home}}/value';
+    wprism_check_same(json_encode($urlExpectedCanonical, JSON_THROW_ON_ERROR), $urlCanonicalBody,
+        'I: JSON capture reuses home/uploads/query-reference tokens while preserving sentinels, keys, field IDs and non-text types');
+    $bindForm(42, 12);
+    $urlTargetBody = BodyRefGrammar::apply($urlCanonicalBody, $urlRule, $tokenToId($targetUrlTokens), 'target URL form',
+        fn(string $text): string => $targetUrlTokens->detokenize_text($text));
+    $urlExpectedTarget = $nativeUrlDocument;
+    $urlExpectedTarget['id'] = 42;
+    $urlExpectedTarget['settings']['confirmations'][1] = ['page'=>'42', 'redirect'=>'https://target.example/thank-you/?page_id=42'];
+    $urlExpectedTarget['media'] = 'https://target.example/wp-content/uploads/2026/picture.png';
+    $urlExpectedTarget['fields'][0]['url'] = 'https://target.example/form-field/';
+    $urlExpectedTarget['https://source.example/key'] = 'https://target.example/value';
+    wprism_check_same(json_encode($urlExpectedTarget, JSON_THROW_ON_ERROR), $urlTargetBody,
+        'I: divergent-ID Apply rebinds URLs and typed references, not source-shaped literal sentinels or plugin-local field IDs');
+    wprism_check_same($urlCanonicalBody, BodyRefGrammar::capture($urlTargetBody, $urlRule, $idToToken($targetUrlTokens),
+        static function (): void {}, 'target URL form', fn(string $text): string => $targetUrlTokens->tokenize_text($text)),
+        'I: URL and typed-reference composition is an exact recapture fixed point');
+
+    $neverLookup = static function (): never { throw new RuntimeException('missing codec reached reference lookup'); };
+    wprism_check_throws(static fn() => BodyRefGrammar::capture($nativeUrlBody, $urlRule, $neverLookup,
+        static function (): void {}, 'missing URL codec'), RuntimeException::class,
+        'I: missing capture text machinery refuses before reference work', 'requires a text codec');
+    wprism_check_throws(static fn() => BodyRefGrammar::apply($urlCanonicalBody, $urlRule, $neverLookup,
+        'missing URL codec'), RuntimeException::class,
+        'I: missing Apply text machinery refuses before reference work', 'requires a text codec');
+    $legacyUrlRule = $urlRule;
+    unset($legacyUrlRule['url_rebinding']);
+    $bindForm(12);
+    $legacyUrlBody = BodyRefGrammar::capture($nativeUrlBody, $legacyUrlRule, $idToToken($sourceUrlTokens),
+        static function (): void {}, 'legacy URL form', static function (): never { throw new RuntimeException('legacy path invoked URL codec'); });
+    wprism_check_same($nativeUrlDocument['settings']['confirmations'][1]['redirect'],
+        json_decode($legacyUrlBody, true)['settings']['confirmations'][1]['redirect'],
+        'I: a non-opt-in JSON body retains existing URL bytes and never calls the supplied text codec');
+
+    $nativeUrlTokens = new Tokens('http://localhost:9620', 'http://localhost:9620/wp-content/uploads');
+    $nativeUrlTokens->policy = $urlPolicy;
+    $wpdb->seedTable('wp_wprism_map', [['id'=>1, 'uuid'=>$pageUuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>4]]);
+    $nativeUrlCapture = new PostCapture($urlPolicy, $nativeUrlTokens, new EntityMetaCapture(
+        $urlPolicy, $nativeUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    $nativeUrlEntity = $nativeUrlCapture->capture($formPost($capture('form-b'), 'native-url-form'), $formUuid, []);
+    [, $nativeUrlCapturedBody] = Canon::parse_post_file($nativeUrlEntity['entity']['content']);
+    $nativeUrlExpected = json_decode($capture('form-b'), true, 512, JSON_THROW_ON_ERROR);
+    $nativeUrlExpected['settings']['confirmations'][1]['page'] = '{{post:' . $pageUuid . '}}';
+    $nativeUrlExpected['settings']['confirmations'][2]['redirect'] = '{{home}}/recon-thank-you/';
+    wprism_check_same(json_encode($nativeUrlExpected, JSON_THROW_ON_ERROR), $nativeUrlCapturedBody,
+        'I: real PostCapture rebinds the measured native confirmation redirect without altering other native form bytes');
+    wprism_check_same([], $nativeUrlTokens->warnings,
+        'I: a fully rebound native confirmation no longer emits the legacy source-home warning');
+
+    require_once $root . '/agent/src/Apply/PostMaterializer.php';
+    require_once $root . '/agent/src/Kernel/Db.php';
+    $urlCompileSite = WPrismTest\FrozenPolicy::site([$urlManifest], WPRISM_SPEC_VERSION);
+    $urlCompileSite['policy']['post_types'] = ['wpforms'];
+    $urlCompilePolicy = WPrismTest\FrozenPolicy::policy([$urlManifest], $urlCompileSite);
+    $urlPostBytes = Canon::post_file($formFront, $urlCanonicalBody);
+    Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($urlCompileSite));
+    Canon::write_file($compileRoot . $formPath, $urlPostBytes);
+    $urlCompiled = WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $urlCompilePolicy);
+    wprism_check($urlCompiled instanceof WPrism\CompiledRepository,
+        'I: the complete real compiler admits URL and typed-reference composition from the negotiated frozen policy');
+
+    $targetPost = (array)$formPost('old target body', 'old-target');
+    $targetPost['ID'] = 42;
+    $foreignPost = (array)$formPost('foreign source-ID collision', 'foreign');
+    $foreignPost['ID'] = 12;
+    $wpdb->seedTable('wp_posts', [$targetPost, $foreignPost])
+        ->setColumns('wp_posts', array_fill_keys(array_keys($targetPost), 'longtext'))
+        ->setTableEngine('wp_posts', 'InnoDB')
+        ->seedTable('wp_postmeta', [])
+        ->setColumns('wp_postmeta', ['meta_id'=>'bigint unsigned', 'post_id'=>'bigint unsigned',
+            'meta_key'=>'varchar(255)', 'meta_value'=>'longtext'])
+        ->setIndexes('wp_postmeta', [['Key_name'=>'post_id', 'Column_name'=>'post_id', 'Seq_in_index'=>1,
+            'Sub_part'=>null, 'Non_unique'=>1, 'Index_type'=>'BTREE']])
+        ->setTableEngine('wp_postmeta', 'InnoDB')
+        ->setColumns('wp_wprism_map', ['id'=>'bigint unsigned', 'uuid'=>'varchar(36)', 'entity_type'=>'varchar(64)',
+            'id_kind'=>'varchar(64)', 'local_id'=>'bigint unsigned'])
+        ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+        ->setTableEngine('wp_wprism_map', 'InnoDB')->enableInformationSchema();
+    $bindForm(42, 12);
+    $urlFieldMaterializer = new WPrism\ApplyFieldMaterializer($urlCompilePolicy, $targetUrlTokens);
+    $urlMaterializer = new WPrism\PostMaterializer($urlCompilePolicy, $targetUrlTokens, $urlFieldMaterializer,
+        new WPrism\RelationshipMaterializer($urlCompilePolicy, $urlFieldMaterializer),
+        new WPrism\AttachmentMaterializer($urlCompilePolicy, $urlFieldMaterializer, $urlCompiled, $compileRoot));
+    $urlDbProfile = new WPrism\NativeDatabaseProfile(['wp_posts', 'wp_postmeta', 'wp_wprism_map'], ['wp_posts', 'wp_postmeta']);
+    $materializerWarnings = [];
+    WPrism\Db::start_repeatable_read('JSON body materializer test', $urlDbProfile);
+    $urlFieldMaterializer->begin_authored_transaction();
+    WPrism\CacheInvalidationTransaction::begin();
+    try {
+        $urlMaterializer->finalize_post($formFront, $urlCanonicalBody, null, $materializerWarnings, []);
+        $firstUrlRows = $wpdb->rows('wp_posts');
+        wprism_check_same($urlTargetBody, $firstUrlRows[0]['post_content'],
+            'I: real PostMaterializer writes exact target JSON through checked SQL without an extra slash/encode layer');
+        wprism_check_same($foreignPost, $firstUrlRows[1],
+            'I: materialization does not touch the foreign form occupying the source ID');
+        $urlMaterializer->finalize_post($formFront, $urlCanonicalBody, null, $materializerWarnings, []);
+        wprism_check_same($firstUrlRows, $wpdb->rows('wp_posts'),
+            'I: repeating actual post materialization preserves the complete row set byte-for-byte');
+        wprism_check_same([], $materializerWarnings, 'I: URL materialization has no hidden warning or fallback');
+        WPrism\Db::commit('JSON body materializer test');
+        WPrism\CacheInvalidationTransaction::finish();
+    } finally {
+        $urlFieldMaterializer->end_authored_transaction();
+        WPrism\CacheInvalidationTransaction::end();
+    }
+    $targetUrlTokens->policy = $urlCompilePolicy;
+    $urlRecapture = new PostCapture($urlCompilePolicy, $targetUrlTokens, new EntityMetaCapture(
+        $urlCompilePolicy, $targetUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    $targetEntity = $urlRecapture->capture((object)$wpdb->rows('wp_posts')[0], $formUuid, []);
+    [, $materializedRecapture] = Canon::parse_post_file($targetEntity['entity']['content']);
+    wprism_check_same($urlCanonicalBody, $materializedRecapture,
+        'I: the real database materializer and PostCapture compose to the exact canonical body fixed point');
+    wprism_check_same($urlPostBytes, file_get_contents($compileRoot . $formPath),
+        'I: compiler and target materialization preserve the complete canonical source post');
+    wprism_check_same(Canon::encode($urlCompileSite), file_get_contents($compileRoot . '/site.wprism.json'),
+        'I: compiler and target materialization preserve source content pins and codec declaration');
+
+    $invalidUrlCanonical = $urlExpectedCanonical;
+    $invalidUrlCanonical['id']['type'] = 'float';
+    $urlNativeSnapshot = static fn(): array => array_combine(['wp_posts', 'wp_postmeta', 'wp_wprism_map'],
+        array_map(static fn(string $table): array => $wpdb->rows($table), ['wp_posts', 'wp_postmeta', 'wp_wprism_map']));
+    $urlBeforeRefusal = $urlNativeSnapshot();
+    WPrism\Db::start_repeatable_read('JSON body invalid reference test', $urlDbProfile);
+    $urlFieldMaterializer->begin_authored_transaction();
+    WPrism\CacheInvalidationTransaction::begin();
+    try {
+        $wpdb->resetLog();
+        wprism_check_throws(static function () use ($urlMaterializer, $formFront, $invalidUrlCanonical, &$materializerWarnings): void {
+            $urlMaterializer->finalize_post($formFront, json_encode($invalidUrlCanonical, JSON_THROW_ON_ERROR),
+                null, $materializerWarnings, []);
+        }, RuntimeException::class, 'I: malformed typed data refuses through the actual post materializer', 'malformed typed reference');
+        wprism_check_same($urlBeforeRefusal, $urlNativeSnapshot(),
+            'I: malformed JSON reference refusal preserves every native profile table before rollback');
+        wprism_check_same([], array_values(array_filter($wpdb->queries(),
+            static fn(string $sql): bool => preg_match('/^(?:INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql) === 1)),
+            'I: malformed JSON reference refusal attempts no database mutation');
+        WPrism\Db::rollback('JSON body invalid reference test');
+        WPrism\CacheInvalidationTransaction::finish();
+    } finally {
+        $urlFieldMaterializer->end_authored_transaction();
+        WPrism\CacheInvalidationTransaction::end();
+    }
+    foreach (['credential'=>['api_key'=>'ghp_0123456789abcdefghijklmnopqrstuv'],
+        'personal-data'=>['email'=>'alice@example.test']] as $role => $protected) {
+        $protectedUrlBody = json_encode(['id'=>12, 'url'=>'https://source.example/form/', 'settings'=>$protected], JSON_THROW_ON_ERROR);
+        $textCalls = 0;
+        $countText = static function (string $text) use (&$textCalls): string { ++$textCalls; return $text; };
+        BodyRefGrammar::capture('{"url":"control"}', $urlRule, $neverLookup, static function (): void {}, 'counter control', $countText);
+        wprism_check_same(1, $textCalls, "I: the $role text witness observes a real positive Capture");
+        $textCalls = 0;
+        wprism_check_throws(static fn() => BodyRefGrammar::capture($protectedUrlBody, $urlRule, $neverLookup,
+            static function (): void {}, 'protected URL form', $countText), RuntimeException::class,
+            "I: URL rebinding retains complete $role clearance before reference work",
+            'refusing to capture json authored configuration');
+        wprism_check_same(0, $textCalls, "I: the text codec never receives a rejected $role-bearing body");
+    }
+}
+
+// J — A typed canonical reference is one atomic value. Recursive declarations
+// must not re-enter its envelope because a native key happens to be named ref,
+// type or format, including a multi-segment recursive path.
+foreach (['ref', 'type', 'format', 'nested-ref'] as $recursiveCase) {
+    $recursiveKey = $recursiveCase === 'nested-ref' ? 'ref' : $recursiveCase;
+    $recursivePath = '$..' . $recursiveKey . ($recursiveCase === 'nested-ref' ? '.ref' : '');
+    $recursiveManifest = $urlManifest;
+    $recursiveManifest['body_refs']['wpforms'] = ['json_refs'=>[
+        ['path'=>$recursivePath, 'kind'=>'post', 'cast'=>'preserve'],
+    ], 'url_rebinding'=>true];
+    $recursivePolicy = $load(['wpforms'=>$recursiveManifest]);
+    $recursiveRule = $recursivePolicy->body_ref_rule('wpforms');
+    $recursiveNative = [$recursiveKey=>12, 'nested'=>[$recursiveKey=>'12', 'url'=>'https://source.example/nested/']];
+    if ($recursiveCase === 'nested-ref') {
+        $recursiveNative['ref'] = ['ref'=>12];
+        $recursiveNative['nested']['ref'] = ['ref'=>'12'];
+    }
+    $recursiveRaw = json_encode($recursiveNative, JSON_THROW_ON_ERROR);
+    try {
+        $recursiveCanonical = BodyRefGrammar::capture($recursiveRaw, $recursiveRule,
+            static fn(int $id, string $kind): string => '{{post:' . $formUuid . '}}', static function (): void {},
+            'recursive typed form', fn(string $text): string => $sourceUrlTokens->tokenize_text($text));
+        $recursivePositions = BodyRefGrammar::reference_positions(json_decode($recursiveCanonical, true), $recursiveRule, true);
+        wprism_check_same(2, count($recursivePositions), "J: $recursivePath reports only the two native reference positions, not envelope internals");
+        $recursiveTarget = BodyRefGrammar::apply($recursiveCanonical, $recursiveRule, static fn(string $token): int => 42,
+            'recursive target', fn(string $text): string => $targetUrlTokens->detokenize_text($text));
+        $recursiveExpected = $recursiveNative;
+        if ($recursiveCase === 'nested-ref') {
+            $recursiveExpected['ref']['ref'] = 42;
+            $recursiveExpected['nested']['ref']['ref'] = '42';
+        } else {
+            $recursiveExpected[$recursiveKey] = 42;
+            $recursiveExpected['nested'][$recursiveKey] = '42';
+        }
+        $recursiveExpected['nested']['url'] = 'https://target.example/nested/';
+        wprism_check_same(json_encode($recursiveExpected, JSON_THROW_ON_ERROR), $recursiveTarget,
+            "J: $recursivePath composes atomic typed references and URLs without rewriting newly-created envelope fields");
+        wprism_check_same($recursiveCanonical, BodyRefGrammar::capture($recursiveTarget, $recursiveRule,
+            static fn(int $id, string $kind): string => '{{post:' . $formUuid . '}}', static function (): void {},
+            'recursive recapture', fn(string $text): string => $targetUrlTokens->tokenize_text($text)),
+            "J: $recursivePath is an exact typed/URL recapture fixed point");
+        $recursiveSite = WPrismTest\FrozenPolicy::site([$recursiveManifest], WPRISM_SPEC_VERSION);
+        $recursiveSite['policy']['post_types'] = ['wpforms'];
+        $recursiveCompilePolicy = WPrismTest\FrozenPolicy::policy([$recursiveManifest], $recursiveSite);
+        Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($recursiveSite));
+        Canon::write_file($compileRoot . $formPath, Canon::post_file($formFront, $recursiveCanonical));
+        WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $recursiveCompilePolicy);
+        wprism_check_same([], WPrism\Lint::scan_tree($compileRoot . '/state', $recursiveCompilePolicy),
+            "J: $recursivePath compiles and lints without descending into canonical reference payloads");
+    } catch (RuntimeException $failure) {
+        wprism_check(false, "J: $recursivePath supports recursive typed reference round trips: " . $failure->getMessage());
+    }
+}
+
+// K — Native notification destinations are authored configuration, but their
+// privacy review must not authorize unrelated form defaults or response data.
+$notificationManifest = $urlManifest;
+$notificationManifest['engine_features'][] = 'body-pii-paths/v1';
+sort($notificationManifest['engine_features'], SORT_STRING);
+$notificationPaths = array_map(static fn(string $field): string => '$.settings.notifications.*.' . $field,
+    ['email', 'replyto', 'sender_name', 'sender_address']);
+$notificationManifest['body_refs']['wpforms']['pii_paths'] = $notificationPaths;
+$missingPiiFeature = $notificationManifest;
+$missingPiiFeature['engine_features'] = $urlManifest['engine_features'];
+wprism_check_throws(static fn() => $load(['wpforms'=>$missingPiiFeature]), RuntimeException::class,
+    'K: a body path exception requires this manifest to negotiate its feature', 'pii_paths requires engine feature');
+$missingBodyFeature = $notificationManifest;
+$missingBodyFeature['engine_features'] = ['body-pii-paths/v1', 'spec-window/v1'];
+unset($missingBodyFeature['post_types'], $missingBodyFeature['body_refs']);
+wprism_check_throws(static fn() => $load(['wpforms'=>$missingBodyFeature]), RuntimeException::class,
+    'K: the privacy extension cannot negotiate independently of structured bodies', "requires 'structured-body-refs/v1'");
+foreach ([null, true, false, [], 'email', ['path'=>'$.settings.email'], [12], [null], [''], ['$'],
+    ['$.settings.email', '$.settings.email'], [' $.settings.email'], ["$.settings.email\n"],
+    ['$.settings[0].email'], ['$.*.email'], ['$.settings.*'], ['$..email'], ['$.settings..email']] as $invalidPiiPaths) {
+    $invalidPiiManifest = $notificationManifest;
+    $invalidPiiManifest['body_refs']['wpforms']['pii_paths'] = $invalidPiiPaths;
+    wprism_check_throws(static fn() => $load(['wpforms'=>$invalidPiiManifest]), RuntimeException::class,
+        'K: malformed, duplicate, recursive or whole-scope privacy paths refuse at actual manifest load');
+}
+$notificationPolicy = $load(['wpforms'=>$notificationManifest]);
+wprism_check_same($notificationPaths, $notificationPolicy->body_ref_rule('wpforms')['pii_paths'] ?? null,
+    'K: the actual manifest loader and Policy retain the exact reviewed scalar paths');
+$unusedPiiManifest = $notificationManifest;
+unset($unusedPiiManifest['body_refs']['wpforms']['pii_paths']);
+$unusedPiiPolicy = $load(['wpforms'=>$unusedPiiManifest]);
+wprism_check(!array_key_exists('pii_paths', $unusedPiiPolicy->body_ref_rule('wpforms')),
+    'K: declaring the feature without paths grants no privacy exception');
+wprism_check(!array_key_exists('pii_paths', BodyRefGrammar::rules([$notificationManifest, $urlManifest])['wpforms']),
+    'K: replacing a same-owner body rule cannot inherit an earlier privacy exception');
+$missingPiiFeature['name'] = 'unreviewed-body';
+wprism_check_throws(static fn() => $load(['wpforms'=>$notificationManifest, 'unreviewed-body'=>$missingPiiFeature]),
+    RuntimeException::class, 'K: another loaded adapter cannot grant the missing feature', 'pii_paths requires engine feature');
+$notificationSite = WPrismTest\FrozenPolicy::site([$notificationManifest], WPRISM_SPEC_VERSION);
+$notificationSite['policy']['post_types'] = ['wpforms'];
+$notificationCompilePolicy = WPrismTest\FrozenPolicy::policy([$notificationManifest], $notificationSite);
+$notificationDocument = json_decode($capture('form-b'), true, 512, JSON_THROW_ON_ERROR);
+$notificationDocument['settings']['notifications'][1] += [
+    'sender_name'=>'WPrism product team', 'sender_address'=>'forms@example.test',
+];
+$notificationDocument['settings']['notifications'][1]['email'] = 'operations@example.test';
+$notificationDocument['settings']['notifications'][1]['replyto'] = 'support@example.test';
+$notificationBody = json_encode($notificationDocument, JSON_THROW_ON_ERROR);
+$notificationTokens = new Tokens('http://localhost:9620', 'http://localhost:9620/wp-content/uploads');
+$notificationTokens->policy = $notificationPolicy;
+$wpdb->seedTable('wp_wprism_map', [['id'=>1, 'uuid'=>$formUuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>4]]);
+$notificationCapture = new PostCapture($notificationPolicy, $notificationTokens, new EntityMetaCapture(
+    $notificationPolicy, $notificationTokens, static function (): void {}, static function (): void {}, static function (): void {}
+), new MediaCapture());
+try {
+    $notificationEntity = $notificationCapture->capture($formPost($notificationBody, 'notification-form'), $formUuid, []);
+    [, $notificationCanonical] = Canon::parse_post_file($notificationEntity['entity']['content']);
+    wprism_check_same($notificationDocument['settings']['notifications'],
+        json_decode($notificationCanonical, true)['settings']['notifications'],
+        'K: real PostCapture retains reviewed literal notification fields without rewriting their values');
+} catch (RuntimeException $failure) {
+    wprism_check(false, 'K: real PostCapture admits reviewed notification configuration: ' . $failure->getMessage());
+}
+$notificationExpected = $notificationDocument;
+$notificationExpected['settings']['confirmations'][1]['page'] = '{{post:' . $formUuid . '}}';
+$notificationExpected['settings']['confirmations'][2]['redirect'] = '{{home}}/recon-thank-you/';
+Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($notificationSite));
+Canon::write_file($compileRoot . $formPath, Canon::post_file($formFront, json_encode($notificationExpected, JSON_THROW_ON_ERROR)));
+try {
+    WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $notificationCompilePolicy);
+    wprism_check(true, 'K: the immutable repository compiler admits the same reviewed notification fields');
+} catch (RuntimeException $failure) {
+    wprism_check(false, 'K: compiler admits reviewed notification configuration: ' . $failure->getMessage());
+}
+
+// Compiler and Capture share exact scalar authority. Every adversary retains
+// the positive notification fields so rejecting the original email cannot
+// accidentally satisfy the negative case before the hostile sibling is read.
+$notificationAdversaries = [
+    'unreviewed-default'=>static function (array $doc): array {
+        $doc['fields'][2]['default_value'] = 'visitor@example.test'; return $doc;
+    },
+    'unreviewed-message'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['message'] = 'Contact visitor@example.test'; return $doc;
+    },
+    'semantic-sibling'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['phone'] = 'not-a-number'; return $doc;
+    },
+    'reviewed-container'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['email'] = ['primary'=>'visitor@example.test']; return $doc;
+    },
+    'reviewed-empty-container'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['email'] = []; return $doc;
+    },
+    'reviewed-list'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['replyto'] = ['visitor@example.test']; return $doc;
+    },
+    'wildcard-map-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['visitor@example.test'] = ['email'=>'operations@example.test']; return $doc;
+    },
+    'ip-map-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['192.0.2.44'] = ['email'=>'operations@example.test']; return $doc;
+    },
+    'dotted-map-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['1.email'] = 'visitor@example.test'; return $doc;
+    },
+    'embedded-authority'=>static function (array $doc): array {
+        $doc['pii_paths'] = ['$.settings.customer_email'];
+        $doc['settings']['customer_email'] = 'visitor@example.test'; return $doc;
+    },
+    'contextual-address'=>static function (array $doc): array {
+        $doc['settings']['shipping'] = ['state'=>'CA']; return $doc;
+    },
+    'credential-reviewed-leaf'=>static function (array $doc): array {
+        $doc['settings']['notifications'][1]['replyto'] = 'ghp_0123456789abcdefghijklmnopqrstuv'; return $doc;
+    },
+    'credential-key'=>static function (array $doc): array {
+        $doc['settings']['notifications']['ghp_0123456789abcdefghijklmnopqrstuv'] = ['email'=>'operations@example.test']; return $doc;
+    },
+    'credential-container'=>static function (array $doc): array {
+        $doc['settings']['password'] = ['primary'=>'GeneratedValue-2026-Blocked']; return $doc;
+    },
+];
+$notificationSnapshot = static fn(): array => array_combine(['wp_posts', 'wp_postmeta', 'wp_wprism_map'],
+    array_map(static fn(string $table): array => $wpdb->rows($table), ['wp_posts', 'wp_postmeta', 'wp_wprism_map']));
+$notificationBeforeAdversaries = $notificationSnapshot();
+foreach ($notificationAdversaries as $case => $mutateNotification) {
+    $hostileNativeBody = json_encode($mutateNotification($notificationDocument), JSON_THROW_ON_ERROR);
+    $wpdb->resetLog();
+    wprism_check_throws(static fn() => $notificationCapture->capture($formPost($hostileNativeBody, 'hostile-notification'), $formUuid, []),
+        RuntimeException::class, "K: PostCapture refuses $case despite legitimate reviewed notifications",
+        'refusing to capture json authored configuration');
+    $hostileCanonicalBytes = Canon::post_file($formFront, json_encode($mutateNotification($notificationExpected), JSON_THROW_ON_ERROR));
+    Canon::write_file($compileRoot . $formPath, $hostileCanonicalBytes);
+    $clearanceFindings = [];
+    try {
+        WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $notificationCompilePolicy);
+    } catch (WPrism\RepositoryAuthorizationException $failure) {
+        $clearanceFindings = $failure->diagnostics;
+    }
+    wprism_check_same([str_starts_with($case, 'credential-') ? 'repository_secret_not_allowed' : 'repository_pii_not_allowed'],
+        array_column($clearanceFindings, 'code'), "K: immutable compiler classifies $case through the same exact clearance authority");
+    wprism_check_same($hostileCanonicalBytes, file_get_contents($compileRoot . $formPath),
+        "K: $case preserves the complete rejected canonical post");
+    wprism_check_same($notificationBeforeAdversaries, $notificationSnapshot(), "K: $case preserves every native profile table");
+    wprism_check_same([], array_values(array_filter($wpdb->queries(),
+        static fn(string $sql): bool => preg_match('/^(?:INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql) === 1)),
+        "K: $case attempts no database mutation");
+}
+
+foreach (['legacy'=>$urlPolicy, 'feature-only'=>$unusedPiiPolicy] as $case => $unreviewedPolicy) {
+    $unreviewedTokens = clone $notificationTokens;
+    $unreviewedTokens->policy = $unreviewedPolicy;
+    $unreviewedCapture = new PostCapture($unreviewedPolicy, $unreviewedTokens, new EntityMetaCapture(
+        $unreviewedPolicy, $unreviewedTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    wprism_check_throws(static fn() => $unreviewedCapture->capture($formPost($notificationBody, 'unreviewed-notification'), $formUuid, []),
+        RuntimeException::class, "K: $case policy still refuses literal notification PII", 'contains email address');
+}
+
+// An unrelated body schema exercises the same native-coordinate machinery:
+// transparent lists, missing paths, null/scalar types and dotted-key aliases.
+foreach ([
+    'list-values'=>[['contacts'=>[['email'=>'one@example.test'], ['email'=>'two@example.test']]], ['$.contacts.email'], null],
+    'typed-values'=>[['settings'=>['email'=>null, 'phone'=>42, 'address'=>false]],
+        ['$.settings.email', '$.settings.phone', '$.settings.address'], null],
+    'missing-path'=>[['settings'=>['title'=>'Public form']], ['$.settings.email'], null],
+    'container-is-not-descendants'=>[['settings'=>['slot'=>['email'=>'one@example.test']]], ['$.settings.slot'], 'email address'],
+    'terminal-key-bytes'=>[['settings'=>['one@example.test'=>'public']], ['$.settings.*'], 'email address'],
+    'dotted-key-alias'=>[['groups'=>['a'=>['member'=>['email'=>'reviewed@example.test']],
+        'a.member'=>['email'=>'unreviewed@example.test']]], ['$.groups.*.member.email'], 'email address'],
+    'independent-nested-review'=>[['settings'=>['slot'=>['email'=>'one@example.test']]],
+        ['$.settings.slot', '$.settings.slot.email'], null],
+] as $case => [$value, $paths, $expectedLabel]) {
+    $valueBefore = $value;
+    wprism_check_same($expectedLabel, WPrism\PersonalData::match_deep('body', $value, $paths),
+        "K: shared scalar privacy selection handles $case without a second JSONPath dialect");
+    wprism_check_same($valueBefore, $value, "K: privacy selection never rewrites $case input bytes or keys");
+}
+
+// Complete engine product round trip with the earlier typed/self-reference
+// and URL fixture, now carrying the separately reviewed notification fields.
+$notificationRoundTripNative = $nativeUrlDocument;
+$notificationRoundTripNative['settings']['notifications'] = $notificationDocument['settings']['notifications'];
+$notificationRoundTripExpected = $urlExpectedCanonical;
+$notificationRoundTripExpected['settings']['notifications'] = $notificationDocument['settings']['notifications'];
+$notificationRoundTripTarget = $urlExpectedTarget;
+$notificationRoundTripTarget['settings']['notifications'] = $notificationDocument['settings']['notifications'];
+$sourceUrlTokens->policy = $notificationCompilePolicy;
+$targetUrlTokens->policy = $notificationCompilePolicy;
+$bindForm(12);
+$roundTripCapture = new PostCapture($notificationCompilePolicy, $sourceUrlTokens, new EntityMetaCapture(
+    $notificationCompilePolicy, $sourceUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+), new MediaCapture());
+$roundTripSourcePost = $formPost(json_encode($notificationRoundTripNative, JSON_THROW_ON_ERROR), 'notification-round-trip');
+$roundTripSourcePost->ID = 12;
+$roundTripEntity = $roundTripCapture->capture($roundTripSourcePost, $formUuid, []);
+[, $roundTripCanonicalBody] = Canon::parse_post_file($roundTripEntity['entity']['content']);
+wprism_check_same(json_encode($notificationRoundTripExpected, JSON_THROW_ON_ERROR), $roundTripCanonicalBody,
+    'K: PostCapture composes exact PII authority with preserved ID types, sentinels and the shared URL codec');
+$roundTripCanonicalBytes = Canon::post_file($formFront, $roundTripCanonicalBody);
+Canon::write_file($compileRoot . $formPath, $roundTripCanonicalBytes);
+$notificationCompiled = WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $notificationCompilePolicy);
+$wpdb->seedTable('wp_posts', [$targetPost, $foreignPost])->seedTable('wp_postmeta', []);
+$bindForm(42, 12);
+$notificationFieldMaterializer = new WPrism\ApplyFieldMaterializer($notificationCompilePolicy, $targetUrlTokens);
+$notificationMaterializer = new WPrism\PostMaterializer($notificationCompilePolicy, $targetUrlTokens, $notificationFieldMaterializer,
+    new WPrism\RelationshipMaterializer($notificationCompilePolicy, $notificationFieldMaterializer),
+    new WPrism\AttachmentMaterializer($notificationCompilePolicy, $notificationFieldMaterializer, $notificationCompiled, $compileRoot));
+$notificationWarnings = [];
+WPrism\Db::start_repeatable_read('reviewed JSON notification test', $urlDbProfile);
+$notificationFieldMaterializer->begin_authored_transaction();
+WPrism\CacheInvalidationTransaction::begin();
+try {
+    $notificationMaterializer->finalize_post($formFront, $roundTripCanonicalBody, null, $notificationWarnings, []);
+    $notificationFirstRows = $wpdb->rows('wp_posts');
+    wprism_check_same(json_encode($notificationRoundTripTarget, JSON_THROW_ON_ERROR), $notificationFirstRows[0]['post_content'],
+        'K: checked-SQL PostMaterializer emits exact divergent-ID/URL target bytes with literal notification fields unchanged');
+    wprism_check_same($foreignPost, $notificationFirstRows[1], 'K: notification materialization preserves the foreign source-ID collision');
+    $notificationMaterializer->finalize_post($formFront, $roundTripCanonicalBody, null, $notificationWarnings, []);
+    wprism_check_same($notificationFirstRows, $wpdb->rows('wp_posts'), 'K: repeating real materialization preserves complete target rows');
+    wprism_check_same([], $notificationWarnings, 'K: reviewed notification materialization has no warning or fallback');
+    WPrism\Db::commit('reviewed JSON notification test');
+    WPrism\CacheInvalidationTransaction::finish();
+} finally {
+    $notificationFieldMaterializer->end_authored_transaction();
+    WPrism\CacheInvalidationTransaction::end();
+}
+$notificationRecapture = new PostCapture($notificationCompilePolicy, $targetUrlTokens, new EntityMetaCapture(
+    $notificationCompilePolicy, $targetUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+), new MediaCapture());
+$notificationRecaptured = $notificationRecapture->capture((object)$wpdb->rows('wp_posts')[0], $formUuid, []);
+[, $notificationRecapturedBody] = Canon::parse_post_file($notificationRecaptured['entity']['content']);
+wprism_check_same($roundTripCanonicalBody, $notificationRecapturedBody,
+    'K: compiler, checked SQL and actual PostCapture preserve the exact complete body fixed point');
+wprism_check_same($roundTripCanonicalBytes, file_get_contents($compileRoot . $formPath),
+    'K: positive materialization and recapture leave the complete canonical source unchanged');
+wprism_check_same(Canon::encode($notificationSite), file_get_contents($compileRoot . '/site.wprism.json'),
+    'K: all positive and hostile cases leave source pins and exact reviewed authority unchanged');
+
+// L — One physical post body has one complete grammar. The per-post-type
+// owner guard alone sees identical body=json declarations and cannot detect
+// another manifest replacing reference, URL or privacy authority underneath it.
+// Both live and immutable loaders must refuse before any codec can run.
+$bodyOwner = [
+    'name' => 'body-owner-a',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'engine_features' => $notificationManifest['engine_features'],
+    'post_types' => ['shared_body' => ['class' => 'authored', 'body' => 'json']],
+    'body_refs' => ['shared_body' => [
+        'json_refs' => [['path' => '$.target.id', 'kind' => 'post', 'cast' => 'string']],
+        'pii_paths' => ['$.notification.email'],
+    ]],
+];
+$ownerRule = $bodyOwner['body_refs']['shared_body'];
+$bodyRuleVariants = [];
+$bodyRuleVariants['reference path'] = $ownerRule;
+$bodyRuleVariants['reference path']['json_refs'][0]['path'] = '$.alternate.id';
+$bodyRuleVariants['reference kind'] = $ownerRule;
+$bodyRuleVariants['reference kind']['json_refs'][0]['kind'] = 'term';
+$bodyRuleVariants['native scalar type'] = $ownerRule;
+unset($bodyRuleVariants['native scalar type']['json_refs'][0]['cast']);
+$bodyRuleVariants['preserved scalar type'] = $ownerRule;
+$bodyRuleVariants['preserved scalar type']['json_refs'][0]['cast'] = 'preserve';
+$bodyRuleVariants['sentinel'] = $ownerRule;
+$bodyRuleVariants['sentinel']['sentinels'] = ['$.target.id' => ['previous_page']];
+$bodyRuleVariants['URL rewriting'] = $ownerRule;
+$bodyRuleVariants['URL rewriting']['url_rebinding'] = true;
+$bodyRuleVariants['privacy path'] = $ownerRule;
+$bodyRuleVariants['privacy path']['pii_paths'] = ['$.notification.replyto'];
+$bodyRuleVariants['privacy removal'] = $ownerRule;
+unset($bodyRuleVariants['privacy removal']['pii_paths']);
+$loadBodyOwners = static function (array $manifests, bool $frozen) use ($load): Policy {
+    return $frozen
+        ? WPrismTest\FrozenPolicy::policy($manifests, WPrismTest\FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION))
+        : $load(array_column($manifests, null, 'name'));
+};
+foreach ([false, true] as $frozen) {
+    $loaderLabel = $frozen ? 'immutable Policy::from_snapshot' : 'live Policy::load';
+    foreach ($bodyRuleVariants as $case => $rule) {
+        $otherOwner = $bodyOwner;
+        $otherOwner['name'] = 'body-owner-b';
+        $otherOwner['body_refs']['shared_body'] = $rule;
+        foreach ([$bodyOwner, $otherOwner] as $standalone) {
+            $standalonePolicy = $loadBodyOwners([$standalone], $frozen);
+            wprism_check_same(Canon::encode($standalone['body_refs']['shared_body'] + ['sentinels' => []]),
+                Canon::encode($standalonePolicy->body_ref_rule('shared_body')),
+                "L: $loaderLabel admits each individually valid $case declaration");
+        }
+        foreach ([[$bodyOwner, $otherOwner], [$otherOwner, $bodyOwner]] as $ordered) {
+            wprism_check_throws(static fn() => $loadBodyOwners($ordered, $frozen), RuntimeException::class,
+                "L: $loaderLabel refuses conflicting $case authority in " . implode(',', array_column($ordered, 'name')),
+                'both declare body_refs.shared_body with different declarations');
+        }
+    }
+    $identicalOwner = $bodyOwner;
+    $identicalOwner['name'] = 'body-owner-b';
+    // Canonical object-key order is not authority; list/scalar bytes are.
+    $identicalOwner['body_refs']['shared_body'] = array_reverse($ownerRule, true);
+    foreach ([[$bodyOwner, $identicalOwner], [$identicalOwner, $bodyOwner]] as $ordered) {
+        wprism_check_same(Canon::encode($ownerRule + ['sentinels' => []]), Canon::encode($loadBodyOwners($ordered, $frozen)->body_ref_rule('shared_body')),
+            "L: $loaderLabel admits canonically identical redundant body declarations in either pin order");
+    }
+    $disjointOwner = $bodyOwner;
+    $disjointOwner['name'] = 'body-owner-b';
+    $disjointOwner['post_types'] = ['other_body' => $bodyOwner['post_types']['shared_body']];
+    $disjointOwner['body_refs'] = ['other_body' => $bodyRuleVariants['privacy path']];
+    $disjointPolicy = $loadBodyOwners([$bodyOwner, $disjointOwner], $frozen);
+    wprism_check_same(Canon::encode($ownerRule + ['sentinels' => []]), Canon::encode($disjointPolicy->body_ref_rule('shared_body')),
+        "L: $loaderLabel keeps the original body's exact reference and privacy authority");
+    wprism_check_same(Canon::encode($bodyRuleVariants['privacy path'] + ['sentinels' => []]), Canon::encode($disjointPolicy->body_ref_rule('other_body')),
+        "L: $loaderLabel admits a disjoint post body's independently owned grammar");
+    $coreOwner = $bodyOwner;
+    $coreOwner['name'] = 'core';
+    $otherOwner['body_refs']['shared_body'] = $bodyRuleVariants['privacy path'];
+    foreach ([[$coreOwner, $otherOwner], [$otherOwner, $coreOwner]] as $ordered) {
+        wprism_check_throws(static fn() => $loadBodyOwners($ordered, $frozen), RuntimeException::class,
+            "L: $loaderLabel grants core no cross-owner body grammar exception in either pin order",
+            'both declare body_refs.shared_body with different declarations');
+    }
+}
 
 wprism_check_summary('regress_body_ref_grammar');

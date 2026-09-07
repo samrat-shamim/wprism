@@ -86,7 +86,7 @@ require_once $root . '/agent/src/Kernel/JsonRefs.php';
 require $root . '/agent/src/Grammar/Tokens.php';
 require $root . '/agent/src/Grammar/Blocks.php';
 require $root . '/agent/src/Repository/SidebarState.php';
-require $root . '/agent/src/Grammar/Shortcodes.php';
+require_once $root . '/agent/src/Grammar/Shortcodes.php';
 require $root . '/agent/src/Kernel/Canary.php';
 require $root . '/agent/src/Repository/IdentityNotes.php';
 require $root . '/agent/src/Repository/Snapshot.php';

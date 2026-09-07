@@ -19,7 +19,7 @@ final class ReferenceRules {
      * Hoisted rather than copied: `wprism manifest-validate --emit-schema` now
      * publishes the value grammar of every feature-claimed section, and
      * `body_refs.<type>.json_refs[]` is this triple exactly — the section hands
-     * its entries straight to value_rule() so that this engine has one JSONPath
+     * its entries through body_json_refs() so that this engine has one JSONPath
      * dialect rather than a second one that drifts (BodyRefGrammar.php:145-151).
      * Publishing a hand-typed `{path, kind, cast}` beside this line would be the
      * second definition that whole design avoids.
@@ -213,7 +213,16 @@ final class ReferenceRules {
         }
     }
 
-    private static function validate_structured(array $rule, string $where, bool $requireRef): void {
+    /**
+     * Body references share the ordinary path/kind/overlap grammar, but their
+     * negotiated codec can retain a native int-or-string type. Other surfaces
+     * still enter through value_rule() and keep the fixed-cast vocabulary.
+     */
+    public static function body_json_refs(array $refs, string $where, bool $preserveTypes): void {
+        self::validate_structured(['json_refs' => $refs], $where, true, $preserveTypes);
+    }
+
+    private static function validate_structured(array $rule, string $where, bool $requireRef, bool $preserveTypes = false): void {
         $jsonRefs = $rule['json_refs'] ?? [];
         if (!is_array($jsonRefs) || !array_is_list($jsonRefs)) {
             throw new \RuntimeException("wprism: $where.json_refs must be a list");
@@ -233,9 +242,11 @@ final class ReferenceRules {
                 throw new \RuntimeException("wprism: $where.json_refs[$i].path must be a string");
             }
             self::assert_kind($ref['kind'] ?? null, "$where.json_refs[$i].kind");
-            if (isset($ref['cast']) && $ref['cast'] !== 'string') {
+            if (isset($ref['cast']) && $ref['cast'] !== 'string'
+                && !($preserveTypes && $ref['cast'] === 'preserve')) {
                 throw new \RuntimeException(
-                    "wprism: $where.json_refs[$i].cast must be 'string' when present"
+                    "wprism: $where.json_refs[$i].cast must be 'string'"
+                    . ($preserveTypes ? " or 'preserve'" : '') . ' when present'
                 );
             }
             $segments = ReferencePath::parse($ref['path']);

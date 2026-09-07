@@ -389,6 +389,7 @@ wprism_check_same(
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wpforms-lite',
         'yoast',
         'yoast-duplicate-post',
     ],
@@ -411,7 +412,7 @@ $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
 $outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
 wprism_check_same(
-    ['column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    ['attr_id_codecs', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $outsidePartition,
     'the shipped keys outside the signer partition are exactly the feature-claimed sections'
 );

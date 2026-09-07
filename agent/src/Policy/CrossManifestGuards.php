@@ -341,8 +341,8 @@ final class CrossManifestGuards {
     }
 
     /**
-     * One owner per NAME on the three bulk-enumerated declaration surfaces —
-     * `post_types.<t>`, `tables.<t>`, `widgets.<t>` (issue #3318 review, B1).
+     * One owner per NAME on the bulk-enumerated declaration surfaces —
+     * post types, tables, taxonomies, widgets and JSON body grammars.
      *
      * The per-key post-type guard above is the sharper diagnostic and runs
      * first, but it can only see a contradiction about the SAME key. Two
@@ -366,7 +366,7 @@ final class CrossManifestGuards {
      * must agree, not PHP's loose comparison.
      *
      * `core` is NOT exempt here. The issue #3249 core-yields-to-plugin layer is
-     * an option/meta RULE mechanism (rule_details()); no lookup on these three
+     * an option/meta RULE mechanism (rule_details()); no lookup on these
      * surfaces implements it, so exempting core would silently reintroduce the
      * pin-order coin flip it is meant to resolve.
      *
@@ -389,7 +389,12 @@ final class CrossManifestGuards {
             // any taxonomy today and nothing overlaps; site
             // policy.taxonomies is a plain scope-name list, not a
             // declaration map, so no site exemption arises.
-            foreach (['post_types', 'tables', 'taxonomies', 'widgets'] as $surface) {
+            // Identical post_types.<type>.body=json declarations do not imply
+            // identical body_refs.<type> authority. BodyRefGrammar::rules()
+            // replaces the entire record, including privacy paths, so omitting
+            // this sibling surface lets pin order replace another owner's
+            // references or grant its body a different privacy exception.
+            foreach (['post_types', 'tables', 'taxonomies', 'widgets', 'body_refs'] as $surface) {
                 foreach ((array) ($manifest[$surface] ?? []) as $declared => $decl) {
                     $slot = "$surface\0$declared";
                     $fingerprint = Canon::encode([$decl]);

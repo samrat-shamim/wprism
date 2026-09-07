@@ -38,9 +38,13 @@ $families = \WPrism\Tooling\AdapterProductionReadiness::SCENARIO_FAMILIES;
 wprism_check_same($families, $matrix['scenario_families'] ?? null, 'the ledger carries the complete reviewed scenario taxonomy in review order');
 
 $productAdapters = [];
+$certifiedAdapters = [];
 foreach ($dispositions as $name => $entry) {
     if (($entry['status'] ?? null) !== 'excluded') {
         $productAdapters[] = $name;
+    }
+    if (($entry['status'] ?? null) === 'certified') {
+        $certifiedAdapters[] = $name;
     }
 }
 sort($productAdapters, SORT_STRING);
@@ -108,9 +112,9 @@ $readyAdapters = array_keys(array_filter(
 ));
 sort($readyAdapters, SORT_STRING);
 wprism_check_same(
-    $productAdapters,
-    $readyAdapters,
-    'every shipped product adapter has complete isolated adversarial and exact-version evidence'
+    [],
+    array_values(array_diff($certifiedAdapters, $readyAdapters)),
+    'every certified adapter has complete isolated adversarial and exact-version evidence; experimental previews retain explicit gaps'
 );
 
 wprism_check_summary('adapter production-readiness ledger');

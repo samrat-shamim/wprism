@@ -65,7 +65,7 @@ require $root . '/agent/src/Adapter/Providers.php';
 require $root . '/agent/src/Repository/Ledger.php';
 require $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Repository/SidebarState.php';
-require $root . '/agent/src/Repository/RepositoryAuthorization.php';
+require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
 require $root . '/agent/src/Promotion/Deploy.php';
 require $root . '/agent/src/Adapter/SchemaSettlement.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';

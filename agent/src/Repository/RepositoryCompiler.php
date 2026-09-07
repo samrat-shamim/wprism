@@ -35,6 +35,9 @@ require_once __DIR__ . '/RepositoryPortableShapeValidator.php';
 require_once __DIR__ . '/RepositoryMenuLocationValidator.php';
 require_once __DIR__ . '/RepositoryStateFileCatalog.php';
 require_once __DIR__ . '/RepositoryValueValidation.php';
+// Native evidence replay runs this compiler without Capture.php. The final
+// immutable authorization pass is part of compilation, not a caller preload.
+require_once __DIR__ . '/RepositoryAuthorization.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts

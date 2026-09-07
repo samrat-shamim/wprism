@@ -427,6 +427,10 @@ function capture_atomicity_database(array $missingCoreColumns = []): FakeWpdb {
         ->setTableEngine('wp_wprism_state', 'InnoDB')
         ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
         ->setUniqueKey('wp_wprism_kv', ['k'])
+        ->setIndexes('wp_wprism_kv', [[
+            'Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+            'Column_name' => 'k', 'Sub_part' => null, 'Index_type' => 'BTREE',
+        ]])
         ->setTableEngine('wp_wprism_kv', 'InnoDB');
 }
 

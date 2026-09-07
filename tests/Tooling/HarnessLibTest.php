@@ -1145,6 +1145,19 @@ final class HarnessLibTest extends TestCase
         }
     }
 
+    public function testConcatUsesNativeNullAndExactStringSemanticsInReadsAndWrites(): void
+    {
+        $db = FakeWpdb::install()->seedTable('wp_probe', [['id' => 1, 'value' => 'prefix']]);
+        self::assertSame('a7日本語', $db->get_var("SELECT CONCAT('a', 7, '日本語')"));
+        self::assertSame('', $db->get_var("SELECT CONCAT('')"));
+        self::assertNull($db->get_var("SELECT CONCAT('a', NULL, 'b')"));
+        self::assertSame(1, $db->query($db->prepare('UPDATE wp_probe SET value = CONCAT(value, %s) WHERE id = 1', "\0'\\tail")));
+        self::assertSame("prefix\0'\\tail", $db->rows('wp_probe')[0]['value']);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('CONCAT() requires at least one argument');
+        $db->get_var('SELECT CONCAT()');
+    }
+
     public function testSelectLeftCanBindOneBoundedBinaryValueToItsByteLength(): void
     {
         $db = FakeWpdb::install();

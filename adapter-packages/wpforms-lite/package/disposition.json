@@ -1,0 +1,69 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "form, template and form-tag deletion"
+      ]
+    },
+    "entity_sections": [
+      "post_types",
+      "taxonomies"
+    ],
+    "field_sections": [
+      "options",
+      "post_meta",
+      "body_refs",
+      "shortcode_attrs",
+      "block_attrs",
+      "attr_id_codecs",
+      "widgets"
+    ],
+    "lifecycle_phases": [],
+    "operations": [
+      "capture",
+      "compile",
+      "recapture"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-package-contract",
+      "regress-native-bodies",
+      "regress-settings-and-embeds"
+    ]
+  },
+  "reason": "Experimental declaration and deterministic capture/compiler/codec evidence only. Native reconnaissance is not a completed capsule conformance run. Independent review and production-readiness evidence are pending; no production authorization.",
+  "status": "experimental",
+  "supported_versions": {
+    "plugin": "wpforms-lite/wpforms.php",
+    "range": {
+      "min": "2.0.1.1",
+      "max": "2.0.1.2"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "apply",
+      "surface": "wpforms_form_locations",
+      "reason": "The native location index requires a bounded, idempotent provider with hostile-target and failure-preservation evidence; none is declared in this slice."
+    },
+    {
+      "operation": "deploy",
+      "surface": "adapter",
+      "reason": "Experimental support is not production-authorizing; full native source-to-target conformance and independent review remain pending."
+    },
+    {
+      "operation": "delete",
+      "surface": "deletions.*",
+      "reason": "No deletion selector is declared until form/embed/tag references, intent refusal and preservation have capsule-owned proof."
+    },
+    {
+      "operation": "capture",
+      "surface": "options.wpforms_settings unnamed subkeys; runtime tables; Pro/addon surfaces",
+      "reason": "Only named general/validation subkeys are authored. Other settings and excluded runtime tables stay local. Paid/addon semantics and all Lite writer/consumer combinations are not certified."
+    }
+  ]
+}

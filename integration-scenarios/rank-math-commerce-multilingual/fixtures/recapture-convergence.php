@@ -45,6 +45,18 @@ try {
     if (($baseline['pair'] ?? null) !== $pair || ($retained['pair'] ?? null) !== $pair
         || ($retained['baseline_sha256'] ?? null) !== hash('sha256', $baselineBytes)
         || $baseline['source'] !== $retained['source']) throw new RuntimeException('source changed across recapture');
+    foreach (['baseline'=>$baseline, 'recapture'=>$retained] as $observationPhase=>$record) {
+        if (($record['format'] ?? null) !== 'wprism-private-canonical-observation/v2'
+            || ($record['authority'] ?? null) !== false || ($record['phase'] ?? null) !== $observationPhase
+            || !is_array($record['inputs'] ?? null) || array_keys($record['inputs']) !== ['source','target']) {
+            throw new RuntimeException('canonical input ownership is incomplete');
+        }
+        foreach ($record['inputs'] as $inputs) {
+            if (!is_array($inputs) || array_keys($inputs) !== ['site.wprism.json','media']) throw new RuntimeException('canonical inputs are incomplete');
+            foreach ($inputs as $relative=>$tree) FilesystemTreeEvidence::assertRecord($tree,$relative);
+        }
+    }
+    if ($baseline['inputs'] !== $retained['inputs']) throw new RuntimeException('policy or media changed across recapture');
     $r1 = $root . '/sandbox/siterepo/' . $pair . '1';
     $r2 = $root . '/sandbox/siterepo/' . $pair . '2';
     $assertTrees = static function () use ($r1, $r2, $retained): void {
@@ -52,6 +64,11 @@ try {
             FilesystemTreeEvidence::assertRecord($retained[$key], $relative);
             if (FilesystemTreeEvidence::capture($repo, $relative) !== $retained[$key]) {
                 throw new RuntimeException('compiled input differs from the retained complete tree');
+            }
+        }
+        foreach (['source'=>$r1, 'target'=>$r2] as $side=>$repo) {
+            foreach ($retained['inputs'][$side] as $relative=>$tree) {
+                if (FilesystemTreeEvidence::capture($repo,$relative) !== $tree) throw new RuntimeException('compiled policy or media differs from retained input');
             }
         }
     };

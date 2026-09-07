@@ -832,7 +832,7 @@ Three precedence families exist, and they are not interchangeable. A new vocabul
 2. **First declaration in pin order wins** — structural facts about someone else's data shape (`block_attrs`, `shortcode_attrs`, `taxonomies.<t>.description_refs`, `post_types.<t>.body`/`.phase`/`.fields`/`.regen_dependency`, `dynamic_options`, `deletions`, `version_range`). These have no site-policy override, because they assert a fact about a plugin's own behavior rather than a site-local choice.
 3. **Last pin wins, plus site policy last** — the two bulk table/widget enumerations: `tables` (site `policy.tables` overrides a manifest declaration wholesale) and `widgets` (no site layer at all — a site repository has no `policy.widgets`, so the last pinned manifest is simply last). This disagrees with family 1 for the same underlying data and is a known, documented inconsistency rather than a design (`Policy::declared_tables()` says so in its own docblock); it is called out here so a new vocabulary does not inherit it by accident.
 
-Adapter-owned extension may never grant one adapter authority over another's state. The rule for the four bulk **named-declaration** surfaces — `post_types.<t>`, `tables.<t>`, `taxonomies.<t>`, `widgets.<t>` — is **one owner per name**: two pinned manifests (including `core`) declaring the same name refuse at load unless their declarations are byte-identical, since a redundant restatement has no winner to pick. There is no composition grammar for these surfaces in v1 (`taxonomies.<t>`'s description_refs/object_type/class lookups are all first-pin-wins with no precedence layer, so it carries the identical hazard); reclassifying an individual FIELD of another adapter's surface is what the family-1 precedence layers exist for, never a whole-declaration takeover. The post-type surface additionally keeps a per-KEY contradiction guard, which fires first because it can name the exact contradicting key (`post_types.<t>.body` and so on) instead of only the name. `site.wprism.json`'s own `policy.tables` is exempt from the rule, because it is the site's own last-word authority over its own state rather than a second adapter reaching into the first. The other load-time guards in the same family: one owner per option namespace, per plugin/theme version claim, per provider id, and per table `id_kind`; a provider-kind action may only name a provider its OWN manifest declares; an adapter widens the ref-kind vocabulary only by declaring a table it owns; and the two surfaces that name a `wprism_map` keyspace directly (`deletions[].guards[].id_kind`/`source_id_kind`, `option_name_refs[].id_kind`) are closed against the ledger's own long spellings plus the declared table kinds.
+Adapter-owned extension may never grant one adapter authority over another's state. The rule for the five bulk **named-declaration** surfaces — `post_types.<t>`, `tables.<t>`, `taxonomies.<t>`, `widgets.<t>`, `body_refs.<t>` — is **one owner per name**: two pinned manifests (including `core`) declaring the same name refuse at load unless their declarations are byte-identical, since a redundant restatement has no winner to pick. There is no composition grammar for these surfaces in v1 (`taxonomies.<t>`'s description_refs/object_type/class lookups are all first-pin-wins with no precedence layer, so it carries the identical hazard); reclassifying an individual FIELD of another adapter's surface is what the family-1 precedence layers exist for, never a whole-declaration takeover. The post-type surface additionally keeps a per-KEY contradiction guard, which fires first because it can name the exact contradicting key (`post_types.<t>.body` and so on) instead of only the name. Identical post-type declarations do not exempt their sibling `body_refs` records: the complete reference, sentinel, URL and privacy grammar must also agree in both live and immutable policy loaders. `site.wprism.json`'s own `policy.tables` is exempt from the rule, because it is the site's own last-word authority over its own state rather than a second adapter reaching into the first. The other load-time guards in the same family: one owner per option namespace, per plugin/theme version claim, per provider id, and per table `id_kind`; a provider-kind action may only name a provider its OWN manifest declares; an adapter widens the ref-kind vocabulary only by declaring a table it owns; and the two surfaces that name a `wprism_map` keyspace directly (`deletions[].guards[].id_kind`/`source_id_kind`, `option_name_refs[].id_kind`) are closed against the ledger's own long spellings plus the declared table kinds.
 
 ## Spec v3 — the windowed format (IN FORCE)
 
@@ -1170,12 +1170,12 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-19 documents, 1,356 lines, 61,469 bytes — the same entries, the same profile, addressed as 19 roots
+20 documents, 1,425 lines, 63,711 bytes — the same entries, the same profile, addressed as 20 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
 review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
-virgin-target settlement correction, all without changing the split topology.)
+virgin-target settlement correction and the experimental WPForms capsule, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
@@ -1679,13 +1679,13 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 18 adapter names, 21 `id_kind`s, 16 provider ids = 55 identities, all of which already pass the one
+- 19 adapter names, 21 `id_kind`s, 16 provider ids = 56 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **28** of them — the 7 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 21 `id_kind`s, every one of
   which is underscore-separated;
-- the other 11 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 18
+- the other 12 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
+  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 19
   names; all 21 `id_kind`s remain governed by R-17 rather than that name list;
 - all 16 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
   convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
@@ -2490,7 +2490,7 @@ to `blocks` — so a JSON body was mis-read rather than left alone.
 
 `json_refs` is the SHIPPED dialect, not a new one: the same minimal JSONPath (`$`, `.`, `..`, `.*`), the
 same `kind` keyspace names, the same `cast: "string"`, and the same overlapping-path refusal, because
-`BodyRefGrammar::validate_one()` hands the list to `ReferenceRules::value_rule()` rather than
+`BodyRefGrammar::validate_one()` hands the list to `ReferenceRules::body_json_refs()` rather than
 re-implementing any of it. `key_refs` is refused BY NAME: an id-keyed map inside a post body has no
 measured demand, and this engine does not claim a shape it has never seen.
 
@@ -2515,23 +2515,85 @@ the per-path TYPE in both directions: apply writes the DECLARED type, so a sourc
 disagrees with the declaration refuses at capture — `AttrIdCodecGrammar::assert_source_type()`'s rule
 (§ v3.2's WP-6.1 pair) reached through a different door.
 
-**Optionality and type variance are answered by PRESERVATION, not by a rule.** The measured `$.id` on the
-same plugin is ABSENT on the template create path, an INT on the `['builder' => false]` path and a STRING
-on the real builder save, because the builder posts a flat jQuery input list and every leaf that reaches
-`update()` is a string. This mode rewrites DECLARED PATHS ONLY and reproduces everything else from the
-decode, so an adapter that does not declare `$.id` keeps all three shapes as it found them, with no rule
-written for any of them. An adapter that DOES declare it must declare one type, and the capture refusal
-then names the write path it has not accounted for — which makes the variance visible instead of
-silently mis-typing two paths out of three.
+**Optional self-references still need rebinding.** The measured `$.id` is ABSENT on the template create
+path, an INT on the `['builder' => false]` path and a STRING on the real builder save. Preserving it
+undeclared reproduces bytes but leaves a source-local form identity that can select an unrelated target
+form. A manifest declaring **`body-ref-preserve-type/v1`** as well as `spec-window/v1` and
+`structured-body-refs/v1` may use `{"path":"$.id","kind":"post","cast":"preserve"}`. This value-vocabulary
+feature claims no new top-level section and does not widen option/meta or block-attribute casts.
 
-**What the mode does NOT claim, stated so it cannot be inferred.** It rewrites declared reference paths
-and nothing else. The same measured bodies bake the source site's absolute home URL into
-`settings.confirmations.<n>.redirect` and `get_bloginfo('name')` into
-`notifications.<n>.sender_name`; neither is a reference path and neither is rebound. Capture WARNS when
-the body carries this environment's home URL — checking the JSON-ESCAPED form as well as the plain one,
-because `wp_json_encode()` escapes every `/` and a plain scan would never match. It is also not block
-attributes: `attr_id_codecs` is a separate declaration over a separate parser, and nothing here reaches
-`serialize_block_attributes()`'s escaping or `wp_update_post()`'s `wp_unslash()`.
+Capture accepts a positive native integer or an exactly representable canonical positive decimal string.
+Negative/overflow/leading-zero IDs, booleans, floats and undeclared literals refuse. Missing paths remain
+missing; `null`, `""`, `0`, `"0"` and declared sentinels retain the existing absence/literal semantics.
+Present references become a closed, ordered object with exactly `format`, `type`, `ref`:
+
+```json
+{"format":"wprism-typed-reference/v1","type":"string","ref":"{{post:019200cc-0000-7000-8000-000000000012}}"}
+```
+
+`type` is exactly `int` or `string`; `ref` is the existing ordinary identity token in the declared
+keyspace. Apply resolves that token through the existing ledger and emits a positive target-local ID in
+the retained type. The pure `IdentityTokenCodec` owns strict envelope decoding; compiler, Apply and lint
+reuse it. Extra/missing/reordered fields, wrong format/type/keyspace, bare tokens and malformed token
+framing refuse. The JSON decode/re-encode precondition also rejects duplicate JSON keys. Compiler
+portability validates every declared JSON-body reference, including fixed-cast paths, before any target
+mutation. The `ref` name avoids the credential role denoted by `token`; neither the envelope nor its
+surrounding configuration receives a secret/PII clearance exemption.
+
+Typed references are atomic values during path traversal. The shared walker freezes native terminal
+coordinates before rewriting and does not visit nested matches inside an already-owned value. Thus a
+recursive native path such as `$..ref`, `$..type` or `$..ref.ref` cannot reinterpret its own generated
+envelope. Capture, Apply and canonical compiler/lint projection share that atomic traversal; ordinary
+fixed-cast declarations retain the original walk behavior.
+
+**URL rebinding is separately negotiated.** A manifest declaring `body-url-rebinding/v1`,
+`spec-window/v1` and `structured-body-refs/v1` may add `"url_rebinding": true` to one post type's
+`body_refs` record. Only literal `true` is accepted; omit the member for the original reference-only
+behavior. Merely declaring the feature does not enable it. The engine applies the existing
+home/uploads/query-reference text codec to decoded string leaves outside declared reference positions.
+It does not interpret block or shortcode syntax. JSON framing, key order and escaping still obey the
+byte-exact decode/re-encode precondition.
+
+Reference positions, including literal sentinels, take precedence over text rewriting. The shared
+`JsonRefs` traversal protects their native key coordinates, not display locators: a key named `a.b`
+and nested keys `a` then `b` can print the same dotted locator but must not protect each other's
+values. Keys, non-string scalars and undeclared plugin-local field IDs are unchanged. Capture and Apply
+must receive the product's text codec when opted in; missing machinery refuses before reference work.
+
+**Reviewed scalar privacy exceptions are separately negotiated.** A manifest declaring
+`body-pii-paths/v1`, `spec-window/v1` and `structured-body-refs/v1` may add `pii_paths` to a post type's
+`body_refs` record. It is a non-empty list of distinct JSON paths, for example
+`["$.settings.notifications.*.email", "$.settings.notifications.*.replyto"]`. Each path uses the existing
+reference dialect, with a named first and terminal child and no recursive descent. Intermediate
+wildcards select repeated record maps; lists retain the dialect's transparent mapping. Malformed,
+duplicate, whitespace-padded, root-wildcard and terminal-wildcard declarations refuse at manifest load.
+Omission grants no exception, including when the feature itself is declared. A replacement body rule
+does not inherit earlier pins' privacy paths.
+
+The permission covers only each matched scalar/null value and that field's semantic PII role. It does
+not cover associative key bytes, containers, their descendants, unrelated siblings or secrets. A path
+that currently selects a container grants no clearance to it; ordinary recursive checking still runs.
+Selection uses native key coordinates, not ambiguous dotted locators, and changes no stored value.
+Capture and immutable-repository authorization repeat the same selection over their respective decoded
+documents, before publication or target mutation. The whole-body secret gate remains unconditional;
+reference validation, exact JSON framing and URL rebinding retain their independent contracts.
+
+This is reviewed authority to place an authored field in canonical state, not a claim that email is
+non-personal, an environment-value substitution mechanism, or authority to capture form responses.
+The motivating regression replaces the native fixture's notification smart tags with synthetic literal
+recipient/sender/reply-to settings: without this feature both PostCapture and repository authorization
+refuse. The shared compiler/materializer/recapture regression proves the scoped exception composes with
+typed references and URLs. It does not establish native WPForms support or notification delivery.
+
+**What the mode does NOT claim.** Without URL opt-in, the measured
+`settings.confirmations.<n>.redirect` remains source-bound and retains its exact legacy warning.
+With opt-in, that URL is rebound, but a remaining home URL in a preserved literal/key or an unsupported
+text context still warrants a warning. Both plain and JSON-escaped home spellings are checked.
+Non-URL environment data such as `notifications.<n>.sender_name` is not rebound. This is not block
+attribute rewriting: `attr_id_codecs` has a separate declaration/parser, and nothing here invokes
+`serialize_block_attributes()` or `wp_update_post()`/`wp_unslash()`. The real post materializer writes
+the already-reencoded JSON through checked SQL; compiler/materializer/PostCapture regression proves
+the complete target-body fixed point and refusal before mutation.
 
 **Why the mode's gate is asked LATE while the key's is asked by § v3.3.** The section is admitted by the
 closed key set the moment the feature is declared, which gives the three distinct verdicts § v3.2
@@ -2542,13 +2604,15 @@ verdicts with a fourth sentence about a body mode, telling a `spec_version: 2` a
 feature when what is wrong is the version their whole document declares. The one case left for the late
 gate is the one no key can express: the mode declared with no `body_refs` section at all.
 
-**No shipped manifest declares it, so no adapter digest moves** (AGENTS.md rule 2). The sufficiency proof
-is the previously-rejected candidate authored end to end as a FIXTURE adapter, driven through the real
+**No shipped manifest declares it, so no adapter digest moves** (AGENTS.md rule 2). The grammar proof
+uses the previously-rejected candidate as a FIXTURE adapter, driven through the real
 `PostCapture` seam over four `post_content` values captured from a live pair through the plugin's own
 write paths — `sandbox/tests/fixtures/wpforms-body/`. That provenance is the point: a hand-written
 fixture body has no confirmations, no page reference and no sentinel, which is why the ledger's own
 one-sentence description of this coordinate was measurably wrong until the entities were authored through
-the plugin instead of through `wp post create --post_content=…`.
+the plugin instead of through `wp post create --post_content=…`. This fixture is not a WPForms product
+claim: same-site URL rebinding, native materialization/submission and location reconstruction still need
+their own implementation and evidence.
 
 ### v3.21 The certificate ARM rides in the feature's roster row
 

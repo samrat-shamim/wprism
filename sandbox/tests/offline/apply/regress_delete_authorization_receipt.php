@@ -132,6 +132,10 @@ $wpdb
     ->setUniqueKey('wprism_state', ['uuid'])
     ->setTableEngine('wprism_state', 'InnoDB')
     ->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+    ->setIndexes('wprism_kv', [[
+        'Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+        'Column_name' => 'k', 'Sub_part' => null, 'Index_type' => 'BTREE', 'Visible' => 'YES', 'Ignored' => 'NO',
+    ]])
     ->setUniqueKey('wprism_kv', ['k'])
     ->setTableEngine('wprism_kv', 'InnoDB');
 $policy = FrozenPolicy::policy([], FrozenPolicy::site([]));

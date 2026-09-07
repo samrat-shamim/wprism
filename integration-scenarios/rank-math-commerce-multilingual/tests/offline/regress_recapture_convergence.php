@@ -13,6 +13,7 @@ require_once $root . '/agent/src/Code/Code.php';
 require_once $root . '/agent/src/Code/CodeStateContract.php';
 require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
 require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+require_once $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
 require_once dirname(__DIR__, 2) . '/fixtures/RecaptureConvergence.php';
 wprism_test_define_agent_versions();
 
@@ -39,6 +40,17 @@ $manifest = ['name'=>'combination-convergence-fixture', 'spec_version'=>WPRISM_S
 $site = FrozenPolicy::site([$manifest], WPRISM_SPEC_VERSION);
 $site['policy']['post_types'] = ['product', 'rmcombo_book'];
 $site['policy']['taxonomies'] = array_keys($manifest['taxonomies']);
+$policy = FrozenPolicy::policy([$manifest], $site);
+// The actual ACF text-field interpreter returns plain_data, not the scalar
+// shorthand this fixture originally invented. Native rmcombofinal01 reached
+// successful recapture, then this missing declaration made its oracle refuse.
+$acf = new WPrism\Interpreters\Acf($policy);
+$acf->prime_repository([['type'=>'post', 'data'=>['type'=>'acf-field', 'slug'=>'field_rmcombo_badge'],
+    'body'=>serialize(['type'=>'text'])]]);
+$manifest['post_meta']['rmcombo_badge'] = $acf->post_meta_rule('rmcombo_badge',
+    ['rmcombo_badge'=>'Native badge', '_rmcombo_badge'=>'field_rmcombo_badge']);
+wprism_check_same(['class'=>'authored', 'plain_data'=>true], $manifest['post_meta']['rmcombo_badge'],
+    'real ACF text-field classification, not a synthetic scalar rule, owns the neighbor witness');
 $policy = FrozenPolicy::policy([$manifest], $site);
 $tmp = sys_get_temp_dir() . '/wprism-combination-convergence-' . bin2hex(random_bytes(8));
 mkdir($tmp, 0700);
@@ -129,6 +141,22 @@ $target = RepositoryCompiler::compile_staged("$tmp/target/state", "$tmp/target",
 $proof = RecaptureConvergence::verify($source, $target, $policy, $hostile, $native, $before, $mid, $after);
 wprism_check_same(['managed_entities'=>8, 'preserved_posts'=>1, 'preserved_terms'=>6], $proof,
     'actual compiler plus native preimage proves all seven preserved identities including detached groups and author zero');
+foreach (['empty'=>'', 'zero'=>'0', 'unicode'=>'Native badge — 東京', 'integer'=>17, 'boolean'=>false,
+    'array'=>['label'=>'not scalar'], 'url'=>'https://source.invalid/badge',
+    'escaped-url'=>'https:\/\/source.invalid\/badge', 'token'=>$token('post',11)] as $case => $value) {
+    $b=$before; $m=$mid; $a=$after; $canonical=$neighbor;
+    foreach ([&$b,&$m,&$a] as &$observation) $observation['postmeta'][2]['meta_value']=is_string($value) ? $value : serialize($value);
+    unset($observation);
+    $canonical['meta']=(object)(array)$neighbor['meta'];
+    $canonical['meta']->rmcombo_badge=$value;
+    $put("$tmp/target/state/$neighborPath",Canon::post_file($canonical,''));
+    $candidate=RepositoryCompiler::compile_staged("$tmp/target/state","$tmp/target",$policy);
+    $accepted=false;
+    try { RecaptureConvergence::verify($source,$candidate,$policy,$hostile,$native,$b,$m,$a); $accepted=true; } catch (RuntimeException) {}
+    wprism_check($accepted === in_array($case,['empty','zero','unicode','integer','boolean'],true),
+        "plain-data fixture admits only proved scalar identity values: $case");
+}
+$put("$tmp/target/state/$neighborPath",$extraFiles[$neighborPath]);
 $oldMarker = $before;
 $oldMarker['postmeta'][] = $meta(4, 'rank_math_internal_links_processed', '999');
 $rebuilt = $mid;

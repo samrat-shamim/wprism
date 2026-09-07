@@ -300,6 +300,10 @@ final class Init {
             return 'UNMANAGED SCOPE ' . $extension . ' [' . $code . ']: '
                 . ($row['reason'] ?? '') . '. ' . ($row['remediation'] ?? '');
         }
+        if ($code === 'unmanaged_widget_left_local') {
+            return 'UNMANAGED WIDGET ' . $extension . ' [' . $code . ']: '
+                . ($row['reason'] ?? '') . '. ' . ($row['remediation'] ?? '');
+        }
 
         return 'ADVISORY ' . strtoupper((string) ($row['kind'] ?? 'coverage')) . ' '
             . $extension . ' [' . $code . ']: '

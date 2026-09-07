@@ -1622,7 +1622,7 @@ final class Policy {
      * load, so a null here means the caller is on a body mode that has no paths
      * — a fact worth being able to distinguish from an empty path list.
      *
-     * @return array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>}|null
+     * @return array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true,pii_paths?:list<string>}|null
      */
     public function body_ref_rule(string $postType): ?array {
         return BodyRefGrammar::rules($this->manifests)[$postType] ?? null;

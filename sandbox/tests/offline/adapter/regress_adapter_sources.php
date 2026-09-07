@@ -52,7 +52,7 @@ require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
-require __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
 require __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 require __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';

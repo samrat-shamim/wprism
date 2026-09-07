@@ -2982,7 +2982,7 @@ foreach ([
     'pair_live_ownership_mode_of "$WPRISM_HOST_REGISTRY"',
     'pair_live_ownership_acquire mariadb',
     'pair_live_ownership_up --artifacts --headless',
-    'pair_live_ownership_reset',
+    'pair_live_ownership_finish_leg',
     "pair_live_ownership_complete '✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED'",
 ] as $ownershipWitness) {
     wprism_check(str_contains($live, $ownershipWitness),
@@ -3002,8 +3002,9 @@ $ownershipPrepare = strpos($live, 'pair_live_ownership_prepare "$PAIR" "$PORT1" 
 $leaseAcquire = strpos($live, 'pair_live_ownership_acquire mariadb');
 $firstUp = strpos($live, 'pair_live_ownership_up --artifacts --headless', $leaseAcquire === false ? 0 : $leaseAcquire);
 $firstLeg = strpos($live, 'run_leg forward reverse');
-$ownedReset = strpos($live, 'pair_live_ownership_reset');
-$secondUp = $ownedReset === false ? false : strpos($live, 'pair_live_ownership_up --artifacts --headless', $ownedReset);
+$ownedTeardown = strpos($live, 'pair_live_ownership_finish_leg');
+$secondAcquire = $ownedTeardown === false ? false : strpos($live, 'pair_live_ownership_acquire mariadb', $ownedTeardown);
+$secondUp = $secondAcquire === false ? false : strpos($live, 'pair_live_ownership_up --artifacts --headless', $secondAcquire);
 $secondLeg = strpos($live, 'run_leg reverse forward');
 $complete = strpos($live, "pair_live_ownership_complete '✔ REGRESS_RANK_MATH_COMMERCE_MULTILINGUAL PASSED'");
 wprism_check(
@@ -3011,19 +3012,23 @@ wprism_check(
         && $leaseAcquire !== false
         && $firstUp !== false
         && $firstLeg !== false
-        && $ownedReset !== false
+        && $ownedTeardown !== false
+        && $secondAcquire !== false
         && $secondUp !== false
         && $secondLeg !== false
         && $complete !== false
         && $ownershipPrepare < $leaseAcquire
         && $leaseAcquire < $firstUp
         && $firstUp < $firstLeg
-        && $firstLeg < $ownedReset
-        && $ownedReset < $secondUp
+        && $firstLeg < $ownedTeardown
+        && $ownedTeardown < $secondAcquire
+        && $secondAcquire < $secondUp
         && $secondUp < $secondLeg
         && $secondLeg < $complete
-        && substr_count($live, 'pair_live_ownership_reset') === 2,
-    'the first order starts only after generic lease publication and reset sites separate load orders and metadata modes'
+        && substr_count($live, 'pair_live_ownership_finish_leg') === 2
+        && substr_count($live, 'pair_live_ownership_acquire mariadb') === 3
+        && !str_contains($live, 'pair_live_ownership_reset'),
+    'fresh generic leases separate load orders and metadata modes after complete owned teardown'
 );
 $ownershipHelper = (string) file_get_contents($root . '/sandbox/tests/lib/pair_live_ownership.sh');
 wprism_check(

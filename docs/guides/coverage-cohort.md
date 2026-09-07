@@ -357,7 +357,7 @@ php <tmp>/cli/wprism census --dir=sandbox/tests/fixtures/census/core-estate --fo
 
 ```
 rebaseline: 3 -> 3 labelled site(s) (same-estate)
-library: 16 -> 18 adapter(s), 16 -> 18 reviewed, coverage oracle MOVED
+library: 16 -> 19 adapter(s), 16 -> 19 reviewed, coverage oracle MOVED
 coverage: 24.5% -> 24.5% (delta +0 ppm / +0.0pp) over 1075 -> 1075 surface(s)
 funnel: no_adapter=1->1(+0) adapter_unreviewed=0->0(+0) adapter_unpinned=2->2(+0) adapter_pinned=2->2(+0)
 attribution: 0 slug row(s) moved, 5 unchanged

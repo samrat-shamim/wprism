@@ -18,6 +18,7 @@ require_once dirname(__DIR__, 2) . '/agent/src/Policy/ArtifactPolicyIdentity.php
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/LegacyRuntimeExecutionDebt.php';
 require_once __DIR__ . '/ActiveShellSource.php';
 require_once __DIR__ . '/AdapterProductionReadiness.php';
+require_once __DIR__ . '/AdapterPackageTestDiscovery.php';
 require_once __DIR__ . '/ArtifactLibrary.php';
 
 /** Validate one adapter capsule without reading or executing a sibling adapter. */
@@ -264,6 +265,8 @@ final class AdapterPackageValidator
         self::premiseEvidence($root, $capsule, $slug, $manifest, $checks);
         self::packageEvidence($root, $slug, $manifest, $disposition, $checks);
         $evidenceTests = self::evidence($root, $capsule, $slug, $manifest, $disposition, $checks);
+        $discovered = AdapterPackageTestDiscovery::discover($root, $slug);
+        $checks[] = 'test-discovery:' . count($discovered['tests']);
 
         return [
             'format' => self::FORMAT,
@@ -3141,13 +3144,20 @@ final class AdapterPackageValidator
                 self::certifiedArtifactBoundary($root, $slug, $manifest, $artifacts['plugins'][$subject]);
             }
         }
-        AdapterProductionReadiness::record(
+        $readiness = AdapterProductionReadiness::record(
             $root,
             $slug,
             static function (string $repo, string $adapter, string $evidence): void {
                 self::assertReadinessEvidenceOwnership($repo, $adapter, $evidence);
             }
         );
+        // A complete ledger can truthfully say unready. That is valid for a
+        // non-authorizing preview, never for a certified product claim.
+        if (($disposition['status'] ?? null) === 'certified' && $readiness['readiness'] !== 'ready') {
+            throw new RuntimeException(
+                "Certified adapter package '$slug' must have ready production-readiness evidence"
+            );
+        }
         $checks[] = 'artifact-evidence';
         $checks[] = 'production-readiness';
     }

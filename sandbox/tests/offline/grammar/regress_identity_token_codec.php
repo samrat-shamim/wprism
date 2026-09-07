@@ -64,6 +64,42 @@ final class CodecFakeWpdb {
 
 require __DIR__ . '/../../../../agent/src/Kernel/IdentityTokenCodec.php';
 check(!class_exists(\WPrism\Ledger::class, false), 'codec standalone load does not load Ledger');
+check(method_exists(\WPrism\IdentityTokenCodec::class, 'encode_typed'),
+    'the pure codec can retain an identity reference native scalar type');
+$typedToken = '{{post:01234567-89ab-cdef-0123-456789abcdef}}';
+foreach (['int', 'string'] as $scalarType) {
+    $typed = ['format'=>'wprism-typed-reference/v1', 'type'=>$scalarType, 'ref'=>$typedToken];
+    check(\WPrism\IdentityTokenCodec::encode_typed($typedToken, $scalarType) === $typed,
+        'typed encoding retains the ordinary identity token and exact scalar type');
+    check(\WPrism\IdentityTokenCodec::decode_typed($typed, 'post') === ['type'=>$scalarType, 'ref'=>$typedToken],
+        'one closed decoder recovers the typed token without a ledger lookup');
+}
+$typed = ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>$typedToken];
+foreach ([
+    null, 42, '42', $typedToken, (object)$typed, [$typed], [],
+    ['type'=>'int', 'ref'=>$typedToken],
+    ['format'=>'wprism-typed-reference/v2', 'type'=>'int', 'ref'=>$typedToken],
+    ['format'=>'wprism-typed-reference/v1', 'type'=>'integer', 'ref'=>$typedToken],
+    ['format'=>'wprism-typed-reference/v1', 'type'=>true, 'ref'=>$typedToken],
+    ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>42],
+    ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>'{{post:malformed}}'],
+    ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>$typedToken . "\n"],
+    ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>str_replace('post:', 'term:', $typedToken)],
+    $typed + ['extra'=>'unowned'],
+    ['type'=>'int', 'format'=>'wprism-typed-reference/v1', 'ref'=>$typedToken],
+] as $malformedTyped) {
+    $refused = false;
+    try { \WPrism\IdentityTokenCodec::decode_typed($malformedTyped, 'post'); }
+    catch (RuntimeException $failure) { $refused = $failure->getMessage() === 'wprism: malformed typed reference'; }
+    check($refused, 'typed decode refuses noncanonical framing, type, token and declared-kind substitutions');
+}
+foreach (['bool', 'float', 'integer', ''] as $unknownType) {
+    $refused = false;
+    try { \WPrism\IdentityTokenCodec::encode_typed($typedToken, $unknownType); }
+    catch (RuntimeException $failure) { $refused = $failure->getMessage() === 'wprism: malformed typed reference'; }
+    check($refused, 'typed encoding has no implicit scalar-type coercion');
+}
+check(!class_exists(\WPrism\Ledger::class, false), 'typed reference operations remain independent of Ledger and WordPress');
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 

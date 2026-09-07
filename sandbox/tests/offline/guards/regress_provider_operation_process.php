@@ -67,7 +67,7 @@ $contract = [
     'writes' => ['option:fixture'],
 ];
 $actions = [];
-foreach (['after', 'dml', 'large', 'private-failure', 'recurse'] as $value) {
+foreach (['after', 'bounded', 'dml', 'large', 'private-failure', 'recurse'] as $value) {
     $actions[] = [
         'args' => ['value' => $value],
         'capability' => 'execute',
@@ -487,6 +487,56 @@ try {
         if (file_put_contents($durableStatePath, $initialDurableState) !== strlen($initialDurableState)) {
             throw new RuntimeException('cannot reset exact-stderr provider-process fixture state');
         }
+        foreach ([['after', "private-compared-postimage-value\0雪"], ['bounded', str_repeat('b', 997)],
+            ['after', str_repeat('b', 998)],
+            ['after', str_repeat('private-large-postimage-', 100)]] as [$invokeValue, $otherValue]) {
+            file_put_contents($durableStatePath, $initialDurableState);
+            $GLOBALS['wprism_provider_operation_between_children_value'] = $otherValue;
+            $mismatch = null;
+            try {
+                $provider->invoke_with_deadline('execute', ['value' => $invokeValue], hrtime(true) + 30000000000);
+            } catch (Throwable $failure) {
+                $mismatch = $failure;
+            } finally {
+                unset($GLOBALS['wprism_provider_operation_between_children_value']);
+            }
+            $publicMessage = "wprism: manifest-provider 'fixture-adapter' capability 'execute' fresh-process receipt "
+                . 'disagrees with independent parent readback (performed in a second fresh child); recovery_required';
+            wprism_check($mismatch instanceof RuntimeException && $mismatch->getMessage() === $publicMessage,
+                'different durable postimages keep the exact fail-closed public refusal');
+            if (!$mismatch instanceof Throwable) continue;
+            wprism_check($mismatch->getPrevious() === null && !str_contains((string)$mismatch, $otherValue),
+                'compared postimage bytes never enter ordinary exception rendering or previous chains');
+            $graph = WPrism\PrivateRefusalEvidence::graph($mismatch);
+            $comparisons = [];
+            foreach ($graph['throwable'] as $node) {
+                $record = json_decode($node['message'], true);
+                if (is_array($record) && ($record['format'] ?? null) === 'wprism-provider-postimage-comparison/v1') {
+                    $comparisons[] = [$record, $node];
+                }
+            }
+            wprism_check_same(1, count($comparisons), 'the actual launcher retains one bounded private postimage comparison');
+            if (count($comparisons) !== 1) continue;
+            [$comparison, $node] = $comparisons[0];
+            wprism_check(($graph['traversal']['scan_complete'] ?? null) === true
+                && ($graph['traversal']['record_complete'] ?? null) === true
+                && ($node['message_truncated'] ?? null) === false && $node['relation'] === 'private_evidence',
+                'the comparison survives the real bounded private recorder without truncation');
+            $claimedValue = $invokeValue === 'bounded' ? str_repeat('a', 997) : 'after';
+            foreach (['claimed' => ['value' => $claimedValue], 'observed' => ['value' => $otherValue]] as $side => $value) {
+                $bytes = serialize($value);
+                $complete = strlen($bytes) <= 1024;
+                if ($invokeValue === 'bounded') wprism_check_same(1024, strlen($bytes),
+                    'both maximum retained postimages execute through the real comparison and recorder');
+                wprism_check_same(['bytes' => strlen($bytes), 'contents_base64' => $complete ? base64_encode($bytes) : null,
+                    'encoding' => 'php-serialize-base64', 'retained_complete' => $complete,
+                    'sha256' => hash('sha256', $bytes), 'type' => 'array'], $comparison[$side],
+                    'private comparison binds exact typed/ordered ' . $side . ' bytes or declares its bounded omission');
+            }
+            wprism_check_same($otherValue, json_decode((string)file_get_contents($durableStatePath), true)['value'],
+                'a mismatched readback never repairs or rewrites the conflicting durable state');
+        }
+        file_put_contents($durableStatePath, $initialDurableState);
         $GLOBALS['wprism_provider_operation_injected_stderr'] = " \n";
         $whitespaceStderrFailure = null;
         try {

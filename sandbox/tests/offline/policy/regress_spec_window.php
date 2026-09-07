@@ -367,6 +367,7 @@ wprism_check_same(
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wpforms-lite',
         'yoast',
         'yoast-duplicate-post',
     ],

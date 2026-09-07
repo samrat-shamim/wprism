@@ -1303,8 +1303,16 @@ if (preg_match("/^[a-z][a-z0-9]{2,23}$/D",$argv[2])!==1 || !in_array($argv[3],["
 }
 $source=$argv[1]."/sandbox/siterepo/".$argv[2]."1";
 $target=$argv[1]."/sandbox/siterepo/".$argv[2]."2";
-$record=["format"=>"wprism-private-canonical-observation/v1","authority"=>false,"pair"=>$argv[2],"phase"=>$argv[3],
+$record=["format"=>"wprism-private-canonical-observation/v2","authority"=>false,"pair"=>$argv[2],"phase"=>$argv[3],
     "source"=>\WPrismTest\FilesystemTreeEvidence::capture($source,"state")];
+// Compilation also reads policy and content-addressed media. The old state-
+// only record lost those inputs at teardown (rmcombofinal01), so a preserved
+// canonical body alone could not reproduce the exact compiler decision.
+foreach (["source"=>$source,"target"=>$target] as $side=>$repo) {
+    foreach (["site.wprism.json","media"] as $relative) {
+        $record["inputs"][$side][$relative]=\WPrismTest\FilesystemTreeEvidence::capture($repo,$relative);
+    }
+}
 if ($argv[3]==="recapture") {
     if (!str_ends_with($argv[4],"/baseline.stdout")) throw new RuntimeException("canonical baseline binding is invalid");
     $baseline=\WPrismTest\PrivateCommandOutput::readObject(substr($argv[4],0,-7));
@@ -1322,9 +1330,16 @@ require $argv[1]."/sandbox/tests/lib/PrivateCommandOutput.php";
 $phase=match(basename($argv[3])) {"baseline"=>"baseline","private"=>"recapture",default=>throw new RuntimeException("canonical evidence phase is invalid")};
 $record=json_decode(\WPrismTest\PrivateCommandOutput::readObject($argv[3]),true,32,JSON_THROW_ON_ERROR);
 $keys=array_keys($record);sort($keys,SORT_STRING);
-$expected=$phase==="baseline" ? ["authority","format","pair","phase","source"] : ["authority","baseline_sha256","format","pair","phase","recapture","source"];
-if ($keys!==$expected || $record["format"]!=="wprism-private-canonical-observation/v1" || $record["authority"]!==false
+$expected=$phase==="baseline" ? ["authority","format","inputs","pair","phase","source"] : ["authority","baseline_sha256","format","inputs","pair","phase","recapture","source"];
+if ($keys!==$expected || $record["format"]!=="wprism-private-canonical-observation/v2" || $record["authority"]!==false
     || $record["pair"]!==$argv[2] || $record["phase"]!==$phase) throw new RuntimeException("canonical evidence envelope is invalid");
+if (!is_array($record["inputs"]) || array_keys($record["inputs"])!==["source","target"]) throw new RuntimeException("canonical input owners are incomplete");
+foreach ($record["inputs"] as $inputs) {
+    if (!is_array($inputs) || array_keys($inputs)!==["site.wprism.json","media"]) throw new RuntimeException("canonical inputs are incomplete");
+    foreach ($inputs as $relative=>$tree) \WPrismTest\FilesystemTreeEvidence::assertRecord($tree,$relative);
+    $policy=$inputs["site.wprism.json"];
+    if ($policy["directories"]!==[] || count($policy["files"])!==1 || $policy["files"][0]["path"]!=="site.wprism.json") throw new RuntimeException("canonical policy is not one regular file");
+}
 \WPrismTest\FilesystemTreeEvidence::assertRecord($record["source"],"state");
 if (($record["source"]["directories"][0]??null)!=="") throw new RuntimeException("canonical source is not a directory tree");
 if ($phase==="recapture") {
@@ -1363,7 +1378,7 @@ rmcombo_capture_target_recapture() {
   local canonical_collect=(rmcombo_canonical_observation recapture)
   local canonical_validator=(rmcombo_validate_canonical_observation)
   # 9952 kept only diff -rq filenames, then removed both trees on failure.
-  # Retain exact source-before/source-after and recapture bytes before the
+  # Retain exact source-before/source-after, policy, media and recapture bytes before the
   # unchanged comparison can trigger teardown; this does not bless equality.
   wprism_private_command_capture "$ROOT/sandbox/tmp/wprism-rmcombo-canonical.$PAIR" \
     canonical_snapshot canonical_collect canonical_validator -- \
@@ -2305,22 +2320,26 @@ pass 'unsupported custom-CPT deletion refuses at Capture and compiler Plan/Apply
 # The generic lease is the sole fresh-namespace authority: under the shared
 # lock it proves Compose/name/ports/roots/install markers plus both persistent
 # schemas absent, then binds that complete fact to this exact process. Arm
-# cleanup only after publication and hold the token through all four lanes.
+# cleanup only after publication. Every independent lane needs a new complete
+# namespace: DB-only reset preserves upload derivatives but removes the native
+# metadata that authorizes them (rmcombofinal02 refused in its second Apply).
 pair_live_ownership_acquire mariadb
 say "bring up caller-allocated Rank Math combination pair at candidate $HEAD"
 pair_live_ownership_up --artifacts --headless
 for meta_mode in independent synchronized; do
 run_leg forward reverse "$meta_mode"
 
-# The reverse-order leg reuses only the pair this process already created.
-# Reset stays here, between completed legs, and is never an ownership shortcut.
+# Complete teardown releases all webroot, schema and repository state before
+# the next lease re-proves freshness. Keep the shared private host registry.
 [ "$PAIR_LIVE_OWNERSHIP_LEASE_ACTIVE" -eq 1 ] \
   || fail 'Rank Math combination lost pair ownership before its second leg'
-pair_live_ownership_reset
+pair_live_ownership_finish_leg
+pair_live_ownership_acquire mariadb
 pair_live_ownership_up --artifacts --headless
 run_leg reverse forward "$meta_mode"
 if [ "$meta_mode" = independent ]; then
-  pair_live_ownership_reset
+  pair_live_ownership_finish_leg
+  pair_live_ownership_acquire mariadb
   pair_live_ownership_up --artifacts --headless
 fi
 done

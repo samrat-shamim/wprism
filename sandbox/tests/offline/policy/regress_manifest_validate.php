@@ -1596,8 +1596,16 @@ check(
     && ($bodyRefsGrammar['json_refs_entry'] ?? null) === [
         'required' => \WPrism\ReferenceRules::JSON_REF_REQUIRED,
         'optional' => \WPrism\ReferenceRules::JSON_REF_OPTIONAL,
-    ],
-    '`body_refs` publishes {json_refs, sentinels} and the {path, kind, cast} triple — the record set from BodyRefGrammar and the triple from the one JSONPath dialect ReferenceRules owns'
+        'preserved_type' => 'cast: preserve requires ' . \WPrism\BodyRefGrammar::PRESERVED_TYPE_FEATURE
+            . '; canonical state retains the native int/string type in a closed typed-reference envelope',
+    ]
+    && ($bodyRefsGrammar['url_rebinding'] ?? null) === 'true only; requires ' . \WPrism\BodyRefGrammar::URL_FEATURE
+        . '; use the shared environment URL/query-reference text codec outside declared reference positions; '
+        . 'keys, sentinels and non-string values remain unchanged'
+    && ($bodyRefsGrammar['pii_paths'] ?? null) === 'non-empty list of distinct paths; requires ' . \WPrism\BodyRefGrammar::PII_FEATURE
+        . '; named first and terminal child, no recursive descent; intermediate wildcards and list mapping '
+        . 'use the existing reference dialect; reviewed scalar values only, never keys, containers or secrets',
+    '`body_refs` publishes its exact record, shared reference grammar and negotiated type/URL/scalar-clearance refinements'
 );
 $attrGrammar = $engineFeatures['implemented']['attr-id-codecs/v1']['sections']['attr_id_codecs']['grammar'] ?? [];
 check(

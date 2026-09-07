@@ -1,0 +1,140 @@
+{
+    "format": "wprism-wpforms-native-fixtures/v1",
+    "version": "2.0.1.1",
+    "artifact_sha256": "6245074790df01a6e24a42587e024132b4a28fac499d1a8fa12ebf5580e4852b",
+    "origins": {
+        "authoring": {
+            "record": "wprism-wpfobserve.wpfobserve11.authoring.CiRM1F/native.stdout",
+            "sha256": "109b2436a4044f5dfc80d40b3abc760fadb8381f22449c485f0a9d683b0d7fe1"
+        },
+        "admin": {
+            "record": "wprism-wpfadmin.wpfadmin02.admin.YyRepG/native.stdout",
+            "sha256": "2facf540ebb850ce7aa0f30c958816921ad8f7a219b974c9706badc5264c6ff1"
+        },
+        "notification": {
+            "record": "wprism-wpfnotify.wpfnotify02.notification.ldgVcT/native.stdout",
+            "sha256": "cbf806934b01c03716d36d627f6b613fae316e5a80412ea27f23caf902a6f83c"
+        }
+    },
+    "cases": {
+        "authoring-absent": {
+            "body": "{\"field_id\":\"0\",\"settings\":{\"form_title\":\"WPrism native absent identity\",\"form_desc\":\"\"}}",
+            "post_id": 4,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9464",
+            "page_id": 10,
+            "encoding": "native-raw"
+        },
+        "authoring-integer": {
+            "body": "{\"field_id\":9,\"settings\":{\"form_title\":\"WPrism native integer identity\",\"form_desc\":\"<p>Authored <a href=\\\"http:\\/\\/localhost:9464\\/native-help\\/?p=10\\\">help<\\/a><\\/p>\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native integer identity\",\"sender_name\":\"WPrism wpfobserve111\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks \\u65e5\\u672c\\u8a9e\",\"message_scroll\":\"1\"},\"2\":{\"type\":\"page\",\"page\":\"10\"},\"3\":{\"type\":\"page\",\"page\":\"previous_page\"},\"4\":{\"type\":\"redirect\",\"redirect\":\"http:\\/\\/localhost:9464\\/native-thanks\\/?page_id=10\"},\"5\":{\"type\":\"redirect\",\"redirect\":\"https:\\/\\/example.test\\/external-thanks\"}},\"store_spam_entries\":\"0\",\"form_tags\":[\"WPrism native tag\"]},\"id\":5,\"fields\":{\"1\":{\"id\":\"1\",\"type\":\"text\",\"label\":\"Unicode \\u65e5\\u672c\\u8a9e \\u03a9\",\"required\":\"1\",\"default_value\":\"quoted \\\"text\\\"\"},\"2\":{\"id\":\"2\",\"type\":\"email\",\"label\":\"Email\",\"required\":\"1\",\"allowlist\":\"\",\"denylist\":\"\",\"default_value\":\"\"},\"3\":{\"id\":\"3\",\"type\":\"textarea\",\"label\":\"Message\"},\"4\":{\"id\":\"4\",\"type\":\"select\",\"label\":\"Selection\",\"choices\":{\"1\":{\"label\":\"First\",\"value\":\"alpha\"},\"2\":{\"label\":\"Second\",\"value\":\"beta\"}}},\"5\":{\"id\":\"5\",\"type\":\"checkbox\",\"label\":\"Checks\",\"choices\":{\"1\":{\"label\":\"Accepted\",\"value\":\"yes\"}}},\"6\":{\"id\":\"6\",\"type\":\"radio\",\"label\":\"Radio\",\"choices\":{\"1\":{\"label\":\"One\",\"value\":\"one\"}}},\"7\":{\"id\":\"7\",\"type\":\"number\",\"label\":\"Number\"},\"8\":{\"id\":\"8\",\"type\":\"number-slider\",\"label\":\"Range\",\"min\":\"0\",\"max\":\"100\"}}}",
+            "post_id": 5,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9464",
+            "page_id": 10,
+            "encoding": "native-raw"
+        },
+        "authoring-string": {
+            "body": "{\"field_id\":9,\"settings\":{\"form_title\":\"WPrism native string identity\",\"form_desc\":\"<p>Authored <a href=\\\"http:\\/\\/localhost:9464\\/native-help\\/?p=10\\\">help<\\/a><\\/p>\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native integer identity\",\"sender_name\":\"WPrism wpfobserve111\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks \\u65e5\\u672c\\u8a9e\",\"message_scroll\":\"1\"},\"2\":{\"type\":\"page\",\"page\":\"10\"},\"3\":{\"type\":\"page\",\"page\":\"previous_page\"},\"4\":{\"type\":\"redirect\",\"redirect\":\"http:\\/\\/localhost:9464\\/native-thanks\\/?page_id=10\"},\"5\":{\"type\":\"redirect\",\"redirect\":\"https:\\/\\/example.test\\/external-thanks\"}},\"store_spam_entries\":\"0\",\"form_tags\":[\"WPrism native tag\"]},\"id\":\"7\",\"fields\":{\"1\":{\"id\":\"1\",\"type\":\"text\",\"label\":\"Unicode \\u65e5\\u672c\\u8a9e \\u03a9\",\"required\":\"1\",\"default_value\":\"quoted \\\"text\\\"\"},\"2\":{\"id\":\"2\",\"type\":\"email\",\"label\":\"Email\",\"required\":\"1\",\"allowlist\":\"\",\"denylist\":\"\",\"default_value\":\"\"},\"3\":{\"id\":\"3\",\"type\":\"textarea\",\"label\":\"Message\"},\"4\":{\"id\":\"4\",\"type\":\"select\",\"label\":\"Selection\",\"choices\":{\"1\":{\"label\":\"First\",\"value\":\"alpha\"},\"2\":{\"label\":\"Second\",\"value\":\"beta\"}}},\"5\":{\"id\":\"5\",\"type\":\"checkbox\",\"label\":\"Checks\",\"choices\":{\"1\":{\"label\":\"Accepted\",\"value\":\"yes\"}}},\"6\":{\"id\":\"6\",\"type\":\"radio\",\"label\":\"Radio\",\"choices\":{\"1\":{\"label\":\"One\",\"value\":\"one\"}}},\"7\":{\"id\":\"7\",\"type\":\"number\",\"label\":\"Number\"},\"8\":{\"id\":\"8\",\"type\":\"number-slider\",\"label\":\"Range\",\"min\":\"0\",\"max\":\"100\"}}}",
+            "post_id": 7,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9464",
+            "page_id": 10,
+            "encoding": "native-raw"
+        },
+        "authoring-template": {
+            "body": "{\"field_id\":\"0\",\"settings\":{\"form_title\":\"WPrism native template\",\"form_desc\":\"\"}}",
+            "post_id": 9,
+            "post_type": "wpforms-template",
+            "source_home": "http://localhost:9464",
+            "page_id": 10,
+            "encoding": "native-raw"
+        },
+        "authoring-duplicate": {
+            "body": "{\"field_id\":9,\"settings\":{\"form_title\":\"WPrism native string identity (ID #13)\",\"form_desc\":\"<p>Authored <a href=\\\"http:\\/\\/localhost:9464\\/native-help\\/?p=10\\\">help<\\/a><\\/p>\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native integer identity\",\"sender_name\":\"WPrism wpfobserve111\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks \\u65e5\\u672c\\u8a9e\",\"message_scroll\":\"1\"},\"2\":{\"type\":\"page\",\"page\":\"10\"},\"3\":{\"type\":\"page\",\"page\":\"previous_page\"},\"4\":{\"type\":\"redirect\",\"redirect\":\"http:\\/\\/localhost:9464\\/native-thanks\\/?page_id=10\"},\"5\":{\"type\":\"redirect\",\"redirect\":\"https:\\/\\/example.test\\/external-thanks\"}},\"store_spam_entries\":\"0\",\"form_tags\":[\"WPrism native tag\"]},\"id\":13,\"fields\":{\"1\":{\"id\":\"1\",\"type\":\"text\",\"label\":\"Unicode \\u65e5\\u672c\\u8a9e \\u03a9\",\"required\":\"1\",\"default_value\":\"quoted \\\"text\\\"\"},\"2\":{\"id\":\"2\",\"type\":\"email\",\"label\":\"Email\",\"required\":\"1\",\"allowlist\":\"\",\"denylist\":\"\",\"default_value\":\"\"},\"3\":{\"id\":\"3\",\"type\":\"textarea\",\"label\":\"Message\"},\"4\":{\"id\":\"4\",\"type\":\"select\",\"label\":\"Selection\",\"choices\":{\"1\":{\"label\":\"First\",\"value\":\"alpha\"},\"2\":{\"label\":\"Second\",\"value\":\"beta\"}}},\"5\":{\"id\":\"5\",\"type\":\"checkbox\",\"label\":\"Checks\",\"choices\":{\"1\":{\"label\":\"Accepted\",\"value\":\"yes\"}}},\"6\":{\"id\":\"6\",\"type\":\"radio\",\"label\":\"Radio\",\"choices\":{\"1\":{\"label\":\"One\",\"value\":\"one\"}}},\"7\":{\"id\":\"7\",\"type\":\"number\",\"label\":\"Number\"},\"8\":{\"id\":\"8\",\"type\":\"number-slider\",\"label\":\"Range\",\"min\":\"0\",\"max\":\"100\"}}}",
+            "post_id": 13,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9464",
+            "page_id": 10,
+            "encoding": "native-raw"
+        },
+        "qr-page": {
+            "body": "{\"field_id\":\"0\",\"settings\":{\"form_title\":\"WPrism native QR page\",\"form_desc\":\"\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native QR page\",\"sender_name\":\"WPrism wpfadmin021\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks for contacting us! We will be in touch with you shortly.\",\"message_scroll\":\"1\"}},\"store_spam_entries\":\"0\",\"qr_code\":\"page\",\"qr_code_logo\":\"wpforms\",\"qr_code_page_id\":19,\"qr_code_logo_id\":0,\"qr_code_url\":\"\",\"qr_code_generated\":\"http:\\/\\/localhost:9468\\/wprism-native-qr-destination\\/\"},\"id\":21}",
+            "post_id": 21,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9468",
+            "page_id": 19,
+            "attachment_id": 20,
+            "encoding": "decoded-native-snapshot-reencoded"
+        },
+        "qr-url": {
+            "body": "{\"field_id\":\"0\",\"settings\":{\"form_title\":\"WPrism native QR url\",\"form_desc\":\"\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native QR url\",\"sender_name\":\"WPrism wpfadmin021\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks for contacting us! We will be in touch with you shortly.\",\"message_scroll\":\"1\"}},\"store_spam_entries\":\"0\",\"qr_code\":\"url\",\"qr_code_logo\":\"none\",\"qr_code_page_id\":0,\"qr_code_logo_id\":0,\"qr_code_url\":\"http:\\/\\/localhost:9468\\/native-qr\\/?target=19\",\"qr_code_generated\":\"http:\\/\\/localhost:9468\\/native-qr\\/?target=19\"},\"id\":24}",
+            "post_id": 24,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9468",
+            "page_id": 19,
+            "attachment_id": 20,
+            "encoding": "decoded-native-snapshot-reencoded"
+        },
+        "qr-custom_logo_residue": {
+            "body": "{\"field_id\":\"0\",\"settings\":{\"form_title\":\"WPrism native QR custom_logo_residue\",\"form_desc\":\"\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native QR custom_logo_residue\",\"sender_name\":\"WPrism wpfadmin021\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks for contacting us! We will be in touch with you shortly.\",\"message_scroll\":\"1\"}},\"store_spam_entries\":\"0\",\"qr_code\":\"page\",\"qr_code_logo\":\"custom\",\"qr_code_page_id\":19,\"qr_code_logo_id\":20,\"qr_code_url\":\"https:\\/\\/example.test\\/unused\",\"qr_code_generated\":\"http:\\/\\/localhost:9468\\/wprism-native-qr-destination\\/\"},\"id\":27}",
+            "post_id": 27,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9468",
+            "page_id": 19,
+            "attachment_id": 20,
+            "encoding": "decoded-native-snapshot-reencoded"
+        },
+        "qr-none": {
+            "body": "{\"field_id\":\"0\",\"settings\":{\"form_title\":\"WPrism native QR none\",\"form_desc\":\"\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native QR none\",\"sender_name\":\"WPrism wpfadmin021\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks for contacting us! We will be in touch with you shortly.\",\"message_scroll\":\"1\"}},\"store_spam_entries\":\"0\",\"qr_code\":\"none\",\"qr_code_logo\":\"wpforms\",\"qr_code_page_id\":0,\"qr_code_logo_id\":0,\"qr_code_url\":\"\",\"qr_code_generated\":\"\"},\"id\":30}",
+            "post_id": 30,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9468",
+            "page_id": 19,
+            "attachment_id": 20,
+            "encoding": "decoded-native-snapshot-reencoded"
+        },
+        "qr-invalid": {
+            "body": "{\"field_id\":\"0\",\"settings\":{\"form_title\":\"WPrism native QR invalid\",\"form_desc\":\"\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"{admin_email}\",\"subject\":\"New Entry: WPrism native QR invalid\",\"sender_name\":\"WPrism wpfadmin021\",\"sender_address\":\"{admin_email}\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks for contacting us! We will be in touch with you shortly.\",\"message_scroll\":\"1\"}},\"store_spam_entries\":\"0\",\"qr_code\":\"none\",\"qr_code_logo\":\"wpforms\",\"qr_code_page_id\":0,\"qr_code_logo_id\":0,\"qr_code_url\":\"\",\"qr_code_generated\":\"\"},\"id\":32}",
+            "post_id": 32,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9468",
+            "page_id": 19,
+            "attachment_id": 20,
+            "encoding": "decoded-native-snapshot-reencoded"
+        },
+        "literal-notification": {
+            "body": "{\"field_id\":2,\"settings\":{\"form_title\":\"WPrism literal notification proof\",\"form_desc\":\"\",\"submit_text\":\"Submit\",\"submit_text_processing\":\"Sending...\",\"notification_enable\":\"1\",\"notifications\":{\"1\":{\"email\":\"operations@example.test\",\"sender_name\":\"WPrism notifications \\u03a9\",\"sender_address\":\"forms@example.test\",\"replyto\":\"support@example.test\",\"subject\":\"Native notification proof\",\"message\":\"{all_fields}\"}},\"confirmations\":{\"1\":{\"type\":\"message\",\"message\":\"Thanks \\u03a9\"}},\"store_spam_entries\":\"0\"},\"id\":19,\"fields\":{\"1\":{\"id\":\"1\",\"type\":\"text\",\"label\":\"Message\",\"required\":\"1\",\"default_value\":\"Public authored default\"}}}",
+            "post_id": 19,
+            "post_type": "wpforms",
+            "source_home": "http://localhost:9472",
+            "encoding": "native-raw"
+        }
+    },
+    "settings": {
+        "modern-markup": "1",
+        "modern-markup-is-set": true,
+        "modern-markup-hide-setting": true,
+        "lite-connect-enabled": false,
+        "gdpr": true,
+        "disable-css": "2",
+        "global-assets": true,
+        "gdpr-disable-uuid": false,
+        "gdpr-disable-details": false,
+        "validation-required": "Native 日本語 required {field_id}",
+        "validation-email": "Native email Ω {suggestion}",
+        "validation-email-suggestion": "Did you mean {suggestion}?",
+        "validation-email-restricted": "This email address is not allowed.",
+        "validation-number": "Please enter a valid number.",
+        "validation-number-positive": "Please enter a valid positive number.",
+        "validation-minimum-price": "Amount entered is less than the required minimum.",
+        "validation-confirm": "Field values do not match.",
+        "validation-inputmask-incomplete": "Please fill out the field in required format.",
+        "validation-check-limit": "You have exceeded the number of allowed selections: {#}.",
+        "validation-character-limit": "Limit is {limit} characters. Characters remaining: {remaining}.",
+        "validation-word-limit": "Limit is {limit} words. Words remaining: {remaining}.",
+        "validation-requiredpayment": "Payment is required.",
+        "validation-creditcard": "Please enter a valid credit card number.",
+        "validation-min": "Please enter a value greater than or equal to {value}.",
+        "validation-max": "Please enter a value less than or equal to {value}."
+    }
+}

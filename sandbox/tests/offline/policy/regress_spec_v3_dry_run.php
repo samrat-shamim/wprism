@@ -466,20 +466,20 @@ foreach ($unionKeys as $key) {
 }
 $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ? '(none)' : implode(', ', $knownUnused)));
 
-// F1 — the difference, enumerated in both directions. Redirection's
+// F1 — the difference, enumerated in both directions. Redirection's and WPForms'
 // feature-claimed keys deliberately sit in § v3.21's roster rather than
 // duplicating the signer partition.
 wprism_check_same(
-    ['column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    ['attr_id_codecs', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $unknownInUse,
-    'F1: the only shipped keys outside the signer partition are classified by Redirection\'s declared feature roster'
+    'F1: every shipped key outside the signer partition belongs to an explicitly declared feature roster'
 );
 wprism_check_same(
     [],
     array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
     'F1: every shipped key outside the partition has a certificate arm in the feature roster'
 );
-wprism_check_same(34, count($unionKeys), 'F1: the in-use union is 34 keys');
+wprism_check_same(36, count($unionKeys), 'F1: the in-use union is 36 keys');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
@@ -753,6 +753,7 @@ wprism_check_same(
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wpforms-lite',
         'yoast',
         'yoast-duplicate-post',
     ],
@@ -830,14 +831,20 @@ wprism_check_same(
 // nine, schema-settlement/v1 makes it ten, plugin-incompatibility/v1 makes it
 // eleven while claiming the incompatibility section itself, and the fixed
 // manifest-provider child protocol makes it twelve, and scalar reference
-// intersection made thirteen and native value validation makes fourteen,
-// neither claiming a new top-level section. The count is now evidence for a different claim than the one it started
+// intersection made thirteen, native value validation fourteen, and retained
+// JSON-body reference types fifteen, JSON-body URL rebinding sixteen, and
+// reviewed JSON-body scalar privacy paths seventeen,
+// each without a new top-level section.
+// The count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// thirteen of these fourteen shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// sixteen of these seventeen shipped after the flip with WPRISM_SPEC_VERSION left at 3.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'body-pii-paths/v1',
+        'body-ref-preserve-type/v1',
+        'body-url-rebinding/v1',
         'invalidate-vocabulary/v1',
         'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
@@ -853,7 +860,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries fourteen names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries seventeen names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented

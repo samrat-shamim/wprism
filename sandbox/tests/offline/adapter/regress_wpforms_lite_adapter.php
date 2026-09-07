@@ -14,9 +14,10 @@
  * BYTE FOR BYTE here. Nothing below constructs a manifest: every assertion is
  * about what that one file makes the shipped engine do.
  *
- * A FIXTURE, NOT A PRODUCT CLAIM. `manifests/` carries no wpforms entry,
- * `manifests/dispositions/` carries no reviewed entry for it, docs/capabilities.md
- * says nothing about WPForms, and no adapter digest moves (AGENTS.md rule 2).
+ * A HISTORICAL SITE FIXTURE, NOT THE SHIPPED CAPSULE'S PRODUCT CLAIM. The
+ * newer experimental capsule has a different version range and declarations.
+ * This fixture remains selected through an explicit source=site override;
+ * its certificate cannot certify or silently replace the shipped namesake.
  * `tools/engine-gaps.json` still records the candidate as REJECTED; two of its
  * four coordinates closed (WP-6.1's `attr_id_codecs`, WP-6.5's `body_refs` + the
  * `json` body mode) and the other two are stated as unclaimed in group E.
@@ -207,7 +208,7 @@ $policy = $loadSite($adapter);
 wprism_check_same(
     ['wpforms-lite'],
     array_column($policy->manifests, 'name'),
-    'A2: the real loader accepts it through the SITE source, with no shipped namesake and no certificate'
+    'A2: the real loader accepts the explicit SITE override without borrowing the shipped namesake or its disposition'
 );
 wprism_check_same(
     'site',
@@ -809,7 +810,10 @@ $certRepo = static function (string $label, array $manifest) use ($certRoot): st
     mkdir($repo . '/adapters', 0755, true);
     Canon::write_file($repo . '/adapters/wpforms-lite.json', Canon::encode($manifest));
     Canon::write_file($repo . '/site.wprism.json', Canon::encode([
-        'manifests' => ['core'],
+        // The library now ships a different WPForms capsule. Certification
+        // must validate this historical site fixture under explicit override
+        // authority, never weaken AdapterSources' shadowing refusal.
+        'manifests' => ['core', ['name' => 'wpforms-lite', 'source' => 'site']],
         // An empty JSON OBJECT: PHP erases {} vs [] on an associative round
         // trip and the engine refuses the list form.
         'policy' => new stdClass(),
@@ -826,6 +830,23 @@ $keyPath = $certRoot . '/site.key';
 file_put_contents($keyPath, base64_encode(sodium_crypto_sign_secretkey($keypair)) . "\n");
 chmod($keyPath, 0600);
 $certReason = 'The exercise site reviewed these exact wpforms-lite adapter bytes against 2.0.0.5.';
+
+$unselectedRepo = $certRepo('unselected', $adapter);
+$unselectedSite = ['manifests' => ['core'], 'policy' => new stdClass(), 'spec_version' => WPRISM_SPEC_VERSION];
+Canon::write_file($unselectedRepo . '/site.wprism.json', Canon::encode($unselectedSite));
+$unselectedRun = $certifyCli([
+    'certify', $unselectedRepo, '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
+    '--key-id=' . $keyId, '--reason=' . $certReason,
+]);
+wprism_check_same(2, $unselectedRun['exit'], 'F0: the old site fixture cannot silently shadow the new shipped capsule');
+wprism_check(str_contains($unselectedRun['err'], "shadows the shipped adapter 'wpforms-lite'"),
+    'F0: the real certification command names the missing explicit site override');
+wprism_check(!file_exists($unselectedRepo . '/adapters/certifications/wpforms-lite.json')
+    && !file_exists($unselectedRepo . '/adapters/authorities.json'), 'F0: refused shadowing publishes neither certificate nor authority');
+wprism_check_same(Canon::encode($unselectedSite), file_get_contents($unselectedRepo . '/site.wprism.json'),
+    'F0: shadowing refusal preserves the complete site policy');
+wprism_check_same($adapterBytes, file_get_contents($unselectedRepo . '/adapters/wpforms-lite.json'),
+    'F0: shadowing refusal preserves the historical manifest bytes');
 
 // F1 — THE DERIVED PROFILE, end to end.
 $derivedRepo = $certRepo('derived', $adapter);

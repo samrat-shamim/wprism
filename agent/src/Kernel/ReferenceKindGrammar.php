@@ -11,6 +11,9 @@ namespace WPrism;
  * remains independent of runtime resolution and orchestration.
  */
 final class ReferenceKindGrammar {
+    /** One pure width contract for declarations and wprism_map.id_kind. */
+    public const LEDGER_KIND_WIDTH = 64;
+
     private const ENGINE_TOKEN_KINDS = ['post', 'term', 'tt'];
     /** @see ENGINE_TOKEN_KINDS */
     private const ENGINE_REF_KINDS = ['post', 'term', 'tt', 'user'];

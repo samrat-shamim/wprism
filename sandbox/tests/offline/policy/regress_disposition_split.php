@@ -8,7 +8,7 @@
  * ---------------------
  * `manifests/dispositions.json` was 302 lines, 37,707 bytes and 16 entries in
  * one file; the current library has one package-local disposition per adapter
- * plus `platform/adapter-library/core/disposition.json` — 18 subjects in all.
+ * plus `platform/adapter-library/core/disposition.json` — 19 subjects in all.
  * That is a
  * relocation of bytes AGENTS.md rule 2 calls adapter identity:
  * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
@@ -357,16 +357,17 @@ const WPRISM_CURRENT_DIGESTS = [
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
+    'wpforms-lite' => '8990dfd69f6a2b3e31e52e9fac0108b421375e144df7e0bb77c3f4c961bbc761',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '6c799d1d913321bb0d440d4f1413792ab8f0b6528b1186c0891498e9c6ae83ba';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'dfd90f30a212b7ff026ec1f747fe4628e31f6b88c3519a08fbf17015d5842f30';
-const WPRISM_CURRENT_REGISTRY_SHA = 'e1947725c71c22f0767a74895fe441bf801aaa3174ced53087c8a8c09ac702f3';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'ef66e57722b855c8ec0a8bca12324ad84032b67e44ac7ffe6598d6e767e2070b';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '9e139f3acb9eb3b9ee5514a4971a5ff2eb8109364923dd01951f6aed1e939ee2';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'bd6022a133930e5e6cb970bc5def723734b180b53434ce294c3c6f169801b715';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '9d7ab5625b12c6fa4bfbb3cfde3ab3a48e0340a94254a13e657d158e577f04b6';
+const WPRISM_CURRENT_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '984a3fa2c761b931e71ee174d02e31ceec4b045d371813f5a5a00db3c4cfa6c0';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'd708a9b06155619aa7e9864be72e21ea4b9c9250b93d7bba889a1c191bb581a6';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -374,6 +375,9 @@ wprism_check(
     'the shipped library loads its reviewed claim source from the per-subject directory'
 );
 $shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
+$actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
+sort($actualNames, SORT_STRING);
+wprism_check_same($actualNames, $shippedNames, 'the literal identity baseline includes every actual package, not only its own two-world union');
 $rankWorldPins = array_values(array_diff($shippedNames, ['yoast']));
 $yoastWorldPins = array_values(array_diff($shippedNames, ['rank-math']));
 $shippedPolicies = [
@@ -680,8 +684,12 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
-wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, WPRISM_CURRENT_REGISTRY_SHA,
-    'the portable/native boundary correction leaves reviewed disposition bytes unchanged');
+$priorRegistry = $shippedRegistry->data();
+unset($priorRegistry['manifests']['wpforms-lite']);
+wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
+    'all 18 pre-existing reviewed dispositions remain byte-identical after adding the WPForms preview');
+wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
+    'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'polylang' => PRE_COLD_CACHE_POLYLANG_DIGEST,
 ]))), 'the cold-cache correction moves only Polylang executable identity');
@@ -801,7 +809,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(19, $documentCount, 'the reviewed source is 19 documents: 18 subjects and the profiles map');
+wprism_check_same(20, $documentCount, 'the reviewed source is 20 documents: 19 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

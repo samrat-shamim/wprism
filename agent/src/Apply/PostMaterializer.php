@@ -187,7 +187,8 @@ final class PostMaterializer {
                         . 'the manifest that is pinned'
                     ),
                 fn(string $token): int => $this->tokens->token_to_id($token),
-                "{$front['type']} '{$front['slug']}'"
+                "{$front['type']} '{$front['slug']}'",
+                fn(string $text): string => $this->tokens->detokenize_text($text)
             ),
             default => Blocks::apply_rewrite($body, $this->policy, $this->tokens),
         };

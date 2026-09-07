@@ -45,6 +45,7 @@ adapter-packages/<name>/
     conformance/{entry.json,seed.sh,check.sh}
     certify/version-matrix.sh
   fixtures/                          # capsule-owned historical/probe inputs
+    <workflow>/                     # native PHP, shell helpers and host readers
   evidence/
     artifacts.lock.json              # exact official artifact URLs + sha256
     production-readiness.json        # all 12 hostile scenario families
@@ -156,6 +157,16 @@ A provider-only edit can move its adapter and compatible manifest hashes while
 leaving manifest JSON, the disposition registry and policy snapshots unchanged.
 Run both identity owners before the aggregate: capsule validation does not
 replace those cross-library identity checks.
+
+A new capsule also extends the source census: run `make
+regress-spec-v3-digest-neutrality regress-spec-v3-document
+regress-spec-v3-dry-run regress-spec-window` before the full gate. The literal
+identity baseline must cover the actual library, not merely agree with its own
+two pin lists. Preserve every existing per-adapter digest and smaller pin set
+unless that adapter's identity inputs changed. The current whole-registry
+address and frozen snapshots still move when an unpinned disposition is added;
+§ v3.4's WP-4.5 addressing proposal is explicitly unimplemented. Re-measuring
+that baseline does not close this architectural limitation.
 
 ## The minimal worked example
 
@@ -892,6 +903,20 @@ and must not use the engine's work-partition APIs. Calling or reentering a core
 helper from native code does not replenish the callback's quota; an oversized
 operation needs a genuinely bounded semantic design, not a counter reset.
 
+Large engine-owned keyed strings use `Db::upsert_keyed_strings()`: at most
+256 distinct UTF-8 key/value pairs and 7 MiB of aggregate value bytes, split
+at complete UTF-8 boundaries into at most 256-KiB data fragments. Whole-field
+WordPress validation and a full-width unique-key proof precede the first
+write. The original physical transaction owns every append and the complete
+key/length/hash readback; an interrupted batch poisons continuation so catching
+an exception cannot publish a prefix. WordPress itself finishes placeholder
+escaping before the generated fragments enter the unchanged SQL gate. Neither
+chunking nor reentry replenishes the enclosing statement or byte quota.
+This is shared engine storage, not a new provider permission or a general
+large authored-row capability: providers still use their declared SDK boundary.
+WPForms Lite 2.0.1.1 exposed the need through a 1,044,395-byte code descriptor,
+not through plugin-specific storage semantics.
+
 Audit native API reads with cold caches as well as warm ones before narrowing
 that table list. For example, WordPress's `url_to_postid()` creates a `WP_Query`
 that can prime post metadata: an id-only answer still needs `postmeta` read
@@ -981,6 +1006,17 @@ binary encoding, original byte counts/hashes and explicit truncation markers:
 an incomplete diagnostic is not an exact-cause certificate. Do not add a
 plugin-owned subprocess logger or publish opaque child output to recover a
 missing cause.
+
+When two successful fresh children disagree, the engine retains a private
+`wprism-provider-postimage-comparison/v1` record alongside the unchanged
+recovery refusal. Each compared value carries its exact PHP-serialized byte
+count and SHA-256, preserving the types and key order the strict comparison
+used. Up to 1,024 bytes per value are retained as base64; larger values carry
+`retained_complete: false` and no byte payload. These are inert diagnostic
+bytes, never runtime unserialization input. The bounded record fits the private
+Throwable recorder without field truncation. A hash-only omission is not an
+exact postimage reconstruction, and the comparison grants no retry bypass.
+This belongs in the shared process boundary, not a plugin-owned logger.
 
 The same rule applies to engine-owned native children. `rewrite.flush` uses
 the shared rejected-capture helper for unknown exit statuses, warnings and
@@ -1440,7 +1476,53 @@ block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
 `mixed-column-codecs/v1` admits the measured plain/serialized/NULL container
 inside that section without claiming a second top-level key;
 `structured-body-refs/v1` claims `body_refs`, a declared path grammar into JSON
-post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
+post bodies; `body-ref-preserve-type/v1` admits `cast: "preserve"` on those paths
+when a native writer stores the same reference as either an integer or a string.
+It requires the structured-body feature and leaves ordinary meta/options and
+block-attribute casts unchanged. Missing self IDs stay missing; present IDs
+must be declared and rebound, not preserved as source-local numbers. The
+canonical typed-reference envelope retains the native type beside an ordinary
+identity token; exact compiler, lint and Apply validation reject malformed
+envelopes without a plugin-owned rewrite. `body-url-rebinding/v1` separately
+admits `"url_rebinding": true` on that post type's `body_refs` record and
+requires the structured-body feature. It reuses the existing home/uploads/query
+text codec, not block/shortcode parsing. Declared reference positions and their
+literal sentinels are protected; keys and non-string types stay unchanged.
+An omitted flag preserves the reference-only behavior and warnings. A remaining
+source URL is still a scoped limitation, not portable support. See
+`spec/repo-format.md` § v3.20.
+`body-pii-paths/v1` separately admits `pii_paths` on that same body record.
+It is a reviewed list of exact scalar-field paths, not whole-body `allow_pii`.
+Named first/terminal segments and no recursive descent keep the scope explicit;
+intermediate wildcards and list mapping use the existing reference dialect.
+Only matched scalar values and their field roles are cleared. Keys, containers,
+unreviewed siblings and all secrets remain protected. The same authority is
+checked during Capture and immutable compilation; merely declaring the feature
+does not clear anything. Decide whether each destination is genuinely authored
+and portable before reviewing it: an environment-specific address needs an
+environment contract, not a privacy exception that copies it to every target.
+
+One post body's complete `body_refs.<type>` record has one owner. Distinct
+manifests may repeat a canonically identical declaration, but cannot select
+different reference paths, casts, sentinels, URL handling or privacy paths by
+pin order—even if their `post_types.<type>.body=json` declarations agree.
+Both live policy loading and immutable snapshot loading enforce this before
+capture or compilation. Extend the owning capsule; there is no site-policy
+body-grammar override or cross-adapter composition rule. Exercise conflicting
+and identical declarations in both pin orders when adding a grammar extension.
+
+Mixed option blobs use their existing per-subkey `allow_pii` review, not body
+paths. Exercise native values through the real capture guard before ratifying
+them: WPForms' `validation-email` is operator-authored validation copy, but its
+name triggers the semantic email-field guard even when the value is only a
+message and placeholder. Review that exact authored subkey with a source-backed
+reason; do not clear the parent blob or reclassify credentials as authored.
+Keep unreviewed subkeys target-local and test that secrets still refuse inside
+the reviewed field. The capsule's `regress_settings_and_embeds.php` exercises
+native settings with hostile excluded siblings and independent secret/PII
+controls through `OptionsCapture` and `CaptureSafetyGates`.
+
+`structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
 `{"evidence": [{source, locator, observation}, …]}` and optionally
 `{"answered": [{question, answer}, …]}`, with every member a non-empty string
@@ -1516,7 +1598,19 @@ plugin faithfully.
    `body: serialized` for serialized post bodies and `plain_data: true` for a
    decoded scalar/array rule with nested strings but no id positions. Both
    re-serialize after tokenization so PHP length prefixes remain correct;
-   opaque `verbatim` bytes deliberately do not re-bind.
+   opaque `verbatim` bytes deliberately do not re-bind. For declared JSON bodies,
+   negotiate `body-url-rebinding/v1` and set `body_refs.<type>.url_rebinding`
+   to `true`. Prove it composes with the body's declared reference casts and
+   literal sentinels through the real compiler, post materializer and recapture;
+   an isolated string-codec pass is not evidence of database-boundary correctness.
+   Exercise literal operational settings as well as smart tags. WPForms'
+   `{admin_email}` fixture does not prove a literal notification destination
+   can be captured. When a genuine authored scalar needs reviewed PII authority,
+   declare its exact `pii_paths` entry with `body-pii-paths/v1`; retain a hostile
+   form default, sibling, map key, container and credential beside the positive
+   settings. Both Capture and immutable compilation must refuse those hostile
+   cases without altering canonical or native state. Never infer clearance in
+   a draft, suppress a detector, or add a plugin-name exception to the engine.
 5. Exercise activation, complete the plugin's documented onboarding, then make
    one real admin save, one front-end read, an update, and a deletion before
    declaring the option/table inventory complete. Activation is not proof of
@@ -1529,10 +1623,23 @@ plugin faithfully.
    clears uploads with `wp site empty --uploads`, recreate and verify the
    ordinary WordPress uploads root through `wp_mkdir_p` before apply; apply is
    right to refuse a missing or symlinked production root.
+   For admin-only writers, prove the authenticated actor, native request
+   lifecycle, registered writer and persisted readback together. A loaded class
+   or manually fired `admin_init` is insufficient. If a simulated CLI admin
+   request warns or fails, retain that failure and exercise an authenticated
+   HTTP admin request with its nonce and server diagnostics; do not suppress
+   warnings or manually load plugin internals to manufacture readiness.
 6. Trace the plugin hooks skipped by WPrism's direct writes. Cache invalidation,
    generated files, rewrite flushes, index tables, and type registration need a
    bounded provider with value-level verification or an explicit unsupported
    disposition.
+   A native delta handler is not necessarily a rebuild API: WPForms' widget
+   locator appends duplicate locations when the same nonempty settings are
+   replayed with an empty old value, and its post handler can write location
+   metadata for a nonexistent form. Validate the complete bounded input and
+   target roster before mutation, declare the exact recoverable derived
+   keyspace, and prove a complete value-level fixed point. Neither invoking
+   that handler twice nor scheduling its asynchronous scan establishes repair.
 7. Mutate the proposed manifest in tests: remove a ref, broaden a namespace,
    switch a runtime field to authored, and create a conflicting second owner.
    Each false claim must fail for the reason the production path would fail.
@@ -1644,7 +1751,15 @@ plugin faithfully.
    them. Its engine-backed confinement and closed byte/topology decoder remain
    generic test machinery; the caller owns the selected roots, phase binding
    and equality assertion. Preserve target-only files and empty directories in
-   this diagnostic. Do not normalize away differences to make the test pass,
+   this diagnostic. Retain the compiler's selected policy and media inputs too:
+   `rmcombofinal01` kept the complete state trees but could not recompile them
+   after teardown until its missing media was recovered from the hash-verified
+   upstream artifact. The scenario's v2 diagnostic now retains both sites'
+   policy/media trees before and after, and requires them unchanged before
+   compiler-backed acceptance. A native scalar may still have a `plain_data`
+   declaration (ACF text fields do); distinguish a codec from the stored value's
+   shape, and reproduce the real interpreter rule in the offline oracle.
+   Do not normalize away differences to make the test pass,
    and do not treat a successfully retained record as proof of equality.
    Inspect private records from a standalone, non-WordPress process running as
    the target CLI identity: the store is intentionally `0700`/`0600`, so host
@@ -1880,6 +1995,46 @@ around — it is init doing its job — but it means the review queue will not
 hand you the CPT or taxonomy you are writing the adapter *for*. Read `wprism init
 --format=json`'s `unmanaged_scope_left_local` advisories (or the host
 renderer's `UNMANAGED SCOPE …` lines) for what init already decided instead.
+
+The same onboarding boundary applies to stored widget families. A populated
+family with no selected `widgets{}` grammar and no active sidebar assignment
+receives an exact `policy.options.widget_<type> = {"class":"runtime"}` rule,
+shown as `UNMANAGED WIDGET` before confirmation. Marker-only families get no
+decision. Native settings and inactive assignments remain local; init does not
+invent widget identities, remove instances, or infer references from their
+values. A selected non-local classification without widget grammar still
+blocks instead of being downgraded. Once the adapter declares the widget type,
+the structural widget grammar owns portable instances.
+
+An **active** assignment is different: its complete sidebar is an authored
+layout, and excluding one widget option cannot make a partial layout safe to
+publish. Init therefore reports `undeclared_active_widget` before confirmation,
+even with `--allow-unmanaged-plugins`. Install the reviewed widget declaration,
+or deliberately remove its active assignments in WordPress before requesting a
+fresh proposal. Do not remove native widgets merely to turn an evidence run
+green; when testing this boundary, retain the refused layout and prove both
+readiness and Capture preserve it. WPForms reconnaissance exposed the previous
+false-ready proposal; `regress-init-widgets` exercises the actual planner,
+bounded native reader and unchanged Capture guards.
+
+A completed baseline is not yet a clean environment. Host `init` can report
+both canonical and separate code baseline commits, then exit 1 because required
+`admin_email`, `home` or `siteurl` bindings have not been provisioned. Preserve
+those baselines; inspect the complete plan, provision the driver's deliberately
+chosen values through public `env-set --stdin`, and require a fresh host
+`status` to be clean before proceeding. Do not rerun initialization, infer
+intent from whatever values happen to be installed, or accept the nonzero
+handoff as a successful status check. Disposable conformance uses
+`establish_core_environment_bindings` as described below. WPForms reconnaissance
+exercised this exact baseline → explicit provisioning → clean-status sequence;
+it is distinct from a failed baseline publication or uncertain recovery.
+
+For a failed **fresh** initialization, `.wprism/refusals/` is intentionally
+absent: creating that directory would violate first-init compensation. Preserve
+any sealed `.wprism-init-attempt` evidence and use a reviewed human-mode target
+rerun to inspect the diagnostic; the host's redacted envelope is not the cause.
+An interrupted or uncertain publication is a recovery decision, not permission
+to retry blindly. See [the CLI refusal contract](../../cli/README.md).
 
 ### 1. Observe
 
@@ -2156,6 +2311,20 @@ different one.
 
 ### 6. Exercise it
 
+Independent live lanes require a fresh **whole pair**, not just fresh database
+rows. `pair.sh reset` deliberately clears databases and repository contents
+while retaining webroot volumes. Reusing those volumes after deleting native
+attachment metadata leaves generated files without ownership; the engine must
+refuse to overwrite them. Between independent lanes, use the existing
+`pair_live_ownership_finish_leg()`, then `pair_live_ownership_acquire()` and
+`pair_live_ownership_up()`. This removes owned resources and releases the lease
+before re-proving the complete namespace, while retaining private host-registry
+scratch. The four-plugin scenario's `regress_pair_lane_isolation.php` executes
+its actual dispatcher and shared ownership helper: DB-only reset reproduces
+the lost-ownership mechanism, and body, creation, acquisition and teardown
+faults cannot start a later lane or publish PASS. A reset is still appropriate
+when retained native files are an intentional premise of the same test.
+
 Re-run the loop on a clean environment: capture, apply to a second environment,
 recapture, and compare every managed entity through the engine's declared
 semantic hash basis. Retain both raw captures: byte equality is a useful
@@ -2313,7 +2482,14 @@ library.
    admitted and refusal artifact URL/version/SHA-256 in
    `evidence/artifacts.lock.json`, and
    own the fresh-install, adjacent-version, in-range upgrade, and out-of-range
-   refusal workflow at `tests/certify/version-matrix.sh`. The normal driver is:
+   refusal workflow at `tests/certify/version-matrix.sh`.
+
+   A plugin may already have an exercise pin in the shared platform fragment
+   before it has a capsule. Move that subject's complete version map into its
+   new owner, preserving existing URL/digest/role values; do not leave two
+   owners or weaken the aggregate reader's duplicate-subject refusal. An old
+   exercise pin is not automatically certification or refusal evidence. The
+   normal driver is:
 
    ```sh
    candidate_sha=$(git rev-parse HEAD)
@@ -2469,6 +2645,13 @@ library.
    streams. Never normalize runtime values or accept equal empty dumps.
    Keep database credentials and dump bytes in the private evidence sink.
 
+   If an absence premise needs selected native IDs or option values, use the
+   shared `SqlDumpEvidence::projectColumns()` after complete-roster admission.
+   Bind `--complete-insert --skip-extended-insert` at the producer; the bounded
+   projection lexes every field without importing SQL or copying unrelated
+   bodies into a plugin-specific value walker. Decode serialized plain values
+   with the engine's `PlainData` codec, never an executable unserializer.
+
    Complete uninstall and isolated missing-widget history are different
    premises. Full Plan/Apply checks retained canonical maps before dead-map
    pruning; missing backing data must reach `canonical_identity_recovery_required`,
@@ -2478,6 +2661,16 @@ library.
    as evidence and prove it survives the refusal. Database-matched restoration
    is a separate subsequent control; neither pruning history nor accepting any
    nonzero exit proves safe recovery.
+
+   Prebind the expected first cause from the genuinely compiled preimage and
+   the native uninstall's removed families, not from the observed exception.
+   Compiler order is top-level identity order with menu items visited inline
+   under their owner; globally sorting item UUIDs selects the wrong cause.
+   Prove every removed family's complete retained map and absent backing IDs
+   before the command. Reinstallation can recreate a marker-only
+   `widget_polylang` option: prove the mapped instances are gone, not that the
+   option name is absent. Exercise term-first, menu-first and widget-only
+   product paths, including items whose UUID sorts on either side of a term.
 
    Exercise options-only lifecycle observation before that full identity gate,
    too. It must retain canonical core and declared typed mappings after native
@@ -2551,7 +2744,13 @@ library.
    `tests/conformance/entry.json` (the entry declares the pin set, artifacts,
    and state the round trip must preserve), and the mandatory `seed.sh` and
    `check.sh`. Add `postdeploy.sh`/`postapply.sh` only at the lifecycle seam
-   their names describe. Run the candidate-bound gate from its exact commit:
+   their names describe. Test directories admit class-named executable suites
+   and these closed hook names, not arbitrary helper filenames. Put reusable
+   native PHP, shell transport and host readers under `fixtures/<workflow>/`
+   and reference them from the hooks; do not hide them in `tests/lib` or label
+   them as independent regressions. The package validator uses the runner's
+   same closed discovery boundary before reporting success.
+   Run the candidate-bound gate from its exact commit:
 
    ```sh
    candidate_sha=$(git rev-parse HEAD)
@@ -2586,6 +2785,10 @@ library.
    primitive is `blocked`; missing coverage is `gaps`; neither may be hidden as
    `not_applicable`. See
    [the production-readiness contract](../agents/adapter-production-readiness.md).
+   An experimental preview keeps these unfinished families explicitly
+   `unready` and does not count as production-ready coverage. Isolated package
+   validation refuses `certified` while any family remains a gap or blocked;
+   a disposition edit cannot substitute for closing its evidence.
 7. **Own combinations at the participant boundary.** When two or more adapters
    interact, create `integration-scenarios/<scenario>/scenario.json` with a
    sorted `participants` list and convention-named gates under

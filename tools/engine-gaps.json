@@ -82,8 +82,29 @@
     },
     "structured_leaf_text_codec": {
       "title": "an explicit structured-leaf text codec independent of fake reference paths",
-      "status": "open",
-      "definition": "Tokenizing the string leaves of a nested array-valued option that declares no reference, without inventing a reference path to reach them."
+      "status": "shipped",
+      "definition": "Explicit URL/query-reference text rewriting in decoded plain-data string leaves without inventing entity-reference paths. Existing plain_data rules dispatch through Tokens for nested option/meta values; body-url-rebinding/v1 adds an explicit JSON-body opt-in. Declared JSON reference positions and literal sentinels remain owned by their reference grammar.",
+      "evidence": [
+        "agent/src/Grammar/Tokens.php",
+        "agent/src/Kernel/JsonRefs.php",
+        "agent/src/Grammar/BodyRefGrammar.php",
+        "agent/src/Capture/OptionsCapture.php",
+        "agent/src/Apply/OptionsMaterializer.php",
+        "sandbox/tests/offline/grammar/regress_body_ref_grammar.php",
+        "sandbox/tests/offline/grammar/regress_reference_contract.php"
+      ]
+    },
+    "reviewed_structured_scalar_pii_paths": {
+      "title": "reviewed scalar-field privacy authority inside structured bodies",
+      "status": "shipped",
+      "definition": "The separately negotiated body-pii-paths/v1 feature admits exact scalar-field pii_paths in a JSON body record. The existing JSONPath matcher selects native coordinates for PersonalData; Capture and immutable compilation share that authority without rewriting values or exempting key bytes, containers, siblings or secrets. This is authored-field review, not environment substitution or response-data capture.",
+      "evidence": [
+        "agent/src/Grammar/BodyRefGrammar.php",
+        "agent/src/Kernel/JsonRefs.php",
+        "agent/src/Kernel/PersonalData.php",
+        "agent/src/Repository/RepositoryAuthorization.php",
+        "sandbox/tests/offline/grammar/regress_body_ref_grammar.php"
+      ]
     },
     "post_apply_registration_boundary": {
       "title": "a verified post-apply type-registration/process boundary",
@@ -158,13 +179,41 @@
       "coordinates": [
         {
           "coordinate": "post_types.wpforms.body",
-          "cannot_represent": "`wpforms` post content is a JSON document carrying cross-entity references inside it, and none of the three body modes addressed a declared path inside one — `blocks` runs a block parser over a document with no blocks, `serialized` decodes PHP serialization that is not there, `verbatim` preserves the source-local id, and omitting `body` defaults to `blocks`. THIS ROW'S EARLIER SENTENCE — \"includes the form's source-local numeric `id`\" — was measured WRONG on a live 2.0.0.5 pair on 2026-08-25: the top-level `id` is ABSENT on the template create path, an INT on the `['builder' => false]` path (includes/class-form.php:611-639), and a STRING on the real builder save, because includes/admin/ajax-actions.php:36-52 rebuilds the posted form from a flat jQuery input list so every leaf reaching update() is a string. The unambiguously cross-entity reference is `settings.confirmations.<n>.page`: a PAGE post id stored as a JSON STRING, on a key that also legitimately holds the literal `previous_page` (includes/class-process.php:1553-1562 branches on exactly that before `get_permalink((int) …)`).",
+          "cannot_represent": "`wpforms` post content is a JSON document carrying declared page and optional self references. The original structured-body feature closes fixed-type confirmation paths, including the string sentinel `previous_page`. Native create/template content may omit the top-level `id`; the builder=false path writes an integer and the real builder writes a string. A present id is authoritative form identity, not form-local data: leaving it undeclared can bind a submitted form to an unrelated target form. The additional `body-ref-preserve-type/v1` feature declares that path with `cast: preserve` and retains int/string type beside an ordinary identity token. The shared codec, real compiler portability pass, lint and PostCapture are exercised with exact native fixture bytes, divergent target IDs, old-ID collisions and malformed canonical records. Missing paths remain missing. This closes the reference representation gap, not native WPForms support or same-site URL rebinding.",
           "primitive_required": "structured_post_body_reference_paths",
           "remedy_phrase": "structured post-body reference paths",
           "closed_by": [
             "agent/src/Grammar/BodyRefGrammar.php",
             "sandbox/tests/offline/grammar/regress_body_ref_grammar.php",
             "sandbox/tests/fixtures/wpforms-body/form-b.post_content.raw.json"
+          ]
+        },
+        {
+          "coordinate": "post_types.wpforms.body.urls",
+          "cannot_represent": "Native WPForms confirmation redirects and message content contain same-site absolute URLs inside JSON string leaves. Reference-only body=json preserved those URLs and warned; the retained form-b body exhibits the escaped source-home redirect. The separately negotiated body-url-rebinding/v1 feature now admits url_rebinding: true and reuses the existing home/uploads/query-reference text codec. JsonRefs protects exact native reference coordinates and sentinels, including dotted-key ambiguity, without a second path dialect or plugin-owned walker. Real compiler, PostCapture and checked-SQL PostMaterializer regressions prove the combined typed-reference/URL fixed point, native fixture framing, hostile source-ID collision isolation and mutation-free malformed-reference refusal. This closes representation and dispatch, not native WPForms product support.",
+          "primitive_required": "structured_leaf_text_codec",
+          "remedy_phrase": "explicit URL rebinding for structured JSON body string leaves",
+          "closed_by": [
+            "agent/src/Kernel/JsonRefs.php",
+            "agent/src/Grammar/BodyRefGrammar.php",
+            "agent/src/Capture/PostCapture.php",
+            "agent/src/Apply/PostMaterializer.php",
+            "sandbox/tests/offline/grammar/regress_reference_contract.php",
+            "sandbox/tests/offline/grammar/regress_body_ref_grammar.php",
+            "sandbox/tests/fixtures/wpforms-body/form-b.post_content.raw.json"
+          ]
+        },
+        {
+          "coordinate": "post_types.wpforms.body.notification_privacy",
+          "cannot_represent": "Replacing the retained native fixture's notification smart tags with synthetic literal recipient/sender/reply-to settings reproduces refusal in both real PostCapture and immutable-repository authorization. JSON bodies previously had no exact reviewed PII exception. body-pii-paths/v1 now admits pii_paths through the existing path dialect, restricted to named first/terminal segments and no recursive descent. The generic detector selects only native scalar coordinates and keeps key bytes, containers, unreviewed siblings and all secrets protected. Complete compiler, checked-SQL materializer and PostCapture tests prove exact typed-reference/URL/notification composition, hostile-input refusals and source/native preservation. Native writer persistence and notification delivery remain adapter evidence, not implied by these synthetic literal mutations.",
+          "primitive_required": "reviewed_structured_scalar_pii_paths",
+          "remedy_phrase": "reviewed scalar privacy paths without whole-body or secret clearance",
+          "closed_by": [
+            "agent/src/Grammar/BodyRefGrammar.php",
+            "agent/src/Kernel/JsonRefs.php",
+            "agent/src/Kernel/PersonalData.php",
+            "agent/src/Repository/RepositoryAuthorization.php",
+            "sandbox/tests/offline/grammar/regress_body_ref_grammar.php"
           ]
         },
         {
@@ -195,7 +244,7 @@
           ]
         }
       ],
-      "closing": "The block-selector coordinate closed in WP-6.1 (`attr_id_codecs`) and the JSON body coordinate closed in WP-6.5 (`body_refs` plus the `json` body mode), each exercised end to end by its own suite. The taxonomy coordinate closed by RUNNING the matrix its primitive names, not by certifying that a contract exists: `sandbox/tests/offline/adapter/regress_wpforms_lite_term_deletion.php` drives the fixture's own `term:wpforms_form_tag` declaration through the shipped deletion path and measures four things. Attached state: three forms tagged with the term make the one declared guard (term_relationships.term_taxonomy_id) block the apply with `forms are still tagged with this form tag — 3 row(s)`, and the same executor past that gate destroys all three attachments, so the guard is the only thing standing there. Cascade scope: an unattached term moves exactly three of the eight tables a term deletion could reach — one `terms` row, one `term_taxonomy` row, one `termmeta` row — with `posts`, `postmeta`, `options`, `wprism_map` and `term_relationships` byte-identical. Residue: a locally-created second `wpforms_form_tag` term and an orphaned term_relationships row survive untouched, and the forced path enumerates every stranded row by its composite PRIMARY key with the workflow that owns the repair. The negative: `post:wpforms` is not advertised, so the engine refuses it with the whole `unsupported_deletion` envelope instead of inferring a post cascade. Each case carries a mutation proof that removes its outcome — dropping the single guard from a manifest COPY makes the lock disappear against a byte-identical target, which is what makes this a measurement of the declaration rather than of the fixture. `term_taxonomy.parent` stays deliberately omitted because includes/class-form.php:136 registers the taxonomy non-hierarchical. Offline proves the decision layer only: `FOR UPDATE` is parsed and not modelled, so InnoDB row/gap locking under a concurrent writer remains sandbox/tests/certify/certify_deletion_matrix.sh's. Only `post_meta.wpforms_form_locations`'s apply-side postcondition now remains. WP-6.5 also corrected this row: the body coordinate's original one-sentence claim about a \"source-local numeric `id`\" was true for one of the plugin's three write paths and not for the common one, and the `wpforms_form_locations` coordinate was missing entirely because a hand-written fixture never produces it. Both were found by authoring the entities through WPForms' own APIs on a live pair rather than with `wp post create --post_content=…`, which is the discipline `docs/guides/adapter-authoring.md` § 1 already states and `sandbox/tests/grind/grind_adapter_walk.sh:582-586` does not follow. The WPForms site adapter in `docs/grind/adapter-walk.md` remains an authoring and trust-flow fixture only; it is not a platform support claim."
+      "closing": "Fixed-type JSON reference paths, block selector codecs and the fixture taxonomy decision matrix have offline evidence at their cited owners. The optional integer/string self-reference is represented by body-ref-preserve-type/v1, not preserved as an undeclared source-local id. The body-url-rebinding/v1 feature separately composes the existing URL/query text codec with exact reference/sentinel protection; real compiler, checked-SQL post materialization and PostCapture prove an exact body fixed point and mutation-free hostile input refusal. These close the measured representation/dispatch gaps, not the native product evidence. The bounded native form-locations postcondition remains adapter-owned. The historical taxonomy matrix proves offline declaration/decision behavior only, not concurrent InnoDB locking or a production deletion claim. The WPForms site adapter and captured 2.0.0.5 bodies are authoring/trust-flow fixtures, not platform support. Complete native create/update/builder/duplicate, divergent-ID materialization, submission, URL, location, lifecycle and composition evidence is still required before any product disposition."
     },
     {
       "id": "redirection",
@@ -247,9 +296,10 @@
       "coordinates": [
         {
           "coordinate": "options.cptui_post_types",
-          "cannot_represent": "`cptui_post_types` and `cptui_taxonomies` are nested authored arrays. The `menu_icon` field may be a site URL, but a plain array-valued option with no reference declaration does not currently tokenize nested string leaves.",
+          "cannot_represent": "`cptui_post_types` and `cptui_taxonomies` are nested authored arrays whose menu_icon may be a site URL. The shared plain_data rule now supplies explicit string-leaf URL rebinding through OptionsCapture, Tokens and OptionsMaterializer, without a fake reference declaration. CPT UI still needs its own reviewed declaration and native round-trip/registration evidence; this coordinate is adapter work, not a missing text primitive.",
           "primitive_required": "structured_leaf_text_codec",
-          "remedy_phrase": "an explicit structured-leaf text codec independent of fake reference paths"
+          "remedy_phrase": "an explicit structured-leaf text codec independent of fake reference paths",
+          "blocker_layer": "adapter"
         },
         {
           "coordinate": "lifecycle_effects.cptui-init-registration",

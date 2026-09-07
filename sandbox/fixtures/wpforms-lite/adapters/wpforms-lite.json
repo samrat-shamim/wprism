@@ -161,7 +161,7 @@
         "post_types.wpforms.body": {
             "answered": [
                 {
-                    "answer": "No. It is optional and TYPE-VARIANT across the plugin's own three write paths, so any single declared type would refuse two of them (BodyRefGrammar::assert_source_type()). The json body mode rewrites DECLARED PATHS ONLY and re-encodes everything else from the decode, so an undeclared `$.id` survives absent-as-absent, int-as-int and string-as-string. It is also not cross-entity: duplicate() sets it from the NEW post id itself (includes/class-form.php:934), so it tracks the row rather than pointing at another one.",
+                    "answer": "Yes, when present. It is optional and int/string-variant across native writers, but it identifies the submitted form. duplicate() assigning the NEW post id is evidence that it must follow the row's identity, not permission to retain a source-local id on another site. The original fixed-cast fixture intentionally remains an incomplete authoring/trust-flow example and does not declare this path. A production adapter needs the negotiated body-ref-preserve-type/v1 cast=preserve path: missing stays missing, while a present integer/string id becomes a typed ordinary identity reference and resolves to the target form. Divergent-ID materialization and native submission evidence are still required.",
                     "question": "Is the top-level `id` a self-reference this adapter must declare and rewrite?"
                 }
             ],

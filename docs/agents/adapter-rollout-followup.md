@@ -1,4 +1,4 @@
-# Adapter rollout: remaining work after the first checkpoint
+# Adapter rollout: remaining work after the checkpoint merges
 
 PR [#583](https://github.com/duotronic-ai/wprism/pull/583) was merged at the
 owner's request as an interim checkpoint, not as completion of the adapter
@@ -7,10 +7,132 @@ This work plan carries the unfinished criteria into the follow-up; it is not
 a capability declaration, disposition, generated inventory, or evidence of a
 passing run.
 
+The owner requested another interim merge on 2026-09-07. PR
+[#586](https://github.com/duotronic-ai/wprism/pull/586) merged as
+`99edadfd23718d4a170991c646cabdfdbb49e86f`, with its committed tree identical to
+the locally gated `15dae689409dcc8cd9c46b31fc823038f49983e8` checkpoint.
+The merge was verified against freshly fetched main. This continuation starts
+from that squash; uncommitted follow-up work was not part of the merge.
+
 At that checkpoint the catalog has **17 product adapters: 16 plugins plus
 core**. The regression-only `wprism-agency-cpt` capsule does not count toward
 twenty. Three additional product adapters remain to be selected, authored,
 reviewed and exercised through the product path.
+
+The follow-up now includes an **experimental WPForms Lite capsule**, not an
+eighteenth production-ready adapter. Its initial exact-artifact declaration
+uses shared JSON references, native type preservation, URL/query rebinding,
+scoped body privacy, block string-ID codecs, shortcode references, mixed-option
+subkeys and widget capture without any plugin-specific executable. All twelve
+readiness families remain explicit gaps until their full product evidence is
+complete. Its disposition claims only capture, compile and recapture to the
+cited offline boundary; no plan, deploy, apply, deletion or lifecycle support.
+The locked 2.0.1.1 ZIP is labeled an exercise fixture, not certified evidence.
+
+Eleven retained native body variants now live inside the capsule, including
+optional/string/integer identities, templates, duplication, QR page/logo
+references and literal notifications. Exact source capture, divergent-ID body
+codec replay, immutable compiler admission/refusal, mixed settings, shortcode
+and block references, active/inactive widgets and preservation are exercised
+by its package-local offline suites. QR bodies are explicitly re-encoded
+native snapshots, not original storage bytes. Native target behavior, location
+rebuild, settings consumers beyond the general/validation slice, submissions,
+template conversion and plugin combinations still require full conformance.
+
+The capsule owns an exact-artifact `capture-plan` entry and native source
+seed/observation hooks, but that new workflow has not yet run against a fresh
+candidate-bound pair. Its fourth offline suite independently admits complete
+actual PostCapture output and rejects malformed/failed native transport,
+canonical drift and accidental target acceptance (76 assertions). The target
+hook fails explicitly until the missing round-trip assertions exist. This work
+also closes Blocks' missing Shortcodes dependency in the shared grammar layer
+(237 -> 236 known bootstrap gaps), with standalone scanner and actual capture
+regressions. No plugin runtime executable was added.
+
+Package validation now enforces certified => ready directly: four mutation
+controls prove that both gaps and blocked primitives refuse for certified
+adapters while remaining explicit in non-authorizing experimental previews.
+The global gate still requires every nonexcluded capsule's full twelve-family
+ledger, and every certified product must be ready. Experimental WPForms cannot
+inflate the ready catalog or bypass the real capability readiness blocker.
+Validation also runs the same closed test-tree discovery as the package runner:
+native helper files belong under capsule fixtures, while tests contain only
+class-named suites and fixed hooks. Two red/green mutation controls cover early
+refusal of misplaced helpers and non-executing admission at the fixture owner.
+
+The new capsule also re-exercised the known WP-4.5 addressing gap: adding its
+disposition changes the whole-registry hash and frozen policy snapshots even
+for older pin sets. Existing per-adapter digests and smaller manifest pin sets
+remain unchanged. The literal baseline now independently checks actual library
+membership and includes WPForms in both compatible maximal worlds. That is an
+honest census/identity update, not per-subject registry addressing. Trace and
+close the documented addressing boundary through contract/frozen-policy
+consumers before claiming that catalog growth is isolated from unrelated
+registry contracts; do not solve it with a reader fallback or hash bypass.
+
+## Immediate continuation after PR #586
+
+- [x] Finish the pre-command Polylang uninstall oracle. Bind the first cause
+  from the genuine compiled order and native removed-family premises, including
+  menu items inline under their owner and marker-only widget storage after
+  reinstall. Shared bounded SQL column projection belongs in test
+  infrastructure; the engine's existing plain-data codec owns serialization.
+  The capsule owns native uninstall semantics, not a second SQL parser.
+  Commit `7833585f` passes shared SQL projection (117 assertions), the capsule
+  uninstall oracle (123 assertions), and the complete local gate.
+- [x] Run fresh exact-source native uninstall/recovery and run-last language
+  deletion evidence. The full `polybiok09` Polylang 3.8.6 sweep on clean
+  `7833585f` passed in 585.99 seconds, including the protected Plan refusal,
+  exact public/private cause, unchanged complete database and canonical trees,
+  restore/reinstall/new-intent recovery, and unused-language deletion refusal.
+  Post-teardown admission of both evidence records also passed. Unsupported
+  language deletion is still a refusal, not a newly enabled capability.
+- [x] Exercise the corrected compiler/native recapture oracle across all four
+  combination lanes below. The `rmcombofinal01` run passed native deployment,
+  frontend/redirect behavior, hostile ownership and provider recovery, then
+  exposed a test-only ACF `plain_data` assumption during recapture acceptance.
+  Its retained state passes the corrected oracle (46 managed entities, one
+  preserved post and six terms); this replay is not a completed lane. Fresh
+  `rmcombofinal02` on `ba837940` passed the first independent-metadata,
+  source-forward/target-reverse lane, including custom-CPT Capture/Plan/Apply
+  deletion refusals and preservation. Its second lane refused an unowned
+  attachment derivative after DB-only reset; the complete retained cause and
+  final pair cleanup were verified. The scenario now uses the existing shared
+  full-teardown/fresh-acquisition lifecycle between lanes, with an executable
+  resource-isolation counterfactual. Fresh `rmcombofinal03` on exact `1f48bce7`
+  passed both independent lanes and synchronized/source-forward/target-reverse,
+  including repeat Apply and custom-CPT deletion refusals; all three canonical
+  input/native preservation records re-admitted after teardown. The fourth
+  synchronized/source-reverse/target-forward lane passed initial Apply and
+  native frontend/redirect controls, then refused its provider retry because
+  Rank Math's claimed postimage differed from the independent second child's
+  observation. The complete 4,301-byte cause graph is retained; the two compared
+  postimages were not, so the underlying differing field is not yet known.
+  The run exited 1 after 1,702.68 seconds and exact cleanup passed. The shared
+  process boundary now retains bounded private comparison evidence for future
+  mismatches, with deterministic real-child coverage; that diagnostic fix does
+  not close the native failure or weaken the comparison. Fresh
+  `rmcombofinal04` on exact clean/pushed `dbcb233a` completed all four lanes
+  in 1,936.83 seconds with exit 0, including provider retry, full recapture,
+  zero-action repeated Apply, custom-CPT refusals and restoration. The actual
+  scenario validator and shared readers re-admitted all four canonical/native
+  preservation records after teardown; exact owned cleanup also passed.
+- [ ] Diagnose the intermittent `rmcombofinal03` provider-readback mismatch.
+  It did not recur in the complete fourth run. A green rerun and improved
+  private diagnostics do not identify the differing field or establish an
+  underlying mutation fix; no weakened comparison or recovery bypass is
+  justified.
+- [ ] Obtain fresh independent review of the newest checkpoint deltas and this
+  continuation. Agent execution was usage-limited at the interim merge; old
+  reviews do not certify later changes. The owner's partial merge does not
+  close this requirement for rollout completion.
+
+PR #586 ships generic portable/native metadata validation, bounded term input,
+cold-cache Polylang observation, filesystem/media path fixes, and lifecycle
+identity preservation. Narrow observation no longer prunes durable canonical
+maps before the full identity guard can refuse missing backing rows. Polylang
+package identity intentionally moved; recompile and explicitly re-pin existing
+sites. Other adapter digests and public refusal contracts remain unchanged.
 
 ## First: finish the existing integration evidence
 
@@ -44,15 +166,18 @@ reviewed and exercised through the product path.
   declares that invalidation by `redirection_id`. The scenario now requires
   that precise effect and a subsequent native 302/cache refill. A successful
   command receipt is not evidence that a failed native assertion passed.
-- [ ] Complete fresh live evidence for the corrected custom-CPT deletion
+- [x] Complete fresh live evidence for the corrected custom-CPT deletion
   boundary. No pinned adapter grants `post:rmcombo_book` deletion: source
   Capture must refuse `unsupported_deletion` without publishing a tombstone,
   and an otherwise valid synthetic target intent must fail Plan/Apply
   compilation without canonical or native mutation. This does not establish
-  signed deletion support for that CPT.
-- [ ] Complete all four scenario lanes: independent and synchronized metadata,
+  signed deletion support for that CPT. All four `rmcombofinal04` lanes pass
+  these controls with complete canonical and native preservation, followed by
+  fixture restoration.
+- [x] Complete all four scenario lanes: independent and synchronized metadata,
   each with opposed source/target plugin load orders. The first checkpoint's
-  partial runs do not stand in for fixed-point or later-lane evidence.
+  partial runs do not stand in for fixed-point or later-lane evidence. The
+  complete `rmcombofinal04` run and post-teardown admission now supply it.
 - [ ] Close four-plugin SSH adoption/readiness and signed-deletion evidence.
   Diagnose native capability inventory and the loaded generation through the
   normal product path, retaining `DISALLOW_FILE_MODS` and external writer
@@ -79,9 +204,93 @@ cannot detect a second edit to an already-dirty file.
 - [ ] Investigate WPForms Lite as the next candidate, following
   [the authoring guide](../guides/adapter-authoring.md) and
   [production-readiness requirements](adapter-production-readiness.md).
-  Prior source inspection is preparation only. Resolve native form-body ID
-  types, references, authored settings, submissions/PII boundaries, templates,
+  The shared engine now declares `body-ref-preserve-type/v1` and a strict typed
+  identity codec; JSON-body compiler portability, lint and real PostCapture
+  coverage includes divergent IDs, malformed inputs and unchanged credential/PII
+  clearance. Separately negotiated `body-url-rebinding/v1` now reuses the shared
+  text codec with native-coordinate reference/sentinel protection. The body suite
+  passes 440 assertions through the real compiler, PostCapture and SQL-backed
+  PostMaterializer, including exact fixed points, source-ID collisions and
+  mutation-free refusal. Recursive typed paths use shared atomic traversal so
+  generated reference-envelope fields cannot become new native matches.
+  Literal notification settings exposed a separate gap: the native fixture's
+  smart tags concealed the lack of any reviewed scalar PII authority in JSON
+  bodies. New `body-pii-paths/v1` declarations use the shared JSONPath matcher
+  and privacy detector at Capture and immutable compilation. Only the exact
+  reviewed scalar values and field roles are cleared; secrets, map keys,
+  containers and unrelated form defaults still refuse. Full compiler/checked-SQL
+  materialization/recapture proves composition with typed references and URLs.
+  The original literal-setting cases were synthetic mutations of a native
+  fixture. A fresh exact `86f7f891` WPForms Lite 2.0.1.1 native save/re-save now
+  proves literal notification persistence, real PostCapture/compilation and
+  refusal of an email-valued unreviewed field default, with unchanged canonical
+  inputs and complete posts/postmeta/map witnesses around those read-only
+  operations. Positive body restoration does not claim whole-table restoration:
+  the native form writer creates revisions. All three command records re-admit
+  after exact pair cleanup; the strengthened host reader also replays actual
+  immutable compilation and has 43 transport/semantic acceptance controls.
+  Its standalone replay exposed a compiler load-order gap. The engine now
+  loads its own immutable authorization pass and shares a pure identity-kind
+  width with ledger schema, preserving scanner isolation from database code.
+  This remains a synthetic policy fixture, not a capsule or native
+  WPForms support claim. Complete native materialization, authored settings,
+  submissions/PII boundaries, templates,
   derived location state and lifecycle before making a support claim.
+  The first disposable native probe of official Lite 2.0.1.1 passed authenticated
+  setup-wizard REST writes/session revocation, native form/template creation,
+  update and duplication, three stored widget families, and frontend rendering.
+  It confirms absent, integer and string body IDs are real native variants;
+  form-tag labels in an update body do not themselves assign taxonomy terms.
+  Native-only success is not Capture/Apply evidence. The current release's
+  QR-code settings also require page and attachment references
+  (`qr_code_page_id`, `qr_code_logo_id`) plus URL rebinding of both configured
+  and generated destinations. Fresh exact `59d9bc4e` authenticated HTTP admin
+  reconnaissance passed the native general/validation writers, invalid-nonce
+  preservation, real media import, five QR save cases and repeated native save.
+  Lite's sanitizer retains imported custom-logo settings and their attachment
+  ID despite the license-gated control being unavailable. Decide and enforce
+  that residue boundary before ratifying support; saved bytes alone do not
+  prove the paid feature works in Lite. No QR browser-generation or portable
+  materialization claim is made. The earlier simulated CLI admin attempt
+  emitted PHP warnings and failed its settings readback; it is not evidence.
+  The successful HTTP record and server diagnostics survived exact teardown
+  and were re-admitted alongside all six other command records.
+
+  Native location observations also establish two provider constraints:
+  replaying a stored widget option with an empty old value appends a duplicate,
+  while a page embedding a nonexistent form causes native orphan location
+  metadata. Page replay alone is idempotent, so it cannot stand in for widget
+  repair evidence. The capsule needs complete bounded input/reference
+  validation, a declared recoverable derived keyspace, synchronous repair and
+  independent readback. Rebuild locations for stored inactive widgets as well
+  as page embeds, according to the plugin's own locator semantics. Neither a
+  scheduling receipt nor replaying a delta hook is a complete rebuild.
+  Native onboarding then exposed a shared initialization gap: its ready
+  proposal did not acknowledge populated undeclared widget families, so the
+  baseline failed at the existing Capture guard. The planner now uses the
+  bounded SidebarState reader to propose exact local exclusions for unassigned
+  or parked families, discloses them before confirmation, and blocks undeclared
+  active layouts instead of publishing partial sidebars. Existing non-local
+  policy decisions are never downgraded. Actual-planner/SidebarState regression
+  coverage is in `regress-init-widgets`. Exact `8e227cf8` passed the complete
+  local gate (362 shared suites). Native active-widget refusal and complete
+  widget-row preservation passed, but positive onboarding then reached the
+  unchanged one-MiB SQL limit: the plugin's 4,754 files alone produce a
+  1,044,395-byte code descriptor before SQL quoting. Shared keyed-string
+  storage now chunks values inside the original transaction and unchanged
+  callback budgets, with whole-field validation, unique-key proof, complete
+  readback and rollback/quarantine controls. `regress-ledger-large-values`
+  covers this engine contract. Exact `59d9bc4e` passed the complete local gate
+  (363 shared suites; composer 1,292 tests / 34,753 assertions), release gate,
+  and the shared native database boundary on both MariaDB and MySQL. A fresh
+  WPForms authoring run captured the canonical and separate 4,944-file code
+  baselines, explicitly provisioned the three required core environment
+  bindings and reached clean host status with every excluded widget row
+  unchanged. Journal, coverage, inventory, probe and both draft steps passed;
+  all 18 retained command records were re-admitted after exact pair cleanup.
+  Initial host `init` exited 1 at the documented environment-required handoff,
+  not at code-descriptor storage. This verifies the shared repair and authoring
+  sequence, not WPForms Capture/Apply or production readiness.
 - [ ] Select the remaining two adapters on useful product coverage and an
   honest support boundary, not ease of increasing the count. Each must own its
   capsule-local declaration, reviewed disposition, exact official artifacts,
@@ -116,11 +325,20 @@ interim checkpoint.
 
 ## Evidence and completion
 
-The checkpoint passed `make regress-offline-all` (355 suites), `composer check`
+The first checkpoint passed `make regress-offline-all` (355 suites), `composer check`
 (1,253 tests / 33,668 assertions), `make release-gate`, changed-file syntax and
 diff checks. Those are commit-bound historical results, not automatic evidence
 for future changes. Its final combination attempt exited 1; owned pair
 resources were cleaned up and private captures retained separately.
+
+The second checkpoint's exact tree passed `make regress-offline-all` (361
+shared suites; 17 packages / 64 package tests / 7 scenario gates / 4 scenarios),
+`composer check` (1,289 tests / 34,730 assertions), `make release-gate`, changed
+syntax and diff checks; doctor reported 21 OK / 0 WARN / 0 FAIL. Its native
+uninstall sweep exited 1 at pre-command evidence admission. Retained biography,
+eight final trees and both complete 16-table exports were re-admitted after
+the shared framing fix. No protected uninstall Plan or complete scenario-lane
+pass is implied. Owned pairs were removed; foreign containers were untouched.
 
 For each follow-up change, run the full offline gate and the minimal live set
 that executes the changed paths, as required by

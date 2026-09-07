@@ -16,7 +16,8 @@ function check(bool $condition, string $message): void {
 }
 
 require __DIR__ . '/../../support/wp-shortcode-stub.php';
-require __DIR__ . '/../../../../agent/src/Grammar/Shortcodes.php';
+require_once __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
+check(class_exists(\WPrism\Shortcodes::class, false), 'standalone Blocks loads the shortcode codec it invokes for inner content');
 require __DIR__ . '/../../../../agent/src/Review/Pending.php';
 require __DIR__ . '/../../../../agent/src/Review/LintFinding.php';
 require __DIR__ . '/../../../../agent/src/Review/ShortcodeReferenceScanner.php';

@@ -10,6 +10,10 @@ require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 
+// Pure sidebar validation also runs from compiler/scanner partial loads. The
+// kind width belongs to the shared grammar, not to loading a database writer.
+require_once __DIR__ . '/../Kernel/ReferenceKindGrammar.php';
+
 /** Canonical sidebar ownership and ledger-only widget instance identity. */
 final class SidebarState {
     public const ENTITY_TYPE = 'sidebar';
@@ -96,7 +100,7 @@ final class SidebarState {
     }
 
     public static function assert_width_budget(): void {
-        if (strlen(self::LONGEST_CORE_ID_KIND) > Ledger::ID_KIND_WIDTH) {
+        if (strlen(self::LONGEST_CORE_ID_KIND) > ReferenceKindGrammar::LEDGER_KIND_WIDTH) {
             throw new \RuntimeException(
                 'wprism: widget id_kind width budget is smaller than ' . self::LONGEST_CORE_ID_KIND
             );
@@ -333,8 +337,65 @@ final class SidebarState {
         }
     }
 
-    /** Validate the multi-instance family before any row is used. */
-    private static function load_widget_options(Policy $policy, array $declared, bool $scanUndeclared): array {
+    /**
+     * Count undeclared families and active layout references without returning
+     * settings. Init must use the same bounded reader and native array grammar
+     * as Capture: an option-only exclusion cannot authorize an incomplete
+     * sidebar file (capture() refuses every undeclared active assignment).
+     *
+     * @return array{families:array<string,array{type:string,instances:int,class:?string}>,active:array<string,list<string>>}
+     */
+    public static function unmanaged_inventory(Policy $policy): array {
+        $declared = $policy->widget_types();
+        $families = [];
+        self::load_widget_options(
+            $policy,
+            $declared,
+            false,
+            static function (string $name, string $type, array $instances) use ($policy, $declared, &$families): void {
+                if ($instances === [] || isset($declared[$type])) return;
+                $classification = $policy->option_rule($name);
+                $families[$name] = [
+                    'type' => $type,
+                    'instances' => count($instances),
+                    'class' => $classification['class'] ?? null,
+                ];
+            }
+        );
+        $sidebars = self::load_sidebars_option();
+        unset($sidebars['array_version'], $sidebars['wp_inactive_widgets']);
+        ksort($sidebars, SORT_STRING);
+        $active = [];
+        foreach ($sidebars as $sidebar => $instanceKeys) {
+            if (!is_string($sidebar) || $sidebar === '' || str_contains($sidebar, '/')
+                || !is_array($instanceKeys) || !array_is_list($instanceKeys)) {
+                throw new \RuntimeException("wprism: sidebars_widgets has an invalid sidebar '$sidebar' shape");
+            }
+            foreach ($instanceKeys as $position => $instanceKey) {
+                $parsed = is_string($instanceKey) ? self::parse_widget_instance_key($instanceKey) : null;
+                if ($parsed === null) {
+                    throw new \RuntimeException("wprism: sidebar '$sidebar' has malformed widget instance id at position $position");
+                }
+                [$type] = $parsed;
+                if (!isset($declared[$type]) && !in_array($sidebar, $active[$type] ?? [], true)) {
+                    $active[$type][] = $sidebar;
+                }
+            }
+        }
+        ksort($active, SORT_STRING);
+        return ['families' => $families, 'active' => $active];
+    }
+
+    /**
+     * Validate the multi-instance family before any row is used.
+     * @param ?\Closure(string,string,array<int,array<string,mixed>>):void $observeFamily
+     */
+    private static function load_widget_options(
+        Policy $policy,
+        array $declared,
+        bool $scanUndeclared,
+        ?\Closure $observeFamily = null
+    ): array {
         global $wpdb;
         $wpdb->last_error = '';
         $preflight = $wpdb->get_results(
@@ -417,6 +478,7 @@ final class SidebarState {
             }
             $type = substr($name, 7);
             $instances = self::decode_widget_family($name, $row['option_value']);
+            if ($observeFamily !== null) $observeFamily($name, $type, $instances);
             if ($instances && !isset($declared[$type]) && $scanUndeclared) {
                 // issue #3264: the deliberate-exclusion escape hatch every
                 // other loud gate in this engine already has (options.
@@ -628,18 +690,18 @@ final class SidebarState {
      *
      * What stays is the one check that is genuinely this file's: the derived
      * `widget_<type>` ledger kind has to FIT wprism_map.id_kind, which is
-     * Ledger's schema rather than the manifest's grammar (and the reason
-     * Policy's copy cannot make it — naming Ledger there would drag a second
-     * engine class into a file whose whole point is that it loads alone).
+     * the stored identity contract rather than only the widget declaration
+     * grammar. Its pure width is shared with Ledger's schema so compiler and
+     * scanner partial loads do not construct a database-writer dependency.
      */
     private static function assert_declared_types(array $declared): void {
         foreach ($declared as $type => $rule) {
             Policy::assert_widget_grammar((string) $type, $rule);
-            if (strlen(self::kind((string) $type)) > Ledger::ID_KIND_WIDTH) {
+            if (strlen(self::kind((string) $type)) > ReferenceKindGrammar::LEDGER_KIND_WIDTH) {
                 throw new \RuntimeException(
                     "wprism: over-budget manifest widget type '$type' — its derived identity kind '"
                     . self::kind((string) $type) . "' exceeds wprism_map.id_kind (VARCHAR("
-                    . Ledger::ID_KIND_WIDTH . '))'
+                    . ReferenceKindGrammar::LEDGER_KIND_WIDTH . '))'
                 );
             }
         }
@@ -1205,7 +1267,7 @@ final class SidebarState {
     private static function parse_widget_instance_key(string $key): ?array {
         if (strlen($key) > self::MAX_OPTION_NAME_BYTES
             || preg_match('/^([a-z0-9_-]+)-([1-9][0-9]*)$/D', $key, $match) !== 1
-            || strlen(self::kind($match[1])) > Ledger::ID_KIND_WIDTH) {
+            || strlen(self::kind($match[1])) > ReferenceKindGrammar::LEDGER_KIND_WIDTH) {
             return null;
         }
         $local = self::canonical_positive_decimal($match[2]);

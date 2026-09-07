@@ -6,6 +6,25 @@ require_once dirname(__DIR__, 2) . '/lib/SqlDumpEvidence.php';
 
 use WPrismTest\SqlDumpEvidence;
 
+if (($argv[1] ?? null) === '--bounded-projection') {
+    $case = $argv[2] ?? '';
+    $rows = match ($case) {
+        'large-unselected' => "INSERT INTO `fixture` (`id`, `body`) VALUES (1,'" . str_repeat('x', 1900000) . "');\n",
+        'row-boundary' => str_repeat("INSERT INTO `fixture` (`id`) VALUES (1);\n", 10000),
+        'row-overflow' => str_repeat("INSERT INTO `fixture` (`id`) VALUES (1);\n", 50000),
+        default => throw new RuntimeException('unknown constrained projection case'),
+    };
+    $bytes = "CREATE TABLE `fixture` (\n);\n" . $rows;
+    unset($rows);
+    try {
+        $result = ['accepted' => true, 'rows' => count(SqlDumpEvidence::projectColumns($bytes, 'fixture', ['id']))];
+    } catch (RuntimeException $failure) {
+        $result = ['accepted' => false, 'rows' => null];
+    }
+    echo json_encode($result + ['limit' => ini_get('memory_limit'), 'peak_bytes' => memory_get_peak_usage(true)], JSON_THROW_ON_ERROR), "\n";
+    exit(0);
+}
+
 $tables = SqlDumpEvidence::tables("wp_users\tBASE TABLE\nwp_options\tBASE TABLE\n");
 wprism_check_same(['wp_options', 'wp_users'], $tables, 'full table inventory is admitted without depending on database collation order');
 wprism_check_same($tables, SqlDumpEvidence::tables("wp_users\tBASE TABLE\nwp_options\tBASE TABLE\n\n"),
@@ -58,5 +77,71 @@ foreach ([[], ['wp_users', 'wp_options'], ['wp_users', 'wp_users'], ['wp_options
 }
 foreach ([[], ['foreign'], ['wp_users', 'wp_users'], [[]], ['x' => 'wp_users']] as $badPremise) {
     wprism_check_throws(static fn() => SqlDumpEvidence::assertComplete($dump, $tables, $badPremise), RuntimeException::class, 'nonempty caller premises are required, bounded and within the native roster');
+}
+$projectDump = static fn(string $rows): string => "-- MariaDB dump 10.19 Distrib 11.4\n"
+    . "-- Table structure for table `fixture`\nCREATE TABLE `fixture` (\n `id` int NOT NULL\n);\n"
+    . "-- Dumping data for table `fixture`\n" . $rows . "-- Dump completed\n";
+$insert = static fn(string $values, string $names = '`id`, `payload`, `unused`'): string =>
+    'INSERT INTO `fixture` (' . $names . ') VALUES (' . $values . ");\n";
+foreach ([
+    ["'plain'", 'plain'], ["'12'", '12'], ["'quote\\' and \\\\ slash'", "quote' and \\ slash"],
+    ["'doubled '' quote'", "doubled ' quote"], ["'control\\0\\b\\n\\r\\t\\Z\\\"'", "control\0\x08\n\r\t\x1a\""],
+    ["'東京 🚀 ,);('", '東京 🚀 ,);('], ['0x000aFF', "\0\n\xff"], ['NULL', null],
+    ['0', 0], ['-42', -42], [(string) PHP_INT_MAX, PHP_INT_MAX], [(string) PHP_INT_MIN, PHP_INT_MIN],
+] as [$literal, $value]) {
+    $native = $projectDump($insert("7,$literal,-1.25e+12"));
+    $original = hash('sha256', $native);
+    wprism_check_same([['payload' => $value, 'id' => 7]], SqlDumpEvidence::projectColumns($native, 'fixture', ['payload', 'id']),
+        'bounded selected scalar projection preserves type, escaping and caller column order');
+    wprism_check_same($original, hash('sha256', $native), 'projection never changes complete native bytes');
+}
+wprism_check_same([], SqlDumpEvidence::projectColumns($projectDump(''), 'fixture', ['id']), 'complete empty table projects an empty row roster');
+wprism_check_same([['id' => 7, 'payload' => 'reordered']],
+    SqlDumpEvidence::projectColumns($projectDump($insert("'reordered',NULL,7", '`payload`, `unused`, `id`')), 'fixture', ['id', 'payload']),
+    'column names bind values even when the complete native insert order changes');
+foreach (["7,'a',NULL),(8,'b',NULL", "7,'a',NULL); DROP TABLE fixture; --", "7,'a'", "7,'a',NULL,9",
+    "7,'unterminated,NULL", "7,'bad\\q',NULL", "7,'ok','bad\\q'", '7,0x0,0', '7,0xGG,0',
+    "7,'ok',NOW()", "7,'ok',NULLx", "7,'ok',01", "7,'ok',true"] as $values) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump($insert($values)), 'fixture', ['id']),
+        RuntimeException::class, 'malformed unselected values and extra fields/tuples cannot hide backing identities');
+}
+foreach (['1.5', '1e3', '9223372036854775808', '-9223372036854775809'] as $value) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump($insert("7,$value,NULL")), 'fixture', ['payload']),
+        RuntimeException::class, 'selected numeric identity must be an exact bounded integer');
+}
+$oneRow = $insert("7,'present',NULL");
+foreach ([strtolower($oneRow), ' ' . $oneRow, str_replace('INSERT INTO', 'REPLACE INTO', $oneRow),
+    str_replace('INSERT INTO', 'INSERT IGNORE INTO', $oneRow), str_replace('`fixture`', 'fixture', $oneRow),
+    $insert("7,'a',NULL", '`id`, `id`, `unused`'), $insert("7,'a',NULL", '`other`, `payload`, `unused`'),
+    rtrim($oneRow, "\n"), str_replace(");\n", "); noise\n", $oneRow)] as $badRow) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump($badRow), 'fixture', ['id']),
+        RuntimeException::class, 'non-native row framing and missing/duplicate columns refuse instead of disappearing');
+}
+foreach ([[], ['id', 'id'], [[]], ['id', []], ['unsafe`'], array_fill(0, 129, 'id'), ['named' => 'id']] as $columns) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump($oneRow), 'fixture', $columns),
+        RuntimeException::class, 'projection authority is a bounded unique list of plain column names');
+}
+wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump($oneRow), 'missing', ['id']),
+    RuntimeException::class, 'missing native schema cannot prove an empty backing table');
+wprism_check_same(10000, count(SqlDumpEvidence::projectColumns($projectDump(str_repeat($oneRow, 10000)), 'fixture', ['id'])),
+    'bounded row projection admits its exact row limit without silently deduplicating');
+wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump(str_repeat($oneRow, 10001)), 'fixture', ['id']),
+    RuntimeException::class, 'one extra projected row refuses');
+$four = $insert('1,2,3,4', '`a`, `b`, `c`, `d`');
+wprism_check_same(8192, count(SqlDumpEvidence::projectColumns($projectDump(str_repeat($four, 8192)), 'fixture', ['a', 'b', 'c', 'd'])),
+    'projected cell budget has an exact admitted boundary');
+wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump(str_repeat($four, 8193)), 'fixture', ['a', 'b', 'c', 'd']),
+    RuntimeException::class, 'projected cell budget refuses independently of row count');
+wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns(str_repeat('x', 2097153), 'fixture', ['id']),
+    RuntimeException::class, 'stream size is checked before projection allocation');
+require_once dirname(__DIR__, 2) . '/lib/ShellProbe.php';
+foreach (['large-unselected' => 1, 'row-boundary' => 10000, 'row-overflow' => null] as $case => $expectedRows) {
+    [$status, $stdout, $stderr] = \WPrismTest\ShellProbe::run('exec "$1" -d memory_limit=16M "$2" --bounded-projection "$3"',
+        [PHP_BINARY, __FILE__, $case], dirname(__DIR__, 4));
+    wprism_check($status === 0 && $stderr === '', "bounded projection $case completes under an actual 16-MiB PHP ceiling without runtime diagnostics");
+    $result = json_decode($stdout, true, 32, JSON_THROW_ON_ERROR);
+    wprism_check(($result['accepted'] ?? null) === ($expectedRows !== null) && ($result['rows'] ?? null) === $expectedRows
+        && ($result['limit'] ?? null) === '16M' && is_int($result['peak_bytes'] ?? null) && $result['peak_bytes'] <= 16777216,
+        "bounded projection $case has its exact admission verdict rather than an allocation failure");
 }
 wprism_check_summary('native SQL dump evidence');

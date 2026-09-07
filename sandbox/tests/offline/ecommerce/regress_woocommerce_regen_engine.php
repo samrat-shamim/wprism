@@ -257,6 +257,10 @@ final class WooEngineFakeWpdb extends \WPrismTest\FakeWpdb {
         $this->setTableEngine('wprism_map', 'InnoDB');
         $this->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
         $this->setUniqueKey('wprism_kv', ['k']);
+        $this->setIndexes('wprism_kv', [[
+            'Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+            'Column_name' => 'k', 'Sub_part' => null, 'Index_type' => 'BTREE', 'Visible' => 'YES', 'Ignored' => 'NO',
+        ]]);
         $this->setTableEngine('wprism_kv', 'InnoDB');
         $this->setColumns('posts', [
             'ID' => 'bigint unsigned',

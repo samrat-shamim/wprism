@@ -16,6 +16,8 @@
 #      before even a zero-table provider callback receives control.
 #   6. LIKE presence probes require wpdb::esc_like()'s exact spelling, and SHOW
 #      database operands cannot borrow physical-table profile authority.
+#   7. Large keyed strings preserve exact bytes through real wpdb field
+#      validation, bounded chunks, complete readback and failed-batch rollback.
 #
 # This live, per-mechanism suite owns its one pair from creation through
 # destruction and is intentionally outside regress-offline-all. Invoke it only
@@ -680,6 +682,24 @@ prove_session_grammar() {
   pass "$CURRENT_DB_ENGINE bound its byte lexer and SHOW authority to exact live session evidence"
 }
 
+prove_large_keyed_values() {
+  local sink suffix status=0 expected_engine
+  case "$CURRENT_DB_ENGINE" in mariadb) expected_engine=MariaDB ;; mysql) expected_engine=MySQL ;; esac
+  say "$CURRENT_DB_ENGINE: bounded exact keyed values and swallowed-failure rollback"
+  # Retain admitted records beyond pair teardown, using the shared transport
+  # rather than a pass-marker grep that could hide native warnings or truncation.
+  sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/keyed-values-$CURRENT_DB_ENGINE.XXXXXX")
+  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/native.$suffix"); done
+  . "$REPO_ROOT/sandbox/tests/lib/private_command_capture.sh"
+  wprism_private_capture_stage "$sink" native compose run --rm -T \
+    -v "$REPO_ROOT/sandbox/tests/fixtures/ledger-large-values.php:/keyed-values.php:ro" \
+    cli1 wp eval-file /keyed-values.php --use-include || status=$?
+  printf 'retained keyed-value transport: %s\n' "$sink/native"
+  [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE keyed-value command failed with exit $status"
+  php "$REPO_ROOT/sandbox/tests/fixtures/ledger-large-values.php" --admit "$sink/native" "$expected_engine"
+  pass "$CURRENT_DB_ENGINE preserved complete keyed values, refusal preimages and fresh retry"
+}
+
 start_pair() {
   local engine="$1" client="$2" expected_label="$3" actual_label
   CURRENT_DB_ENGINE="$engine"
@@ -712,6 +732,7 @@ prove_view_preflight
 prove_schema_keyword_function
 prove_mariadb_sequences
 prove_session_grammar
+prove_large_keyed_values
 finish_pair
 
 start_pair mysql mysql MySQL
@@ -719,6 +740,7 @@ prove_metadata_lock
 prove_view_preflight
 prove_schema_keyword_function
 prove_session_grammar
+prove_large_keyed_values
 finish_pair
 
 # The MySQL container is shared infrastructure, not this script's resource.
