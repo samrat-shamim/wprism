@@ -3402,4 +3402,49 @@ wprism_check(
     'an ambiguous COMMIT remains Db outcome uncertainty while bounded best-effort cache retry covers the possibly committed postimage'
 );
 
+// A physical row descriptor is observation data, never authority. Exercise
+// the SDK facade under the same engine-bound runtime used by real scopes.
+$physicalDescriptor = ['table' => 'wp_posts', 'columns' => ['ID', 'post_content'],
+    'identity' => 'ID', 'max_rows' => 8, 'max_raw_bytes' => 1024, 'mode' => 'rows'];
+$physicalFixture = static function (): FakeWpdb {
+    Db::forget_transaction_tracking();
+    return FakeWpdb::install()->enableInformationSchema()
+        ->seedTable('wp_posts', [['ID' => 7, 'post_content' => "exact\0raw"]])
+        ->setColumns('wp_posts', ['ID' => 'bigint', 'post_content' => 'longtext'])
+        ->setTableEngine('wp_posts', 'InnoDB')
+        ->seedTable('wp_options', [])->setTableEngine('wp_options', 'InnoDB');
+};
+$physicalRead = static fn(): array => ProviderSdk::physical_table_rows($physicalDescriptor, 'SDK physical fixture');
+$wpdb = $physicalFixture();
+wprism_check_throws($physicalRead, RuntimeException::class, 'physical SDK cannot borrow a descriptor as manifest authority');
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::runUnbound(['table:posts'], [],
+    static fn(): mixed => ProviderSdk::database_read_contract_snapshot('unbound physical fixture', $physicalRead)),
+    RuntimeException::class, 'a directly constructed runtime cannot authorize the physical reader');
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::run(['table:posts'], [], $physicalRead),
+    RuntimeException::class, 'bound provider identity without a database scope is not physical read authority');
+$wpdb = $physicalFixture();
+$physicalObserved = ProviderSdkContractProbe::run(['table:posts'], [],
+    static fn(): mixed => ProviderSdk::database_read_contract_snapshot('admitted physical fixture', $physicalRead));
+wprism_check_same([['ID' => '7', 'post_content' => "exact\0raw"]], $physicalObserved['rows'],
+    'engine-bound provider observes exact native rows inside its declared read-only scope');
+wprism_check_same(false, DatabaseQueryIsolation::has_bound_profile(), 'physical reader leaves scope lifetime with its transaction owner');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::run(['table:options'], [],
+    static fn(): mixed => ProviderSdk::database_read_contract_snapshot('wrong physical contract', $physicalRead)),
+    RuntimeException::class, 'physical descriptor cannot introduce an undeclared table', 'outside its active manifest-provider contract');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::run(['table:options', 'table:posts'], [],
+    static fn(): mixed => ProviderSdk::database_read_snapshot('narrow physical contract', ['wp_options'], $physicalRead)),
+    RuntimeException::class, 'physical reader cannot re-expand a narrowed active snapshot', 'escaped the tables');
+$wpdb = $physicalFixture();
+$beforePhysicalWrite = $wpdb->rows('wp_posts');
+ProviderSdkContractProbe::run([], ['table:posts'], static fn(): mixed => ProviderSdk::database_write_contract_transaction(
+    'physical write snapshot fixture', static function () use ($physicalRead, $beforePhysicalWrite): array {
+        $observed = $physicalRead();
+        wprism_check_same((string) $beforePhysicalWrite[0]['ID'], $observed['rows'][0]['ID'],
+            'physical reader can reuse a writable transaction without nesting or gaining mutation authority');
+        return $observed;
+    }, static fn(array $observed): string => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN));
+wprism_check_same($beforePhysicalWrite, $wpdb->rows('wp_posts'), 'observation under a writable profile still performs no native mutation');
+
 wprism_check_summary('regress_provider_database_session');

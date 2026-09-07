@@ -25,6 +25,30 @@ publication-privacy and native-settings fixes, rebased without patch changes
 onto that main commit. Their historical evidence remains bound to the original
 candidate hashes below.
 
+PR [#588](https://github.com/duotronic-ai/wprism/pull/588) merged as
+`7f43752c69d8e8923293f7f864c7ece68719cdc9`, tree-identical to reviewed
+`bf4d06b8c1187b25eb94c503add4431d318acda2`. Its final gates passed 363 shared
+offline suites, 18 packages/69 package tests, 8 scenario gates/4 scenarios,
+Composer 1,298 tests/35,386 assertions, the release gate and doctor 21/0/0.
+Luna's independently forged report/Plan trust-tier control was fixed by reading
+the tier from source declarations, then re-reviewed. A fresh exact-source
+WPForms 2.0.1.1 capture-plan run passed native seed, Capture, lint with zero
+findings, byte-identical recapture, native consumer/body checks, experimental
+capability reporting and real Plan blockers. Retained native records re-admitted
+after verified pair teardown. This is not target Apply, lifecycle or combination
+certification; the earlier failed native attempts below remain historical.
+
+The next WPForms implementation is synchronous location reconstruction. Native
+source review establishes complete stored inactive-widget inclusion, dynamic
+post-type eligibility plus FSE templates/parts, native-only reference parsing,
+standalone locations and whole-key stale/orphan cleanup. The asynchronous scan
+and global Action Scheduler storage are not reconstruction authority. Every
+discovered form reference must resolve to an actual target form before writes.
+Physical input bounds and exact row witnesses belong in the engine; plugin
+eligibility, native interpretation and derived-key reconciliation stay in the
+capsule. The shared physical-row reader is implementation in progress, not
+evidence that this provider or any additional support claim is complete.
+
 At that checkpoint the catalog has **17 product adapters: 16 plugins plus
 core**. The regression-only `wprism-agency-cpt` capsule does not count toward
 twenty. Three additional product adapters remain to be selected, authored,

@@ -955,6 +955,26 @@ nests a transaction or reuses a writable/narrower profile. Keep column and
 index expectations in the adapter—the engine owns topology consistency, not a
 third party's schema semantics.
 
+For complete physical input and preservation witnesses, use
+`ProviderSdk::physical_table_rows($descriptor, $context)` inside an already
+active contract snapshot or transaction. Its closed descriptor names `table`,
+ordered unique `columns`, one selected positive-integer `identity` column,
+`max_rows`, `max_raw_bytes`, and `mode` (`rows` or `digest`). It observes the
+**whole table** in ascending identity order. No SQL fragments, predicates,
+callbacks, native parsing or schema assumptions enter this API. Exact driver
+strings and SQL nulls remain distinct; `rows` adds bounded payloads to the same
+`row_count`, `raw_bytes` and versioned `rows_sha256` witness returned by `digest`.
+
+The hard frontiers are 16,384 rows, 32 columns, 262,144 observed cells, 32 MiB
+of aggregate raw bytes, 1 MiB per cell and 4 MiB per transferred batch. Caller
+budgets may only narrow them. Size admission precedes payload hashing; batches
+are tied to exact identities, lengths and hashes, and final readback rejects a
+changed roster. The active profile still grants table access and owns the
+transaction and statement budget. A descriptor cannot create or widen it.
+Keep plugin eligibility, subset/remainder selection, native reconstruction and
+postcondition meaning in the capsule. Do not copy a SQL pager into a provider
+or add a permissive SQL/visitor language merely to migrate a legacy helper.
+
 Do not spell an exact presence probe as raw `SHOW TABLES LIKE '$table'` (or
 `SHOW TABLE STATUS LIKE '$table'`): `_` and `%` are LIKE wildcards. Bind
 `$wpdb->esc_like($table)` through `%s`; the profile gate decodes only that

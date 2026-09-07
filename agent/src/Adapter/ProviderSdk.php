@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../Kernel/FilesystemTreeSnapshot.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/PhpLiteralData.php';
+require_once __DIR__ . '/../Kernel/PhysicalTableRows.php';
 require_once __DIR__ . '/../Kernel/TermRows.php';
 require_once __DIR__ . '/../Policy/LegacyRuntimeExecutionDebt.php';
 if (!class_exists(ManifestProviderRuntime::class, false)) {
@@ -90,6 +91,18 @@ final class ProviderSdk {
         global $wpdb;
         DatabaseQueryIsolation::assert_profile_contains([$wpdb->terms, $wpdb->term_taxonomy], false, $context);
         return TermRows::taxonomy($taxonomy, $maxRows, $maxBytes, $context);
+    }
+
+    /** Complete bounded physical inputs; the active contract and snapshot remain the authority. */
+    public static function physical_table_rows(array $descriptor, string $context): array {
+        $profile = self::active_database_profile($context);
+        $table = $descriptor['table'] ?? null;
+        if (!is_string($table) || !in_array($table, $profile->readable_tables(), true)) {
+            throw new \RuntimeException(
+                "wprism: $context requested physical rows outside its active manifest-provider contract"
+            );
+        }
+        return PhysicalTableRows::observe($descriptor, $context);
     }
 
     public static function checked_get_var(string $sql, string $context, $wpdb = null): mixed {
