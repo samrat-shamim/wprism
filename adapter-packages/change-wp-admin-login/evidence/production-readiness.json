@@ -2,20 +2,45 @@
   "format": "wprism-adapter-production-readiness-record/v1",
   "adapter": "change-wp-admin-login",
   "readiness": "unready",
-  "covered": {},
+  "covered": {
+    "clean-target": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "dirty-target": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "identity-references": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "native-behavior": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "derived-state": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "deletion": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ],
+    "data-boundary": [
+      "adapter-packages/change-wp-admin-login/tests/live/regress_native_roundtrip.sh",
+      "adapter-packages/change-wp-admin-login/tests/offline/regress_native_options.php"
+    ]
+  },
   "gaps": {
-    "contract-dependency": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "clean-target": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "dirty-target": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "identity-references": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "native-behavior": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "derived-state": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "deletion": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "failure-recovery": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "concurrency-idempotence": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "lifecycle": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "data-boundary": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed.",
-    "scope-platform": "Native authoring inventory is complete; capsule conformance and adversarial source-to-target evidence for this family remain to be completed."
+    "contract-dependency": "Native exact, absent and official 2.4.0 refusal pass; the standard owned version-matrix entry and committed capsule rerun remain.",
+    "failure-recovery": "Native capture refusal preserves publication and ledger, then retries. Bind the applicable shared transaction and recovery evidence before readiness review.",
+    "concurrency-idempotence": "Native repeated apply/recapture pass. Bind the applicable shared capture/promotion lock evidence before readiness review.",
+    "scope-platform": "Single-site exact artifact is exercised; explicit combination scenario, standard conformance and platform boundary evidence remain."
   },
   "blocked": {},
   "not_applicable": {}

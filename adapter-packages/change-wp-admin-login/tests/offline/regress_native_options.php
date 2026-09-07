@@ -142,6 +142,22 @@ foreach ($native['native_cases'] as $case => $rules) {
             CacheInvalidationTransaction::end();
         }
     };
+    $emptyTarget = $target->rows('wp_options');
+    $identityBase = $target->rows('wp_wprism_map');
+    $partialWritesObserved = false;
+    $target->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (&$partialWritesObserved, $rulesName): ?string {
+        if (str_starts_with($sql, 'INSERT INTO `wp_options`') && str_contains($sql, "'$rulesName'")) {
+            $partialWritesObserved = count($db->rows('wp_options')) > 2;
+            return 'injected AIO serialized redirect write failure';
+        }
+        return null;
+    });
+    wprism_check_throws(static fn() => $apply($document), WPrism\DatabaseMutationException::class,
+        "$case checked SQL refuses a failed late option insert");
+    wprism_check($partialWritesObserved, "$case fault occurs after earlier native option writes");
+    wprism_check_same($emptyTarget, $target->rows('wp_options'), "$case rollback restores every prior authored and local option byte");
+    wprism_check_same($identityBase, $target->rows('wp_wprism_map'), "$case failed materialization preserves the identity generation");
+    $target->onQuery(null);
     $apply($document);
     $targetRows = array_column($target->rows('wp_options'), null, 'option_name');
     $actual = PlainData::decode($targetRows[$rulesName]['option_value'], 'target rule');
@@ -173,6 +189,19 @@ foreach ($native['native_cases'] as $case => $rules) {
         $badDocument['records'][$rulesName]['value'] = $bad;
         wprism_check_throws(static fn() => $compile($badDocument), RuntimeException::class, "$case compiler refuses $fault");
         wprism_check_same($stable, $target->rows('wp_options'), "$case $fault refusal cannot mutate target rows");
+    }
+    foreach (['-1', '01', '1.5', '9223372036854775808', [], null, true, ''] as $invalidId) {
+        $malformedRules = $rules;
+        $malformedRules[0]['login_target_type'] = 'page';
+        $malformedRules[0]['login_target_value'] = $invalidId;
+        $malformedRows = $native['raw_authored_options'];
+        foreach ($malformedRows as &$row) if ($row['option_name'] === $rulesName) $row['option_value'] = serialize($malformedRules);
+        unset($row);
+        $invalidSource = $database($malformedRows);
+        $unchanged = $invalidSource->rows('wp_options');
+        wprism_check_throws(static fn() => $capture($native['source_home']), RuntimeException::class,
+            "$case native capture rejects malformed selected page identity " . json_encode($invalidId));
+        wprism_check_same($unchanged, $invalidSource->rows('wp_options'), "$case malformed native identity leaves raw rows untouched");
     }
 }
 wprism_check_summary('AIO native options');
