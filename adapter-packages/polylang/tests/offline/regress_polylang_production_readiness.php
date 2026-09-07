@@ -1182,7 +1182,7 @@ namespace {
             && str_contains($checksScript, 'Polylang destructive-uninstall recovery sidecar omitted the owned widget identity')
             && str_contains($checksScript, 'Polylang destructive-uninstall recovery database backup is empty')
             && str_contains($checksScript, 'PLL_REMOVE_ALL_DATA')
-            && str_contains($checksScript, 'widget identity history is missing')
+            && str_contains($checksScript, 'polylang_uninstall_refusal_check')
             && str_contains($checksScript, 'identity sidecar witness mismatch')
             && str_contains($checksScript, 'wp_conf2 db import /siterepo/.tmp-polylang-remove-all.sql')
             && str_contains($checksScript, 'Polylang database recovery did not restore the exact active-plugin preimage')

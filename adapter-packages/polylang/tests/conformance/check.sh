@@ -741,10 +741,20 @@ wp_conf2 plugin uninstall polylang >/dev/null
 wp_conf2 plugin is-installed polylang >/dev/null 2>&1 && fail 'Polylang complete uninstall left plugin code installed'
 DESTRUCTIVE_RESIDUE=$(wp_conf2 eval '
   global $wpdb;
+  $count = static function (string $sql): int {
+    global $wpdb;
+    $wpdb->last_error = "";
+    $value = $wpdb->get_var($sql);
+    if ($wpdb->last_error !== "" || (!is_int($value) && !is_string($value))
+        || filter_var($value, FILTER_VALIDATE_INT) === false || (int) $value < 0) {
+      throw new RuntimeException("Polylang native uninstall count did not complete");
+    }
+    return (int) $value;
+  };
   echo wp_json_encode([
-    "option_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name IN ('\''polylang'\'', '\''widget_polylang'\'')"),
-    "taxonomy_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ('\''language'\'', '\''term_language'\'', '\''post_translations'\'', '\''term_translations'\'')"),
-    "switcher_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '\''_pll_menu_item'\''"),
+    "option_rows" => $count("SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name IN ('\''polylang'\'', '\''widget_polylang'\'')"),
+    "taxonomy_rows" => $count("SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ('\''language'\'', '\''term_language'\'', '\''post_translations'\'', '\''term_translations'\'')"),
+    "switcher_rows" => $count("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '\''_pll_menu_item'\''"),
     "neighbor" => get_option("wprism_polylang_undeclared_neighbor"),
   ]);
 ' | awk 'NF { line=$0 } END { print line }')
@@ -758,10 +768,10 @@ wp_conf2 plugin install "$POLYLANG_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get polylang --field=version)" = 3.8.6 ] || fail 'Polylang complete-uninstall reinstall reported wrong version'
 REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'Polylang deploy after complete uninstall and exact reinstall' json "$REINSTALL_DEPLOY"
-LOST_PLAN_RC=0
-LOST_PLAN=$(wp_conf2 wprism plan --repo=/siterepo 2>&1) || LOST_PLAN_RC=$?
-[ "$LOST_PLAN_RC" -ne 0 ] && grep -q 'widget identity history is missing' <<<"$LOST_PLAN" \
-  || fail "Polylang destructive uninstall did not refuse lost widget history exactly: $LOST_PLAN"
+# Full Plan inspects retained maps before pruning; complete uninstall removes
+# backing rows, so the later ApplyPlanner widget-history gate is not this premise.
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/polylang-uninstall-refusal.sh"
+polylang_uninstall_refusal_check
 STALE_IDENTITY_RC=0
 STALE_IDENTITY=$(wp_conf2 wprism identity-import --repo=/siterepo --in=/siterepo/.tmp-polylang-remove-all-identity.json 2>&1) \
   || STALE_IDENTITY_RC=$?

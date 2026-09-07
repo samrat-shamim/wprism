@@ -103,7 +103,8 @@ for needle in \
   'Polylang French projection source graph is incoherent' \
   'injected Polylang native-catalog verification child failure' \
   'wprism identity-export --repo=/siterepo --out=/siterepo/.tmp-polylang-remove-all-identity.json' \
-  'widget identity history is missing' \
+  'fixtures/polylang-uninstall-refusal.sh' \
+  'polylang_uninstall_refusal_check' \
   'identity sidecar witness mismatch' \
   'db export /siterepo/.tmp-polylang-remove-all.sql --add-drop-table' \
   'db import /siterepo/.tmp-polylang-remove-all.sql' \

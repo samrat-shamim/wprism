@@ -2469,6 +2469,16 @@ library.
    streams. Never normalize runtime values or accept equal empty dumps.
    Keep database credentials and dump bytes in the private evidence sink.
 
+   Complete uninstall and isolated missing-widget history are different
+   premises. Full Plan/Apply checks retained canonical maps before dead-map
+   pruning; missing backing data must reach `canonical_identity_recovery_required`,
+   not a later planner's widget-history check. Require the exact public
+   envelope and complete fresh private cause, with database/repository preimages
+   taken after native uninstall and exact-code reinstall. Keep the stale map
+   as evidence and prove it survives the refusal. Database-matched restoration
+   is a separate subsequent control; neither pruning history nor accepting any
+   nonzero exit proves safe recovery.
+
    Rendered language identifiers are not interchangeable with WordPress
    locales. Pinned Polylang shortens unique-language hreflangs to `en`/`de`
    while Open Graph retains `en_US`/`de_DE`; regional variants change that
