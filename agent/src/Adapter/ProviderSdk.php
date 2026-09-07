@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../Kernel/FilesystemTreeSnapshot.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
+require_once __DIR__ . '/../Kernel/NativeOptionInputs.php';
 require_once __DIR__ . '/../Kernel/PhpLiteralData.php';
 require_once __DIR__ . '/../Kernel/PhysicalTableRows.php';
 require_once __DIR__ . '/../Kernel/TermRows.php';
@@ -55,6 +56,7 @@ if (!class_exists(Providers::class, false)) {
 final class ProviderSdk {
     public const PHYSICAL_TABLE_ROWS_FEATURE = 'provider-physical-table-rows/v1';
     public const TYPED_ROW_MUTATIONS_FEATURE = 'provider-typed-row-mutations/v1';
+    public const NATIVE_OPTION_INPUTS_FEATURE = 'provider-native-option-inputs/v1';
     public const DATABASE_POSTIMAGE_APPLIED = 'applied';
     public const DATABASE_POSTIMAGE_NOT_APPLIED = 'not_applied';
     public const DATABASE_POSTIMAGE_UNKNOWN = 'unknown';
@@ -105,6 +107,26 @@ final class ProviderSdk {
             );
         }
         return PhysicalTableRows::observe($descriptor, $context);
+    }
+
+    /**
+     * Witness an audited native consumer's exact option inputs before writes.
+     * Native cache/hook effects belong only in the mutation callback, never a
+     * fresh observer or uncertain-commit classifier's physical-only projection.
+     * The option descriptors grant neither table nor transaction authority.
+     */
+    public static function native_option_inputs(array $inputs, callable $native, string $context): mixed {
+        $profile = self::active_database_profile($context);
+        global $wpdb;
+        if (!is_object($wpdb) || !in_array($wpdb->options, $profile->readable_tables(), true)) {
+            throw new \RuntimeException("wprism: $context requested native options outside its active manifest-provider contract");
+        }
+        if (!DatabaseQueryIsolation::has_bound_profile() || DatabaseQueryIsolation::bound_profile_is_read_only()) {
+            throw new \RuntimeException("wprism: $context native option inputs require the authorized mutation callback");
+        }
+        self::load_database_session();
+        Db::transaction_authority($context . ' native option input authority');
+        return NativeOptionInputs::observe($inputs, $native, $context);
     }
 
     public static function checked_get_var(string $sql, string $context, $wpdb = null): mixed {

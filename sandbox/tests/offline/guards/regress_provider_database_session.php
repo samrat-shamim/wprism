@@ -3688,4 +3688,25 @@ ProviderSdkContractProbe::run([], ['table:posts'], static fn(): mixed => Provide
     }, static fn(array $observed): string => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN));
 wprism_check_same($beforePhysicalWrite, $wpdb->rows('wp_posts'), 'observation under a writable profile still performs no native mutation');
 
+$nativeInputs = [['name' => 'widget_fixture', 'default' => [], 'passed_default' => true, 'reads' => 1]];
+$nativeInputRead = static fn() => ProviderSdk::native_option_inputs($nativeInputs, static fn() => null, 'native SDK fixture');
+$wpdb = $physicalFixture();
+wprism_check_throws($nativeInputRead, RuntimeException::class, 'native input descriptors cannot mint manifest-provider authority');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::runUnbound(['table:options'], ['table:posts'], $nativeInputRead),
+    RuntimeException::class, 'a directly constructed runtime cannot authorize a native option consumer');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'], $nativeInputRead),
+    RuntimeException::class, 'a bound runtime outside its mutation callback cannot run native option consumers', 'authorized mutation callback');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], ['table:posts'], $nativeInputRead),
+    RuntimeException::class, 'native option input reads cannot expand the manifest contract', 'outside its active manifest-provider contract');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'],
+    static fn() => ProviderSdk::database_read_contract_snapshot('native input observer refusal', $nativeInputRead)),
+    RuntimeException::class, 'fresh physical observers and classifiers cannot borrow native cache/hook effects', 'authorized mutation callback');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'],
+    static fn() => ProviderSdk::database_write_contract_transaction('native SDK environment fixture', $nativeInputRead,
+        static fn() => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN)), RuntimeException::class,
+    'authorized writer reaches native premise validation but cannot substitute host WordPress stubs', 'request-local core cache');
+wprism_check(!DatabaseQueryIsolation::is_active(), 'native SDK premise refusal is settled by the existing transaction owner');
+
 wprism_check_summary('regress_provider_database_session');

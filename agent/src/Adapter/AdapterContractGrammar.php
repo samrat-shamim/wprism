@@ -298,6 +298,7 @@ final class AdapterContractGrammar {
         // still own all read and write authority after compatibility admits.
         ProviderSdk::PHYSICAL_TABLE_ROWS_FEATURE => ['since' => 3, 'keys' => []],
         ProviderSdk::TYPED_ROW_MUTATIONS_FEATURE => ['since' => 3, 'keys' => []],
+        ProviderSdk::NATIVE_OPTION_INPUTS_FEATURE => ['since' => 3, 'keys' => []],
         // A plugin incompatibility is a constraint on which adapter contracts
         // may share one policy, not a state surface. The exact-basename list is
         // therefore non-surface, while PolicyLoadFinalizer enforces it before

@@ -978,6 +978,32 @@ row and cell frontier, plus one overflow witness. Size admission precedes payloa
 are tied to exact identities, lengths and hashes, and final readback rejects a
 changed roster. The active profile still grants table access and owns the
 transaction and statement budget. A descriptor cannot create or widen it.
+When a supported public native API reads options internally and accepts no
+input array, `ProviderSdk::native_option_inputs($inputs, $native, $context)`
+witnesses its actual selected inputs. Declare `provider-native-option-inputs/v1`
+with `spec-window/v1`. Each input names exactly `name`, `default`,
+`passed_default` and `reads`; the engine reads its own physical raw/plain
+expectation. At most 8 names / 32 total reads / 1 MiB per selected value are
+admitted; names are canonical ASCII option identities and defaults are bounded
+plain data. Special core-transformed/cache-reserved keys are outside this API.
+Use it only inside the authorized mutation callback, before the first write.
+Fresh observers and uncertain-commit classifiers stay callback-free.
+
+A before/after getter equality cannot prove an intermediate native input.
+The scope refuses pre-existing selected/generic option and alloptions hooks,
+and checks the **saved pre-isolation** catch-all presence, not the database
+gate's masked empty view. It refuses installation/config mode and substituted
+or external caches. The standard core cache's public read view permits raw
+entry admission without calling a getter that may clone an object. Stale,
+decoded, object-shaped or presence-inconsistent selected entries refuse; no
+cache clearing or repopulation manufactures a passing premise. Exact terminal
+values, defaults, counts, topology and cleanup are verified; a caught refusal
+poisons the database boundary so the caller cannot continue to commit.
+Native request-local cache warming remains a non-rollback effect. This scope
+does not sandbox arbitrary native PHP, bound all its allocations, or prove
+unselected dependencies: the capsule must still declare and physically witness
+the complete native computation and its unchanged remainder.
+
 Keep plugin eligibility, subset/remainder selection, native reconstruction and
 postcondition meaning in the capsule. Do not copy a SQL pager into a provider
 or add a permissive SQL/visitor language merely to migrate a legacy helper.

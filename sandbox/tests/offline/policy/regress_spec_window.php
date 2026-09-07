@@ -603,6 +603,10 @@ wprism_check_detail('manifest-validate exit ' . $validated['exit']
 // Exercise each new dependency through the real Policy/ManifestValidator path,
 // including an unknown successor version before executable resolution.
 $sdkFeatures = [
+    'provider-native-option-inputs/v1' => [
+        'constant' => 'NATIVE_OPTION_INPUTS_FEATURE',
+        'methods' => ['native_option_inputs'],
+    ],
     'provider-physical-table-rows/v1' => [
         'constant' => 'PHYSICAL_TABLE_ROWS_FEATURE',
         'methods' => ['physical_table_rows'],
@@ -689,7 +693,7 @@ wprism_check(
 $sdkFeatureNames = [...array_keys($sdkFeatures), 'spec-window/v1'];
 sort($sdkFeatureNames, SORT_STRING);
 $combinedSdk = $validateSdk(['engine_features' => $sdkFeatureNames]);
-wprism_check_same(0, $combinedSdk['exit'], 'both SDK requirements compose in one manifest without a spec bump');
+wprism_check_same(0, $combinedSdk['exit'], 'all SDK requirements compose in one manifest without a spec bump');
 wprism_check_same('', $combinedSdk['stderr'], 'combined SDK requirements preserve silent host-only loading');
 $floorSdk = $validateSdk(['engine_features' => $sdkFeatureNames, 'spec_version' => $N - 1]);
 wprism_check_same(1, $floorSdk['exit'], 'SDK feature requirements do not widen the v2 manifest grammar');
