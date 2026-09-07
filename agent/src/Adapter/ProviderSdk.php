@@ -110,10 +110,12 @@ final class ProviderSdk {
     }
 
     /**
-     * Witness an audited native consumer's exact option inputs before writes.
+     * Witness an audited native consumer's current transactional option inputs.
      * Native cache/hook effects belong only in the mutation callback, never a
      * fresh observer or uncertain-commit classifier's physical-only projection.
-     * The option descriptors grant neither table nor transaction authority.
+     * This does not certify absence of earlier writes: ordering and original
+     * preimage proof belong to the capsule's reconstruction workflow. Option
+     * descriptors grant neither table nor transaction authority.
      */
     public static function native_option_inputs(array $inputs, callable $native, string $context): mixed {
         $profile = self::active_database_profile($context);

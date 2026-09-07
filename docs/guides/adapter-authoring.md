@@ -978,15 +978,19 @@ row and cell frontier, plus one overflow witness. Size admission precedes payloa
 are tied to exact identities, lengths and hashes, and final readback rejects a
 changed roster. The active profile still grants table access and owns the
 transaction and statement budget. A descriptor cannot create or widen it.
+
 When a supported public native API reads options internally and accepts no
 input array, `ProviderSdk::native_option_inputs($inputs, $native, $context)`
-witnesses its actual selected inputs. Declare `provider-native-option-inputs/v1`
+witnesses its actual selected **current transactional** inputs. Declare `provider-native-option-inputs/v1`
 with `spec-window/v1`. Each input names exactly `name`, `default`,
 `passed_default` and `reads`; the engine reads its own physical raw/plain
 expectation. At most 8 names / 32 total reads / 1 MiB per selected value are
 admitted; names are canonical ASCII option identities and defaults are bounded
 plain data. Special core-transformed/cache-reserved keys are outside this API.
-Use it only inside the authorized mutation callback, before the first write.
+Use it only inside the authorized mutation callback. The capsule must prove
+that its initial reconstruction computation precedes its first write; this
+API does not certify that ordering or that its rows predate the transaction.
+Later fixed-point passes may witness current transactional inputs again.
 Fresh observers and uncertain-commit classifiers stay callback-free.
 
 A before/after getter equality cannot prove an intermediate native input.
@@ -997,7 +1001,11 @@ or external caches. The standard core cache's public read view permits raw
 entry admission without calling a getter that may clone an object. Stale,
 decoded, object-shaped or presence-inconsistent selected entries refuse; no
 cache clearing or repopulation manufactures a passing premise. Exact terminal
-values, defaults, counts, topology and cleanup are verified; a caught refusal
+values, defaults, counts, topology and cleanup are verified. A bounded,
+argument-free call trace additionally proves the observer was reached directly
+from core `get_option()`: a synthetic matching filter pair cannot count as a
+native read. `passed_default` is observed on the absent-row path, where core
+actually exposes it. A caught refusal
 poisons the database boundary so the caller cannot continue to commit.
 Native request-local cache warming remains a non-rollback effect. This scope
 does not sandbox arbitrary native PHP, bound all its allocations, or prove

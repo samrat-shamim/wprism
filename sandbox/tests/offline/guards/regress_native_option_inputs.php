@@ -137,6 +137,10 @@ foreach ([
     static function () { get_option('widget_fixture', []); return get_option('widget_fixture', []); },
     static fn() => apply_filters('option_widget_fixture', ['id' => 7], 'widget_fixture'),
     static function () { apply_filters('pre_option', false, 'widget_fixture', []); return null; },
+    static function () {
+        apply_filters('pre_option', false, 'widget_fixture', []);
+        return apply_filters('option_widget_fixture', ['id' => 7], 'widget_fixture');
+    },
 ] as $native) {
     native_input_fixture();
     native_input_refuses($native, 'missing, extra, renamed, default-changed or unpaired native reads refuse');
@@ -146,6 +150,17 @@ native_input_fixture();
 wprism_check_same([['id' => 7], ['id' => 7]], native_input_scope(
     static fn() => [get_option('widget_fixture', []), get_option('widget_fixture', [])],
     [native_input_descriptor(['reads' => 2])]), 'exact repeated native reads are admitted when declared');
+
+native_input_fixture();
+$syntheticPreReturned = false;
+add_filter('pre_option_unselected_fixture', static function ($value) use (&$syntheticPreReturned) {
+    apply_filters('pre_option', false, 'widget_fixture', []);
+    $syntheticPreReturned = true;
+    return apply_filters('option_widget_fixture', ['id' => 7], 'widget_fixture');
+});
+native_input_refuses(static fn() => get_option('unselected_fixture', []),
+    'a forged inner filter pair cannot borrow an authentic outer getter frame', message: 'not called directly');
+wprism_check(!$syntheticPreReturned, 'the synthetic pre-filter refuses before a paired terminal can be forged');
 
 foreach ([[], [native_input_descriptor(['name' => 'home'])], [native_input_descriptor(['reads' => 0])],
     [native_input_descriptor(['reads' => 33])], [native_input_descriptor(), native_input_descriptor()],
@@ -165,6 +180,19 @@ native_input_refuses(static fn() => get_option('widget_fixture', []), 'a custom 
 native_input_fixture();
 native_input_refuses(static function () { $GLOBALS['wp_object_cache'] = new WP_Object_Cache(); return get_option('widget_fixture', []); },
     'cache instance drift during native execution refuses');
+
+native_input_fixture();
+unset($GLOBALS['native_option_external_cache']);
+$nullFlagResult = null;
+try { $nullFlagResult = ['value' => native_input_scope()]; }
+catch (Throwable $failure) { $nullFlagResult = ['failure' => get_class($failure)]; }
+wprism_check_same(['value' => ['id' => 7]], $nullFlagResult,
+    'core uninitialized external-cache flag is null while standard request-local cache remains admissible');
+foreach ([0, '', '0', [], 'false'] as $badFlag) {
+    native_input_fixture();
+    $GLOBALS['native_option_external_cache'] = $badFlag;
+    native_input_refuses(static fn() => get_option('widget_fixture', []), 'noncanonical falsy cache flags do not acquire core-cache authority');
+}
 
 native_input_fixture();
 $foreign = static fn($value) => $value;
@@ -188,6 +216,16 @@ wprism_check_throws(static fn() => NativeOptionInputs::observe([native_input_des
     RuntimeException::class, 'a native callback cannot mint database snapshot authority');
 wprism_check_throws(static fn() => native_input_scope(tables: []), RuntimeException::class,
     'a native-input declaration cannot expand a narrower database profile', 'escaped the tables');
+
+native_input_fixture();
+$currentInput = ProviderDatabaseSession::repeatable_read_write('current transactional input fixture',
+    new NativeDatabaseProfile([], ['wp_options']), static function (): mixed {
+        Db::update('wp_options', ['option_value' => serialize(['id' => 99])], ['option_name' => 'widget_fixture'],
+            null, null, 'fixture prior write');
+        return NativeOptionInputs::observe([native_input_descriptor()], static fn() => get_option('widget_fixture', []), 'current input');
+    }, static fn() => ProviderDatabaseSession::POSTIMAGE_UNKNOWN);
+wprism_check_same(['id' => 99], $currentInput,
+    'input witnessing observes current transaction rows and does not certify absence of earlier writes');
 
 // A caught witness failure cannot become a committed partial native mutation.
 foreach ([false, true] as $swallow) {
@@ -224,9 +262,9 @@ $record = ['format' => 'wprism-native-option-inputs/v1', 'engine' => 'MariaDB',
     'values' => [['id' => 7, 'text' => "raw\0東京"], [], false, null, '', '0'],
     'cold_and_warm' => true, 'absent_and_present_null_distinct' => true,
     'refusals' => ['alternating_filter', 'catch_all', 'alloptions_filter', 'stale_cache',
-        'cached_object', 'serialized_cache_object', 'physical_object', 'oversized_row', 'extra_read', 'observer_callback'],
+        'cached_object', 'serialized_cache_object', 'physical_object', 'oversized_row', 'extra_read', 'synthetic_pair', 'observer_callback'],
     'object_hooks' => ['clone' => 0, 'wakeup' => 0], 'caught_failure_rollback' => true,
-    'foreign_hook_preserved' => true, 'complete_options_restored' => true];
+    'foreign_hook_preserved' => true, 'current_transaction_inputs' => true, 'complete_option_rows_restored' => true];
 $admit = static function (array $data, string $stderr = '', string $exit = '0') use ($stem): int {
     foreach (['stdout' => json_encode($data, JSON_THROW_ON_ERROR) . "\n", 'stderr' => $stderr, 'exit' => $exit . "\n"] as $suffix => $bytes) {
         file_put_contents($stem . '.' . $suffix, $bytes);
@@ -243,7 +281,7 @@ try {
     wprism_check_same(0, $admit($record), 'native raw-record admission accepts the independently specified complete success object');
     foreach ([array_replace($record, ['engine' => 'MySQL']), array_replace($record, ['values' => []]),
         array_replace($record, ['refusals' => []]), array_replace($record, ['object_hooks' => ['clone' => 1, 'wakeup' => 0]]),
-        array_replace($record, ['complete_options_restored' => false]), array_replace($record, ['unknown' => true])] as $bad) {
+        array_replace($record, ['complete_option_rows_restored' => false]), array_replace($record, ['unknown' => true])] as $bad) {
         wprism_check($admit($bad) !== 0, 'native admission refuses altered or incomplete mechanism evidence');
     }
     wprism_check($admit($record, "PHP Warning: fixture warning\n") !== 0, 'native evidence cannot hide a warning behind a passing JSON record');

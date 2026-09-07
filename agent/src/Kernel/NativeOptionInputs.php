@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/DatabaseExceptions.php';
 require_once __DIR__ . '/ExactOptionReader.php';
 require_once __DIR__ . '/PlainData.php';
 
@@ -43,12 +44,13 @@ final class NativeOptionInputs {
     private ?string $pending = null;
     private ?object $cache = null;
     private ?string $cachePrefix = null;
+    private ?string $optionSource = null;
 
     private function __construct(private readonly string $context) {
     }
 
     /**
-     * Read expectations from durable rows inside the existing profile; exact
+     * Read expectations from current transactional rows inside the profile; exact
      * default/passed-default/read counts describe the native API, not values.
      * Bounds cover selected inputs, not arbitrary allocations by native code.
      * Request-local cache warming and hit counters are real, non-durable effects.
@@ -150,6 +152,7 @@ final class NativeOptionInputs {
 
     private function install(): void {
         $this->add_observer('pre_option', function ($value, $name, $default): mixed {
+            $this->assert_native_getter();
             $this->assert_topology();
             $this->assert_cache();
             if ($value !== false || !is_string($name) || !isset($this->inputs[$name]) || $this->pending !== null
@@ -164,6 +167,7 @@ final class NativeOptionInputs {
             foreach (['option_', 'default_option_'] as $prefix) {
                 $defaultPath = $prefix === 'default_option_';
                 $this->add_observer($prefix . $name, function ($value, $option, $passedDefault = null) use ($name, $defaultPath): mixed {
+                    $this->assert_native_getter();
                     $this->assert_topology();
                     $this->assert_cache();
                     $input = $this->inputs[$name];
@@ -208,14 +212,42 @@ final class NativeOptionInputs {
         }
     }
 
+    /** A coherent synthetic filter pair is not evidence that get_option ran. */
+    private function assert_native_getter(): void {
+        $frames = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8);
+        foreach ($frames as $index => $frame) {
+            if (($frame['function'] ?? null) !== 'apply_filters' || isset($frame['class'])) {
+                continue;
+            }
+            $caller = $frames[$index + 1] ?? [];
+            if (($frame['file'] ?? null) === $this->optionSource
+                && ($caller['function'] ?? null) === 'get_option' && !isset($caller['class'])) {
+                return;
+            }
+            // Only the nearest filter dispatch counts. A forged inner pair
+            // cannot borrow an authentic get_option further up the stack.
+            break;
+        }
+        $this->refuse('native option observer was not called directly by the core getter');
+    }
+
     private function assert_core_cache(): void {
         if (defined('WP_SETUP_CONFIG') || !function_exists('wp_installing') || wp_installing()
-            || !function_exists('wp_using_ext_object_cache') || wp_using_ext_object_cache() !== false
+            || !function_exists('wp_using_ext_object_cache') || !in_array(wp_using_ext_object_cache(), [null, false], true)
             || !defined('ABSPATH') || !defined('WPINC')) {
             $this->refuse('native option inputs require ordinary WordPress with its request-local core cache');
         }
         $cache = $GLOBALS['wp_object_cache'] ?? null;
         $core = rtrim(ABSPATH, '/\\') . '/' . WPINC . '/';
+        $optionSource = realpath($core . 'option.php');
+        if ($optionSource === false || !function_exists('get_option')
+            || (new \ReflectionFunction('get_option'))->getFileName() !== $optionSource) {
+            $this->refuse('native option inputs require the standard core getter');
+        }
+        $this->optionSource = $optionSource;
+        // WP 7.1 load.php:810-819 returns its initially unset global as null.
+        // Only that native absent/false state is admitted, not arbitrary falsy
+        // flags; exact core object/function provenance remains mandatory below.
         if (!is_object($cache) || get_class($cache) !== 'WP_Object_Cache'
             || realpath($core . 'class-wp-object-cache.php') === false
             || (new \ReflectionClass($cache))->getFileName() !== realpath($core . 'class-wp-object-cache.php')) {

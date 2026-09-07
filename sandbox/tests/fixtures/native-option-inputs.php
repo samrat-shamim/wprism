@@ -10,9 +10,10 @@ function native_option_expected(string $engine): array {
         'values' => [['id' => 7, 'text' => "raw\0東京"], [], false, null, '', '0'],
         'cold_and_warm' => true, 'absent_and_present_null_distinct' => true,
         'refusals' => ['alternating_filter', 'catch_all', 'alloptions_filter', 'stale_cache',
-            'cached_object', 'serialized_cache_object', 'physical_object', 'oversized_row', 'extra_read', 'observer_callback'],
+            'cached_object', 'serialized_cache_object', 'physical_object', 'oversized_row', 'extra_read', 'synthetic_pair', 'observer_callback'],
         'object_hooks' => ['clone' => 0, 'wakeup' => 0],
-        'caught_failure_rollback' => true, 'foreign_hook_preserved' => true, 'complete_options_restored' => true];
+        'caught_failure_rollback' => true, 'foreign_hook_preserved' => true,
+        'current_transaction_inputs' => true, 'complete_option_rows_restored' => true];
 }
 
 if (($argv[1] ?? '') === '--admit') {
@@ -126,6 +127,13 @@ try {
         native_option_require(native_option_rows() === $before, 'native getter leaves every option byte unchanged');
     }
     native_option_seed(['id' => 7]);
+    $current = NativeOptionInputProbe::run(true, static function () use ($wpdb, $name): mixed {
+        ProviderSdk::database_update($wpdb->options, ['option_value' => serialize(['id' => 99])], ['option_name' => $name],
+            'native prior write');
+        return ProviderSdk::native_option_inputs(native_option_descriptor(), static fn() => get_option($name, []), 'native current input');
+    });
+    native_option_require($current === ['id' => 99], 'SDK observes current transactional input without claiming pre-write ordering');
+    native_option_seed(['id' => 7]);
     $reads = 0;
     $alternating = static function ($value) use (&$reads) { return ++$reads === 2 ? ['id' => 99] : $value; };
     add_filter('option_' . $name, $alternating);
@@ -166,6 +174,10 @@ try {
     native_option_refuse(static fn() => native_option_observe(static function () use ($name) {
         get_option($name, []); return get_option($name, []);
     }), 'read changed');
+    native_option_refuse(static fn() => native_option_observe(static function () use ($name) {
+        apply_filters('pre_option', false, $name, []);
+        return apply_filters('option_' . $name, ['id' => 7], $name);
+    }), 'not called directly');
     native_option_refuse(static fn() => NativeOptionInputProbe::run(false, static fn() => ProviderSdk::native_option_inputs(
         native_option_descriptor(), static fn() => get_option($name, []), 'native observer refusal')), 'authorized mutation callback');
     $before = native_option_rows();
@@ -189,6 +201,8 @@ try {
         ['option_name' => $name], 'native option fixture cleanup', '%s'));
     native_option_cold_cache();
 }
-native_option_require(native_option_rows() === $initial, 'complete initial option table is restored after fixture cleanup');
+// Inserts/deletes advance AUTO_INCREMENT. This proof covers complete rows,
+// not schema/allocation metadata; pair teardown owns disposable table state.
+native_option_require(native_option_rows() === $initial, 'complete initial option rows are restored after fixture cleanup');
 $engine = WPrism\PlatformCompatibility::current_facts()['database']['engine'];
 echo json_encode(native_option_expected($engine), JSON_THROW_ON_ERROR), "\n";
