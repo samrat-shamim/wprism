@@ -229,11 +229,16 @@ final class EngineGapsTest extends TestCase
     public function testRefusesALifecycleDisagreementBetweenCoordinateAndPrimitive(): void
     {
         $ledger = self::ledger();
+        $openPrimitive = array_key_first(array_filter(
+            $ledger['primitives'],
+            static fn (array $primitive): bool => $primitive['status'] === 'open'
+        ));
+        self::assertIsString($openPrimitive, 'fixture must retain an open primitive for this hostile transition');
         foreach ($ledger['candidates'] as $i => $row) {
             if ($row['disposition'] === 'closed') {
                 // The primitive that closed this coordinate is shipped; pointing
                 // it at an open one claims a gap closed on work not done.
-                $ledger['candidates'][$i]['coordinates'][0]['primitive_required'] = 'structured_leaf_text_codec';
+                $ledger['candidates'][$i]['coordinates'][0]['primitive_required'] = $openPrimitive;
                 break;
             }
         }

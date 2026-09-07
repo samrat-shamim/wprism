@@ -84,7 +84,112 @@ final class JsonRefs {
         self::step($root, $segments, 0, $fn, $locator);
     }
 
-    private static function step(&$node, array $segments, int $i, callable $fn, string $locator): void {
+    /**
+     * Resolve terminal matches before rewriting, treating each matched value
+     * as opaque. A scalar codec may emit a container; recursive paths must not
+     * reinterpret that generated payload or any nested terminal match inside
+     * the same owned value. The ordinary walk contract remains unchanged.
+     */
+    public static function walk_atomic(&$root, array $segments, callable $fn, string $locator): void {
+        $matches = [];
+        $protected = [];
+        self::step($root, $segments, 0,
+            static function (&$container, $key, string $matchedLocator, array $keys) use (&$matches, &$protected): void {
+                $matches[] = ['keys' => $keys, 'locator' => $matchedLocator];
+                self::protect_position($protected, $keys);
+            }, $locator, []);
+
+        foreach ($matches as $match) {
+            $branch = &$protected;
+            foreach ($match['keys'] as $part) {
+                if (!is_array($branch)) {
+                    // A terminal ancestor owns this complete value, whether
+                    // its callback already ran or appears later in path order.
+                    continue 2;
+                }
+                $branch = &$branch[$part];
+            }
+            if ($branch !== true) {
+                continue;
+            }
+            $branch = false; // Duplicate terminal matches have one owner.
+            $keys = $match['keys'];
+            $key = array_pop($keys);
+            $container = &$root;
+            foreach ($keys as $part) {
+                if (!is_array($container) || !array_key_exists($part, $container)) {
+                    throw new \RuntimeException('wprism: atomic reference callback invalidated a later match');
+                }
+                $container = &$container[$part];
+            }
+            if (!is_array($container) || !array_key_exists($key, $container)) {
+                throw new \RuntimeException('wprism: atomic reference callback invalidated a later match');
+            }
+            $fn($container, $key, $match['locator']);
+            unset($container, $branch);
+        }
+    }
+
+    /** Native keys make a terminal-owner trie independent of locator spelling. */
+    private static function protect_position(array &$protected, array $keys): void {
+        $branch = &$protected;
+        foreach ($keys as $part) {
+            if ($branch === true) {
+                return;
+            }
+            $branch[$part] ??= [];
+            $branch = &$branch[$part];
+        }
+        $branch = true;
+    }
+
+    /**
+     * Apply a text codec outside positions owned by the existing reference
+     * dialect. A declared literal sentinel is not URL prose, and typed token
+     * envelopes are not a second text surface. Selection precedes rewriting;
+     * the protected trie uses native keys, never ambiguous dotted locators.
+     *
+     * @param array<mixed> $value
+     * @param list<string> $paths
+     * @param callable(string):string $rewrite
+     * @return array<mixed>
+     */
+    public static function rewrite_unreferenced_strings(array $value, array $paths, callable $rewrite): array {
+        $protected = [];
+        foreach ($paths as $path) {
+            self::step($value, self::parse_path($path), 0,
+                static function (&$container, $key, string $locator, array $keys) use (&$protected): void {
+                    self::protect_position($protected, $keys);
+                }, '', []);
+        }
+
+        return self::rewrite_string_leaves($value, $protected, $rewrite);
+    }
+
+    /** @param array<mixed> $protected
+     *  @param callable(string):string $rewrite */
+    private static function rewrite_string_leaves(mixed $value, array $protected, callable $rewrite): mixed {
+        if (is_string($value)) {
+            $rewritten = $rewrite($value);
+            if (!is_string($rewritten)) {
+                throw new \RuntimeException('wprism: string leaf rewrite returned a non-string value');
+            }
+            return $rewritten;
+        }
+        if (is_array($value)) {
+            foreach ($value as $key => $child) {
+                $branch = $protected[$key] ?? [];
+                if ($branch !== true) {
+                    $value[$key] = self::rewrite_string_leaves($child, $branch, $rewrite);
+                }
+            }
+        }
+        return $value;
+    }
+
+    /** Coordinates are internal and opt-in: existing walk callbacks still
+     *  receive exactly three arguments, including when they have optional ones. */
+    private static function step(&$node, array $segments, int $i, callable $fn, string $locator, ?array $keys = null): void {
         if (!is_array($node)) {
             return;
         }
@@ -93,7 +198,7 @@ final class JsonRefs {
             // every element (never to the list's own positional keys) —
             // this is what makes "[]" syntax unnecessary in the grammar.
             foreach ($node as $idx => &$el) {
-                self::step($el, $segments, $i, $fn, $locator . '[' . $idx . ']');
+                self::step($el, $segments, $i, $fn, $locator . '[' . $idx . ']', $keys === null ? null : [...$keys, $idx]);
             }
             unset($el);
             return;
@@ -109,9 +214,13 @@ final class JsonRefs {
                 }
                 $childLocator = $locator . '.' . $key;
                 if ($isLast) {
-                    $fn($node, $key, $childLocator);
+                    if ($keys === null) {
+                        $fn($node, $key, $childLocator);
+                    } else {
+                        $fn($node, $key, $childLocator, [...$keys, $key]);
+                    }
                 } else {
-                    self::step($child, $segments, $i + 1, $fn, $childLocator);
+                    self::step($child, $segments, $i + 1, $fn, $childLocator, $keys === null ? null : [...$keys, $key]);
                 }
             }
             unset($child);
@@ -125,14 +234,18 @@ final class JsonRefs {
         if (array_key_exists($key, $node)) {
             $childLocator = $locator . '..' . $key;
             if ($isLast) {
-                $fn($node, $key, $childLocator);
+                if ($keys === null) {
+                    $fn($node, $key, $childLocator);
+                } else {
+                    $fn($node, $key, $childLocator, [...$keys, $key]);
+                }
             } else {
-                self::step($node[$key], $segments, $i + 1, $fn, $childLocator);
+                self::step($node[$key], $segments, $i + 1, $fn, $childLocator, $keys === null ? null : [...$keys, $key]);
             }
         }
         foreach ($node as $k => &$child) {
             if (is_array($child)) {
-                self::step($child, $segments, $i, $fn, $locator . '.' . $k);
+                self::step($child, $segments, $i, $fn, $locator . '.' . $k, $keys === null ? null : [...$keys, $k]);
             }
         }
         unset($child);

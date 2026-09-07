@@ -81,14 +81,13 @@ require_once __DIR__ . '/../Kernel/Secrets.php';
  * attributes (`attr_id_codecs`, WP-6.1, a separate declaration over a separate
  * parser) and it does not reach `serialize_block_attributes()`' `"`
  * escaping or the `wp_unslash()` hazard the same recon measured on the
- * embedding page — nothing here passes through `wp_update_post()`. It also
- * rewrites ONLY declared reference paths: the recon measured two
- * environment-bound values in the same bodies that this mode carries across
- * unchanged — `$.settings.confirmations.<n>.redirect` bakes the source site's
- * absolute home URL and `$.settings.notifications.<n>.sender_name` bakes
- * `get_bloginfo('name')` (includes/class-form.php:622) — so capture WARNS when
- * the body contains this environment's home URL, exactly as the `verbatim` arm
- * has always done, rather than pretending the mode made the body portable.
+ * embedding page — nothing here passes through `wp_update_post()`. Without
+ * `body-url-rebinding/v1` and `url_rebinding: true`, it retains the original
+ * reference-only behavior and source-home warning. Opt-in rebinding delegates
+ * ordinary string leaves to the existing URL/query-reference codec, with
+ * declared references and literal sentinels protected by native coordinates.
+ * Keys and non-URL environment values such as `notifications.<n>.sender_name`
+ * remain unchanged; this is not a general replacement for environment policy.
  */
 final class BodyRefGrammar {
     /**
@@ -107,11 +106,15 @@ final class BodyRefGrammar {
     /** A nested cast vocabulary extension, never a second identity keyspace. */
     public const PRESERVED_TYPE_FEATURE = 'body-ref-preserve-type/v1';
 
+    /** Environment URL rebinding in JSON configuration, not block parsing. */
+    public const URL_FEATURE = 'body-url-rebinding/v1';
+
     /** The top-level section this feature claims. */
     public const SECTION = 'body_refs';
 
     /**
-     * One post type's record: `json_refs` mandatory, `sentinels` optional.
+     * One post type's record: `json_refs` mandatory; `sentinels` and the
+     * separately negotiated `url_rebinding` are optional.
      *
      * The same shape `StructuredEvidence` keeps for its own record (:120-121),
      * and hoisted out of validate_one()'s inline `array_diff('json_refs',
@@ -122,7 +125,7 @@ final class BodyRefGrammar {
      * says why).
      */
     public const RECORD_REQUIRED = ['json_refs'];
-    public const RECORD_OPTIONAL = ['sentinels'];
+    public const RECORD_OPTIONAL = ['sentinels', 'url_rebinding'];
 
     /**
      * The `post_types.<type>.body` value this feature admits.
@@ -174,10 +177,13 @@ final class BodyRefGrammar {
         $section = $manifest[self::SECTION] ?? null;
         self::assert_body_mode_gate($manifest, $label);
         $preserveTypes = self::declares_feature($manifest, self::PRESERVED_TYPE_FEATURE);
-        if ($preserveTypes && !self::declares_feature($manifest)) {
-            throw new \RuntimeException(
-                "wprism: $label engine feature '" . self::PRESERVED_TYPE_FEATURE . "' requires '" . self::FEATURE . "'"
-            );
+        $urlRebinding = self::declares_feature($manifest, self::URL_FEATURE);
+        foreach ([self::PRESERVED_TYPE_FEATURE, self::URL_FEATURE] as $extension) {
+            if (self::declares_feature($manifest, $extension) && !self::declares_feature($manifest)) {
+                throw new \RuntimeException(
+                    "wprism: $label engine feature '$extension' requires '" . self::FEATURE . "'"
+                );
+            }
         }
 
         if ($section !== null) {
@@ -189,7 +195,7 @@ final class BodyRefGrammar {
                 );
             }
             foreach ($section as $postType => $decl) {
-                self::validate_one((string) $postType, $decl, "$label " . self::SECTION . '.' . (string) $postType, $postTypes, $preserveTypes);
+                self::validate_one((string) $postType, $decl, "$label " . self::SECTION . '.' . (string) $postType, $postTypes, $preserveTypes, $urlRebinding);
             }
         }
 
@@ -245,6 +251,9 @@ final class BodyRefGrammar {
             ],
             'sentinels' => 'a declared json_refs path => a list of literal string values that pass through '
                 . 'capture and apply untouched, because they are in-band markers rather than ids',
+            'url_rebinding' => 'true only; requires ' . self::URL_FEATURE
+                . '; use the shared environment URL/query-reference text codec outside declared reference positions; '
+                . 'keys, sentinels and non-string values remain unchanged',
             'validated_by' => 'WPrism\\BodyRefGrammar::validate_body_refs(), and each json_refs entry by '
                 . 'WPrism\\ReferenceRules::body_json_refs() — the same JSONPath dialect, keyspace grammar and '
                 . 'overlapping-path refusal `post_meta`/`options` already use',
@@ -319,7 +328,8 @@ final class BodyRefGrammar {
     /**
      * @param array<string,mixed> $postTypes this manifest's own post_types section
      */
-    private static function validate_one(string $postType, mixed $decl, string $where, array $postTypes, bool $preserveTypes): void {
+    private static function validate_one(string $postType, mixed $decl, string $where, array $postTypes, bool $preserveTypes, bool $urlRebinding): void {
+        $optional = $urlRebinding ? '{sentinels, url_rebinding}' : '{sentinels}';
         $mode = is_array($postTypes[$postType] ?? null) ? ($postTypes[$postType]['body'] ?? null) : null;
         if ($mode !== self::BODY_MODE) {
             throw new \RuntimeException(
@@ -330,7 +340,15 @@ final class BodyRefGrammar {
             );
         }
         if (!is_array($decl) || array_is_list($decl)) {
-            throw new \RuntimeException("wprism: $where must be an object declaring {json_refs} and optional {sentinels}");
+            throw new \RuntimeException("wprism: $where must be an object declaring {json_refs} and optional $optional");
+        }
+        if (array_key_exists('url_rebinding', $decl)) {
+            if (!$urlRebinding) {
+                throw new \RuntimeException("wprism: $where url_rebinding requires engine feature '" . self::URL_FEATURE . "'");
+            }
+            if ($decl['url_rebinding'] !== true) {
+                throw new \RuntimeException("wprism: $where.url_rebinding must be true — omit it to retain reference-only body behavior");
+            }
         }
         $unknown = array_diff(
             array_map('strval', array_keys($decl)),
@@ -340,7 +358,7 @@ final class BodyRefGrammar {
             sort($unknown, SORT_STRING);
             throw new \RuntimeException(
                 "wprism: $where declares [" . implode(', ', $unknown) . '] — a body reference declaration is exactly '
-                . '{json_refs} plus an optional {sentinels}. `key_refs` in particular is NOT admitted: an id-KEYED '
+                . "{json_refs} plus an optional $optional. `key_refs` in particular is NOT admitted: an id-KEYED "
                 . 'map inside a post body has no measured demand, and this engine does not claim a shape it has '
                 . 'never seen'
             );
@@ -427,7 +445,7 @@ final class BodyRefGrammar {
      * paths would be read through the old one's literals.
      *
      * @param list<array<string,mixed>> $manifests
-     * @return array<string,array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>}>
+     * @return array<string,array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true}>
      */
     public static function rules(array $manifests): array {
         $out = [];
@@ -440,6 +458,9 @@ final class BodyRefGrammar {
                     'json_refs' => array_values($decl['json_refs']),
                     'sentinels' => is_array($decl['sentinels'] ?? null) ? $decl['sentinels'] : [],
                 ];
+                if (($decl['url_rebinding'] ?? null) === true) {
+                    $out[(string) $postType]['url_rebinding'] = true;
+                }
             }
         }
         return $out;
@@ -509,15 +530,17 @@ final class BodyRefGrammar {
     }
 
     /**
-     * Capture direction: declared reference paths become tokens; every other
-     * byte of the document is reproduced from the decode.
+     * Declared reference paths become tokens. An opted-in URL text codec runs
+     * only outside those positions; other native bytes survive the decode.
      *
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
      * @param callable(int,string):?string $idToToken
      * @param callable(string):void $warn
+     * @param (callable(string):string)|null $rewriteText
      */
-    public static function capture(string $body, array $rule, callable $idToToken, callable $warn, string $context): string {
+    public static function capture(string $body, array $rule, callable $idToToken, callable $warn, string $context, ?callable $rewriteText = null): string {
         $decoded = self::decode($body, $context);
+        $rewriteText = self::text_codec($rule, $rewriteText, $context);
         // The closest analogue is `serialized`, not `blocks`: a json body is
         // authored plugin CONFIGURATION rather than prose, so a credential in it
         // is a credential rather than a sentence that mentions one, and
@@ -557,19 +580,24 @@ final class BodyRefGrammar {
                 ? IdentityTokenCodec::encode_typed($token, get_debug_type($value)) : $token;
         });
 
+        if ($rewriteText !== null) {
+            $decoded = JsonRefs::rewrite_unreferenced_strings($decoded, array_column($rule['json_refs'], 'path'), $rewriteText);
+        }
+
         return self::encode($decoded, $context);
     }
 
     /**
-     * Apply direction: tokens become target-local ids in their declared JSON
-     * type; sentinels, unset values and every undeclared position are
-     * reproduced.
+     * Tokens become target-local IDs in their declared JSON type. URL text
+     * rebinding is opt-in; sentinels, keys and native scalar types are preserved.
      *
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
      * @param callable(string):int $tokenToId
+     * @param (callable(string):string)|null $rewriteText
      */
-    public static function apply(string $body, array $rule, callable $tokenToId, string $context): string {
+    public static function apply(string $body, array $rule, callable $tokenToId, string $context, ?callable $rewriteText = null): string {
         $decoded = self::decode($body, $context);
+        $rewriteText = self::text_codec($rule, $rewriteText, $context);
         self::walk($decoded, $rule, function (mixed $value, array $ref, string $locator) use (
             $tokenToId,
             $context
@@ -599,7 +627,21 @@ final class BodyRefGrammar {
             return self::encode_id($id, $ref);
         }, true);
 
+        if ($rewriteText !== null) {
+            $decoded = JsonRefs::rewrite_unreferenced_strings($decoded, array_column($rule['json_refs'], 'path'), $rewriteText);
+        }
+
         return self::encode($decoded, $context);
+    }
+
+    /** The grammar stays WordPress-free; product dispatch supplies its existing
+     *  Tokens text codec. Missing machinery must refuse, never preserve a URL
+     *  despite a manifest claiming that it will be rebound. */
+    private static function text_codec(array $rule, ?callable $rewriteText, string $context): ?callable {
+        if (($rule['url_rebinding'] ?? null) !== true) {
+            return null;
+        }
+        return $rewriteText ?? throw new \RuntimeException("wprism: $context URL rebinding requires a text codec");
     }
 
     /**
@@ -618,7 +660,7 @@ final class BodyRefGrammar {
      * operator reconcile two vocabularies for one fact.
      *
      * @param array<mixed> $decoded
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
      * @param bool $includeContainers the compiler must reject declared leaves that resolve to containers;
      *                               lint retains historical fixed-cast reporting and decodes typed refs strictly
      * @return list<array{value:mixed,ref:array<string,mixed>,locator:string}>
@@ -631,7 +673,8 @@ final class BodyRefGrammar {
             }
             $path = (string) $ref['path'];
             $sentinels = array_values((array) ($rule['sentinels'][$path] ?? []));
-            JsonRefs::walk(
+            $walker = ($ref['cast'] ?? null) === 'preserve' ? JsonRefs::walk_atomic(...) : JsonRefs::walk(...);
+            $walker(
                 $decoded,
                 JsonRefs::parse_path($path),
                 function (&$container, $key, string $locator) use ($ref, $sentinels, $includeContainers, &$positions): void {
@@ -666,14 +709,15 @@ final class BodyRefGrammar {
      * apply refuses to act on, or worse, the reverse.
      *
      * @param array<mixed> $decoded
-     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>} $rule
+     * @param array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true} $rule
      * @param callable(mixed,array<string,mixed>,string):mixed $rewrite
      */
     private static function walk(array &$decoded, array $rule, callable $rewrite, bool $allowTypedReferences = false): void {
         foreach ($rule['json_refs'] as $ref) {
             $path = (string) $ref['path'];
             $sentinels = array_values((array) ($rule['sentinels'][$path] ?? []));
-            JsonRefs::walk(
+            $walker = ($ref['cast'] ?? null) === 'preserve' ? JsonRefs::walk_atomic(...) : JsonRefs::walk(...);
+            $walker(
                 $decoded,
                 JsonRefs::parse_path($path),
                 function (&$container, $key, string $locator) use ($ref, $sentinels, $rewrite, $allowTypedReferences): void {

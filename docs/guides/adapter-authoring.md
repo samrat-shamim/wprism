@@ -1458,7 +1458,14 @@ block-attribute casts unchanged. Missing self IDs stay missing; present IDs
 must be declared and rebound, not preserved as source-local numbers. The
 canonical typed-reference envelope retains the native type beside an ordinary
 identity token; exact compiler, lint and Apply validation reject malformed
-envelopes without a plugin-owned rewrite. See `spec/repo-format.md` § v3.20.
+envelopes without a plugin-owned rewrite. `body-url-rebinding/v1` separately
+admits `"url_rebinding": true` on that post type's `body_refs` record and
+requires the structured-body feature. It reuses the existing home/uploads/query
+text codec, not block/shortcode parsing. Declared reference positions and their
+literal sentinels are protected; keys and non-string types stay unchanged.
+An omitted flag preserves the reference-only behavior and warnings. A remaining
+source URL is still a scoped limitation, not portable support. See
+`spec/repo-format.md` § v3.20.
 `structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
 `{"evidence": [{source, locator, observation}, …]}` and optionally
@@ -1535,7 +1542,11 @@ plugin faithfully.
    `body: serialized` for serialized post bodies and `plain_data: true` for a
    decoded scalar/array rule with nested strings but no id positions. Both
    re-serialize after tokenization so PHP length prefixes remain correct;
-   opaque `verbatim` bytes deliberately do not re-bind.
+   opaque `verbatim` bytes deliberately do not re-bind. For declared JSON bodies,
+   negotiate `body-url-rebinding/v1` and set `body_refs.<type>.url_rebinding`
+   to `true`. Prove it composes with the body's declared reference casts and
+   literal sentinels through the real compiler, post materializer and recapture;
+   an isolated string-codec pass is not evidence of database-boundary correctness.
 5. Exercise activation, complete the plugin's documented onboarding, then make
    one real admin save, one front-end read, an update, and a deletion before
    declaring the option/table inventory complete. Activation is not proof of

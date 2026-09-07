@@ -7394,7 +7394,8 @@
                 },
                 "RECORD_OPTIONAL": {
                     "value_repr": [
-                        "sentinels"
+                        "sentinels",
+                        "url_rebinding"
                     ]
                 },
                 "RECORD_REQUIRED": {
@@ -7404,6 +7405,9 @@
                 },
                 "SECTION": {
                     "value_repr": "body_refs"
+                },
+                "URL_FEATURE": {
+                    "value_repr": "body-url-rebinding/v1"
                 }
             },
             "final": true,
@@ -7444,6 +7448,14 @@
                             "has_default": false,
                             "name": "context",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "rewriteText",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],
@@ -7493,6 +7505,14 @@
                             "has_default": false,
                             "name": "context",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "rewriteText",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],
@@ -23810,7 +23830,81 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "rewrite_unreferenced_strings": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "paths",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rewrite",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "walk": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": true,
+                            "default": null,
+                            "has_default": false,
+                            "name": "root",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "segments",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "fn",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "locator",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "walk_atomic": {
                     "abstract": false,
                     "final": false,
                     "parameters": [

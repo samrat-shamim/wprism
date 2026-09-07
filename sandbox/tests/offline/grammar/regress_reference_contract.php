@@ -801,6 +801,102 @@ foreach ([
     );
 }
 
+// URL/text rebinding must not reinterpret a declared reference or its literal
+// sentinel. Human-readable locators are not coordinates: the first and second
+// group below can both print `.groups.a.b.id` while naming different leaves.
+$hasComplementWalker = method_exists(JsonRefs::class, 'rewrite_unreferenced_strings');
+check($hasComplementWalker, 'the shared JSON walker can rewrite string leaves outside declared reference positions');
+if ($hasComplementWalker) {
+    $complementInput = [
+        'id' => 'literal sentinel',
+        'groups' => [
+            'a.b' => ['id' => 'protected dotted key', 'url' => 'dotted URL'],
+            'a' => ['b' => ['id' => 'unprotected nested key', 'url' => 'nested URL']],
+            '01' => ['id' => 'protected numeric-looking key', 'url' => 'numeric URL'],
+        ],
+        'rows' => [['held' => 'first sentinel', 'nested' => [['held' => 'second sentinel', 'text' => 'nested text']]]],
+        'complete' => ['id' => 'protected container', 'text' => 'protected container text'],
+        'list' => ['plain list text', 0, '0', false, null, []],
+        'URL-shaped key' => 'last string',
+    ];
+    $complementBefore = serialize($complementInput);
+    $complementCalls = [];
+    $complementResult = JsonRefs::rewrite_unreferenced_strings(
+        $complementInput,
+        ['$.id', '$.groups.*.id', '$..held', '$.complete', '$.complete.id', '$.id'],
+        static function (string $text) use (&$complementCalls): string {
+            $complementCalls[] = $text;
+            return 'changed:' . $text;
+        }
+    );
+    $complementExpected = $complementInput;
+    $complementExpected['groups']['a.b']['url'] = 'changed:dotted URL';
+    $complementExpected['groups']['a']['b']['id'] = 'changed:unprotected nested key';
+    $complementExpected['groups']['a']['b']['url'] = 'changed:nested URL';
+    $complementExpected['groups']['01']['url'] = 'changed:numeric URL';
+    $complementExpected['rows'][0]['nested'][0]['text'] = 'changed:nested text';
+    $complementExpected['list'][0] = 'changed:plain list text';
+    $complementExpected['list'][2] = 'changed:0';
+    $complementExpected['URL-shaped key'] = 'changed:last string';
+    check($complementResult === $complementExpected,
+        'complement traversal protects exact wildcard/recursive coordinates and containers without conflating dotted keys');
+    check($complementCalls === ['dotted URL', 'unprotected nested key', 'nested URL', 'numeric URL',
+        'nested text', 'plain list text', '0', 'last string'],
+        'each unprotected string is visited once in native key order, including scalar list elements');
+    check(serialize($complementInput) === $complementBefore,
+        'complement rewriting preserves the caller input, keys, native scalar types and container shape');
+    check(JsonRefs::rewrite_unreferenced_strings($complementInput, [], static fn(string $text): string => $text) === $complementInput,
+        'an identity text codec with no protected paths preserves the complete native value');
+    expect_throw(static fn() => JsonRefs::rewrite_unreferenced_strings($complementInput, ['$..*'],
+        static fn(string $text): string => $text), 'the complement uses the existing JSONPath dialect without admitting recursive wildcards');
+    expect_throw(static fn() => JsonRefs::rewrite_unreferenced_strings(['text' => 'value'], [],
+        static fn(string $text): int => 7), 'a string-leaf codec cannot silently replace text with a different scalar type');
+
+    $legacyWalk = ['rows' => [['id' => 'one'], ['id' => 'two']]];
+    $legacyCalls = [];
+    JsonRefs::walk($legacyWalk, JsonRefs::parse_path('$.rows.id'),
+        static function (&$container, $key, string $locator, string $unused = 'unchanged') use (&$legacyCalls): void {
+            $legacyCalls[] = [func_num_args(), $locator, $unused];
+            $container[$key] = strtoupper($container[$key]);
+        }, 'body');
+    check($legacyCalls === [[3, 'body.rows[0].id', 'unchanged'], [3, 'body.rows[1].id', 'unchanged']]
+        && $legacyWalk === ['rows' => [['id' => 'ONE'], ['id' => 'TWO']]],
+        'existing walk callbacks retain exactly three arguments, their optional defaults, locators and in-place writes');
+
+    $atomicRoot = ['ref'=>7, 'nested'=>['ref'=>8]];
+    $atomicCalls = [];
+    JsonRefs::walk_atomic($atomicRoot, JsonRefs::parse_path('$..ref'),
+        static function (&$container, $key, string $locator) use (&$atomicCalls): void {
+            $atomicCalls[] = [func_num_args(), $locator, $container[$key]];
+            $container[$key] = ['ref'=>$container[$key]];
+        }, 'body');
+    check($atomicRoot === ['ref'=>['ref'=>7], 'nested'=>['ref'=>['ref'=>8]]]
+        && $atomicCalls === [[3, 'body..ref', 7], [3, 'body.nested..ref', 8]],
+        'atomic matching freezes native coordinates before a scalar codec emits same-key container payloads');
+
+    $atomicOverlap = ['group'=>['ref'=>['ref'=>7], 'nested'=>['group'=>['ref'=>8]]]];
+    $ordinaryOverlap = $atomicOverlap;
+    $ordinaryMatches = [];
+    JsonRefs::walk($ordinaryOverlap, JsonRefs::parse_path('$..group..ref'),
+        static function (&$container, $key, string $locator) use (&$ordinaryMatches): void { $ordinaryMatches[] = $container[$key]; }, 'body');
+    check($ordinaryMatches === [['ref'=>7], 7, 8, 8],
+        'ordinary recursive traversal retains nested and repeated matches rather than inheriting atomic semantics');
+    $atomicMatches = [];
+    JsonRefs::walk_atomic($atomicOverlap, JsonRefs::parse_path('$..group..ref'),
+        static function (&$container, $key, string $locator) use (&$atomicMatches): void {
+            $atomicMatches[] = $container[$key];
+            $container[$key] = ['payload'=>$container[$key]];
+        }, 'body');
+    check($atomicMatches === [['ref'=>7], 8]
+        && $atomicOverlap === ['group'=>['ref'=>['payload'=>['ref'=>7]], 'nested'=>['group'=>['ref'=>['payload'=>8]]]]],
+        'an atomic terminal owns its whole value and duplicate recursive matches invoke the codec only once');
+    $invalidatedMatch = ['ref'=>1, 'later'=>['ref'=>2]];
+    expect_throw(static function () use (&$invalidatedMatch): void {
+        JsonRefs::walk_atomic($invalidatedMatch, JsonRefs::parse_path('$..ref'),
+            static function (&$container, $key, string $locator): void { unset($container['later']); }, 'body');
+    }, 'a callback that invalidates another frozen coordinate refuses instead of silently skipping that reference');
+}
+
 if ($failures > 0) {
     fwrite(STDERR, "\n$failures check(s) FAILED\n");
     exit(1);

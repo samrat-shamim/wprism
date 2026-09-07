@@ -2540,14 +2540,35 @@ portability validates every declared JSON-body reference, including fixed-cast p
 mutation. The `ref` name avoids the credential role denoted by `token`; neither the envelope nor its
 surrounding configuration receives a secret/PII clearance exemption.
 
-**What the mode does NOT claim, stated so it cannot be inferred.** It rewrites declared reference paths
-and nothing else. The same measured bodies bake the source site's absolute home URL into
-`settings.confirmations.<n>.redirect` and `get_bloginfo('name')` into
-`notifications.<n>.sender_name`; neither is a reference path and neither is rebound. Capture WARNS when
-the body carries this environment's home URL — checking the JSON-ESCAPED form as well as the plain one,
-because `wp_json_encode()` escapes every `/` and a plain scan would never match. It is also not block
-attributes: `attr_id_codecs` is a separate declaration over a separate parser, and nothing here reaches
-`serialize_block_attributes()`'s escaping or `wp_update_post()`'s `wp_unslash()`.
+Typed references are atomic values during path traversal. The shared walker freezes native terminal
+coordinates before rewriting and does not visit nested matches inside an already-owned value. Thus a
+recursive native path such as `$..ref`, `$..type` or `$..ref.ref` cannot reinterpret its own generated
+envelope. Capture, Apply and canonical compiler/lint projection share that atomic traversal; ordinary
+fixed-cast declarations retain the original walk behavior.
+
+**URL rebinding is separately negotiated.** A manifest declaring `body-url-rebinding/v1`,
+`spec-window/v1` and `structured-body-refs/v1` may add `"url_rebinding": true` to one post type's
+`body_refs` record. Only literal `true` is accepted; omit the member for the original reference-only
+behavior. Merely declaring the feature does not enable it. The engine applies the existing
+home/uploads/query-reference text codec to decoded string leaves outside declared reference positions.
+It does not interpret block or shortcode syntax. JSON framing, key order and escaping still obey the
+byte-exact decode/re-encode precondition.
+
+Reference positions, including literal sentinels, take precedence over text rewriting. The shared
+`JsonRefs` traversal protects their native key coordinates, not display locators: a key named `a.b`
+and nested keys `a` then `b` can print the same dotted locator but must not protect each other's
+values. Keys, non-string scalars and undeclared plugin-local field IDs are unchanged. Capture and Apply
+must receive the product's text codec when opted in; missing machinery refuses before reference work.
+
+**What the mode does NOT claim.** Without URL opt-in, the measured
+`settings.confirmations.<n>.redirect` remains source-bound and retains its exact legacy warning.
+With opt-in, that URL is rebound, but a remaining home URL in a preserved literal/key or an unsupported
+text context still warrants a warning. Both plain and JSON-escaped home spellings are checked.
+Non-URL environment data such as `notifications.<n>.sender_name` is not rebound. This is not block
+attribute rewriting: `attr_id_codecs` has a separate declaration/parser, and nothing here invokes
+`serialize_block_attributes()` or `wp_update_post()`/`wp_unslash()`. The real post materializer writes
+the already-reencoded JSON through checked SQL; compiler/materializer/PostCapture regression proves
+the complete target-body fixed point and refusal before mutation.
 
 **Why the mode's gate is asked LATE while the key's is asked by § v3.3.** The section is admitted by the
 closed key set the moment the feature is declared, which gives the three distinct verdicts § v3.2

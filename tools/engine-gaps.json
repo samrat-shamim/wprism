@@ -82,8 +82,17 @@
     },
     "structured_leaf_text_codec": {
       "title": "an explicit structured-leaf text codec independent of fake reference paths",
-      "status": "open",
-      "definition": "Tokenizing the string leaves of a nested array-valued option that declares no reference, without inventing a reference path to reach them."
+      "status": "shipped",
+      "definition": "Explicit URL/query-reference text rewriting in decoded plain-data string leaves without inventing entity-reference paths. Existing plain_data rules dispatch through Tokens for nested option/meta values; body-url-rebinding/v1 adds an explicit JSON-body opt-in. Declared JSON reference positions and literal sentinels remain owned by their reference grammar.",
+      "evidence": [
+        "agent/src/Grammar/Tokens.php",
+        "agent/src/Kernel/JsonRefs.php",
+        "agent/src/Grammar/BodyRefGrammar.php",
+        "agent/src/Capture/OptionsCapture.php",
+        "agent/src/Apply/OptionsMaterializer.php",
+        "sandbox/tests/offline/grammar/regress_body_ref_grammar.php",
+        "sandbox/tests/offline/grammar/regress_reference_contract.php"
+      ]
     },
     "post_apply_registration_boundary": {
       "title": "a verified post-apply type-registration/process boundary",
@@ -169,9 +178,18 @@
         },
         {
           "coordinate": "post_types.wpforms.body.urls",
-          "cannot_represent": "Native WPForms confirmation redirects and message content contain same-site absolute URLs inside JSON string leaves. body=json currently substitutes only declared entity-ID paths and warns about remaining source home bytes; it does not rebind those URL leaves. The retained form-b body exhibits an escaped source-home redirect. Reuse the generic home/upload/query reference codecs under a separately negotiated body-string-leaf declaration; do not create fake ID paths or a plugin-owned JSON walker, and do not normalize away the exact JSON framing contract.",
+          "cannot_represent": "Native WPForms confirmation redirects and message content contain same-site absolute URLs inside JSON string leaves. Reference-only body=json preserved those URLs and warned; the retained form-b body exhibits the escaped source-home redirect. The separately negotiated body-url-rebinding/v1 feature now admits url_rebinding: true and reuses the existing home/uploads/query-reference text codec. JsonRefs protects exact native reference coordinates and sentinels, including dotted-key ambiguity, without a second path dialect or plugin-owned walker. Real compiler, PostCapture and checked-SQL PostMaterializer regressions prove the combined typed-reference/URL fixed point, native fixture framing, hostile source-ID collision isolation and mutation-free malformed-reference refusal. This closes representation and dispatch, not native WPForms product support.",
           "primitive_required": "structured_leaf_text_codec",
-          "remedy_phrase": "explicit URL rebinding for structured JSON body string leaves"
+          "remedy_phrase": "explicit URL rebinding for structured JSON body string leaves",
+          "closed_by": [
+            "agent/src/Kernel/JsonRefs.php",
+            "agent/src/Grammar/BodyRefGrammar.php",
+            "agent/src/Capture/PostCapture.php",
+            "agent/src/Apply/PostMaterializer.php",
+            "sandbox/tests/offline/grammar/regress_reference_contract.php",
+            "sandbox/tests/offline/grammar/regress_body_ref_grammar.php",
+            "sandbox/tests/fixtures/wpforms-body/form-b.post_content.raw.json"
+          ]
         },
         {
           "coordinate": "post_meta.wpforms_form_locations",
@@ -201,7 +219,7 @@
           ]
         }
       ],
-      "closing": "Fixed-type JSON reference paths, block selector codecs and the fixture taxonomy decision matrix have offline evidence at their cited owners. The optional integer/string self-reference gap is now represented by the negotiated body-ref-preserve-type/v1 feature and tested through the real compiler, lint and PostCapture, not by preserving an undeclared source-local id. The earlier assertion that only form-location reconstruction remained was too broad: same-site URL string leaves in JSON confirmation settings are still an open shared-engine gap, and a warning about a source URL is not portable support. The bounded native form-locations postcondition remains adapter-owned. The historical taxonomy matrix proves offline declaration/decision behavior only, not concurrent InnoDB locking or a production deletion claim. The WPForms site adapter and captured 2.0.0.5 bodies are authoring/trust-flow fixtures, not platform support. Complete native create/update/builder/duplicate, divergent-ID materialization, submission, URL, location, lifecycle and composition evidence is still required before any product disposition."
+      "closing": "Fixed-type JSON reference paths, block selector codecs and the fixture taxonomy decision matrix have offline evidence at their cited owners. The optional integer/string self-reference is represented by body-ref-preserve-type/v1, not preserved as an undeclared source-local id. The body-url-rebinding/v1 feature separately composes the existing URL/query text codec with exact reference/sentinel protection; real compiler, checked-SQL post materialization and PostCapture prove an exact body fixed point and mutation-free hostile input refusal. These close the measured representation/dispatch gaps, not the native product evidence. The bounded native form-locations postcondition remains adapter-owned. The historical taxonomy matrix proves offline declaration/decision behavior only, not concurrent InnoDB locking or a production deletion claim. The WPForms site adapter and captured 2.0.0.5 bodies are authoring/trust-flow fixtures, not platform support. Complete native create/update/builder/duplicate, divergent-ID materialization, submission, URL, location, lifecycle and composition evidence is still required before any product disposition."
     },
     {
       "id": "redirection",
@@ -253,9 +271,10 @@
       "coordinates": [
         {
           "coordinate": "options.cptui_post_types",
-          "cannot_represent": "`cptui_post_types` and `cptui_taxonomies` are nested authored arrays. The `menu_icon` field may be a site URL, but a plain array-valued option with no reference declaration does not currently tokenize nested string leaves.",
+          "cannot_represent": "`cptui_post_types` and `cptui_taxonomies` are nested authored arrays whose menu_icon may be a site URL. The shared plain_data rule now supplies explicit string-leaf URL rebinding through OptionsCapture, Tokens and OptionsMaterializer, without a fake reference declaration. CPT UI still needs its own reviewed declaration and native round-trip/registration evidence; this coordinate is adapter work, not a missing text primitive.",
           "primitive_required": "structured_leaf_text_codec",
-          "remedy_phrase": "an explicit structured-leaf text codec independent of fake reference paths"
+          "remedy_phrase": "an explicit structured-leaf text codec independent of fake reference paths",
+          "blocker_layer": "adapter"
         },
         {
           "coordinate": "lifecycle_effects.cptui-init-registration",

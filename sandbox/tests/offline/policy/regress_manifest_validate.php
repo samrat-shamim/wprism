@@ -1598,8 +1598,11 @@ check(
         'optional' => \WPrism\ReferenceRules::JSON_REF_OPTIONAL,
         'preserved_type' => 'cast: preserve requires ' . \WPrism\BodyRefGrammar::PRESERVED_TYPE_FEATURE
             . '; canonical state retains the native int/string type in a closed typed-reference envelope',
-    ],
-    '`body_refs` publishes its exact record, shared path/kind/cast keys and negotiated type-preservation vocabulary'
+    ]
+    && ($bodyRefsGrammar['url_rebinding'] ?? null) === 'true only; requires ' . \WPrism\BodyRefGrammar::URL_FEATURE
+        . '; use the shared environment URL/query-reference text codec outside declared reference positions; '
+        . 'keys, sentinels and non-string values remain unchanged',
+    '`body_refs` publishes its exact record, shared reference grammar and negotiated type/URL refinements'
 );
 $attrGrammar = $engineFeatures['implemented']['attr-id-codecs/v1']['sections']['attr_id_codecs']['grammar'] ?? [];
 check(

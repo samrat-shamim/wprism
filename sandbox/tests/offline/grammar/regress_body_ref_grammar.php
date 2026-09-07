@@ -1165,8 +1165,12 @@ if ($preservePolicy !== null) {
     foreach (['{"id":' . $rawTyped . ',"id":' . $rawTyped . '}',
         '{"id":{"format":"wprism-typed-reference\\/v1","type":"string","type":"int","ref":"' . $validTyped['ref'] . '"}}'] as $duplicateKeys) {
         $lookups = 0;
+        $duplicateLookup = static function () use (&$lookups): int { ++$lookups; return 42; };
+        BodyRefGrammar::apply(json_encode(['id'=>$validTyped], JSON_THROW_ON_ERROR), $preserveRule, $duplicateLookup, 'counter control');
+        wprism_check_same(1, $lookups, 'H: the duplicate-key lookup witness observes a real positive Apply');
+        $lookups = 0;
         wprism_check_throws(static fn() => BodyRefGrammar::apply($duplicateKeys, $preserveRule,
-            static function () use (&$lookups): int { ++$lookups; return 42; }, 'duplicate key'),
+            $duplicateLookup, 'duplicate key'),
             RuntimeException::class, 'H: duplicate JSON keys fail exact framing before typed decoding', 'decode/re-encode round trip');
         wprism_check_same(0, $lookups, 'H: duplicate-key framing never resolves a target identity');
     }
@@ -1208,6 +1212,291 @@ if ($preservePolicy !== null) {
         [, $captured] = Canon::parse_post_file($entity['entity']['content']);
         wprism_check_same(array_replace($validTyped, ['type'=>get_debug_type($nativeId)]), json_decode($captured, true)['id'],
             "H: real PostCapture rebinds the $nativePath self-reference with its native scalar type");
+    }
+}
+
+// I — URL-bearing JSON is still configuration, not block/shortcode content.
+// The native confirmation redirect in form-b must use the same URL codec as
+// serialized bodies, while explicitly owned reference/sentinel positions win.
+$urlManifest = $preserveManifest;
+$urlManifest['engine_features'][] = 'body-url-rebinding/v1';
+sort($urlManifest['engine_features'], SORT_STRING);
+$urlManifest['body_refs']['wpforms'] = [
+    'json_refs' => [
+        ['path'=>'$.id', 'kind'=>'post', 'cast'=>'preserve'],
+        ['path'=>'$.settings.confirmations.*.page', 'kind'=>'post', 'cast'=>'string'],
+        ['path'=>'$.literal', 'kind'=>'post'],
+    ],
+    'sentinels' => [
+        '$.settings.confirmations.*.page' => ['previous_page'],
+        '$.literal' => ['https://source.example/literal'],
+    ],
+    'url_rebinding' => true,
+];
+$urlPolicy = null;
+try { $urlPolicy = $load(['wpforms'=>$urlManifest]); }
+catch (RuntimeException $failure) { wprism_check(false, 'I: negotiated JSON body URL rebinding loads: ' . $failure->getMessage()); }
+$withoutUrlFeature = $urlManifest;
+$withoutUrlFeature['engine_features'] = $preserveManifest['engine_features'];
+wprism_check_throws(static fn() => $load(['wpforms'=>$withoutUrlFeature]), RuntimeException::class,
+    'I: URL syntax without its feature refuses by feature name', 'body-url-rebinding/v1');
+if ($urlPolicy !== null) {
+    foreach ([false, 0, 1, 'true', null, []] as $invalidUrlFlag) {
+        $badUrlManifest = $urlManifest;
+        $badUrlManifest['body_refs']['wpforms']['url_rebinding'] = $invalidUrlFlag;
+        wprism_check_throws(static fn() => $load(['wpforms'=>$badUrlManifest]), RuntimeException::class,
+            'I: URL rebinding is a true-only explicit capability', 'url_rebinding must be true');
+    }
+    $noUrlBodyFeature = $urlManifest;
+    $noUrlBodyFeature['engine_features'] = ['body-url-rebinding/v1', 'spec-window/v1'];
+    unset($noUrlBodyFeature['body_refs']);
+    $noUrlBodyFeature['post_types']['wpforms']['body'] = 'verbatim';
+    wprism_check_throws(static fn() => $load(['wpforms'=>$noUrlBodyFeature]), RuntimeException::class,
+        'I: URL rebinding requires the structured body feature', "requires 'structured-body-refs/v1'");
+    $urlRule = $urlPolicy->body_ref_rule('wpforms');
+    wprism_check_same(true, $urlRule['url_rebinding'] ?? null, 'I: the real Policy projection retains the opt-in codec');
+    $unusedUrlManifest = $urlManifest;
+    unset($unusedUrlManifest['body_refs']['wpforms']['url_rebinding']);
+    wprism_check(!array_key_exists('url_rebinding', $load(['wpforms'=>$unusedUrlManifest])->body_ref_rule('wpforms')),
+        'I: declaring an available feature does not enable it or change legacy rule bytes');
+
+    $sourceUrlTokens = new Tokens('https://source.example', 'https://source.example/wp-content/uploads');
+    $targetUrlTokens = new Tokens('https://target.example', 'https://target.example/wp-content/uploads');
+    $nativeUrlDocument = [
+        'id'=>12,
+        'literal'=>'https://source.example/literal',
+        'settings'=>['confirmations'=>[
+            1=>['page'=>'12', 'redirect'=>'https://source.example/thank-you/?page_id=12'],
+            2=>['page'=>'previous_page', 'redirect'=>'https://elsewhere.example/untouched'],
+        ]],
+        'media'=>'https://source.example/wp-content/uploads/2026/picture.png',
+        'text'=>'Unicode বাংলা; [gallery ids="12"] <!-- wp:image {"id":12} /-->',
+        'fields'=>[['id'=>'12', 'url'=>'https://source.example/form-field/']],
+        'https://source.example/key'=>'https://source.example/value',
+        'scalars'=>[false, null, 1, '1', []],
+    ];
+    $nativeUrlBody = json_encode($nativeUrlDocument, JSON_THROW_ON_ERROR);
+    $bindForm(12);
+    $urlCanonicalBody = BodyRefGrammar::capture($nativeUrlBody, $urlRule, $idToToken($sourceUrlTokens),
+        static function (): void {}, 'URL form', fn(string $text): string => $sourceUrlTokens->tokenize_text($text));
+    $urlExpectedCanonical = $nativeUrlDocument;
+    $urlExpectedCanonical['id'] = ['format'=>'wprism-typed-reference/v1', 'type'=>'int', 'ref'=>'{{post:' . $formUuid . '}}'];
+    $urlExpectedCanonical['settings']['confirmations'][1] = ['page'=>'{{post:' . $formUuid . '}}',
+        'redirect'=>'{{home}}/thank-you/?page_id={{post:' . $formUuid . '}}'];
+    $urlExpectedCanonical['media'] = '{{uploads}}/2026/picture.png';
+    $urlExpectedCanonical['fields'][0]['url'] = '{{home}}/form-field/';
+    $urlExpectedCanonical['https://source.example/key'] = '{{home}}/value';
+    wprism_check_same(json_encode($urlExpectedCanonical, JSON_THROW_ON_ERROR), $urlCanonicalBody,
+        'I: JSON capture reuses home/uploads/query-reference tokens while preserving sentinels, keys, field IDs and non-text types');
+    $bindForm(42, 12);
+    $urlTargetBody = BodyRefGrammar::apply($urlCanonicalBody, $urlRule, $tokenToId($targetUrlTokens), 'target URL form',
+        fn(string $text): string => $targetUrlTokens->detokenize_text($text));
+    $urlExpectedTarget = $nativeUrlDocument;
+    $urlExpectedTarget['id'] = 42;
+    $urlExpectedTarget['settings']['confirmations'][1] = ['page'=>'42', 'redirect'=>'https://target.example/thank-you/?page_id=42'];
+    $urlExpectedTarget['media'] = 'https://target.example/wp-content/uploads/2026/picture.png';
+    $urlExpectedTarget['fields'][0]['url'] = 'https://target.example/form-field/';
+    $urlExpectedTarget['https://source.example/key'] = 'https://target.example/value';
+    wprism_check_same(json_encode($urlExpectedTarget, JSON_THROW_ON_ERROR), $urlTargetBody,
+        'I: divergent-ID Apply rebinds URLs and typed references, not source-shaped literal sentinels or plugin-local field IDs');
+    wprism_check_same($urlCanonicalBody, BodyRefGrammar::capture($urlTargetBody, $urlRule, $idToToken($targetUrlTokens),
+        static function (): void {}, 'target URL form', fn(string $text): string => $targetUrlTokens->tokenize_text($text)),
+        'I: URL and typed-reference composition is an exact recapture fixed point');
+
+    $neverLookup = static function (): never { throw new RuntimeException('missing codec reached reference lookup'); };
+    wprism_check_throws(static fn() => BodyRefGrammar::capture($nativeUrlBody, $urlRule, $neverLookup,
+        static function (): void {}, 'missing URL codec'), RuntimeException::class,
+        'I: missing capture text machinery refuses before reference work', 'requires a text codec');
+    wprism_check_throws(static fn() => BodyRefGrammar::apply($urlCanonicalBody, $urlRule, $neverLookup,
+        'missing URL codec'), RuntimeException::class,
+        'I: missing Apply text machinery refuses before reference work', 'requires a text codec');
+    $legacyUrlRule = $urlRule;
+    unset($legacyUrlRule['url_rebinding']);
+    $bindForm(12);
+    $legacyUrlBody = BodyRefGrammar::capture($nativeUrlBody, $legacyUrlRule, $idToToken($sourceUrlTokens),
+        static function (): void {}, 'legacy URL form', static function (): never { throw new RuntimeException('legacy path invoked URL codec'); });
+    wprism_check_same($nativeUrlDocument['settings']['confirmations'][1]['redirect'],
+        json_decode($legacyUrlBody, true)['settings']['confirmations'][1]['redirect'],
+        'I: a non-opt-in JSON body retains existing URL bytes and never calls the supplied text codec');
+
+    $nativeUrlTokens = new Tokens('http://localhost:9620', 'http://localhost:9620/wp-content/uploads');
+    $nativeUrlTokens->policy = $urlPolicy;
+    $wpdb->seedTable('wp_wprism_map', [['id'=>1, 'uuid'=>$pageUuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>4]]);
+    $nativeUrlCapture = new PostCapture($urlPolicy, $nativeUrlTokens, new EntityMetaCapture(
+        $urlPolicy, $nativeUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    $nativeUrlEntity = $nativeUrlCapture->capture($formPost($capture('form-b'), 'native-url-form'), $formUuid, []);
+    [, $nativeUrlCapturedBody] = Canon::parse_post_file($nativeUrlEntity['entity']['content']);
+    $nativeUrlExpected = json_decode($capture('form-b'), true, 512, JSON_THROW_ON_ERROR);
+    $nativeUrlExpected['settings']['confirmations'][1]['page'] = '{{post:' . $pageUuid . '}}';
+    $nativeUrlExpected['settings']['confirmations'][2]['redirect'] = '{{home}}/recon-thank-you/';
+    wprism_check_same(json_encode($nativeUrlExpected, JSON_THROW_ON_ERROR), $nativeUrlCapturedBody,
+        'I: real PostCapture rebinds the measured native confirmation redirect without altering other native form bytes');
+    wprism_check_same([], $nativeUrlTokens->warnings,
+        'I: a fully rebound native confirmation no longer emits the legacy source-home warning');
+
+    require_once $root . '/agent/src/Apply/PostMaterializer.php';
+    require_once $root . '/agent/src/Kernel/Db.php';
+    $urlCompileSite = WPrismTest\FrozenPolicy::site([$urlManifest], WPRISM_SPEC_VERSION);
+    $urlCompileSite['policy']['post_types'] = ['wpforms'];
+    $urlCompilePolicy = WPrismTest\FrozenPolicy::policy([$urlManifest], $urlCompileSite);
+    $urlPostBytes = Canon::post_file($formFront, $urlCanonicalBody);
+    Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($urlCompileSite));
+    Canon::write_file($compileRoot . $formPath, $urlPostBytes);
+    $urlCompiled = WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $urlCompilePolicy);
+    wprism_check($urlCompiled instanceof WPrism\CompiledRepository,
+        'I: the complete real compiler admits URL and typed-reference composition from the negotiated frozen policy');
+
+    $targetPost = (array)$formPost('old target body', 'old-target');
+    $targetPost['ID'] = 42;
+    $foreignPost = (array)$formPost('foreign source-ID collision', 'foreign');
+    $foreignPost['ID'] = 12;
+    $wpdb->seedTable('wp_posts', [$targetPost, $foreignPost])
+        ->setColumns('wp_posts', array_fill_keys(array_keys($targetPost), 'longtext'))
+        ->setTableEngine('wp_posts', 'InnoDB')
+        ->seedTable('wp_postmeta', [])
+        ->setColumns('wp_postmeta', ['meta_id'=>'bigint unsigned', 'post_id'=>'bigint unsigned',
+            'meta_key'=>'varchar(255)', 'meta_value'=>'longtext'])
+        ->setIndexes('wp_postmeta', [['Key_name'=>'post_id', 'Column_name'=>'post_id', 'Seq_in_index'=>1,
+            'Sub_part'=>null, 'Non_unique'=>1, 'Index_type'=>'BTREE']])
+        ->setTableEngine('wp_postmeta', 'InnoDB')
+        ->setColumns('wp_wprism_map', ['id'=>'bigint unsigned', 'uuid'=>'varchar(36)', 'entity_type'=>'varchar(64)',
+            'id_kind'=>'varchar(64)', 'local_id'=>'bigint unsigned'])
+        ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+        ->setTableEngine('wp_wprism_map', 'InnoDB')->enableInformationSchema();
+    $bindForm(42, 12);
+    $urlFieldMaterializer = new WPrism\ApplyFieldMaterializer($urlCompilePolicy, $targetUrlTokens);
+    $urlMaterializer = new WPrism\PostMaterializer($urlCompilePolicy, $targetUrlTokens, $urlFieldMaterializer,
+        new WPrism\RelationshipMaterializer($urlCompilePolicy, $urlFieldMaterializer),
+        new WPrism\AttachmentMaterializer($urlCompilePolicy, $urlFieldMaterializer, $urlCompiled, $compileRoot));
+    $urlDbProfile = new WPrism\NativeDatabaseProfile(['wp_posts', 'wp_postmeta', 'wp_wprism_map'], ['wp_posts', 'wp_postmeta']);
+    $materializerWarnings = [];
+    WPrism\Db::start_repeatable_read('JSON body materializer test', $urlDbProfile);
+    $urlFieldMaterializer->begin_authored_transaction();
+    WPrism\CacheInvalidationTransaction::begin();
+    try {
+        $urlMaterializer->finalize_post($formFront, $urlCanonicalBody, null, $materializerWarnings, []);
+        $firstUrlRows = $wpdb->rows('wp_posts');
+        wprism_check_same($urlTargetBody, $firstUrlRows[0]['post_content'],
+            'I: real PostMaterializer writes exact target JSON through checked SQL without an extra slash/encode layer');
+        wprism_check_same($foreignPost, $firstUrlRows[1],
+            'I: materialization does not touch the foreign form occupying the source ID');
+        $urlMaterializer->finalize_post($formFront, $urlCanonicalBody, null, $materializerWarnings, []);
+        wprism_check_same($firstUrlRows, $wpdb->rows('wp_posts'),
+            'I: repeating actual post materialization preserves the complete row set byte-for-byte');
+        wprism_check_same([], $materializerWarnings, 'I: URL materialization has no hidden warning or fallback');
+        WPrism\Db::commit('JSON body materializer test');
+        WPrism\CacheInvalidationTransaction::finish();
+    } finally {
+        $urlFieldMaterializer->end_authored_transaction();
+        WPrism\CacheInvalidationTransaction::end();
+    }
+    $targetUrlTokens->policy = $urlCompilePolicy;
+    $urlRecapture = new PostCapture($urlCompilePolicy, $targetUrlTokens, new EntityMetaCapture(
+        $urlCompilePolicy, $targetUrlTokens, static function (): void {}, static function (): void {}, static function (): void {}
+    ), new MediaCapture());
+    $targetEntity = $urlRecapture->capture((object)$wpdb->rows('wp_posts')[0], $formUuid, []);
+    [, $materializedRecapture] = Canon::parse_post_file($targetEntity['entity']['content']);
+    wprism_check_same($urlCanonicalBody, $materializedRecapture,
+        'I: the real database materializer and PostCapture compose to the exact canonical body fixed point');
+    wprism_check_same($urlPostBytes, file_get_contents($compileRoot . $formPath),
+        'I: compiler and target materialization preserve the complete canonical source post');
+    wprism_check_same(Canon::encode($urlCompileSite), file_get_contents($compileRoot . '/site.wprism.json'),
+        'I: compiler and target materialization preserve source content pins and codec declaration');
+
+    $invalidUrlCanonical = $urlExpectedCanonical;
+    $invalidUrlCanonical['id']['type'] = 'float';
+    $urlNativeSnapshot = static fn(): array => array_combine(['wp_posts', 'wp_postmeta', 'wp_wprism_map'],
+        array_map(static fn(string $table): array => $wpdb->rows($table), ['wp_posts', 'wp_postmeta', 'wp_wprism_map']));
+    $urlBeforeRefusal = $urlNativeSnapshot();
+    WPrism\Db::start_repeatable_read('JSON body invalid reference test', $urlDbProfile);
+    $urlFieldMaterializer->begin_authored_transaction();
+    WPrism\CacheInvalidationTransaction::begin();
+    try {
+        $wpdb->resetLog();
+        wprism_check_throws(static function () use ($urlMaterializer, $formFront, $invalidUrlCanonical, &$materializerWarnings): void {
+            $urlMaterializer->finalize_post($formFront, json_encode($invalidUrlCanonical, JSON_THROW_ON_ERROR),
+                null, $materializerWarnings, []);
+        }, RuntimeException::class, 'I: malformed typed data refuses through the actual post materializer', 'malformed typed reference');
+        wprism_check_same($urlBeforeRefusal, $urlNativeSnapshot(),
+            'I: malformed JSON reference refusal preserves every native profile table before rollback');
+        wprism_check_same([], array_values(array_filter($wpdb->queries(),
+            static fn(string $sql): bool => preg_match('/^(?:INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql) === 1)),
+            'I: malformed JSON reference refusal attempts no database mutation');
+        WPrism\Db::rollback('JSON body invalid reference test');
+        WPrism\CacheInvalidationTransaction::finish();
+    } finally {
+        $urlFieldMaterializer->end_authored_transaction();
+        WPrism\CacheInvalidationTransaction::end();
+    }
+    foreach (['credential'=>['api_key'=>'ghp_0123456789abcdefghijklmnopqrstuv'],
+        'personal-data'=>['email'=>'alice@example.test']] as $role => $protected) {
+        $protectedUrlBody = json_encode(['id'=>12, 'url'=>'https://source.example/form/', 'settings'=>$protected], JSON_THROW_ON_ERROR);
+        $textCalls = 0;
+        $countText = static function (string $text) use (&$textCalls): string { ++$textCalls; return $text; };
+        BodyRefGrammar::capture('{"url":"control"}', $urlRule, $neverLookup, static function (): void {}, 'counter control', $countText);
+        wprism_check_same(1, $textCalls, "I: the $role text witness observes a real positive Capture");
+        $textCalls = 0;
+        wprism_check_throws(static fn() => BodyRefGrammar::capture($protectedUrlBody, $urlRule, $neverLookup,
+            static function (): void {}, 'protected URL form', $countText), RuntimeException::class,
+            "I: URL rebinding retains complete $role clearance before reference work",
+            'refusing to capture json authored configuration');
+        wprism_check_same(0, $textCalls, "I: the text codec never receives a rejected $role-bearing body");
+    }
+}
+
+// J — A typed canonical reference is one atomic value. Recursive declarations
+// must not re-enter its envelope because a native key happens to be named ref,
+// type or format, including a multi-segment recursive path.
+foreach (['ref', 'type', 'format', 'nested-ref'] as $recursiveCase) {
+    $recursiveKey = $recursiveCase === 'nested-ref' ? 'ref' : $recursiveCase;
+    $recursivePath = '$..' . $recursiveKey . ($recursiveCase === 'nested-ref' ? '.ref' : '');
+    $recursiveManifest = $urlManifest;
+    $recursiveManifest['body_refs']['wpforms'] = ['json_refs'=>[
+        ['path'=>$recursivePath, 'kind'=>'post', 'cast'=>'preserve'],
+    ], 'url_rebinding'=>true];
+    $recursivePolicy = $load(['wpforms'=>$recursiveManifest]);
+    $recursiveRule = $recursivePolicy->body_ref_rule('wpforms');
+    $recursiveNative = [$recursiveKey=>12, 'nested'=>[$recursiveKey=>'12', 'url'=>'https://source.example/nested/']];
+    if ($recursiveCase === 'nested-ref') {
+        $recursiveNative['ref'] = ['ref'=>12];
+        $recursiveNative['nested']['ref'] = ['ref'=>'12'];
+    }
+    $recursiveRaw = json_encode($recursiveNative, JSON_THROW_ON_ERROR);
+    try {
+        $recursiveCanonical = BodyRefGrammar::capture($recursiveRaw, $recursiveRule,
+            static fn(int $id, string $kind): string => '{{post:' . $formUuid . '}}', static function (): void {},
+            'recursive typed form', fn(string $text): string => $sourceUrlTokens->tokenize_text($text));
+        $recursivePositions = BodyRefGrammar::reference_positions(json_decode($recursiveCanonical, true), $recursiveRule, true);
+        wprism_check_same(2, count($recursivePositions), "J: $recursivePath reports only the two native reference positions, not envelope internals");
+        $recursiveTarget = BodyRefGrammar::apply($recursiveCanonical, $recursiveRule, static fn(string $token): int => 42,
+            'recursive target', fn(string $text): string => $targetUrlTokens->detokenize_text($text));
+        $recursiveExpected = $recursiveNative;
+        if ($recursiveCase === 'nested-ref') {
+            $recursiveExpected['ref']['ref'] = 42;
+            $recursiveExpected['nested']['ref']['ref'] = '42';
+        } else {
+            $recursiveExpected[$recursiveKey] = 42;
+            $recursiveExpected['nested'][$recursiveKey] = '42';
+        }
+        $recursiveExpected['nested']['url'] = 'https://target.example/nested/';
+        wprism_check_same(json_encode($recursiveExpected, JSON_THROW_ON_ERROR), $recursiveTarget,
+            "J: $recursivePath composes atomic typed references and URLs without rewriting newly-created envelope fields");
+        wprism_check_same($recursiveCanonical, BodyRefGrammar::capture($recursiveTarget, $recursiveRule,
+            static fn(int $id, string $kind): string => '{{post:' . $formUuid . '}}', static function (): void {},
+            'recursive recapture', fn(string $text): string => $targetUrlTokens->tokenize_text($text)),
+            "J: $recursivePath is an exact typed/URL recapture fixed point");
+        $recursiveSite = WPrismTest\FrozenPolicy::site([$recursiveManifest], WPRISM_SPEC_VERSION);
+        $recursiveSite['policy']['post_types'] = ['wpforms'];
+        $recursiveCompilePolicy = WPrismTest\FrozenPolicy::policy([$recursiveManifest], $recursiveSite);
+        Canon::write_file($compileRoot . '/site.wprism.json', Canon::encode($recursiveSite));
+        Canon::write_file($compileRoot . $formPath, Canon::post_file($formFront, $recursiveCanonical));
+        WPrism\RepositoryCompiler::compile_staged($compileRoot . '/state', $compileRoot, $recursiveCompilePolicy);
+        wprism_check_same([], WPrism\Lint::scan_tree($compileRoot . '/state', $recursiveCompilePolicy),
+            "J: $recursivePath compiles and lints without descending into canonical reference payloads");
+    } catch (RuntimeException $failure) {
+        wprism_check(false, "J: $recursivePath supports recursive typed reference round trips: " . $failure->getMessage());
     }
 }
 

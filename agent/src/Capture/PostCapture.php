@@ -181,15 +181,12 @@ final class PostCapture {
                 $rule,
                 fn(int $id, string $kind): ?string => $this->tokens->id_to_token($id, $kind),
                 function (string $warning): void { $this->tokens->warnings[] = $warning; },
-                $context
+                $context,
+                fn(string $text): string => $this->tokens->tokenize_text($text, "$context body")
             );
-            // The same sentence the verbatim arm has always emitted, and for the
-            // same reason: this mode rewrites DECLARED reference paths and
-            // nothing else, so an absolute home URL elsewhere in the document
-            // (measured on WPForms' own
-            // `settings.confirmations.<n>.redirect`) crosses environments
-            // unchanged. Saying so is the difference between a scoped claim and
-            // an implied one.
+            // Legacy JSON bodies retain their exact warning. Opt-in text
+            // rebinding may still leave URL-shaped keys or declared literals;
+            // those are intentionally preserved, not evidence of full portability.
             //
             // BOTH FORMS, and the escaped one is the one that actually fires. A
             // JSON body is `wp_json_encode()` output, which escapes every '/',
@@ -203,7 +200,9 @@ final class PostCapture {
             if ($body !== ''
                 && (str_contains($body, $this->tokens->home()) || str_contains($body, $homeEscaped))) {
                 $this->tokens->warnings[] =
-                    "json body of {$post->post_type} '{$post->post_name}' contains this environment's home URL outside any declared reference path — it will NOT be re-bound on apply";
+                    ($rule['url_rebinding'] ?? null) === true
+                        ? "json body of {$post->post_type} '{$post->post_name}' still contains this environment's home URL after declared URL rebinding — inspect its preserved literals and URL context"
+                        : "json body of {$post->post_type} '{$post->post_name}' contains this environment's home URL outside any declared reference path — it will NOT be re-bound on apply";
             }
         } else {
             $secretLabel = Secrets::hard_match((string) $post->post_content);

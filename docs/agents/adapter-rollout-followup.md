@@ -143,10 +143,16 @@ cannot detect a second edit to an already-dirty file.
   [production-readiness requirements](adapter-production-readiness.md).
   The shared engine now declares `body-ref-preserve-type/v1` and a strict typed
   identity codec; JSON-body compiler portability, lint and real PostCapture
-  coverage pass 267 assertions, including divergent IDs, malformed inputs and
-  unchanged credential/PII clearance. This is preparation, not a capsule or
-  native WPForms support claim. Resolve URL rebinding, native materialization,
-  authored settings, submissions/PII boundaries, templates,
+  coverage includes divergent IDs, malformed inputs and unchanged credential/PII
+  clearance. Separately negotiated `body-url-rebinding/v1` now reuses the shared
+  text codec with native-coordinate reference/sentinel protection. The body suite
+  passes 320 assertions through the real compiler, PostCapture and SQL-backed
+  PostMaterializer, including exact fixed points, source-ID collisions and
+  mutation-free refusal. Recursive typed paths use shared atomic traversal so
+  generated reference-envelope fields cannot become new native matches.
+  This is offline preparation, not a capsule or native
+  WPForms support claim. Complete native materialization, authored settings,
+  submissions/PII boundaries, templates,
   derived location state and lifecycle before making a support claim.
 - [ ] Select the remaining two adapters on useful product coverage and an
   honest support boundary, not ease of increasing the count. Each must own its
