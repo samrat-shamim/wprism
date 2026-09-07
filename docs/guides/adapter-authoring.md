@@ -1497,8 +1497,12 @@ Named first/terminal segments and no recursive descent keep the scope explicit;
 intermediate wildcards and list mapping use the existing reference dialect.
 Only matched scalar values and their field roles are cleared. Keys, containers,
 unreviewed siblings and all secrets remain protected. The same authority is
-checked during Capture and immutable compilation; merely declaring the feature
-does not clear anything. Decide whether each destination is genuinely authored
+checked during body capture, final candidate clearance and immutable compilation;
+merely declaring the feature does not clear anything. A component-only
+`PostCapture` positive is not publication evidence: exercise the complete
+candidate and `wp wprism capture`, including an unreviewed sibling and a secret
+inside the reviewed path, and prove refusal preserves prior state and identity.
+Decide whether each destination is genuinely authored
 and portable before reviewing it: an environment-specific address needs an
 environment contract, not a privacy exception that copies it to every target.
 
@@ -2369,6 +2373,16 @@ tokenizes it, or write the reviewed `lint_ok: true` on that declaration. A
 the evidence for the review, and `lint_ok` is the review. Certifying the adapter
 returns its findings to advisory.
 
+Test reviewed non-reference fields against actual colliding small IDs. The
+WPForms native writer stores `modern-markup` as string `"0"`/`"1"`; a fresh
+form with post ID 1 exposed the missing review in its named option subkey.
+Review the owning flag/enum declaration from the pinned native writer and
+consumer, then use the existing per-subkey `lint_ok`, not a blanket parent
+exception or a linter change that hides every small integer. The capsule's
+`regress_settings_lint.php` drives real option capture and lint with boolean,
+integer and string flag representations, an unreviewed numeric sibling, and
+secret/PII refusal controls. A non-reference review grants no privacy exception.
+
 An experimental adapter that deliberately excludes `apply` uses the narrower
 `mode: "capture-plan"` conformance profile instead. It still boots a fresh
 exact-artifact pair, authors state through the plugin's own APIs, runs capture,
@@ -2377,6 +2391,20 @@ plan path, plus a convention-named `tests/conformance/capture-check.sh`.
 It then stops before deploy/apply. This is evidence only for the operations the
 disposition lists; it is not a partial round-trip and cannot justify adding
 `apply`, `deploy`, or `promote` to that list.
+
+Experimental capability reports deliberately exit 3 with `ready:false`, even
+when capture is declared. The shared profile preserves the complete stream
+and status, compares the report to independently projected shipped declarations
+and their engine-derived trust tiers,
+and admits only each experimental subject's `authored_state_not_certified`
+blocker. Certified capture subjects instead require `ready:true` and exit 0.
+Source/target/provider failures, PHP diagnostics and inconsistent answers are
+not expected experimental outcomes. The real read-only plan must succeed as a
+command while retaining its exact promotion blockers: experimental status and,
+where promotion is undeclared, `operation_not_certified`. The engine's existing
+claim projection owns the `apply + deploy` to `promote` rule. Do not discard
+exit 3 through `|| true`, accept arbitrary refusals, use `--all` to lose the
+live target, or treat a returned plan as production authorization.
 
 Real worked examples, with the empirical grounding for each decision, are the
 grind rounds themselves: `make grind-r1a` (forms — Contact Form 7 + Ninja

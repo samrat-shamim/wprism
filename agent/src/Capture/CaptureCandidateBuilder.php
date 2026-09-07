@@ -376,7 +376,7 @@ final class CaptureCandidateBuilder {
 
         $this->assertOptionGates();
         $this->safetyGates->assertContentReferences($this->tokens);
-        $this->safetyGates->assertCanonicalContent($entities);
+        $this->safetyGates->assertCanonicalContent($entities, $this->policy);
         RepositoryValueValidation::assert_native_tree($entities, $this->policy);
         return [
             'entities' => $entities,

@@ -320,6 +320,83 @@ capture_wprism_json_refusal() { # <OUT_VAR> <what> <command> [args...]
   printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
 }
 
+# Experimental is an honest capability answer with exit 3 (Cli::capabilities),
+# not a dead invocation and not permission to promote. The former run.sh
+# assignment aborted before inspecting that answer. Independent shipped claims
+# bind status/operations; complete streams bind diagnostics/exit. Plan must keep
+# exactly its source promote blockers, never acquire an unreviewed exception.
+run_wprism_capture_plan() { # <independent claims JSON> <wp command/function> <repo>
+  local __wprism_profile_claims="$1" __wprism_profile_wp="$2" __wprism_profile_repo="$3"
+  local __wprism_profile_stream='' __wprism_profile_report='' __wprism_profile_rc=0 __wprism_profile_plan=''
+  jq -e -s '
+    length == 1 and (.[0] | type == "array" and length > 0 and
+      (map(.name) | length == (unique | length)) and
+      all(.[]; keys == ["name","operations","status","trust_tier"] and
+        (.name | type == "string" and test("^[a-z][a-z0-9-]*$")) and
+        (.status == "certified" or .status == "experimental") and
+        (.trust_tier | type == "string" and length > 0) and
+        (.operations | type == "array" and index("capture") != null and
+          length == (unique | length) and all(.[]; type == "string" and length > 0))))
+  ' <<<"$__wprism_profile_claims" >/dev/null 2>&1 \
+    || fail 'capture-plan requires unique shipped certified/experimental declarations with capture support'
+  __wprism_profile_stream=$("$__wprism_profile_wp" wprism capabilities --repo="$__wprism_profile_repo" --operation=capture --format=json 2>&1) || __wprism_profile_rc=$?
+  require_wprism_answered 'capture-plan capabilities' json "$__wprism_profile_stream"
+  __wprism_profile_report=$(awk 'NF { line=$0 } END { print line }' <<<"$__wprism_profile_stream")
+  awk 'NF { last=NR } { lines[NR]=$0 } END { for (i=1; i<last; i++) print lines[i] }' <<<"$__wprism_profile_stream" >&2
+  assert_no_php_runtime_diagnostics 'capture-plan capabilities' "$__wprism_profile_stream"
+  jq -e --argjson claims "$__wprism_profile_claims" --argjson rc "$__wprism_profile_rc" '
+    def text: type == "string" and length > 0;
+    def claim: {name,status,operations:(.operations | sort),trust_tier};
+    ($claims | map(select(.status == "experimental") |
+      {name,code:"authored_state_not_certified"}) | sort_by(.name,.code)) as $expected |
+    type == "object" and .schema_version == "wprism-capability-report/v1" and
+    .query == {operation:"capture",surface:null} and
+    (.target | type == "object" and (.wordpress | text) and .multisite == false) and
+    (.manifests | type == "array") and
+    ([.manifests[] | . + {trust_tier:.source.trust_tier} | claim] | sort_by(.name)) ==
+      ($claims | map(claim) | sort_by(.name)) and
+    all(.manifests[];
+      .source.source == "shipped" and .source.certification == "registry" and
+      (.source.trust_tier | text) and (.verdict.reasons | type == "array") and
+      .verdict.status == (if .status == "certified" then "certified" else "blocked" end) and
+      (.verdict.reasons | map(.code)) ==
+        (if .status == "certified" then [] else ["authored_state_not_certified"] end) and
+      all(.verdict.reasons[]; (.message | text) and ((.remediation // "") | type == "string"))) and
+    (.blockers | type == "array") and
+    ([.blockers[] | {name,code}] | sort_by(.name,.code)) == $expected and
+    ([.manifests[] | . as $row | .verdict.reasons[] |
+      {name:$row.name,status:"blocked",code,reason:.message,remediation:(.remediation // ""),
+       source:$row.source.source,trust_tier:$row.source.trust_tier,certification:$row.source.certification}]
+      | sort_by(.name,.code)) == (.blockers | sort_by(.name,.code)) and
+    .ready == ($expected | length == 0) and $rc == (if .ready then 0 else 3 end)
+  ' <<<"$__wprism_profile_report" >/dev/null 2>&1 || {
+    printf '%s\n' "$__wprism_profile_report" >&2
+    fail "capture-plan capability report disagrees with the declared capture boundary or exit status ($__wprism_profile_rc)"
+  }
+
+  capture_wprism_json_success __wprism_profile_plan 'capture-plan structured plan' \
+    "$__wprism_profile_wp" wprism plan --repo="$__wprism_profile_repo" --format=json
+  jq -e --argjson claims "$__wprism_profile_claims" --argjson report "$__wprism_profile_report" '
+    def text: type == "string" and length > 0;
+    ([$claims[] | . as $claim |
+      (if .status == "experimental" then {name,code:"authored_state_not_certified"} else empty end),
+      (if (.operations | index("promote")) == null then {name:$claim.name,code:"operation_not_certified"} else empty end)
+    ] | sort_by(.name,.code)) as $expected |
+    type == "object" and
+    (.create | type == "array") and (.update | type == "array") and (.conflict | type == "array") and
+    (.adapter_dispositions | type == "array") and
+    ([.adapter_dispositions[] | {name,code}] | sort_by(.name,.code)) == $expected and
+    all(.adapter_dispositions[]; . as $blocker |
+      keys == ["certification","code","name","reason","remediation","source","status","trust_tier"] and
+      .status == "blocked" and (.reason | text) and (.remediation | type == "string") and
+      .source == "shipped" and .certification == "registry" and
+      any($report.manifests[]; .name == $blocker.name and .source.trust_tier == $blocker.trust_tier))
+  ' <<<"$__wprism_profile_plan" >/dev/null 2>&1 || {
+    printf '%s\n' "$__wprism_profile_plan" >&2
+    fail 'capture-plan did not reach structured plan with exactly its declared promotion blockers'
+  }
+}
+
 # Apply's env_missing summary counts optional rows too (Code Snippets leaves
 # an optional plugin option absent). Only required rows produce env_missing:
 # diagnostics in ApplyPlanner::env_missing_projection(). Its warnings field

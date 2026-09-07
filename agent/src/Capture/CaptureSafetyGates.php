@@ -5,7 +5,9 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
+require_once __DIR__ . '/../Policy/Policy.php';
 
 /**
  * Owns capture's reviewed-state, reference-scope, secret, and PII refusals.
@@ -316,15 +318,17 @@ final class CaptureSafetyGates {
     }
 
     /**
-     * Scan canonical prose/identity fields that have no per-field policy rule
-     * and therefore no review exception. Structured option/meta/table/widget
-     * values are gated at their declaration-aware capture boundaries.
+     * Prose/identity fields have no review exception. JSON bodies retain the
+     * same exact scalar authority as PostCapture and repository authorization;
+     * rescanning their raw framing would reject an already-reviewed value.
+     * Structured option/meta/table/widget values keep their own boundaries.
      */
-    public function assertCanonicalContent(array $entities): void {
+    public function assertCanonicalContent(array $entities, Policy $policy): void {
         foreach ($entities as $entity) {
             $path = (string) ($entity['path'] ?? '');
             $type = (string) ($entity['type'] ?? '');
             $values = [];
+            $bodyPiiPaths = [];
             if (str_starts_with($path, 'posts/')) {
                 [$front, $body] = Canon::parse_post_file((string) ($entity['content'] ?? ''));
                 foreach (['title', 'excerpt', 'author', 'alt'] as $field) {
@@ -333,6 +337,11 @@ final class CaptureSafetyGates {
                     }
                 }
                 $values['body'] = $body;
+                $postType = (string) ($front['type'] ?? '');
+                if ($policy->body_mode($postType) === BodyRefGrammar::BODY_MODE) {
+                    $values['body'] = BodyRefGrammar::decode($body, "$path body");
+                    $bodyPiiPaths = $policy->body_ref_rule($postType)['pii_paths'] ?? [];
+                }
             } elseif (str_starts_with($path, 'terms/')) {
                 $front = Canon::decode((string) ($entity['content'] ?? ''));
                 $values = array_intersect_key((array) $front, ['name' => true, 'description' => true]);
@@ -353,7 +362,7 @@ final class CaptureSafetyGates {
                 if ($secret !== null) {
                     $this->refuseUnruledContent($path, (string) $field, 'secret', $secret);
                 }
-                $pii = PersonalData::match_deep((string) $field, $value);
+                $pii = PersonalData::match_deep((string) $field, $value, $field === 'body' ? $bodyPiiPaths : []);
                 if ($pii !== null) {
                     $this->refuseUnruledContent($path, (string) $field, 'personal data', $pii);
                 }

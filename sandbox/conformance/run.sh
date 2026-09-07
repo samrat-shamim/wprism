@@ -287,6 +287,13 @@ fi
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'conformance could not pin its selected source mounts in the caller environment'
+case "$MODE" in
+  capture-plan)
+    capture_wprism_json_success CAPTURE_PLAN_CLAIMS 'capture-plan shipped declaration projection' \
+      php "$PAIR_SOURCE_ROOT/sandbox/tests/lib/capture_plan_claims.php" "$PAIR_SOURCE_ROOT" \
+      "$(jq -c '.pin' <<<"$ENTRY")"
+    ;;
+esac
 . lib/pair_db.sh
 pair_db_select_engine
 
@@ -472,21 +479,7 @@ fi
 
 if [ "$MODE" = "capture-plan" ]; then
   say "capture-plan acceptance: reviewed operations are reachable without claiming apply"
-  CAPABILITY_JSON=$(wp_conf1 wprism capabilities --repo=/siterepo --operation=capture --format=json | awk 'NF { line=$0 } END { print line }')
-  require_wprism_answered "conf1 wprism capabilities --operation=capture" json "$CAPABILITY_JSON"
-  printf '%s\n' "$CAPABILITY_JSON" | jq -e '
-    (.manifests | type == "array" and length > 0) and
-    all(.manifests[]; (.operations | index("capture")) != null)
-  ' >/dev/null || fail "capture capability report does not expose capture for every pinned adapter"
-
-  PLAN_JSON=$(wp_conf1 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-  require_wprism_answered "conf1 wprism plan after deterministic capture" json "$PLAN_JSON"
-  printf '%s\n' "$PLAN_JSON" | jq -e '
-    type == "object" and
-    (.create | type == "array") and
-    (.update | type == "array") and
-    (.conflict | type == "array")
-  ' >/dev/null || fail "capture-plan profile did not reach the real structured plan result"
+  run_wprism_capture_plan "$CAPTURE_PLAN_CLAIMS" wp_conf1 /siterepo
   pass "capture, compile, plan, and recapture paths are exercised; deploy/apply remain explicitly outside this profile"
   printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s; capture-plan)\033[0m\n' "$MANIFEST"
   exit 0

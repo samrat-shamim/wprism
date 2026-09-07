@@ -1585,4 +1585,122 @@ assert_capture_atomicity(
     'catching a work-unit refusal cannot clear poisoning or turn capture completion into success'
 );
 
+// The native WPForms capture reached this final candidate guard after its
+// declaration-aware PostCapture had already admitted literal notification
+// fields. A PostCapture-only positive cannot prove publication's clearance.
+// This synthetic policy isolates that shared mechanism from plugin behavior.
+/** @return array{FakeWpdb,Policy,WPrism\CaptureCandidateBuilder} */
+function capture_body_clearance_fixture(string $body, array $postChanges = []): array {
+    [$db, $policy, $builder] = capture_work_fixture();
+    $policy->site['policy']['post_types'] = ['reviewed_form', 'unreviewed_form', 'opaque_form'];
+    $policy->manifests = [[
+        'name' => 'body-clearance-fixture',
+        'post_types' => [
+            'reviewed_form' => ['class' => 'authored', 'body' => 'json'],
+            'unreviewed_form' => ['class' => 'authored', 'body' => 'json'],
+            'opaque_form' => ['class' => 'authored', 'body' => 'verbatim'],
+        ],
+        'body_refs' => [
+            'reviewed_form' => ['json_refs' => [], 'pii_paths' => ['$.settings.notifications.*.email']],
+            'unreviewed_form' => ['json_refs' => []],
+        ],
+        'post_meta' => ['_wprism_uuid' => ['class' => 'managed']],
+    ]];
+    $db->seedTable('wp_posts', [array_replace([
+        'ID' => 41, 'post_type' => 'reviewed_form', 'post_name' => 'clearance',
+        'post_title' => 'Public configuration', 'post_content' => $body,
+        'post_excerpt' => '', 'post_author' => 0, 'post_parent' => 0,
+        'post_status' => 'publish', 'post_password' => '', 'post_mime_type' => '',
+        'post_date' => '2026-09-07 00:00:00', 'post_date_gmt' => '2026-09-07 00:00:00',
+        'post_modified' => '2026-09-07 00:00:00', 'post_modified_gmt' => '2026-09-07 00:00:00',
+        'menu_order' => 0, 'comment_status' => 'closed', 'ping_status' => 'closed',
+    ], $postChanges)]);
+    return [$db, $policy, $builder];
+}
+
+$reviewedBody = json_encode([
+    'settings' => ['notifications' => [1 => ['email' => 'operations@example.test']]],
+    'public_copy' => 'A public configuration value',
+], JSON_THROW_ON_ERROR);
+[$wpdb, $bodyPolicy, $bodyBuilder] = capture_body_clearance_fixture($reviewedBody);
+$nativePosts = $wpdb->rows('wp_posts');
+$bodyCandidate = null;
+$bodyFailure = capture_work_failure(static function () use ($bodyPolicy, $bodyBuilder, &$bodyCandidate): void {
+    $bodyCandidate = CaptureTransaction::run(
+        $bodyPolicy,
+        static fn(WPrism\DatabaseWorkAuthority $authority): array => $bodyBuilder->build(true, workAuthority: $authority)
+    );
+});
+assert_capture_atomicity(
+    $bodyFailure === null,
+    'the full candidate admits reviewed scalar JSON privacy paths: ' . ($bodyFailure?->getMessage() ?? 'no refusal')
+);
+$capturedPosts = array_values(array_filter($bodyCandidate['entities'], static fn(array $entity): bool => str_starts_with($entity['path'], 'posts/')));
+assert_capture_atomicity(
+    count($capturedPosts) === 1
+        && WPrism\Canon::parse_post_file($capturedPosts[0]['content'])[1] === $reviewedBody,
+    'final candidate clearance retains all admitted JSON bytes, including the literal reviewed email'
+);
+assert_capture_atomicity(
+    $wpdb->rows('wp_posts') === $nativePosts
+        && count($wpdb->rows('wp_postmeta')) === 1
+        && count($wpdb->rows('wp_wprism_map')) === 1
+        && capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 1, 'rollbacks' => 0],
+    'the admitted candidate commits only its real minted identity and never rewrites native content'
+);
+foreach (['recapture' => false, 'strict read-only observation' => true] as $mode => $strictReadOnly) {
+    $beforeIdentity = [$wpdb->rows('wp_postmeta'), $wpdb->rows('wp_wprism_map')];
+    $beforeQueries = count($wpdb->queries());
+    $repeatCandidate = CaptureTransaction::run(
+        $bodyPolicy,
+        static fn(WPrism\DatabaseWorkAuthority $authority): array => $bodyBuilder->build(
+            !$strictReadOnly, strictReadOnly: $strictReadOnly, workAuthority: $authority
+        ),
+        readOnly: $strictReadOnly
+    );
+    assert_capture_atomicity(
+        $repeatCandidate === $bodyCandidate
+            && [$wpdb->rows('wp_postmeta'), $wpdb->rows('wp_wprism_map')] === $beforeIdentity,
+        "$mode returns the same complete candidate and durable identities with reviewed JSON privacy paths"
+    );
+    if ($strictReadOnly) {
+        assert_capture_atomicity(
+            array_filter(array_slice($wpdb->queries(), $beforeQueries), static fn(string $sql): bool => preg_match('/^(?:INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql) === 1) === [],
+            'strict observation applies the same clearance without any data mutation statement'
+        );
+    }
+}
+
+foreach ([
+    'unreviewed sibling' => [str_replace('A public configuration value', 'private@example.test', $reviewedBody), [], 'email address'],
+    'matched container' => [str_replace('"operations@example.test"', '{"value":"private@example.test"}', $reviewedBody), [], 'email address'],
+    'secret in reviewed field' => [str_replace('operations@example.test', 'sk_live_CLEARANCE123456789012', $reviewedBody), [], 'stripe key'],
+    'unreviewed post type' => [$reviewedBody, ['post_type' => 'unreviewed_form'], 'email address'],
+    'JSON-looking opaque body' => [$reviewedBody, ['post_type' => 'opaque_form'], 'personal data'],
+    'front-matter title' => [$reviewedBody, ['post_title' => 'private@example.test'], 'personal data'],
+    'front-matter excerpt' => [$reviewedBody, ['post_excerpt' => 'private@example.test'], 'personal data'],
+] as $case => [$body, $postChanges, $expectedLabel]) {
+    [$wpdb, $bodyPolicy, $bodyBuilder] = capture_body_clearance_fixture($body, $postChanges);
+    $before = [];
+    foreach (['wp_posts', 'wp_postmeta', 'wp_options', 'wp_wprism_map', 'wp_wprism_state', 'wp_wprism_kv'] as $table) {
+        $before[$table] = $wpdb->rows($table);
+    }
+    $bodyFailure = capture_work_failure(static fn() => CaptureTransaction::run(
+        $bodyPolicy,
+        static fn(WPrism\DatabaseWorkAuthority $authority): array => $bodyBuilder->build(true, workAuthority: $authority)
+    ));
+    assert_capture_atomicity(
+        $bodyFailure instanceof RuntimeException && str_contains($bodyFailure->getMessage(), $expectedLabel),
+        "$case refuses through the complete candidate: " . ($bodyFailure?->getMessage() ?? 'no refusal')
+    );
+    foreach ($before as $table => $rows) {
+        assert_capture_atomicity($wpdb->rows($table) === $rows, "$case preserves the complete $table preimage");
+    }
+    assert_capture_atomicity(
+        capture_atomicity_transaction_counts($wpdb) === ['starts' => 1, 'commits' => 0, 'rollbacks' => 1]
+            && count(array_filter($wpdb->queries(), static fn(string $sql): bool => str_contains($sql, 'INSERT INTO `wp_postmeta`'))) === 1,
+        "$case really mints an identity before clearance, then rolls it back without committing"
+    );
+}
+
 echo "ALL PASSED\n";

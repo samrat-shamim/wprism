@@ -14,6 +14,17 @@ the locally gated `15dae689409dcc8cd9c46b31fc823038f49983e8` checkpoint.
 The merge was verified against freshly fetched main. This continuation starts
 from that squash; uncommitted follow-up work was not part of the merge.
 
+PR [#587](https://github.com/duotronic-ai/wprism/pull/587) subsequently merged
+as `d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8`, with its squash tree identical
+to reviewed and locally gated `c3c2dc516bc9aca57af090d413c412dadcb8a17e`.
+Luna/Terra reviews covered the parent delta. Luna's cross-manifest body-owner
+finding was fixed in the aggregate policy guard with live/frozen-loader
+counterfactuals and re-reviewed before merge. A candidate-bound native core
+loader smoke also passed; it is not WPForms conformance. PR #588 carries the
+publication-privacy and native-settings fixes, rebased without patch changes
+onto that main commit. Their historical evidence remains bound to the original
+candidate hashes below.
+
 At that checkpoint the catalog has **17 product adapters: 16 plugins plus
 core**. The regression-only `wprism-agency-cpt` capsule does not count toward
 twenty. Three additional product adapters remain to be selected, authored,
@@ -40,8 +51,38 @@ rebuild, settings consumers beyond the general/validation slice, submissions,
 template conversion and plugin combinations still require full conformance.
 
 The capsule owns an exact-artifact `capture-plan` entry and native source
-seed/observation hooks, but that new workflow has not yet run against a fresh
-candidate-bound pair. Its fourth offline suite independently admits complete
+seed/observation hooks. Its first candidate-bound run at `a91dd096` admitted
+the native seed, then refused capture because final candidate clearance did
+not receive the JSON body's reviewed privacy paths. The shared capture-layer
+fix at `f2fb4d50` passes policy explicitly and reuses the existing JSON grammar
+and scalar matcher. Actual candidate/transaction regressions cover admitted
+bytes, repeat capture, mutation-free strict observation and refusal rollback.
+
+The fresh `f2fb4d50` native run published the five source posts, then failed
+lint on `wpforms_settings.modern-markup = "1"` coinciding with form ID 1.
+Neither failed run is a conformance pass. Both owned pairs were removed and
+diagnostic records retained. The capsule now reviews its five native flag
+fields explicitly as non-references beside the existing stylesheet enum.
+Pinned native source defines their boolean/enum semantics; 115 new offline
+assertions exercise real capture/lint, exact value preservation, a colliding
+unreviewed sibling and independent secret/PII refusals. Only WPForms' identity
+and pin sets containing it change; the disposition registry and all other
+adapter identities remain unchanged. Recompile/re-pin; never bypass mismatch.
+A fresh complete native profile remains required after this declaration edit.
+
+The exact `c929b603` native retry passed capture, hard lint with zero findings,
+deterministic recapture and the capsule's native-consumer/canonical-body check,
+then exited 3 at capability reporting before Plan. That was an incomplete
+profile, not a pass: experimental capability readiness correctly refuses, but
+the shared harness discarded its report through an errexit pipeline. The
+shared capture-plan profile now derives expectations from the selected shipped
+declarations through existing library/claim machinery, validates exact capture
+status/report agreement, and requires read-only Plan to retain its precise
+promotion blockers. Product readiness and capability claims are unchanged.
+The actual terminal block has deterministic successful/hostile shell controls;
+a fresh exact-source native run is still required for this harness edit.
+
+The conformance-probe offline suite independently admits complete
 actual PostCapture output and rejects malformed/failed native transport,
 canonical drift and accidental target acceptance (76 assertions). The target
 hook fails explicitly until the missing round-trip assertions exist. This work

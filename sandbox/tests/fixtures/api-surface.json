@@ -10084,6 +10084,14 @@
                             "name": "entities",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
