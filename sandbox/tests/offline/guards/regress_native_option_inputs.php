@@ -217,6 +217,42 @@ native_input_refuses(static function () use (&$called) { $called = true; return 
 wprism_check(!$called && count(array_filter($wpdb->queries(), static fn($sql) => str_contains($sql, 'SELECT option_name, option_value FROM'))) === 0,
     'native option byte preflight does not allocate the oversized selected payload');
 
+$scratch = dirname(__DIR__, 3) . '/tmp/native-option-reader-' . bin2hex(random_bytes(6));
+mkdir($scratch, 0700, true);
+$stem = $scratch . '/native';
+$record = ['format' => 'wprism-native-option-inputs/v1', 'engine' => 'MariaDB',
+    'values' => [['id' => 7, 'text' => "raw\0東京"], [], false, null, '', '0'],
+    'cold_and_warm' => true, 'absent_and_present_null_distinct' => true,
+    'refusals' => ['alternating_filter', 'catch_all', 'alloptions_filter', 'stale_cache',
+        'cached_object', 'serialized_cache_object', 'physical_object', 'oversized_row', 'extra_read', 'observer_callback'],
+    'object_hooks' => ['clone' => 0, 'wakeup' => 0], 'caught_failure_rollback' => true,
+    'foreign_hook_preserved' => true, 'complete_options_restored' => true];
+$admit = static function (array $data, string $stderr = '', string $exit = '0') use ($stem): int {
+    foreach (['stdout' => json_encode($data, JSON_THROW_ON_ERROR) . "\n", 'stderr' => $stderr, 'exit' => $exit . "\n"] as $suffix => $bytes) {
+        file_put_contents($stem . '.' . $suffix, $bytes);
+        chmod($stem . '.' . $suffix, 0600);
+    }
+    $process = proc_open([PHP_BINARY, dirname(__DIR__, 2) . '/fixtures/native-option-inputs.php', '--admit', $stem, 'MariaDB'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    fclose($pipes[0]);
+    stream_get_contents($pipes[1]); stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    return proc_close($process);
+};
+try {
+    wprism_check_same(0, $admit($record), 'native raw-record admission accepts the independently specified complete success object');
+    foreach ([array_replace($record, ['engine' => 'MySQL']), array_replace($record, ['values' => []]),
+        array_replace($record, ['refusals' => []]), array_replace($record, ['object_hooks' => ['clone' => 1, 'wakeup' => 0]]),
+        array_replace($record, ['complete_options_restored' => false]), array_replace($record, ['unknown' => true])] as $bad) {
+        wprism_check($admit($bad) !== 0, 'native admission refuses altered or incomplete mechanism evidence');
+    }
+    wprism_check($admit($record, "PHP Warning: fixture warning\n") !== 0, 'native evidence cannot hide a warning behind a passing JSON record');
+    wprism_check($admit($record, '', '1') !== 0, 'native evidence cannot hide a nonzero command exit behind a passing JSON record');
+} finally {
+    foreach (['stdout', 'stderr', 'exit'] as $suffix) unlink($stem . '.' . $suffix);
+    rmdir($scratch);
+}
+
 native_input_fixture();
 define('WP_SETUP_CONFIG', false);
 native_input_refuses(static fn() => get_option('widget_fixture', []), 'even false WP_SETUP_CONFIG bypasses the native terminal path');
