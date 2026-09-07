@@ -203,6 +203,7 @@ return [
     'WPrism\\Pending' => 'src/Review/Pending.php',
     'WPrism\\PersonalData' => 'src/Kernel/PersonalData.php',
     'WPrism\\PhpLiteralData' => 'src/Kernel/PhpLiteralData.php',
+    'WPrism\\PhysicalTableRows' => 'src/Kernel/PhysicalTableRows.php',
     'WPrism\\PinResolver' => 'src/Policy/PinResolver.php',
     'WPrism\\PlainData' => 'src/Kernel/PlainData.php',
     'WPrism\\PlanCategorySummary' => 'src/Review/PlanCategorySummary.php',

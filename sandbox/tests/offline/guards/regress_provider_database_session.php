@@ -3402,4 +3402,216 @@ wprism_check(
     'an ambiguous COMMIT remains Db outcome uncertainty while bounded best-effort cache retry covers the possibly committed postimage'
 );
 
+// New typed shapes cross the same engine-owned authority boundary as DELETE;
+// they cannot reach Db's standalone transaction mode through a provider facade.
+$typedRowBefore = [['provider_key' => 'keep', 'provider_value' => 'before']];
+$typedRowFixture = static fn(): FakeWpdb => provider_database_session_fixture()
+    ->seedTable('wp_wprism_provider_state', $typedRowBefore)
+    ->seedTable('wp_wprism_undeclared', $typedRowBefore)
+    ->setTableEngine('wp_wprism_undeclared', 'InnoDB');
+$typedRowInvoke = static function (string $operation, string $table = 'wp_wprism_provider_state',
+    ?array $data = null, ?array $where = null, mixed $format = null): int {
+    return $operation === 'insert'
+        ? ProviderSdk::database_insert($table, $data ?? ['provider_key' => 'new', 'provider_value' => "exact\0東京'\\bytes"],
+            'typed provider insert fixture', $format)
+        : ProviderSdk::database_update($table, $data ?? ['provider_value' => "exact\0東京'\\bytes"],
+            $where ?? ['provider_key' => 'keep'], 'typed provider update fixture', $format, '%s');
+};
+$typedRowTransaction = static fn(callable $write): mixed => ProviderSdkContractProbe::run([], ['table:wprism_provider_state'],
+    static fn(): mixed => ProviderSdk::database_write_contract_transaction('typed provider row transaction', $write,
+        static fn(mixed $_result): string => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN));
+foreach (['insert', 'update'] as $typedOperation) {
+    $wpdb = $typedRowFixture();
+    wprism_check_throws(static fn(): int => $typedRowInvoke($typedOperation), RuntimeException::class,
+        'typed ' . $typedOperation . ' cannot establish its own database authority', 'active bound provider database write profile');
+    wprism_check_same([], $wpdb->queries(), 'unbound typed ' . $typedOperation . ' performs no transport');
+    wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::run([], ['table:wprism_provider_state'],
+        static fn(): int => $typedRowInvoke($typedOperation)), RuntimeException::class,
+        'bound contract alone cannot authorize typed ' . $typedOperation . ' outside its write transaction', 'active bound provider database write profile');
+    wprism_check_same([], $wpdb->queries(), 'contract-only typed ' . $typedOperation . ' performs no transport');
+
+    foreach (['read-snapshot', 'read-only-contract', 'foreign-table'] as $scopeFault) {
+        $wpdb = $typedRowFixture();
+        $attempt = match ($scopeFault) {
+            'read-snapshot' => static fn(): mixed => ProviderSdkContractProbe::run([], ['table:wprism_provider_state'],
+                static fn(): mixed => ProviderSdk::database_read_contract_snapshot('typed mutation in read snapshot',
+                    static fn(): int => $typedRowInvoke($typedOperation))),
+            'read-only-contract' => static fn(): mixed => ProviderSdkContractProbe::run(['table:wprism_provider_state'], [],
+                static fn(): mixed => ProviderSdk::database_write_contract_transaction('typed mutation in read-only contract',
+                    static fn(): int => $typedRowInvoke($typedOperation),
+                    static fn(int $_result): string => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN)),
+            default => static fn(): mixed => $typedRowTransaction(static fn(): int => $typedRowInvoke($typedOperation, 'wp_wprism_undeclared')),
+        };
+        wprism_check_throws($attempt, $scopeFault === 'read-only-contract' ? InvalidArgumentException::class : RuntimeException::class,
+            'typed ' . $typedOperation . ' refuses ' . $scopeFault);
+        wprism_check_same($typedRowBefore, provider_database_session_rows($wpdb), $scopeFault . ' leaves the owned rows unchanged');
+        wprism_check_same($typedRowBefore, $wpdb->rows('wp_wprism_undeclared'), $scopeFault . ' leaves foreign rows unchanged');
+        wprism_check(count(array_filter($wpdb->queries(), static fn(string $sql): bool => preg_match('/^(?:INSERT|UPDATE)\b/', $sql) === 1)) === 0
+            && !DatabaseQueryIsolation::has_bound_profile() && $wpdb->activeTransactionIsolation() === null,
+            $scopeFault . ' refuses before DML and clears the transaction/profile scope');
+    }
+
+    foreach (['empty-data', 'unsafe-column', 'unsafe-table', 'non-scalar-data'] as $inputFault) {
+        $wpdb = $typedRowFixture();
+        $data = match ($inputFault) {
+            'empty-data' => [], 'unsafe-column' => ['provider_value` = 1' => 'unsafe'],
+            'non-scalar-data' => ['provider_value' => ['unsafe-array']], default => null,
+        };
+        $table = $inputFault === 'unsafe-table' ? 'wp_wprism_provider_state; DELETE' : 'wp_wprism_provider_state';
+        wprism_check_throws(static fn(): mixed => $typedRowTransaction(static fn(): int => $typedRowInvoke($typedOperation, $table, $data)),
+            Throwable::class, 'typed ' . $typedOperation . ' rejects ' . $inputFault . ' before its statement');
+        wprism_check_same($typedRowBefore, provider_database_session_rows($wpdb), $inputFault . ' cannot modify owned rows');
+        wprism_check(count(array_filter($wpdb->queries(), static fn(string $sql): bool => preg_match('/^(?:INSERT|UPDATE)\b/', $sql) === 1)) === 0,
+            $inputFault . ' issues no typed DML');
+    }
+
+    $wpdb = $typedRowFixture();
+    $affected = $typedRowTransaction(static fn(): int => $typedRowInvoke($typedOperation));
+    $expectedTypedRows = $typedOperation === 'insert'
+        ? [$typedRowBefore[0], ['provider_key' => 'new', 'provider_value' => "exact\0東京'\\bytes"]]
+        : [['provider_key' => 'keep', 'provider_value' => "exact\0東京'\\bytes"]];
+    wprism_check_same(1, $affected, 'typed ' . $typedOperation . ' returns the exact affected-row count');
+    wprism_check_same($expectedTypedRows, provider_database_session_rows($wpdb), 'typed ' . $typedOperation . ' preserves binary, Unicode, quotes and slashes');
+    $statements = array_values(array_filter($wpdb->queries(), static fn(string $sql): bool => str_starts_with($sql, strtoupper($typedOperation) . ' ')));
+    wprism_check(count($statements) === 1 && str_contains($statements[0], 'CONNECTION_ID()')
+        && !DatabaseQueryIsolation::has_bound_profile() && $wpdb->activeTransactionIsolation() === null,
+        'typed ' . $typedOperation . ' uses exactly one physical-session-guarded mutation and closes its engine scope');
+
+    $wpdb = $typedRowFixture();
+    wprism_check_throws(static fn(): mixed => $typedRowTransaction(static function () use ($typedRowInvoke, $typedOperation): never {
+        $typedRowInvoke($typedOperation);
+        throw new RuntimeException('native postcondition fixture failed');
+    }), RuntimeException::class, 'failure after typed ' . $typedOperation . ' rolls back through the session owner', 'native postcondition fixture failed');
+    wprism_check_same($typedRowBefore, provider_database_session_rows($wpdb), 'rollback after typed ' . $typedOperation . ' restores the complete preimage');
+
+    foreach (['false', 'throw', 'reconnect'] as $driverFault) {
+        $wpdb = $typedRowFixture()->onQuery(static function (string $sql, string $method, FakeWpdb $db) use ($typedOperation, $driverFault): ?string {
+            if (!str_starts_with($sql, strtoupper($typedOperation) . ' ')) return null;
+            if ($driverFault === 'throw') throw new mysqli_sql_exception('private typed driver bytes', 1064);
+            if ($driverFault === 'reconnect') {
+                $db->setConnectionId(199);
+                return null;
+            }
+            return 'private typed driver bytes';
+        });
+        $failure = provider_database_session_failure(static fn(): mixed => $typedRowTransaction(static fn(): int => $typedRowInvoke($typedOperation)));
+        wprism_check($failure instanceof RuntimeException && !str_contains($failure->getMessage(), 'private typed driver bytes'),
+            'typed ' . $typedOperation . ' retains the engine refusal on driver ' . $driverFault . ' without leaking driver content');
+        if ($driverFault === 'throw') {
+            wprism_check($failure instanceof DatabaseMutationException && $failure->getPrevious() instanceof mysqli_sql_exception
+                && $failure->getPrevious()->getMessage() === 'private typed driver bytes',
+                'typed ' . $typedOperation . ' preserves strict-mysqli evidence only in its private cause');
+        }
+        wprism_check_same($typedRowBefore, provider_database_session_rows($wpdb),
+            'typed ' . $typedOperation . ' cannot mutate outside the admitted session on driver ' . $driverFault);
+        if ($driverFault === 'reconnect') {
+            wprism_check($failure instanceof DatabaseTransactionOutcomeException,
+                'typed ' . $typedOperation . ' reconnect remains unresolved outcome debt, not an invented rollback');
+            wprism_check_throws(static fn(): bool => Db::connection_transaction_active('typed reconnect forbidden ordinary read'),
+                DatabaseQueryIsolationViolationException::class, 'unsettled reconnect quarantines ordinary provider continuation');
+            // Fixture teardown enters the engine's cleanup-only gate; proving
+            // an idle replacement does not classify the refused native action.
+            DatabaseQueryIsolation::prepare_cleanup('typed reconnect fixture cleanup');
+            wprism_check_same(false, Db::connection_transaction_active('typed reconnect fixture idle-session proof'),
+                'replacement connection must independently prove idle before the fixture can release tracking');
+            Db::forget_transaction_tracking();
+        }
+        wprism_check(!DatabaseQueryIsolation::has_bound_profile() && $wpdb->activeTransactionIsolation() === null,
+            'typed ' . $typedOperation . ' driver ' . $driverFault . ' leaves no authority after required settlement');
+    }
+    $semanticFailure = new RuntimeException('typed query-hook semantic refusal');
+    $wpdb = $typedRowFixture()->onQuery(static function (string $sql) use ($typedOperation, $semanticFailure): void {
+        if (str_starts_with($sql, strtoupper($typedOperation) . ' ')) throw $semanticFailure;
+    });
+    wprism_check_same($semanticFailure,
+        provider_database_session_failure(static fn(): mixed => $typedRowTransaction(static fn(): int => $typedRowInvoke($typedOperation))),
+        'typed ' . $typedOperation . ' preserves semantic hook exceptions instead of inventing driver evidence');
+    wprism_check_same($typedRowBefore, provider_database_session_rows($wpdb),
+        'typed ' . $typedOperation . ' hook failure preserves complete physical state');
+}
+$wpdb = $typedRowFixture();
+wprism_check_throws(static fn(): mixed => $typedRowTransaction(static fn(): int => $typedRowInvoke('update', 'wp_wprism_provider_state', null, [])),
+    InvalidArgumentException::class, 'typed UPDATE cannot disguise whole-table mutation as an empty predicate', 'empty mutation predicate');
+wprism_check_same($typedRowBefore, provider_database_session_rows($wpdb), 'empty typed UPDATE predicate preserves all rows');
+$wpdb = $typedRowFixture();
+wprism_check_same(0, $typedRowTransaction(static fn(): int => $typedRowInvoke('update', 'wp_wprism_provider_state',
+    ['provider_value' => 'before'])), 'an in-place fixed-point UPDATE reports zero affected rows without regenerating identity');
+wprism_check_same($typedRowBefore, provider_database_session_rows($wpdb), 'fixed-point UPDATE leaves exact native bytes and identity unchanged');
+$wpdb = $typedRowFixture();
+$typedRowTransaction(static fn(): int => $typedRowInvoke('update', 'wp_wprism_provider_state', ['provider_value' => null]));
+wprism_check_same([['provider_key' => 'keep', 'provider_value' => null]], provider_database_session_rows($wpdb),
+    'typed UPDATE retains SQL null instead of coercing it to an empty string');
+$wpdb = $typedRowFixture()->seedTable('wp_wprism_provider_state', [
+    ['provider_key' => '7', 'provider_value' => 'before'], ['provider_key' => '7.4', 'provider_value' => 'untouched'],
+]);
+wprism_check_same(1, $typedRowTransaction(static fn(): int => ProviderSdk::database_update('wp_wprism_provider_state',
+    ['provider_value' => '0009'], ['provider_key' => '7.4'], 'distinct SDK update formats', '%s', '%d')),
+    'SDK update keeps distinct explicit data and predicate formats');
+wprism_check_same([['provider_key' => '7', 'provider_value' => '0009'], ['provider_key' => '7.4', 'provider_value' => 'untouched']],
+    provider_database_session_rows($wpdb), 'data format cannot be dropped or swapped with the numeric predicate format');
+$wpdb = $typedRowFixture();
+wprism_check_same(1, $typedRowTransaction(static fn(): int => ProviderSdk::database_update('wp_wprism_provider_state',
+    ['provider_value' => '0009'], ['provider_key' => 'keep'], 'explicit SDK update data format', '%d', '%s')),
+    'SDK update independently forwards a non-default data format');
+wprism_check_same('9', (string) provider_database_session_rows($wpdb)[0]['provider_value'],
+    'update data formatting cannot silently fall back to string inference');
+$wpdb = $typedRowFixture();
+$typedRowTransaction(static fn(): int => ProviderSdk::database_insert('wp_wprism_provider_state',
+    ['provider_key' => 'formatted', 'provider_value' => '0009'], 'explicit SDK insert formats', ['%s', '%d']));
+wprism_check_same('9', (string) provider_database_session_rows($wpdb)[1]['provider_value'],
+    'SDK insert forwards its explicit field-format roster rather than falling back to string inference');
+$wpdb = $typedRowFixture()->seedTable('wp_wprism_provider_state', [
+    ['provider_key' => 'null', 'provider_value' => null], ['provider_key' => 'empty', 'provider_value' => ''],
+]);
+wprism_check_same(1, $typedRowTransaction(static fn(): int => ProviderSdk::database_update('wp_wprism_provider_state',
+    ['provider_value' => 'changed'], ['provider_value' => null], 'SDK null equality predicate', '%s', '%d')),
+    'SDK null equality uses IS NULL independently of the explicit predicate format');
+wprism_check_same([['provider_key' => 'null', 'provider_value' => 'changed'], ['provider_key' => 'empty', 'provider_value' => '']],
+    provider_database_session_rows($wpdb), 'null equality cannot accidentally update an empty-string sibling');
+
+// A physical row descriptor is observation data, never authority. Exercise
+// the SDK facade under the same engine-bound runtime used by real scopes.
+$physicalDescriptor = ['table' => 'wp_posts', 'columns' => ['ID', 'post_content'],
+    'identity' => ['ID'], 'max_rows' => 8, 'max_raw_bytes' => 1024, 'mode' => 'rows'];
+$physicalFixture = static function (): FakeWpdb {
+    Db::forget_transaction_tracking();
+    return FakeWpdb::install()->enableInformationSchema()
+        ->seedTable('wp_posts', [['ID' => 7, 'post_content' => "exact\0raw"]])
+        ->setColumns('wp_posts', ['ID' => 'bigint', 'post_content' => 'longtext'])
+        ->setTableEngine('wp_posts', 'InnoDB')
+        ->seedTable('wp_options', [])->setTableEngine('wp_options', 'InnoDB');
+};
+$physicalRead = static fn(): array => ProviderSdk::physical_table_rows($physicalDescriptor, 'SDK physical fixture');
+$wpdb = $physicalFixture();
+wprism_check_throws($physicalRead, RuntimeException::class, 'physical SDK cannot borrow a descriptor as manifest authority');
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::runUnbound(['table:posts'], [],
+    static fn(): mixed => ProviderSdk::database_read_contract_snapshot('unbound physical fixture', $physicalRead)),
+    RuntimeException::class, 'a directly constructed runtime cannot authorize the physical reader');
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::run(['table:posts'], [], $physicalRead),
+    RuntimeException::class, 'bound provider identity without a database scope is not physical read authority');
+$wpdb = $physicalFixture();
+$physicalObserved = ProviderSdkContractProbe::run(['table:posts'], [],
+    static fn(): mixed => ProviderSdk::database_read_contract_snapshot('admitted physical fixture', $physicalRead));
+wprism_check_same([['ID' => '7', 'post_content' => "exact\0raw"]], $physicalObserved['rows'],
+    'engine-bound provider observes exact native rows inside its declared read-only scope');
+wprism_check_same(false, DatabaseQueryIsolation::has_bound_profile(), 'physical reader leaves scope lifetime with its transaction owner');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::run(['table:options'], [],
+    static fn(): mixed => ProviderSdk::database_read_contract_snapshot('wrong physical contract', $physicalRead)),
+    RuntimeException::class, 'physical descriptor cannot introduce an undeclared table', 'outside its active manifest-provider contract');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn(): mixed => ProviderSdkContractProbe::run(['table:options', 'table:posts'], [],
+    static fn(): mixed => ProviderSdk::database_read_snapshot('narrow physical contract', ['wp_options'], $physicalRead)),
+    RuntimeException::class, 'physical reader cannot re-expand a narrowed active snapshot', 'escaped the tables');
+$wpdb = $physicalFixture();
+$beforePhysicalWrite = $wpdb->rows('wp_posts');
+ProviderSdkContractProbe::run([], ['table:posts'], static fn(): mixed => ProviderSdk::database_write_contract_transaction(
+    'physical write snapshot fixture', static function () use ($physicalRead, $beforePhysicalWrite): array {
+        $observed = $physicalRead();
+        wprism_check_same((string) $beforePhysicalWrite[0]['ID'], $observed['rows'][0]['ID'],
+            'physical reader can reuse a writable transaction without nesting or gaining mutation authority');
+        return $observed;
+    }, static fn(array $observed): string => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN));
+wprism_check_same($beforePhysicalWrite, $wpdb->rows('wp_posts'), 'observation under a writable profile still performs no native mutation');
+
 wprism_check_summary('regress_provider_database_session');

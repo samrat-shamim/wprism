@@ -955,6 +955,34 @@ nests a transaction or reuses a writable/narrower profile. Keep column and
 index expectations in the adapter—the engine owns topology consistency, not a
 third party's schema semantics.
 
+For complete physical input and preservation witnesses, use
+`ProviderSdk::physical_table_rows($descriptor, $context)` inside an already
+active contract snapshot or transaction. Its closed descriptor names `table`,
+ordered unique `columns`, an `identity` list of one to four distinct selected
+positive-integer columns (for example `['ID']` or
+`['object_id', 'term_taxonomy_id']`),
+`max_rows`, `max_raw_bytes`, and `mode` (`rows` or `digest`). It observes the
+**whole table** in ascending numeric lexicographic identity-tuple order. No SQL fragments, predicates,
+callbacks, native parsing or schema assumptions enter this API. Exact driver
+strings and SQL nulls remain distinct; `rows` adds bounded payloads to the same
+`row_count`, `raw_bytes` and versioned `rows_sha256` witness returned by `digest`.
+
+The hard frontiers are 16,384 rows, 32 columns, 262,144 observed cells, 32 MiB
+of aggregate raw bytes, 1 MiB per cell and 4 MiB per transferred batch. Caller
+budgets may only narrow them. The initial size query is limited by both the
+row and cell frontier, plus one overflow witness. Size admission precedes payload hashing; batches
+are tied to exact identities, lengths and hashes, and final readback rejects a
+changed roster. The active profile still grants table access and owns the
+transaction and statement budget. A descriptor cannot create or widen it.
+Keep plugin eligibility, subset/remainder selection, native reconstruction and
+postcondition meaning in the capsule. Do not copy a SQL pager into a provider
+or add a permissive SQL/visitor language merely to migrate a legacy helper.
+When extraction introduces a shared engine class, follow the
+[new-class ownership and generated-file checklist](../dev-setup.md#the-classmap-autoloader):
+explicit dependencies and the module assignment are required alongside the
+classmap and public API fixture. Package validation alone does not check that
+engine/tooling boundary.
+
 Do not spell an exact presence probe as raw `SHOW TABLES LIKE '$table'` (or
 `SHOW TABLE STATUS LIKE '$table'`): `_` and `%` are LIKE wildcards. Bind
 `$wpdb->esc_like($table)` through `%s`; the profile gate decodes only that
@@ -977,11 +1005,20 @@ read-only snapshot only when the commit outcome needs physical proof. The
 classifier returns exactly `DATABASE_POSTIMAGE_APPLIED`,
 `DATABASE_POSTIMAGE_NOT_APPLIED`, or `DATABASE_POSTIMAGE_UNKNOWN`; partial or
 unreadable state is recovery debt. Inside `$write`, use only the SDK's typed
-mutation methods (`database_delete()` or `database_delete_all()` today), each
+mutation methods (`database_insert()`, `database_update()`, `database_delete()`
+or `database_delete_all()`), each
 of which rechecks active transaction authority and writable-table membership.
 If the plugin operation needs another mutation shape, add that generic typed
 operation to the SDK and its engine tests first. Never send raw DML, call
 `Db::start*()`, or author `START`/`COMMIT`/`ROLLBACK` in a package executable.
+`database_insert($table, $data, $context, $format = null)` and
+`database_update($table, $data, $where, $context, $format = null,
+$whereFormat = null)` reuse the engine's existing wpdb field codec and return
+affected-row counts. Update/delete predicates must be nonempty. The capsule
+still owns semantic row selection and before/after preservation proofs; these
+methods do not infer an upsert key, regenerate IDs, run native hooks or clear
+WordPress caches. Reconcile existing derived rows in place when physical
+identity must survive retries, then prove the resulting fixed point.
 
 #### Fresh-process capabilities
 

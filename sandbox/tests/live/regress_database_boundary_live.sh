@@ -18,6 +18,8 @@
 #      database operands cannot borrow physical-table profile authority.
 #   7. Large keyed strings preserve exact bytes through real wpdb field
 #      validation, bounded chunks, complete readback and failed-batch rollback.
+#   8. Complete physical row witnesses and typed provider insert/update retain
+#      binary/null values, composite identities, bounds and rollback on both drivers.
 #
 # This live, per-mechanism suite owns its one pair from creation through
 # destruction and is intentionally outside regress-offline-all. Invoke it only
@@ -700,6 +702,22 @@ prove_large_keyed_values() {
   pass "$CURRENT_DB_ENGINE preserved complete keyed values, refusal preimages and fresh retry"
 }
 
+prove_physical_rows() {
+  local sink suffix status=0 expected_engine
+  case "$CURRENT_DB_ENGINE" in mariadb) expected_engine=MariaDB ;; mysql) expected_engine=MySQL ;; esac
+  say "$CURRENT_DB_ENGINE: complete physical rows and typed provider mutations"
+  sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/physical-rows-$CURRENT_DB_ENGINE.XXXXXX")
+  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/native.$suffix"); done
+  . "$REPO_ROOT/sandbox/tests/lib/private_command_capture.sh"
+  wprism_private_capture_stage "$sink" native compose run --rm -T \
+    -v "$REPO_ROOT/sandbox/tests/fixtures/physical-table-rows.php:/physical-table-rows.php:ro" \
+    cli1 wp eval-file /physical-table-rows.php --use-include || status=$?
+  printf 'retained physical-row transport: %s\n' "$sink/native"
+  [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE physical-row command failed with exit $status"
+  php "$REPO_ROOT/sandbox/tests/fixtures/physical-table-rows.php" --admit "$sink/native" "$expected_engine"
+  pass "$CURRENT_DB_ENGINE preserved complete physical rows, typed writes, refusal preimages and fixed-point retry"
+}
+
 start_pair() {
   local engine="$1" client="$2" expected_label="$3" actual_label
   CURRENT_DB_ENGINE="$engine"
@@ -733,6 +751,7 @@ prove_schema_keyword_function
 prove_mariadb_sequences
 prove_session_grammar
 prove_large_keyed_values
+prove_physical_rows
 finish_pair
 
 start_pair mysql mysql MySQL
@@ -741,6 +760,7 @@ prove_view_preflight
 prove_schema_keyword_function
 prove_session_grammar
 prove_large_keyed_values
+prove_physical_rows
 finish_pair
 
 # The MySQL container is shared infrastructure, not this script's resource.
