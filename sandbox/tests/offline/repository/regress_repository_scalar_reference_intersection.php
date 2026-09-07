@@ -41,11 +41,6 @@ namespace WPrism {
     }
 
     final class SidebarState { public const ENTITY_TYPE = 'sidebar'; }
-
-    final class ReferenceRules {
-        /** @return array<string,mixed> */
-        public static function attached_meta_key(array $declaration, string $key): array { return []; }
-    }
 }
 
 namespace {
@@ -54,6 +49,7 @@ namespace {
     use WPrism\ScalarReferenceIntersection as Intersection;
 
     $root = dirname(__DIR__, 4);
+    require_once "$root/agent/src/Kernel/ReferenceRules.php";
     require_once "$root/agent/src/Repository/RepositoryPortableShapeValidator.php";
 
     $failures = [];
