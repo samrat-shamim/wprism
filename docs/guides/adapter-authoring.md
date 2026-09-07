@@ -2164,6 +2164,20 @@ different one.
 
 ### 6. Exercise it
 
+Independent live lanes require a fresh **whole pair**, not just fresh database
+rows. `pair.sh reset` deliberately clears databases and repository contents
+while retaining webroot volumes. Reusing those volumes after deleting native
+attachment metadata leaves generated files without ownership; the engine must
+refuse to overwrite them. Between independent lanes, use the existing
+`pair_live_ownership_finish_leg()`, then `pair_live_ownership_acquire()` and
+`pair_live_ownership_up()`. This removes owned resources and releases the lease
+before re-proving the complete namespace, while retaining private host-registry
+scratch. The four-plugin scenario's `regress_pair_lane_isolation.php` executes
+its actual dispatcher and shared ownership helper: DB-only reset reproduces
+the lost-ownership mechanism, and body, creation, acquisition and teardown
+faults cannot start a later lane or publish PASS. A reset is still appropriate
+when retained native files are an intentional premise of the same test.
+
 Re-run the loop on a clean environment: capture, apply to a second environment,
 recapture, and compare every managed entity through the engine's declared
 semantic hash basis. Retain both raw captures: byte equality is a useful

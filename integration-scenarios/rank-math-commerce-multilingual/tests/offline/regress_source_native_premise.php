@@ -362,38 +362,8 @@ foreach (['status', 'location', 'no-cache', 'wrong-cache-owner', 'wrong-cache-ob
     wprism_check($status !== 0 && !str_contains($stdout, 'RETRY_READY'), "post-retry native redirect refuses $fault");
 }
 
-$dispatchStart = strpos($current, 'pair_live_ownership_acquire mariadb');
-if ($dispatchStart === false) {
-    throw new RuntimeException('the actual four-lane ownership dispatcher is absent');
-}
-$dispatch = substr($current, $dispatchStart);
-$dispatchProbe = <<<'SH'
-set -euo pipefail
-HEAD=candidate
-failed_leg="$1" leg=0
-PAIR_LIVE_OWNERSHIP_LEASE_ACTIVE=0
-say() { :; }
-fail() { exit 1; }
-pair_live_ownership_acquire() { PAIR_LIVE_OWNERSHIP_LEASE_ACTIVE=1; printf 'acquire\n'; }
-pair_live_ownership_up() { printf 'up\n'; }
-pair_live_ownership_reset() { printf 'reset\n'; }
-pair_live_ownership_complete() { printf 'complete\n'; }
-run_leg() {
-  leg=$((leg + 1))
-  printf 'leg:%s:%s:%s\n' "$1" "$2" "$3"
-  [ "$leg" -ne "$failed_leg" ]
-}
-SH;
-$expectedDispatch = ['acquire', 'up', 'leg:forward:reverse:independent', 'reset', 'up',
-    'leg:reverse:forward:independent', 'reset', 'up', 'leg:forward:reverse:synchronized', 'reset', 'up',
-    'leg:reverse:forward:synchronized', 'complete'];
-foreach ([0, 1, 2, 3, 4] as $failedLeg) {
-    [$status, $stdout] = ShellProbe::run($dispatchProbe . "\n" . $dispatch, [(string) $failedLeg], $root);
-    $expected = $failedLeg === 0 ? $expectedDispatch : array_slice($expectedDispatch, 0, $failedLeg * 3);
-    wprism_check(($status === 0) === ($failedLeg === 0) && explode("\n", trim($stdout)) === $expected,
-        "actual four-lane dispatcher resets only after complete legs and never completes after failure $failedLeg");
-}
-
+// regress_pair_lane_isolation.php executes this dispatcher with the real
+// ownership helper and resource state; reset-printing stubs hid webroot reuse.
 wprism_check(str_contains($current, 'for meta_mode in independent synchronized; do')
     && str_contains($current, 'run_leg forward reverse "$meta_mode"')
     && str_contains($current, 'run_leg reverse forward "$meta_mode"')

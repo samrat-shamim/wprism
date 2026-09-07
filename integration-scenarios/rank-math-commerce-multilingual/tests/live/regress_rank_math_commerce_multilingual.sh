@@ -2320,22 +2320,26 @@ pass 'unsupported custom-CPT deletion refuses at Capture and compiler Plan/Apply
 # The generic lease is the sole fresh-namespace authority: under the shared
 # lock it proves Compose/name/ports/roots/install markers plus both persistent
 # schemas absent, then binds that complete fact to this exact process. Arm
-# cleanup only after publication and hold the token through all four lanes.
+# cleanup only after publication. Every independent lane needs a new complete
+# namespace: DB-only reset preserves upload derivatives but removes the native
+# metadata that authorizes them (rmcombofinal02 refused in its second Apply).
 pair_live_ownership_acquire mariadb
 say "bring up caller-allocated Rank Math combination pair at candidate $HEAD"
 pair_live_ownership_up --artifacts --headless
 for meta_mode in independent synchronized; do
 run_leg forward reverse "$meta_mode"
 
-# The reverse-order leg reuses only the pair this process already created.
-# Reset stays here, between completed legs, and is never an ownership shortcut.
+# Complete teardown releases all webroot, schema and repository state before
+# the next lease re-proves freshness. Keep the shared private host registry.
 [ "$PAIR_LIVE_OWNERSHIP_LEASE_ACTIVE" -eq 1 ] \
   || fail 'Rank Math combination lost pair ownership before its second leg'
-pair_live_ownership_reset
+pair_live_ownership_finish_leg
+pair_live_ownership_acquire mariadb
 pair_live_ownership_up --artifacts --headless
 run_leg reverse forward "$meta_mode"
 if [ "$meta_mode" = independent ]; then
-  pair_live_ownership_reset
+  pair_live_ownership_finish_leg
+  pair_live_ownership_acquire mariadb
   pair_live_ownership_up --artifacts --headless
 fi
 done

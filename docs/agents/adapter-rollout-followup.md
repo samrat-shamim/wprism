@@ -42,7 +42,13 @@ reviewed and exercised through the product path.
   exposed a test-only ACF `plain_data` assumption during recapture acceptance.
   Its retained state passes the corrected oracle (46 managed entities, one
   preserved post and six terms); this replay is not a completed lane. Fresh
-  four-lane and later custom-CPT deletion evidence remains required.
+  `rmcombofinal02` on `ba837940` passed the first independent-metadata,
+  source-forward/target-reverse lane, including custom-CPT Capture/Plan/Apply
+  deletion refusals and preservation. Its second lane refused an unowned
+  attachment derivative after DB-only reset; the complete retained cause and
+  final pair cleanup were verified. The scenario now uses the existing shared
+  full-teardown/fresh-acquisition lifecycle between lanes, with an executable
+  resource-isolation counterfactual. All four fresh lanes remain required.
 - [ ] Obtain fresh independent review of the newest checkpoint deltas and this
   continuation. Agent execution was usage-limited at the interim merge; old
   reviews do not certify later changes. The owner's partial merge does not
