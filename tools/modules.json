@@ -673,7 +673,7 @@
             ]
           }
         ],
-        "file_count": 19,
+        "file_count": 20,
         "files": [
           "Capture.php",
           "CaptureCandidateBuilder.php",
@@ -686,6 +686,7 @@
           "CaptureTransaction.php",
           "EntityMetaCapture.php",
           "InitialCaptureBoundary.php",
+          "LifecycleReferenceView.php",
           "MediaCapture.php",
           "MenuCapture.php",
           "OptionsCapture.php",
