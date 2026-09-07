@@ -186,7 +186,7 @@ try {
         try { ProviderSdk::native_option_inputs(native_option_descriptor(), static fn() => null, 'native caught input failure'); }
         catch (Throwable) { /* The transaction must remain poisoned despite a swallowed failure. */ }
     }), 'poisoned');
-    native_option_require(native_option_rows() === $before, 'swallowed native failure rolls back the complete option table');
+    native_option_require(native_option_rows() === $before, 'swallowed native failure rolls back the complete option rows');
     $foreign = static fn($value) => $value;
     try {
         native_option_refuse(static fn() => native_option_observe(static function () use ($name, $foreign): void {

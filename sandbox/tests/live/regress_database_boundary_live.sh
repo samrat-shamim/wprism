@@ -733,7 +733,7 @@ prove_native_option_inputs() {
   printf 'retained native option-input transport: %s\n' "$sink/native"
   [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE native option-input command failed with exit $status"
   php "$REPO_ROOT/sandbox/tests/fixtures/native-option-inputs.php" --admit "$sink/native" "$expected_engine"
-  pass "$CURRENT_DB_ENGINE proved actual native inputs, safe cache refusal, exact hook cleanup and complete option rollback"
+  pass "$CURRENT_DB_ENGINE proved actual native inputs, safe cache refusal, exact hook cleanup and complete option-row rollback"
 }
 
 start_pair() {
