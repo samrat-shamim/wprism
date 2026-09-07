@@ -21,6 +21,11 @@ require_once __DIR__ . '/WpdbFieldCodec.php';
  */
 final class Db {
     private const BATCH_ROW_LIMIT = 256;
+    // Worst-case quoting doubles 7 MiB; the remaining 2 MiB of the existing
+    // 16-MiB callback budget covers framing and bounded readback. A chunk is
+    // at most 512 KiB rendered, below the unchanged 1-MiB statement ceiling.
+    public const KEYED_STRING_BYTE_LIMIT = 7340032;
+    private const KEYED_STRING_CHUNK_BYTES = 262144;
     private const WITNESS_VALID = 'valid';
     private const WITNESS_LOST_UNKNOWN = 'lost_unknown';
     private const WITNESS_INACTIVE = 'inactive';
@@ -625,6 +630,160 @@ final class Db {
             );
         }
         return $affected;
+    }
+
+    /**
+     * Store a bounded ordered set of exact UTF-8 strings under unique keys.
+     *
+     * WPForms 2.0.1.1's code descriptor is 1,044,395 bytes before SQL quoting.
+     * Splitting data, not transaction authority or callback accounting, keeps
+     * that ordinary engine value inside the native SQL statement frontier.
+     * The initial upsert obtains the row lock; every append has the original
+     * connection/nonce predicate, and complete readback precedes commit.
+     * @param list<array{0:string,1:string}> $rows
+     */
+    public static function upsert_keyed_strings(
+        string $table,
+        string $keyColumn,
+        string $valueColumn,
+        array $rows,
+        string $context,
+        ?TransactionAuthority $authority = null
+    ): void {
+        self::before($context);
+        self::assert_product_transaction_usable($context);
+        $table = self::table_identifier($table, $context);
+        $keyColumn = self::column_identifier($keyColumn, $context);
+        $valueColumn = self::column_identifier($valueColumn, $context);
+        if ($keyColumn === $valueColumn || !array_is_list($rows)
+            || $rows === [] || count($rows) > self::BATCH_ROW_LIMIT) {
+            throw new \InvalidArgumentException("wprism: $context received malformed keyed-string rows");
+        }
+        $totalBytes = 0;
+        $keys = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || !array_is_list($row) || count($row) !== 2
+                || !is_string($row[0]) || !is_string($row[1])
+                || $row[0] === '' || strlen($row[0]) > 1024
+                || preg_match('//u', $row[0]) !== 1 || preg_match('//u', $row[1]) !== 1) {
+                throw new \InvalidArgumentException("wprism: $context received malformed keyed-string rows");
+            }
+            $totalBytes += strlen($row[1]);
+            if ($totalBytes > self::KEYED_STRING_BYTE_LIMIT || in_array($row[0], $keys, true)) {
+                throw new \InvalidArgumentException("wprism: $context exceeds the bounded keyed-string contract");
+            }
+            $keys[] = $row[0];
+        }
+        $write = static function (TransactionAuthority $bound) use (
+            $table, $keyColumn, $valueColumn, $rows, $context
+        ): int {
+            $continuity = static function () use ($bound, $context): void {
+                if (!$bound->equals(self::transaction_authority($context . ' keyed-string authority'))) {
+                    throw new DatabaseTransactionOutcomeException($context . ' changed keyed-string transaction authority');
+                }
+            };
+            $continuity();
+            global $wpdb;
+            $prepared = [];
+            foreach ($rows as [$key, $value]) {
+                $native = [$keyColumn => $key, $valueColumn => $value];
+                $fields = WpdbFieldCodec::process($wpdb, $table, $native, '%s', $context);
+                foreach ($native as $column => $expected) {
+                    if ($fields[$column]['value'] !== $expected || $fields[$column]['format'] !== '%s') {
+                        throw new DatabaseMutationException($context . ' changed an exact keyed-string field');
+                    }
+                }
+                $keySql = self::keyed_string_literal($key, $context);
+                $prepared[] = [$key, $value, $keySql];
+            }
+            DatabaseLockBoundary::full_width_lock_index($table, $keyColumn, $context, true, $continuity);
+            try {
+                foreach ($prepared as [$key, $value, $keySql]) {
+                    $bytes = strlen($value);
+                    $offset = 0;
+                    do {
+                        $end = min($bytes, $offset + self::KEYED_STRING_CHUNK_BYTES);
+                        // A valid whole UTF-8 value may straddle the byte frontier.
+                        // Never ask a text column to temporarily store half a codepoint.
+                        while ($end < $bytes && (ord($value[$end]) & 0xc0) === 0x80) --$end;
+                        $chunkSql = self::keyed_string_literal(substr($value, $offset, $end - $offset), $context);
+                        if ($offset === 0) {
+                            self::transactional_mutation(
+                                "INSERT INTO `$table` (`$keyColumn`, `$valueColumn`) SELECT $keySql, $chunkSql",
+                                '',
+                                "ON DUPLICATE KEY UPDATE `$valueColumn` = VALUES(`$valueColumn`)",
+                                $bound,
+                                $context
+                            );
+                        } else {
+                            $affected = self::transactional_mutation(
+                                "UPDATE `$table` SET `$valueColumn` = CONCAT(`$valueColumn`, $chunkSql)",
+                                "BINARY `$keyColumn` = BINARY $keySql AND OCTET_LENGTH(`$valueColumn`) = $offset",
+                                '',
+                                $bound,
+                                $context . ' append'
+                            );
+                            if ($affected !== 1) {
+                                throw new DatabaseMutationException($context . ' keyed-string append did not extend one exact row');
+                            }
+                        }
+                        $offset = $end;
+                    } while ($offset < $bytes);
+                    $continuity();
+                    $wpdb->last_error = '';
+                    try {
+                        $observed = $wpdb->get_results(
+                            "SELECT `$keyColumn` AS stored_key, OCTET_LENGTH(`$valueColumn`) AS stored_bytes, "
+                                . "SHA2(`$valueColumn`, 256) AS stored_sha256 FROM `$table` "
+                                . "WHERE `$keyColumn` = $keySql LIMIT 2",
+                            ARRAY_A
+                        );
+                    } catch (\Throwable $failure) {
+                        throw self::normalize_transaction_failure($failure, $context . ' keyed-string readback');
+                    }
+                    $observed = self::checked($observed, $context . ' keyed-string readback');
+                    $error = trim((string) ($wpdb->last_error ?? ''));
+                    $continuity();
+                    if (!is_array($observed) || !array_is_list($observed) || count($observed) !== 1 || $error !== ''
+                        || !is_array($observed[0]) || array_keys($observed[0]) !== ['stored_key', 'stored_bytes', 'stored_sha256']
+                        || $observed[0]['stored_key'] !== $key
+                        || !(is_string($observed[0]['stored_bytes']) || is_int($observed[0]['stored_bytes']))
+                        || (string) $observed[0]['stored_bytes'] !== (string) $bytes
+                        || !is_string($observed[0]['stored_sha256'])
+                        || !hash_equals(hash('sha256', $value), $observed[0]['stored_sha256'])) {
+                        throw new DatabaseMutationException($context . ' keyed-string readback differs from its complete value');
+                    }
+                }
+            } catch (\Throwable $failure) {
+                // Retain the originating deadlock/session/error type for recovery,
+                // but a swallowed failure cannot commit this row set's prefixes.
+                DatabaseQueryIsolation::poison();
+                throw $failure;
+            }
+            return count($rows);
+        };
+        if ($authority !== null || self::$transactionAuthority !== null) {
+            $write($authority ?? self::$transactionAuthority);
+            return;
+        }
+        self::profiled_mutation_scope($table, $context, $write);
+    }
+
+    private static function keyed_string_literal(string $value, string $context): string {
+        global $wpdb;
+        $literal = $wpdb->prepare('%s', $value);
+        if (!is_string($literal)) {
+            throw new DatabaseMutationException($context . ' could not prepare a keyed-string fragment');
+        }
+        // These generated fragments never re-enter prepare(). Its per-request
+        // percent sentinel can otherwise expand one data byte into 66 bytes
+        // before the SQL gate charges it. Finish wpdb's own formatter now;
+        // the ordinary gate still validates and charges the complete SQL.
+        $literal = $wpdb->remove_placeholder_escape($literal);
+        if (!is_string($literal)) {
+            throw new DatabaseMutationException($context . ' could not finish a keyed-string fragment');
+        }
+        return $literal;
     }
 
     /**

@@ -668,6 +668,12 @@ final class DatabaseQueryIsolation {
 
     /** Quarantine unexpected topology and make product continuation impossible. */
     public static function violation(string $message): never {
+        self::poison();
+        throw new DatabaseQueryIsolationViolationException($message);
+    }
+
+    /** A caught multi-statement failure must not authorize a partial commit. */
+    public static function poison(): void {
         if (self::$active) {
             self::$poisoned = true;
             self::$cleanupAttempt = false;
@@ -675,7 +681,6 @@ final class DatabaseQueryIsolation {
             self::$permittedContext = null;
             self::install_clean_gates();
         }
-        throw new DatabaseQueryIsolationViolationException($message);
     }
 
     /** Permit one synchronous state-proof/ROLLBACK attempt after poisoning. */

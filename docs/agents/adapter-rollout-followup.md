@@ -185,8 +185,16 @@ cannot detect a second edit to an already-dirty file.
   or parked families, discloses them before confirmation, and blocks undeclared
   active layouts instead of publishing partial sidebars. Existing non-local
   policy decisions are never downgraded. Actual-planner/SidebarState regression
-  coverage is in `regress-init-widgets`; fresh native onboarding and the updated
-  complete local gate remain required before treating this repair as verified.
+  coverage is in `regress-init-widgets`. Exact `8e227cf8` passed the complete
+  local gate (362 shared suites). Native active-widget refusal and complete
+  widget-row preservation passed, but positive onboarding then reached the
+  unchanged one-MiB SQL limit: the plugin's 4,754 files alone produce a
+  1,044,395-byte code descriptor before SQL quoting. Shared keyed-string
+  storage now chunks values inside the original transaction and unchanged
+  callback budgets, with whole-field validation, unique-key proof, complete
+  readback and rollback/quarantine controls. `regress-ledger-large-values`
+  covers this engine contract; fresh native onboarding and the updated full
+  gate remain required before treating the storage repair as verified.
 - [ ] Select the remaining two adapters on useful product coverage and an
   honest support boundary, not ease of increasing the count. Each must own its
   capsule-local declaration, reviewed disposition, exact official artifacts,

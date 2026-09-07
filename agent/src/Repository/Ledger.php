@@ -903,14 +903,11 @@ final class Ledger {
         self::assert_transaction_authority($authority, 'transactional key/value publication preflight');
         $ordered = [];
         foreach ($rows as $key => $value) {
-            $ordered[] = ['k' => $key, 'v' => $value];
+            $ordered[] = [$key, $value];
         }
-        Db::transactional_upsert_rows(
-            $wpdb->prefix . 'wprism_kv',
-            $ordered,
-            ['v'],
-            $authority,
-            'transactional ledger key/value publication'
+        Db::upsert_keyed_strings(
+            $wpdb->prefix . 'wprism_kv', 'k', 'v', $ordered,
+            'transactional ledger key/value publication', $authority
         );
         self::assert_transaction_authority($authority, 'transactional key/value publication postflight');
     }
@@ -937,10 +934,9 @@ final class Ledger {
 
     public static function kv_set(string $k, string $v): void {
         global $wpdb;
-        Db::mutation($wpdb->prepare(
-            "INSERT INTO {$wpdb->prefix}wprism_kv (k, v) SELECT %s, %s",
-            $k, $v
-        ), '', 'ON DUPLICATE KEY UPDATE v = VALUES(v)', 'ledger upsert key/value');
+        Db::upsert_keyed_strings(
+            $wpdb->prefix . 'wprism_kv', 'k', 'v', [[$k, $v]], 'ledger upsert key/value'
+        );
     }
 
     public static function kv_delete(string $k): void {

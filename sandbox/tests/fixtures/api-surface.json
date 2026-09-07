@@ -16313,6 +16313,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "poison": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "prepare_cleanup": {
                     "abstract": false,
                     "final": false,
@@ -17008,7 +17016,11 @@
         },
         "WPrism\\Db": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "KEYED_STRING_BYTE_LIMIT": {
+                    "value_repr": 7340032
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -17696,6 +17708,63 @@
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "upsert_keyed_strings": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "table",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keyColumn",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "valueColumn",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rows",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "authority",
+                            "type": "?WPrism\\TransactionAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 }

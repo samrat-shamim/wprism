@@ -1150,6 +1150,10 @@ regress-agent-src-requires:
 regress-db-transaction-authority:
 	php sandbox/tests/offline/guards/regress_db_transaction_authority.php
 
+.PHONY: regress-ledger-large-values
+regress-ledger-large-values:
+	php sandbox/tests/offline/repository/regress_ledger_large_values.php
+
 # Provider callbacks use the engine-owned database and process boundaries;
 # these suites pin settlement and the fixed digest-bound child protocol rather
 # than allowing adapter capsules to grow their own transaction/process loops.

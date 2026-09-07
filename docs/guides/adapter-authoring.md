@@ -892,6 +892,20 @@ and must not use the engine's work-partition APIs. Calling or reentering a core
 helper from native code does not replenish the callback's quota; an oversized
 operation needs a genuinely bounded semantic design, not a counter reset.
 
+Large engine-owned keyed strings use `Db::upsert_keyed_strings()`: at most
+256 distinct UTF-8 key/value pairs and 7 MiB of aggregate value bytes, split
+at complete UTF-8 boundaries into at most 256-KiB data fragments. Whole-field
+WordPress validation and a full-width unique-key proof precede the first
+write. The original physical transaction owns every append and the complete
+key/length/hash readback; an interrupted batch poisons continuation so catching
+an exception cannot publish a prefix. WordPress itself finishes placeholder
+escaping before the generated fragments enter the unchanged SQL gate. Neither
+chunking nor reentry replenishes the enclosing statement or byte quota.
+This is shared engine storage, not a new provider permission or a general
+large authored-row capability: providers still use their declared SDK boundary.
+WPForms Lite 2.0.1.1 exposed the need through a 1,044,395-byte code descriptor,
+not through plugin-specific storage semantics.
+
 Audit native API reads with cold caches as well as warm ones before narrowing
 that table list. For example, WordPress's `url_to_postid()` creates a `WP_Query`
 that can prime post metadata: an id-only answer still needs `postmeta` read

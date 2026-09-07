@@ -2890,6 +2890,10 @@ final class ProbeBatchWpdb extends \WPrismTest\FakeWpdb {
             'local_id' => 'bigint unsigned',
         ]);
         $this->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+        $this->setIndexes('wprism_kv', [[
+            'Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+            'Column_name' => 'k', 'Sub_part' => null, 'Index_type' => 'BTREE', 'Visible' => 'YES', 'Ignored' => 'NO',
+        ]]);
         $this->setColumns('posts', ['ID' => 'bigint unsigned', 'post_type' => 'varchar(20)', 'post_parent' => 'bigint unsigned']);
         $this->setColumns('options', ['option_name' => 'varchar(191)', 'option_value' => 'longtext', 'autoload' => 'varchar(20)']);
         $this->setColumns('term_taxonomy', ['term_taxonomy_id' => 'bigint unsigned']);

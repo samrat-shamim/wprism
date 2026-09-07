@@ -81,7 +81,7 @@
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
  *            | OCTET_LENGTH(col) | SHA2(<operand>, 256) | LEFT(<operand>, <length>)
  *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
- *            | CONNECTION_ID() | VERSION() | COALESCE(..) | SUM(..) | MAX(..)
+ *            | CONNECTION_ID() | VERSION() | COALESCE(..) | CONCAT(..) | SUM(..) | MAX(..)
  *            | CAST(.. AS CHAR), each with an optional AS alias
  *     cond:  AND / OR / parentheses over
  *            <operand> = != <> < <= > >= <operand>
@@ -3955,7 +3955,7 @@ class FakeWpdb {
             $name,
             [
                 'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH', 'LEFT', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
-                'IS_USED_LOCK', 'CONNECTION_ID', 'CURRENT_USER', 'VERSION', 'SHA2', 'COALESCE', 'SUM', 'MAX',
+                'IS_USED_LOCK', 'CONNECTION_ID', 'CURRENT_USER', 'VERSION', 'SHA2', 'COALESCE', 'CONCAT', 'SUM', 'MAX',
             ],
             true
         )) {
@@ -4200,6 +4200,7 @@ class FakeWpdb {
                 ? ($args[0] === null ? null : (string) $args[0])
                 : throw $this->unsupported("CAST(... AS {$node['cast_type']})"),
             'COALESCE' => self::firstNonNull($args),
+            'CONCAT' => $this->concatFunction($args),
             'LEFT' => $this->leftFunction(
                 $args,
                 isset($node['args'][0]) && self::isBinary($node['args'][0])
@@ -4223,6 +4224,12 @@ class FakeWpdb {
             ),
             default => throw $this->unsupported('SQL function ' . $node['name']),
         };
+    }
+
+    private function concatFunction(array $values): ?string {
+        if ($values === []) throw $this->unsupported('CONCAT() requires at least one argument');
+        if (in_array(null, $values, true)) return null;
+        return implode('', array_map(static fn(mixed $value): string => (string) $value, $values));
     }
 
     private static function firstNonNull(array $values): mixed {
