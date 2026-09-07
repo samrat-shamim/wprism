@@ -2368,7 +2368,11 @@ refuse to overwrite them. Between independent lanes, use the existing
 `pair_live_ownership_finish_leg()`, then `pair_live_ownership_acquire()` and
 `pair_live_ownership_up()`. This removes owned resources and releases the lease
 before re-proving the complete namespace, while retaining private host-registry
-scratch. The four-plugin scenario's `regress_pair_lane_isolation.php` executes
+scratch. Capsule drivers can source `tests/lib/pair_live_ownership.sh` from
+`sandbox/`; it is an explicitly reviewed shared test dependency. The package
+validator still requires the exact ordinary `.sh` file and refuses unreviewed
+neighbors. Normalize a driver's own invocation path before changing directory
+when sourcing capsule-relative hooks through `BASH_SOURCE`. The four-plugin scenario's `regress_pair_lane_isolation.php` executes
 its actual dispatcher and shared ownership helper: DB-only reset reproduces
 the lost-ownership mechanism, and body, creation, acquisition and teardown
 faults cannot start a later lane or publish PASS. A reset is still appropriate
