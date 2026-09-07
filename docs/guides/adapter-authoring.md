@@ -1000,11 +1000,20 @@ read-only snapshot only when the commit outcome needs physical proof. The
 classifier returns exactly `DATABASE_POSTIMAGE_APPLIED`,
 `DATABASE_POSTIMAGE_NOT_APPLIED`, or `DATABASE_POSTIMAGE_UNKNOWN`; partial or
 unreadable state is recovery debt. Inside `$write`, use only the SDK's typed
-mutation methods (`database_delete()` or `database_delete_all()` today), each
+mutation methods (`database_insert()`, `database_update()`, `database_delete()`
+or `database_delete_all()`), each
 of which rechecks active transaction authority and writable-table membership.
 If the plugin operation needs another mutation shape, add that generic typed
 operation to the SDK and its engine tests first. Never send raw DML, call
 `Db::start*()`, or author `START`/`COMMIT`/`ROLLBACK` in a package executable.
+`database_insert($table, $data, $context, $format = null)` and
+`database_update($table, $data, $where, $context, $format = null,
+$whereFormat = null)` reuse the engine's existing wpdb field codec and return
+affected-row counts. Update/delete predicates must be nonempty. The capsule
+still owns semantic row selection and before/after preservation proofs; these
+methods do not infer an upsert key, regenerate IDs, run native hooks or clear
+WordPress caches. Reconcile existing derived rows in place when physical
+identity must survive retries, then prove the resulting fixed point.
 
 #### Fresh-process capabilities
 

@@ -357,6 +357,30 @@ final class ProviderSdk {
         );
     }
 
+    /** Insert one typed row under the existing contract's writable-table authority. */
+    public static function database_insert(
+        string $table,
+        array $data,
+        string $context,
+        mixed $format = null
+    ): int {
+        self::assert_profiled_write_table($table, $context);
+        return Db::insert($table, $data, $format, $context);
+    }
+
+    /** Update typed fields by a nonempty wpdb-compatible equality predicate. */
+    public static function database_update(
+        string $table,
+        array $data,
+        array $where,
+        string $context,
+        mixed $format = null,
+        mixed $whereFormat = null
+    ): int {
+        self::assert_profiled_write_table($table, $context);
+        return Db::update($table, $data, $where, $format, $whereFormat, $context);
+    }
+
     /**
      * Delete rows by one wpdb-compatible equality predicate.
      *
