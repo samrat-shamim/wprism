@@ -939,6 +939,7 @@ final class AffectedTest extends TestCase
                 'adapter-package:woocommerce',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_canonical_recapture_evidence.php',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_deletion_boundary.php',
+                'integration-scenario:rank-math-commerce-multilingual:offline:regress_pair_lane_isolation.php',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_rank_math_commerce_multilingual_contract.php',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_recapture_convergence.php',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_source_native_premise.php',
@@ -970,7 +971,7 @@ final class AffectedTest extends TestCase
             $decoded['tasks'][0]['command']
         );
         self::assertSame(
-            ['adapter-package', 'participant-scenario', 'participant-scenario', 'participant-scenario', 'participant-scenario', 'participant-scenario', 'participant-scenario'],
+            ['adapter-package', 'participant-scenario', 'participant-scenario', 'participant-scenario', 'participant-scenario', 'participant-scenario', 'participant-scenario', 'participant-scenario'],
             array_column($decoded['explain'], 'why')
         );
         self::assertSame([
