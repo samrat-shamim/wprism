@@ -2392,6 +2392,20 @@ It then stops before deploy/apply. This is evidence only for the operations the
 disposition lists; it is not a partial round-trip and cannot justify adding
 `apply`, `deploy`, or `promote` to that list.
 
+Experimental capability reports deliberately exit 3 with `ready:false`, even
+when capture is declared. The shared profile preserves the complete stream
+and status, compares the report to independently projected shipped declarations
+and their engine-derived trust tiers,
+and admits only each experimental subject's `authored_state_not_certified`
+blocker. Certified capture subjects instead require `ready:true` and exit 0.
+Source/target/provider failures, PHP diagnostics and inconsistent answers are
+not expected experimental outcomes. The real read-only plan must succeed as a
+command while retaining its exact promotion blockers: experimental status and,
+where promotion is undeclared, `operation_not_certified`. The engine's existing
+claim projection owns the `apply + deploy` to `promote` rule. Do not discard
+exit 3 through `|| true`, accept arbitrary refusals, use `--all` to lose the
+live target, or treat a returned plan as production authorization.
+
 Real worked examples, with the empirical grounding for each decision, are the
 grind rounds themselves: `make grind-r1a` (forms — Contact Form 7 + Ninja
 Forms) and `make grind-r1c` (the agency stack — Elementor + ACF + a

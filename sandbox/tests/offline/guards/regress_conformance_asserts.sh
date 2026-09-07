@@ -163,6 +163,171 @@ grep -q 'CONFORMANCE PASSED (%s; capture-plan)' conformance/run.sh \
   || fail "conformance/run.sh has no explicit successful early terminal before target apply"
 pass "capture-plan mode is closed, convention-hooked, and terminates explicitly before target apply"
 
+# Execute the actual terminal block in a fresh shell: putting a function in ||
+# disables errexit and hides the original rc-3 assignment defect. Independent
+# claims also catch falsely certified/ready reports, not just bad blocker counts.
+CAPTURE_PLAN_BLOCK=$(sed -n '/^if \[ "\$MODE" = "capture-plan" \]; then$/,/^fi$/p' conformance/run.sh)
+[ -n "$CAPTURE_PLAN_BLOCK" ] || fail 'capture-plan terminal block is absent'
+CAPTURE_PLAN_CLAIMS='[{"name":"core","status":"certified","operations":["apply","capture","compile","deploy","promote","recapture"],"trust_tier":"native_action"},{"name":"preview-form","status":"experimental","operations":["capture","compile","recapture"],"trust_tier":"declarative_manifest"}]'
+CAPTURE_PLAN_CERTIFIED=$(jq -c '[.[0]]' <<<"$CAPTURE_PLAN_CLAIMS")
+capture_plan_report_fixture() { # <independent claims>
+  jq -nc --argjson claims "$1" '
+    def reason: {code:"authored_state_not_certified",message:"experimental, not certified",remediation:""};
+    {schema_version:"wprism-capability-report/v1", query:{operation:"capture",surface:null},
+     target:{wordpress:"6.8.2",multisite:false},
+     manifests:[$claims[] | . as $claim | del(.trust_tier) + {source:{source:"shipped",certification:"registry",trust_tier:$claim.trust_tier},
+       verdict: (if .status == "experimental" then {status:"blocked",reasons:[reason]}
+                 else {status:"certified",reasons:[]} end)}]} |
+    .blockers = [.manifests[] | . as $row | .verdict.reasons[] |
+      {name:$row.name,status:"blocked",code,reason:.message,remediation,
+       source:$row.source.source,certification:$row.source.certification,trust_tier:$row.source.trust_tier}] |
+    .ready = (.blockers | length == 0)
+  '
+}
+CAPTURE_PLAN_REPORT=$(capture_plan_report_fixture "$CAPTURE_PLAN_CLAIMS")
+CAPTURE_PLAN_READY_REPORT=$(capture_plan_report_fixture "$CAPTURE_PLAN_CERTIFIED")
+CAPTURE_PLAN_RESULT=$(jq -nc --argjson report "$CAPTURE_PLAN_REPORT" '
+  {create:[],update:[],conflict:[],adapter_dispositions:($report.blockers + [
+    {name:"preview-form",status:"blocked",code:"operation_not_certified",
+     reason:"promote is not certified",remediation:"",source:"shipped",certification:"registry",trust_tier:"declarative_manifest"}])}
+')
+CAPTURE_PLAN_READY_RESULT='{"create":[],"update":[],"conflict":[],"adapter_dispositions":[]}'
+CAPTURE_PLAN_PROBES=0
+capture_plan_probe() { # <claims> <report> <report rc> <plan> <plan rc> [report prefix] [plan prefix]
+  bash -c '
+    set -euo pipefail
+    fail() { printf "%s\n" "$*" >&2; exit 1; }
+    say() { :; }
+    pass() { :; }
+    . "$1"
+    block=$2 CAPTURE_PLAN_CLAIMS=$3 report=$4 report_rc=$5 plan=$6 plan_rc=$7
+    report_prefix=$8 plan_prefix=$9
+    MODE=capture-plan MANIFEST=profile-probe
+    wp_conf1() {
+      case "$*" in
+        "wprism capabilities --repo=/siterepo --operation=capture --format=json")
+          [ -z "$report_prefix" ] || printf "%s\n" "$report_prefix" >&2
+          printf "%s\n" "$report"
+          return "$report_rc"
+          ;;
+        "wprism plan --repo=/siterepo --format=json")
+          printf "PLAN_INVOKED\n" >&2
+          [ -z "$plan_prefix" ] || printf "%s\n" "$plan_prefix" >&2
+          printf "%s\n" "$plan"
+          return "$plan_rc"
+          ;;
+        *) fail "unexpected capture-plan command: $*" ;;
+      esac
+    }
+    eval "$block"
+    fail "capture-plan fell through to target execution"
+  ' -- "$FRAGMENT" "$CAPTURE_PLAN_BLOCK" "$1" "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" 2>&1
+}
+capture_plan_expect_pass() {
+  local output rc=0
+  CAPTURE_PLAN_PROBES=$((CAPTURE_PLAN_PROBES + 1))
+  output=$(capture_plan_probe "$@") || rc=$?
+  [ "$rc" -eq 0 ] && grep -Fq 'PLAN_INVOKED' <<<"$output" \
+    && grep -q 'CONFORMANCE PASSED (profile-probe; capture-plan)' <<<"$output" \
+    || fail "capture-plan rejected its exact declared status/plan contract: rc=$rc output=$output"
+}
+capture_plan_expect_failure() { # <label> <before-plan|at-plan> <probe arguments...>
+  local label="$1" phase="$2" output rc=0
+  CAPTURE_PLAN_PROBES=$((CAPTURE_PLAN_PROBES + 1))
+  shift 2
+  output=$(capture_plan_probe "$@") || rc=$?
+  [ "$rc" -ne 0 ] && ! grep -q 'CONFORMANCE PASSED' <<<"$output" \
+    || fail "capture-plan admitted $label: rc=$rc output=$output"
+  if [ "$phase" = before-plan ]; then
+    ! grep -Fq 'PLAN_INVOKED' <<<"$output" \
+      || fail "capture-plan reached plan after $label: $output"
+  else
+    # An empty answer retains the complete stream inside its infrastructure
+    # diagnostic, so the invocation marker need not remain a standalone line.
+    grep -Fq 'PLAN_INVOKED' <<<"$output" \
+      || fail "capture-plan failed before its $label control reached plan: $output"
+  fi
+}
+capture_plan_expect_pass "$CAPTURE_PLAN_CLAIMS" "$CAPTURE_PLAN_REPORT" 3 "$CAPTURE_PLAN_RESULT" 0
+capture_plan_expect_pass "$CAPTURE_PLAN_CERTIFIED" "$CAPTURE_PLAN_READY_REPORT" 0 "$CAPTURE_PLAN_READY_RESULT" 0
+capture_plan_expect_failure 'coherently forged report/plan trust tier' before-plan "$CAPTURE_PLAN_CLAIMS" \
+  "$(jq -c '.manifests[].source.trust_tier="forged-tier" | .blockers[].trust_tier="forged-tier"' <<<"$CAPTURE_PLAN_REPORT")" 3 \
+  "$(jq -c '.adapter_dispositions[].trust_tier="forged-tier"' <<<"$CAPTURE_PLAN_RESULT")" 0
+# Readiness is operation-specific: certified capture-only still blocks promote;
+# experimental with promote declared retains its authored-state blocker alone.
+CAPTURE_PLAN_CAPTURE_ONLY=$(jq -c '.[1].status="certified"' <<<"$CAPTURE_PLAN_CLAIMS")
+capture_plan_expect_pass "$CAPTURE_PLAN_CAPTURE_ONLY" "$(capture_plan_report_fixture "$CAPTURE_PLAN_CAPTURE_ONLY")" 0 \
+  "$(jq -c '.adapter_dispositions |= map(select(.code == "operation_not_certified"))' <<<"$CAPTURE_PLAN_RESULT")" 0
+CAPTURE_PLAN_PROMOTE=$(jq -c '.[1].operations += ["apply","deploy","promote"]' <<<"$CAPTURE_PLAN_CLAIMS")
+capture_plan_expect_pass "$CAPTURE_PLAN_PROMOTE" "$(capture_plan_report_fixture "$CAPTURE_PLAN_PROMOTE")" 3 \
+  "$(jq -c '.adapter_dispositions |= map(select(.code == "authored_state_not_certified"))' <<<"$CAPTURE_PLAN_RESULT")" 0
+capture_plan_expect_pass "$(jq -c 'reverse' <<<"$CAPTURE_PLAN_CLAIMS")" \
+  "$(jq -c '.manifests |= reverse | .manifests[].operations |= reverse | del(.manifests[].verdict.reasons[].remediation)' <<<"$CAPTURE_PLAN_REPORT")" 3 \
+  "$(jq -c '.adapter_dispositions |= reverse' <<<"$CAPTURE_PLAN_RESULT")" 0
+CAPTURE_PLAN_MULTI=$(jq -c '. + [.[1] | .name="preview-gallery"]' <<<"$CAPTURE_PLAN_CLAIMS")
+capture_plan_expect_pass "$CAPTURE_PLAN_MULTI" "$(capture_plan_report_fixture "$CAPTURE_PLAN_MULTI")" 3 \
+  "$(jq -c '.adapter_dispositions += [.adapter_dispositions[] | .name="preview-gallery"]' <<<"$CAPTURE_PLAN_RESULT")" 0
+for status in 0 1 2 7 137; do
+  capture_plan_expect_failure "experimental report exit $status" before-plan \
+    "$CAPTURE_PLAN_CLAIMS" "$CAPTURE_PLAN_REPORT" "$status" "$CAPTURE_PLAN_RESULT" 0
+done
+capture_plan_expect_failure 'certified report exit 3' before-plan \
+  "$CAPTURE_PLAN_CERTIFIED" "$CAPTURE_PLAN_READY_REPORT" 3 "$CAPTURE_PLAN_READY_RESULT" 0
+capture_plan_expect_failure 'false certified/ready report' before-plan "$CAPTURE_PLAN_CLAIMS" \
+  "$(capture_plan_report_fixture "$(jq -c 'map(.status="certified")' <<<"$CAPTURE_PLAN_CLAIMS")")" 0 "$CAPTURE_PLAN_READY_RESULT" 0
+for mutation in \
+  '.schema_version="invented"' '.query.operation="promote"' '.query.surface="post_types"' \
+  '.target=null' '.target={}' '.target.multisite=true' '.ready=true' 'del(.ready)' \
+  '.manifests=[]' '.manifests += [.manifests[0]]' \
+  '.manifests[1].name="foreign-form"' '.manifests[1].status="uncertified"' \
+  '.manifests[1].source.source="site"' '.manifests[1].source.certification="uncertified"' \
+  '.manifests[1].operations += ["promote"]' '.manifests[0].operations -= ["promote"]' \
+  '.manifests[1].operations += ["capture"]' \
+  '.manifests[1].operations -= ["capture"]' '.manifests[1].verdict.status="certified"' \
+  '.manifests[1].verdict.reasons=[]' '.manifests[1].verdict.reasons[0].code="plugin_version_unsupported"' \
+  '.blockers=[]' '.blockers += [.blockers[0]]' '.blockers[0].code="provider_unavailable"' \
+  '.blockers[0].source="site"' '.blockers[0].name="core"' '.blockers[0].reason=""'; do
+  capture_plan_expect_failure "$mutation" before-plan "$CAPTURE_PLAN_CLAIMS" \
+    "$(jq -c "$mutation" <<<"$CAPTURE_PLAN_REPORT")" 3 "$CAPTURE_PLAN_RESULT" 0
+done
+for report in '' 'not json' '[]' '{"ok":false,"format":"wprism-command-refusal/v1"}' \
+  "$CAPTURE_PLAN_REPORT {}"; do
+  capture_plan_expect_failure 'missing/malformed/non-capability answer' before-plan \
+    "$CAPTURE_PLAN_CLAIMS" "$report" 3 "$CAPTURE_PLAN_RESULT" 0
+done
+for claims in '[]' 'null' '[{"name":"core","status":"experimental","operations":[]}]'; do
+  capture_plan_expect_failure 'invalid independent declaration context' before-plan \
+    "$claims" "$CAPTURE_PLAN_REPORT" 3 "$CAPTURE_PLAN_RESULT" 0
+done
+for mutation in 'del(.adapter_dispositions)' '.adapter_dispositions=[]' \
+  '.adapter_dispositions += [.adapter_dispositions[0]]' '.adapter_dispositions[1].code="provider_problem"' \
+  '.adapter_dispositions[1].name="core"' '.adapter_dispositions[0].status="certified"' \
+  '.adapter_dispositions[1].reason=""' '.adapter_dispositions[1].source="site"' \
+  '.adapter_dispositions[1].trust_tier="unrelated"' '.adapter_dispositions[1].certification="uncertified"' \
+  'del(.create)' '.conflict={}' '.update=null'; do
+  capture_plan_expect_failure "$mutation" at-plan "$CAPTURE_PLAN_CLAIMS" "$CAPTURE_PLAN_REPORT" 3 \
+    "$(jq -c "$mutation" <<<"$CAPTURE_PLAN_RESULT")" 0
+done
+capture_plan_expect_failure 'nonzero structured plan' at-plan "$CAPTURE_PLAN_CLAIMS" \
+  "$CAPTURE_PLAN_REPORT" 3 "$CAPTURE_PLAN_RESULT" 3
+for plan in '' 'not json' '[]' '{"format":"wprism-command-refusal/v1"}'; do
+  capture_plan_expect_failure 'missing/malformed/non-plan answer' at-plan \
+    "$CAPTURE_PLAN_CLAIMS" "$CAPTURE_PLAN_REPORT" 3 "$plan" 0
+done
+for diagnostic in 'PHP Warning: PHP Startup: profile canary in Unknown on line 0' \
+  'PHP Parse error: profile canary' 'Deprecated: profile canary in /native.php on line 5'; do
+  capture_plan_expect_failure 'capability PHP diagnostic' before-plan "$CAPTURE_PLAN_CLAIMS" \
+    "$CAPTURE_PLAN_REPORT" 3 "$CAPTURE_PLAN_RESULT" 0 "$diagnostic"
+  capture_plan_expect_failure 'plan PHP diagnostic' at-plan "$CAPTURE_PLAN_CLAIMS" \
+    "$CAPTURE_PLAN_REPORT" 3 "$CAPTURE_PLAN_RESULT" 0 '' "$diagnostic"
+done
+CAPTURE_PLAN_NOISE=$(capture_plan_probe "$CAPTURE_PLAN_CLAIMS" "$CAPTURE_PLAN_REPORT" 3 \
+  "$CAPTURE_PLAN_RESULT" 0 'compose capability prelude' 'compose plan prelude')
+grep -q '^compose capability prelude$' <<<"$CAPTURE_PLAN_NOISE" \
+  && grep -q '^compose plan prelude$' <<<"$CAPTURE_PLAN_NOISE" \
+  || fail 'capture-plan lost command-prefix diagnostics while selecting JSON'
+pass "actual capture-plan terminal: $CAPTURE_PLAN_PROBES controlled invocations plus full-stream prefix retention; certified/experimental reports and exact promotion blockers stay distinct"
+
 # Every shipped adapter owns its entry and hooks; the shared aggregate was
 # retired so adding an adapter never edits conformance infrastructure.
 for manifest in ../adapter-packages/*; do
@@ -213,6 +378,59 @@ trap 'rm -rf -- "$MATRIX_PROBE"' EXIT
 mkdir -p "$MATRIX_PROBE/sandbox/tests/certify" "$MATRIX_PROBE/sandbox/conformance"
 cp tests/certify/certify_version_matrix.sh "$MATRIX_PROBE/sandbox/tests/certify/"
 : > "$MATRIX_PROBE/sandbox/conformance/asserts.sh"
+
+# Exercise the live runner's exact independent declaration projector and pin
+# its pre-pair wiring. The engine owns layout ambiguity and the
+# apply+deploy -> promote projection; a synthetic capsule needs no registry row.
+CLAIMS_PROBE="$MATRIX_PROBE/claims-source"
+mkdir -p "$CLAIMS_PROBE/platform" "$CLAIMS_PROBE/adapter-packages/preview-form/package"
+cp -R ../platform/adapter-library "$CLAIMS_PROBE/platform/"
+jq '.name="preview-form"' ../platform/adapter-library/core/manifest.json \
+  > "$CLAIMS_PROBE/adapter-packages/preview-form/package/manifest.json"
+jq '.status="experimental" | .capabilities.operations=["capture","compile","recapture"]' \
+  ../platform/adapter-library/core/disposition.json \
+  > "$CLAIMS_PROBE/adapter-packages/preview-form/package/disposition.json"
+CLAIMS_TOOL="$(pwd)/tests/lib/capture_plan_claims.php"
+CLAIMS_RESULT=$(php "$CLAIMS_TOOL" "$CLAIMS_PROBE" '["preview-form","core"]')
+jq -e '
+  map(.name) == ["core","preview-form"] and .[0].status == "certified" and
+  (.[0].operations | index("promote") != null) and
+  .[0].trust_tier == "native_action" and
+  .[1] == {name:"preview-form",status:"experimental",operations:["capture","compile","recapture"],trust_tier:"native_action"}
+' <<<"$CLAIMS_RESULT" >/dev/null || fail 'declaration projection lost exact source status, pin roster or derived promote'
+[ "$(php "$CLAIMS_TOOL" "$CLAIMS_PROBE" '[{"name":"core"},{"name":"preview-form"}]')" = "$CLAIMS_RESULT" ] \
+  || fail 'object pins changed the independent declaration projection'
+for pins in '[]' '{}' '["core","core"]' '["absent-package"]' '["../core"]' '[null]' \
+  '[{"source":"shipped"}]' 'not json'; do
+  CLAIMS_OUT=$(php "$CLAIMS_TOOL" "$CLAIMS_PROBE" "$pins" 2>"$MATRIX_PROBE/claims.stderr") \
+    && CLAIMS_RC=0 || CLAIMS_RC=$?
+  [ "$CLAIMS_RC" -ne 0 ] && [ -z "$CLAIMS_OUT" ] && [ -s "$MATRIX_PROBE/claims.stderr" ] \
+    || fail "declaration projection admitted invalid pins or partially published: $pins"
+done
+CLAIMS_DISPOSITION="$CLAIMS_PROBE/adapter-packages/preview-form/package/disposition.json"
+cp "$CLAIMS_DISPOSITION" "$MATRIX_PROBE/claims-disposition.json"
+for mutation in 'del(.capabilities)' '.status="invented"'; do
+  jq "$mutation" "$MATRIX_PROBE/claims-disposition.json" > "$CLAIMS_DISPOSITION"
+  CLAIMS_OUT=$(php "$CLAIMS_TOOL" "$CLAIMS_PROBE" '["core","preview-form"]' 2>"$MATRIX_PROBE/claims.stderr") \
+    && CLAIMS_RC=0 || CLAIMS_RC=$?
+  [ "$CLAIMS_RC" -ne 0 ] && [ -z "$CLAIMS_OUT" ] && [ -s "$MATRIX_PROBE/claims.stderr" ] \
+    || fail "declaration projection published a malformed selected disposition: $mutation"
+done
+cp "$MATRIX_PROBE/claims-disposition.json" "$CLAIMS_DISPOSITION"
+mkdir -p "$CLAIMS_PROBE/adapter-packages/core/package"
+cp "$CLAIMS_PROBE/platform/adapter-library/core/manifest.json" "$CLAIMS_PROBE/adapter-packages/core/package/"
+cp "$CLAIMS_PROBE/platform/adapter-library/core/disposition.json" "$CLAIMS_PROBE/adapter-packages/core/package/"
+CLAIMS_OUT=$(php "$CLAIMS_TOOL" "$CLAIMS_PROBE" '["core"]' 2>"$MATRIX_PROBE/claims.stderr") \
+  && CLAIMS_RC=0 || CLAIMS_RC=$?
+[ "$CLAIMS_RC" -ne 0 ] && [ -z "$CLAIMS_OUT" ] && [ -s "$MATRIX_PROBE/claims.stderr" ] \
+  || fail 'declaration projection silently preferred a source for an ambiguous core pin'
+CLAIMS_PROJECTION_LINE=$(grep -n 'capture_wprism_json_success CAPTURE_PLAN_CLAIMS ' conformance/run.sh | cut -d: -f1)
+CLAIMS_PAIR_LINE=$(grep -n '^bash bin/pair.sh reset ' conformance/run.sh | cut -d: -f1)
+[ "$CLAIMS_PROJECTION_LINE" -lt "$CLAIMS_PAIR_LINE" ] \
+  && grep -Fq 'php "$PAIR_SOURCE_ROOT/sandbox/tests/lib/capture_plan_claims.php" "$PAIR_SOURCE_ROOT"' conformance/run.sh \
+  && grep -Fq 'run_wprism_capture_plan "$CAPTURE_PLAN_CLAIMS" wp_conf1 /siterepo' conformance/run.sh \
+  || fail 'capture-plan does not bind the source projection before pair mutation and reuse it in the terminal block'
+pass 'independent capture-plan claims reuse exact source layout/validation/promotion semantics and refuse invalid, missing, duplicate or malformed selected declarations before publication'
 
 # Exercise the same inventory and duplicate scan used above. An empty scan
 # cannot earn a pass: the actual shared fragment is in the fixture inventory,
