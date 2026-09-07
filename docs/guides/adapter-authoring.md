@@ -1502,6 +1502,15 @@ does not clear anything. Decide whether each destination is genuinely authored
 and portable before reviewing it: an environment-specific address needs an
 environment contract, not a privacy exception that copies it to every target.
 
+One post body's complete `body_refs.<type>` record has one owner. Distinct
+manifests may repeat a canonically identical declaration, but cannot select
+different reference paths, casts, sentinels, URL handling or privacy paths by
+pin order—even if their `post_types.<type>.body=json` declarations agree.
+Both live policy loading and immutable snapshot loading enforce this before
+capture or compilation. Extend the owning capsule; there is no site-policy
+body-grammar override or cross-adapter composition rule. Exercise conflicting
+and identical declarations in both pin orders when adding a grammar extension.
+
 Mixed option blobs use their existing per-subkey `allow_pii` review, not body
 paths. Exercise native values through the real capture guard before ratifying
 them: WPForms' `validation-email` is operator-authored validation copy, but its

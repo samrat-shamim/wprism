@@ -477,6 +477,11 @@ final class BodyRefGrammar {
      * sets over them are one declaration about one body, so a later pin that
      * redeclares the paths must drop the earlier pin's sentinels too, or the new
      * paths would be read through the old one's literals.
+     * Both Policy loaders first apply the cross-manifest named-owner guard:
+     * distinct manifest names may repeat only canonically identical body_refs
+     * declarations. This projection therefore grants no cross-owner override;
+     * its whole replacement also prevents stale privacy/URL authority from
+     * surviving a same-owner rule replacement in a directly constructed input.
      *
      * @param list<array<string,mixed>> $manifests
      * @return array<string,array{json_refs:list<array<string,mixed>>,sentinels:array<string,list<string>>,url_rebinding?:true,pii_paths?:list<string>}>

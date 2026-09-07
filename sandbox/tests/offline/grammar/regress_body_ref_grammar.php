@@ -1534,7 +1534,7 @@ $unusedPiiPolicy = $load(['wpforms'=>$unusedPiiManifest]);
 wprism_check(!array_key_exists('pii_paths', $unusedPiiPolicy->body_ref_rule('wpforms')),
     'K: declaring the feature without paths grants no privacy exception');
 wprism_check(!array_key_exists('pii_paths', BodyRefGrammar::rules([$notificationManifest, $urlManifest])['wpforms']),
-    'K: replacing a body rule cannot inherit an earlier manifest privacy exception');
+    'K: replacing a same-owner body rule cannot inherit an earlier privacy exception');
 $missingPiiFeature['name'] = 'unreviewed-body';
 wprism_check_throws(static fn() => $load(['wpforms'=>$notificationManifest, 'unreviewed-body'=>$missingPiiFeature]),
     RuntimeException::class, 'K: another loaded adapter cannot grant the missing feature', 'pii_paths requires engine feature');
@@ -1739,5 +1739,88 @@ wprism_check_same($roundTripCanonicalBytes, file_get_contents($compileRoot . $fo
     'K: positive materialization and recapture leave the complete canonical source unchanged');
 wprism_check_same(Canon::encode($notificationSite), file_get_contents($compileRoot . '/site.wprism.json'),
     'K: all positive and hostile cases leave source pins and exact reviewed authority unchanged');
+
+// L — One physical post body has one complete grammar. The per-post-type
+// owner guard alone sees identical body=json declarations and cannot detect
+// another manifest replacing reference, URL or privacy authority underneath it.
+// Both live and immutable loaders must refuse before any codec can run.
+$bodyOwner = [
+    'name' => 'body-owner-a',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'engine_features' => $notificationManifest['engine_features'],
+    'post_types' => ['shared_body' => ['class' => 'authored', 'body' => 'json']],
+    'body_refs' => ['shared_body' => [
+        'json_refs' => [['path' => '$.target.id', 'kind' => 'post', 'cast' => 'string']],
+        'pii_paths' => ['$.notification.email'],
+    ]],
+];
+$ownerRule = $bodyOwner['body_refs']['shared_body'];
+$bodyRuleVariants = [];
+$bodyRuleVariants['reference path'] = $ownerRule;
+$bodyRuleVariants['reference path']['json_refs'][0]['path'] = '$.alternate.id';
+$bodyRuleVariants['reference kind'] = $ownerRule;
+$bodyRuleVariants['reference kind']['json_refs'][0]['kind'] = 'term';
+$bodyRuleVariants['native scalar type'] = $ownerRule;
+unset($bodyRuleVariants['native scalar type']['json_refs'][0]['cast']);
+$bodyRuleVariants['preserved scalar type'] = $ownerRule;
+$bodyRuleVariants['preserved scalar type']['json_refs'][0]['cast'] = 'preserve';
+$bodyRuleVariants['sentinel'] = $ownerRule;
+$bodyRuleVariants['sentinel']['sentinels'] = ['$.target.id' => ['previous_page']];
+$bodyRuleVariants['URL rewriting'] = $ownerRule;
+$bodyRuleVariants['URL rewriting']['url_rebinding'] = true;
+$bodyRuleVariants['privacy path'] = $ownerRule;
+$bodyRuleVariants['privacy path']['pii_paths'] = ['$.notification.replyto'];
+$bodyRuleVariants['privacy removal'] = $ownerRule;
+unset($bodyRuleVariants['privacy removal']['pii_paths']);
+$loadBodyOwners = static function (array $manifests, bool $frozen) use ($load): Policy {
+    return $frozen
+        ? WPrismTest\FrozenPolicy::policy($manifests, WPrismTest\FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION))
+        : $load(array_column($manifests, null, 'name'));
+};
+foreach ([false, true] as $frozen) {
+    $loaderLabel = $frozen ? 'immutable Policy::from_snapshot' : 'live Policy::load';
+    foreach ($bodyRuleVariants as $case => $rule) {
+        $otherOwner = $bodyOwner;
+        $otherOwner['name'] = 'body-owner-b';
+        $otherOwner['body_refs']['shared_body'] = $rule;
+        foreach ([$bodyOwner, $otherOwner] as $standalone) {
+            $standalonePolicy = $loadBodyOwners([$standalone], $frozen);
+            wprism_check_same(Canon::encode($standalone['body_refs']['shared_body'] + ['sentinels' => []]),
+                Canon::encode($standalonePolicy->body_ref_rule('shared_body')),
+                "L: $loaderLabel admits each individually valid $case declaration");
+        }
+        foreach ([[$bodyOwner, $otherOwner], [$otherOwner, $bodyOwner]] as $ordered) {
+            wprism_check_throws(static fn() => $loadBodyOwners($ordered, $frozen), RuntimeException::class,
+                "L: $loaderLabel refuses conflicting $case authority in " . implode(',', array_column($ordered, 'name')),
+                'both declare body_refs.shared_body with different declarations');
+        }
+    }
+    $identicalOwner = $bodyOwner;
+    $identicalOwner['name'] = 'body-owner-b';
+    // Canonical object-key order is not authority; list/scalar bytes are.
+    $identicalOwner['body_refs']['shared_body'] = array_reverse($ownerRule, true);
+    foreach ([[$bodyOwner, $identicalOwner], [$identicalOwner, $bodyOwner]] as $ordered) {
+        wprism_check_same(Canon::encode($ownerRule + ['sentinels' => []]), Canon::encode($loadBodyOwners($ordered, $frozen)->body_ref_rule('shared_body')),
+            "L: $loaderLabel admits canonically identical redundant body declarations in either pin order");
+    }
+    $disjointOwner = $bodyOwner;
+    $disjointOwner['name'] = 'body-owner-b';
+    $disjointOwner['post_types'] = ['other_body' => $bodyOwner['post_types']['shared_body']];
+    $disjointOwner['body_refs'] = ['other_body' => $bodyRuleVariants['privacy path']];
+    $disjointPolicy = $loadBodyOwners([$bodyOwner, $disjointOwner], $frozen);
+    wprism_check_same(Canon::encode($ownerRule + ['sentinels' => []]), Canon::encode($disjointPolicy->body_ref_rule('shared_body')),
+        "L: $loaderLabel keeps the original body's exact reference and privacy authority");
+    wprism_check_same(Canon::encode($bodyRuleVariants['privacy path'] + ['sentinels' => []]), Canon::encode($disjointPolicy->body_ref_rule('other_body')),
+        "L: $loaderLabel admits a disjoint post body's independently owned grammar");
+    $coreOwner = $bodyOwner;
+    $coreOwner['name'] = 'core';
+    $otherOwner['body_refs']['shared_body'] = $bodyRuleVariants['privacy path'];
+    foreach ([[$coreOwner, $otherOwner], [$otherOwner, $coreOwner]] as $ordered) {
+        wprism_check_throws(static fn() => $loadBodyOwners($ordered, $frozen), RuntimeException::class,
+            "L: $loaderLabel grants core no cross-owner body grammar exception in either pin order",
+            'both declare body_refs.shared_body with different declarations');
+    }
+}
 
 wprism_check_summary('regress_body_ref_grammar');
