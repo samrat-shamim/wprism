@@ -148,7 +148,7 @@
             ]
           }
         ],
-  "file_count": 67,
+  "file_count": 68,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -184,6 +184,7 @@
           "PathSafety.php",
           "PersonalData.php",
           "PhpLiteralData.php",
+          "PhysicalTableRows.php",
           "PlainData.php",
           "PostPasswordBinding.php",
           "PrivateEvidenceCarrierException.php",

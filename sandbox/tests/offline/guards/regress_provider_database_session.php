@@ -3550,6 +3550,12 @@ wprism_check_same(1, $typedRowTransaction(static fn(): int => ProviderSdk::datab
 wprism_check_same([['provider_key' => '7', 'provider_value' => '0009'], ['provider_key' => '7.4', 'provider_value' => 'untouched']],
     provider_database_session_rows($wpdb), 'data format cannot be dropped or swapped with the numeric predicate format');
 $wpdb = $typedRowFixture();
+wprism_check_same(1, $typedRowTransaction(static fn(): int => ProviderSdk::database_update('wp_wprism_provider_state',
+    ['provider_value' => '0009'], ['provider_key' => 'keep'], 'explicit SDK update data format', '%d', '%s')),
+    'SDK update independently forwards a non-default data format');
+wprism_check_same('9', (string) provider_database_session_rows($wpdb)[0]['provider_value'],
+    'update data formatting cannot silently fall back to string inference');
+$wpdb = $typedRowFixture();
 $typedRowTransaction(static fn(): int => ProviderSdk::database_insert('wp_wprism_provider_state',
     ['provider_key' => 'formatted', 'provider_value' => '0009'], 'explicit SDK insert formats', ['%s', '%d']));
 wprism_check_same('9', (string) provider_database_session_rows($wpdb)[1]['provider_value'],

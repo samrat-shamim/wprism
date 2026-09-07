@@ -977,6 +977,11 @@ transaction and statement budget. A descriptor cannot create or widen it.
 Keep plugin eligibility, subset/remainder selection, native reconstruction and
 postcondition meaning in the capsule. Do not copy a SQL pager into a provider
 or add a permissive SQL/visitor language merely to migrate a legacy helper.
+When extraction introduces a shared engine class, follow the
+[new-class ownership and generated-file checklist](../dev-setup.md#the-classmap-autoloader):
+explicit dependencies and the module assignment are required alongside the
+classmap and public API fixture. Package validation alone does not check that
+engine/tooling boundary.
 
 Do not spell an exact presence probe as raw `SHOW TABLES LIKE '$table'` (or
 `SHOW TABLE STATUS LIKE '$table'`): `_` and `%` are LIKE wildcards. Bind
