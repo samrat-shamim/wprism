@@ -1,5 +1,5 @@
 {
-    "class_count": 486,
+    "class_count": 487,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -16117,6 +16117,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assert_original_all_hook_absent": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "assert_permit_consumed": {
                     "abstract": false,
                     "final": false,
@@ -20700,6 +20717,47 @@
                         }
                     ],
                     "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read_row": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "database",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::MAX_OPTION_VALUE_BYTES",
+                            "has_default": true,
+                            "name": "maxValueBytes",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -29087,6 +29145,51 @@
             "parent": null,
             "properties": [],
             "readonly": true
+        },
+        "WPrism\\NativeOptionInputs": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "observe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inputs",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "native",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
         },
         "WPrism\\NativeRebuildExecutor": {
             "abstract": false,
@@ -59088,6 +59191,15 @@
                 },
                 "DATABASE_POSTIMAGE_UNKNOWN": {
                     "value_repr": "unknown"
+                },
+                "NATIVE_OPTION_INPUTS_FEATURE": {
+                    "value_repr": "provider-native-option-inputs/v1"
+                },
+                "PHYSICAL_TABLE_ROWS_FEATURE": {
+                    "value_repr": "provider-physical-table-rows/v1"
+                },
+                "TYPED_ROW_MUTATIONS_FEATURE": {
+                    "value_repr": "provider-typed-row-mutations/v1"
                 }
             },
             "final": true,
@@ -59593,6 +59705,39 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "native_option_inputs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inputs",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "native",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
                 },

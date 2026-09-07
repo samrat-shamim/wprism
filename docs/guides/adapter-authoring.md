@@ -957,7 +957,11 @@ third party's schema semantics.
 
 For complete physical input and preservation witnesses, use
 `ProviderSdk::physical_table_rows($descriptor, $context)` inside an already
-active contract snapshot or transaction. Its closed descriptor names `table`,
+active contract snapshot or transaction. A consuming manifest must declare
+`provider-physical-table-rows/v1` alongside `spec-window/v1`; older v3 engines
+then refuse the named dependency before loading executable behavior. The
+provider-protocol feature alone does not version SDK methods.
+Its closed descriptor names `table`,
 ordered unique `columns`, an `identity` list of one to four distinct selected
 positive-integer columns (for example `['ID']` or
 `['object_id', 'term_taxonomy_id']`),
@@ -974,6 +978,40 @@ row and cell frontier, plus one overflow witness. Size admission precedes payloa
 are tied to exact identities, lengths and hashes, and final readback rejects a
 changed roster. The active profile still grants table access and owns the
 transaction and statement budget. A descriptor cannot create or widen it.
+
+When a supported public native API reads options internally and accepts no
+input array, `ProviderSdk::native_option_inputs($inputs, $native, $context)`
+witnesses its actual selected **current transactional** inputs. Declare `provider-native-option-inputs/v1`
+with `spec-window/v1`. Each input names exactly `name`, `default`,
+`passed_default` and `reads`; the engine reads its own physical raw/plain
+expectation. At most 8 names / 32 total reads / 1 MiB per selected value are
+admitted; names are canonical ASCII option identities and defaults are bounded
+plain data. Special core-transformed/cache-reserved keys are outside this API.
+Use it only inside the authorized mutation callback. The capsule must prove
+that its initial reconstruction computation precedes its first write; this
+API does not certify that ordering or that its rows predate the transaction.
+Later fixed-point passes may witness current transactional inputs again.
+Fresh observers and uncertain-commit classifiers stay callback-free.
+
+A before/after getter equality cannot prove an intermediate native input.
+The scope refuses pre-existing selected/generic option and alloptions hooks,
+and checks the **saved pre-isolation** catch-all presence, not the database
+gate's masked empty view. It refuses installation/config mode and substituted
+or external caches. The standard core cache's public read view permits raw
+entry admission without calling a getter that may clone an object. Stale,
+decoded, object-shaped or presence-inconsistent selected entries refuse; no
+cache clearing or repopulation manufactures a passing premise. Exact terminal
+values, defaults, counts, topology and cleanup are verified. A bounded,
+argument-free call trace additionally proves the observer was reached directly
+from core `get_option()`: a synthetic matching filter pair cannot count as a
+native read. `passed_default` is observed on the absent-row path, where core
+actually exposes it. A caught refusal
+poisons the database boundary so the caller cannot continue to commit.
+Native request-local cache warming remains a non-rollback effect. This scope
+does not sandbox arbitrary native PHP, bound all its allocations, or prove
+unselected dependencies: the capsule must still declare and physically witness
+the complete native computation and its unchanged remainder.
+
 Keep plugin eligibility, subset/remainder selection, native reconstruction and
 postcondition meaning in the capsule. Do not copy a SQL pager into a provider
 or add a permissive SQL/visitor language merely to migrate a legacy helper.
@@ -1014,7 +1052,12 @@ operation to the SDK and its engine tests first. Never send raw DML, call
 `database_insert($table, $data, $context, $format = null)` and
 `database_update($table, $data, $where, $context, $format = null,
 $whereFormat = null)` reuse the engine's existing wpdb field codec and return
-affected-row counts. Update/delete predicates must be nonempty. The capsule
+affected-row counts. A manifest consuming either must declare
+`provider-typed-row-mutations/v1` alongside `spec-window/v1`. This requirement
+is independent of physical observation: declare only the APIs the capsule
+actually uses, before publishing its new digest. Neither feature grants a
+table, transaction, predicate or native hook effect.
+Update/delete predicates must be nonempty. The capsule
 still owns semantic row selection and before/after preservation proofs; these
 methods do not infer an upsert key, regenerate IDs, run native hooks or clear
 WordPress caches. Reconcile existing derived rows in place when physical
@@ -1587,6 +1630,15 @@ section is certifiable and an unknown feature, missing gate, or key with no arm
 refuses by name. Value-vocabulary features add no certificate surface of their
 own: `mixed-column-codecs/v1` leaves the surface owned by
 `typed-column-codecs/v1`, while `manifest-provider-runtime/v1` claims no state.
+
+When adding an engine feature, update the independent literal vocabulary
+expectations in `regress_spec_v3_document.php` and `regress_spec_v3_dry_run.php`
+alongside its owner and generated API/wire projections. Keep those expectations
+literal: deriving them from the new roster would stop checking its exact set.
+Run `make regress-spec-v3-document regress-spec-v3-dry-run regress-spec-window`
+and `make release-gate` before the full aggregate. New runtime APIs also need
+host-load admission/refusal controls; an existing provider-protocol feature
+does not automatically promise later SDK methods.
 
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be

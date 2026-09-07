@@ -269,6 +269,11 @@ those generated projections alongside the class. `MoveModulesTest` requires
 the module map to cover every source file; a current classmap alone does not
 prove that ownership. `php tools/codemod/move-modules.php --plan` must remain
 a no-op; do not run the historical move with `--apply` for a new class.
+Keep test dependency loads explicit and idempotent (`require_once`) too.
+An engine-owned feature name can expand Policy's static load closure: bare
+provider loads after Policy caused class-redeclaration failures in six host
+and capsule harnesses when the SDK became a feature owner. Fix the harness
+load, never remove the production dependency to preserve an accidental order.
 
 ## `wprism assess` / `wprism contract` (round-3 MUP)
 

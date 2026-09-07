@@ -27,6 +27,28 @@ final class ExactOptionReader {
     ): mixed {
         self::assert_name($name);
         PlainData::assert($default, $context . ' default');
+        $row = self::read_row($name, $context, $database);
+        return $row === null ? $default : $row['value'];
+    }
+
+    /**
+     * Retain physical absence and raw bytes for native-input witnesses. A
+     * present serialized null is not a missing row, and decoded equality
+     * cannot admit a stale cache's different serialized representation.
+     * Callers may narrow, never expand, the existing allocation frontier.
+     *
+     * @return array{raw:string,value:mixed}|null
+     */
+    public static function read_row(
+        string $name,
+        string $context,
+        $database = null,
+        int $maxValueBytes = self::MAX_OPTION_VALUE_BYTES
+    ): ?array {
+        self::assert_name($name);
+        if ($maxValueBytes < 1 || $maxValueBytes > self::MAX_OPTION_VALUE_BYTES) {
+            throw new \InvalidArgumentException('wprism: durable option byte limit must narrow the bounded frontier');
+        }
 
         $database ??= $GLOBALS['wpdb'] ?? null;
         $table = is_object($database) ? ($database->options ?? null) : null;
@@ -54,7 +76,7 @@ final class ExactOptionReader {
             );
         }
         if ($preflight === []) {
-            return $default;
+            return null;
         }
 
         $witness = $preflight[0];
@@ -69,7 +91,7 @@ final class ExactOptionReader {
             || !is_string($witness['option_name'] ?? null)
             || !hash_equals($name, $witness['option_name'])
             || $bytes === null
-            || $bytes > self::MAX_OPTION_VALUE_BYTES
+            || $bytes > $maxValueBytes
             || $sha256 === null) {
             throw new \RuntimeException(
                 "wprism: $context durable option size/identity preflight is malformed or over the bounded frontier"
@@ -103,7 +125,10 @@ final class ExactOptionReader {
             );
         }
 
-        return PlainData::decode($row['option_value'], $context . ' durable option');
+        return [
+            'raw' => $row['option_value'],
+            'value' => PlainData::decode($row['option_value'], $context . ' durable option'),
+        ];
     }
 
     /** @return list<array<string,mixed>> */

@@ -201,6 +201,10 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # construction. They share the Providers::negotiate() deferred boundary above;
 # the real host-only runs below retain their no-WordPress/no-$wpdb premise and
 # silent-stderr assertion.
+# NativeOptionInputs is another inert SDK dependency at host load: its exact
+# reads, observer installation and cache provenance checks require the active
+# manifest provider's target mutation callback. These four methods are not
+# grammar paths; keep the scanner and real host-only refusal controls intact.
 # Ledger's capture_reference_uuid_for is reached only from the options-only
 # CaptureSnapshotService used by StateHandoffVerifier during target Deploy.
 # Like uuid_for and dead-map reconciliation, it is not invoked by this static
@@ -221,6 +225,7 @@ wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,P
 'PromotionLease.php:abort,PromotionLease.php:acquire_internal,PromotionLease.php:assert_transactional_promotion_storage,PromotionLease.php:begin_recovery_with_external_fence,PromotionLease.php:begin_with_external_fence,PromotionLease.php:complete_scoped,PromotionLease.php:heartbeat,PromotionLease.php:recover_session,PromotionLease.php:release,PromotionLease.php:release_after_failure,'\
 'Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_read_transport,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results,ProviderSdk.php:checked_durable_option,ProviderSdk.php:database_table_presence,ProviderSdk.php:physical_tables_for_surfaces,ExactOptionWriter.php:persist,ExactOptionWriter.php:invalidate_cache_attempt,LockedOptionRows.php:read_one,'\
 'ProviderSdk.php:term_rows,TermRows.php:taxonomy,TermRows.php:read,MetaRows.php:ordered,PhysicalTableRows.php:read,'\
+'ProviderSdk.php:native_option_inputs,NativeOptionInputs.php:admit,NativeOptionInputs.php:add_observer,NativeOptionInputs.php:assert_core_cache,'\
 'DatabaseLockBoundary.php:acquire_table_metadata_lock,DatabaseLockBoundary.php:assert_closed_foreign_key_destinations,DatabaseLockBoundary.php:assert_foreign_key_metadata_authority,DatabaseLockBoundary.php:assert_innodb_tables,DatabaseLockBoundary.php:assert_no_triggers,DatabaseLockBoundary.php:assert_trigger_metadata_visibility,DatabaseLockBoundary.php:foreign_key_internal_schema_name,DatabaseLockBoundary.php:foreign_key_metadata_source,DatabaseLockBoundary.php:locking_index,DatabaseServerDiagnostics.php:sole_error_code,DatabaseTablePresence.php:exact_session_presence,DatabaseTablePresence.php:assert_plain_base_table,'\
 'DatabaseQueryIsolation.php:add_filter,DatabaseQueryIsolation.php:apply_filters,DatabaseQueryIsolation.php:begin,DatabaseTransportBoundary.php:begin,ProcessFence.php:acquire,ProcessFence.php:databaseScalar,ProcessFence.php:isContinuous,ProcessFence.php:name,ProcessFence.php:release,'\
 'Db.php:assemble_mutation,Db.php:bind_session_authority,Db.php:checked,Db.php:classified_savepoint_control,Db.php:delete,Db.php:driver_errno,Db.php:ensure_varchar_column_width,Db.php:finish_transaction,Db.php:idle_schema_statement,Db.php:idle_schema_transport,Db.php:insert,Db.php:insert_id,Db.php:keyed_string_literal,Db.php:native_table_identifier,Db.php:permitted_control_query,Db.php:read_session_identity,Db.php:require_savepoint_control,Db.php:set_next_transaction_repeatable_read,Db.php:start_control,Db.php:table_label,Db.php:transactional_mutation,Db.php:update,Db.php:upsert_keyed_strings,Db.php:where_fields,Db.php:write_fields,'\

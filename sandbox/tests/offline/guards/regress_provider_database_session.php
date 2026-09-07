@@ -25,6 +25,7 @@ use WPrism\DatabaseQueryIsolation;
 use WPrism\DatabaseQueryIsolationViolationException;
 use WPrism\DatabaseTransactionOutcomeException;
 use WPrism\Db;
+use WPrism\ExactOptionReader;
 use WPrism\ExactOptionWriter;
 use WPrism\Ledger;
 use WPrism\LegacyRuntimeExecutionDebt;
@@ -386,6 +387,79 @@ wprism_check(
         && $GLOBALS['wprism_provider_option_wakeup'] === false,
     'target-owned serialized objects are refused without constructing or waking a class'
 );
+
+$rowReaderPresent = method_exists(ExactOptionReader::class, 'read_row');
+wprism_check($rowReaderPresent, 'the physical option reader preserves presence and exact raw bytes independently of defaults');
+if ($rowReaderPresent) {
+    foreach (['', '0', 'b:0;', 'N;', 'a:0:{}', serialize(['value' => "raw\0東京"])] as $raw) {
+        $wpdb = FakeWpdb::install()->seedTable('wp_options', [[
+            'option_id' => 1, 'option_name' => 'durable_fixture', 'option_value' => $raw, 'autoload' => 'yes',
+        ]]);
+        $plain = match ($raw) {
+            'b:0;' => false, 'N;' => null, 'a:0:{}' => [],
+            serialize(['value' => "raw\0東京"]) => ['value' => "raw\0東京"], default => $raw,
+        };
+        wprism_check_same(['raw' => $raw, 'value' => $plain],
+            ExactOptionReader::read_row('durable_fixture', 'physical option row fixture', $wpdb),
+            'present false/null/empty/scalar/plain rows retain their raw physical identity');
+        wprism_check_same($plain, ProviderSdk::checked_durable_option('durable_fixture', 'absent', 'legacy plain option control', $wpdb),
+            'the existing default-returning SDK keeps present-value semantics byte-for-byte');
+    }
+    $wpdb = FakeWpdb::install()->seedTable('wp_options', []);
+    wprism_check_same(null, ExactOptionReader::read_row('durable_fixture', 'absent physical option', $wpdb),
+        'absent row cannot collapse into a present serialized null');
+    wprism_check_same(['caller' => 'default'], ProviderSdk::checked_durable_option('durable_fixture', ['caller' => 'default'], 'absent plain option', $wpdb),
+        'the existing absent row still returns the caller default');
+    $wpdb = FakeWpdb::install()->seedTable('wp_options', [[
+        'option_id' => 1, 'option_name' => 'durable_fixture', 'option_value' => '1234', 'autoload' => 'yes',
+    ]]);
+    wprism_check_same(['raw' => '1234', 'value' => '1234'],
+        ExactOptionReader::read_row('durable_fixture', 'exact caller option bound', $wpdb, 4),
+        'a caller may narrow the existing size frontier inclusively');
+    $wpdb->resetLog();
+    wprism_check_throws(static fn() => ExactOptionReader::read_row('durable_fixture', 'small option bound', $wpdb, 3),
+        RuntimeException::class, 'a smaller caller frontier refuses before payload allocation', 'bounded frontier');
+    wprism_check_same(0, count(array_filter($wpdb->queries(), static fn(string $sql): bool => str_contains($sql, 'SELECT option_name, option_value FROM'))),
+        'a caller byte-limit refusal performs no payload read');
+    foreach ([0, -1, 16777217] as $bound) {
+        $wpdb->resetLog();
+        wprism_check_throws(static fn() => ExactOptionReader::read_row('durable_fixture', 'invalid option bound', $wpdb, $bound),
+            InvalidArgumentException::class, 'caller bounds cannot disable or expand the existing 16-MiB frontier');
+        wprism_check_same([], $wpdb->queries(), 'invalid caller bound is rejected before database access');
+    }
+}
+
+$allHookAssertionPresent = method_exists(DatabaseQueryIsolation::class, 'assert_original_all_hook_absent');
+wprism_check($allHookAssertionPresent, 'native input scopes can prove the catch-all preimage without exposing a mutable hook object');
+if ($allHookAssertionPresent) {
+    unset($GLOBALS['wp_filter']);
+    wprism_check_throws(static fn() => DatabaseQueryIsolation::assert_original_all_hook_absent('outside scope'),
+        RuntimeException::class, 'catch-all preimage is not available outside an active database boundary', 'lost database');
+    $wpdb = provider_database_session_fixture();
+    ProviderDatabaseSession::read_only_snapshot('absent catch-all preimage', provider_database_read_profile(), static function (): void {
+        wprism_check_same(false, has_filter('all'), 'the installed database catch-all gate itself is empty');
+        wprism_check_same(null, DatabaseQueryIsolation::assert_original_all_hook_absent('absent catch-all preimage'),
+            'the absent preimage assertion returns no object or permission');
+    });
+    foreach ([null, new stdClass(), (object) ['callbacks' => []], (object) ['callbacks' => ['hidden']]] as $originalAll) {
+        $GLOBALS['wp_filter'] = ['all' => $originalAll];
+        $wpdb = provider_database_session_fixture();
+        wprism_check_throws(static fn() => ProviderDatabaseSession::read_only_snapshot(
+            'present catch-all preimage', provider_database_read_profile(), static function (): void {
+                wprism_check_same(false, has_filter('all'), 'isolation masks even a populated original catch-all');
+                DatabaseQueryIsolation::assert_original_all_hook_absent('present catch-all preimage');
+            }), DatabaseQueryIsolationViolationException::class,
+            'every present catch-all preimage refuses even when the installed gate reports empty', 'pre-existing WordPress catch-all');
+        wprism_check(array_key_exists('all', $GLOBALS['wp_filter']) && $GLOBALS['wp_filter']['all'] === $originalAll
+            && !DatabaseQueryIsolation::is_active(), 'catch-all refusal settles and restores the exact original entry');
+    }
+    unset($GLOBALS['wp_filter']);
+    $wpdb = provider_database_session_fixture();
+    ProviderDatabaseSession::read_only_snapshot('next absent catch-all scope', provider_database_read_profile(), static function (): void {
+        wprism_check_same(null, DatabaseQueryIsolation::assert_original_all_hook_absent('next absent catch-all scope'),
+            'a prior present preimage does not leak into the next scope');
+    });
+}
 
 $checkedReadMethods = [
     'get_var' => static fn(string $sql, FakeWpdb $database): mixed => ProviderSdk::checked_get_var(
@@ -3613,5 +3687,26 @@ ProviderSdkContractProbe::run([], ['table:posts'], static fn(): mixed => Provide
         return $observed;
     }, static fn(array $observed): string => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN));
 wprism_check_same($beforePhysicalWrite, $wpdb->rows('wp_posts'), 'observation under a writable profile still performs no native mutation');
+
+$nativeInputs = [['name' => 'widget_fixture', 'default' => [], 'passed_default' => true, 'reads' => 1]];
+$nativeInputRead = static fn() => ProviderSdk::native_option_inputs($nativeInputs, static fn() => null, 'native SDK fixture');
+$wpdb = $physicalFixture();
+wprism_check_throws($nativeInputRead, RuntimeException::class, 'native input descriptors cannot mint manifest-provider authority');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::runUnbound(['table:options'], ['table:posts'], $nativeInputRead),
+    RuntimeException::class, 'a directly constructed runtime cannot authorize a native option consumer');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'], $nativeInputRead),
+    RuntimeException::class, 'a bound runtime outside its mutation callback cannot run native option consumers', 'authorized mutation callback');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], ['table:posts'], $nativeInputRead),
+    RuntimeException::class, 'native option input reads cannot expand the manifest contract', 'outside its active manifest-provider contract');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'],
+    static fn() => ProviderSdk::database_read_contract_snapshot('native input observer refusal', $nativeInputRead)),
+    RuntimeException::class, 'fresh physical observers and classifiers cannot borrow native cache/hook effects', 'authorized mutation callback');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'],
+    static fn() => ProviderSdk::database_write_contract_transaction('native SDK environment fixture', $nativeInputRead,
+        static fn() => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN)), RuntimeException::class,
+    'authorized writer reaches native premise validation but cannot substitute host WordPress stubs', 'request-local core cache');
+wprism_check(!DatabaseQueryIsolation::is_active(), 'native SDK premise refusal is settled by the existing transaction owner');
 
 wprism_check_summary('regress_provider_database_session');

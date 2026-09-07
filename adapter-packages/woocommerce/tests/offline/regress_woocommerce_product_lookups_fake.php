@@ -2208,7 +2208,7 @@ namespace {
     require dirname(__DIR__, 4) . '/agent/src/Kernel/PlainData.php';
     require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
     require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
-    require dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
     // invoke() reads the engine's reserved batch-argument name from the
     // contract itself rather than restating the literal.
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/Providers.php';

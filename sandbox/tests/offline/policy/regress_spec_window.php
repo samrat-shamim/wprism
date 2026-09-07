@@ -209,6 +209,7 @@ if (!defined('WPRISM_AGENT_VERSION')) {
 require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Kernel/OptionState.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
+require_once $repo . '/agent/src/Adapter/ProviderSdk.php';
 require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 
 use WPrism\AdapterContractGrammar;
@@ -596,12 +597,124 @@ wprism_check(
 wprism_check_detail('manifest-validate exit ' . $validated['exit']
     . ' (stderr: ' . trim($validated['stderr']) . ')');
 
+// SDK methods are independently staged runtime requirements, not new manifest
+// sections. The prior v3 engine already admits manifest-provider-runtime/v1;
+// that protocol name cannot prevent a later undefined SDK method at invocation.
+// Exercise each new dependency through the real Policy/ManifestValidator path,
+// including an unknown successor version before executable resolution.
+$sdkFeatures = [
+    'provider-native-option-inputs/v1' => [
+        'constant' => 'NATIVE_OPTION_INPUTS_FEATURE',
+        'methods' => ['native_option_inputs'],
+    ],
+    'provider-physical-table-rows/v1' => [
+        'constant' => 'PHYSICAL_TABLE_ROWS_FEATURE',
+        'methods' => ['physical_table_rows'],
+    ],
+    'provider-typed-row-mutations/v1' => [
+        'constant' => 'TYPED_ROW_MUTATIONS_FEATURE',
+        'methods' => ['database_insert', 'database_update'],
+    ],
+];
+mkdir($scratch . '/adapter-packages/acme-sdk/package/runtime/interpreters', 0777, true);
+$sdkInterpreterPath = $scratch . '/adapter-packages/acme-sdk/package/runtime/interpreters/sdk-before-resolution.php';
+Canon::write_file(
+    $scratch . '/adapter-packages/acme-sdk/package/disposition.json',
+    Canon::encode($fixtureDisposition)
+);
+$sdkManifestPath = $scratch . '/adapter-packages/acme-sdk/package/manifest.json';
+$sdkManifest = [
+    'name' => 'acme-sdk',
+    'options' => ['acme_sdk_setting' => ['class' => 'authored', 'autoload' => 'yes']],
+    'spec_version' => $N,
+];
+$validateSdk = static function (array $extra) use ($sdkManifestPath, $sdkInterpreterPath, $sdkManifest, $run, $repo, $scratch): array {
+    // Package runtime coverage is exact even in a fixture: code exists iff
+    // this candidate declares it, so an undeclared file cannot mask the gate.
+    if (isset($extra['interpreter'])) {
+        Canon::write_file(
+            $sdkInterpreterPath,
+            "<?php\ndeclare(strict_types=1);\nthrow new \\RuntimeException('SDK_FEATURE_EXECUTABLE_REACHED');\n"
+        );
+    } elseif (is_file($sdkInterpreterPath)) {
+        unlink($sdkInterpreterPath);
+    }
+    Canon::write_file($sdkManifestPath, Canon::encode($extra + $sdkManifest));
+    return $run([
+        PHP_BINARY, $repo . '/cli/wprism', 'manifest-validate', $scratch,
+        '--manifest=acme-sdk', '--pins=core,acme-sdk',
+    ]);
+};
+foreach ($sdkFeatures as $feature => $api) {
+    $constant = 'WPrism\\ProviderSdk::' . $api['constant'];
+    wprism_check_same($feature, defined($constant) ? constant($constant) : null, "$feature has one SDK-owned name");
+    wprism_check_same(
+        ['since' => 3, 'keys' => [], 'sections' => []],
+        AdapterContractGrammar::implemented_feature_rows()[$feature] ?? null,
+        "$feature stages API availability at v3 without claiming a new section or certificate arm"
+    );
+    foreach ($api['methods'] as $method) {
+        wprism_check(is_callable(['WPrism\\ProviderSdk', $method]), "$feature advertises implemented SDK method $method");
+    }
+    $featureNames = [$feature, 'spec-window/v1'];
+    sort($featureNames, SORT_STRING);
+    $acceptedSdk = $validateSdk(['engine_features' => $featureNames]);
+    wprism_check_same(0, $acceptedSdk['exit'], "$feature independently loads through the host manifest validator");
+    wprism_check_same('', $acceptedSdk['stderr'], "$feature needs no WordPress runtime or database at load time");
+    wprism_check(str_contains($acceptedSdk['stdout'], '[ok] acme-sdk'), "$feature publishes the actual passing adapter row");
+
+    $unknownFeature = substr($feature, 0, -1) . '2';
+    $unknownNames = [$unknownFeature, 'spec-window/v1'];
+    sort($unknownNames, SORT_STRING);
+    $refusedSdk = $validateSdk([
+        'engine_features' => $unknownNames,
+        // A syntactically valid, present executable throws if loaded. The
+        // admitted control below proves it is reachable, not an inert field.
+        'interpreter' => 'sdk-before-resolution',
+    ]);
+    wprism_check_same(1, $refusedSdk['exit'], "$unknownFeature refuses instead of accepting a future SDK API");
+    wprism_check_same('', $refusedSdk['stderr'], "$unknownFeature is a reported grammar refusal, not a PHP runtime failure");
+    wprism_check(
+        str_contains($refusedSdk['stdout'], "declares engine feature '$unknownFeature'")
+            && str_contains($refusedSdk['stdout'], 'this engine does not implement it')
+            && !str_contains($refusedSdk['stdout'], 'SDK_FEATURE_EXECUTABLE_REACHED'),
+        "$unknownFeature refuses by exact feature name before executable resolution"
+    );
+}
+$executableSdk = $validateSdk([
+    'engine_features' => ['spec-window/v1'],
+    'interpreter' => 'sdk-before-resolution',
+]);
+wprism_check_same(1, $executableSdk['exit'], 'the admitted control reaches and refuses the executable probe');
+wprism_check(
+    str_contains($executableSdk['stdout'], 'SDK_FEATURE_EXECUTABLE_REACHED'),
+    'the code-resolution sentinel is reached when no unknown SDK feature blocks loading'
+);
+$sdkFeatureNames = [...array_keys($sdkFeatures), 'spec-window/v1'];
+sort($sdkFeatureNames, SORT_STRING);
+$combinedSdk = $validateSdk(['engine_features' => $sdkFeatureNames]);
+wprism_check_same(0, $combinedSdk['exit'], 'all SDK requirements compose in one manifest without a spec bump');
+wprism_check_same('', $combinedSdk['stderr'], 'combined SDK requirements preserve silent host-only loading');
+$floorSdk = $validateSdk(['engine_features' => $sdkFeatureNames, 'spec_version' => $N - 1]);
+wprism_check_same(1, $floorSdk['exit'], 'SDK feature requirements do not widen the v2 manifest grammar');
+wprism_check(
+    str_contains($floorSdk['stdout'], "the section 'engine_features'"),
+    'the old manifest era is refused by section before individual SDK features'
+);
+
 // The emitted grammar. WP-4.1 made this block MEASURED by probing the shipped
 // refusal precisely so that it would follow the window with no edit to the
 // emitter. That it did is checked here, not assumed.
 $emitted = $run([PHP_BINARY, $repo . '/cli/wprism', 'manifest-validate', '--emit-schema']);
 wprism_check_same(0, $emitted['exit'], '`wprism manifest-validate --emit-schema` exits 0');
 $schema = json_decode($emitted['stdout'], true);
+foreach (array_keys($sdkFeatures) as $feature) {
+    wprism_check_same(
+        ['since' => 3, 'keys' => [], 'sections' => []],
+        $schema['engine_features']['implemented'][$feature] ?? null,
+        "the host grammar publishes $feature from the same engine-owned roster"
+    );
+}
 $window = is_array($schema) ? (array) ($schema['spec_window'] ?? []) : [];
 wprism_check_same(
     [$N - 1, $N],

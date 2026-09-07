@@ -61,7 +61,7 @@ require $root . '/agent/src/Kernel/Db.php';
 // time.
 require $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/sandbox/tests/offline/policy/manifest_fixtures.php';
-require $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
 require $root . '/agent/src/Repository/Ledger.php';
 require $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Repository/SidebarState.php';

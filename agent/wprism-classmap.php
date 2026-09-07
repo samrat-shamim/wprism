@@ -186,6 +186,7 @@ return [
     'WPrism\\MetaRows' => 'src/Kernel/MetaRows.php',
     'WPrism\\NativeActions' => 'src/Rebuild/NativeActions.php',
     'WPrism\\NativeDatabaseProfile' => 'src/Kernel/NativeDatabaseProfile.php',
+    'WPrism\\NativeOptionInputs' => 'src/Kernel/NativeOptionInputs.php',
     'WPrism\\NativeRebuildExecutor' => 'src/Rebuild/NativeRebuildExecutor.php',
     'WPrism\\NativeRewriteEffects' => 'src/Rebuild/NativeRewriteEffects.php',
     'WPrism\\NativeTableDefinition' => 'src/Kernel/NativeTableDefinition.php',

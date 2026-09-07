@@ -657,6 +657,18 @@ final class DatabaseQueryIsolation {
         }
     }
 
+    /**
+     * Native-input scopes must prove the preimage, not the no-op gate that
+     * begin() installs at `all`. Even an empty pre-existing entry refuses:
+     * no mutable saved hook object or callback exception crosses this seam.
+     */
+    public static function assert_original_all_hook_absent(string $context): void {
+        self::assert_active($context);
+        if ((self::$hooks['all']['present'] ?? true) !== false) {
+            self::violation("wprism: $context found a pre-existing WordPress catch-all hook");
+        }
+    }
+
     /** Used by the transaction-local gate on every WordPress dispatch. */
     public static function assert_gate_use(DatabaseHookGate $gate, string $context): void {
         self::assert_active($context);

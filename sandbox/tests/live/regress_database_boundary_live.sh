@@ -20,6 +20,8 @@
 #      validation, bounded chunks, complete readback and failed-batch rollback.
 #   8. Complete physical row witnesses and typed provider insert/update retain
 #      binary/null values, composite identities, bounds and rollback on both drivers.
+#   9. Native option input witnesses observe actual core getter/default/cache
+#      paths, reject unsafe inputs before invocation and preserve rollback.
 #
 # This live, per-mechanism suite owns its one pair from creation through
 # destruction and is intentionally outside regress-offline-all. Invoke it only
@@ -718,6 +720,22 @@ prove_physical_rows() {
   pass "$CURRENT_DB_ENGINE preserved complete physical rows, typed writes, refusal preimages and fixed-point retry"
 }
 
+prove_native_option_inputs() {
+  local sink suffix status=0 expected_engine
+  case "$CURRENT_DB_ENGINE" in mariadb) expected_engine=MariaDB ;; mysql) expected_engine=MySQL ;; esac
+  say "$CURRENT_DB_ENGINE: native option input witnesses and poisoned-failure rollback"
+  sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/native-option-inputs-$CURRENT_DB_ENGINE.XXXXXX")
+  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/native.$suffix"); done
+  . "$REPO_ROOT/sandbox/tests/lib/private_command_capture.sh"
+  wprism_private_capture_stage "$sink" native compose run --rm -T \
+    -v "$REPO_ROOT/sandbox/tests/fixtures/native-option-inputs.php:/native-option-inputs.php:ro" \
+    cli1 wp eval-file /native-option-inputs.php --use-include || status=$?
+  printf 'retained native option-input transport: %s\n' "$sink/native"
+  [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE native option-input command failed with exit $status"
+  php "$REPO_ROOT/sandbox/tests/fixtures/native-option-inputs.php" --admit "$sink/native" "$expected_engine"
+  pass "$CURRENT_DB_ENGINE proved actual native inputs, safe cache refusal, exact hook cleanup and complete option rollback"
+}
+
 start_pair() {
   local engine="$1" client="$2" expected_label="$3" actual_label
   CURRENT_DB_ENGINE="$engine"
@@ -752,6 +770,7 @@ prove_mariadb_sequences
 prove_session_grammar
 prove_large_keyed_values
 prove_physical_rows
+prove_native_option_inputs
 finish_pair
 
 start_pair mysql mysql MySQL
@@ -761,6 +780,7 @@ prove_schema_keyword_function
 prove_session_grammar
 prove_large_keyed_values
 prove_physical_rows
+prove_native_option_inputs
 finish_pair
 
 # The MySQL container is shared infrastructure, not this script's resource.
