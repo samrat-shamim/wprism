@@ -154,10 +154,15 @@ $observation = static function (string $case, bool $target, bool $empty = false)
             'rendered' => 'id="wpforms-form-' . $form . '" data-token-time="1788860225" name="wpforms[fields][1]" name="wpforms[fields][2]"'];
         if ($locations !== []) $owned[] = ['meta_id' => count($owned) + 1, 'post_id' => $form, 'meta_key' => 'wpforms_form_locations', 'meta_value' => serialize($locations)];
     }
+    $census = [];
+    if ($empty && $target) $census = ['sidebars' => ['sidebar-1' => [], 'array_version' => 3],
+        'content_roster' => array_values(array_map(static fn(array $post): array => ['ID' => (string) $post['id'],
+            'post_type' => $post['type'], 'post_name' => $post['slug'], 'post_parent' => '0', 'post_content' => $post['body'],
+            'post_title' => $post['title'], 'post_status' => $post['status']], $posts))];
     return ['format' => 'wprism-wpforms-apply-observation/v1', 'case' => $case, 'version' => '2.0.1.1', 'home' => $home,
         'posts' => $posts, 'native' => $native, 'widgets' => $widgets, 'widget_options' => $families, 'owned' => $owned,
         'block_form_ids' => $blockFormIds,
-        'padding' => array_map(static fn(int $id): array => ['ID' => $id, 'post_type' => 'post', 'post_status' => 'trash'], range(200, 206))];
+        'padding' => array_map(static fn(int $id): array => ['ID' => $id, 'post_type' => 'post', 'post_status' => 'trash'], range(200, 206))] + $census;
 };
 $prior = $observation('baseline', true);
 foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {
@@ -285,6 +290,30 @@ foreach (['stored empty row' => static function (&$a): void {
         $observation('baseline', true, true), $a, $a, 'empty'), RuntimeException::class,
         'unlocated form admission refuses ' . $label, 'WPForms Apply evidence:');
 }
+foreach (['embeds', 'widgets', 'routing'] as $case) {
+    foreach (['extra physical post' => static function (&$a): void { $a['content_roster'][] = $a['content_roster'][0]; },
+        'missing physical post' => static function (&$a): void { array_pop($a['content_roster']); },
+        'duplicate hiding lost physical post' => static function (&$a): void { $a['content_roster'][1] = $a['content_roster'][0]; },
+        'coordinated trash status' => static function (&$a): void { $a['posts']['integer']['status'] = $a['content_roster'][0]['post_status'] = 'trash'; },
+        'unbound physical title' => static function (&$a): void { $a['content_roster'][0]['post_title'] .= ' changed'; }] as $label => $mutate) {
+        $a = $observation($case, true, true);
+        $mutate($a);
+        wprism_check_throws(static fn() => WPFormsApplyEvidence::native($case, $observation($case, false, true),
+            $observation('baseline', true, true), $a, $a, 'empty'), RuntimeException::class,
+            $case . ' empty-target census refuses ' . $label, 'WPForms Apply evidence:');
+    }
+}
+$a = $observation('embeds', true, true);
+$stable = $a;
+$stable['content_roster'][0]['post_modified_gmt'] = 'unexpected post-write';
+wprism_check_throws(static fn() => WPFormsApplyEvidence::native('embeds', $observation('embeds', false, true),
+    $observation('baseline', true, true), $a, $stable, 'empty'), RuntimeException::class,
+    'empty-target repeat preserves every physical post column, not only the native projection', 'WPForms Apply evidence:');
+$stable = $a;
+$stable['sidebars']['sidebar-1'] = ['block-999'];
+wprism_check_throws(static fn() => WPFormsApplyEvidence::native('embeds', $observation('embeds', false, true),
+    $observation('baseline', true, true), $a, $stable, 'empty'), RuntimeException::class,
+    'empty-target repeat preserves complete native sidebar assignments', 'WPForms Apply evidence:');
 $diagnostics = [['code' => 'semantic_delete_reference', 'path' => 'posts/page/10000000-0000-4000-8000-000000000005--wprism-wpf-embed.md',
     'locator' => 'body', 'message' => 'reference target 10000000-0000-4000-8000-000000000099 is absent from the compiled revision']];
 $refusal = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',

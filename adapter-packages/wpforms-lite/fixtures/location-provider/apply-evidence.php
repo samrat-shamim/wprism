@@ -221,21 +221,7 @@ final class WPFormsApplyEvidence {
             }
         }
         self::check(self::ordered($actual) === self::ordered($expected), 'exact source-derived fixture CREATE inventory with no missing or duplicate row');
-        self::check(is_array($after['content_roster'] ?? null) && count($after['content_roster']) === count($expected), 'complete native created-post census');
-        $nativeIds = array_column($after['posts'], 'id');
-        self::check(count(array_unique($nativeIds)) === count($expected), 'created native IDs are distinct');
-        $physicalIds = array_column($after['content_roster'], 'ID');
-        $expectedIds = array_map('strval', $nativeIds);
-        sort($physicalIds, SORT_STRING);
-        sort($expectedIds, SORT_STRING);
-        self::check($physicalIds === $expectedIds, 'physical census contains every created native identity exactly once');
-        foreach ($after['content_roster'] as $row) {
-            $roles = array_keys(array_filter($after['posts'], static fn(array $post): bool => $post['id'] === (int) ($row['ID'] ?? 0)));
-            self::check(count($roles) === 1, 'physical census row has exactly one mapped native role');
-            $post = $after['posts'][$roles[0]];
-            self::check(($row['post_type'] ?? null) === $post['type'] && ($row['post_name'] ?? null) === $post['slug']
-                && ($row['post_content'] ?? null) === $post['body'] && ($row['post_parent'] ?? null) === '0', 'complete physical/native created identity and body agree');
-        }
+        self::physicalPosts($after);
         foreach (['integer', 'string'] as $role) {
             $post = $after['posts'][$role];
             $doc = json_decode($post['body'], true, 32, JSON_THROW_ON_ERROR);
@@ -250,6 +236,27 @@ final class WPFormsApplyEvidence {
         self::check(is_array($template) && !array_key_exists('id', $template), 'created template retains its native absent-self-ID shape');
     }
 
+    private static function physicalPosts(array $record): void {
+        self::check(array_keys($record['posts'] ?? []) === ['integer', 'string', 'template', 'destination', 'embed']
+            && is_array($record['content_roster'] ?? null) && count($record['content_roster']) === count($record['posts']), 'complete native controlled-post census');
+        $nativeIds = array_column($record['posts'], 'id');
+        self::check(count(array_unique($nativeIds)) === count($record['posts']), 'controlled native IDs are distinct');
+        $physicalIds = array_column($record['content_roster'], 'ID');
+        $expectedIds = array_map('strval', $nativeIds);
+        sort($physicalIds, SORT_STRING);
+        sort($expectedIds, SORT_STRING);
+        self::check($physicalIds === $expectedIds, 'physical census contains every created native identity exactly once');
+        foreach ($record['content_roster'] as $row) {
+            $roles = array_keys(array_filter($record['posts'], static fn(array $post): bool => $post['id'] === (int) ($row['ID'] ?? 0)));
+            self::check(count($roles) === 1, 'physical census row has exactly one mapped native role');
+            $post = $record['posts'][$roles[0]];
+            self::check(($row['post_type'] ?? null) === $post['type'] && ($row['post_name'] ?? null) === $post['slug']
+                && ($row['post_title'] ?? null) === $post['title'] && ($row['post_content'] ?? null) === $post['body']
+                && ($row['post_parent'] ?? null) === '0' && ($row['post_status'] ?? null) === 'publish' && ($post['status'] ?? null) === 'publish',
+                'physical/native root identity, status, title and body agree');
+        }
+    }
+
     public static function native(string $case, array $source, array $before, array $after, array $stable, string $targetKind = 'seeded'): void {
         self::check(in_array($targetKind, ['seeded', 'empty'], true), 'declared native target premise');
         if ($targetKind === 'empty' && $case === 'baseline') self::emptyBefore($before);
@@ -259,6 +266,16 @@ final class WPFormsApplyEvidence {
             self::check(($record['format'] ?? null) === 'wprism-wpforms-apply-observation/v1'
                 && ($record['version'] ?? null) === '2.0.1.1', 'exact native observation');
             self::check(array_keys($record['posts'] ?? []) === ['integer', 'string', 'template', 'destination', 'embed'], 'complete native topology');
+            foreach ($record['posts'] as $role => $post) self::check(($post['status'] ?? null) === 'publish'
+                && ($post['type'] ?? null) === match ($role) { 'integer', 'string' => 'wpforms', 'template' => 'wpforms-template', default => 'page' },
+                'exact native post type and published status for the controlled role');
+        }
+        if ($targetKind === 'empty') {
+            self::physicalPosts($after);
+            self::physicalPosts($stable);
+            if ($case !== 'baseline') self::physicalPosts($before);
+            self::check($after['content_roster'] === $stable['content_roster'] && is_array($after['sidebars'] ?? null)
+                && $after['sidebars'] === ($stable['sidebars'] ?? null), 'complete physical post census and native sidebar option reach a fixed point');
         }
         self::check($source['home'] !== $after['home'], 'independent native home bindings');
         foreach ($source['posts'] as $role => $post) {

@@ -53,7 +53,8 @@ foreach ($roles as $role => $type) {
             $doc['settings']['confirmations'][4]['redirect'] = '{{home}}/wprism-wpf-destination/?page_id={{post:' . $uuids['destination'] . '}}';
             $canonical = json_encode($doc, JSON_THROW_ON_ERROR);
         }
-        if ($role !== 'core-default') ${$side}['posts'][$role] = ['id' => $id, 'uuid' => $uuid, 'type' => $type, 'slug' => $slug, 'body' => $body];
+        if ($role !== 'core-default') ${$side}['posts'][$role] = ['id' => $id, 'uuid' => $uuid, 'type' => $type,
+            'slug' => $slug, 'body' => $body, 'title' => $front['title'], 'status' => 'publish'];
     }
     if (!is_dir(dirname($repo . '/state/' . $path))) mkdir(dirname($repo . '/state/' . $path), 0700, true);
     WPrism\Canon::write_file($repo . '/state/' . $path, WPrism\Canon::post_file($front, $canonical));
@@ -63,7 +64,7 @@ foreach ($roles as $role => $type) {
         $plan['create'][] = $row;
         $post = $target['posts'][$role];
         $target['content_roster'][] = ['ID' => (string) $post['id'], 'post_type' => $type, 'post_name' => $slug,
-            'post_parent' => '0', 'post_content' => $post['body']];
+            'post_parent' => '0', 'post_content' => $post['body'], 'post_status' => 'publish', 'post_title' => $post['title']];
     }
 }
 $policy = WPrism\Policy::load($repo, adapterLibrary: WPrism\AdapterLibrary::fromSourcePackage($root, 'wpforms-lite'));
@@ -96,6 +97,8 @@ foreach (['missing create' => static function (&$s, &$p, &$a): void { array_pop(
     'wrong physical ID' => static function (&$s, &$p, &$a): void { $a['content_roster'][0]['ID'] = '999'; },
     'coercible physical ID' => static function (&$s, &$p, &$a): void { $a['content_roster'][0]['ID'] .= 'x'; },
     'physical child' => static function (&$s, &$p, &$a): void { $a['content_roster'][0]['post_parent'] = '1'; },
+    'coordinated physical/native trash status' => static function (&$s, &$p, &$a): void { $a['posts']['integer']['status'] = $a['content_roster'][0]['post_status'] = 'trash'; },
+    'wrong physical title' => static function (&$s, &$p, &$a): void { $a['content_roster'][0]['post_title'] .= 'changed'; },
     'physical body mismatch' => static function (&$s, &$p, &$a): void { $a['content_roster'][0]['post_content'] = '{}'; }] as $label => $mutate) {
     [$s, $p, $a] = [$source, $plan, $target];
     $mutate($s, $p, $a);
