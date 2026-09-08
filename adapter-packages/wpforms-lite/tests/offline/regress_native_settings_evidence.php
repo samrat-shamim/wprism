@@ -16,7 +16,7 @@ $html = static function (string $view): string {
         $body .= $key === 'disable-css' ? '<select' . $identity . '><option value="1">Full</option><option value="2">Base</option><option value="3">None</option></select>'
             : '<input type="' . ($view === 'general' ? 'checkbox' : 'text') . '"' . $identity . '>';
     }
-    if ($view === 'general') foreach (['gdpr-disable-uuid', 'gdpr-disable-details', 'lite-connect-enabled'] as $key) {
+    if ($view === 'general') foreach (['gdpr-disable-uuid', 'gdpr-disable-details'] as $key) {
         $body .= '<input type="checkbox" name="' . $key . '" disabled>';
     }
     return $body . '</form><p>Settings were successfully saved.</p></body></html>';
@@ -62,7 +62,8 @@ foreach ([
     'wrong response view' => static function (&$r): void { $r['requests'][1]['body'] = str_replace('value="general"', 'value="validation"', $r['requests'][1]['body']); },
     'disabled authored control' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('name="gdpr"', 'name="gdpr" disabled', $r['requests'][0]['body']); },
     'enabled Pro control' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('name="gdpr-disable-uuid" disabled', 'name="gdpr-disable-uuid"', $r['requests'][0]['body']); },
-    'enabled cloud enrollment' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('name="lite-connect-enabled" disabled', 'name="lite-connect-enabled"', $r['requests'][0]['body']); },
+    'invented enabled cloud enrollment' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('</form>', '<input name="lite-connect-enabled"></form>', $r['requests'][0]['body']); },
+    'invented disabled cloud enrollment' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('</form>', '<input name="lite-connect-enabled" disabled></form>', $r['requests'][0]['body']); },
     'invented markup UI' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('</form>', '<input name="modern-markup"></form>', $r['requests'][0]['body']); },
     'duplicate nonce' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('</form>', '<input name="nonce" value="123456abcd"></form>', $r['requests'][0]['body']); },
     'missing success notice' => static function (&$r): void { $r['requests'][1]['body'] = str_replace('Settings were successfully saved.', '', $r['requests'][1]['body']); },

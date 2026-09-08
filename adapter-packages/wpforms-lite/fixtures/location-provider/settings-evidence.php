@@ -68,7 +68,11 @@ final class WPFormsSettingsEvidence {
             foreach (['gdpr-disable-uuid', 'gdpr-disable-details'] as $key) {
                 self::check($one($key)->hasAttribute('disabled'), 'Pro-only education control stays disabled');
             }
-            self::check($one('lite-connect-enabled')->hasAttribute('disabled'), 'native Lite Connect cloud-enrollment control stays disabled');
+            // Integrations/LiteConnect/LiteConnect.php:53-58,134-147 excludes
+            // this integration on the exact .invalid HTTP host, before its
+            // disabled education control can register. Do not force it on.
+            self::check($xpath->query('.//*[@name="lite-connect-enabled"]', $form)->length === 0,
+                'local-site HTTP form excludes cloud enrollment');
             self::check($xpath->query('.//*[@name="modern-markup"]', $form)->length === 0,
                 'fresh-site conditional markup UI is not silently enabled');
         }
