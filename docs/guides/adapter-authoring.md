@@ -379,6 +379,41 @@ Do not align all fixture ids or filter warnings to turn the unsupported domain
 into a positive case. See
 [the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
 
+### One native action, separate identity and label storage
+
+Trace every write made by a native authoring action, not only its primary
+table. WPForms Lite 2.0.1.1's Tags AJAX writer assigns core term relationships
+and separately saves submitted text labels in `settings.form_tags`
+(`src/Admin/Forms/Ajax/Tags.php:154-179,255-270`). Existing choices submit a
+term ID as `value`; a newly typed choice submits its label. The stored label
+is not an identity even when it is numeric-looking.
+
+Use both UTF-8 and numeric-looking labels, with source/target term and TT
+coordinates deliberately different and no native ID equal to the numeric
+label. Prove the complete body values, types and order separately from the
+relationship identity set and native term order. A successful AJAX response
+is insufficient when the native handler ignores its writers' return values:
+retain the actual request and check complete physical rows plus fresh native
+consumers. Test changed assignments and preserve unassigned local terms;
+do not drop their entire taxonomy from recapture to manufacture convergence.
+The WPForms capsule's `regress_form_tags.php` and
+`regress_native_tag_evidence.php` are deterministic mechanism/admission
+examples, not substitutes for executing its native producer.
+
+Trace the native loader before treating a valid nonce and payload as a
+complete request. WPForms registers its Tags AJAX handler only when its
+admin-AJAX predicate sees an admin-page referrer. Bind the actual preceding
+page read, route, host and `Referer` in the retained exchange; a header
+invented without that read or a direct class bootstrap is not the native
+authoring flow. Keep this plugin-specific loader contract in its capsule.
+
+A CLI-authored native seed can be a fixed point before admin-only save
+filters load. WPForms' first Tags AJAX save also adds six disabled QR
+defaults through `admin_init` and `wpforms_save_form_args`. Require that
+exact native delta and its absent preimage; do not preseed the defaults or
+suppress the filter to make a tag-only expectation pass. Automatic defaults
+do not establish UI authoring or a license-gated feature's support.
+
 ### A reference whose type depends on a sibling
 
 Exercise every variant of a native settings record before assigning a path a

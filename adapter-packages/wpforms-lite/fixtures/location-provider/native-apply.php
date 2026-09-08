@@ -8,6 +8,7 @@ $phase = $args[0] ?? '';
 $case = $args[1] ?? 'baseline';
 $targetKind = $args[2] ?? 'seeded';
 $settingsProfile = $args[4] ?? '0';
+$tagsProfile = $args[5] ?? '0';
 $recordPath = WP_CONTENT_DIR . '/wprism-wpforms-apply-native.json';
 $check = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException('WPForms native Apply fixture: ' . $message);
@@ -16,6 +17,8 @@ $check(defined('WPFORMS_VERSION') && WPFORMS_VERSION === '2.0.1.1' && !wpforms()
 $check(current_user_can('manage_options'), 'native fixture administrator');
 $check(in_array($targetKind, ['seeded', 'empty'], true), 'declared target content premise');
 $check(in_array($settingsProfile, ['0', '1'], true) && ($settingsProfile === '0' || $targetKind === 'seeded'), 'explicit seeded-target settings profile');
+$check(in_array($tagsProfile, ['0', '1'], true) && ($tagsProfile === '0' || $targetKind === 'seeded'), 'explicit seeded-target tags profile');
+if ($tagsProfile === '1') require_once __DIR__ . '/native-tags.php';
 if ($settingsProfile === '1') {
     require_once __DIR__ . '/native-settings.php';
     if ($phase === 'settings-author') {
@@ -135,6 +138,12 @@ if (in_array($phase, ['prepare-refusal', 'restore-refusal'], true)) {
 }
 $ids = array_column($saved['seed']['posts'], 'id', 'slug');
 $id = static fn(string $role): int => $ids['wprism-wpf-' . $role];
+if ($phase === 'tags-author') {
+    $check($tagsProfile === '1', 'native tag author requires its declared profile');
+    [$side, $mode] = explode('-', $case, 2);
+    WPFormsNativeTags::author($args[3] ?? '', $side, $mode, $id('integer'));
+    return;
+}
 if ($phase === 'mutate') {
     if ($case === 'embeds') {
         $check(wp_update_post(wp_slash(['ID' => $id('embed'),
@@ -162,7 +171,7 @@ if ($phase === 'contract') {
     $library = WPrism\Policy::shipped_adapter_library();
     [$policy, $compiled] = WPFormsLocationProviderLibrary::compile_and_load('/siterepo', $library);
     $check($policy->code_config() === null && $compiled->code_descriptor() === null, 'authored-state-only premise');
-    $selectors = $case === 'widgets' ? ['sidebar:sidebar-1'] : ['post:' . WPrism\Ledger::uuid_for($id('embed'), 'post')];
+    $selectors = $case === 'widgets' ? ['sidebar:sidebar-1'] : ['post:' . WPrism\Ledger::uuid_for($id($case === 'tags' ? 'integer' : 'embed'), 'post')];
     echo wp_json_encode(WPrism\ScopeContract::resolve($compiled, $policy, $selectors), JSON_THROW_ON_ERROR);
     return;
 }
@@ -231,4 +240,5 @@ echo wp_json_encode(['format' => 'wprism-wpforms-apply-observation/v1', 'case' =
     'block_form_ids' => $blockFormIds,
     'owned' => $owned, 'padding' => $padding] + $emptyWitness
     + ($settingsProfile === '1' ? ['settings' => WPFormsNativeSettings::observe(), 'settings_consumers' => WPFormsNativeSettings::consumers(),
-        'settings_diagnostics' => WPFormsNativeSettings::diagnostics()] : []), JSON_THROW_ON_ERROR);
+        'settings_diagnostics' => WPFormsNativeAdminSession::diagnostics()] : [])
+    + ($tagsProfile === '1' ? ['tags' => WPFormsNativeTags::observe([$id('integer'), $id('string')], $case !== 'before')] : []), JSON_THROW_ON_ERROR);
