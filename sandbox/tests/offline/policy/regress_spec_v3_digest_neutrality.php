@@ -40,12 +40,14 @@ use WPrism\Policy;
 // the registry-wide addressing cost is still the explicit WP-4.5 boundary.
 // The subsequent native-flag review moves only WPForms and its containing pin
 // sets. The disposition registry and every other adapter remain byte-pinned.
-const BASELINE_FIXTURE_SHA256 = '8eaa43d1e94f20635f6e2846c8121ce1f95679b89aef3f27b1062a0a5eaa1244';
-const RANK_WORLD_MANIFEST_HASH = '968c2eb9047d3c915f39e9dd094ae9cc04daf1b7e1fa175fb91a7bbaa0eb2226';
-const YOAST_WORLD_MANIFEST_HASH = '7df2e24bc021a38e55554df9eab308fa4e36116c05941d0f80730c815b2ffb54';
-const REGISTRY_SHA256 = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'c54d19c1c4722335f9f2e3a586baed2ff47c8cd8aff962d4b24cd6c9f5cbd4a3';
-const YOAST_WORLD_SNAPSHOT_SHA256 = 'c6e85f18d1da81585d333c29deffcfed673c91df7ff5aecc054d7bbcd36fa9c3';
+// Staging the location provider then moves WPForms, both containing worlds
+// and the reviewed registry; no unrelated adapter or smaller pin set moves.
+const BASELINE_FIXTURE_SHA256 = '07b216ecfe67ae22c9fdf3d23e2574fd16344c82fd853b9ca842bfd663fd647c';
+const RANK_WORLD_MANIFEST_HASH = '3e62c22bcc169f1a4bb37e2e926bc8d61809c50bea6444b5add7edfc9ba20191';
+const YOAST_WORLD_MANIFEST_HASH = '12a23b14a4822245cbce30ce50ccdac9d14e7f355ccd05cd6f1bfee8f60d521c';
+const REGISTRY_SHA256 = 'd7fbe8e3aa12dbe2fbd1c0dfcfc209444e58c4dd8366586944602238f9cff3b6';
+const RANK_WORLD_SNAPSHOT_SHA256 = '65bd094f36fdda8eacde16f66a6beddbfcab62264417311c7a63a1b00d6ae23b';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '76bc07c8a1ebe8bc6a890e902ef7d83bca23bc712bd7e1ffcb98e8bed52dabd1';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
