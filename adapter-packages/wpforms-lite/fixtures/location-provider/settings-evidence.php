@@ -1,9 +1,6 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
-require_once dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
-
 /** Native UI and value semantics only; no alternative capture/apply implementation. */
 final class WPFormsSettingsEvidence {
     public const VALIDATION = [
@@ -148,6 +145,10 @@ final class WPFormsSettingsEvidence {
     }
 
     public static function native(array $source, array $before, array $after, array $stable, array $compiledOptions): void {
+        // Only this host-side compiler comparison needs source-tree classes.
+        // The native HTTP worker mounts the capsule beside src/, without agent/.
+        require_once dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
+        require_once dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
         foreach ([$source, $before, $after, $stable] as $record) self::diagnostics($record['settings_diagnostics'] ?? []);
         $sourceValues = self::stored($source['settings'] ?? []);
         $beforeValues = self::stored($before['settings'] ?? []);

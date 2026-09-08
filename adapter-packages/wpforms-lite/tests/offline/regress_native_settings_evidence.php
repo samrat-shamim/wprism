@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 // Mutation tests for actual admission code, not fabricated native run evidence.
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require_once dirname(__DIR__, 2) . '/fixtures/location-provider/settings-evidence.php';
 use WPrism\OptionState;
 
@@ -146,4 +147,24 @@ foreach ([
     wprism_check_throws(static fn() => WPFormsSettingsEvidence::initial($s, $t, $l, $source, $i), RuntimeException::class,
         'initial settings admission refuses ' . $label, 'WPForms settings evidence:');
 }
+// The pair mounts capsules next to the drop-in's src/, not a host agent/.
+// A fresh child must load and exercise the actual native assertion closure
+// without accidentally finding host-only dependencies already in this process.
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/ShellProbe.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/frozen_policy.php';
+$mounted = WPrismTest\FrozenPolicy::library() . '/mu-plugins/adapter-packages/wpforms-lite/fixtures/location-provider';
+if (!mkdir($mounted, 0700, true)) throw new RuntimeException('cannot create native fixture mount');
+foreach (['native-settings.php', 'settings-evidence.php'] as $file) {
+    if (!copy(dirname(__DIR__, 2) . '/fixtures/location-provider/' . $file, $mounted . '/' . $file)) {
+        throw new RuntimeException('cannot copy actual native fixture');
+    }
+}
+$script = <<<'SH'
+exec "$1" -d display_errors=stderr -r 'require $argv[1]; WPFormsSettingsEvidence::author(json_decode($argv[2], true, 32, JSON_THROW_ON_ERROR), "wpfsettings", "source", "general"); if (class_exists("WPrism\\Canon", false) || class_exists("WPrism\\OptionState", false)) throw new RuntimeException("native assertion loaded host compiler dependencies"); echo "MOUNTED_NATIVE_ASSERTIONS_READY\n";' "$2" "$3"
+SH;
+[$status, $stdout, $stderr] = WPrismTest\ShellProbe::run($script,
+    [PHP_BINARY, $mounted . '/native-settings.php', json_encode($positive, JSON_THROW_ON_ERROR)], dirname(__DIR__, 4));
+wprism_check_same(0, $status, 'actual native settings helper loads from the capsule-only mounted layout');
+wprism_check_same("MOUNTED_NATIVE_ASSERTIONS_READY\n", $stdout, 'mounted native author admission needs no host compiler classes');
+wprism_check_same('', $stderr, 'mounted native assertion closure has no hidden load diagnostics');
 wprism_check_summary('regress_wpforms_lite_native_settings_evidence');
