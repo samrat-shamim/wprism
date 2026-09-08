@@ -31,9 +31,12 @@ wprism_check_same('unready', AdapterProductionReadiness::record($root, 'wpforms-
 wprism_check_same([], array_values(array_intersect(['apply', 'deploy'], $disposition['capabilities']['operations'])), 'no target mutation operation is claimed');
 wprism_check_same([], $manifest['deletions'] ?? [], 'form, template and tag deletion authority is withheld');
 wprism_check_same([], $disposition['capabilities']['lifecycle_phases'], 'no unexercised lifecycle claim');
-foreach (['providers', 'regenerators', 'interpreter'] as $hook) {
+foreach (['regenerators', 'interpreter'] as $hook) {
     wprism_check(!array_key_exists($hook, $manifest), "portable declarations use shared machinery without a $hook executable");
 }
+wprism_check_same(['wpforms-form-locations'], array_column($manifest['providers'], 'id'), 'one experimental SDK provider owns native derived-state semantics');
+wprism_check_same($policy->actions_for(['post:wpforms']), $policy->actions_for(['entity:sidebar']), 'native placements use the generic global action contract');
+wprism_check_same([], $policy->actions_for([]), 'empty authored work never runs the global provider');
 wprism_check_same($fixture['artifact_sha256'], $artifacts['plugins']['wpforms-lite'][$fixture['version']]['sha256'], 'native fixtures name the exact locked official artifact');
 wprism_check_same('exercise-fixture', $artifacts['plugins']['wpforms-lite'][$fixture['version']]['role'], 'the observed artifact is not labeled certified');
 wprism_check_same(['2.0.0.4', '2.0.1.1'], array_keys(ArtifactLibrary::loadPackage($root, 'wpforms-lite')['plugins']['wpforms-lite']), 'the capsule owns both the historical and new exercise artifacts');

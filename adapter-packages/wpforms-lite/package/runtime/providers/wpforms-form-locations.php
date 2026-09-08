@@ -6,7 +6,7 @@ namespace WPrism\Providers;
 use WPrism\ManifestProviderRuntime;
 use WPrism\ProviderSdk;
 
-/** Unshipped candidate: Policy-loaded provider and lifecycle evidence remain required. */
+/** Experimental native derivation; the capsule disposition grants no production readiness. */
 final class WpformsFormLocations extends ManifestProviderRuntime {
     private const META_KEY = 'wpforms_form_locations';
     private const MAX_FORMS = 128;

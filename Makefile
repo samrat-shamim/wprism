@@ -409,7 +409,7 @@ regress-manifest-dispositions:
 # WP-4.4 (spec § v3.4): the reviewed claim source moved from one
 # manifests/dispositions.json to one document per subject under
 # manifests/dispositions/, and NOT ONE ADAPTER DIGEST MOVED. The historical
-# pre-split tree had 16 subjects; the current WPrism baseline has 18 and is
+# pre-split tree had 16 subjects; the current WPrism baseline has 19 and is
 # pinned through two compatible worlds. The suite pins the historical 16-subject digests,
 # manifest_hash and registry_sha256 as literals captured from that tree;
 # measures each enumerated Canon-encoding hazard (a nested list re-ordered and

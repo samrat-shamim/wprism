@@ -764,7 +764,7 @@ cmd_reset() {
   pair_siterepo_refuse_codebind_reset "$name"
   # Refuse before DROP/CREATE if uid-33 descendants cannot be returned to the
   # host process that clears them. The helper preserves both bind-root inodes.
-  pair_siterepo_host "$name" both
+  pair_siterepo_host "$name" both terminal
   pair_db_ensure_up
   pair_db_ensure_app_user
 
@@ -801,6 +801,7 @@ cmd_reset() {
 
 cmd_repo_host() {
   local name="${1:?usage: pair.sh repo-host <name> [1|2|both]}" lease_locked=0
+  [ "$#" -le 2 ] || fail 'usage: pair.sh repo-host <name> [1|2|both]'
   validate_name "$name"
   if canonical_root >/dev/null 2>&1; then
     arm_budget_up_cleanup
@@ -900,7 +901,7 @@ cmd_destroy() {
   # Cleanup callers remove the pair roots after destroy. Return uid-33 capture
   # descendants first, while the exact cli mounts still exist and before any
   # container/volume/database mutation. Missing roots remain a no-op.
-  pair_siterepo_host "$name" both
+  pair_siterepo_host "$name" both terminal
   pair_compose_configure "$name"
   export WPRISM_PAIR="$name"
   "${PAIR_COMPOSE[@]}" down -v --remove-orphans
@@ -1037,10 +1038,11 @@ usage:
            restart containers, or reinstall WordPress.
 
   repo-host
-           Return one or both exact pair-owned siterepo roots from container
-           uid 33 to the invoking host uid/gid, recursively, without replacing
-           the bind-root inode. Used at host-Git/cleanup transitions; refuses
-           symlinks, non-directories, invalid sides, or an unproved handback.
+           Share authored/Git paths in one or both exact pair-owned siterepo
+           roots with the host, preserving runtime-private owners and modes
+           and the bind-root inode. Reset/destroy separately reclaim complete
+           ownership without broadening private modes. Refuses invalid roots,
+           sides, authoring links, or an unproved handback.
 
   stop     Free the pair's RAM/CPU without losing anything: containers
            stopped, webroot volumes and databases untouched. Use while

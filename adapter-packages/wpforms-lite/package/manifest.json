@@ -11,6 +11,13 @@
     "body-pii-paths/v1",
     "body-ref-preserve-type/v1",
     "body-url-rebinding/v1",
+    "manifest-provider-fresh-process/v1",
+    "manifest-provider-runtime/v1",
+    "provider-native-option-inputs/v1",
+    "provider-native-permalinks/v1",
+    "provider-native-post-types/v1",
+    "provider-physical-table-rows/v1",
+    "provider-typed-row-mutations/v1",
     "spec-window/v1",
     "structured-body-refs/v1"
   ],
@@ -239,7 +246,7 @@
   "post_meta": {
     "wpforms_form_locations": {
       "class": "derived",
-      "note": "Locator rebuilds this denormalized index from embedding posts/widgets. Direct engine post writes do not run its native incremental hooks. No provider is claimed yet; deploy/apply remain unsupported until an exact, bounded, idempotent rebuild is proven."
+      "note": "Locator rebuilds this denormalized index from embedding posts/widgets and current native routing. The experimental global provider uses bounded SDK read/write contracts and requires an exact physical fixed point. This is not production, deployment or complete authored-state Apply readiness."
     }
   },
   "tables": {
@@ -305,8 +312,43 @@
       }
     }
   },
+  "providers": [
+    {
+      "id": "wpforms-form-locations",
+      "source": "manifest",
+      "plugin": "wpforms-lite/wpforms.php",
+      "version": "1.0.0",
+      "capabilities": ["rebuild_form_locations"],
+      "fresh_process_capabilities": ["rebuild_form_locations"],
+      "requires": {"classes": ["WPForms\\Forms\\Locator"], "functions": ["wp_unslash", "wpforms"]},
+      "contracts": {
+        "rebuild_form_locations": {
+          "args": [],
+          "idempotent": true,
+          "scope": "site",
+          "timeout_seconds": 600,
+          "reads": ["table:options", "table:postmeta", "table:posts", "table:term_relationships", "table:term_taxonomy", "table:termmeta", "table:terms", "table:usermeta", "table:users"],
+          "writes": ["table:postmeta"],
+          "scoped": {"operation_envelope": "wprism-scoped-effect-operation/v1", "receipt_projection": "handler", "reconcile": true}
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "kind": "provider",
+      "provider": "wpforms-form-locations",
+      "capability": "rebuild_form_locations",
+      "args": [],
+      "effects": [
+        {"id": "wpforms-location-rows", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "postmeta"}},
+        {"id": "wpforms-location-native-cache", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "wpforms-location-native-readers:v1:request-object-cache"}}
+      ]
+    }
+  ],
   "notes": [
-    "Experimental authoring capsule for the exact observed official Lite 2.0.1.1 artifact. No certification, deployment, apply, deletion, lifecycle or production-readiness claim.",
+    "Experimental authoring capsule for the exact observed official Lite 2.0.1.1 artifact. No certification, deployment, complete authored-state Apply, deletion, lifecycle or production-readiness claim.",
+    "Location repair has no triggers: native placements, widgets and routing can change while every form body stays identical. Policy selects this global provider for nonempty authored work; an empty Apply selects no actions. SDK native readers can warm request caches, so that external effect is explicit rather than claimed restorable by the database checkpoint.",
     "Native add/update/duplicate writes prove optional integer/string self IDs and local field allocators; only declared post coordinates are references. Field IDs, numeric limits and smart-tag field operands remain local form structure.",
     "The four exact notification scalar paths admit authored routing/display configuration, not submissions or arbitrary body PII. All keys, other values and secrets retain engine clearance checks.",
     "QR page/logo IDs are native integers, including zero; Lite sanitization retains a custom-logo residue even when the paid logo UI is unavailable. Portability of stored references is not paid-feature support.",

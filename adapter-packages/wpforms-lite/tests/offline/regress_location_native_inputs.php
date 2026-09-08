@@ -8,11 +8,13 @@ require_once $root . '/sandbox/tests/lib/check.php';
 require_once $root . '/sandbox/tests/lib/native_permalink_stubs.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 require_once $root . '/agent/src/Adapter/ProviderSdk.php';
-require_once dirname(__DIR__, 2) . '/fixtures/location-provider/wpforms-form-locations.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/providers/wpforms-form-locations.php';
 require_once dirname(__DIR__, 2) . '/fixtures/location-provider/locator-responses.php';
 
 use WPrism\DatabaseQueryIsolation;
+use WPrism\DatabaseMutationException;
 use WPrism\Db;
+use WPrism\ProviderDatabaseTransactionNotAppliedException;
 use WPrism\Providers;
 use WPrism\Providers\WpformsFormLocations;
 use WPrismTest\FakeWpdb;
@@ -96,12 +98,16 @@ function location_input_fixture(array $settings = [], int $placements = 0, ?arra
     return [$db, $runtime, $locator];
 }
 
-function location_input_reject(FakeWpdb $db, WpformsFormLocations $runtime, string $label, string $message): void {
+function location_input_state(FakeWpdb $db): array {
     $tables = ['posts', 'postmeta', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta', 'users', 'usermeta'];
-    $before = array_map($db->rows(...), $tables);
+    return array_combine($tables, array_map($db->rows(...), $tables));
+}
+
+function location_input_reject(FakeWpdb $db, WpformsFormLocations $runtime, string $label, string $message): void {
+    $before = location_input_state($db);
     $db->resetLog();
     wprism_check_throws(static fn() => $runtime->invoke('rebuild_form_locations', []), RuntimeException::class, $label, $message);
-    wprism_check_same($before, array_map($db->rows(...), $tables), $label . ': every complete physical table survives');
+    wprism_check_same($before, location_input_state($db), $label . ': every complete physical table survives');
     wprism_check_same([], array_values(array_filter($db->queries(), static fn(string $sql): bool => preg_match('/^(INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql) === 1)),
         $label . ': no DML precedes complete native admission');
     wprism_check(!DatabaseQueryIsolation::is_active(), $label . ': transaction owner settles isolation');
@@ -169,5 +175,73 @@ location_input_reject($db, $runtime, 'malformed JSON in an otherwise unlocated f
 $db->seedTable('options', [...$db->rows('options'), ['option_id' => 5, 'option_name' => 'widget_wpforms-widget',
     'option_value' => serialize([2 => ['form_id' => '1', 'title' => null], '_multiwidget' => 1]), 'autoload' => 'on']]);
 location_input_reject($db, $runtime, 'raw-null native widget title', 'native location text is malformed or over the bounded frontier');
+
+// The shared driver seams exercise this candidate's typed DML and physical
+// classifier. They do not claim a native server fault or a fresh-child run.
+$dml = static fn(FakeWpdb $database): array => array_values(array_map(
+    static fn(string $sql): string => explode(' ', $sql, 2)[0],
+    array_filter($database->queries(), static fn(string $sql): bool => preg_match('/^(INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql) === 1)
+));
+foreach (['partial-dml', 'applied-commit', 'not-applied-commit'] as $fault) {
+    $location = location_input_standalone('/recovery/');
+    [$db, $runtime] = location_input_fixture(['form_pages_enable' => true, 'form_pages_page_slug' => 'recovery'], standalone: $location);
+    $db->seedTable('postmeta', [
+        ['meta_id' => 10, 'post_id' => 1, 'meta_key' => 'wpforms_form_locations', 'meta_value' => 'stale owned bytes'],
+        ['meta_id' => 20, 'post_id' => 0, 'meta_key' => 'wpforms_form_locations', 'meta_value' => 'orphan owned bytes'],
+        ['meta_id' => 30, 'post_id' => 1, 'meta_key' => 'WPFORMS_FORM_LOCATIONS', 'meta_value' => 'collational alias survives'],
+        ['meta_id' => 40, 'post_id' => 1, 'meta_key' => 'unrelated_fixture', 'meta_value' => "unrelated \\ exact ' bytes"],
+    ]);
+    $before = location_input_state($db);
+    $partial = $before;
+    $partial['postmeta'][0]['meta_value'] = serialize([$location]);
+    $expected = $partial;
+    unset($expected['postmeta'][1]);
+    $expected['postmeta'] = array_values($expected['postmeta']);
+    $observedPartial = null;
+    $db->resetLog();
+    if ($fault === 'partial-dml') {
+        $db->onQuery(static function (string $sql, string $_method, FakeWpdb $database) use (&$observedPartial): null {
+            if (str_starts_with($sql, 'DELETE FROM')) $observedPartial = location_input_state($database);
+            return null;
+        })->failNextQuery('candidate recovery fixture delete failure', 'DELETE FROM');
+    } else {
+        $db->injectTransactionOutcome('COMMIT', $fault === 'applied-commit' ? 'after_false' : 'inactive_false');
+    }
+    if ($fault === 'applied-commit') {
+        $first = $runtime->invoke('rebuild_form_locations', []);
+        wprism_check($first['verified'], 'durably applied ambiguous commit is admitted by the actual candidate classifier');
+    } else {
+        wprism_check_throws(static fn() => $runtime->invoke('rebuild_form_locations', []),
+            $fault === 'partial-dml' ? DatabaseMutationException::class : ProviderDatabaseTransactionNotAppliedException::class,
+            $fault . ': actual typed failure reaches the caller');
+    }
+    wprism_check_same(['UPDATE', 'DELETE'], $dml($db), $fault . ': fault follows the real ordered multi-DML plan');
+    if ($fault === 'partial-dml') {
+        wprism_check_same($partial, $observedPartial, 'the first typed update really applied before the second typed mutation failed');
+        $db->onQuery(null);
+    }
+    wprism_check_same($fault === 'applied-commit' ? $expected : $before, location_input_state($db),
+        $fault . ': complete physical outcome preserves every input, alias and nonowned row');
+    // invoke_rebuild_form_locations owns two ordinary durable snapshots.
+    // An applied ambiguity adds one classifier; a refused commit reaches
+    // only that classifier, and a failed DML never reaches classification.
+    wprism_check_same(match ($fault) { 'applied-commit' => 3, 'not-applied-commit' => 1, default => 0 },
+        count(array_filter($db->queries(), static fn(string $sql): bool => $sql === 'START TRANSACTION READ ONLY, WITH CONSISTENT SNAPSHOT')),
+        $fault . ': classifier and later durability reads use their exact engine-owned snapshots');
+    wprism_check(!DatabaseQueryIsolation::is_active() && $db->activeTransactionIsolation() === null,
+        $fault . ': both query and physical transaction isolation are settled');
+    $db->resetLog();
+    $retry = $runtime->invoke('rebuild_form_locations', []);
+    wprism_check($retry['verified'], $fault . ': the consumed one-shot fault permits a normal explicit retry');
+    wprism_check_same($expected, location_input_state($db), $fault . ': retry converges without replacing the oldest owned identity');
+    wprism_check_same($fault === 'applied-commit' ? [] : ['UPDATE', 'DELETE'], $dml($db),
+        $fault . ': retry never repeats an already durable mutation');
+    $db->resetLog();
+    $stable = $runtime->invoke('rebuild_form_locations', []);
+    wprism_check($stable['verified'] && $stable['before'] === $stable['after'] && $stable['after'] === $retry['after'],
+        $fault . ': a further explicit retry is a complete receipt fixed point');
+    wprism_check_same($expected, location_input_state($db), $fault . ': complete physical fixed point survives the further retry');
+    wprism_check_same([], $dml($db), $fault . ': further retry performs no DML');
+}
 
 wprism_check_summary('wpforms_location_native_inputs');

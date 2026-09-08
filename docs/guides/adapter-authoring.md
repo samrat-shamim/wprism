@@ -3048,6 +3048,19 @@ library.
    the start of this section. Re-measure explicit aggregate baselines such as
    effect-declaration coverage; do not replace behavioral numbers with a
    directory count merely to make the gate green.
+
+   For a deliberate package identity change, check the complete re-pin set
+   before the aggregate: `regress-disposition-split`,
+   `regress-spec-v3-digest-neutrality` (including its byte-pinned
+   `sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json`),
+   `regress-effect-declaration-coverage`, and `regress-spec-v3-document`.
+   The latter pins measured disposition sizes and the provider identity census
+   in `spec/repo-format.md`. Change only affected literal addresses/counts,
+   retain unrelated pin sets and historical witnesses, and bind a new effect
+   count to its exact phase/mode/selector authority. Never derive the expected
+   identity from the same live value under test. During diagnosis,
+   `make -k regress-offline-all` keeps independent leaves running after a
+   failure; ordinary Make fail-fast can otherwise hide later stale baselines.
 9. **Render and validate the aggregate** without checking it in:
 
    ```sh
@@ -3134,6 +3147,23 @@ init` writes a managed-baseline code revision into the compiled artifact, so
 <env>` has run — and `wprism deploy` is host promotion, which the same
 `uncertified` state blocks. So an uncertified adapter is a **capture-and-plan**
 adapter, not a deployable one.
+
+For bounded adapter-authoring evidence, a **new content-only repository that
+has never declared `code`** can exercise ordinary Apply with the exact plugin
+already installed and active on both sites. It does not prove code deployment,
+activation lifecycle, promotion or production readiness. Never strip the code
+descriptor from an initialized repository to manufacture this premise.
+
+Use the actual experimental package for that lane. An explicit library object
+passed to a parent handler is not inherited authority for its fresh verifier:
+`ApplyRequestCoordinator::verify_canonical()` re-proves the frozen policy
+against the trusted shipped library. The WPForms `4756ad35` native run reached
+that guard after authored writes/rebuild and correctly refused its private
+candidate provenance. Place the reviewed provider in its capsule's `package/`,
+retain experimental/non-readiness status, recompile/re-pin the changed identity
+and use ordinary commands. Do not add a path selector or weaken provenance
+verification for a fixture. Retain private failure diagnostics before teardown;
+a post-mutation refusal is not rollback or successful Apply evidence.
 
 There are two ways to certify one, and which you want depends on **whose
 approval the certificate represents**.
