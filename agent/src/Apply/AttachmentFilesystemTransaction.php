@@ -17,7 +17,7 @@ if (!class_exists(CompiledRepository::class, false)) {
 /**
  * Durable local-filesystem half of one attachment apply.
  *
- * The compiled upload inventory is the complete mutation authority. Original
+ * Compiled originals and declared, observed crop selections bound file authority. Original
  * files are never changed while the authored database transaction can still
  * roll back: prepare freezes exact before-images and absence witnesses, seal
  * writes a marker inside that transaction, and publish runs only after COMMIT.
@@ -46,6 +46,7 @@ final class AttachmentFilesystemTransaction {
     private ?string $root = null;
     private ?string $journalRoot = null;
     private bool $resumingCommitted = false;
+    private ?MediaDerivativeWorkset $derivativeWorkset = null;
     /** @var array<string,resource> */
     private array $locks = [];
 
@@ -222,6 +223,7 @@ final class AttachmentFilesystemTransaction {
             throw new \RuntimeException('wprism: declared media derivatives require observed consumer work selection');
         }
         $derivatives?->assert_artifact($this->compiled);
+        $this->derivativeWorkset = $derivatives;
         $planned = $this->planned_rows($work, $tree, $derivatives);
         if ($planned === []) {
             return;
@@ -310,7 +312,7 @@ final class AttachmentFilesystemTransaction {
         $this->write_journal();
     }
 
-    /** Bind the target post id and exact prior native file ownership. */
+    /** Bind the native attachment and freeze metadata-owned or observed content-selected files. */
     public function register_attachment(int $id, array $front, array $ownedPriorPaths): void {
         if ($id <= 0 || $this->journal === null) {
             throw new \RuntimeException('wprism: attachment filesystem registration lacks a prepared upload transaction');
@@ -334,6 +336,19 @@ final class AttachmentFilesystemTransaction {
                     throw new \RuntimeException('wprism: attachment filesystem received duplicate prior metadata ownership');
                 }
                 $owned[$path] = true;
+            }
+            $priorSelection = $this->derivativeWorkset?->prior_ownership($uuid);
+            if ($priorSelection !== null) {
+                // The target content proof grants only exact selected paths.
+                // Its original must independently belong to the locked native
+                // attachment; a desired recipe or matching filename grants none.
+                if (!isset($owned[$priorSelection['original']['file']])) {
+                    throw new \RuntimeException('wprism: observed media derivative original lacks prior native attachment ownership');
+                }
+                foreach ($priorSelection['paths'] as $path) {
+                    $this->assert_relative_path($path);
+                    $owned[$path] = true;
+                }
             }
             if (count($owned) > self::MAX_OWNED_PRIOR_FILES) {
                 throw new \RuntimeException('wprism: attachment prior metadata ownership exceeds its file bound');
@@ -363,6 +378,14 @@ final class AttachmentFilesystemTransaction {
             }
             ksort($priorByPath, SORT_STRING);
             $this->journal['rows'][$position]['prior'] = array_values($priorByPath);
+            if ($priorSelection !== null) {
+                $observedOriginal = $priorByPath[$priorSelection['original']['file']] ?? null;
+                $observedBlob = MediaPayloadAuthority::parseMediaName($priorSelection['original']['media']);
+                if (($observedOriginal['state'] ?? null) !== 'present'
+                    || !hash_equals($observedBlob['sha256'], (string) ($observedOriginal['sha256'] ?? ''))) {
+                    throw new \RuntimeException('wprism: observed media derivative original differs from its frozen native file');
+                }
+            }
             $original = (string) $row['original_path'];
             $originalPrior = $priorByPath[$original] ?? null;
             if (!is_array($originalPrior)) {

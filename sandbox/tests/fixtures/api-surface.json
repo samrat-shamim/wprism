@@ -28639,6 +28639,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "prior_ownership": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "attachmentUuid",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "select": {
                     "abstract": false,
                     "final": false,

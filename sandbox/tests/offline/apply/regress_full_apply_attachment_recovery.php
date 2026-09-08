@@ -219,6 +219,7 @@ use WPrism\DeleteGuardLockCoordinator;
 use WPrism\DeleteGuardReferenceScanner;
 use WPrism\DeletionAuthority;
 use WPrism\Ledger;
+use WPrism\PlainData;
 use WPrism\Policy;
 use WPrism\PromotionLock;
 use WPrism\RepositoryCompiler;
@@ -941,6 +942,21 @@ $originalRow = array_values(array_filter($wpdb->rows('wp_posts'), static fn(arra
 $authoredSidecars = static fn(): array => array_values(array_filter($GLOBALS['wpdb']->rows('wp_postmeta'),
     static fn(array $row): bool => (int) $row['post_id'] === $attachmentId && $row['meta_key'] !== '_wp_attachment_metadata'));
 $originalSidecars = $authoredSidecars();
+// Qi's native writer leaves selected crops outside the WordPress sizes
+// roster. Remove only the engine ownership record to reproduce that storage
+// shape; selected content and the exact original remain native facts.
+$priorNativeMetadata = array_values(array_filter($wpdb->rows('wp_postmeta'),
+    static fn(array $row): bool => (int) $row['post_id'] === $attachmentId && $row['meta_key'] === '_wp_attachment_metadata'))[0];
+$priorNativeValue = PlainData::decode_serialized($priorNativeMetadata['meta_value'], 'native crop adoption fixture');
+foreach ($priorNativeValue['sizes'] as $name => $size) {
+    if ($size['file'] === 'recipe-note-333x211.png') unset($priorNativeValue['sizes'][$name]);
+}
+$wpdb->update('wp_postmeta', ['meta_value' => serialize($priorNativeValue)], ['meta_id' => $priorNativeMetadata['meta_id']]);
+$unselectedNativeCrop = $store->uploadBaseDir . '/2026/08/recipe-note-777x211.png';
+file_put_contents($unselectedNativeCrop, $bytes);
+wprism_check(is_file($store->uploadBaseDir . '/2026/08/recipe-note-333x211.png')
+    && !in_array('recipe-note-333x211.png', array_column($priorNativeValue['sizes'], 'file'), true),
+    'native adoption premise has a content-selected crop with no native metadata ownership');
 $generationCalls = $GLOBALS['full_apply_metadata_calls'];
 $nextBody = str_replace(['333x211', '"width":333'], ['444x211', '"width":444'], $mediaBody);
 Canon::write_file($mediaRepo . '/state/posts/page/' . $pageUuid . '--crop-consumer.md', Canon::post_file($pagePost, $nextBody));
@@ -952,6 +968,34 @@ wprism_check(in_array($uuid, array_column($mediaPlan['unchanged'], 'uuid'), true
     && in_array($pageUuid, array_column($mediaPlan['update'], 'uuid'), true),
     'content-only derivative plan keeps its attachment authored state unchanged and selects only the page update');
 $pageId = Ledger::id_for($pageUuid, Ledger::KIND_POST);
+$beforeCropCollisionPosts = $wpdb->rows('wp_posts');
+$beforeCropCollisionMeta = $wpdb->rows('wp_postmeta');
+$injectedCropOwner = false;
+$wpdb->onQuery(static function (string $sql) use (&$injectedCropOwner, $wpdb, $pageId): ?string {
+    if ($injectedCropOwner || !str_starts_with($sql, 'SELECT meta_id, post_id, meta_key, OCTET_LENGTH(meta_value) AS meta_value_bytes, CASE')
+        || !str_contains($sql, "WHERE meta_key = '_wp_attached_file'")) return null;
+    // Inject a hostile existing metadata claim at the global owner census.
+    // This is a guard test, not a simulation of a writer escaping held locks.
+    $injectedCropOwner = true;
+    $wpdb->seedTable('wp_postmeta', [...$wpdb->rows('wp_postmeta'), ['meta_id' => 9000,
+        'post_id' => $pageId, 'meta_key' => '_wp_attached_file', 'meta_value' => '2026/08/recipe-note-333x211.png']]);
+    return null;
+});
+$cropCollisionFailure = null;
+try {
+    ApplyRequestCoordinator::apply($mediaRepo, $mediaOptions);
+} catch (Throwable $failure) {
+    $cropCollisionFailure = $failure;
+}
+$wpdb->onQuery(null);
+wprism_check($injectedCropOwner && $cropCollisionFailure !== null
+    && str_contains($cropCollisionFailure->getMessage(), 'already owned by another or duplicate _wp_attached_file row'),
+    'public native crop adoption refuses another native file owner before COMMIT');
+wprism_check_same($beforeCropCollisionPosts, $wpdb->rows('wp_posts'), 'native crop ownership refusal rolls back authored consumer writes');
+wprism_check_same($beforeCropCollisionMeta, $wpdb->rows('wp_postmeta'), 'native crop ownership refusal rolls back exact attachment sidecar state');
+wprism_check(is_file($store->uploadBaseDir . '/2026/08/recipe-note-333x211.png')
+    && !file_exists($store->uploadBaseDir . '/2026/08/recipe-note-444x211.png'),
+    'native crop ownership refusal preserves old files and publishes no replacement');
 $contender = (new FakeWpdb())->setConnectionId(2)->shareDatabaseStateWith($wpdb);
 $consumerLockProbe = null;
 $wpdb->onQuery(static function (string $sql) use (&$consumerLockProbe, $contender, $mediaRepo, $pageId): ?string {
@@ -989,6 +1033,8 @@ wprism_check_same($originalSidecars, $authoredSidecars(), 'content-only crop wor
 wprism_check(is_file($store->uploadBaseDir . '/2026/08/recipe-note-444x211.png')
     && !file_exists($store->uploadBaseDir . '/2026/08/recipe-note-333x211.png'),
     'content-only public apply publishes the new crop and removes only the stale previously owned crop');
+wprism_check_same($bytes, file_get_contents($unselectedNativeCrop),
+    'native crop adoption preserves an unselected equal-byte crop under the same attachment prefix');
 wprism_check_same(hash('sha256', $bytes), hash_file('sha256', $store->uploadBaseDir . '/2026/08/recipe-note.png'),
     'content-only derivative work preserves its original payload bytes');
 $wpdb->onQuery(null);

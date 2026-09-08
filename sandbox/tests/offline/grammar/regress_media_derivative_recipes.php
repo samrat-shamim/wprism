@@ -237,6 +237,8 @@ $work = WPrism\MediaDerivativeWorkset::select($next, $policy, $nativeTree, [['uu
 wprism_check_same([$attachment], $work->attachments, 'content-only change schedules the referenced unchanged attachment');
 wprism_check_same([333, 444], array_column($work->recipes, 'width'), 'selected new crop and preserved target-local crop share the resulting workset');
 wprism_check_same([[$local], [$page]], array_column($work->recipes, 'consumers'), 'work selection preserves ownership without importing target-local authored content');
+wprism_check_same(['2026/09/image-333x211.png'], $work->prior_ownership($attachment)['paths'],
+    'only observed target crops gain prior ownership; the newly desired crop does not');
 $work->assert_artifact($next);
 $work->assert_target($policy, $nativeTree);
 wprism_check(true, 'workset retains exact artifact and target-observation bindings');
@@ -252,6 +254,7 @@ $work->assert_target($policy, $changedNative);
 wprism_check(true, 'unrelated target-local title changes do not alter file recipe authority');
 $none = WPrism\MediaDerivativeWorkset::select($next, $policy, $nativeTree, [], []);
 wprism_check_same([[], []], [$none->attachments, $none->recipes], 'unselected repository changes cannot generate target files');
+wprism_check_same(null, $none->prior_ownership($attachment), 'unselected attachment work grants no prior crop ownership');
 $removed = WPrism\MediaDerivativeWorkset::select($next, $policy, $nativeTree, [], [$page]);
 wprism_check_same([$attachment], $removed->attachments, 'consumer deletion schedules attachment derivative reconciliation');
 wprism_check_same([[$local]], array_column($removed->recipes, 'consumers'), 'consumer deletion retains a target-only consumer of the shared crop');
@@ -260,6 +263,7 @@ $last = WPrism\MediaDerivativeWorkset::select($next, $policy, $lastTree, [], [$p
 wprism_check_same([[$attachment], []], [$last->attachments, $last->recipes], 'last-consumer removal retains attachment work with an empty desired crop roster');
 $deletedAttachment = WPrism\MediaDerivativeWorkset::select($next, $policy, $nativeTree, [], [$page, $attachment]);
 wprism_check_same([[], []], [$deletedAttachment->attachments, $deletedAttachment->recipes], 'derivative selection never resurrects an attachment selected for deletion');
+wprism_check_same(null, $deletedAttachment->prior_ownership($attachment), 'attachment deletion cannot mint a crop adoption authority');
 $drifted = $nativeTree;
 $drifted[$attachment]['data']['media'] = str_repeat('a', 64) . '.png';
 wprism_check_throws(static fn() => WPrism\MediaDerivativeWorkset::select($next, $policy, $drifted, [['uuid' => $page]], []), RuntimeException::class,
@@ -267,6 +271,8 @@ wprism_check_throws(static fn() => WPrism\MediaDerivativeWorkset::select($next, 
 $withImage = WPrism\MediaDerivativeWorkset::select($next, $policy, $drifted, [['uuid' => $page], ['uuid' => $attachment]], []);
 wprism_check_same([$media], array_values(array_unique(array_column($withImage->recipes, 'media_blob'))),
     'explicit attachment work regenerates selected and preserved crops from the authorized new original');
+wprism_check_same(str_repeat('a', 64) . '.png', $withImage->prior_ownership($attachment)['original']['media'],
+    'prior crop ownership retains the observed old blob when authored work replaces the original');
 $foreignPath = $nativeTree;
 $foreignPath[$attachment]['data']['file'] = 'other/image.png';
 foreach ([$page, $local] as $uuid) $foreignPath[$uuid]['body'] = str_replace('/2026/09/', '/other/', $foreignPath[$uuid]['body']);

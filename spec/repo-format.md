@@ -3063,6 +3063,70 @@ to 100,000; non-finite numbers, objects outside decoded JSON and invalid UTF-8
 refuse. Checked post SQL and its transaction owner retain responsibility for
 atomic writes, rollback, retry and canonical recapture.
 
+### v3.30 `block-media-derivatives/v1` — content-selected image recipes
+
+A v3 adapter can declare `block_media_derivatives`, keyed by block name,
+with lists of closed recipes. Each recipe requires `attachment`, `url`,
+`width` and `height` as exact child JSON paths, a boolean `crop`,
+`filename:"requested-dimensions"` and `dimension_cast:"integer"` or
+`"truncate"`. Optional `path` uses the shared JSON reference walker to select
+an object or list of objects; absent means the block attributes. Optional
+`when:{key,equals}` requires an exact nonempty string discriminator in each
+selected object. An absent or unequal discriminator selects no recipe.
+There are at most 128 declarations per manifest. The same manifest must own
+the attachment's `post` reference in `block_values`; the section uses the
+certificate's field arm and cannot be introduced by site policy.
+
+Capture, immutable compilation and artifact admission use the same reader
+for post bodies and declared block-content widget settings. A selected
+attachment must resolve to an image original of MIME JPEG, PNG, GIF or WebP.
+The selected URL must identify the exact original basename plus requested
+`-<width>x<height>` dimensions in the same uploads-relative directory.
+Integer dimensions must already be integers; truncate additionally admits
+finite numeric fractions. Negative values and dimensions above 16,384 refuse,
+as do requested areas above 67,108,864 pixels. A recipe inventory has at most
+4,096 transforms, 128 per attachment and 4,096 sorted consumers per transform.
+Conflicting transforms for one destination and destinations colliding with
+originals refuse. Existing aggregate filesystem and media bounds still apply.
+
+`media_derivatives` in the compiled artifact binds each transform to its
+attachment UUID, original path and content-addressed media blob, exact target
+path and consumers. Artifact admission derives the inventory again from
+immutable content and pinned declarations. The recipe identity hashes the
+transform and original binding; consumer changes do not change output identity.
+Artifacts without this selected feature retain their historical shape.
+
+Apply selects effects from its actual authored work and combines desired
+consumers with preserved target consumers. An edit to content can therefore
+regenerate an unchanged attachment without rewriting its post row or authored
+sidecars. The target observation is rechecked under native consumer locks
+before authored mutation. Publication and cleanup recheck current consumers
+against the committed generation work; a new unplanned transform refuses.
+Scoped consumer preservation does not import those consumers into the authored
+write set. Path changes that strand a preserved consumer refuse.
+
+An existing crop outside native attachment metadata may acquire prior-file
+ownership only from a manifest-declared selection observed in target content.
+A desired new selection, filename prefix, runtime crop cache or equal bytes
+does not grant that authority. The selection's original must independently
+belong to the exact native attachment; its frozen before-image must match the
+observed original blob, including when authored work replaces that original.
+The global attached-file collision guard also covers selected prior crop paths.
+The existing filesystem owner freezes every exact prior path, rechecks aliases,
+absence or byte/identity witnesses, and seals the ownership decision in its
+transaction-bound journal. Unselected neighbors retain their prior bytes.
+
+The existing isolated native metadata generator consumes bounded journal
+recipes in private staging. Requested filename dimensions are distinct from
+actual output dimensions; a valid no-resize result re-encodes the original.
+Generated file path, MIME, dimensions and size must agree with native output.
+A native size at the same destination coalesces only if both projection and
+bytes agree. New crops receive genuine generated attachment size metadata.
+Publication, metadata COMMIT, stale-file removal and recovery remain phases of
+the existing attachment transaction; stale crops are not removed before the
+metadata commit is established. Native plugin qualification and fresh-process
+convergence evidence remain required before declaring a plugin capability.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

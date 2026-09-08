@@ -453,6 +453,53 @@ an earlier write, retry, repeat and complete recapture. Include widget content
 when the same block can be stored there. `regress-block-attribute-values` is
 the engine pin; native plugin render and editor validation remain capsule work.
 
+### Content-selected image crops
+
+Use the plugin's actual editor Save path and inspect both saved content and
+the uploads directory. A custom crop may exist outside WordPress's attachment
+size metadata. A historical crop cache can include abandoned requests, so it
+cannot define authored work or stale-file ownership.
+
+For a crop determined by saved attachment, URL and dimension fields, negotiate
+`block-media-derivatives/v1` alongside `block-attribute-values/v1`:
+
+```json
+"block_media_derivatives": {
+  "example/image": [{
+    "attachment": "$.image.id", "url": "$.image.url",
+    "width": "$.customWidth", "height": "$.customHeight",
+    "crop": true, "filename": "requested-dimensions",
+    "dimension_cast": "integer",
+    "when": {"key": "size", "equals": "custom"}
+  }]
+}
+```
+
+The same manifest must declare `image.id` as a post reference in this block's
+`block_values`. Use `path` for repeated object contexts, exact child paths for
+fields and `truncate` only when the native writer demonstrably truncates
+fractional numeric dimensions. Declare each responsive selection separately.
+The [recipe contract](../../spec/repo-format.md#v330-block-media-derivativesv1--content-selected-image-recipes)
+defines the closed shapes and bounds.
+
+Use the shared attachment transaction for these effects. It derives recipes
+from saved content, preserves excluded consumers, regenerates content-only
+changes and records generated sizes for durable ownership. Existing native
+crops need a declared target-content selection, native attachment ownership
+and the exact observed original blob before their files can be adopted.
+Unselected files, including equal-byte neighbors, remain outside that grant.
+Do not add a plugin executable to copy arbitrary cache paths into metadata.
+
+Prove same-size repeat, resized content with an unchanged attachment, multiple
+consumers, scoped preservation, removal of the last consumer, original path
+and blob changes, existing native crops, unrelated file collisions, native
+failures and interrupted metadata publication. Compare real output dimensions
+and filenames separately, including oversized and zero-dimension requests if
+the editor can produce them. Test native Save, frontend rendering, editor
+reopen and fresh-process convergence; offline image doubles cannot qualify
+those outcomes. Qi Blocks motivated this mechanism, but its native adapter
+qualification remains pending.
+
 ### Native PHP container types and insertion order
 
 Inspect raw option bytes after using the plugin's real writer. Qi Blocks 1.5.2

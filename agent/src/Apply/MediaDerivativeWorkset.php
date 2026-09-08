@@ -15,7 +15,8 @@ final class MediaDerivativeWorkset {
         public readonly array $attachments,
         public readonly array $recipes,
         private readonly string $artifactHash,
-        private readonly string $targetFingerprint
+        private readonly string $targetFingerprint,
+        private readonly array $priorOwnership
     ) {}
 
     public function assert_artifact(CompiledRepository $compiled): void {
@@ -30,6 +31,11 @@ final class MediaDerivativeWorkset {
         if (!hash_equals($this->targetFingerprint, self::fingerprint($target, $this->attachments))) {
             throw new \RuntimeException('wprism: derivative consumers or original bindings changed since work selection');
         }
+    }
+
+    /** Only observed target selections can authorize an existing native crop. */
+    public function prior_ownership(string $attachmentUuid): ?array {
+        return $this->priorOwnership[$attachmentUuid] ?? null;
     }
 
     private static function fingerprint(array $snapshot, array $attachments): string {
@@ -113,6 +119,14 @@ final class MediaDerivativeWorkset {
         // bodies do not become desired repository state or enter the write set.
         $authorityTree = $tree + array_map(static fn(array $entity): array => ['type' => $entity['type']], $targetTree);
         MediaDerivativeRecipe::assert_inventory($rows, $authorityTree);
-        return new self(array_keys($affected), $rows, $compiled->artifact_hash(), self::fingerprint($target, array_keys($affected)));
+        $priorOwnership = [];
+        foreach ($target['recipes'] as $recipe) {
+            $uuid = $recipe['attachment_uuid'];
+            if (!isset($affected[$uuid])) continue;
+            $priorOwnership[$uuid] ??= ['original' => $target['attachments'][$uuid], 'paths' => []];
+            $priorOwnership[$uuid]['paths'][] = $recipe['target_path'];
+        }
+        return new self(array_keys($affected), $rows, $compiled->artifact_hash(),
+            self::fingerprint($target, array_keys($affected)), $priorOwnership);
     }
 }

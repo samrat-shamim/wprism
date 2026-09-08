@@ -1169,6 +1169,54 @@ namespace {
         $removedFs->cleanup_complete(null);
         $removedFs->end();
 
+        // Native plugin crops have content ownership before they acquire a
+        // WordPress sizes row. The exact old original is an independent
+        // prerequisite: the compiled replacement cannot vouch for it.
+        $nativeRecipeWork = \WPrism\MediaDerivativeWorkset::select($recipeCompiled, $recipePolicy, $recipeTree, $recipeWork, []);
+        $nativeOriginal = $uploads . '/2026/08/recipes.png';
+        $nativeCrop = $uploads . '/2026/08/recipes-333x211.png';
+        file_put_contents($nativeCrop, $png);
+        foreach (['unowned-original', 'changed-original', 'changed-after-prepare'] as $fault) {
+            file_put_contents($nativeOriginal, $fault === 'changed-original' ? 'foreign original bytes' : $png);
+            $nativeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+            $nativeGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $recipeCompiled, $nativeFs);
+            $nativeFs->prepare($recipeWork, $recipeTree, $nativeGenerator, $nativeRecipeWork);
+            if ($fault === 'changed-after-prepare') file_put_contents($nativeOriginal, 'late original bytes');
+            $needle = match ($fault) {
+                'unowned-original' => 'lacks prior native attachment ownership',
+                'changed-original' => 'differs from its frozen native file',
+                'changed-after-prepare' => 'prior inventory changed',
+            };
+            $nativeOwned = $fault === 'unowned-original' ? [] : ['2026/08/recipes.png'];
+            $throws(static fn() => $nativeFs->register_attachment(41, $recipeFront, $nativeOwned), $needle,
+                "observed native crop $fault refuses before authored publication");
+            $check(file_get_contents($nativeCrop) === $png, "native crop $fault refusal preserves exact prior crop bytes");
+            if ($fault === 'changed-after-prepare') file_put_contents($nativeOriginal, $png);
+            $nativeFs->rollback_authored_transaction(null);
+            $nativeFs->end();
+        }
+        file_put_contents($nativeOriginal, $png);
+        $nativeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+        $nativeGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $recipeCompiled, $nativeFs);
+        $nativeFs->prepare($recipeWork, $recipeTree, $nativeGenerator, $nativeRecipeWork);
+        $nativeFs->register_attachment(41, $recipeFront, ['2026/08/recipes.png', '2026/08/recipes-300x300.png']);
+        $nativeJournal = \WPrism\Canon::decode(file_get_contents($recipeJournalPath));
+        $check(in_array('2026/08/recipes-333x211.png', $nativeJournal['rows'][0]['owned_prior_paths'], true),
+            'observed native crop enters the existing journal ownership roster with its exact before-image');
+        $nativeMarker = $nativeFs->seal_authored_transaction();
+        $nativeFs->commit_authored_transaction($nativeMarker['value']);
+        $nativeFs->generate_metadata($nativeGenerator);
+        $nativeFs->publish_derivatives();
+        $nativeMetadataMarker = $nativeFs->seal_metadata_transaction();
+        $nativeFs->metadata_transaction_committed($nativeMetadataMarker['value']);
+        $nativeFs->remove_stale_derivatives($nativeMetadataMarker['value']);
+        $nativeMetadata = PlainData::decode_serialized($nativeFs->generated_metadata_rows()[0]['metadata'], 'native crop fixture');
+        $check(in_array('recipes-333x211.png', array_column($nativeMetadata['sizes'], 'file'), true)
+            && file_get_contents($nativeCrop) === $png,
+            'native crop adoption republishes the selected file and establishes genuine generated metadata ownership');
+        $nativeFs->cleanup_complete(null);
+        $nativeFs->end();
+
         $secondUuid = '1a2b3c4d-5e6f-4789-8abc-def012345678';
         $secondFront = $front;
         $secondFront['uuid'] = $secondUuid;

@@ -58,7 +58,8 @@ if (!class_exists(Ledger::class, false)) {
  * inferring ownership from a filename prefix. Native metadata generation is
  * isolated in staging under a closed WordPress core/editor topology, and its
  * exact file inventory and normalized metadata commit in a second classified
- * transaction before stale, prior-metadata-owned derivatives may be removed.
+ * transaction before stale derivatives owned by prior metadata or an exact
+ * observed content selection may be removed.
  *
  * This class deliberately coordinates those boundaries instead of treating a
  * binary write or `_wp_attachment_metadata` update as an ordinary field
@@ -447,7 +448,8 @@ final class AttachmentMaterializer {
             $priorAttachedRows,
             $priorBackupRows
         );
-        $this->assert_global_attached_file_authorities($id, $ownedPriorPaths);
+        $selectedPriorPaths = $this->derivativeWorkset?->prior_ownership($front['uuid'])['paths'] ?? [];
+        $this->assert_global_attached_file_authorities($id, array_values(array_unique([...$ownedPriorPaths, ...$selectedPriorPaths])));
         $this->filesystem->register_attachment($id, $front, $ownedPriorPaths);
         return [$lock, $priorBackupRows];
     }
