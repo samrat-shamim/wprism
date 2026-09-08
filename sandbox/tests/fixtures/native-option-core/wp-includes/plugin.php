@@ -19,6 +19,11 @@ function wprism_fixture_filter_dispatch(string $name, mixed $value, mixed ...$ar
             return $gate->apply_filters($value, array_merge([$value], $args));
         }
         foreach (wprism_wp_store()->sortedHooks($name) as $entry) {
+            // Count outside the retained closure: adding a counter to that
+            // exact stock body would destroy the admission premise under test.
+            if (($GLOBALS['native_permalink_tracked_callback'] ?? null) === $entry['callback']) {
+                $GLOBALS['native_permalink_tracked_calls']++;
+            }
             $value = ($entry['callback'])(...array_slice(array_merge([$value], $args), 0, max(1, $entry['accepted_args'])));
         }
         return $value;

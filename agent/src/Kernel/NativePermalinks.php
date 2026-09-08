@@ -196,13 +196,56 @@ final class NativePermalinks {
                 ]],
                 default => [],
             };
-            if ($hook->callbacks !== $expected) $this->refuse('found an unreviewed native permalink hook participant');
+            if ($hook->callbacks !== $expected && !($name === 'home_url' && $this->stock_cli_home($hook->callbacks))) {
+                $this->refuse('found an unreviewed native permalink hook participant on ' . $name);
+            }
             $this->hooks[$name] = ['object' => $hook, 'callbacks' => $hook->callbacks];
         }
         if (defined('WP_HOME') && (!is_string(WP_HOME) || strlen(WP_HOME) > self::MAX_URL_BYTES || WP_HOME === '')) {
             $this->refuse('found a malformed constant-home participant input');
         }
         if (defined('WP_HOME')) $this->assert_home_input(WP_HOME);
+    }
+
+    private function stock_cli_home(array $callbacks): bool {
+        if (!defined('WP_CLI') || WP_CLI !== true || !class_exists('WP_CLI\\Runner', false)
+            || array_keys($callbacks) !== [0] || !is_array($callbacks[0]) || count($callbacks[0]) !== 1) return false;
+        $entry = reset($callbacks[0]);
+        if (!is_array($entry) || array_keys($entry) !== ['function', 'accepted_args'] || $entry['accepted_args'] !== 4
+            || !($entry['function'] instanceof \Closure)) return false;
+        $reflection = new \ReflectionFunction($entry['function']);
+        $file = $reflection->getFileName();
+        if (!$reflection->isStatic() || $reflection->getClosureThis() !== null || $reflection->getStaticVariables() !== []
+            || $reflection->getClosureScopeClass()?->getName() !== 'WP_CLI\\Runner' || !is_string($file)
+            || $file !== (new \ReflectionClass('WP_CLI\\Runner'))->getFileName()) return false;
+        foreach (['get_option', 'is_multisite', 'switch_to_blog', 'restore_current_blog', 'is_string', 'ltrim'] as $name) {
+            if (function_exists('WP_CLI\\' . $name)) return false;
+        }
+        $first = $reflection->getStartLine();
+        $last = $reflection->getEndLine();
+        if (!is_int($first) || !is_int($last) || $first < 1 || $last < $first || $last - $first >= 64) return false;
+        // Runner lives inside the CLI PHAR: realpath would erase valid source
+        // identity. Bound the actual read before allocation, and admit only
+        // the retained closure's ordered tokens, never a class-wide exemption.
+        $source = @file_get_contents($file, false, null, 0, 1048577);
+        if (!is_string($source) || strlen($source) > 1048576) return false;
+        $lines = explode("\n", $source);
+        if ($last > count($lines)) return false;
+        $body = implode("\n", array_slice($lines, $first - 1, $last - $first + 1));
+        if (strlen($body) > 4096) return false;
+        $tokens = [];
+        foreach (token_get_all('<?php ' . $body) as $token) {
+            if (is_array($token) && in_array($token[0], [T_OPEN_TAG, T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) continue;
+            $tokens[] = is_array($token) ? [token_name($token[0]), $token[1]] : $token;
+        }
+        if (in_array(end($tokens), [',', ';'], true)) array_pop($tokens);
+        // WP_CLI/Runner.php:1679-1693 in CLI image d13d24155d6c: static,
+        // capture-free home_url override. With our null blog ID it consumes
+        // only admitted get_option(home) and the supplied path, intentionally
+        // retaining home scheme even under HTTPS. Adjacent site_url differs.
+        // Token names (not PHP-version-specific numeric IDs) retain boundaries.
+        return hash('sha256', json_encode($tokens, JSON_THROW_ON_ERROR))
+            === '88cbe604833487454010fccfb7ef6c5703b1278f7bcec80d4d99e8451c5a2561';
     }
 
     private function physical_posts(): array {

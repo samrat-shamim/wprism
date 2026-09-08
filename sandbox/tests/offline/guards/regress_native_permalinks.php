@@ -31,6 +31,7 @@ if (str_starts_with($sourceControl, '--constant-')) {
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/native_permalink_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../fixtures/native-option-core/wp-cli-runner.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderDatabaseSession.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Kernel/NativePermalinks.php';
 
@@ -77,6 +78,8 @@ function permalink_fixture(?array $posts = null, array $options = []): FakeWpdb 
             'publicly_queryable' => $status === 'publish', '_builtin' => true, 'public' => $status === 'publish'];
     }
     unset($GLOBALS['post'], $_SERVER['HTTPS'], $_SERVER['SERVER_PORT']);
+    unset($GLOBALS['native_permalink_tracked_callback']);
+    $GLOBALS['native_permalink_tracked_calls'] = 0;
     PermalinkCloneProbe::$clones = 0;
     $rows = [];
     foreach (array_replace(['home' => 'http://current.invalid/base', 'permalink_structure' => '/%year%/%postname%/',
@@ -127,6 +130,32 @@ function permalink_refuses(string $label, array $ids = [7], string $message = ''
     wprism_check_throws(static fn() => permalink_read($ids), RuntimeException::class, $label, $message);
     wprism_check_same($before, [$wpdb->rows('wp_posts'), $wpdb->rows('wp_options')], $label . ': complete physical inputs survive');
     wprism_check(!DatabaseQueryIsolation::is_active(), $label . ': owner settles isolation');
+}
+
+function permalink_cli_hook(?Closure $callback = null, int $priority = 0, int $args = 4): Closure {
+    $callback ??= WP_CLI\Runner::home();
+    $GLOBALS['native_permalink_tracked_callback'] = $callback;
+    add_filter('home_url', $callback, $priority, $args);
+    $GLOBALS['wp_filter']['home_url']->callbacks = [$priority => [spl_object_hash($callback) => [
+        'function' => $callback, 'accepted_args' => $args,
+    ]]];
+    return $callback;
+}
+
+if (str_starts_with($sourceControl, '--cli-')) {
+    if ($sourceControl !== '--cli-missing-flag') define('WP_CLI', match ($sourceControl) {
+        '--cli-false-flag' => false, '--cli-nonbool-flag' => 1, default => true,
+    });
+    if (str_starts_with($sourceControl, '--cli-shadow-')) require __DIR__ . '/../../fixtures/native-option-core/wp-cli-shadow.php';
+    permalink_fixture();
+    permalink_cli_hook();
+    $GLOBALS['foreign_native_calls'] = 0;
+    $refused = false;
+    try { permalink_read(); } catch (RuntimeException $failure) { $refused = str_contains($failure->getMessage(), 'participant'); }
+    if (!$refused || $GLOBALS['native_permalink_tracked_calls'] !== 0 || $GLOBALS['foreign_native_calls'] !== 0
+        || DatabaseQueryIsolation::is_active()) throw new RuntimeException('unreviewed CLI participant executed or escaped refusal');
+    echo "CLI participant refused before call\n";
+    exit(0);
 }
 
 if (str_starts_with($sourceControl, '--source-')) {
@@ -202,6 +231,37 @@ wprism_check_same([$expected['home'] . '/'], permalink_read()['permalinks'], 'ph
 permalink_fixture();
 $_SERVER['HTTPS'] = 'on';
 wprism_check_same('https://current.invalid/base', permalink_read()['home'], 'native HTTPS request context is an explicit input');
+
+define('WP_CLI', true);
+permalink_fixture();
+$cliHook = permalink_cli_hook();
+$_SERVER['HTTPS'] = 'on';
+wprism_check_same(['home' => $expected['home'], 'permalinks' => [$expected['home'] . '/2026/fixture/']], permalink_read(),
+    'stock WP-CLI home participant deliberately retains durable-home scheme under HTTPS');
+wprism_check($GLOBALS['native_permalink_tracked_calls'] > 0, 'retained CLI closure actually executed through native dispatcher');
+wprism_check_same($cliHook, reset($GLOBALS['wp_filter']['home_url']->callbacks[0])['function'], 'reader preserves the stock CLI hook identity');
+foreach ([[-1, 4], [10, 4], [0, 0], [0, 3], [0, 5]] as [$priority, $args]) {
+    permalink_fixture();
+    permalink_cli_hook(priority: $priority, args: $args);
+    permalink_refuses('CLI hook priority/arity are exact: ' . $priority . '/' . $args, message: 'participant');
+    wprism_check_same(0, $GLOBALS['native_permalink_tracked_calls'], 'wrong CLI registration never runs');
+}
+$foreignCli = require __DIR__ . '/../../fixtures/native-option-core/wp-cli-foreign.php';
+foreach (['captures' => WP_CLI\Runner::captured(), 'nonstatic' => WP_CLI\Runner::nonstatic(),
+    'bound_this' => WP_CLI\Runner::nonstatic()->bindTo(new WP_CLI\Runner(), WP_CLI\Runner::class),
+    'static_state' => WP_CLI\Runner::static_state(), 'different_body' => WP_CLI\Runner::different_body(),
+    'wrong_scope' => WP_CLI\Runner::home()->bindTo(null, PermalinkCloneProbe::class),
+    'wrong_file' => $foreignCli->bindTo(null, WP_CLI\Runner::class)] as $fault => $callback) {
+    permalink_fixture();
+    permalink_cli_hook($callback);
+    permalink_refuses('CLI closure authority cannot be substituted: ' . $fault, message: 'participant');
+    wprism_check_same(0, $GLOBALS['native_permalink_tracked_calls'], 'unreviewed CLI closure is refused before dispatch: ' . $fault);
+}
+permalink_fixture();
+permalink_cli_hook();
+add_filter('home_url', static fn($url) => $url, 0, 4);
+permalink_refuses('stock CLI hook does not admit an additional callback', message: 'participant');
+wprism_check_same(0, $GLOBALS['native_permalink_tracked_calls'], 'mixed CLI topology refuses before even the stock callback');
 
 foreach ([[0], ['7'], [-1], [true], [7, 7], [1 => 7], range(1, 129)] as $ids) {
     permalink_fixture();
@@ -349,7 +409,9 @@ foreach (['wp_template', 'wp_template_part', 'wp_block', 'nav_menu_item', 'user_
 }
 
 foreach (['--source-parser', '--source-multisite', '--source-registry', '--source-dispatcher',
-    '--constant-different', '--constant-same', '--constant-invalid'] as $control) {
+    '--constant-different', '--constant-same', '--constant-invalid',
+    '--cli-missing-flag', '--cli-false-flag', '--cli-nonbool-flag', '--cli-shadow-get_option', '--cli-shadow-is_multisite',
+    '--cli-shadow-switch_to_blog', '--cli-shadow-restore_current_blog', '--cli-shadow-is_string', '--cli-shadow-ltrim'] as $control) {
     $process = proc_open([PHP_BINARY, __FILE__, $control], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     fclose($pipes[0]);
     $stdout = stream_get_contents($pipes[1]);
@@ -358,7 +420,8 @@ foreach (['--source-parser', '--source-multisite', '--source-registry', '--sourc
     $exit = proc_close($process);
     wprism_check_same(0, $exit, 'isolated native source/configuration control: ' . $control);
     wprism_check_same('', $stderr, 'source/configuration control has no warnings: ' . $control);
-    wprism_check_same(str_starts_with($control, '--source-') ? "source refused before call\n" : "constant participant verified\n",
+    wprism_check_same(str_starts_with($control, '--source-') ? "source refused before call\n"
+        : (str_starts_with($control, '--cli-') ? "CLI participant refused before call\n" : "constant participant verified\n"),
         $stdout, 'source/configuration control proves its complete expected result');
 }
 
@@ -394,6 +457,7 @@ $evidenceUrls = [
     'warm_pages' => ['/grand/parent/page-publish/', '/?page_id=9', '/?page_id=10', '/?page_id=11', '/?page_id=12'],
     'custom_types' => ['/library/grand/parent/book/', '/?post_type=wprism_probe_book&p=14'],
     'builtin_template' => ['/2026/native-template/'],
+    'cli_scheme' => ['/2026/post-publish/'],
     'front_page' => ['/'], 'plain' => ['/?p=3', '/?page_id=8', '/?wprism_probe_book=grand/parent/book'],
     'index' => ['/index.php/grand/parent/page-publish/'], 'no_slash' => ['/grand/parent/page-publish'], 'absent' => [false],
 ];

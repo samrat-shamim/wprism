@@ -19,6 +19,7 @@ function native_permalink_vectors(array $ids, string $home): array {
         'custom_types' => ['home' => $home, 'permalinks' => [$home . '/library/grand/parent/book/',
             $home . '/?post_type=wprism_probe_book&p=' . $ids['book_private']]],
         'builtin_template' => ['home' => $home, 'permalinks' => [$home . '/2026/native-template/']],
+        'cli_scheme' => ['home' => $home, 'permalinks' => [$home . '/2026/post-publish/']],
         'front_page' => ['home' => $home, 'permalinks' => [$home . '/']],
         'plain' => ['home' => $home, 'permalinks' => [$home . '/?p=' . $ids['post_publish'],
             $home . '/?page_id=' . $ids['page_publish'], $home . '/?wprism_probe_book=grand/parent/book']],
@@ -155,6 +156,14 @@ function native_permalink_reject(callable $operation, string $label, array &$ref
 
 global $wpdb;
 native_permalink_require(wp_get_current_user()->ID === 0 && !defined('WP_HOME'), 'ordinary anonymous unconstrained-home fixture boot');
+$cliCallbacks = $GLOBALS['wp_filter']['home_url']->callbacks ?? null;
+native_permalink_require(defined('WP_CLI') && WP_CLI === true && is_array($cliCallbacks)
+    && array_keys($cliCallbacks) === [0] && is_array($cliCallbacks[0]) && count($cliCallbacks[0]) === 1,
+    'real CLI home participant is present, never removed for a passing premise');
+$cliEntry = reset($cliCallbacks[0]);
+native_permalink_require(($cliEntry['function'] ?? null) instanceof Closure && ($cliEntry['accepted_args'] ?? null) === 4
+    && (new ReflectionFunction($cliEntry['function']))->getClosureScopeClass()?->getName() === 'WP_CLI\\Runner',
+    'real CLI home participant has Runner provenance');
 $initialRows = native_permalink_rows(true);
 $initial = $initialRows;
 foreach ($initial as &$witness) unset($witness['rows']);
@@ -204,6 +213,13 @@ try {
     $observations['warm_pages'] = native_permalink_read($pageIds);
     $observations['custom_types'] = native_permalink_read([$ids['book_publish'], $ids['book_private']]);
     $observations['builtin_template'] = native_permalink_read([$ids['template']]);
+    $savedHttps = array_key_exists('HTTPS', $_SERVER) ? ['value' => $_SERVER['HTTPS']] : null;
+    $_SERVER['HTTPS'] = 'on';
+    try { $observations['cli_scheme'] = native_permalink_read([$ids['post_publish']]); }
+    finally {
+        if ($savedHttps === null) unset($_SERVER['HTTPS']);
+        else $_SERVER['HTTPS'] = $savedHttps['value'];
+    }
     foreach (['stale_primary' => $ids['post_publish'], 'stale_ancestor' => $ids['parent']] as $label => $id) {
         $row = wp_cache_get($id, 'posts');
         native_permalink_require(is_object($row), 'native raw cache was warmed');

@@ -1071,7 +1071,13 @@ registry and request-scheme inputs, and the relevant hook topology. The stock
 constant-home filter and, for private links, the three stock capability filters
 are reviewed participants. A defined `WP_HOME` is separate immutable
 configuration authority and may intentionally override the durable `home`
-row; the returned batch uses that effective native home. The complete physical
+row; the returned batch uses that effective native home. WP-CLI's stock
+`home_url` closure is separately admitted at its exact priority/arity, Runner
+source provenance and normalized token identity, without captures, bound
+objects or namespace-shadowed functions. Its intentional scheme override
+retains the effective option's scheme even under an HTTPS request. This is
+not permission to remove the CLI hook, admit other Runner callbacks or accept
+foreign URL filters. The complete physical
 options table and warm alloptions cache are separately allocation-bounded
 (8,192 entries / 16 MiB, 1 MiB per value), including unrelated entries, because
 the native loader can load that whole map. Native functions/classes retain core provenance.
