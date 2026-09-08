@@ -7,6 +7,7 @@ require_once __DIR__ . '/provider-library.php';
 $phase = $args[0] ?? '';
 $case = $args[1] ?? 'baseline';
 $targetKind = $args[2] ?? 'seeded';
+$settingsProfile = $args[4] ?? '0';
 $recordPath = WP_CONTENT_DIR . '/wprism-wpforms-apply-native.json';
 $check = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException('WPForms native Apply fixture: ' . $message);
@@ -14,6 +15,20 @@ $check = static function (bool $condition, string $message): void {
 $check(defined('WPFORMS_VERSION') && WPFORMS_VERSION === '2.0.1.1' && !wpforms()->is_pro(), 'exact native Lite release');
 $check(current_user_can('manage_options'), 'native fixture administrator');
 $check(in_array($targetKind, ['seeded', 'empty'], true), 'declared target content premise');
+$check(in_array($settingsProfile, ['0', '1'], true) && ($settingsProfile === '0' || $targetKind === 'seeded'), 'explicit seeded-target settings profile');
+if ($settingsProfile === '1') {
+    require_once __DIR__ . '/native-settings.php';
+    if ($phase === 'settings-author') {
+        [$side, $view] = explode('-', $case, 2);
+        WPFormsNativeSettings::author($args[3] ?? '', $side, $view);
+        return;
+    }
+    if ($phase === 'settings-local') {
+        $check($case === 'target', 'only the target receives synthetic local residues');
+        echo wp_json_encode(WPFormsNativeSettings::local(), JSON_THROW_ON_ERROR);
+        return;
+    }
+}
 if ($phase === 'setup') {
     if ($case === 'source') {
         $check(!file_exists('/siterepo/site.wprism.json'), 'new authored-state repository, never strip a code baseline');
@@ -214,4 +229,5 @@ echo wp_json_encode(['format' => 'wprism-wpforms-apply-observation/v1', 'case' =
     'widgets' => $locator->search_in_widgets(),
     'widget_options' => ['wpforms-widget' => get_option('widget_wpforms-widget', []), 'block' => $blockWidgets],
     'block_form_ids' => $blockFormIds,
-    'owned' => $owned, 'padding' => $padding] + $emptyWitness, JSON_THROW_ON_ERROR);
+    'owned' => $owned, 'padding' => $padding] + $emptyWitness
+    + ($settingsProfile === '1' ? ['settings' => WPFormsNativeSettings::observe(), 'settings_consumers' => WPFormsNativeSettings::consumers()] : []), JSON_THROW_ON_ERROR);
