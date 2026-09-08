@@ -80,6 +80,7 @@
     "NativeOptionInputs",
     "NativeCoreCache",
     "NativePostTypes",
+    "NativePermalinks",
     "ExactOptionWriter",
     "ExecutableTreeIdentity",
     "FilesystemTreeSnapshot",
@@ -157,7 +158,7 @@
             ]
           }
         ],
-        "file_count": 78,
+        "file_count": 79,
         "files": [
           "ActionTriggerMatcher.php",
           "BlockAttributeReader.php",
@@ -191,6 +192,7 @@
     "NativeOptionInputs.php",
     "NativeCoreCache.php",
     "NativePostTypes.php",
+    "NativePermalinks.php",
     "NativeTableDefinition.php",
     "NativeValueValidation.php",
           "MediaPayloadAuthority.php",

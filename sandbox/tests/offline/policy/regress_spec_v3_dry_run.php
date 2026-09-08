@@ -842,6 +842,7 @@ wprism_check_same(
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
         'provider-native-option-inputs/v1',
+        'provider-native-permalinks/v1',
         'provider-native-post-types/v1',
         'provider-physical-table-rows/v1',
         'provider-typed-row-mutations/v1',
@@ -853,7 +854,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries twenty-four names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries the implemented names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented

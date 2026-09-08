@@ -42,6 +42,7 @@ final class AdapterPackageValidator
         'conformance/asserts.sh',
         'lib/pair_identity.sh',
         'lib/pair_db.sh',
+        'tests/lib/pair_live_ownership.sh',
         'tests/lib/private_command_capture.sh',
         'tests/lib/conformance_private_command.sh',
         'tests/lib/wordpress_cron_window.sh',

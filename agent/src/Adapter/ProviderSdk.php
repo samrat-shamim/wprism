@@ -9,6 +9,7 @@ require_once __DIR__ . '/../Kernel/FilesystemTreeSnapshot.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/NativeOptionInputs.php';
 require_once __DIR__ . '/../Kernel/NativePostTypes.php';
+require_once __DIR__ . '/../Kernel/NativePermalinks.php';
 require_once __DIR__ . '/../Kernel/PhpLiteralData.php';
 require_once __DIR__ . '/../Kernel/PhysicalTableRows.php';
 require_once __DIR__ . '/../Kernel/TermRows.php';
@@ -59,6 +60,7 @@ final class ProviderSdk {
     public const TYPED_ROW_MUTATIONS_FEATURE = 'provider-typed-row-mutations/v1';
     public const NATIVE_OPTION_INPUTS_FEATURE = 'provider-native-option-inputs/v1';
     public const NATIVE_POST_TYPES_FEATURE = 'provider-native-post-types/v1';
+    public const NATIVE_PERMALINKS_FEATURE = 'provider-native-permalinks/v1';
     public const DATABASE_POSTIMAGE_APPLIED = 'applied';
     public const DATABASE_POSTIMAGE_NOT_APPLIED = 'not_applied';
     public const DATABASE_POSTIMAGE_UNKNOWN = 'unknown';
@@ -146,6 +148,21 @@ final class ProviderSdk {
         self::load_database_session();
         Db::transaction_authority($context . ' native post type authority');
         return NativePostTypes::read($ids, $context);
+    }
+
+    /** Current home and an owned native permalink batch; no caller-authored URL or callback. */
+    public static function checked_native_permalinks(array $ids, string $context): array {
+        $profile = self::active_database_profile($context);
+        global $wpdb;
+        if (!is_object($wpdb) || array_diff([$wpdb->posts, $wpdb->options], $profile->readable_tables()) !== []) {
+            throw new \RuntimeException("wprism: $context requested native permalinks outside its active manifest-provider contract");
+        }
+        if (!DatabaseQueryIsolation::has_bound_profile() || DatabaseQueryIsolation::bound_profile_is_read_only()) {
+            throw new \RuntimeException("wprism: $context native permalinks require the authorized mutation callback");
+        }
+        self::load_database_session();
+        Db::transaction_authority($context . ' native permalink authority');
+        return NativePermalinks::read($ids, $context);
     }
 
     public static function checked_get_var(string $sql, string $context, $wpdb = null): mixed {

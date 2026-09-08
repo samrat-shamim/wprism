@@ -1545,6 +1545,7 @@ SH
     {
         return [
             'private capture' => ['tests/lib/private_command_capture.sh'],
+            'disposable pair ownership' => ['tests/lib/pair_live_ownership.sh'],
             'native conformance diagnostics' => ['tests/lib/conformance_private_command.sh'],
             'native cron window' => ['tests/lib/wordpress_cron_window.sh'],
             'disposable pair ownership' => ['tests/lib/pair_live_ownership.sh'],
