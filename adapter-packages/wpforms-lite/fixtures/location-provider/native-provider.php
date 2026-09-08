@@ -51,11 +51,17 @@ $record = ['format' => 'wprism-wpforms-native-provider/v1', 'phase' => $phase, '
 if ($phase === 'setup') {
     $check(current_user_can('manage_options'), 'setup administrator required');
     $check(!file_exists($proof) && !is_link($proof) && mkdir($proof, 0700), 'unoccupied private proof root');
-    $bootstrap = WPMU_PLUGIN_DIR . '/wprism-wpforms-provider-fixture.php';
-    $check(!file_exists($bootstrap) && !is_link($bootstrap), 'unoccupied fixture bootstrap');
-    $bytes = "<?php\nrequire_once WPMU_PLUGIN_DIR . '/adapter-packages/wpforms-lite/fixtures/location-provider/native-provider-boot.php';\n";
+    // The sandbox owns a non-writable MU mount root. Install this disposable
+    // fixture through ordinary plugin activation, never relax that boundary
+    // or borrow root privileges merely to arrange a passing WordPress boot.
+    $plugin = 'wprism-wpforms-provider-fixture/wprism-wpforms-provider-fixture.php';
+    $bootstrap = WP_PLUGIN_DIR . '/' . $plugin;
+    $check(!file_exists(dirname($bootstrap)) && !is_link(dirname($bootstrap)) && mkdir(dirname($bootstrap), 0700), 'unoccupied fixture plugin');
+    $bytes = "<?php\n/* Plugin Name: WPrism WPForms provider fixture\nVersion: 1.0.0\n*/\nrequire_once WPMU_PLUGIN_DIR . '/adapter-packages/wpforms-lite/fixtures/location-provider/native-provider-boot.php';\n";
     $check(file_put_contents($bootstrap, $bytes) === strlen($bytes) && chmod($bootstrap, 0600), 'owned fixture bootstrap');
-    require_once __DIR__ . '/native-provider-boot.php';
+    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+    $activated = activate_plugin($plugin, '', false, true);
+    $check(!is_wp_error($activated) && is_plugin_active($plugin), 'ordinary fixture plugin activation');
     WPFormsLocationProviderLibrary::create(dirname(__DIR__, 4), $proof . '/library');
     $check(mkdir($proof . '/repo/state', 0700, true), 'private empty repository');
     WPrism\Canon::write_file($proof . '/repo/site.wprism.json', WPrism\Canon::encode([
