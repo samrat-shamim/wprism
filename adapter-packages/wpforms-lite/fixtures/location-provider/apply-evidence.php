@@ -5,6 +5,23 @@ require_once dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 
 /** Independent native semantics; shared transport/compiler own their contracts. */
 final class WPFormsApplyEvidence {
+    public static function stderrPattern(string $pair, string $root, string $name): string {
+        self::check(preg_match('/\A[a-z][a-z0-9]+\z/', $pair) === 1 && str_starts_with($root, '/'), 'exact diagnostic ownership');
+        $pattern = ' ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-z0-9]+ (?:Creating|Created) *';
+        // Only public candidate calls emit the shared lifecycle's pointer.
+        // This is a retained diagnostic location, never a success certificate.
+        if (preg_match('/\A(?:baseline|embeds|widgets|routing)-(capture|plan|apply|repeat|recapture|source-repeat)\z/', $name, $match) === 1) {
+            $verb = match ($match[1]) {
+                'repeat' => 'apply',
+                'recapture', 'source-repeat' => 'capture',
+                default => $match[1],
+            };
+            $prefix = 'private command diagnostics (unverified): ' . $root . '/sandbox/tmp/wprism-conformance-' . $verb . '.' . $pair . '.';
+            $pattern .= '|' . preg_quote($prefix, '/') . '[A-Za-z0-9]{6}';
+        }
+        return '/\A(?:' . $pattern . ')\z/';
+    }
+
     public static function selection(array $contract, array $plan, array $apply, array $repeat): void {
         self::check(($contract['format'] ?? null) === 'wprism-scope-contract/v1'
             && array_key_exists('code_diagnostic', $contract) && $contract['code_diagnostic'] === null, 'real content-only scope contract');
@@ -155,8 +172,14 @@ if (($argv[1] ?? null) === '--admit') {
     $sink = $argv[2] ?? '';
     $pair = $argv[3] ?? '';
     if (preg_match('/^[a-z][a-z0-9]+$/D', $pair) !== 1) throw new RuntimeException('WPForms Apply evidence: exact pair required');
-    $pattern = '/^ ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-z0-9]+ (Creating|Created) *$/D';
-    $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject($sink . '/' . $name, $pattern), true, 32, JSON_THROW_ON_ERROR);
+    // Reviewers run this verifier from their own checkout; the retained
+    // pointer belongs to the producer's sibling sink, not the review checkout.
+    $root = dirname($sink, 3);
+    if (dirname($sink) !== $root . '/sandbox/tmp' || preg_match('/\Awpforms-apply-native\.[A-Za-z0-9]{6}\z/', basename($sink)) !== 1) {
+        throw new RuntimeException('WPForms Apply evidence: exact retained sink required');
+    }
+    $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject($sink . '/' . $name,
+        WPFormsApplyEvidence::stderrPattern($pair, $root, $name)), true, 32, JSON_THROW_ON_ERROR);
     foreach ([1, 2] as $side) {
         $home = 'http://' . $pair . $side . '.invalid';
         $setup = $read('setup' . $side);

@@ -16,20 +16,28 @@ export WPRISM_SOURCE_ROOT="$REPO_ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA
 export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CODEBIND_PLUGIN=''
 . tests/lib/pair_live_ownership.sh
 . tests/lib/private_command_capture.sh
+. tests/lib/conformance_private_command.sh
 . tests/support/explicit_adapter_library.sh
 pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" 'WPForms native authored-state Apply evidence' 'wprism-wpf-apply'
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
+PAIR_COMPOSE=("${COMPOSE[@]}")
+WPRISM_ARTIFACT_LIBRARY_ROOT="$REPO_ROOT" CONF_PAIR="$PAIR"
 capture() {
   local name="$1" status=0 suffix
   shift
   for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/$name.$suffix"); done
   wprism_private_capture_stage "$sink" "$name" "$@" || status=$?
   [ "$status" -eq 0 ] || fail "native $name exited $status; retained $sink/$name"
-  php -r 'require $argv[1]; WPrismTest\PrivateCommandOutput::readBytes($argv[2], "/^ ?Container wprism-[a-z0-9]+-cli[12]-run-[a-z0-9]+ (Creating|Created) *$/D");' \
-    "$REPO_ROOT/sandbox/tests/lib/PrivateCommandOutput.php" "$sink/$name"
+  php -r 'require $argv[1]; require $argv[2]; WPrismTest\PrivateCommandOutput::readBytes($argv[3], WPFormsApplyEvidence::stderrPattern($argv[4], $argv[5], $argv[6]));' \
+    "$REPO_ROOT/sandbox/tests/lib/PrivateCommandOutput.php" "$PACKAGE_ROOT/fixtures/location-provider/apply-evidence.php" \
+    "$sink/$name" "$PAIR" "$REPO_ROOT" "$name"
 }
 wp_side() { local side="$1"; shift; "${COMPOSE[@]}" run --rm -T "cli$side" wp "$@"; }
-candidate() { local side="$1"; shift; wprism_with_adapter_library "cli$side" /var/www/html/wp-content/wprism-wpforms-apply-library "$@"; }
+candidate() {
+  local side="$1" command="$2"; shift 2
+  conformance_private_command "cli$side" "$command" wprism_with_adapter_library \
+    "cli$side" /var/www/html/wp-content/wprism-wpforms-apply-library "$command" "$@"
+}
 fixture=/var/www/html/wp-content/mu-plugins/adapter-packages/wpforms-lite/fixtures/location-provider/native-apply.php
 native() { local side="$1"; shift; wp_side "$side" eval-file "$fixture" "$@" --use-include --user=admin; }
 zip="${WPFORMS_APPLY_ZIP:?locked local WPForms 2.0.1.1 zip required}"

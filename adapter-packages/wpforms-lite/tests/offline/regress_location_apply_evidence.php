@@ -5,6 +5,23 @@ declare(strict_types=1);
 // fabricated native evidence or an alternative Apply implementation.
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 2) . '/fixtures/location-provider/apply-evidence.php';
+$pointer = 'private command diagnostics (unverified): /owned/root/sandbox/tmp/wprism-conformance-apply.wpfprov05.a1B2c3';
+$transport = WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'baseline-apply');
+wprism_check(preg_match($transport, $pointer) === 1, 'exact shared Apply diagnostic pointer is admitted');
+wprism_check(preg_match($transport, ' Container wprism-wpfprov05-cli2-run-abcdef123456 Created ') === 1, 'exact pair Compose prelude remains admitted');
+foreach (['foreign root' => str_replace('/owned/root', '/foreign/root', $pointer),
+    'foreign pair' => str_replace('wpfprov05', 'foreign', $pointer),
+    'foreign verb' => str_replace('-apply.', '-capture.', $pointer),
+    'warning after pointer' => $pointer . ' PHP Warning: unexpected',
+    'traversal' => $pointer . '/../other'] as $label => $line) {
+    wprism_check(preg_match($transport, $line) === 0, 'diagnostic admission refuses ' . $label);
+}
+wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'baseline-repeat'), $pointer) === 1,
+    'repeat binds the actual Apply verb');
+wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'baseline-recapture'), str_replace('-apply.', '-capture.', $pointer)) === 1,
+    'recapture binds the actual Capture verb');
+wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'baseline-source'), $pointer) === 0,
+    'native observation cannot smuggle a public-command diagnostic pointer');
 $action = ['manifest' => 'wpforms-lite', 'index' => 0, 'kind' => 'provider',
     'provider' => 'wpforms-form-locations', 'capability' => 'rebuild_form_locations', 'args' => [],
     'effects' => [['id' => 'location-rows']]];
