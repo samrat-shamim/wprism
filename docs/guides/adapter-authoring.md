@@ -2119,6 +2119,26 @@ plugin faithfully.
    private command stream; roster and metadata bounds do not grow. Keep
    before/after records separate and never truncate a tree to fit a budget.
 
+   Whole native databases have a different size envelope: merely opening the
+   WPForms template picker produced a 5,574,808-byte dump, including one full
+   prepared-template cache value. For such a fixture, explicitly select
+   `EvidenceSizeProfile::NATIVE_DATABASE` in `PrivateCommandOutput::readBytes()`
+   and in `SqlDumpEvidence::assertComplete()`, `structures()` and
+   `projectColumns()`. This admits at most 16 MiB of complete native SQL;
+   filesystem budgets, row/cell rosters and 64-KiB schema sections do not grow.
+   The old 2-MiB SQL budget remains default. Do not omit an operational cache
+   row or strip table options to fit the transport. The fixture still owns
+   every allowed physical change and must refuse beyond the selected bound.
+
+   Match a command's output contract to its role. A browser fill can validly
+   return `{}`; that is not a native-save evidence object. Keep ordinary UI
+   preparation separate from the strict nonempty collector record, and reject
+   explicit tool error envelopes even if a command reports exit zero. Bind
+   the actual collector argv and complete input bytes, not just a source hash
+   for code that may never have executed. A noninteractive collection command
+   inside a roster loop must receive closed stdin: otherwise `compose run`
+   can consume subsequent roster entries before the next `read`.
+
    Execute a PHP fixture with `wp eval-file --use-include` when it declares
    `strict_types` or resolves sibling files through `__DIR__`. WP-CLI's default
    evaluation mode is not an ordinary file include: the first native Polylang

@@ -72,6 +72,9 @@ proof that no work can ever run later. Missing bytes, failed lifecycle events,
 extra observed requests, tool errors or diagnostics refuse. The deterministic
 host-admission suite has **77 assertions**; native execution and delayed-request
 timing evidence are still required before this collector can support a gate.
+The later [launch preflight](native-qr-collector-preflight.md) stopped before
+Save and exposed a shared whole-database evidence budget gap. Its failed runs
+and retained large-dump replay do not fulfill that native-execution requirement.
 
 The measured Lite UI submits **five** QR controls. It does not submit
 `qr_code_logo_id`; the server supplies the sixth stored key. Its page placeholder

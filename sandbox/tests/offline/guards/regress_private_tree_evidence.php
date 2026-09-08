@@ -236,4 +236,31 @@ foreach (['nonzero', 'bad-exit', 'duplicate', 'array', 'empty-object', 'noise', 
     if ($fault === 'hardlink') unlink("$scratch/shared");
     if ($fault === 'symlink') { unlink("$stem.stdout"); unlink("$scratch/shared"); }
 }
+$reset();
+$databaseProfile = EvidenceSizeProfile::NATIVE_DATABASE;
+wprism_check_same(['tree_bytes' => 1048576, 'tree_record_bytes' => 1835008, 'stdout_bytes' => 16777216],
+    EvidenceSizeProfile::limits($databaseProfile), 'explicit native database profile increases only the command byte budget');
+$databaseBytes = str_repeat('x', 16777216);
+$write('stdout', $databaseBytes);
+wprism_check_same(hash('sha256', $databaseBytes), hash('sha256', PrivateCommandOutput::readBytes($stem, profile: $databaseProfile)),
+    'private opaque reader retains the exact 16-MiB whole-database boundary');
+wprism_check_throws(static fn() => PrivateCommandOutput::readBytes($stem), RuntimeException::class, 'database profile leaves compact default unchanged');
+wprism_check_throws(static fn() => PrivateCommandOutput::readBytes($stem, profile: EvidenceSizeProfile::CONFORMANCE_TREE), RuntimeException::class,
+    'database profile leaves the existing 2-MiB conformance stream unchanged');
+$write('stdout', $databaseBytes . 'x');
+wprism_check_throws(static fn() => PrivateCommandOutput::readBytes($stem, profile: $databaseProfile), RuntimeException::class,
+    'private native database stream refuses exactly one extra byte');
+unset($databaseBytes);
+wprism_check_throws(static fn() => FilesystemTreeEvidence::capture($largeRoot, 'state', $databaseProfile), RuntimeException::class,
+    'native database budget does not enlarge filesystem content authority');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($largeTree, 'state', $databaseProfile), RuntimeException::class,
+    'retained tree cannot use native database budget to enlarge content authority');
+$reset();
+$write('stderr', "PHP Warning: still fatal to evidence\n");
+wprism_check_throws(static fn() => PrivateCommandOutput::readBytes($stem, profile: $databaseProfile), RuntimeException::class,
+    'native database profile does not waive diagnostics');
+$reset();
+chmod("$stem.stdout", 0644);
+wprism_check_throws(static fn() => PrivateCommandOutput::readBytes($stem, profile: $databaseProfile), RuntimeException::class,
+    'native database profile does not relax private stream ownership');
 wprism_check_summary('private filesystem tree evidence');

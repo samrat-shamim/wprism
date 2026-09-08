@@ -5,11 +5,14 @@ require_once dirname(__DIR__, 2) . '/lib/check.php';
 require_once dirname(__DIR__, 2) . '/lib/SqlDumpEvidence.php';
 
 use WPrismTest\SqlDumpEvidence;
+use WPrismTest\EvidenceSizeProfile;
 
 if (($argv[1] ?? null) === '--bounded-projection') {
     $case = $argv[2] ?? '';
     $rows = match ($case) {
         'large-unselected' => "INSERT INTO `fixture` (`id`, `body`) VALUES (1,'" . str_repeat('x', 1900000) . "');\n",
+        'native-large-unselected' => "INSERT INTO `fixture` (`id`, `body`) VALUES (1,'" . str_repeat('x', 15000000) . "');\n",
+        'native-large-selected' => "INSERT INTO `fixture` (`id`, `body`) VALUES (1,'" . str_repeat('x', 5386435) . "');\n",
         'row-boundary' => str_repeat("INSERT INTO `fixture` (`id`) VALUES (1);\n", 10000),
         'row-overflow' => str_repeat("INSERT INTO `fixture` (`id`) VALUES (1);\n", 50000),
         default => throw new RuntimeException('unknown constrained projection case'),
@@ -17,7 +20,10 @@ if (($argv[1] ?? null) === '--bounded-projection') {
     $bytes = "CREATE TABLE `fixture` (\n);\n" . $rows;
     unset($rows);
     try {
-        $result = ['accepted' => true, 'rows' => count(SqlDumpEvidence::projectColumns($bytes, 'fixture', ['id']))];
+        $profile = str_starts_with($case, 'native-') ? EvidenceSizeProfile::NATIVE_DATABASE : EvidenceSizeProfile::CONFORMANCE_TREE;
+        $selected = SqlDumpEvidence::projectColumns($bytes, 'fixture', $case === 'native-large-selected' ? ['id', 'body'] : ['id'], $profile);
+        $result = ['accepted' => true, 'rows' => count($selected)];
+        if ($case === 'native-large-selected') $result['body_bytes'] = strlen($selected[0]['body']);
     } catch (RuntimeException $failure) {
         $result = ['accepted' => false, 'rows' => null];
     }
@@ -189,5 +195,61 @@ foreach (['large-unselected' => 1, 'row-boundary' => 10000, 'row-overflow' => nu
     wprism_check(($result['accepted'] ?? null) === ($expectedRows !== null) && ($result['rows'] ?? null) === $expectedRows
         && ($result['limit'] ?? null) === '16M' && is_int($result['peak_bytes'] ?? null) && $result['peak_bytes'] <= 16777216,
         "bounded projection $case has its exact admission verdict rather than an allocation failure");
+}
+$databaseProfile = EvidenceSizeProfile::NATIVE_DATABASE;
+$largeDatabase = $projectDump($insert("7,'" . str_repeat('q', 5386435) . "',NULL"));
+foreach ([static fn() => SqlDumpEvidence::assertComplete($largeDatabase, ['fixture'], ['fixture']),
+    static fn() => SqlDumpEvidence::structures($largeDatabase, ['fixture'], ['fixture']),
+    static fn() => SqlDumpEvidence::projectColumns($largeDatabase, 'fixture', ['id'])] as $defaultRead) {
+    wprism_check_throws($defaultRead, RuntimeException::class, 'complete native database cannot enlarge the default 2-MiB budget');
+}
+SqlDumpEvidence::assertComplete($largeDatabase, ['fixture'], ['fixture'], $databaseProfile);
+wprism_check(true, 'explicit native database profile admits a complete measured-size cache row without filtering it');
+wprism_check_same(['fixture'], array_keys(SqlDumpEvidence::structures($largeDatabase, ['fixture'], ['fixture'], $databaseProfile)),
+    'opaque structures propagate the caller-selected database budget into complete admission');
+$largeRows = SqlDumpEvidence::projectColumns($largeDatabase, 'fixture', ['id', 'payload', 'unused'], $databaseProfile);
+wprism_check(count($largeRows) === 1 && $largeRows[0]['id'] === 7 && $largeRows[0]['unused'] === null
+    && strlen($largeRows[0]['payload']) === 5386435 && hash('sha256', $largeRows[0]['payload']) === hash('sha256', str_repeat('q', 5386435)),
+    'all-column projection preserves the entire large native scalar rather than omitting or truncating it');
+unset($largeRows, $largeDatabase);
+$databaseLimit = 16777216;
+$emptyScalarDump = $projectDump($insert("7,'',NULL"));
+$boundaryDatabase = $projectDump($insert("7,'" . str_repeat('x', $databaseLimit - strlen($emptyScalarDump)) . "',NULL"));
+wprism_check_same($databaseLimit, strlen($boundaryDatabase), 'native database fixture reaches exactly the declared byte boundary');
+SqlDumpEvidence::assertComplete($boundaryDatabase, ['fixture'], ['fixture'], $databaseProfile);
+wprism_check_same(['fixture'], array_keys(SqlDumpEvidence::structures($boundaryDatabase, ['fixture'], ['fixture'], $databaseProfile)),
+    'complete schema evidence admits the exact 16-MiB database boundary');
+wprism_check_same([['id' => 7]], SqlDumpEvidence::projectColumns($boundaryDatabase, 'fixture', ['id'], $databaseProfile),
+    'bounded projection admits the exact whole-database byte boundary');
+$overflowDatabase = str_replace("VALUES (7,'", "VALUES (7,'x", $boundaryDatabase);
+unset($boundaryDatabase);
+foreach ([static fn() => SqlDumpEvidence::assertComplete($overflowDatabase, ['fixture'], ['fixture'], $databaseProfile),
+    static fn() => SqlDumpEvidence::structures($overflowDatabase, ['fixture'], ['fixture'], $databaseProfile),
+    static fn() => SqlDumpEvidence::projectColumns($overflowDatabase, 'fixture', ['id'], $databaseProfile)] as $largeRead) {
+    wprism_check_throws($largeRead, RuntimeException::class, 'one extra native database byte refuses independently of valid framing');
+}
+unset($overflowDatabase);
+foreach ([static fn() => SqlDumpEvidence::assertComplete($dump, $tables, $tables, 'native-database/v2'),
+    static fn() => SqlDumpEvidence::structures($dump, $tables, $tables, 'native-database/v2'),
+    static fn() => SqlDumpEvidence::projectColumns($dump, 'wp_options', ['id'], 'native-database/v2')] as $unknownRead) {
+    wprism_check_throws($unknownRead, RuntimeException::class, 'every SQL entrypoint rejects unknown caller budgets');
+}
+wprism_check_throws(static fn() => SqlDumpEvidence::structures($boundedStructure . 'x', $tables, $tables, $databaseProfile),
+    RuntimeException::class, 'large database authority does not relax native footer framing');
+wprism_check_throws(static fn() => SqlDumpEvidence::structures(str_replace("CREATE TABLE `wp_options` (\n", "x\nCREATE TABLE `wp_options` (\n", $boundedStructure), $tables, $tables, $databaseProfile),
+    RuntimeException::class, 'large database authority does not relax the per-structure bound');
+wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump(str_repeat($oneRow, 10001)), 'fixture', ['id'], $databaseProfile),
+    RuntimeException::class, 'large database authority does not enlarge the row roster');
+wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump(str_repeat($four, 8193)), 'fixture', ['a', 'b', 'c', 'd'], $databaseProfile),
+    RuntimeException::class, 'large database authority does not enlarge the projected cell roster');
+foreach (['native-large-unselected', 'native-large-selected'] as $case) {
+    [$status, $stdout, $stderr] = \WPrismTest\ShellProbe::run('exec "$1" -d memory_limit=64M "$2" --bounded-projection "$3"',
+        [PHP_BINARY, __FILE__, $case], dirname(__DIR__, 4));
+    wprism_check($status === 0 && $stderr === '', "$case completes under an actual 64-MiB ceiling without runtime diagnostics");
+    $result = json_decode($stdout, true, 32, JSON_THROW_ON_ERROR);
+    wprism_check(($result['accepted'] ?? null) === true && ($result['rows'] ?? null) === 1
+        && ($result['limit'] ?? null) === '64M' && $result['peak_bytes'] <= 67108864
+        && ($case !== 'native-large-selected' || ($result['body_bytes'] ?? null) === 5386435),
+        "$case preserves its complete selected projection within the measured process ceiling");
 }
 wprism_check_summary('native SQL dump evidence');

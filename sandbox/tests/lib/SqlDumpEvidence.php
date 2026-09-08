@@ -39,7 +39,7 @@ final class SqlDumpEvidence {
      * prevents an empty/subset dump being accepted merely because it is stable.
      * This closed disposable-fixture protocol admits base tables only.
      */
-    public static function assertComplete(string $bytes, array $tables, array $nonemptyTables): void {
+    public static function assertComplete(string $bytes, array $tables, array $nonemptyTables, string $profile = EvidenceSizeProfile::CONFORMANCE_TREE): void {
         if ($tables === [] || !array_is_list($tables) || count($tables) > 128
             || $nonemptyTables === [] || !array_is_list($nonemptyTables) || count($nonemptyTables) > 128) {
             throw new \RuntimeException('database dump requires a complete roster and nonempty fixture premises');
@@ -56,7 +56,7 @@ final class SqlDumpEvidence {
             || array_diff($nonemptyTables, $tables) !== []) {
             throw new \RuntimeException('database dump requires a complete roster and nonempty fixture premises');
         }
-        if (strlen($bytes) > EvidenceSizeProfile::limits(EvidenceSizeProfile::CONFORMANCE_TREE)['stdout_bytes']
+        if (strlen($bytes) > EvidenceSizeProfile::limits($profile)['stdout_bytes']
             || preg_match('/\A(?:\/\*(?:M)?![^\n]*\*\/ ?\n)?-- (?:MySQL|MariaDB) dump [^\n]+\n/', $bytes) !== 1
             || !str_ends_with($bytes, "-- Dump completed\n")) {
             throw new \RuntimeException('database dump is oversized or missing its native header/completion marker');
@@ -83,8 +83,8 @@ final class SqlDumpEvidence {
      *
      * @return array<string,string>
      */
-    public static function structures(string $bytes, array $tables, array $nonemptyTables): array {
-        self::assertComplete($bytes, $tables, $nonemptyTables);
+    public static function structures(string $bytes, array $tables, array $nonemptyTables, string $profile = EvidenceSizeProfile::CONFORMANCE_TREE): array {
+        self::assertComplete($bytes, $tables, $nonemptyTables, $profile);
         preg_match_all('/^-- (Table structure|Dumping data) for table `([A-Za-z0-9_]+)`$/m', $bytes, $markers, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         $sections = [];
         for ($index = 0; $index < count($markers); $index += 2) {
@@ -144,8 +144,8 @@ final class SqlDumpEvidence {
      * @param list<string> $columns
      * @return list<array<string,int|string|null>>
      */
-    public static function projectColumns(string $bytes, string $table, array $columns): array {
-        if (strlen($bytes) > EvidenceSizeProfile::limits(EvidenceSizeProfile::CONFORMANCE_TREE)['stdout_bytes']
+    public static function projectColumns(string $bytes, string $table, array $columns, string $profile = EvidenceSizeProfile::CONFORMANCE_TREE): array {
+        if (strlen($bytes) > EvidenceSizeProfile::limits($profile)['stdout_bytes']
             || !preg_match('/\A[A-Za-z0-9_]{1,64}\z/', $table) || $columns === [] || !array_is_list($columns)
             || count($columns) > 128) {
             throw new \RuntimeException('database column projection has invalid or oversized authority');
