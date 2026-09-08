@@ -10,6 +10,8 @@ PAIR="${WPFORMS_APPLY_PAIR:?unique owned pair required}"
 PORT1="${WPFORMS_APPLY_PORT1:?even port required}"
 PORT2="${WPFORMS_APPLY_PORT2:?successor port required}"
 EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:?exact candidate SHA required}"
+TARGET_KIND="${WPFORMS_APPLY_TARGET_KIND:-seeded}"
+case "$TARGET_KIND" in seeded|empty) ;; *) fail 'target kind must be seeded or empty' ;; esac
 [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$EXPECTED_SHA" ] || fail 'wrong native evidence source'
 [ -z "$(git status --porcelain=v1 --untracked-files=all)" ] || fail 'dirty native evidence source'
 export WPRISM_SOURCE_ROOT="$REPO_ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"
@@ -38,7 +40,7 @@ candidate() {
   conformance_private_command "cli$side" "$command" wp_side "$side" wprism "$command" "$@"
 }
 fixture=/var/www/html/wp-content/mu-plugins/adapter-packages/wpforms-lite/fixtures/location-provider/native-apply.php
-native() { local side="$1"; shift; wp_side "$side" eval-file "$fixture" "$@" --use-include --user=admin; }
+native() { local side="$1"; shift; wp_side "$side" eval-file "$fixture" "$@" "$TARGET_KIND" --use-include --user=admin; }
 zip="${WPFORMS_APPLY_ZIP:?locked local WPForms 2.0.1.1 zip required}"
 [[ "$zip" = /* ]] && [ -f "$zip" ] || fail 'absolute native artifact path required'
 [ "$(shasum -a 256 "$zip" | cut -d ' ' -f 1)" = 6245074790df01a6e24a42587e024132b4a28fac499d1a8fa12ebf5580e4852b ] || fail 'wrong locked native plugin artifact'
@@ -95,5 +97,5 @@ for case_name in baseline embeds widgets routing; do
     cp -R "$state" "$sink/$case_name.$side/state"
   done
 done
-php "$PACKAGE_ROOT/fixtures/location-provider/apply-evidence.php" --admit "$sink" "$PAIR"
+php "$PACKAGE_ROOT/fixtures/location-provider/apply-evidence.php" --admit "$sink" "$PAIR" "$TARGET_KIND"
 pair_live_ownership_complete 'REGRESS_WPFORMS_LOCATION_APPLY PASSED'
