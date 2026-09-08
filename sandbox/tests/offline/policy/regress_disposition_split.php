@@ -358,6 +358,16 @@ const PRE_QI_CROP_YOAST_SNAPSHOT_SHA = '45fd42af992fa865417d0a8edb5e2e6351728cdc
 // Preserve the preceding crop-qualified Qi identity as its own transition.
 const PRE_QI_RECORD_FIELDS_DIGEST = '590ffbb979b8a049674c0813aa04216e159340ff7dec31a22e8664115e6753f9';
 
+// Withdrawing an overbroad native-clone claim moves only its disposition.
+// Preserve the exact preceding claim to check the other 18 entries unchanged.
+const PRE_MANAGED_CLONE_YDP_DIGEST = '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456';
+const PRE_MANAGED_CLONE_REGISTRY_SHA = 'd7fbe8e3aa12dbe2fbd1c0dfcfc209444e58c4dd8366586944602238f9cff3b6';
+const PRE_MANAGED_CLONE_RANK_MANIFEST_HASH = 'af24228b63b27dda4bf340809775f8340d5f9ed36446dce9c93018b3c19ae79b';
+const PRE_MANAGED_CLONE_YOAST_MANIFEST_HASH = 'c1aa6d89c57d244f5035b9298a2a43a604de25b005ef2b0c0183ab1ded1a9902';
+const PRE_MANAGED_CLONE_RANK_SNAPSHOT_SHA = 'e2a7c90b5759fd3a84de7d7a0826bc7dbbaf3bf3de4317aad3dfd414fe3948bc';
+const PRE_MANAGED_CLONE_YOAST_SNAPSHOT_SHA = '97e5aef666c52f3cb35e6c459d690afb7d7cf36da3c4b2bfec66e97692b585a5';
+const PRE_MANAGED_CLONE_YDP_REASON = 'Certified for exact Yoast Duplicate Post 4.7 on single-site WordPress with all 28 authored settings, native clone/taxonomy/meta behavior, large divergent post identities, durable _dp_original rewriting and plugin-native removal, settings/row-action/post-state/metabox rendering, a verified role-capability provider over hostile and missing-role targets, target-sovereign Rewrite & Republish residue, option and duplicated-post deletion authorization, conflict/force/idempotence, failure/retry, lifecycle residue and exact reinstall, credential-shaped-setting refusal, and official 4.6 refusal evidence.';
+
 /**
  * The current WPrism greenfield baseline. Unlike the historical split
  * overlays above, this map includes every currently shipped subject,
@@ -386,13 +396,13 @@ const WPRISM_CURRENT_DIGESTS = [
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
-    'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
+    'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '5f592bf669041ac78c787d9f69c1d3e980e03e0398175d8b2e7e8d13b3c7645b';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'fadf91c950aab92b0e7dd42e2651311ec97387de97dc9f3a8520c3e9bbdad22c';
-const WPRISM_CURRENT_REGISTRY_SHA = '86f4d5165015effabb10605a2d74c9259208182572414b73ec512d3808c0f198';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '95ad0844d65f284267996756f61d5f238569fadccb779d6b28514785dac1b103';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'b6d8fb580066143fa6fa08953dac140ee8be0f03a85be1f31d1891a1074b5619';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '16e71494c59307634541b725aef83618b54fcc7638384c2804953e51d57b9e4b';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'c1e83e5223987c126595854ae8d8dc99f1a1b020c41ab5749e66bf8abbd93dbc';
+const WPRISM_CURRENT_REGISTRY_SHA = '074e3eac800ba5ecbca42315f464139f14731767660ecc7ca432173bfc8c81a7';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '187877989496373c599eaf943dc9edef5c25c6deb281210409937b6235b6ad5b';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '8b4da6c849d129a401a4657a87fb7848a17d5465737c9d9d802db3366dcbc44d';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -731,8 +741,29 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
-$priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['wpforms-lite'], $priorRegistry['manifests']['change-wp-admin-login'], $priorRegistry['manifests']['qi-blocks']);
+$preManagedCloneRegistry = $shippedRegistry->data();
+// The upstream historical address predates the two capsules added here.
+unset($preManagedCloneRegistry['manifests']['change-wp-admin-login'], $preManagedCloneRegistry['manifests']['qi-blocks']);
+$priorYdp = &$preManagedCloneRegistry['manifests']['yoast-duplicate-post'];
+wprism_check_same('native-managed-duplication', $priorYdp['unsupported'][0]['surface'] ?? null,
+    'the withdrawn native workflow is the one explicit new unsupported boundary');
+$priorYdp['status'] = 'certified';
+$priorYdp['reason'] = PRE_MANAGED_CLONE_YDP_REASON;
+array_shift($priorYdp['unsupported']);
+unset($priorYdp);
+wprism_check_same(PRE_MANAGED_CLONE_REGISTRY_SHA, hash('sha256', Canon::encode($preManagedCloneRegistry)),
+    'restoring the withdrawn claim in the original subject set reconstructs the exact preceding registry; all other original dispositions are unchanged');
+wprism_check_same(['yoast-duplicate-post'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'yoast-duplicate-post' => PRE_MANAGED_CLONE_YDP_DIGEST,
+]))), 'the managed-clone readiness withdrawal moves only Yoast Duplicate Post identity');
+wprism_check(PRE_MANAGED_CLONE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+    && PRE_MANAGED_CLONE_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
+    && PRE_MANAGED_CLONE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA
+    && PRE_MANAGED_CLONE_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
+    && PRE_MANAGED_CLONE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    'withdrawing production authorization requires explicit recompile and re-pin in both containing worlds');
+$priorRegistry = $preManagedCloneRegistry;
+unset($priorRegistry['manifests']['wpforms-lite']);
 wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
     'all 18 pre-existing reviewed dispositions remain byte-identical after adding WPForms, AIO Login and Qi Blocks');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,

@@ -7,13 +7,14 @@
  * --------------------------------------------
  * `adapter-packages/<name>/package/disposition.json` carries a three-value
  * status and every read surface projects it BINARY. Measured on the shipped
- * library through the product path in PART 6 below: 16 of the 17 reviewed subjects print the same
+ * historical 17-subject library: 16 printed the same
  * word, `certified`. Their evidence is not the same. `acf` carries 11 of its
  * 11 applicable scenario families; `polylang` and `woocommerce` carry 12 of 12
  * — and an operator choosing between two adapters for one plugin cannot see
  * that difference anywhere, because the only vocabulary available is the word
  * itself. The structural consequence is the dangerous one: the ONLY way to say
  * "this one carries far more evidence" was to widen what `certified` means.
+ * PART 6 independently pins the current source census, including withdrawals.
  *
  * Three machine-readable records already answered it and projected into
  * nothing. `tools/adapter-grade.php` is the one definition of what they add up
@@ -335,16 +336,16 @@ foreach ($report['manifests'] as $row) {
     $statuses[(string) $row['name']] = (string) $row['status'];
 }
 ksort($statuses, SORT_STRING);
-// The WPForms and Qi Blocks previews remain experimental beside the 18
-// certified subjects; adding a candidate cannot imply production coverage.
+// WPForms and Qi are non-authorizing previews; Yoast Duplicate Post's
+// managed-clone claim was withdrawn. None count beside the 17 certified subjects.
 wprism_check_same(
-    ['certified' => 18, 'excluded' => 1, 'experimental' => 2],
+    ['certified' => 17, 'excluded' => 1, 'experimental' => 3],
     (static function (array $words): array {
         $counts = array_count_values($words);
         ksort($counts, SORT_STRING);
         return $counts;
     })(array_values($statuses)),
-    'ManifestDispositions::report() projects the reviewed word verbatim over 21 subjects, including both non-authorizing previews'
+    'ManifestDispositions::report() projects the reviewed word verbatim over 21 subjects, including all three non-authorizing capsules'
 );
 wprism_check(
     str_contains(

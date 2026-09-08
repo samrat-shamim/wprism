@@ -38,13 +38,15 @@ use WPrism\Policy;
 // AIO Login and Qi add two subjects without changing the upstream adapters.
 // AIO Login has its own compatible world; Qi joins both maximal SEO worlds.
 // Native crop and gallery declarations change only Qi identity and pin sets that
-// contain it. Its reviewed disposition and all unrelated pin sets stay exact.
-const BASELINE_FIXTURE_SHA256 = 'c34ac1895a7b7a39f5bcee1ae205363955bc2bcc7bb2fe3a2b1151e6da7622d4';
-const RANK_WORLD_MANIFEST_HASH = '5f592bf669041ac78c787d9f69c1d3e980e03e0398175d8b2e7e8d13b3c7645b';
-const YOAST_WORLD_MANIFEST_HASH = 'fadf91c950aab92b0e7dd42e2651311ec97387de97dc9f3a8520c3e9bbdad22c';
-const REGISTRY_SHA256 = '86f4d5165015effabb10605a2d74c9259208182572414b73ec512d3808c0f198';
-const RANK_WORLD_SNAPSHOT_SHA256 = '95ad0844d65f284267996756f61d5f238569fadccb779d6b28514785dac1b103';
-const YOAST_WORLD_SNAPSHOT_SHA256 = 'b6d8fb580066143fa6fa08953dac140ee8be0f03a85be1f31d1891a1074b5619';
+// contain it. Upstream withdrew Yoast Duplicate Post certification separately:
+// preserve that disposition and re-pin its containing worlds plus every
+// registry-addressed snapshot. No other adapter digest or manifest byte moves.
+const BASELINE_FIXTURE_SHA256 = '2b8e6095bc6e634ad6ae268a1a0135aca7251d6a02ebd355fe071c2273a508bd';
+const RANK_WORLD_MANIFEST_HASH = '16e71494c59307634541b725aef83618b54fcc7638384c2804953e51d57b9e4b';
+const YOAST_WORLD_MANIFEST_HASH = 'c1e83e5223987c126595854ae8d8dc99f1a1b020c41ab5749e66bf8abbd93dbc';
+const REGISTRY_SHA256 = '074e3eac800ba5ecbca42315f464139f14731767660ecc7ca432173bfc8c81a7';
+const RANK_WORLD_SNAPSHOT_SHA256 = '187877989496373c599eaf943dc9edef5c25c6deb281210409937b6235b6ad5b';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '8b4da6c849d129a401a4657a87fb7848a17d5465737c9d9d802db3366dcbc44d';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

@@ -21,7 +21,7 @@
  * three roles are the vocabulary — `certified-boundary` for a version proven to
  * install and round-trip, `refusal-fixture` for one proven not to,
  * `exercise-fixture` for a version installed to exercise something with no
- * boundary claim attached. Sixteen of its seventeen plugin blocks have the shape
+ * boundary claim attached. Fifteen of its seventeen plugin blocks have the shape
  * a bisection trace has: the greens, bracketed by the adjacent failures. So
  * this suite derives a release list and an outcome table from each such block
  * and asserts the search re-emits that block.
@@ -37,10 +37,10 @@
  * are the two blocks where that is a real constraint rather than an accident of
  * three-element lists.
  *
- * The block that does NOT reproduce is `wpforms-lite`, which
- * uses `exercise-fixture`. No probe outcome implies
- * that role — it records a test's intent, not a version's behaviour — so the
- * search never proposes it, and it is not a bisection result to reproduce.
+ * WPForms and Qi Blocks are experimental; Duplicate Post lost its native
+ * managed-clone certification. These three blocks lack a certified anchor.
+ * An exercise fixture records intent, and an adjacent refusal cannot make
+ * an unqualified block a bisection result to reproduce.
  *
  * ## The properties the synthetic cases exist for
  *
@@ -169,16 +169,17 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
 // #561 moved the-events-calendar out of the exercise-only column: its block now
 // carries certified-boundary roles on 6.17.2/6.17.3 and a refusal-fixture on
 // 6.17.1, so it is a bisection RESULT and the loops below reproduce it like any
-// other certified block. wpforms-lite is the last exercise-only block.
+// other certified block. Duplicate Post's withdrawn claim now joins WPForms
+// outside this certified-anchor set; its adjacent refusal does not restore it.
 wprism_check_same(
-    17,
+    16,
     count($bisectionShaped),
-    '17 of the 18 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '16 of the 19 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 wprism_check_same(
-    ['qi-blocks', 'wpforms-lite'],
+    ['duplicate-post', 'qi-blocks', 'wpforms-lite'],
     array_keys($exerciseOnly),
-    'unqualified blocks with exercise/refusal fixtures are not bisection results, so the search never proposes it'
+    'all three non-authorizing blocks lack a certified anchor, so the search never proposes them as boundaries'
 );
 
 // The lock authors its rows oldest-first inside each block, which is the order

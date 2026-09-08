@@ -2148,6 +2148,19 @@ plugin faithfully.
 2. Inspect every persisted scalar and every nested JSON, PHP-serialized, block,
    shortcode, option-name, and custom-table payload. Search for self ids as
    well as foreign ids; plugins often copy their own row id into a body blob.
+   For duplicators/importers, repeat the native action **after** ordinary
+   Capture has established the source object's `_wprism_uuid` and ledger
+   history. Cloning only before first capture misses copied reserved identity.
+   Duplicate Page 4.5.9 copies every metadata key: a native managed-post clone
+   reproduced two live owners of one UUID and the next Capture refused. The
+   complete native database and canonical tree stayed unchanged by that
+   refusal; this is safety evidence, not successful clone support. Retain the
+   exact native writer/actor, old and new physical owners, original ledger,
+   fresh private refusal cause and complete before/after witnesses. Do not
+   delete metadata in the fixture or infer which object deserves a new UUID.
+   The shared row-backed guard regression is `regress-snapshot-identity`;
+   [the native investigation](../agents/managed-clone-identity.md) records the
+   missing authoring sequence and the still-open explicit-repair boundary.
 3. Preserve the stored type. A reference written as JSON `"12"` is not
    equivalent to JSON `12`; reject the adapter when the available codec changes
    that distinction.
@@ -2436,6 +2449,23 @@ plugin faithfully.
    for code that may never have executed. A noninteractive collection command
    inside a roster loop must receive closed stdin: otherwise `compose run`
    can consume subsequent roster entries before the next `read`.
+
+   A complete native Save can contain multiple writers and non-database
+   effects. WPForms' first collected Builder Save posted the form and then
+   custom themes, writing an uploads JSON file. Declare and admit that exact
+   request sequence; do not filter extra requests to preserve a one-XHR
+   assumption. Pair full SQL with the existing filesystem-tree witness for
+   file effects. Preserve ordered serialized controls, including legitimate
+   duplicate widget search names under an explicit multiplicity/value bound.
+   Prime first-save rich-text synchronization through the actual UI before
+   claiming later QR-only control preservation.
+
+   Read diagnostics in complete HTTP headers too. The same Save's theme
+   response was HTTP200 with a successful JSON body and empty browser/server
+   logs, but carried `X-WP-DoingItWrong`. Such a response is not diagnostic-free.
+   Refuse the native gate and record the upstream limitation; do not turn off
+   debug mode, allowlist the warning or patch a locked vendor artifact to make
+   evidence green.
 
    Execute a PHP fixture with `wp eval-file --use-include` when it declares
    `strict_types` or resolves sibling files through `__DIR__`. WP-CLI's default

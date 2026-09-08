@@ -1173,12 +1173,13 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-22 documents, 1,547 lines, 67,804 bytes — the current entries and profile, addressed as 22 roots
+22 documents, 1,552 lines, 68,179 bytes — the current entries and profile, addressed as 22 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
 review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
-virgin-target settlement correction, the WPForms capsule and location-provider review, and the
+virgin-target settlement correction, the experimental WPForms capsule and location-provider review,
+withdrawal of Yoast Duplicate Post's unproved managed-clone certification, and the
 AIO Login and Qi Blocks capsules, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member

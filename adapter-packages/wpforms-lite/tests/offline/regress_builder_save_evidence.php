@@ -4,8 +4,9 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 2) . '/fixtures/qr-destination/browser-evidence.php';
 
-// Synthetic transport exercises the actual host admission. It is not a
-// recorded native Save; the checked-in collector still needs a native run.
+// Synthetic transport exercises the actual host admission. Native v5 exposed
+// Choices search controls and a second theme writer; its warning-bearing REST
+// response remains a refusal, not a positive fixture or native E2E proof.
 $home = 'http://localhost:9546';
 $formId = 6;
 $qr = ['qr_code' => 'page', 'qr_code_page_id' => '5', 'qr_code_url' => '', 'qr_code_logo' => 'wpforms',
@@ -14,8 +15,10 @@ $pages = [2 => $home . '/sample-page/', 4 => $home . '/wprism-qr-page-a/', 5 => 
 $controls = [];
 foreach (['id' => '6', 'fields[1][id]' => '1', 'fields[1][type]' => 'text', 'fields[1][label]' => 'Text Ω',
     'settings[form_title]' => 'WPrism QR Destination Proof', 'settings[form_desc]' => '',
-    'settings[form_tags_json]' => '[]', 'settings[confirmations][1][type]' => 'message'] as $name => $value) $controls[] = compact('name', 'value');
+    'settings[form_tags_json]' => '[]', 'settings[confirmations][1][type]' => 'message',
+    'settings[confirmations][1][message]' => '<p>Thanks for contacting us!</p>'] as $name => $value) $controls[] = compact('name', 'value');
 foreach ($qr as $key => $value) $controls[] = ['name' => 'settings[' . $key . ']', 'value' => $value];
+for ($index = 0; $index < 3; $index++) $controls[] = ['name' => 'search_terms', 'value' => ''];
 $url = $home . '/wp-admin/admin.php?page=wpforms-builder&view=settings&form_id=6&section=general';
 $snapshot = ['url' => $url, 'home' => $home, 'form_id' => 6, 'nonce' => 'a123456789', 'ajax_url' => $home . '/wp-admin/admin-ajax.php',
     'controls' => $controls, 'page_maps' => [['id' => 'wpforms-panel-field-settings-qr_code-content', 'value' => json_encode($pages, JSON_THROW_ON_ERROR)]], 'saved' => false];
@@ -25,6 +28,8 @@ $data = ['form_name' => 'WPrism QR Destination Proof', 'form_desc' => '', 'redir
 $post = ['action' => 'wpforms_save_form', 'data' => json_encode($controls, JSON_THROW_ON_ERROR), 'id' => '6', 'nonce' => 'a123456789'];
 $requestBytes = http_build_query($post);
 $responseBytes = json_encode(['success' => true, 'data' => $data], JSON_THROW_ON_ERROR);
+$themeRequest = '{"customThemes":{}}';
+$themeResponse = '{"result":true}';
 $good = ['format' => 'wprism-wpforms-builder-save/v1', 'started_ms' => 1000, 'ended_ms' => 1400,
     'before' => $snapshot, 'after' => array_replace($snapshot, ['saved' => true]),
     'events' => ['before_save' => [['at_ms' => 1010, 'controls' => $controls]], 'saved' => [['at_ms' => 1050, 'data' => $data]], 'closed_ms' => 1300],
@@ -34,11 +39,19 @@ $good = ['format' => 'wprism-wpforms-builder-save/v1', 'started_ms' => 1000, 'en
         'response' => ['status' => 200, 'received_ms' => 1040, 'headers' => $headers(['Content-Type' => 'application/json; charset=UTF-8']),
             'body' => $body($responseBytes), 'finished_ms' => 1060], 'failure' => null]],
     'console' => [], 'page_errors' => [], 'errors' => [], 'drained' => true];
+$good['exchanges'][] = ['ordinal' => 2, 'started_ms' => 1051, 'method' => 'POST',
+    'url' => $home . '/wp-json/wpforms/v1/themes/custom/?_locale=user', 'resource_type' => 'fetch', 'redirected' => false,
+    'request_headers' => $headers(['Content-Type' => 'application/json', 'Origin' => $home, 'Referer' => $url, 'X-WP-Nonce' => 'b123456789']),
+    'request_body' => $body($themeRequest), 'response' => ['status' => 200, 'received_ms' => 1080,
+        'headers' => $headers(['Content-Type' => 'application/json; charset=UTF-8', 'X-WP-Nonce' => 'b123456789']),
+        'body' => $body($themeResponse), 'finished_ms' => 1100], 'failure' => null];
 $baseline = ['format' => 'wprism-wpforms-builder-baseline/v1', 'observed_ms' => 990, 'snapshot' => $snapshot];
 $admit = static fn(array $record): array => WPFormsBuilderSaveEvidence::admit($record, $home, $formId, $qr, $pages, $baseline);
 wprism_check_same(['request_bytes' => strlen($requestBytes), 'request_sha256' => hash('sha256', $requestBytes),
-    'response_bytes' => strlen($responseBytes), 'response_sha256' => hash('sha256', $responseBytes)], $admit($good),
-    'actual capsule admission binds full submitted bytes, response and native event semantics');
+    'response_bytes' => strlen($responseBytes), 'response_sha256' => hash('sha256', $responseBytes),
+    'theme_request_bytes' => strlen($themeRequest), 'theme_request_sha256' => hash('sha256', $themeRequest),
+    'theme_response_bytes' => strlen($themeResponse), 'theme_response_sha256' => hash('sha256', $themeResponse)], $admit($good),
+    'actual capsule admission binds complete controls and both native writer exchanges, not their physical effects');
 $mutations = [
     'missing request' => static function (array &$v): void { $v['exchanges'] = []; },
     'extra request' => static function (array &$v): void { $v['exchanges'][] = $v['exchanges'][0]; },
@@ -79,6 +92,86 @@ foreach ($mutations as $name => $mutate) {
     $mutate($changed);
     wprism_check_throws(static fn() => $admit($changed), RuntimeException::class, $name . ' refuses');
 }
+$themeMutations = [
+    'missing secondary writer' => static function (array &$v): void { array_pop($v['exchanges']); },
+    'reordered writers' => static function (array &$v): void { $v['exchanges'] = array_reverse($v['exchanges']); },
+    'secondary ordinal' => static function (array &$v): void { $v['exchanges'][1]['ordinal'] = 1; },
+    'secondary method' => static function (array &$v): void { $v['exchanges'][1]['method'] = 'GET'; },
+    'secondary route' => static function (array &$v): void { $v['exchanges'][1]['url'] .= '&unexpected=1'; },
+    'secondary resource type' => static function (array &$v): void { $v['exchanges'][1]['resource_type'] = 'xhr'; },
+    'secondary redirect' => static function (array &$v): void { $v['exchanges'][1]['redirected'] = true; },
+    'secondary transport failure' => static function (array &$v): void { $v['exchanges'][1]['failure'] = ['errorText' => 'aborted']; },
+    'missing secondary body' => static function (array &$v): void { $v['exchanges'][1]['request_body'] = null; },
+    'missing secondary response' => static function (array &$v): void { $v['exchanges'][1]['response'] = null; },
+    'secondary HTTP failure' => static function (array &$v): void { $v['exchanges'][1]['response']['status'] = 500; },
+    'secondary body framing' => static function (array &$v): void { ++$v['exchanges'][1]['response']['body']['length']; },
+    'secondary content type' => static function (array &$v): void { $v['exchanges'][1]['request_headers'][0]['value'] = 'text/plain'; },
+    'secondary origin' => static function (array &$v): void { $v['exchanges'][1]['request_headers'][1]['value'] = 'http://foreign.invalid'; },
+    'secondary referer' => static function (array &$v): void { $v['exchanges'][1]['request_headers'][2]['value'] .= '&other=1'; },
+    'secondary nonce framing' => static function (array &$v): void { $v['exchanges'][1]['request_headers'][3]['value'] = ''; },
+    'secondary nonce mismatch' => static function (array &$v): void { $v['exchanges'][1]['response']['headers'][1]['value'] = 'c123456789'; },
+    'secondary duplicate nonce' => static function (array &$v): void { $v['exchanges'][1]['request_headers'][] = $v['exchanges'][1]['request_headers'][3]; },
+    'theme before form success' => static function (array &$v): void { $v['exchanges'][1]['started_ms'] = 1039; },
+    'theme after observation suffix' => static function (array &$v): void { $v['exchanges'][1]['started_ms'] = 1301; },
+    'theme response before request' => static function (array &$v): void { $v['exchanges'][1]['response']['received_ms'] = 1049; },
+    'theme incomplete at close' => static function (array &$v): void { $v['exchanges'][1]['response']['finished_ms'] = 1401; },
+];
+foreach ($themeMutations as $name => $mutate) {
+    $changed = $good;
+    $mutate($changed);
+    wprism_check_throws(static fn() => $admit($changed), RuntimeException::class, $name . ' refuses');
+}
+foreach (['{}', '{"customThemes":[]}', '{"customThemes":{"unexpected":{}}}', '{"customThemes":{},"extra":true}'] as $bytes) {
+    $changed = $good;
+    $changed['exchanges'][1]['request_body'] = $body($bytes);
+    wprism_check_throws(static fn() => $admit($changed), RuntimeException::class, 'different complete theme payload refuses');
+}
+foreach (['{"result":false}', '{"result":true,"error":"warning"}', '{"result":1}', '{}'] as $bytes) {
+    $changed = $good;
+    $changed['exchanges'][1]['response']['body'] = $body($bytes);
+    wprism_check_throws(static fn() => $admit($changed), RuntimeException::class, 'unsuccessful or ambiguous theme response refuses');
+}
+foreach ([0, 1] as $exchangeIndex) foreach (['native warning', '', 'duplicate'] as $variant) {
+    $changed = $good;
+    $diagnostic = ['name' => 'x-Wp-DoingItWrong', 'value' => $variant === '' ? '' : 'register_rest_route: slash-delimited namespace'];
+    $changed['exchanges'][$exchangeIndex]['response']['headers'][] = $diagnostic;
+    if ($variant === 'duplicate') $changed['exchanges'][$exchangeIndex]['response']['headers'][] = $diagnostic;
+    wprism_check_throws(static fn() => $admit($changed), RuntimeException::class,
+        'HTTP200 diagnostic header refuses independently of empty logs: ' . $exchangeIndex . '/' . $variant,
+        'native HTTP response contains a WordPress diagnostic header');
+}
+// Model coherent control changes across all observations and the real POST:
+// refusal must come from the lane's multiplicity/value constraint, not drift.
+foreach (['missing search', 'extra search', 'active search', 'other duplicate'] as $variant) {
+    $changed = $good;
+    $changedControls = $controls;
+    if ($variant === 'missing search') array_pop($changedControls);
+    elseif ($variant === 'extra search') $changedControls[] = ['name' => 'search_terms', 'value' => ''];
+    elseif ($variant === 'active search') $changedControls[count($changedControls) - 1]['value'] = 'pending search';
+    else $changedControls[] = ['name' => 'id', 'value' => '6'];
+    foreach (['before', 'after'] as $phase) $changed[$phase]['controls'] = $changedControls;
+    $changed['events']['before_save'][0]['controls'] = $changedControls;
+    $changedPost = array_replace($post, ['data' => json_encode($changedControls, JSON_THROW_ON_ERROR)]);
+    $changed['exchanges'][0]['request_body'] = $body(http_build_query($changedPost));
+    $changedBaseline = $baseline;
+    $changedBaseline['snapshot']['controls'] = $changedControls;
+    wprism_check_throws(static fn() => WPFormsBuilderSaveEvidence::admit($changed, $home, $formId, $qr, $pages, $changedBaseline),
+        RuntimeException::class, 'coherent ' . $variant . ' refuses');
+}
+$changed = $good;
+$changed['exchanges'][1]['started_ms'] = 1049;
+$admit($changed);
+wprism_check(true, 'theme listener may dispatch after form response but before our Saved listener');
+$changed = $good;
+$changedBaseline = $baseline;
+foreach ($controls as $index => $control) {
+    if ($control['name'] !== 'settings[confirmations][1][message]') continue;
+    $changed['before']['controls'][$index]['value'] = 'Thanks for contacting us!';
+    $changedBaseline['snapshot']['controls'][$index]['value'] = 'Thanks for contacting us!';
+}
+wprism_check_throws(static fn() => WPFormsBuilderSaveEvidence::admit($changed, $home, $formId, $qr, $pages, $changedBaseline),
+    RuntimeException::class, 'first-save rich-text synchronization cannot be relabeled QR-only preservation',
+    'entire observed form-control list preserved');
 foreach (['wrong nonce' => ['nonce' => '0000000000'], 'wrong form' => ['id' => '7'],
     'alternate writer' => ['action' => 'wpforms_new_form'], 'AI revision' => ['ai_revision_source' => 'smart_edit'],
     'truncated control list' => ['data' => '[]']] as $name => $change) {

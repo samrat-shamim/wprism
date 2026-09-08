@@ -67,8 +67,8 @@ final class WPFormsBuilderSaveEvidence {
             'explicit bounded post-saved observation window, not indefinite quiescence');
         $submitted = self::controls($beforeSave['controls']);
         self::check($submitted === $before, 'post-rich-text-sync native serialization matches the complete observed controls');
-        self::check(is_array($record['exchanges']) && array_is_list($record['exchanges']) && count($record['exchanges']) === 1,
-            'one exchange in the retained observation interval, without ignored recorded requests');
+        self::check(is_array($record['exchanges']) && array_is_list($record['exchanges']) && count($record['exchanges']) === 2,
+            'exact native form and custom-theme exchanges, without ignored recorded requests');
         $exchange = $record['exchanges'][0];
         self::keys($exchange, ['ordinal', 'started_ms', 'method', 'url', 'resource_type', 'redirected', 'request_headers', 'request_body', 'response', 'failure']);
         self::check($exchange['ordinal'] === 1 && $exchange['method'] === 'POST' && $exchange['url'] === $home . '/wp-admin/admin-ajax.php'
@@ -87,7 +87,7 @@ final class WPFormsBuilderSaveEvidence {
         $response = $exchange['response'];
         self::keys($response, ['status', 'received_ms', 'headers', 'body', 'finished_ms']);
         self::check($response['status'] === 200, 'native Save HTTP status');
-        $responseHeaders = self::headers($response['headers']);
+        $responseHeaders = self::responseHeaders($response['headers']);
         self::check(($responseHeaders['content-type'] ?? null) === 'application/json; charset=UTF-8', 'native Save JSON response type');
         $responseBytes = self::bytes($response['body']);
         $reply = json_decode($responseBytes, true, 32, JSON_THROW_ON_ERROR);
@@ -101,8 +101,45 @@ final class WPFormsBuilderSaveEvidence {
         }
         self::check($beforeSave['at_ms'] <= $exchange['started_ms'] && $exchange['started_ms'] <= $response['received_ms']
             && $response['received_ms'] <= $saved['at_ms'] && $response['received_ms'] <= $response['finished_ms'], 'native before-save/request/response/saved ordering');
+        $theme = self::themeExchange($record['exchanges'][1], $home, $record['before']['url'], $start, $end,
+            $response['received_ms'], $record['events']['closed_ms']);
         return ['request_bytes' => strlen($requestBytes), 'request_sha256' => hash('sha256', $requestBytes),
-            'response_bytes' => strlen($responseBytes), 'response_sha256' => hash('sha256', $responseBytes)];
+            'response_bytes' => strlen($responseBytes), 'response_sha256' => hash('sha256', $responseBytes)] + $theme;
+    }
+
+    /** Themes.saveCustomThemes runs on wpformsSaved even for empty admin custom themes. */
+    private static function themeExchange(mixed $exchange, string $home, string $url, int $start, int $end, int $formResponseAt, int $closedAt): array {
+        self::keys($exchange, ['ordinal', 'started_ms', 'method', 'url', 'resource_type', 'redirected', 'request_headers', 'request_body', 'response', 'failure']);
+        self::check($exchange['ordinal'] === 2 && $exchange['method'] === 'POST'
+            && $exchange['url'] === $home . '/wp-json/wpforms/v1/themes/custom/?_locale=user'
+            && $exchange['resource_type'] === 'fetch' && $exchange['redirected'] === false && $exchange['failure'] === null,
+            'one native custom-theme fetch without redirect or failure');
+        $requestHeaders = self::headers($exchange['request_headers']);
+        self::check(($requestHeaders['content-type'] ?? null) === 'application/json'
+            && ($requestHeaders['origin'] ?? null) === $home && ($requestHeaders['referer'] ?? null) === $url
+            && is_string($requestHeaders['x-wp-nonce'] ?? null)
+            && preg_match('/^[a-f0-9]{10}$/D', $requestHeaders['x-wp-nonce']) === 1, 'native REST request context and nonce framing');
+        $requestBytes = self::bytes($exchange['request_body']);
+        self::check($requestBytes === '{"customThemes":{}}', 'complete empty native custom-theme payload, not arbitrary theme writes');
+        $response = $exchange['response'];
+        self::keys($response, ['status', 'received_ms', 'headers', 'body', 'finished_ms']);
+        self::check($response['status'] === 200, 'native custom-theme HTTP status');
+        $responseHeaders = self::responseHeaders($response['headers']);
+        self::check(($responseHeaders['content-type'] ?? null) === 'application/json; charset=UTF-8'
+            && ($responseHeaders['x-wp-nonce'] ?? null) === $requestHeaders['x-wp-nonce'], 'native REST response type and echoed nonce');
+        $responseBytes = self::bytes($response['body']);
+        self::check(json_decode($responseBytes, true, 32, JSON_THROW_ON_ERROR) === ['result' => true], 'complete native theme success response');
+        foreach ([$exchange['started_ms'], $response['received_ms'], $response['finished_ms']] as $clock) {
+            self::check(is_int($clock) && $clock >= $start && $clock <= $end, 'theme exchange belongs to the captured window');
+        }
+        // The native theme listener can run before our Saved listener in the
+        // same event dispatch. Header receipt, not listener registration order,
+        // bounds the earliest legitimate secondary request.
+        self::check($exchange['started_ms'] >= $formResponseAt && $exchange['started_ms'] <= $closedAt
+            && $exchange['started_ms'] <= $response['received_ms'] && $response['received_ms'] <= $response['finished_ms'],
+            'native form-response/theme ordering and complete bounded response');
+        return ['theme_request_bytes' => strlen($requestBytes), 'theme_request_sha256' => hash('sha256', $requestBytes),
+            'theme_response_bytes' => strlen($responseBytes), 'theme_response_sha256' => hash('sha256', $responseBytes)];
     }
 
     private static function snapshot(mixed $snapshot, string $home, int $formId, array $qr, array $pages): array {
@@ -114,10 +151,20 @@ final class WPFormsBuilderSaveEvidence {
         self::check(($query['page'] ?? null) === 'wpforms-builder' && ($query['form_id'] ?? null) === (string) $formId, 'actual Builder URL identity');
         $controls = self::controls($snapshot['controls']);
         $values = [];
+        $searchControls = 0;
         foreach ($controls as $control) {
+            // Choices owns three empty in-form searches (tags, QR page and
+            // confirmation page) in native v5. Keep every ordered control in
+            // the full-list comparisons; only the scalar lookup excludes them.
+            if ($control['name'] === 'search_terms') {
+                self::check($control['value'] === '', 'native Choices searches are idle in the QR Save lane');
+                $searchControls++;
+                continue;
+            }
             self::check(!array_key_exists($control['name'], $values), 'no duplicate native form control name in this fixture');
             $values[$control['name']] = $control['value'];
         }
+        self::check($searchControls === 3, 'exact three native in-form Choices search controls');
         self::check(($values['id'] ?? null) === (string) $formId && ($values['settings[form_title]'] ?? null) === 'WPrism QR Destination Proof'
             && ($values['settings[form_desc]'] ?? null) === '' && ($values['settings[form_tags_json]'] ?? null) === '[]', 'exact untagged native fixture form');
         foreach ($qr as $key => $value) self::check(($values['settings[' . $key . ']'] ?? null) === $value, 'independent native QR control: ' . $key);
@@ -180,6 +227,15 @@ final class WPFormsBuilderSaveEvidence {
             // headers used below must each have exactly one observed value.
             $out[$name] = array_key_exists($name, $out) ? null : $header['value'];
         }
+        return $out;
+    }
+
+    private static function responseHeaders(mixed $headers): array {
+        $out = self::headers($headers);
+        // Native v5 returned HTTP200, empty browser/server logs and this REST
+        // diagnostic header. Presence refuses even when empty or duplicated;
+        // a successful JSON body must not hide the upstream namespace warning.
+        self::check(!array_key_exists('x-wp-doingitwrong', $out), 'native HTTP response contains a WordPress diagnostic header');
         return $out;
     }
 

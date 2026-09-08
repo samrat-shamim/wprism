@@ -4,8 +4,9 @@ declare(strict_types=1);
 /**
  * Offline product-path contract for the five exact-artifact adapters added by
  * the 2026-08-22 ecosystem probe, including the independently certified
- * Advanced Editor Tools, Classic Editor, Code Snippets, WPS Hide Login, and
- * Yoast Duplicate Post subjects. The assertions load the shipped manifests and disposition registry
+ * Advanced Editor Tools, Classic Editor, Code Snippets and WPS Hide Login,
+ * plus Yoast Duplicate Post's withdrawn managed-clone certification.
+ * The assertions load the shipped manifests and disposition registry
  * through Policy::load(); fixtures would
  * miss the byte set that managed sites actually pin.
  *
@@ -96,7 +97,7 @@ $artifacts = [
 ];
 
 $effectiveRanges = $policy->version_ranges();
-$certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login', 'yoast-duplicate-post'];
+$certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login'];
 foreach ($artifacts as $name => $artifact) {
     $manifest = $manifests[$name];
     wprism_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
@@ -130,14 +131,15 @@ foreach ($artifacts as $name => $artifact) {
             "$name has no stale production promotion blocker"
         );
     } else {
+        wprism_check_same('yoast-duplicate-post', $name, 'only the reviewed managed-clone claim is withdrawn');
         wprism_check_same(
-            ['bundle_schema' => 'wprism-subject-certification-bundle/v1', 'tests' => ['conformance-ecosystem-adapter-batch']],
+            ['bundle_schema' => 'wprism-subject-certification-bundle/v1', 'tests' => ['conformance-yoast-duplicate-post', 'exact-artifact-version-matrix']],
             $entry['evidence'] ?? null,
-            "$name cites the exact-artifact live capture-plan suite"
+            "$name retains its historical evidence without production authorization"
         );
         wprism_check(
-            in_array('promote', array_column($entry['unsupported'] ?? [], 'operation'), true),
-            "$name keeps its explicit promotion blocker"
+            in_array('native-managed-duplication', array_column($entry['unsupported'] ?? [], 'surface'), true),
+            "$name names the unproved managed-clone workflow"
         );
     }
 }
@@ -401,7 +403,7 @@ foreach ($names as $name) {
     if (in_array($name, $certified, true)) {
         wprism_check(in_array('apply', $operations, true), "$name claims the isolated apply path its target profile proves");
     } else {
-        wprism_check(!in_array('apply', $operations, true), "$name does not claim hook-free apply while its postcondition is open");
+        wprism_check(in_array('apply', $operations, true), "$name retains the historically exercised operation list, not production authorization");
     }
 }
 
@@ -409,7 +411,7 @@ $blockerNames = array_values(array_unique(array_column($policy->certification_re
 sort($blockerNames, SORT_STRING);
 $sortedNames = array_values(array_diff($names, $certified));
 sort($sortedNames, SORT_STRING);
-wprism_check_same($sortedNames, $blockerNames, 'the independently certified adapters add no promotion blocker to the capability registry');
+wprism_check_same($sortedNames, $blockerNames, 'only the withdrawn Yoast managed-clone certification blocks promotion of the combined policy');
 
 $limitations = (string) file_get_contents($root . '/docs/guides/adapter-authoring-limitations.md');
 foreach ([
