@@ -1,7 +1,7 @@
-# Native location reconstruction — implementation contract, not passing evidence
+# Native location reconstruction — candidate contract and scoped evidence
 
 WPForms Lite remains experimental. This document records the reviewed design
-for the missing `wpforms_form_locations` provider; it grants no Apply, deploy,
+for the unshipped `wpforms_form_locations` provider; it grants no Apply, deploy,
 lifecycle or production-readiness claim. The unfinished scenario families in
 `production-readiness.json` remain unfinished.
 
@@ -108,9 +108,11 @@ reader rather than calling `home_url()` and `get_permalink()` itself. Its
 engine mechanism tests cover post/page/registered-CPT routes, stock statuses
 under the anonymous private-link context, ancestors, options, rewrite state
 and reviewed stock hooks. Category/author dependencies and extension-specific
-permalink participants remain explicitly unclosed and refuse. Actual native
-SDK/provider execution and complete WPForms lifecycle evidence are still owed;
-the candidate is not registered, advertised or counted as ready.
+permalink participants remain explicitly unclosed and refuse. The focused
+native provider lane below now exercises the admitted positive subset through
+the real SDK and process protocol. Hostile native failure paths and complete
+WPForms lifecycle evidence are still owed; the candidate is not registered in
+the shipped package, advertised or counted as ready.
 Do not warm or repopulate a cache to manufacture a premise, and do not reject
 all native permalink filters simply to avoid reviewing their semantics.
 
@@ -162,7 +164,8 @@ package ships the provider. The executable candidate in
 registered in the manifest or assembled onto sites. Its capsule-local offline
 suite checks target-ID normalization, current-home URL policy and complete
 stable-ID mutation planning;
-that is mechanism evidence, not native invocation or readiness evidence.
+that suite is mechanism evidence, separate from the focused native invocation
+below and from readiness evidence.
 Promotion and package re-pinning happen only with the implemented, reviewed
 and exercised package bytes.
 
@@ -213,3 +216,51 @@ HTTP routing proof, capture/apply/recapture fixed point or native-input scope.
 Those requirements remain open. The script retains private command streams
 under `sandbox/tmp/` and delegates leases, teardown and PASS-after-cleanup to
 the shared pair ownership helper; it owns no persistent pair.
+
+## Focused native provider proof
+
+`tests/live/regress_location_provider.sh` passed against source
+`bb88baac0ece5b50ecf870f8ec3b5cc4951f933e` on owned MariaDB pair `wpfprov03`,
+which was destroyed before the script reported PASS. It exercised the locked
+2.0.1.1 artifact above through ordinary Policy loading, repository compilation,
+persisted-artifact reopening, provider negotiation and invocation. A private,
+explicitly excluded library contains the candidate; no shipped manifest or
+disposition was edited and no readiness authorization was borrowed.
+
+Both actual invocations succeeded (3.648 s and 3.665 s). Each used distinct
+engine-owned mutation and physical-observer processes. Independent fresh
+WordPress consumers then rendered all 19 locations for the embedded form and
+the five standalone cases; the no-location form retained no owned key. The
+host compared complete native writer values, exact serialized storage, all
+eight input tables and nonowned metadata, removal of stale/duplicate/orphan
+owned rows, preservation of the oldest owned identity, and an exact physical
+and rendered-markup fixed point across retry.
+
+The discriminator roster includes all five selected post statuses, pages and
+ancestors, the public/queryable CPT union and its hidden exclusion, templates
+and parts, parser/duplicate cases, all three widget families with inactive and
+orphan widgets, standalone precedence/null defaults/Unicode, and template
+standalone exclusion. Attachment creation is honestly recorded as native
+`inherit`, followed by one explicit dirty physical `publish` fixture write to
+isolate type exclusion. Writer observations contain no warm-process UI claim;
+complete UI is required only from fresh observer boots.
+
+The five original private records remain under
+`sandbox/tmp/wpforms-provider-native.udvFJK/`; their stdout SHA-256 values are:
+
+- `seed`: `c333793d93dc3a5c10744ace455b2c55fa29908543b8b82426801ce1d838fa59`
+- `invoke`: `fb71e4c736b7526b33b28ad89d19ccac8675de2853e93b14b0b543b1969143f3`
+- `observe`: `192983107e7bb15f0d5201ac74c95ac1762a5ef77c18acbf19d10e2317d8dafb`
+- `repeat`: `fbe477e7efaf51f8b63136aa0dcaa98e5d6c0ae909ba78d153dbcfb6f7f6d325`
+- `stable`: `ac364b9414c5a01450382fcce2f004b6ac4a7308d78fc03bda5080b38c78bd51`
+
+These are private provenance pointers, not a sealed bundle or a portable
+certificate. The complete-record host verifier has 40 synthetic admission and
+privacy controls; those controls do not substitute for the native run. Earlier
+failed fixture runs were retained separately and were not edited or re-admitted.
+
+The repository compiled in this lane is deliberately empty: this proves a
+provider executing against existing target state, not authored Apply or
+deployment. Native hostile-input/refusal preservation, failure injection and
+uncertain commit, locale changes, target Apply/deploy/recapture, lifecycle,
+deletion, submissions and participant-declared combinations remain open.

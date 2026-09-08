@@ -1267,6 +1267,19 @@ A timeout, parent death, warning on stderr, malformed or noncanonical envelope,
 identity drift, or projection mismatch is recovery debt rather than a retryable
 success.
 
+That equality proves the durable postimage, not an independent native
+recomputation. For reviewed target-local derived display state, such as a
+localized label retained by a normally initialized plugin service, keep the
+public native consumer and validate its bounded output before writing. A
+same-child reconstruction fixed point and the separate physical observer do
+not promise identical labels after a later locale/catalog change. Declare that
+environmental meaning and test the actual native consumer under the relevant
+locales; do not label option rows as physical provenance for an initialization-
+time translation. Nor should a provider read private properties, reinitialize
+the service or invent a source-literal-only restriction to prove a cross-boot
+invariant its contract never promised. Authored/portable values and other
+undeclared environment dependencies gain no exemption from this distinction.
+
 The observer boundary is database-specific, not a general PHP sandbox. It
 prevents writes only through the canonical `$wpdb` transport and grants only
 the tables implied by declared `option:*` and `table:*` surfaces. Filesystem,
