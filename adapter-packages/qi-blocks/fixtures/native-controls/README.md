@@ -42,6 +42,39 @@ The initial source empty-gallery picker emitted a native Backbone URL-property
 error during media-view disposal; its Save still succeeded. Fresh reopen and
 the later Slider flow had no JavaScript errors and the same WordPress iframe
 stylesheet warning seen in earlier source/target probes. Do not infer a clean
-console or complete native qualification from this fixture. Qi remains
-experimental; target editing, widgets/templates and the broader readiness
-families require their own evidence.
+console or complete native qualification from this fixture.
+
+The corrected engine's target gallery probe passes on
+`4d50d712593d208e5db98bb440cb9968e0058fec`. One disposable pair executed the
+committed native Apply runner's baseline and gallery phases, then held for
+browser use; it did not execute that runner's later crop phase. Attachment ID
+1 became 9 and page ID 4 became 12. The actual seven-entity verifier, one
+content update, zero-write repeat, complete native preservation checks, HTTP
+images/CSS and four complete compiled repositories pass before browser edits.
+
+The target editor opened 51 valid blocks with four-field gallery records.
+For each of the three galleries, Edit Gallery restored the checked native
+attachment and its details. Select rebuilt the native response cache; real
+page and style Saves returned HTTP 200. Fresh reopen retained 51 valid blocks,
+and Capture again excluded response metadata without warnings. Each site's
+complete policy/state/media recapture repeated byte-identically and passed
+strict compiler convergence. Source and target were saved at different times:
+their repositories differ in exactly the page's two authored modified fields,
+so strict cross-site convergence after those independent Saves correctly
+refuses. Their entire canonical bodies, styles and all other files match.
+
+All three visible gallery images decode; their actual fetched image bytes and
+decoded 1200×800 bitmap dimensions match the independent native upload census.
+Slider creates two Swiper clones around its one authored image. A browser's
+`naturalWidth` is [density-corrected CSS pixels](https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-naturalwidth),
+so the probe checks raw bitmap dimensions separately from DOM visibility.
+Both editors had zero JavaScript errors and the known iframe stylesheet warning;
+the frontend had no console errors. Native Save changes page content/timestamps
+and style order. WordPress creates global-style/revision rows and replaces its
+autosave; complete database equality after browser use is not claimed.
+
+The browser and owned pair were removed after retaining complete native streams,
+all eight page/style request/response bodies and per-site repositories. The
+[progress record](../../evidence/authoring-progress.json) identifies their hashes
+and scope. Qi remains experimental: multi-image gallery behavior, other target
+media controls, widgets/templates and broader readiness require their own evidence.

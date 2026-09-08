@@ -69,6 +69,16 @@ and the browser decodes all four images. The Parallax item previously returned
 existing shared JSON path and attachment machinery. See the
 [native crop fixture](fixtures/native-media/README.md).
 
+The three gallery controls pass a separate target probe on `4d50d712`: native
+Apply projects full media responses to their four authored fields, each picker
+restores the selected target attachment, and actual Save/reopen plus Capture
+preserve valid blocks without retaining response metadata. All three visible
+images decode and match the native upload bytes. Separate source/target Saves
+produce identical canonical bodies and styles, with only their two authored
+save timestamps differing; complete recapture converges within each site.
+This single-image result leaves multi-image galleries and other target media
+controls unqualified. See the [native control evidence](fixtures/native-controls/README.md).
+
 The promotion conformance target hook still refuses; broader editor,
 widget/template, crop failure/removal, lifecycle, host, version and combination qualification remain
 unfinished. See

@@ -34,7 +34,9 @@ URLs. All three galleries must render their selected image, whose HTTP bytes
 must match the native attachment. Complete target options, uploads and unrelated
 rows remain unchanged; zero-write repeat and four complete repositories converge.
 Signature and progress images have separate source/offline fixtures and are not
-part of this gallery phase. Fresh browser editing remains a separate check.
+part of this gallery phase. Fresh browser editing is a separate check: the
+scoped target picker/Save/reopen probe passes on `4d50d712`; its full observations
+and native Save differences are recorded in the linked control fixture.
 
 A third phase replays the [four native crop selections](../native-media/README.md)
 on that converged source through Qi's native crop helper and WordPress's REST

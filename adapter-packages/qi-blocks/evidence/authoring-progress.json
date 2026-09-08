@@ -104,29 +104,29 @@
       "exit": 0,
       "shared_suites": 375,
       "packages": 20,
-      "package_tests": 78,
+      "package_tests": 92,
       "scenario_gates": 9,
       "scenarios": 5
     },
     "composer check": {
       "exit": 0,
-      "phpunit_tests": 1322,
-      "phpunit_assertions": 36582
+      "phpunit_tests": 1324,
+      "phpunit_assertions": 37027
     },
     "release-gate": {
       "exit": 0
     },
-    "scope": "Historical full-gate result on the named source commit. Later scoped native results are recorded below; current aggregate results are reported in PR #594.",
-    "tested_engine_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34"
+    "scope": "Full local gates passed on the named candidate before the focused gallery pair. Later documentation changes receive structural and canonical aggregate checks; current results are reported in PR #594.",
+    "tested_engine_commit": "4d50d712593d208e5db98bb440cb9968e0058fec"
   },
   "limitations": [
     "This is an experimental draft, not a production qualification. Twelve readiness families remain open.",
     "Native content-only page Apply, four selected crops, zero-write repeats, complete recapture and HTTP CSS pass. Target editor reopen recognizes 51 valid blocks; broader editor interactions, widgets/templates, lifecycle, host, version-matrix and hostile families remain incomplete.",
-    "Signature, progress-bar images and all three galleries now have actual source picker Save/reopen fixtures. Three gallery writers exposed full response caches; shared record projection passes offline, while corrected native target editing remains pending. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
+    "Signature, progress-bar images and all three galleries have actual source picker Save/reopen fixtures. Three gallery response caches are now projected by the shared engine; corrected target Apply, real Edit Gallery/Select/Save, reopen and recapture pass. Signature/progress target editing remains outside that result. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
     "The crop fixture has uniform PNG pixels. Native multi-format/asymmetric crop, removal, collision, recovery, scope and co-install cases remain outside this capsule result."
   ],
   "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
-  "source_engine_state": "Native source capture-plan, content-only target Apply and four native crop consumers pass on their named commits. Qi remains experimental; complete production qualification is pending.",
+  "source_engine_state": "Native source capture-plan, content-only target Apply, four native crop consumers and all three native gallery editor round trips pass on their named commits. Qi remains experimental; complete production qualification is pending.",
   "native_source_conformance": {
     "status": "source-capture-plan-passed",
     "first_attempt": {
@@ -310,5 +310,81 @@
     "discovery": "Actual gallery pickers saved complete wp.media responses; native Capture retained nonces and admin metadata. The separate simple-media controls save six-field image objects.",
     "representation_probe": "Native savers produced identical HTML with id,url,alt,caption. Actual Save/reopen and Edit Gallery rehydration passed on source only. The initial empty-gallery picker emitted one native Backbone URL-property error; later reopen/Slider had zero errors and one known WordPress iframe stylesheet warning.",
     "scope": "Source selection/projection evidence, not corrected-engine target Apply or complete readiness."
+  },
+  "native_gallery_target": {
+    "source_engine_commit": "4d50d712593d208e5db98bb440cb9968e0058fec",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "runner": "tests/live/regress_native_apply.sh",
+    "execution_scope": "Focused driver executed the committed baseline and gallery phases, then held the same exact-source pair for browser use. It did not execute the later crop phase.",
+    "pair": "qig01",
+    "driver_exit": 0,
+    "teardown": "Browser closed; owned pair, lease and both site repositories removed. Foreign pair untouched.",
+    "fixture_sha256": "4d26fead2c183c392f01dae7d5838dc47bcf957c07ef5540f90f714fa7bb9f86",
+    "adapter_digest": "aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550",
+    "galleries": [
+      "qi-blocks/image-gallery",
+      "qi-blocks/image-gallery-pinterest",
+      "qi-blocks/image-slider"
+    ],
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "checks": [
+      "Native source REST Save retains all three full media responses. Target Apply retains only id,url,alt,caption and rebinds image ID and home.",
+      "Actual seven-entity verification, one content update and zero-write repeat pass. Four independently retained complete policy/state/media repositories compile and converge before browser edits.",
+      "Complete native target body, options, unrelated rows, attachment metadata and uploads pass independent comparison. All three selected HTTP images match the native attachment bytes; full CSS still matches.",
+      "Target editor opens 51 valid blocks with four-field gallery records. Edit Gallery restores all three checked selections and native attachment details; Select rebuilds the full native media response.",
+      "Actual target page and Qi style Saves both return HTTP 200. Fresh reopen has 51 valid blocks; Capture again removes response metadata without warnings or notes.",
+      "Source and target each produce two complete byte-identical captures after their separate native Saves. All four snapshots compile, and strict complete convergence passes within each site.",
+      "The separately saved source/target repositories differ in exactly page.modified and page.modified_gmt. Complete page body, all other state, policy and media bytes match. Strict cross-site compiler convergence correctly refuses those authored timestamp differences; no timestamp filter is used."
+    ],
+    "browser": {
+      "block_count": 51,
+      "invalid_blocks": 0,
+      "editor_console_errors": 0,
+      "editor_console_warnings": 1,
+      "frontend_console_errors": 0,
+      "warning": "The known WordPress global-styles-css-custom-properties-inline-css iframe stylesheet warning occurs on both editors.",
+      "images": "All three visible gallery images decode. Fetching each actual currentSrc returns HTTP 200 and exactly the independent 4609-byte, 1200x800 native upload SHA. Slider has one authored image and two native Swiper clones.",
+      "native_changes": "The real Save changes only page content and its two modified fields among pre-browser rows, plus the authored Qi style option. Every other prior row, Qi runtime option, attachment and upload stays exact. WordPress adds a global-style row and revisions; fresh reopen replaces its earlier autosave. Full database equality after browser use is not claimed.",
+      "probe_corrections": "Initial automation stopped at the welcome overlay and default Upload tab; subsequent native UI steps passed. The first frontend probe incorrectly compared density-corrected naturalWidth with raw file pixels. The corrected probe independently checks visible DOM images and decoded bitmap/upload bytes. An initial preservation assertion treated a replaced native autosave as permanent; its exact deletion/replacement is retained."
+    },
+    "native_stream_sha256": {
+      "controls-source": "f4c9a85be9aed0e806d0a1f4c326df91d58650f39e04945b8961492e2b6c632e",
+      "controls-target": "36fc402faf075306d372a6944616105fab39e948ca7bdd2705d5a41ed64c0ed5",
+      "controls-stable": "36fc402faf075306d372a6944616105fab39e948ca7bdd2705d5a41ed64c0ed5",
+      "controls-apply": "61f14d94308fbdcf17228584009063897e89ca3cc26803d0cd05eb1389b1e7cf",
+      "controls-repeat": "03ad8be60aefb30775f3e35d8c65c8490fe642d9cd3f4a86a7e26593ec032a39"
+    },
+    "browser_stream_sha256": {
+      "browser-target-saved": "44d6a32ffa685d24b82454a744de407959430c5af814f1be8b951c9c610cf976",
+      "browser-target-after": "f27b3c1e2faebcc9dfd9cc2895aa81f6b34be655b397f4dbb60d21b1363ef305",
+      "browser-source-saved": "b4c401032b5515a25124a8f8ad11e9d9bc67773db50310a4b53af8e8f2ff76b3",
+      "browser-target-capture": "5e2187d59680ba8985bd17b92ac7df451cabe750da6c22a7b8e48fb362471320",
+      "browser-source-capture": "f73604bf7d6187d9187b5dc2aed4e6a8ec1cc8642ff1bc0fa9d19691a30ad57b"
+    },
+    "native_save_body_sha256": {
+      "target-page-request": "0fae92b3ce922f4ea5c5700385e1a0e0dc03d74dbb298bd2bee785dd67406c60",
+      "target-page-response": "e7156d31be1d7bf9c3bb34dd010ea4fbf2c153107ed8c8985d7f03fa7f693df5",
+      "target-style-request": "5c0056f3ad236ece9524bea5ed337488a2662376aed82fb3bdbe5cf1b461b976",
+      "target-style-response": "fae40f9670fd2f4f86fef49af62d92d632331bbf5321f18c80335ac80b3b0e7b",
+      "source-page-request": "b4ccf505f70e10e9967183544fe21c973772776ebcf5f570a441e986945d1c1c",
+      "source-page-response": "611506108cf3c08805c2f76e9114cec4b40fd340a4fd08e4327b9f416478661b",
+      "source-style-request": "1720df4e94d4a9841c88db956a2c00ac7890a3158ce5866210a956ee07598e79",
+      "source-style-response": "fae40f9670fd2f4f86fef49af62d92d632331bbf5321f18c80335ac80b3b0e7b"
+    },
+    "scope": "Three single-image gallery controls on the locked free artifact. Private complete evidence is retained; this is no multi-image, other-media, lifecycle, host, version or combination qualification."
   }
 }
