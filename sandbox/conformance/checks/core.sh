@@ -35,6 +35,14 @@ $stored = get_option("rewrite_rules");
 $wp_rewrite->matches = "matches";
 $generated = $wp_rewrite->rewrite_rules();
 $post = get_page_by_path("hello-conformance", OBJECT, "post");
+$attachment = get_page_by_path("conformance-logo", OBJECT, "attachment");
+$classicMedia = 0;
+if ($post && $attachment) {
+  $html = new WP_HTML_Tag_Processor($post->post_content);
+  while ($html->next_tag("IMG")) {
+    if ($html->has_class("before") && $html->has_class("wp-image-" . $attachment->ID)) ++$classicMedia;
+  }
+}
 echo wp_json_encode([
   "structure" => get_option("permalink_structure"),
   "stored_type" => get_debug_type($stored),
@@ -43,6 +51,7 @@ echo wp_json_encode([
   "post_id" => $post ? (int) $post->ID : 0,
   "permalink" => $post ? get_permalink($post) : "",
   "resolved_id" => $post ? url_to_postid(get_permalink($post)) : 0,
+  "classic_media_count" => $classicMedia,
 ]);
 ')
 require_wprism_answered "conf2 core rewrite state" json "$CORE_REWRITE_STATE"
@@ -50,6 +59,7 @@ jq -e --arg port "$CONF2_PORT" '
   .structure == "/journal/%postname%/" and
   .stored_type == "array" and .stored_count > 0 and .rules_match == true and
   .post_id > 0 and .resolved_id == .post_id and
+  .classic_media_count == 1 and
   .permalink == ("http://localhost:" + $port + "/journal/hello-conformance/")
 ' <<<"$CORE_REWRITE_STATE" >/dev/null \
   || fail "core rewrite state did not converge through WordPress APIs: $CORE_REWRITE_STATE"
@@ -57,6 +67,8 @@ CORE_JOURNAL_BODY=$(curl -fsSL "http://localhost:${CONF2_PORT}/journal/hello-con
   || fail "source permalink route did not return HTTP success after apply"
 grep -Fq 'Hello from the core conformance seed.' <<<"$CORE_JOURNAL_BODY" \
   || fail "source permalink route did not render the applied post"
+grep -Fq 'classic-media-proof' <<<"$CORE_JOURNAL_BODY" \
+  || fail "source permalink route did not render the classic media fixture"
 CORE_OLD_CODE=$(curl -sS -o /dev/null -w '%{http_code}' "http://localhost:${CONF2_PORT}/target/$(jq -r '.post_id' <<<"$CORE_REWRITE_STATE")/")
 [ "$CORE_OLD_CODE" != 200 ] \
   || fail "old target permalink grammar still served the post after rewrite regeneration"

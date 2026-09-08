@@ -28,6 +28,7 @@ final class HtmlAttributeReader {
         $offset = 0;
         $edits = [];
         $elements = [];
+        $watched = array_values(array_unique([...$names, 'encoding', 'color', 'face', 'size']));
         while (($start = strpos($html, '<', $offset)) !== false) {
             if (++$count > 100000) throw new \RuntimeException('wprism: HTML attribute document exceeds its token budget');
             if (substr($html, $start, 4) === '<!--') {
@@ -61,7 +62,7 @@ final class HtmlAttributeReader {
             }
             $tag = strtolower($match[2]);
             $cursor = $start + strlen($match[0]);
-            $parsed = self::attributes($html, $cursor, $count);
+            $parsed = self::attributes($html, $cursor, $count, $watched);
             if ($parsed === null) break;
             $offset = $parsed['end'] + 1;
             if ($match[1] === '/') {
@@ -107,7 +108,7 @@ final class HtmlAttributeReader {
                 }
                 if ($found === false) throw new \RuntimeException('wprism: HTML raw-text scan failed');
                 if ($found === 0) break;
-                $rawEnd = self::attributes($html, $closing[0][1] + strlen($closing[0][0]), $count);
+                $rawEnd = self::attributes($html, $closing[0][1] + strlen($closing[0][0]), $count, []);
                 if ($rawEnd === null) break;
                 $offset = $rawEnd['end'] + 1;
                 continue;
@@ -201,9 +202,10 @@ final class HtmlAttributeReader {
      * so a blind quote-aware search for '>' would hide subsequent real tags.
      * No callback runs for the incomplete token discarded at EOF.
      *
+     * @param list<string> $names retain only requested attributes and namespace controls
      * @return null|array{end:int,self_closing:bool,attributes:array<string,array{offset:int,length:int,quote:string}>}
      */
-    private static function attributes(string $html, int $cursor, int &$count): ?array {
+    private static function attributes(string $html, int $cursor, int &$count, array $names): ?array {
         $length = strlen($html);
         $attributes = [];
         while ($cursor < $length) {
@@ -238,7 +240,7 @@ final class HtmlAttributeReader {
                 $valueLength = $cursor - $valueStart;
                 if ($quote !== '') ++$cursor;
             }
-            $attributes[$name] ??= ['offset' => $valueStart, 'length' => $valueLength, 'quote' => $quote];
+            if (in_array($name, $names, true)) $attributes[$name] ??= ['offset' => $valueStart, 'length' => $valueLength, 'quote' => $quote];
         }
         return null;
     }

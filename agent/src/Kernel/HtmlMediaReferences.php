@@ -11,14 +11,22 @@ final class HtmlMediaReferences {
     /** @param callable(array{reference:int|string,suffix:string,block:string,offset:int,literal:bool}):?string $replace */
     public static function rewrite(string $html, callable $replace): string {
         $blocks = [];
+        $valueTokens = 0;
         return HtmlAttributeReader::rewrite($html, ['class'],
-            static function (array $attribute) use ($replace, &$blocks): ?string {
-                [$value, $entities] = self::decode($attribute['value']);
-                $found = preg_match_all('/(^|[\t\n\f\r ]+)([^\t\n\f\r ]+)/', $value, $words, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
-                if ($found === false) throw new \RuntimeException('wprism: HTML media class scan failed');
+            static function (array $attribute) use ($replace, &$blocks, &$valueTokens): ?string {
+                [$value, $entities] = self::decode($attribute['value'], $valueTokens);
                 $pieces = [];
                 $cursor = 0;
-                foreach ($words as $word) {
+                $wordCursor = 0;
+                // preg_match_all allocated over 32 MiB for a 360 KB class
+                // value. Streaming also lets the shared budget refuse before
+                // allocating an unbounded word/entity inventory.
+                while (true) {
+                    $found = preg_match('/(^|[\t\n\f\r ]+)([^\t\n\f\r ]+)/', $value, $word, PREG_OFFSET_CAPTURE, $wordCursor);
+                    if ($found === false) throw new \RuntimeException('wprism: HTML media class scan failed');
+                    if ($found === 0) break;
+                    self::consume_value_token($valueTokens);
+                    $wordCursor = $word[0][1] + strlen($word[0][0]);
                     if (!str_starts_with($word[2][0], 'wp-image-')) continue;
                     $suffix = substr($word[2][0], 9);
                     $reference = self::reference($suffix, $attribute['offset']);
@@ -71,11 +79,12 @@ final class HtmlMediaReferences {
     // Capture normalizes encoded native spelling; immutable input must never
     // hide an edge behind HTML entities that only the apply reader decodes.
     public static function assert_canonical(string $html): void {
-        foreach (self::references($html) as $reference) {
+        self::rewrite($html, static function (array $reference): string {
             if (is_int($reference['reference']) || !$reference['literal']) {
                 throw new \RuntimeException('wprism: HTML media class at byte ' . $reference['offset'] . ' requires a canonical post token');
             }
-        }
+            return $reference['suffix'];
+        });
     }
 
     /**
@@ -86,20 +95,23 @@ final class HtmlMediaReferences {
      *
      * @return array{string,list<array{int,int,int,int}>}
      */
-    private static function decode(string $raw): array {
-        $found = preg_match_all('/&(?:\#[xX][0-9a-fA-F]+;?|\#[0-9]+;?|[a-zA-Z][a-zA-Z0-9]*;)/', $raw, $matches, PREG_OFFSET_CAPTURE);
-        if ($found === false) throw new \RuntimeException('wprism: HTML class entity scan failed');
+    private static function decode(string $raw, int &$valueTokens): array {
         $pieces = [];
         $entities = [];
         $cursor = 0;
         $decodedLength = 0;
-        foreach ($matches[0] as [$encoded, $offset]) {
+        while (true) {
+            $found = preg_match('/&(?:\#[xX][0-9a-fA-F]+;?|\#[0-9]+;?|[a-zA-Z][a-zA-Z0-9]*;)/', $raw, $match, PREG_OFFSET_CAPTURE, $cursor);
+            if ($found === false) throw new \RuntimeException('wprism: HTML class entity scan failed');
+            if ($found === 0) break;
+            self::consume_value_token($valueTokens);
+            [$encoded, $offset] = $match[0];
             $before = substr($raw, $cursor, $offset - $cursor);
             $pieces[] = $before;
             $decodedLength += strlen($before);
-            $closed = str_starts_with($encoded, '&#') ? rtrim($encoded, ';') . ';' : $encoded;
-            $decoded = html_entity_decode($closed, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            if ($decoded === $closed) $decoded = $encoded;
+            $decoded = str_starts_with($encoded, '&#')
+                ? self::numeric_character_reference($encoded)
+                : html_entity_decode($encoded, ENT_QUOTES | ENT_HTML5, 'UTF-8');
             $entities[] = [$decodedLength, strlen($decoded), $offset, strlen($encoded)];
             $pieces[] = $decoded;
             $decodedLength += strlen($decoded);
@@ -107,6 +119,39 @@ final class HtmlMediaReferences {
         }
         $pieces[] = substr($raw, $cursor);
         return [implode('', $pieces), $entities];
+    }
+
+    private static function consume_value_token(int &$valueTokens): void {
+        if (++$valueTokens > 100000) throw new \RuntimeException('wprism: HTML media document exceeds its value token budget');
+    }
+
+    /**
+     * PHP's HTML5 decoder leaves &#13; literal, hiding a class separator.
+     * HTML 13.2.5.84 instead emits that control character, maps C1 legacy
+     * references and replaces invalid Unicode scalars. Bound before intval:
+     * arbitrarily many source digits must never wrap into an ASCII identity.
+     */
+    private static function numeric_character_reference(string $encoded): string {
+        $digits = rtrim(substr($encoded, 2), ';');
+        $hex = ($digits[0] ?? '') === 'x' || ($digits[0] ?? '') === 'X';
+        if ($hex) $digits = substr($digits, 1);
+        $digits = ltrim($digits, '0');
+        if (strlen($digits) > ($hex ? 6 : 7)) return "\xef\xbf\xbd";
+        $point = $digits === '' ? 0 : intval($digits, $hex ? 16 : 10);
+        if ($point === 0 || $point > 0x10ffff || ($point >= 0xd800 && $point <= 0xdfff)) return "\xef\xbf\xbd";
+        $point = [
+            0x80 => 0x20ac, 0x82 => 0x201a, 0x83 => 0x0192, 0x84 => 0x201e,
+            0x85 => 0x2026, 0x86 => 0x2020, 0x87 => 0x2021, 0x88 => 0x02c6,
+            0x89 => 0x2030, 0x8a => 0x0160, 0x8b => 0x2039, 0x8c => 0x0152,
+            0x8e => 0x017d, 0x91 => 0x2018, 0x92 => 0x2019, 0x93 => 0x201c,
+            0x94 => 0x201d, 0x95 => 0x2022, 0x96 => 0x2013, 0x97 => 0x2014,
+            0x98 => 0x02dc, 0x99 => 0x2122, 0x9a => 0x0161, 0x9b => 0x203a,
+            0x9c => 0x0153, 0x9e => 0x017e, 0x9f => 0x0178,
+        ][$point] ?? $point;
+        if ($point <= 0x7f) return chr($point);
+        if ($point <= 0x7ff) return chr(0xc0 | ($point >> 6)) . chr(0x80 | ($point & 0x3f));
+        if ($point <= 0xffff) return chr(0xe0 | ($point >> 12)) . chr(0x80 | (($point >> 6) & 0x3f)) . chr(0x80 | ($point & 0x3f));
+        return chr(0xf0 | ($point >> 18)) . chr(0x80 | (($point >> 12) & 0x3f)) . chr(0x80 | (($point >> 6) & 0x3f)) . chr(0x80 | ($point & 0x3f));
     }
 
     /** @param list<array{int,int,int,int}> $entities */

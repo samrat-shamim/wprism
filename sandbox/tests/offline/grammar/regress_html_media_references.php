@@ -6,7 +6,21 @@ require_once dirname(__DIR__, 4) . '/agent/src/Kernel/HtmlMediaReferences.php';
 
 use WPrism\HtmlMediaReferences;
 
+if (($argv[1] ?? '') === '--bounded-memory') {
+    $plain = '<div class="' . str_repeat('plain ', 60000) . '">';
+    HtmlMediaReferences::assert_canonical($plain);
+    $plainCount = count(HtmlMediaReferences::references($plain));
+    unset($plain);
+    $manyAttributes = '<div';
+    for ($i = 0; $i < 60000; ++$i) $manyAttributes .= ' data-' . $i . '="value"';
+    $manyAttributes .= ' class="wp-image-{{post:11111111-1111-4111-8111-111111111111}}">';
+    HtmlMediaReferences::assert_canonical($manyAttributes);
+    echo json_encode(['plain_references' => $plainCount, 'attribute_references' => count(HtmlMediaReferences::references($manyAttributes))], JSON_THROW_ON_ERROR), "\n";
+    exit(0);
+}
+
 $cases = [
+    ['encoded carriage return is a class separator', '<img class="before&#13;wp-image-8&#xDwp-image-9">', '<img class="before&#13;wp-image-808&#xDwp-image-809">'],
     ['noscript fallback plus active remainder', '<noscript><img class=wp-image-8></noscript><img class=wp-image-9>', '<noscript><img class=wp-image-808></noscript><img class=wp-image-809>'],
     ['noscript raw child cannot consume the active remainder', '<noscript><style><img class=wp-image-8></noscript><img class=wp-image-9>', '<noscript><style><img class=wp-image-8></noscript><img class=wp-image-809>'],
     ['double escaped script', '<script><!-- <script> </script><img class=wp-image-8></script><img class=wp-image-9>', '<script><!-- <script> </script><img class=wp-image-8></script><img class=wp-image-809>'],
@@ -63,4 +77,33 @@ wprism_check_throws(static fn() => HtmlMediaReferences::references(str_repeat('<
 $encodedToken = str_replace('{{', '&#123;&#123;', $token);
 wprism_check_throws(static fn() => HtmlMediaReferences::assert_canonical('<img class="wp-image-' . $encodedToken . '">'), RuntimeException::class, 'canonical HTML cannot hide an identity edge behind entity encoding');
 wprism_check_same('<img class="wp-image-' . $token . '">', HtmlMediaReferences::rewrite('<img class="wp-image-' . $encodedToken . '">', static fn(array $ref) => $ref['suffix']), 'capture normalizes a pre-existing encoded token into literal canonical bytes');
+foreach (range(0, 127) as $code) {
+    foreach (['&#' . $code . ';', '&#x' . dechex($code) . ';', '&#000' . $code, '&#X000' . strtoupper(dechex($code))] as $entity) {
+        $refs = HtmlMediaReferences::references('<img class="before' . $entity . 'wp-image-8">');
+        wprism_check_same(in_array($code, [9, 10, 12, 13, 32], true) ? [8] : [], array_column($refs, 'reference'),
+            'numeric character reference ' . $entity . ' follows HTML class whitespace');
+    }
+}
+foreach (['0', '55296', '1114112', str_repeat('9', 5000), 'xDFFF', 'x110000', 'x' . str_repeat('F', 5000)] as $invalid) {
+    $source = '<img class="prefix&#' . $invalid . ';wp-image-8 wp-image-9">';
+    wprism_check_same(str_replace(' wp-image-9', ' wp-image-809', $source), HtmlMediaReferences::rewrite($source, static fn(array $ref) => (string) ($ref['reference'] + 800)),
+        'invalid Unicode reference cannot manufacture a class boundary or alter unrelated bytes');
+}
+foreach ([str_repeat('plain ', 100001), str_repeat('&#32;', 100001)] as $largeValue) {
+    wprism_check_throws(static fn() => HtmlMediaReferences::references('<div class="' . $largeValue . '">'), RuntimeException::class,
+        'dense class words and character references refuse through the bounded value grammar');
+}
+$child = proc_open([PHP_BINARY, '-d', 'memory_limit=32M', __FILE__, '--bounded-memory'],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+if (!is_resource($child)) throw new RuntimeException('cannot start the bounded HTML memory fixture');
+fclose($pipes[0]);
+$output = stream_get_contents($pipes[1]);
+$errors = stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+$status = proc_close($child);
+wprism_check_same(0, $status, 'large inert class and attribute lists fit a 32 MiB process');
+wprism_check_same('', $errors, 'bounded HTML scans emit no memory/runtime diagnostics');
+wprism_check_same(['plain_references' => 0, 'attribute_references' => 1], json_decode($output, true),
+    'streaming preserves real references after sixty thousand unrelated attributes');
 wprism_check_summary('HTML_MEDIA_REFERENCES');

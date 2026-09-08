@@ -121,12 +121,12 @@ $attrs = ['image' => ['id' => 4, 'url' => 'https://source.test/image.png'],
     'preview' => ['post_id' => 4, 'email' => 'editor@example.test', 'html' => '<form data-source="4"></form>'],
     'caption' => 'https://source.test/caption', 'localCounter' => 3];
 $block = static fn(array $a): string => '<!-- wp:fixture/media ' . serialize_block_attributes($a) . ' /-->';
-$native = '<!-- wp:group --><div>' . $block($attrs) . '<img class="wp-image-4"/></div><!-- /wp:group -->';
+$native = '<!-- wp:group --><div>' . $block($attrs) . '<img class="before&#13;wp-image-4"/></div><!-- /wp:group -->';
 $database(0);
 $sourceTokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
 $captured = Blocks::capture_rewrite($native, $policy, $sourceTokens);
 $a = parse_blocks($captured)[0]['innerBlocks'][0]['attrs'];
-wprism_check(str_contains($captured, 'class="wp-image-' . $token4 . '"'), 'saved media outside the core image allowlist captures its reserved class');
+wprism_check(str_contains($captured, 'class="before&#13;wp-image-' . $token4 . '"'), 'saved media outside the core image allowlist captures its reserved class');
 wprism_check_same($token4, $a['image']['id'], 'nested image identity is tokenized');
 wprism_check_same($token9, $a['slides'][0]['image']['id'], 'shared JSON paths transparently traverse repeaters');
 wprism_check_same([$token4, $token9, $token4], $a['postIds'], 'CSV capture keeps order, every selection and duplicate selections');
@@ -174,7 +174,7 @@ $database(800);
 $targetTokens = new Tokens('https://target.example.test/longer-prefix', 'https://target.example.test/longer-prefix/wp-content/uploads');
 $applied = Blocks::apply_rewrite($captured, $policy, $targetTokens);
 $appliedAttrs = parse_blocks($applied)[0]['innerBlocks'][0]['attrs'];
-wprism_check(str_contains($applied, 'class="wp-image-804"'), 'saved media class follows the target identity alongside structured attributes');
+wprism_check(str_contains($applied, 'class="before&#13;wp-image-804"'), 'saved media class follows the target identity alongside structured attributes');
 wprism_check_same(804, $appliedAttrs['image']['id'], 'target attachment identity is resolved from its ledger');
 wprism_check_same('804,809,804', $appliedAttrs['postIds'], 'target query selector restores native CSV storage');
 wprism_check_same('809', $appliedAttrs['formID'], 'selected form keeps its declared native string type');
