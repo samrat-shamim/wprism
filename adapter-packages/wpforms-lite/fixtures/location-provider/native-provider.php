@@ -6,6 +6,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/provider-library.php';
 $phase = $args[0] ?? '';
 $case = $args[1] ?? 'positive';
+$refusalCases = ['missing-embed', 'nonform-embed', 'template-embed', 'malformed-body', 'null-widget-title', 'unsafe-standalone-uri'];
 $proof = WP_CONTENT_DIR . '/wprism-wpforms-provider-proof';
 $check = static function (bool $condition, string $label): void {
     if (!$condition) throw new RuntimeException('WPForms provider native fixture: ' . $label);
@@ -178,8 +179,64 @@ if ($phase === 'setup') {
         }
         add_post_meta($id, 'wprism_location_unrelated', wp_slash("unrelated \\ exact ' bytes"));
         $record['physical'] = $physical();
+    } elseif ($phase === 'refusal-seed') {
+        $check(in_array($case, $refusalCases, true) && !file_exists($proof . '/refusal-restore.json'), 'isolated declared refusal case');
+        $before = $physical();
+        $property = $case === 'null-widget-title' ? 'options' : 'posts';
+        $identity = $property === 'posts' ? 'ID' : 'option_id';
+        $column = $property === 'posts' ? 'post_content' : 'option_value';
+        $target = match ($case) {
+            'malformed-body' => $forms['no_locations'], 'unsafe-standalone-uri' => $forms['form_page'],
+            default => $fixture['posts']['post_publish']['id'],
+        };
+        $rows = array_values(array_filter($before['inputs'][$property], static fn(array $row): bool => $property === 'posts'
+            ? (int) $row['ID'] === $target : $row['option_name'] === 'widget_wpforms-widget'));
+        $check(count($rows) === 1, 'one exact physical mutation target');
+        $row = $rows[0];
+        $new = match ($case) {
+            'missing-embed' => '[wpforms id="2147483646"]',
+            'nonform-embed' => '[wpforms id="' . $target . '"]',
+            'template-embed' => '[wpforms id="' . $fixture['template'] . '"]',
+            'malformed-body' => '{',
+            'null-widget-title' => serialize([2 => ['form_id' => (string) $forms['embeds'], 'title' => null], '_multiwidget' => 1]),
+            default => '',
+        };
+        if ($case === 'unsafe-standalone-uri') {
+            $data = json_decode($row[$column], true, 64, JSON_THROW_ON_ERROR);
+            $data['settings']['form_pages_page_slug'] = 'a%3Fb';
+            $new = json_encode($data, JSON_THROW_ON_ERROR);
+        }
+        $check($new !== $row[$column], 'hostile input actually differs');
+        $mutation = ['table' => $property, 'identity' => [$identity => $row[$identity]],
+            'column' => $column, 'before' => $row[$column], 'after' => $new];
+        $record['before'] = $before;
+        $record['mutation'] = $mutation;
+        $record['parser'] = str_ends_with($case, '-embed') ? $locator->get_form_ids($new) : null;
+        $save('refusal-restore', ['case' => $case, 'mutation' => $mutation, 'baseline_sha256' => hash('sha256', serialize($before))]);
+        // These malformed bytes are deliberate dirty-state fixtures, not
+        // claimed public-writer output. Fresh invocations need no fixture
+        // cache warm-up; restoration is one exact cell, never a DB reset.
+        global $wpdb;
+        $check($wpdb->update($wpdb->{$property}, [$column => $new], $mutation['identity']) === 1, 'one dirty input cell');
+        $record['physical'] = $physical();
+    } elseif ($phase === 'refusal-restore') {
+        $restore = $load('refusal-restore');
+        $check(in_array($case, $refusalCases, true) && $restore['case'] === $case, 'restore the active case only');
+        $record['before'] = $physical();
+        $mutation = $restore['mutation'];
+        $property = $mutation['table'];
+        $column = $mutation['column'];
+        $identity = array_key_first($mutation['identity']);
+        $rows = array_values(array_filter($record['before']['inputs'][$property],
+            static fn(array $row): bool => $row[$identity] === $mutation['identity'][$identity]));
+        $check(count($rows) === 1 && $rows[0][$column] === $mutation['after'], 'do not overwrite a divergent fixture input');
+        global $wpdb;
+        $check($wpdb->update($wpdb->{$property}, [$column => $mutation['before']], $mutation['identity']) === 1, 'restore the one dirty input cell');
+        $record['physical'] = $physical();
+        $check(hash('sha256', serialize($record['physical'])) === $restore['baseline_sha256'], 'complete physical state restored');
+        $check(unlink($proof . '/refusal-restore.json'), 'consume the exact private restore record');
     } elseif ($phase === 'invoke') {
-        $check($case === 'positive' || $case === 'repeat', 'declared invocation case');
+        $check($case === 'positive' || $case === 'repeat' || in_array($case, $refusalCases, true), 'declared invocation case');
         $library = WPrism\AdapterLibrary::fromSourcePackage($proof . '/library', 'wpforms-lite');
         [$policy, $compiled] = WPFormsLocationProviderLibrary::compile_and_load($proof . '/repo', $library);
         $actions = $policy->actions_for(['post:wpforms']);
@@ -202,6 +259,9 @@ if ($phase === 'setup') {
     } elseif ($phase === 'observe') {
         $record['physical'] = $physical();
         $record['native'] = $locations($forms, true);
+    } elseif ($phase === 'physical') {
+        $check(in_array($case, $refusalCases, true), 'declared independent refusal observation');
+        $record['physical'] = $physical();
     } else throw new RuntimeException('unknown native provider fixture phase');
 }
 $record['boot'] = $GLOBALS['wpforms_location_fixture_boot'];

@@ -47,4 +47,13 @@ capture repeat compose run --rm -T cli1 wp eval-file "$fixture" invoke repeat --
 capture stable compose run --rm -T cli1 wp eval-file "$fixture" observe repeat --use-include
 php "$PACKAGE_ROOT/fixtures/location-provider/provider-evidence.php" \
   --admit "$sink/seed" "$sink/invoke" "$sink/observe" "$sink/repeat" "$sink/stable"
+for case_name in missing-embed nonform-embed template-embed malformed-body null-widget-title unsafe-standalone-uri; do
+  capture "$case_name-seed" compose run --rm -T cli1 wp eval-file "$fixture" refusal-seed "$case_name" --use-include
+  capture "$case_name-invoke" compose run --rm -T cli1 wp eval-file "$fixture" invoke "$case_name" --use-include
+  capture "$case_name-observe" compose run --rm -T cli1 wp eval-file "$fixture" physical "$case_name" --use-include
+  capture "$case_name-restore" compose run --rm -T cli1 wp eval-file "$fixture" refusal-restore "$case_name" --use-include
+  php "$PACKAGE_ROOT/fixtures/location-provider/provider-evidence.php" --admit-refusal "$case_name" \
+    "$sink/seed" "$sink/invoke" "$sink/observe" "$sink/repeat" "$sink/stable" \
+    "$sink/$case_name-seed" "$sink/$case_name-invoke" "$sink/$case_name-observe" "$sink/$case_name-restore"
+done
 pair_live_ownership_complete 'REGRESS_WPFORMS_LOCATION_PROVIDER PASSED'
