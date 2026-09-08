@@ -90,6 +90,16 @@ Engine responsibilities include capture, validation, planning, conflict
 detection, scoped materialization, lifecycle orchestration, effects, receipts,
 recovery, and verification.
 
+Untrusted PHP serialization also crosses an engine boundary. All engine-owned
+raw decodes use `SerializedDataPreflight` before PHP's decoder. The class filter
+alone is insufficient: PHP enum records ignore `allowed_classes` and can invoke
+an autoloader before an outer value check. The preflight distinguishes actual
+`E` records from the same bytes inside length-framed strings; ordinary class
+records remain subject to the existing disabled-class filter. `PlainData`
+continues to refuse objects, references, recursion and noncanonical framing.
+The shared regression exercises authored-option capture and the review,
+delete-guard and native rewrite readers without executing an autoloader.
+
 ### 2. Declarative manifest
 
 A manifest describes facts that can be represented as data:

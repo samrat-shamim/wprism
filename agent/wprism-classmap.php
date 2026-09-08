@@ -292,6 +292,7 @@ return [
     'WPrism\\ScopedPromotionAuthority' => 'src/Promotion/ScopedPromotionAuthority.php',
     'WPrism\\ScopedStateOverlay' => 'src/Scope/ScopedStateOverlay.php',
     'WPrism\\Secrets' => 'src/Kernel/Secrets.php',
+    'WPrism\\SerializedDataPreflight' => 'src/Kernel/SerializedDataPreflight.php',
     'WPrism\\SerializedTermDescriptionScanner' => 'src/Review/SerializedTermDescriptionScanner.php',
     'WPrism\\ShippedIdentityInventory' => 'src/Adapter/ShippedIdentityInventory.php',
     'WPrism\\ShortcodeAlternateRegistrar' => 'src/Grammar/ShortcodeAlternateRegistrar.php',

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
+
 // issue #3508: the queue's mechanism-ownership test below asks SidebarState
 // directly, and the drop-in has no autoloader — every engine file names the
 // classes it loads (sandbox/tests/offline/guards/regress_agent_src_requires.php).
@@ -220,24 +222,13 @@ final class Pending {
     }
 
     /**
-     * issue #3214: current_value() reads a raw, untrusted DB value — ANY
-     * option/post_meta/term_meta row in this installation (this is the
-     * pending-review surface; the key may not even be classified yet), not
-     * just a wprism-authored one. Plain maybe_unserialize() (WordPress core:
-     * `is_serialized($data) ? @unserialize(trim($data)) : $data`) calls
-     * unserialize() with no 'allowed_classes' restriction — a PHP-serialized
-     * OBJECT instantiates (running its __wakeup(), and later __destruct())
-     * before this function, or its caller, ever inspects the result. This
-     * mirrors core's own contract exactly (same is_serialized() gate, same
-     * trim() before unserialize, same passthrough for a non-serialized
-     * string) with the one change that matters: 'allowed_classes' => false,
-     * the identical safe pattern Capture::term_description() already uses
-     * (Capture.php:583) — a serialized OBJECT decodes to false (PHP's
-     * documented behavior for a disallowed class) instead of ever
-     * instantiating.
+     * Review reads unclassified target bytes. Class filtering yields inert
+     * incomplete markers for ordinary objects, but PHP's E records ignore
+     * allowed_classes and can autoload code. The common preflight refuses
+     * those records before PHP sees them, including inside nested arrays.
      */
     private static function safe_maybe_unserialize(string $raw) {
-        return is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+        return is_serialized($raw) ? SerializedDataPreflight::decode(trim($raw), 'pending value observation') : $raw;
     }
 
     // ------------------------------------------------------------ assembly

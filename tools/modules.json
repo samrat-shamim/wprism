@@ -90,6 +90,7 @@
           "SiteTopology",
           "Secrets",
           "PlainData",
+          "SerializedDataPreflight",
           "StructuredValue",
           "Uuid",
           "ReferenceRules",
@@ -149,7 +150,7 @@
             ]
           }
         ],
-  "file_count": 68,
+  "file_count": 69,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -186,6 +187,7 @@
           "PersonalData.php",
           "PhpLiteralData.php",
           "PlainData.php",
+          "SerializedDataPreflight.php",
           "PostPasswordBinding.php",
           "PrivateEvidenceCarrierException.php",
           "PrivateEvidenceException.php",

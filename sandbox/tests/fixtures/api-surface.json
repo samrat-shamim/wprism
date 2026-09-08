@@ -1,5 +1,5 @@
 {
-    "class_count": 486,
+    "class_count": 487,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -72789,6 +72789,55 @@
                         }
                     ],
                     "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\SerializedDataPreflight": {
+            "abstract": false,
+            "constants": {
+                "MAX_DEPTH": {
+                    "value_repr": 256
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "decode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "bytes",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowStdClass",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
                 }

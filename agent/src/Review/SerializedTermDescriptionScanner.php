@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
+
 require_once __DIR__ . '/Pending.php';
 require_once __DIR__ . '/LintFinding.php';
 
@@ -23,7 +25,7 @@ final class SerializedTermDescriptionScanner {
         ?callable $resolveId = null
     ): array {
         $resolveId ??= static fn(int $id): ?array => Pending::resolve_id($id);
-        $data = @unserialize($description, ['allowed_classes' => false]);
+        $data = SerializedDataPreflight::decode($description, 'serialized term description observation');
         if ($data === false && $description !== 'b:0;') {
             return [];
         }

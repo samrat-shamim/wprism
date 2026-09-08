@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
+
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
@@ -887,7 +889,7 @@ final class Snapshot {
                 }
                 $raw = $row['v'];
                 $value = is_string($raw) && is_serialized($raw)
-                    ? @unserialize(trim($raw), ['allowed_classes' => false])
+                    ? SerializedDataPreflight::decode(trim($raw), "unclassified $table metadata")
                     : $raw;
                 $unknown[$key]['count'] = ($unknown[$key]['count'] ?? 0) + 1;
                 $unknown[$key]['shapes'][get_debug_type($value)] = true;

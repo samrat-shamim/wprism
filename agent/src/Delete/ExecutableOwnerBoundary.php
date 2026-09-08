@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
+
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
@@ -762,7 +764,7 @@ final class ExecutableOwnerBoundary {
 
     /** @return array<mixed> */
     private static function decode_array(string $raw, string $name): array {
-        $decoded = @unserialize($raw, ['allowed_classes' => false]);
+        $decoded = SerializedDataPreflight::decode($raw, $name);
         if (!is_array($decoded) || count($decoded) > self::MAX_OWNERS) {
             throw new \RuntimeException("wprism: $name has malformed serialized activation facts");
         }
