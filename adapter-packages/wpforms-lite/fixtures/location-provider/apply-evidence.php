@@ -2,9 +2,17 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Policy/ScopeContract.php';
 
 /** Independent native semantics; shared transport/compiler own their contracts. */
 final class WPFormsApplyEvidence {
+    public static function source(array $contract, WPrism\CompiledRepository $repository, WPrism\Policy $policy): void {
+        self::check($policy->code_config() === null && $repository->code_descriptor() === null, 'code descriptor is outside this lane');
+        // Semantic recapture equality cannot bind a run to these executable
+        // bytes. The product guard rechecks the exact artifact and full closure.
+        WPrism\ScopeContract::assert_associated($contract, $repository, $policy);
+    }
+
     public static function stderrPattern(string $pair, string $root, string $name): string {
         self::check(preg_match('/\A[a-z][a-z0-9]+\z/', $pair) === 1 && str_starts_with($root, '/'), 'exact diagnostic ownership');
         $pattern = ' ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-z0-9]+ (?:Creating|Created) *';
@@ -181,6 +189,8 @@ if (($argv[1] ?? null) === '--admit') {
     $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject($sink . '/' . $name,
         WPFormsApplyEvidence::stderrPattern($pair, $root, $name)), true, 32, JSON_THROW_ON_ERROR);
     foreach ([1, 2] as $side) {
+        WPrismTest\PrivateCommandOutput::readBytes($sink . '/binding' . $side,
+            WPFormsApplyEvidence::stderrPattern($pair, $root, 'binding' . $side));
         $home = 'http://' . $pair . $side . '.invalid';
         $setup = $read('setup' . $side);
         if (($setup['home'] ?? null) !== $home) throw new RuntimeException('WPForms Apply evidence: native setup home differs from headless bootstrap premise');
@@ -214,6 +224,7 @@ if (($argv[1] ?? null) === '--admit') {
             $policy = WPrism\Policy::load($repo, adapterLibrary: $library);
             $compiled = WPrism\RepositoryCompiler::compile_staged($repo . '/state', $repo, $policy);
             if ($policy->code_config() !== null || $compiled->code_descriptor() !== null) throw new RuntimeException('WPForms Apply evidence: code descriptor is outside this lane');
+            if ($side === 'source') WPFormsApplyEvidence::source($read($case . '-contract'), $compiled, $policy);
             $repositories[$side] = $compiled;
         }
         WPrismTest\RepositoryConvergence::assertSame($repositories['source'], $repositories['target']);

@@ -18,6 +18,7 @@ export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CO
 . tests/lib/private_command_capture.sh
 . tests/lib/conformance_private_command.sh
 . tests/support/explicit_adapter_library.sh
+. conformance/asserts.sh
 pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" 'WPForms native authored-state Apply evidence' 'wprism-wpf-apply'
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
@@ -64,10 +65,8 @@ git -C "$R2" init -q -b evidence
 for case_name in baseline embeds widgets routing; do
   [ "$case_name" = baseline ] || capture "$case_name-mutate" native 1 mutate "$case_name"
   if [ "$case_name" = baseline ]; then
-    for name in admin_email home siteurl; do
-      value="http://${PAIR}1.invalid"; [ "$name" != admin_email ] || value=admin@example.test
-      capture "binding1-$name" wp_side 1 wprism env-set --repo=/siterepo --name="$name" --stdin --format=json <<<"$value"
-    done
+    capture binding1 establish_core_environment_bindings wp_side /siterepo admin@example.test \
+      "http://${PAIR}1.invalid" "http://${PAIR}1.invalid" 1
   fi
   capture "$case_name-capture" candidate 1 capture --repo=/siterepo --format=json
   capture "$case_name-source" native 1 observe "$case_name"
@@ -78,10 +77,8 @@ for case_name in baseline embeds widgets routing; do
   git -C "$R2" fetch -q "$R1" evidence
   git -C "$R2" merge -q --ff-only FETCH_HEAD
   if [ "$case_name" = baseline ]; then
-    for name in admin_email home siteurl; do
-      value="http://${PAIR}2.invalid"; [ "$name" != admin_email ] || value=admin@example.test
-      capture "binding2-$name" wp_side 2 wprism env-set --repo=/siterepo --name="$name" --stdin --format=json <<<"$value"
-    done
+    capture binding2 establish_core_environment_bindings wp_side /siterepo admin@example.test \
+      "http://${PAIR}2.invalid" "http://${PAIR}2.invalid" 2
   fi
   capture "$case_name-plan" candidate 2 plan --repo=/siterepo --adopt-by-slug=posts,terms --format=json
   capture "$case_name-apply" candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json

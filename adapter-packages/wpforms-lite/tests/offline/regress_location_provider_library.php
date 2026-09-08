@@ -13,6 +13,7 @@ require_once $root . '/agent/src/Apply/ApplyPlanner.php';
 require_once $root . '/agent/src/Policy/ScopeContract.php';
 require_once $root . '/sandbox/tests/lib/frozen_policy.php';
 require_once dirname(__DIR__, 2) . '/fixtures/location-provider/provider-library.php';
+require_once dirname(__DIR__, 2) . '/fixtures/location-provider/apply-evidence.php';
 
 $scratch = WPrismTest\FrozenPolicy::library();
 $original = WPrism\Policy::load(null, ['wpforms-lite'], adapterLibrary: WPrism\AdapterLibrary::fromSourcePackage($root, 'wpforms-lite'));
@@ -118,4 +119,26 @@ wprism_check_same(['post:page'], $potential['eligible_surfaces'], 'scope authori
 wprism_check_same([['declaration_hash' => hash('sha256', WPrism\Canon::encode($potential['declaration'])),
     'index' => $potential['index'], 'manifest' => $potential['manifest']]],
     WPrism\Policy::action_identities([$potential['declaration']]), 'public action identity hashes the full contract declaration');
+WPFormsApplyEvidence::source($contract, $scopeCompiled, $scopePolicy);
+wprism_check(true, 'actual Apply admission associates the complete retained source and candidate authority');
+foreach (['artifact' => static function (&$row): void { $row['source']['artifact_hash'] = str_repeat('b', 64); },
+    'declaration' => static function (&$row): void { $row['potential_actions'][0]['declaration']['args'] = ['unexpected' => true]; },
+    'selector' => static function (&$row): void { $row['selectors'] = ['all']; }] as $label => $mutate) {
+    $changedContract = $contract;
+    $mutate($changedContract);
+    unset($changedContract['scope_hash']);
+    $changedContract['scope_hash'] = hash('sha256', WPrism\Canon::encode($changedContract));
+    wprism_check_throws(static fn() => WPFormsApplyEvidence::source($changedContract, $scopeCompiled, $scopePolicy),
+        RuntimeException::class, 'actual Apply admission refuses self-hashed changed ' . $label, 'wprism: scope contract');
+}
+$providerPath = $package . '/runtime/providers/wpforms-form-locations.php';
+$providerBytes = (string) file_get_contents($providerPath);
+file_put_contents($providerPath, $providerBytes . "\n");
+$differentPolicy = WPrism\Policy::load($scopeRepo, adapterLibrary: $library);
+$differentCompiled = WPrism\RepositoryCompiler::compile($scopeRepo, $differentPolicy);
+wprism_check($differentCompiled->artifact_hash() !== $scopeCompiled->artifact_hash(), 'recompilation binds different candidate executable bytes');
+wprism_check_throws(static fn() => WPFormsApplyEvidence::source($contract, $differentCompiled, $differentPolicy),
+    RuntimeException::class, 'retained Apply cannot be re-admitted under a different recompiled executable',
+    'not associated with this exact compiled artifact/policy');
+file_put_contents($providerPath, $providerBytes);
 wprism_check_summary('regress_wpforms_location_provider_library');
