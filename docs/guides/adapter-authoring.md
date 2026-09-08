@@ -398,6 +398,13 @@ The WPForms capsule's `regress_form_tags.php` and
 `regress_native_tag_evidence.php` are deterministic mechanism/admission
 examples, not substitutes for executing its native producer.
 
+Trace the native loader before treating a valid nonce and payload as a
+complete request. WPForms registers its Tags AJAX handler only when its
+admin-AJAX predicate sees an admin-page referrer. Bind the actual preceding
+page read, route, host and `Referer` in the retained exchange; a header
+invented without that read or a direct class bootstrap is not the native
+authoring flow. Keep this plugin-specific loader contract in its capsule.
+
 ### Portable validation versus WordPress-native predicates
 
 Run your real adapter through the standalone `RepositoryCompiler`, with no

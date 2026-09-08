@@ -84,6 +84,7 @@ $author = static function (string $side, string $mode, array $before) use ($slug
         . ($index === 0 ? '/wp-admin/admin.php?page=wpforms-overview' : '/wp-admin/admin-ajax.php'), 'host' => 'wpftags' . $number . '.invalid',
         'method' => $method, 'post' => $index === 0 ? [] : ['action' => 'wpforms_admin_forms_overview_save_tags', 'nonce' => '123456abcd', 'forms' => [(string) $id], 'tags' => $postTags],
         'status' => 200, 'headers' => [], 'body' => $index === 0 ? $html : json_encode(['success' => true, 'data' => $data], JSON_THROW_ON_ERROR)];
+    $requests[1]['referer'] = 'http://wpftags' . $number . '.invalid/wp-admin/admin.php?page=wpforms-overview';
     return ['format' => 'wprism-wpforms-native-tag-author/v1', 'version' => '2.0.1.1', 'side' => $side, 'mode' => $mode,
         'form_id' => $id, 'home' => 'http://wpftags' . $number . '.invalid', 'actor' => 'admin',
         'capabilities' => ['edit_others_forms' => true, 'edit_form_single' => true], 'debug_config' => [true, true, false],
@@ -111,6 +112,8 @@ foreach ([
     'native diagnostic' => static function (&$r): void { $r['diagnostics_after']['bytes'] = 'hidden error'; },
     'wrong native host' => static function (&$r): void { $r['requests'][1]['host'] = 'foreign.invalid'; },
     'wrong native route' => static function (&$r): void { $r['requests'][1]['url'] .= '?foreign'; },
+    'missing native referer' => static function (&$r): void { unset($r['requests'][1]['referer']); },
+    'foreign native referer' => static function (&$r): void { $r['requests'][1]['referer'] = 'http://foreign.invalid/wp-admin/'; },
     'redirect' => static function (&$r): void { $r['requests'][1]['status'] = 302; },
     'wrong nonce' => static function (&$r): void { $r['requests'][1]['post']['nonce'] = 'abcdef1234'; },
     'extra request field' => static function (&$r): void { $r['requests'][1]['post']['hidden'] = 'value'; },

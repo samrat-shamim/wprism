@@ -26,7 +26,7 @@ function wp_remote_request(string $url, array $args): mixed {
 }
 function wp_remote_retrieve_headers(array $reply): array { return $reply['headers']; }
 function wp_remote_retrieve_response_code(array $reply): int { return $reply['status']; }
-function wp_remote_retrieve_body(array $reply): string { return $reply['body']; }
+function wp_remote_retrieve_body(array $reply): string { return $reply['body'] ?? ''; }
 final class WP_Session_Tokens {
     public static ?self $instance = null;
     public array $tokens = [];
@@ -44,6 +44,10 @@ final class WPFormsTransportFailure extends WP_Error {
 $manager = WP_Session_Tokens::get_instance(12);
 $manager->tokens['foreign-session'] = time() + 600;
 $session = new WPFormsNativeAdminSession('wpftags', 'source');
+$overviewReferer = 'http://wpftags1.invalid/wp-admin/admin.php?page=wpforms-overview';
+wprism_check_throws(static fn() => $session->request('/wp-admin/admin-ajax.php', 'POST', [], $overviewReferer), RuntimeException::class,
+    'direct AJAX request cannot invent an unvisited overview', 'native overview referer');
+wprism_check_same([], $tagHttp['calls'], 'unvisited overview refuses before transport');
 $reply = $session->request('/wp-admin/admin.php?page=wpforms-overview', 'GET');
 wprism_check_same([$reply], $session->requests, 'actual session retains the complete HTTP reply');
 [$url, $args] = $tagHttp['calls'][0];
@@ -56,22 +60,35 @@ foreach ([['/wp-admin/admin.php?page=foreign', 'GET', []], ['/wp-admin/admin-aja
     wprism_check_throws(static fn() => $session->request($route, $method, $post), RuntimeException::class, 'closed native request refuses before transport', 'closed WPForms');
 }
 wprism_check_same(1, count($tagHttp['calls']), 'invalid requests never contact the server');
+foreach ([null, 'http://foreign.invalid/wp-admin/admin.php?page=wpforms-overview'] as $referer) {
+    wprism_check_throws(static fn() => $session->request('/wp-admin/admin-ajax.php', 'POST', [], $referer), RuntimeException::class,
+        'missing or foreign AJAX overview referer refuses before transport', 'native overview referer');
+}
+wprism_check_throws(static fn() => $session->request('/wp-admin/admin.php?page=wpforms-settings&view=general', 'POST', [], $overviewReferer), RuntimeException::class,
+    'non-AJAX settings route does not accept a fabricated overview referer', 'native overview referer');
+wprism_check_same(1, count($tagHttp['calls']), 'all wrong referers refuse before transport');
 foreach ([['status' => 302, 'headers' => ['location' => 'foreign'], 'body' => 'redirect reply'],
+    ['status' => 400, 'headers' => ['content-length' => '1'], 'body' => '0'],
     ['status' => 200, 'headers' => [], 'body' => str_repeat('x', 1048577)]] as $failure) {
     $tagHttp['reply'] = $failure;
-    wprism_check_throws(static fn() => $session->request('/wp-admin/admin-ajax.php', 'POST', ['fixture' => 'body']), RuntimeException::class,
+    wprism_check_throws(static fn() => $session->request('/wp-admin/admin-ajax.php', 'POST', ['fixture' => 'body'], $overviewReferer), RuntimeException::class,
         'non-200 and overflow HTTP replies refuse', 'bounded native HTTP');
     $retained = end($session->requests);
     wprism_check_same($failure, ['status' => $retained['status'], 'headers' => $retained['headers'], 'body' => $retained['body']], 'failure reply bytes are retained before refusal');
 }
+wprism_check_same($overviewReferer, end($tagHttp['calls'])[1]['headers']['Referer'] ?? null, 'actual AJAX transport carries the exact previously visited native overview Referer');
+$tagHttp['reply'] = ['status' => 200, 'headers' => []];
+wprism_check_throws(static fn() => $session->request('/wp-admin/admin-ajax.php', 'POST', [], $overviewReferer), RuntimeException::class,
+    'absent HTTP body refuses without becoming an observed empty string', 'bounded native HTTP');
+wprism_check_same(null, end($session->requests)['body'], 'absent HTTP body is retained distinctly');
 $error = new WPFormsTransportFailure('first', 'first failure');
 $error->errors['second'] = ['second failure', 'second detail'];
 $error->error_data = ['first' => [['attempt' => 1]], 'second' => [['attempt' => 2], ['attempt' => 3]]];
 $tagHttp['reply'] = $error;
-wprism_check_throws(static fn() => $session->request('/wp-admin/admin-ajax.php', 'POST', ['selected' => '701']), RuntimeException::class,
+wprism_check_throws(static fn() => $session->request('/wp-admin/admin-ajax.php', 'POST', ['selected' => '701'], $overviewReferer), RuntimeException::class,
     'actual WP_Error path refuses', 'native HTTP transport');
 wprism_check_same(['url' => 'http://wprism-wpftags-wp1-1/wp-admin/admin-ajax.php', 'host' => 'wpftags1.invalid',
-    'method' => 'POST', 'post' => ['selected' => '701'], 'errors' => [
+    'method' => 'POST', 'post' => ['selected' => '701'], 'referer' => $overviewReferer, 'errors' => [
         ['code' => 'first', 'messages' => ['first failure'], 'data' => [['attempt' => 1]]],
         ['code' => 'second', 'messages' => ['second failure', 'second detail'], 'data' => [['attempt' => 2], ['attempt' => 3]]],
     ]], $session->transportError, 'every native error code, message, data-history and attempted payload is retained privately');
@@ -79,6 +96,15 @@ $manager->destroyFailure = true;
 wprism_check_same(false, $session->retire(), 'failed session retirement never reports success');
 $manager->destroyFailure = false;
 wprism_check($session->retire() && array_keys($manager->tokens) === ['foreign-session'], 'retirement destroys only its own native session');
+$unvisited = new WPFormsNativeAdminSession('wpftags', 'source');
+$tagHttp['reply'] = ['status' => 200, 'headers' => [], 'body' => str_repeat('x', 1048577)];
+wprism_check_throws(static fn() => $unvisited->request('/wp-admin/admin.php?page=wpforms-overview', 'GET'), RuntimeException::class,
+    'HTTP 200 with an oversized overview is not a successful visit', 'bounded native HTTP');
+$callsBefore = count($tagHttp['calls']);
+wprism_check_throws(static fn() => $unvisited->request('/wp-admin/admin-ajax.php', 'POST', [], $overviewReferer), RuntimeException::class,
+    'retained failed overview cannot authorize AJAX', 'native overview referer');
+wprism_check_same($callsBefore, count($tagHttp['calls']), 'failed overview admission refuses before another transport');
+wprism_check($unvisited->retire() && array_keys($manager->tokens) === ['foreign-session'], 'failed overview session retires without touching another actor');
 $tagHttp['cookie_failure'] = true;
 wprism_check_throws(static fn() => new WPFormsNativeAdminSession('wpftags', 'source'), RuntimeException::class, 'cookie construction failure propagates', 'injected cookie failure');
 wprism_check_same(['foreign-session'], array_keys($manager->tokens), 'constructor failure retires the newly created session');

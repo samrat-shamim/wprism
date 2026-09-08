@@ -50,7 +50,8 @@ final class WPFormsNativeTags {
         try {
             $overview = $session->request('/wp-admin/admin.php?page=wpforms-overview', 'GET');
             $native = WPFormsTagEvidence::overview($overview['body'], $formId);
-            $session->request('/wp-admin/admin-ajax.php', 'POST', WPFormsTagEvidence::post($native, $formId, $mode));
+            $session->request('/wp-admin/admin-ajax.php', 'POST', WPFormsTagEvidence::post($native, $formId, $mode),
+                $record['home'] . '/wp-admin/admin.php?page=wpforms-overview');
         } finally {
             $record['requests'] = $session->requests;
             if ($session->transportError !== null) $record['transport_error'] = $session->transportError;

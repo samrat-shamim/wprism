@@ -20,6 +20,13 @@ form with `edit_form_single`. The normal All Forms page initializes the Tags
 UI (`src/Admin/Forms/Tags.php:43-86`). A CLI call to a private method, a copied
 writer, or a direct SQL seed does not prove this HTTP authoring path.
 
+The loader is part of that contract: `src/Loader.php:612-625` registers the
+Tags AJAX handler only for the overview page or `wpforms_is_admin_ajax()`.
+`includes/functions/checks.php:421-437` requires an admin-page referrer.
+The fixture therefore sends the exact native overview `Referer` only after
+the same authenticated session has successfully read that page. Missing,
+foreign, unvisited and failed-overview requests refuse before transport.
+
 ## Offline mechanism checkpoint
 
 `tests/offline/regress_form_tags.php` uses the shipped capsule policy,
@@ -78,7 +85,7 @@ The existing shared transport, compiler, identity and transaction machinery
 remain the implementation boundary; a second admin route may justify a small
 capsule-local session/request helper, not a runtime HTTP framework.
 
-## Implemented producer, pending native execution
+## Implemented producer, native verification in progress
 
 `tests/live/regress_location_apply.sh` now admits an explicit seeded-target
 `WPFORMS_APPLY_TAGS=1` profile. It runs the native sequence above and adds a
@@ -88,16 +95,27 @@ the capsule-local `native-admin.php` session helper. Neither profile changes
 the default content-only lane or creates a code baseline.
 
 The actual author and Apply admission functions are exercised by
-`tests/offline/regress_native_tag_evidence.php` (56 assertions), including
+`tests/offline/regress_native_tag_evidence.php` (58 assertions), including
 successfully compiled but wrong term/label inputs and complete target-only
 inventory rejection without explicit preservation proof. The helper's
-`regress_native_admin.php` (22 assertions) injects HTTP status/size failures,
+`regress_native_admin.php` (37 assertions) injects HTTP status/size failures,
 multi-code transport errors, cookie failure and failed session retirement.
+It also pins the native referrer and distinguishes an absent HTTP-API body
+from an observed empty string; the string `0` is retained without coercion.
 Every error-code data history and attempted request payload is retained
 privately; a partial or error-shaped record cannot pass native admission.
-These are deterministic fixture results, not evidence that the native
-producer has run. The next gate is the full offline aggregate, followed by
-one exact-source combined settings/tags run and independent review.
+These are deterministic fixture results, not a successful native round-trip.
+
+The first combined run, producer `999ab097070c7520af830121f7c9a34a3525ad59`,
+failed at the first tag POST with HTTP 400 before any physical change. Its
+private sink `sandbox/tmp/wpforms-apply-native.YivuQ5` retains the complete
+WordPress HTTP-API response (empty body, Content-Length 1), unchanged native
+rows, an empty diagnostic witness and successful session retirement. It is
+not a wire capture and does not prove a raw `0` response. The missing native
+overview referrer prevented the locked loader from registering the handler.
+The owned pair `wpftags01` and its disposable resources were destroyed.
+The corrected helper is red/green tested against that producer, with a new
+full aggregate and exact-source native run required before any PASS claim.
 
 Media/QR uploads, template conversion, deletion authority, lifecycle,
 submissions/mail and participant-declared combinations remain separate work.

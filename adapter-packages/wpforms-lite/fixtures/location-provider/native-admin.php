@@ -10,6 +10,7 @@ final class WPFormsNativeAdminSession {
     private string $cookies;
     private string $origin;
     private string $host;
+    private bool $overviewVisited = false;
 
     public function __construct(string $pair, string $side) {
         self::check(preg_match('/^[a-z][a-z0-9]+$/D', $pair) === 1
@@ -33,29 +34,43 @@ final class WPFormsNativeAdminSession {
         }
     }
 
-    public function request(string $route, string $method, array $post = []): array {
+    public function request(string $route, string $method, array $post = [], ?string $referer = null): array {
         self::check(in_array($route, ['/wp-admin/admin.php?page=wpforms-settings&view=general',
             '/wp-admin/admin.php?page=wpforms-settings&view=validation', '/wp-admin/admin.php?page=wpforms-overview',
             '/wp-admin/admin-ajax.php'], true) && in_array($method, ['GET', 'POST'], true)
             && ($method !== 'GET' || $post === []), 'closed WPForms admin route and method');
         $url = $this->origin . $route;
+        $ajax = $route === '/wp-admin/admin-ajax.php';
+        $overview = '/wp-admin/admin.php?page=wpforms-overview';
+        // Loader.php:612 and checks.php:421-437 require the browser's admin
+        // Referer before loading Tags AJAX at all. It must name our real GET,
+        // not a caller-invented header or native-class bootstrap bypass.
+        self::check($ajax ? $method === 'POST' && $referer === 'http://' . $this->host . $overview && $this->overviewVisited
+            : $referer === null, 'exact previously visited native overview referer');
+        $context = ['url' => $url, 'host' => $this->host, 'method' => $method, 'post' => $post]
+            + ($referer === null ? [] : ['referer' => $referer]);
         $reply = wp_remote_request($url, ['method' => $method, 'redirection' => 0, 'timeout' => 60,
-            'headers' => ['Host' => $this->host, 'Cookie' => $this->cookies], 'body' => $post, 'limit_response_size' => 1048577]);
+            'headers' => ['Host' => $this->host, 'Cookie' => $this->cookies] + ($referer === null ? [] : ['Referer' => $referer]),
+            'body' => $post, 'limit_response_size' => 1048577]);
         if (is_wp_error($reply)) {
             $errors = [];
             foreach ($reply->get_error_codes() as $code) $errors[] = ['code' => $code,
                 'messages' => $reply->get_error_messages($code), 'data' => $reply->get_all_error_data($code)];
-            $this->transportError = ['url' => $url, 'host' => $this->host, 'method' => $method, 'post' => $post, 'errors' => $errors];
+            $this->transportError = $context + ['errors' => $errors];
         }
         self::check(!is_wp_error($reply), 'native HTTP transport succeeded');
         $headers = wp_remote_retrieve_headers($reply);
-        $record = ['url' => $url, 'host' => $this->host, 'method' => $method, 'post' => $post,
+        $record = $context + [
             'status' => wp_remote_retrieve_response_code($reply),
-            'headers' => is_array($headers) ? $headers : $headers->getAll(), 'body' => wp_remote_retrieve_body($reply)];
-        // Retain the complete exchanged reply before any status/body assertion.
+            'headers' => is_array($headers) ? $headers : $headers->getAll(),
+            // An absent body is not an observed empty body. Retain that
+            // distinction, including on a failed HTTP response, before admission.
+            'body' => is_array($reply) && array_key_exists('body', $reply) ? $reply['body'] : null];
+        // This is the complete WordPress HTTP-API reply, not a wire capture.
         $this->requests[] = $record;
         self::check($record['status'] === 200 && is_string($record['body']) && strlen($record['body']) <= 1048576,
             'bounded native HTTP 200 response');
+        if ($method === 'GET' && $route === $overview) $this->overviewVisited = true;
         return $record;
     }
 

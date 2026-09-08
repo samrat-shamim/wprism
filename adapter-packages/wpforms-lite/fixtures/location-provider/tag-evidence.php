@@ -142,7 +142,10 @@ final class WPFormsTagEvidence {
         self::diagnostics($record['diagnostics_after']);
         self::check(array_is_list($record['requests']) && count($record['requests']) === 2, 'complete native GET/POST exchange');
         foreach ($record['requests'] as $index => $request) {
-            self::keys($request, ['url', 'host', 'method', 'post', 'status', 'headers', 'body']);
+            self::keys($request, $index === 0 ? ['url', 'host', 'method', 'post', 'status', 'headers', 'body']
+                : ['url', 'host', 'method', 'post', 'referer', 'status', 'headers', 'body']);
+            if ($index === 1) self::check($request['referer'] === $record['home'] . '/wp-admin/admin.php?page=wpforms-overview',
+                'AJAX loader receives the exact observed native overview referer');
             $route = $index === 0 ? '/wp-admin/admin.php?page=wpforms-overview' : '/wp-admin/admin-ajax.php';
             self::check($request['url'] === 'http://wprism-' . $pair . '-wp' . $number . '-1' . $route
                 && $request['host'] === $pair . $number . '.invalid' && $request['method'] === ($index === 0 ? 'GET' : 'POST')
