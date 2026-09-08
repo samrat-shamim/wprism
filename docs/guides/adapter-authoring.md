@@ -2899,6 +2899,17 @@ library.
    to the repository's physical `sandbox/`, source it with the literal
    `. tests/lib/pair_live_ownership.sh` spelling the capsule validator admits.
    Pair lifecycle remains shared test machinery, not a capsule-owned copy.
+   Direct `tests/live/` callers must first establish package artifact authority,
+   even when they consume an already downloaded exact ZIP. Their first three
+   active statements are the standard preamble enforced by
+   `regress-fetch-artifact`:
+
+   ```sh
+   set -euo pipefail
+   PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+   export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+   ```
+
    Run the candidate-bound gate from its exact commit:
 
    ```sh
