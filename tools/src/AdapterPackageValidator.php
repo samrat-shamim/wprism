@@ -46,7 +46,6 @@ final class AdapterPackageValidator
         'tests/lib/private_command_capture.sh',
         'tests/lib/conformance_private_command.sh',
         'tests/lib/wordpress_cron_window.sh',
-        'tests/lib/pair_live_ownership.sh',
     ];
 
     /** @var list<string> */
