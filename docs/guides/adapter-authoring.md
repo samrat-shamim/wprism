@@ -412,6 +412,30 @@ exact native delta and its absent preimage; do not preseed the defaults or
 suppress the filter to make a tag-only expectation pass. Automatic defaults
 do not establish UI authoring or a license-gated feature's support.
 
+A generated browser preview may preserve an older snapshot independently of
+the currently selected destination. Exercise Generate, change without
+regeneration, Save and fresh reload through the actual complete form. Bind
+the native choices, inactive inputs and stored scalar types; do not derive the
+snapshot from the selected identity in a provider. WPForms QR destination
+reconnaissance is documented in its capsule's `native-qr-destination-recon.md`;
+its measured body fixtures are not admitted browser or Apply evidence.
+
+Verify evidence artifacts themselves before retiring a browser session.
+Capture configuration, a request list or an exit-zero tool command does not
+establish retained request/response bodies. Require complete private bytes,
+bounded framing and diagnostic admission; fail on missing artifacts or tool
+error envelopes even when the process exits zero. Decode a downloaded QR
+independently before claiming its encoded destination; a preview label alone
+proves neither the downloaded bytes nor their content.
+
+Disabling WP-Cron does not quiesce every native shutdown callback. Trace any
+operational transition to its source, bind its exact phase, row identity and
+clock window, and prove no work was dispatched before permitting its measured
+value change. Keep all other rows and logical schema constrained, including
+the exact table-counter advancement authorized by new revisions. Never turn
+that authoring-only allowance into an Apply/observer waiver or disable a
+native hook to make a preservation comparison pass.
+
 ### Portable validation versus WordPress-native predicates
 
 Run your real adapter through the standalone `RepositoryCompiler`, with no
@@ -2094,6 +2118,26 @@ plugin faithfully.
    capture and retained admission. It permits one 1 MiB tree inside a 2 MiB
    private command stream; roster and metadata bounds do not grow. Keep
    before/after records separate and never truncate a tree to fit a budget.
+
+   Whole native databases have a different size envelope: merely opening the
+   WPForms template picker produced a 5,574,808-byte dump, including one full
+   prepared-template cache value. For such a fixture, explicitly select
+   `EvidenceSizeProfile::NATIVE_DATABASE` in `PrivateCommandOutput::readBytes()`
+   and in `SqlDumpEvidence::assertComplete()`, `structures()` and
+   `projectColumns()`. This admits at most 16 MiB of complete native SQL;
+   filesystem budgets, row/cell rosters and 64-KiB schema sections do not grow.
+   The old 2-MiB SQL budget remains default. Do not omit an operational cache
+   row or strip table options to fit the transport. The fixture still owns
+   every allowed physical change and must refuse beyond the selected bound.
+
+   Match a command's output contract to its role. A browser fill can validly
+   return `{}`; that is not a native-save evidence object. Keep ordinary UI
+   preparation separate from the strict nonempty collector record, and reject
+   explicit tool error envelopes even if a command reports exit zero. Bind
+   the actual collector argv and complete input bytes, not just a source hash
+   for code that may never have executed. A noninteractive collection command
+   inside a roster loop must receive closed stdin: otherwise `compose run`
+   can consume subsequent roster entries before the next `read`.
 
    Execute a PHP fixture with `wp eval-file --use-include` when it declares
    `strict_types` or resolves sibling files through `__DIR__`. WP-CLI's default
