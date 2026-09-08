@@ -1696,6 +1696,21 @@ the reviewed field. The capsule's `regress_settings_and_embeds.php` exercises
 native settings with hostile excluded siblings and independent secret/PII
 controls through `OptionsCapture` and `CaptureSafetyGates`.
 
+A persisted default is not proof that the installed edition can author it.
+WPForms Lite 2.0.1.1 registers `gdpr-disable-uuid` and
+`gdpr-disable-details` as disabled Pro-only education controls. Its ordinary
+General save still writes the absent toggle inputs as `false`. The initial
+declaration wrongly treated those observed defaults and existing privacy
+readers as portable authority: shared Apply then replaced target-local Pro
+residue. The correction is two exact `env` subkey declarations, not a special
+case in the option engine. `regress_settings_ownership.php` proves actual
+Capture exclusion, mixed-option Apply preservation, recapture, and refusal of
+forged authored subkeys. Inspect edition, visibility, enabled state and save
+semantics together. Separately identify automatic initialization and native UI
+saves: the conditional modern-markup control has both, with different stored
+scalar types. Do not unhide a control or spoof a disabled POST field merely to
+claim native authoring coverage.
+
 `structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
 `{"evidence": [{source, locator, observation}, …]}` and optionally

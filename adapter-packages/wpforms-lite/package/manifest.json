@@ -74,19 +74,17 @@
           "note": "WPForms 2.0.1.1 includes/admin/class-settings.php:453-471 declares the GDPR toggle; includes/functions/privacy.php:81-102 uses it in boolean privacy decisions."
         },
         "gdpr-disable-uuid": {
-          "class": "authored",
-          "lint_ok": true,
-          "note": "WPForms 2.0.1.1 includes/functions/privacy.php:100-103 consumes this as a cookie-collection flag. Its numeric-looking value is not an entity reference."
+          "class": "env",
+          "note": "Lite 2.0.1.1 src/Lite/Admin/Education/Admin/Settings/Gdpr.php:65-99 declares this as a disabled Pro-only upgrade control. General Save Settings persists its absent input as false; that default is not portable authored intent. Preserve target-local Pro/downgrade residue."
         },
         "gdpr-disable-details": {
-          "class": "authored",
-          "lint_ok": true,
-          "note": "WPForms 2.0.1.1 includes/functions/privacy.php:78-90 consumes this as an IP-collection flag, not an entity ID."
+          "class": "env",
+          "note": "Lite 2.0.1.1 src/Lite/Admin/Education/Admin/Settings/Gdpr.php:65-99 declares this as a disabled Pro-only upgrade control. The privacy consumer does not establish a supported Lite authoring path. Preserve target-local Pro/downgrade residue."
         },
         "modern-markup": {
           "class": "authored",
           "lint_ok": true,
-          "note": "WPForms 2.0.1.1 src/Frontend/Frontend.php:194 writes string '0'/'1'; src/Admin/Settings/ModernMarkup.php:75-94 declares its toggle. Native conformance observed '1' coinciding with form post ID 1."
+          "note": "WPForms 2.0.1.1 src/Frontend/Frontend.php:181-202 automatically initializes string '0'/'1'; src/Admin/Settings/ModernMarkup.php:55-145 conditionally registers a native toggle, saved as boolean by Settings. Retained native '1' establishes the non-reference type, not successful UI authoring of the hidden/legacy-dependent control."
         },
         "modern-markup-is-set": {
           "class": "env"

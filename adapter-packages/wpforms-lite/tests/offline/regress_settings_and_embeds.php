@@ -58,7 +58,8 @@ $producer = new OptionsCapture($policy, $tokens,
     }, static function (): never { throw new LogicException('settings fixtures carry no entity reference'); },
     static function (): never { throw new LogicException('settings fixtures require no entity lookup'); });
 $captured = $producer->capture(false);
-$expected = array_diff_key($fixture['settings'], array_flip(['modern-markup-is-set', 'modern-markup-hide-setting', 'lite-connect-enabled']));
+$expected = array_diff_key($fixture['settings'], array_flip(['modern-markup-is-set', 'modern-markup-hide-setting',
+    'lite-connect-enabled', 'gdpr-disable-uuid', 'gdpr-disable-details']));
 wprism_check_same(Canon::encode(['wpforms_settings' => $expected]), Canon::encode(OptionState::values($captured['document'])), 'actual mixed-option capture selects exactly native portable settings');
 wprism_check_same([], $captured['unclassified'], 'reviewed runtime/env siblings do not produce an authored discovery gap');
 wprism_check_same($rows, $wpdb->rows('wp_options'), 'settings capture preserves all native and excluded option rows');
