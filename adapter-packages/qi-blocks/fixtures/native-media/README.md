@@ -40,8 +40,18 @@ all passed while the saved 293 × 181 image returned HTTP 404 and had browser
 natural dimensions 0 × 0. The Single Image crop returned HTTP 200 and rendered
 at 347 × 219. The offline regression reproduces the omitted file work and the
 previously unchecked inconsistent nested dimensions before the declaration
-fix. Native validation of the corrected declaration is recorded separately;
-this retained source fixture alone does not establish that result.
+fix.
+
+The corrected native run passes on `b98d450b5f796e534199e75afcdd4670fb81bc65`.
+All four selected target images return HTTP 200 with matching decoded dimensions
+and pixels; metadata owns each file. One content-only update and a zero-write
+repeat pass the actual seven-entity verifier. Complete target rows, Qi options,
+stock metadata and existing upload bytes survive, and four additional complete
+per-site repositories converge. The target editor recognizes all 51 blocks;
+the browser fully decodes all four images. Native editor opening creates its
+own global-style row and revision autosave, while preserving every prior row,
+Qi option and upload. This is scoped native evidence, not a claim that merely
+opening WordPress is free of native writes.
 
 Selecting Custom with empty dimensions also saved successfully while keeping
 the original URL. The shared engine already treats that state as no crop work.

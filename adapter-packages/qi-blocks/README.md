@@ -25,7 +25,9 @@ identity frames with their owning map key. Capture refuses selectors that name
 a different page, and the checked option transaction preserves native types,
 order, URLs, rollback and exact recapture. Native content-only target Apply now
 passes complete body, attachment metadata and HTTP stylesheet comparisons.
-Browser/editor behavior and complete qualification remain pending.
+Target editor reopen recognizes all 51 blocks. Four native crop controls now
+pass content-only Apply, HTTP image and metadata checks; complete qualification
+remains pending.
 
 The complete native body also exercises the final publication privacy guard.
 Shared identifier, SVG viewport and complete-UUID handling prevents generated
@@ -55,8 +57,16 @@ runtime option remain intact, and repeat Apply writes nothing. Complete native
 media observations and independently retained per-site media catalogs converge;
 the source's unused 333×211 crop correctly stays absent on the target. See
 [the native Apply workflow](fixtures/native-apply/README.md) for its command and
-scope. The promotion conformance target hook still refuses; browser/editor,
-selected crop, lifecycle, host, version and combination qualification remain
+scope. Its new crop phase passes on `b98d450b`: the unchanged attachment supplies
+four selected files, all four HTTP images match native decoded dimensions and
+pixels, and repeat Apply writes zero. The target editor recognizes all 51 blocks
+and the browser decodes all four images. The Parallax item previously returned
+404 despite successful canonical recapture; its nested recipe now uses the
+existing shared JSON path and attachment machinery. See the
+[native crop fixture](fixtures/native-media/README.md).
+
+The promotion conformance target hook still refuses; broader editor,
+widget/template, crop failure/removal, lifecycle, host, version and combination qualification remain
 unfinished. See
 [evidence/authoring-progress.json](evidence/authoring-progress.json) for the
 observed results and qualification limits.

@@ -59,8 +59,8 @@
       "assertions": 175,
       "scope": "43 group grammar, ownership, certificate derivation and identity assertions plus the complete 132-assertion block capture, immutable compiler, checked SQL, rollback, repeat apply and widget suite using grouped declarations.",
       "groups": 177,
-      "manifest_bytes": 122301,
-      "manifest_lines": 2128,
+      "manifest_bytes": 120618,
+      "manifest_lines": 2091,
       "expanded_rules": 7497,
       "expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"
     },
@@ -82,8 +82,14 @@
     "native_apply_evidence": {
       "script": "tests/offline/regress_native_apply_evidence.php",
       "exit": 0,
-      "assertions": 53,
+      "assertions": 79,
       "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Executes the live snapshot operation with different per-site catalogs; these doubles do not qualify native execution."
+    },
+    "native_media": {
+      "script": "tests/offline/regress_native_media.php",
+      "exit": 0,
+      "assertions": 16,
+      "scope": "Native saved crop fragments through actual block capture/apply, immutable compiler and content-only media work selection; stale nested dimensions/URLs refuse. Nine assertions failed against the prior declaration."
     }
   },
   "quality_gates": {
@@ -103,17 +109,17 @@
     "release-gate": {
       "exit": 0
     },
-    "scope": "All full gates pass for the shared privacy handling, Qi source-conformance corpus and measured library integration. Native source capture-plan also passes on the named engine commit; target qualification remains pending.",
+    "scope": "Historical full-gate result on the named source commit. Later scoped native results are recorded below; current aggregate results are reported in PR #594.",
     "tested_engine_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34"
   },
   "limitations": [
-    "This is an experimental draft, not a production qualification. Complete current aggregate results are recorded separately from targeted checks.",
-    "Content-only page Apply, repeat, recapture, native media and HTTP CSS pass; no browser/editor, selected custom crop, lifecycle, host, version-matrix or hostile readiness qualification yet.",
-    "Signature, progress-bar images, empty galleries and responsive crop controls still need native Save/reopen evidence.",
-    "The broad native engine media probe is separate from this capsule and does not qualify its editor behavior."
+    "This is an experimental draft, not a production qualification. Twelve readiness families remain open.",
+    "Native content-only page Apply, four selected crops, zero-write repeats, complete recapture and HTTP CSS pass. Target editor reopen recognizes 51 valid blocks; broader editor interactions, widgets/templates, lifecycle, host, version-matrix and hostile families remain incomplete.",
+    "Signature, progress-bar images and empty galleries still need native Save/reopen evidence. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
+    "The crop fixture has uniform PNG pixels. Native multi-format/asymmetric crop, removal, collision, recovery, scope and co-install cases remain outside this capsule result."
   ],
   "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
-  "source_engine_state": "Native source capture-plan and the separately recorded content-only target Apply pass on their named commits. Qi remains experimental; complete production qualification is pending.",
+  "source_engine_state": "Native source capture-plan, content-only target Apply and four native crop consumers pass on their named commits. Qi remains experimental; complete production qualification is pending.",
   "native_source_conformance": {
     "status": "source-capture-plan-passed",
     "first_attempt": {
@@ -213,5 +219,75 @@
       "owned pair, site roots and lease destroyed"
     ],
     "scope": "Content-only Apply, repeat, complete native body/options/media and HTTP CSS. No browser, selected custom crop, lifecycle, host, version or combination qualification."
+  },
+  "native_media_conformance": {
+    "source_engine_commit": "b98d450b5f796e534199e75afcdd4670fb81bc65",
+    "command": "QI_APPLY_PAIR=<owned> QI_APPLY_PORT1=<even> QI_APPLY_PORT2=<next> QI_APPLY_ZIP=<locked-1.5.2.zip> WPRISM_EXPECTED_SOURCE_SHA=<source> bash adapter-packages/qi-blocks/tests/live/regress_native_apply.sh",
+    "runner_scope": "The committed runner executed through both admissions. A scratch driver held its existing owned pair for browser inspection before verified teardown.",
+    "exit": 0,
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "selected_dimensions": [
+      [
+        251,
+        157
+      ],
+      [
+        293,
+        181
+      ],
+      [
+        317,
+        193
+      ],
+      [
+        347,
+        219
+      ]
+    ],
+    "source_uploads": 13,
+    "target_uploads": 12,
+    "checks": [
+      "One content update schedules all four native crop consumers on an unchanged attachment; actual verifier passes seven entities.",
+      "All four selected frontend image URLs return HTTP 200 and match native source decoded dimensions and pixels; PNG encoding bytes may differ.",
+      "Four generated metadata entries own their actual files. Complete target Qi options, existing post rows, stock metadata and upload bytes remain unchanged.",
+      "Repeat Apply writes zero; complete target observation remains identical after repeat and native HTTP rendering.",
+      "Four additional per-site policy/state/media snapshots compile and converge; all 204 emitted CSS frames and the full stylesheet match.",
+      "Source-only unused 333x211 crop remains outside target ownership."
+    ],
+    "browser": {
+      "target_block_count": 51,
+      "invalid_blocks": 0,
+      "frontend_console_errors": 0,
+      "editor_console_errors": 0,
+      "editor_console_warnings": 1,
+      "warning": "global-styles-css-custom-properties-inline-css was added to the iframe incorrectly; the same WordPress warning was observed on the source before target Apply.",
+      "images": "All four selected images decode completely with their requested natural dimensions and visible computed visibility.",
+      "native_after": "Every prior post row, Qi option, attachment and upload is unchanged. Native WordPress editor opening adds one wp_global_styles row and one revision autosave; complete post-census equality is not claimed after browser use."
+    },
+    "fixture_sha256": "aa4d08e52ab6b1e751cbd011f749f4af408c062445de104bcc3c7365ca88f6b8",
+    "native_stream_sha256": {
+      "media-source": "9644edb76faacfe07dd2067d5404f3b797b434cb7cf1b085f65ff500bfc59964",
+      "media-target": "f2bb1e37a764e0b597ce6850c0ec65c9881bbf1559fe4262cb7887ccab789422",
+      "media-stable": "f2bb1e37a764e0b597ce6850c0ec65c9881bbf1559fe4262cb7887ccab789422",
+      "media-pixels1": "a0658b13bbd37def92ad9c95a83c27fd1147e348776aa60231cdc0a21ba55bbd",
+      "media-pixels2": "fd7a79ad2d21d28fb8d6e11dc0cb4a3ed56565d34619cc670881f59ff56d3f06",
+      "media-browser-after": "f9e9aa411908083825fda0efe344a1a3209151977a4c9990ee91b42c55db7024"
+    },
+    "scope": "Selected native PNG crop controls, content-only page Apply, HTTP CSS/images and target editor reopen. Source interactive Save provenance is retained with the fixture. No complete readiness, lifecycle, host, version or combination claim."
   }
 }

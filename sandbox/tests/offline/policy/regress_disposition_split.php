@@ -345,6 +345,15 @@ const PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda46
 const PRE_WPFORMS_LOCATION_PROVIDER_RANK_SNAPSHOT_SHA = 'c54d19c1c4722335f9f2e3a586baed2ff47c8cd8aff962d4b24cd6c9f5cbd4a3';
 const PRE_WPFORMS_LOCATION_PROVIDER_YOAST_SNAPSHOT_SHA = 'c6e85f18d1da81585d333c29deffcfed673c91df7ff5aecc054d7bbcd36fa9c3';
 
+// Native Qi Save exposed an omitted Parallax item and six unused responsive
+// placeholders. Only its declaration changes; keep the prior addresses so
+// this intentional re-pin cannot silently move a neighbouring adapter.
+const PRE_QI_CROP_SELECTION_DIGEST = '5c71f2e2babd8aa9be205587ca492482f9913b3117cf512831f481cf76cb6dcc';
+const PRE_QI_CROP_RANK_MANIFEST_HASH = 'bfaf45ed2f985742dd6a4174d9b22a86e7e9412e1425e9b78d8bd6c1142c0bbe';
+const PRE_QI_CROP_YOAST_MANIFEST_HASH = '00d8e80efdfc11fdf1c7ed92c2bf766f8775b1e0f51cf0aaa4750f5a1fdc97a1';
+const PRE_QI_CROP_RANK_SNAPSHOT_SHA = 'ed4ee62440064dc04b4e3dea2c0e6561df41d19ad920bf45ea8fd9c6da81422a';
+const PRE_QI_CROP_YOAST_SNAPSHOT_SHA = '45fd42af992fa865417d0a8edb5e2e6351728cdcc00e6ebf7273cfce91a1460a';
+
 /**
  * The current WPrism greenfield baseline. Unlike the historical split
  * overlays above, this map includes every currently shipped subject,
@@ -364,7 +373,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '933ff6b878ef3545597b9111aeade9aa13d54389a168f9a44ddee89984991e17',
-    'qi-blocks' => '5c71f2e2babd8aa9be205587ca492482f9913b3117cf512831f481cf76cb6dcc',
+    'qi-blocks' => '590ffbb979b8a049674c0813aa04216e159340ff7dec31a22e8664115e6753f9',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
@@ -375,11 +384,11 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'bfaf45ed2f985742dd6a4174d9b22a86e7e9412e1425e9b78d8bd6c1142c0bbe';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '00d8e80efdfc11fdf1c7ed92c2bf766f8775b1e0f51cf0aaa4750f5a1fdc97a1';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'a5a03f52d52e3b8602837664b1f3285b0a7e041d2343ba8ff61ed179e3a69ef6';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'fe65fcebca7eba41e44840f86702b6edd956fdbcb2ba7fe07d1f383412a64120';
 const WPRISM_CURRENT_REGISTRY_SHA = '86f4d5165015effabb10605a2d74c9259208182572414b73ec512d3808c0f198';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'ed4ee62440064dc04b4e3dea2c0e6561df41d19ad920bf45ea8fd9c6da81422a';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '45fd42af992fa865417d0a8edb5e2e6351728cdcc00e6ebf7273cfce91a1460a';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '55904c436eb08176277f511bcae642b0363f3302e7e72cf16cc90d3d2999db15';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '49ef3b68864dff77655e0fc1fb7330466c5fa05e3e610b592d5d02455ee955db';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -693,6 +702,14 @@ wprism_check_same(
 wprism_check_same(['wpforms-lite'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'wpforms-lite' => PRE_WPFORMS_LOCATION_PROVIDER_DIGEST,
 ]))), 'the experimental location provider moves only WPForms package identity, not its engine consumers or neighbours');
+wprism_check_same(['qi-blocks'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'qi-blocks' => PRE_QI_CROP_SELECTION_DIGEST,
+]))), 'native crop selection changes only Qi declaration identity; shared engine owners and neighbouring adapters stay pinned');
+wprism_check(PRE_QI_CROP_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+    && PRE_QI_CROP_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
+    && PRE_QI_CROP_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
+    && PRE_QI_CROP_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    'both compatible Qi policy worlds require explicit recompile and re-pin after correcting the crop consumers');
 wprism_check(PRE_WPFORMS_LOCATION_PROVIDER_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
     && PRE_WPFORMS_LOCATION_PROVIDER_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
     && PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA

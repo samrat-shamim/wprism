@@ -37,15 +37,14 @@ use WPrism\Policy;
 
 // AIO Login and Qi add two subjects without changing the upstream adapters.
 // AIO Login has its own compatible world; Qi joins both maximal SEO worlds.
-// The merged WPForms provider/settings review moves only that existing adapter
-// and its containing manifest pin sets. The whole-registry snapshot cost
-// remains the explicit WP-4.5 boundary; all smaller manifest pin sets stay exact.
-const BASELINE_FIXTURE_SHA256 = '12642e88b3bc00a4fbdd4e9710e813b20db5dbcf804506512a5489a5ee2d74fa';
-const RANK_WORLD_MANIFEST_HASH = 'bfaf45ed2f985742dd6a4174d9b22a86e7e9412e1425e9b78d8bd6c1142c0bbe';
-const YOAST_WORLD_MANIFEST_HASH = '00d8e80efdfc11fdf1c7ed92c2bf766f8775b1e0f51cf0aaa4750f5a1fdc97a1';
+// Native crop selection corrects only Qi package identity and pin sets that
+// contain it. Its reviewed disposition and all unrelated pin sets stay exact.
+const BASELINE_FIXTURE_SHA256 = '2b56e2e3f2152272612239e8e8ff0658b6d2f8403029be97360f1805c73e7aaa';
+const RANK_WORLD_MANIFEST_HASH = 'a5a03f52d52e3b8602837664b1f3285b0a7e041d2343ba8ff61ed179e3a69ef6';
+const YOAST_WORLD_MANIFEST_HASH = 'fe65fcebca7eba41e44840f86702b6edd956fdbcb2ba7fe07d1f383412a64120';
 const REGISTRY_SHA256 = '86f4d5165015effabb10605a2d74c9259208182572414b73ec512d3808c0f198';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'ed4ee62440064dc04b4e3dea2c0e6561df41d19ad920bf45ea8fd9c6da81422a';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '45fd42af992fa865417d0a8edb5e2e6351728cdcc00e6ebf7273cfce91a1460a';
+const RANK_WORLD_SNAPSHOT_SHA256 = '55904c436eb08176277f511bcae642b0363f3302e7e72cf16cc90d3d2999db15';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '49ef3b68864dff77655e0fc1fb7330466c5fa05e3e610b592d5d02455ee955db';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

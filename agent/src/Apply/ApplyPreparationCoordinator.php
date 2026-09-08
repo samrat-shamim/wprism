@@ -55,13 +55,17 @@ final class ApplyPreparationCoordinator {
                 fn($r) => "{$r['type']} {$r['path']} collides with env id {$r['env_id']} (same slug, different/no uuid)",
                 $plan['collision']
             ));
-            throw new \RuntimeException(
+            throw CommandRefusalException::applyRefused(
+                'unmanaged target rows have colliding slugs; apply requires an explicit identity decision',
+                'resolve the slug collisions, or explicitly select the unmanaged rows to adopt with --adopt-by-slug',
                 "wprism: slug collisions need explicit resolution (--adopt-by-slug=posts,terms,menus,tables adopts unmanaged rows):\n  - $list"
             );
         }
         if (!$request->recoveringScoped && $plan['conflict'] && empty($opts['force_theirs'])) {
             $list = implode("\n  - ", array_column($plan['conflict'], 'path'));
-            throw new \RuntimeException(
+            throw CommandRefusalException::applyRefused(
+                'both target and repository changed since the last sync; apply requires an explicit conflict decision',
+                'capture and reconcile the changes, or use --force-theirs to authorize repository intent to replace target authored state',
                 "wprism: conflicts (env and repo both changed since last sync) — capture first or --force-theirs:\n  - $list"
             );
         }
@@ -70,7 +74,9 @@ final class ApplyPreparationCoordinator {
                 fn($r) => "{$r['path']}: {$r['reason']}",
                 $plan['delete_conflict']
             ));
-            throw new \RuntimeException(
+            throw CommandRefusalException::applyRefused(
+                'target state differs from the expected deletion base; apply requires an explicit conflict decision',
+                'capture and reconcile the changes; use --force-theirs together with --with-deletes only to authorize repository deletion intent',
                 "wprism: deletion conflicts (target differs from the tombstone's expected base) — "
                 . "capture/reconcile first or --force-theirs:\n  - $list"
             );
