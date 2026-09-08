@@ -88,7 +88,7 @@ function location_input_fixture(array $settings = [], int $placements = 0, ?arra
     $runtime = new WpformsFormLocations(['source' => 'manifest', 'id' => 'wpforms-location-inputs', 'plugin' => 'wpforms-lite/wpforms.php',
         'version' => '1.0.0', 'capabilities' => ['rebuild_form_locations'], 'contracts' => ['rebuild_form_locations' => [
             'args' => [], 'idempotent' => true, 'scope' => 'site', 'timeout_seconds' => 120,
-            'reads' => ['table:posts', 'table:options', 'table:terms', 'table:term_taxonomy', 'table:term_relationships',
+            'reads' => ['table:posts', 'table:postmeta', 'table:options', 'table:terms', 'table:term_taxonomy', 'table:term_relationships',
                 'table:termmeta', 'table:users', 'table:usermeta'], 'writes' => ['table:postmeta'],
         ]]]);
     // Fixture-only loader join; no manifest/disposition advertises this candidate.
