@@ -37,12 +37,14 @@ $physical = static function () use ($check): array {
     unset($tables['postmeta']);
     return ['inputs' => $tables, 'remainder' => $remainder, 'owned' => $owned];
 };
-$locations = static function (array $forms) use ($locator): array {
+$locations = static function (array $forms, bool $render) use ($locator): array {
     $out = [];
     foreach ($forms as $name => $id) {
-        $out[$name] = ['id' => $id, 'locations' => get_post_meta($id, 'wpforms_form_locations', true),
-            'html' => $locator->column_value('', get_post($id), WPForms\Forms\Locator::COLUMN_NAME),
-            'passthrough' => $locator->column_value('untouched', get_post($id), 'not-locations')];
+        $out[$name] = ['id' => $id, 'locations' => get_post_meta($id, 'wpforms_form_locations', true)];
+        if ($render) {
+            $out[$name]['html'] = $locator->column_value('', get_post($id), WPForms\Forms\Locator::COLUMN_NAME);
+            $out[$name]['passthrough'] = $locator->column_value('untouched', get_post($id), 'not-locations');
+        }
     }
     return $out;
 };
@@ -131,7 +133,17 @@ if ($phase === 'setup') {
             if ($name === 'page_child') $data['post_parent'] = $posts['page_root']['id'];
             $post = wp_insert_post(wp_slash($data), true);
             $check(is_int($post) && $post > 0, 'native placement creation: ' . $name);
-            $posts[$name] = ['id' => $post, 'type' => $type, 'status' => get_post($post)->post_status,
+            $writerStatus = get_post($post)->post_status;
+            if ($name === 'excluded_attachment') {
+                // WP 7.1 coerces native attachment creation to inherit. An
+                // explicitly dirty published row isolates the candidate's
+                // type exclusion from its status exclusion; record both.
+                global $wpdb;
+                $check($writerStatus === 'inherit' && $wpdb->update($wpdb->posts,
+                    ['post_status' => 'publish'], ['ID' => $post]) === 1, 'dirty published attachment fixture');
+                clean_post_cache($post);
+            }
+            $posts[$name] = ['id' => $post, 'type' => $type, 'status' => get_post($post)->post_status, 'writer_status' => $writerStatus,
                 'title' => get_post($post)->post_title, 'url' => get_permalink($post), 'parser' => $locator->get_form_ids($content)];
         }
         update_option('sidebars_widgets', ['wprism-locator' => ['wpforms-widget-2', 'text-2', 'block-2'],
@@ -150,7 +162,10 @@ if ($phase === 'setup') {
         }
         $record['template_standalone'] = $locator->build_standalone_location($fixture['template'],
             ['id' => $fixture['template'], 'settings' => ['form_pages_enable' => true, 'form_pages_page_slug' => 'excluded']]);
-        $record['native'] = $locations($forms);
+        // update_option does not refresh WP's warm sidebar globals. Compare
+        // native writer values here; complete UI belongs to fresh observers,
+        // not a fixture-only cache reset disguised as a normal consumer boot.
+        $record['native'] = $locations($forms, false);
         $record['widgets'] = $locator->search_in_widgets();
         $record['posts'] = $posts;
         $fixture['posts'] = $posts;
@@ -186,7 +201,7 @@ if ($phase === 'setup') {
             array_slice(file($proof . '/boots.jsonl'), $bootOffset));
     } elseif ($phase === 'observe') {
         $record['physical'] = $physical();
-        $record['native'] = $locations($forms);
+        $record['native'] = $locations($forms, true);
     } else throw new RuntimeException('unknown native provider fixture phase');
 }
 $record['boot'] = $GLOBALS['wpforms_location_fixture_boot'];

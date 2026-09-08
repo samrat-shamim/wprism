@@ -57,6 +57,12 @@ proves provider execution against existing target state, not authored Apply.
 `tests/live/regress_location_provider.sh` owns one source-bound MariaDB pair and
 compares concrete native public-writer/column-renderer output, complete physical
 input and nonowned rows, duplicate/orphan reconciliation, and a fresh-boot retry.
+Native writer values are observed during seeding; UI is observed only in fresh
+boots, because updating sidebar options does not refresh WordPress's warm
+sidebar globals. Those observers require the complete rendered roster and exact
+markup across retry. The attachment discriminator records native `inherit`
+creation, then explicitly seeds a dirty physical `publish` status to isolate
+type exclusion from status exclusion; it is not a claimed native writer output.
 It requires `WPFORMS_PROVIDER_PAIR`, `WPFORMS_PROVIDER_PORT1`,
 `WPFORMS_PROVIDER_PORT2`, `WPFORMS_PROVIDER_ZIP`, and exact
 `WPRISM_EXPECTED_SOURCE_SHA`. The host admits all five private records together.

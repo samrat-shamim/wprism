@@ -42,7 +42,7 @@ final class WPFormsLocationProviderEvidence {
         $expected = [];
         foreach (self::FORMS as $name) $expected[$name] = [];
         foreach ($seed['posts'] as $name => $post) {
-            self::check(array_keys($post) === ['id', 'type', 'status', 'title', 'url', 'parser']
+            self::check(array_keys($post) === ['id', 'type', 'status', 'writer_status', 'title', 'url', 'parser']
                 && is_int($post['id']) && $post['id'] > 0 && $post['title'] === 'WPrism ' . $name, 'native placement shape');
             $type = match ($name) {
                 'post_publish', 'post_pending', 'post_draft', 'post_future', 'post_private' => 'post',
@@ -55,6 +55,13 @@ final class WPFormsLocationProviderEvidence {
                 'post_private' => 'private', 'excluded_trash' => 'trash', default => 'publish',
             };
             self::check($post['type'] === $type && $post['status'] === $status, 'native type/status discriminator: ' . $name);
+            self::check($post['writer_status'] === ($name === 'excluded_attachment' ? 'inherit' : $status),
+                'native writer status and explicit dirty attachment provenance: ' . $name);
+            $physicalPosts = array_values(array_filter($seed['physical']['inputs']['posts'],
+                static fn(array $row): bool => (int) $row['ID'] === $post['id']));
+            self::check(count($physicalPosts) === 1 && $physicalPosts[0]['post_type'] === $type
+                && $physicalPosts[0]['post_status'] === $status && $physicalPosts[0]['post_title'] === $post['title'],
+                'type/status discriminator bound to actual physical row: ' . $name);
             $unparsed = in_array($name, ['malformed', 'wrong_case', 'unquoted', 'reusable_only'], true);
             $excluded = str_starts_with($name, 'excluded_') || $unparsed;
             $parsed = array_values($post['parser']);
@@ -85,15 +92,18 @@ final class WPFormsLocationProviderEvidence {
             self::check(array_keys($record['native']) === self::FORMS, 'complete native consumer roster');
             foreach ($expected as $name => $locations) {
                 $native = $record['native'][$name];
-                self::check(array_keys($native) === ['id', 'locations', 'html', 'passthrough']
-                    && $native['id'] === $seed['native'][$name]['id'] && $native['passthrough'] === 'untouched', 'native consumer identity');
+                $fields = $record['phase'] === 'seed' ? ['id', 'locations'] : ['id', 'locations', 'html', 'passthrough'];
+                self::check(array_keys($native) === $fields && $native['id'] === $seed['native'][$name]['id'], 'native writer/consumer identity');
                 self::check(self::ordered($locations) === self::ordered($native['locations'] === '' ? [] : $native['locations']),
                     'complete native writer/provider values: ' . $name);
+                if ($record['phase'] === 'seed') continue;
+                self::check($native['passthrough'] === 'untouched', 'unrelated native column passthrough');
                 self::check(is_string($native['html']) && strlen($native['html']) < 65536, 'bounded native UI');
                 if ($locations !== []) {
                     self::check(substr_count($native['html'], 'class="wpforms-locations-list-item"') === count($locations), 'native UI complete rows');
                 } else self::check($native['html'] === '—', 'initial native absent-location column state');
             }
+            if ($record['phase'] === 'seed') continue;
             foreach (['WPrism locator sidebar: WPForms Widget', 'WPrism locator sidebar: Text Widget', 'Inactive widgets: Inactive', '(no title)', 'Site editor template: WPrism template',
                 'Site editor template: WPrism template_part'] as $text) {
                 self::check(str_contains($record['native']['embeds']['html'], $text), 'native UI discriminator: ' . $text);
@@ -106,6 +116,7 @@ final class WPFormsLocationProviderEvidence {
                     'native whole-markup renderer target: ' . $name);
             }
         }
+        self::check($observe['native'] === $stable['native'], 'fresh native consumer values and markup survive retry');
         self::check($seed['physical'] === $invoke['before'], 'first provider boot sees the seeded complete physical state');
         self::check($invoke['after'] === $observe['physical'] && $observe['physical'] === $repeat['before']
             && $repeat['before'] === $repeat['after'] && $repeat['after'] === $stable['physical'], 'independent boots and retry retain exact physical fixed point');
@@ -143,7 +154,9 @@ final class WPFormsLocationProviderEvidence {
         foreach ([$invoke, $repeat] as $record) {
             foreach (['before', 'after'] as $side) {
                 $projection = $record['receipt'][$side];
-                self::check(array_keys($projection) === ['inputs_sha256', 'remainder_sha256', 'locations_rows', 'locations_sha256']
+                $keys = array_keys($projection);
+                sort($keys, SORT_STRING);
+                self::check($keys === ['inputs_sha256', 'locations_rows', 'locations_sha256', 'remainder_sha256']
                     && $projection['locations_rows'] === count($record[$side]['owned'])
                     && $projection['locations_sha256'] === hash('sha256', serialize($record[$side]['owned']))
                     && $projection['remainder_sha256'] === hash('sha256', serialize($record[$side]['remainder'])),

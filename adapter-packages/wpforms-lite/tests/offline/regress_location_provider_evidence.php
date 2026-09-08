@@ -27,7 +27,8 @@ function location_provider_evidence_model(): array {
             'post_pending' => 'pending', 'post_draft' => 'draft', 'post_future' => 'future',
             'post_private' => 'private', 'excluded_trash' => 'trash', default => 'publish',
         };
-        $posts[$name] = ['id' => $id, 'type' => $type, 'status' => $status, 'title' => 'WPrism ' . $name,
+        $posts[$name] = ['id' => $id, 'type' => $type, 'status' => $status,
+            'writer_status' => $name === 'excluded_attachment' ? 'inherit' : $status, 'title' => 'WPrism ' . $name,
             'url' => $home . '/' . $name . '/', 'parser' => $name === 'duplicates' ? [1, 1]
                 : (in_array($name, ['malformed', 'wrong_case', 'unquoted', 'reusable_only'], true) ? [] : [1])];
         if ($offset < 14) {
@@ -61,14 +62,17 @@ function location_provider_evidence_model(): array {
     }
     $after = ['inputs' => array_fill_keys(['posts', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta', 'users', 'usermeta'], []),
         'remainder' => [['meta_id' => '50', 'post_id' => '1', 'meta_key' => 'unrelated', 'meta_value' => 'untouched']], 'owned' => $owned];
+    $after['inputs']['posts'] = array_values(array_map(static fn(array $post): array => ['ID' => (string) $post['id'],
+        'post_type' => $post['type'], 'post_status' => $post['status'], 'post_title' => $post['title']], $posts));
     $before = $after;
     $before['owned'] = [['meta_id' => '1', 'post_id' => '1', 'meta_key' => 'wpforms_form_locations', 'meta_value' => 'stale'],
         ['meta_id' => '2', 'post_id' => '1', 'meta_key' => 'wpforms_form_locations', 'meta_value' => 'duplicate']];
     $boot = static fn(int $pid, bool $child): array => ['pid' => $pid, 'boot' => str_pad((string) $pid, 32, '0', STR_PAD_LEFT), 'child' => $child];
     $projection = static fn(array $state): array => ['inputs_sha256' => str_repeat('a', 64),
-        'remainder_sha256' => hash('sha256', serialize($state['remainder'])), 'locations_rows' => count($state['owned']),
-        'locations_sha256' => hash('sha256', serialize($state['owned']))];
-    $seed = $base + ['template_standalone' => [], 'native' => $native, 'widgets' => $widgets, 'posts' => $posts, 'physical' => $before, 'boot' => $boot(10, false)];
+        'locations_rows' => count($state['owned']), 'locations_sha256' => hash('sha256', serialize($state['owned'])),
+        'remainder_sha256' => hash('sha256', serialize($state['remainder']))];
+    $writer = array_map(static fn(array $value): array => ['id' => $value['id'], 'locations' => $value['locations']], $native);
+    $seed = $base + ['template_standalone' => [], 'native' => $writer, 'widgets' => $widgets, 'posts' => $posts, 'physical' => $before, 'boot' => $boot(10, false)];
     $invoke = array_replace($base, ['phase' => 'invoke']) + ['artifact' => array_fill_keys(['artifact_hash', 'manifest_hash', 'resolved_adapters_sha256', 'site_hash'], str_repeat('a', 64)),
         'before' => $before, 'receipt' => ['before' => $projection($before), 'after' => $projection($after), 'verified' => true, 'duration_seconds' => 1.0],
         'failure' => null, 'after' => $after, 'children' => [$boot(12, true), $boot(13, true)], 'boot' => $boot(11, false)];
@@ -83,6 +87,12 @@ function location_provider_evidence_model(): array {
 $model = location_provider_evidence_model();
 WPFormsLocationProviderEvidence::verify(...$model);
 wprism_check(true, 'complete synthetic control reaches host admission (not native evidence)');
+$reordered = $model;
+foreach ([1, 3] as $index) {
+    foreach (['before', 'after'] as $side) $reordered[$index]['receipt'][$side] = array_reverse($reordered[$index]['receipt'][$side], true);
+}
+WPFormsLocationProviderEvidence::verify(...$reordered);
+wprism_check(true, 'closed receipt schema is independent of JSON object key insertion order');
 $mutations = [
     'missing parser vector' => static function (array &$r): void { unset($r[0]['posts']['malformed']); },
     'native cross-shortcode recognition dropped' => static function (array &$r): void { $r[0]['posts']['cross_shortcode']['parser'] = []; },
@@ -112,7 +122,17 @@ $mutations = [
     'wrong literal renderer href' => static function (array &$r): void { $r[2]['native']['unicode']['html'] = '<span class="wpforms-locations-list-item"></span>'; },
     'coerced private status' => static function (array &$r): void { $r[0]['posts']['post_private']['status'] = 'publish'; },
     'ambiguous attachment exclusion' => static function (array &$r): void { $r[0]['posts']['excluded_attachment']['status'] = 'inherit'; },
+    'unrecorded dirty attachment provenance' => static function (array &$r): void { $r[0]['posts']['excluded_attachment']['writer_status'] = 'publish'; },
+    'claimed status differs from physical row' => static function (array &$r): void {
+        $r[0]['physical']['inputs']['posts'][14]['post_status'] = 'inherit';
+    },
+    'extra provider projection field' => static function (array &$r): void { $r[1]['receipt']['after']['unexpected'] = true; },
     'wrong default native title' => static function (array &$r): void { $r[2]['native']['embeds']['html'] = str_replace('WPForms Widget', 'wrong', $r[2]['native']['embeds']['html']); },
+    'warm writer masquerades as fresh UI evidence' => static function (array &$r): void { $r[0]['native']['embeds']['html'] = $r[2]['native']['embeds']['html']; },
+    'fresh consumer loses rendered row' => static function (array &$r): void {
+        $r[2]['native']['embeds']['html'] = substr($r[2]['native']['embeds']['html'], strlen('<span class="wpforms-locations-list-item"></span>'));
+    },
+    'fresh retry changes consumer markup' => static function (array &$r): void { $r[4]['native']['embeds']['html'] .= 'changed'; },
     'wrong empty native column' => static function (array &$r): void { $r[2]['native']['no_locations']['html'] = '0'; },
     'changed artifact on retry' => static function (array &$r): void { $r[3]['artifact']['artifact_hash'] = str_repeat('b', 64); },
 ];
