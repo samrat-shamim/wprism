@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
@@ -753,6 +755,14 @@ final class RepositoryAuthorization {
                 continue;
             }
             $value = $record['value'];
+            if (!empty($rule[PhpContainerValue::FIELD])) {
+                try {
+                    PhpContainerValue::assert_canonical($value, "repository option '$name'");
+                } catch (\RuntimeException $failure) {
+                    self::finding($out, 'repository_option_container_invalid', $entity['path'], $uuid,
+                        'option', (string) $name, 'malformed', $details['source']);
+                }
+            }
             try {
                 OptionState::assert_rule_autoload($rule, (string) $record['autoload'], "repository option '$name'");
             } catch (\Throwable $t) {

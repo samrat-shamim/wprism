@@ -171,6 +171,17 @@
         "agent/src/Kernel/StructuredReferenceCodec.php",
         "sandbox/tests/offline/grammar/regress_conditional_json_refs.php"
       ]
+    },
+    "ordered_php_option_containers": {
+      "title": "a closed ordered PHP array/stdClass option codec",
+      "status": "shipped",
+      "definition": "The negotiated php-container-values/v1 whole-option codec preserves native array/object types, insertion order and finite float types in plain canonical data. Typed key_refs reuse the existing path walker and identity ledger while changing items and ordering records atomically. Native decoding forbids executable classes and enums; immutable validation and checked SQL apply share the same representation.",
+      "evidence": [
+        "agent/src/Kernel/PhpContainerValue.php",
+        "agent/src/Kernel/StructuredReferenceCodec.php",
+        "agent/src/Repository/RepositoryAuthorization.php",
+        "sandbox/tests/offline/grammar/regress_php_container_values.php"
+      ]
     }
   },
   "candidates": [
@@ -228,9 +239,9 @@
         },
         {
           "coordinate": "post_meta.wpforms_form_locations",
-      "cannot_represent": "Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored — `WPForms\\Forms\\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: \"derived\"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: WPrism writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.",
-      "blocker_layer": "adapter",
-      "primitive_required": "verified_provider_postcondition",
+          "cannot_represent": "Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored — `WPForms\\Forms\\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: \"derived\"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: WPrism writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.",
+          "blocker_layer": "adapter",
+          "primitive_required": "verified_provider_postcondition",
           "remedy_phrase": "a bounded postcondition over the plugin's scheduled form-locations derivation"
         },
         {
@@ -541,6 +552,31 @@
         }
       ],
       "closing": "The shared conditional-json-refs/v1 declaration reuses the existing JSON-path traversal, identity ledger, URL codec, linter and checked option materializer. Offline evidence includes immutable compilation and divergent-ID SQL round trips. This closes the representation gap; the adapter still requires its own native behavior and production-readiness evidence."
+    },
+    {
+      "id": "qi-blocks-php-containers",
+      "candidate": "Qi Blocks",
+      "versions_probed": [
+        "1.5.2"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "qi-blocks"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "options.qi_blocks_global_styles",
+          "cannot_represent": "The native update-styles REST writer persists an outer PHP array with nested stdClass style records and a post-ID-keyed posts map. PlainData refuses objects; ordinary JSON also erases container type and insertion order. Rewriting the keys independently of an ordering record would leave a dangling order entry when an unresolved reference is dropped.",
+          "primitive_required": "ordered_php_option_containers",
+          "closed_by": [
+            "agent/src/Kernel/PhpContainerValue.php",
+            "agent/src/Kernel/StructuredReferenceCodec.php",
+            "agent/src/Repository/RepositoryAuthorization.php",
+            "sandbox/tests/offline/grammar/regress_php_container_values.php"
+          ]
+        }
+      ],
+      "closing": "The shared php-container-values/v1 contract composes the existing URL, identity, privacy, immutable compiler and transactional option paths. Offline product tests cover divergent IDs, changed URL lengths, exact native type/order preservation, malformed data, late-write rollback, retry and full option recapture. This closes the representation gap only; Qi still requires its capsule and native behavior/lifecycle evidence."
     }
   ]
 }

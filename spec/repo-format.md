@@ -2971,6 +2971,53 @@ reference behavior unchanged. AIO Login 2.4.1's native redirect rule is the
 measured demand: `page` stores a decimal string while `custom` stores a URL;
 unconditional reference apply changed the latter to `"0"`.
 
+### v3.28 `php-container-values/v1` — ordered native PHP option containers
+
+A v3 adapter declaring this feature may set `php_containers: true` on a whole
+authored `options` or `option_patterns` rule. The rule must also declare
+`plain_data` or structured references. It cannot combine with `ref`, `cast`,
+`json_encoded`, `sub_keys`, `repeated_rows` or `order_preserving`. The normal
+namespace declaration remains necessary for pattern discovery. This feature
+does not admit metadata, attached table metadata, dynamic option resolvers,
+option-name references or site-authored codecs. A site may exclude the whole
+option as runtime, derived or environment data; it cannot replace the authored
+storage contract. An interpreter cannot introduce or override the codec.
+
+The canonical option value is a closed document with exactly `format` equal
+to `wprism-php-containers/v1` and `root`. Every native array or builtin
+`stdClass` becomes a closed node with `kind` (`array` or `stdClass`), `order`
+(a list of closed `{"key":...}` records), and `items` (the keyed encoded
+values). `order` names every item exactly once in original insertion order.
+PHP arrays retain integer/string key types; `stdClass` retains string property
+names, including numeric properties. All containers are wrapped, so authored
+keys resembling codec fields are unambiguous. Empty arrays and empty objects
+remain distinct through canonical JSON sorting.
+
+Null, booleans, integers and UTF-8 strings are ordinary leaves. A finite PHP
+float becomes `{"kind":"float","value":"..."}`, using the decimal
+spelling between `d:` and `;` in its canonical PHP serialization. This preserves
+`2.0` versus `2` and negative zero without changing ordinary canonical JSON.
+The root must be a container. The codec bounds native serialized input and
+decoded text to 16 MiB, nesting depth to 64 and decoded nodes to 100,000.
+Arbitrary/incomplete classes, enums, references, recursive or shared objects,
+mangled properties, malformed/trailing/noncanonical serialization, binary text,
+nonfinite floats and malformed portable nodes refuse. Enum screening happens
+before PHP can invoke an autoloader; deserialization permits only builtin
+`stdClass` and reconstruction instantiates only that class.
+
+Existing `json_refs` paths address encoded scalar coordinates. An ID-keyed
+node instead requires `key_refs.container: "php"`; its path addresses the
+whole typed node, for example `$.root.items.posts`. Capture accepts only
+positive native integer or canonical decimal-string IDs within PHP's integer
+range. Apply requires an exact identity token in the declared keyspace and a
+positive resolved integer. The generic codec rewrites `items` and `order` in
+one operation. An unresolved capture key drops its complete entry with the
+existing warning; duplicate resolved keys refuse. This introduces no new path
+dialect or identity kind. Ordinary string leaves retain URL rebinding and
+secret/PII checks. Capture, immutable compilation, lint and checked option
+materialization share the representation; materialization restores native
+containers and serializes them with target-local string lengths.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

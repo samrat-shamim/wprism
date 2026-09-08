@@ -403,6 +403,41 @@ or missing discriminator, wrong-kind token, malformed native ID, and a secret
 beside the positive data. `regress-conditional-json-refs` is the shared engine
 pin; each plugin still needs its own native writer and behavior evidence.
 
+### Native PHP container types and insertion order
+
+Inspect raw option bytes after using the plugin's real writer. Qi Blocks 1.5.2
+persists `qi_blocks_global_styles` as an outer PHP array containing nested
+`stdClass` values; its `posts` map uses post IDs as keys. Ordinary JSON cannot
+retain array versus object types or the insertion order canonical sorting
+removes. `plain_data` alone deliberately refuses PHP objects.
+
+For a whole authored option with this measured requirement, negotiate
+`php-container-values/v1` and declare `php_containers: true`. Choose
+`plain_data: true` when there are no identity positions, or use existing
+`json_refs` paths into the portable representation. For an ID-keyed container,
+declare `key_refs: {"path":"$.root.items.posts","kind":"post",
+"container":"php"}`. This path selects the complete typed node. The shared
+codec rewrites its keys and ordering records together, including a dangling
+entry's removal; a second reference path over ordering metadata would break
+that invariant. Pattern-owned options also need their normal namespace
+discovery declaration. The closed representation and bounds are in
+[the format specification](../../spec/repo-format.md#v328-php-container-valuesv1--ordered-native-php-option-containers).
+
+Do not add an interpreter or a provider just to deserialize this data. Only
+builtin `stdClass` is admitted; arbitrary classes, enums, references, cycles,
+shared objects, noncanonical serialization, binary text and nonfinite floats
+refuse. Existing scalar/array rules keep their storage contract. Site policy
+can exclude the complete option but cannot replace its codec; interpreter
+classification cannot introduce or override it. Metadata, subkeys, dynamic
+option resolvers and custom-table columns are outside this feature.
+
+Prove actual native writer bytes, empty arrays and objects, mixed scalar types,
+map order, source-home URLs and divergent IDs through capture, complete
+compilation, SQL apply and recapture. Include malformed native and canonical
+data, colliding keys, a late write failure, rollback and retry. The shared
+`regress-php-container-values` suite proves the engine mechanism; each adapter
+still needs native render and lifecycle evidence for its own settings.
+
 ### Portable validation versus WordPress-native predicates
 
 Run your real adapter through the standalone `RepositoryCompiler`, with no

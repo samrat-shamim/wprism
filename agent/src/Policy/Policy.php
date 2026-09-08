@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+
 require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
 
 // Manifest validation is a pure offline pass with several entry points of
@@ -2869,6 +2871,11 @@ final class Policy {
             $rule = $i->{$hook}($key, $allValues);
             if ($rule === null) {
                 continue;
+            }
+            if (PhpContainerValue::uses($rule) || PhpContainerValue::uses($static['rule'] ?? [])) {
+                throw new \RuntimeException(
+                    "wprism: interpreter '$name' cannot introduce or replace a static PHP container option codec"
+                );
             }
             // This feature authorizes one exact static option, not executable
             // classification. Even echoing a static constrained rule would

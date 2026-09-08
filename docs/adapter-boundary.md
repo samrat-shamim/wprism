@@ -100,6 +100,15 @@ continues to refuse objects, references, recursion and noncanonical framing.
 The shared regression exercises authored-option capture and the review,
 delete-guard and native rewrite readers without executing an autoloader.
 
+An explicitly negotiated whole-option `php-container-values/v1` contract can
+retain builtin `stdClass` alongside PHP arrays. `PhpContainerValue` owns the
+closed, ordered data representation and reconstructs only those two native
+containers. It composes with the existing reference, text and privacy codecs;
+`StructuredReferenceCodec` rewrites an ID-keyed container's items and order
+atomically. Repository authorization validates this representation without
+WordPress or plugin code, and the checked option materializer restores native
+types before serialization. No plugin executable owns this storage conversion.
+
 ### 2. Declarative manifest
 
 A manifest describes facts that can be represented as data:

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
@@ -117,7 +118,9 @@ final class OptionsCapture {
                     return;
                 }
                 $liveCanonicalNames[$name] = true;
-                $v = PlainData::decode($row['option_value'], "option $name");
+                $v = !empty($rule[PhpContainerValue::FIELD])
+                    ? PhpContainerValue::capture_raw($row['option_value'], "option $name")
+                    : PlainData::decode($row['option_value'], "option $name");
                 PlainData::assert($v, "option $name");
                 ($this->guardSecret)('options', $name, $v, $rule);
                 $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs, false, $lifecycleHandoffProjection);
@@ -157,7 +160,9 @@ final class OptionsCapture {
                     return;
                 }
                 $liveCanonicalNames[$name] = true;
-                $v = PlainData::decode($row['option_value'], "option $name");
+                $v = !empty($rule[PhpContainerValue::FIELD])
+                    ? PhpContainerValue::capture_raw($row['option_value'], "option $name")
+                    : PlainData::decode($row['option_value'], "option $name");
                 PlainData::assert($v, "option $name");
                 ($this->guardSecret)('options', $name, $v, $rule);
                 $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
@@ -358,14 +363,14 @@ final class OptionsCapture {
     ): array {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = StructuredValue::decode($v, $rule, "option $ctx");
-            return ['included' => true, 'value' => $this->tokens->struct_capture(
-                $decoded,
-                $rule['json_refs'] ?? [],
-                $rule['key_refs'] ?? null
-            )];
+            $captured = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+            if (!empty($rule[PhpContainerValue::FIELD])) PhpContainerValue::assert_canonical($captured, "option $ctx");
+            return ['included' => true, 'value' => $captured];
         }
         if (!empty($rule['plain_data'])) {
-            return ['included' => true, 'value' => $this->tokens->plain_data_capture($v)];
+            $captured = $this->tokens->plain_data_capture($v);
+            if (!empty($rule[PhpContainerValue::FIELD])) PhpContainerValue::assert_canonical($captured, "option $ctx");
+            return ['included' => true, 'value' => $captured];
         }
         if (!empty($rule['ref'])) {
             if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {

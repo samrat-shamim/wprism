@@ -202,6 +202,7 @@ return [
     'WPrism\\PathSafety' => 'src/Kernel/PathSafety.php',
     'WPrism\\Pending' => 'src/Review/Pending.php',
     'WPrism\\PersonalData' => 'src/Kernel/PersonalData.php',
+    'WPrism\\PhpContainerValue' => 'src/Kernel/PhpContainerValue.php',
     'WPrism\\PhpLiteralData' => 'src/Kernel/PhpLiteralData.php',
     'WPrism\\PinResolver' => 'src/Policy/PinResolver.php',
     'WPrism\\PlainData' => 'src/Kernel/PlainData.php',

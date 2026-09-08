@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+
 require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
 
@@ -84,6 +86,12 @@ final class PolicyRuleResolver {
                     $declared = $manifest['options'][$name] ?? null;
                     if (is_array($declared)) {
                         ScalarReferenceIntersection::assert_site_override($declared, $sitePolicy, "options.$name");
+                        PhpContainerValue::assert_site_override($declared, $sitePolicy, "options.$name");
+                    }
+                    foreach ($manifest['option_patterns'] ?? [] as $pattern) {
+                        if (preg_match('/' . $pattern['match'] . '/', $name)) {
+                            PhpContainerValue::assert_site_override($pattern, $sitePolicy, "options.$name");
+                        }
                     }
                 }
             }

@@ -71,7 +71,7 @@ final class ReferenceRules {
     }
 
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
-    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false): void {
+    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false): void {
         if (array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $rule)
             && !array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
             throw new \RuntimeException("wprism: $where.ref_taxonomy requires the scalar reference intersection feature");
@@ -147,7 +147,7 @@ final class ReferenceRules {
                     "wprism: $where cannot combine json_refs/key_refs with plain_data; the ownership is ambiguous"
                 );
             }
-            self::validate_structured($rule, $where, true, false, $conditionalRefs);
+            self::validate_structured($rule, $where, true, false, $conditionalRefs, $phpContainers);
             if (array_key_exists('cast', $rule)) {
                 throw new \RuntimeException(
                     "wprism: $where.cast is ambiguous for a structured value; put cast on each json_refs entry"
@@ -223,7 +223,7 @@ final class ReferenceRules {
         self::validate_structured(['json_refs' => $refs], $where, true, $preserveTypes);
     }
 
-    private static function validate_structured(array $rule, string $where, bool $requireRef, bool $preserveTypes = false, bool $conditionalRefs = false): void {
+    private static function validate_structured(array $rule, string $where, bool $requireRef, bool $preserveTypes = false, bool $conditionalRefs = false, bool $phpContainers = false): void {
         $jsonRefs = $rule['json_refs'] ?? [];
         if (!is_array($jsonRefs) || !array_is_list($jsonRefs)) {
             throw new \RuntimeException("wprism: $where.json_refs must be a list");
@@ -280,8 +280,12 @@ final class ReferenceRules {
 
         $keyRefs = $rule['key_refs'] ?? null;
         if ($keyRefs !== null) {
+            if (is_array($keyRefs) && array_key_exists('container', $keyRefs)
+                && (!$phpContainers || $keyRefs['container'] !== 'php')) {
+                throw new \RuntimeException("wprism: $where.key_refs.container requires the negotiated PHP container option codec");
+            }
             if (!is_array($keyRefs) || array_is_list($keyRefs)
-                || array_diff_key($keyRefs, ['path' => true, 'kind' => true])) {
+                || array_diff_key($keyRefs, ['path' => true, 'kind' => true] + ($phpContainers ? ['container' => true] : []))) {
                 throw new \RuntimeException(
                     "wprism: $where.key_refs must be an object containing kind and optional path"
                 );

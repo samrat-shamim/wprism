@@ -11,6 +11,7 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/../Kernel/TermCoordinateWitness.php';
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
@@ -371,6 +372,7 @@ final class OptionsMaterializer {
      * path.
      */
     private function apply_value(string $ctx, $v, array $rule) {
+        if (!empty($rule[PhpContainerValue::FIELD])) PhpContainerValue::assert_canonical($v, "option $ctx");
         if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
             return ScalarReferenceIntersection::apply(
                 $v,
@@ -386,10 +388,12 @@ final class OptionsMaterializer {
         }
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-            return StructuredValue::encode($v, $rule, $ctx);
+            $v = StructuredValue::encode($v, $rule, $ctx);
+            return !empty($rule[PhpContainerValue::FIELD]) ? PhpContainerValue::restore($v, "option $ctx") : $v;
         }
         if (!empty($rule['plain_data'])) {
-            return $this->tokens->plain_data_apply($v);
+            $v = $this->tokens->plain_data_apply($v);
+            return !empty($rule[PhpContainerValue::FIELD]) ? PhpContainerValue::restore($v, "option $ctx") : $v;
         }
         if (!empty($rule['ref'])) {
             // Options and metadata share the same ref/cast declaration.

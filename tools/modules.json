@@ -91,6 +91,7 @@
           "Secrets",
           "PlainData",
           "SerializedDataPreflight",
+          "PhpContainerValue",
           "StructuredValue",
           "Uuid",
           "ReferenceRules",
@@ -150,7 +151,7 @@
             ]
           }
         ],
-  "file_count": 69,
+  "file_count": 70,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -188,6 +189,7 @@
           "PhpLiteralData.php",
           "PlainData.php",
           "SerializedDataPreflight.php",
+          "PhpContainerValue.php",
           "PostPasswordBinding.php",
           "PrivateEvidenceCarrierException.php",
           "PrivateEvidenceException.php",

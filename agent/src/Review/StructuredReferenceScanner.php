@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/JsonRefs.php';
 require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
+require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
 require_once __DIR__ . '/Pending.php';
 require_once __DIR__ . '/LintFinding.php';
 
@@ -71,6 +72,8 @@ final class StructuredReferenceScanner {
             $scanDeclaredMap = function ($map, string $mapLocator) use (
                 &$declaredKeyLocators, &$findings, $rel, $keyRefs, $resolveId
             ): void {
+                $map = StructuredReferenceCodec::key_ref_map($map, $keyRefs, "$rel $mapLocator");
+                if (($keyRefs['container'] ?? null) === 'php') $mapLocator .= '.items';
                 if (!is_array($map) || array_is_list($map)) {
                     return;
                 }

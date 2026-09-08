@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
+
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
 
@@ -399,6 +401,13 @@ final class RepositoryPortableShapeValidator {
             return;
         }
         $validateMap = function ($map, string $mapLocator) use ($keyRefs, $path, $locator): void {
+            try {
+                $map = StructuredReferenceCodec::key_ref_map($map, $keyRefs, "$path $locator$mapLocator");
+            } catch (\RuntimeException) {
+                $this->add('nonportable_reference', $path, $locator . $mapLocator,
+                    'key_refs path must resolve to a valid typed container');
+                return;
+            }
             if (!is_array($map) || ($map !== [] && array_is_list($map))) {
                 $this->add(
                     'nonportable_reference',

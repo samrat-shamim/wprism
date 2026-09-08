@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+
 require_once __DIR__ . '/AdapterSources.php';
 // The feature roster names the action grammar's bounded post-kind selector.
 // Load that owner explicitly: agent/ has no production autoloader, and the
@@ -171,6 +173,7 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
         ReferenceCondition::FEATURE => ['since' => 3, 'keys' => []],
         // A predicate on an existing metadata field, not a new surface. Its
         // native arm executes only at explicit Capture/Plan/Apply boundaries.
@@ -514,6 +517,9 @@ final class AdapterContractGrammar {
             }
             if ($name === NativeValueValidation::FEATURE) {
                 $rows[$name]['value_constraint'] = NativeValueValidation::declaration_grammar();
+            }
+            if ($name === PhpContainerValue::FEATURE) {
+                $rows[$name]['value_constraint'] = PhpContainerValue::declaration_grammar();
             }
             if ($name === ReferenceCondition::FEATURE) {
                 $rows[$name]['value_constraint'] = ReferenceCondition::declaration_grammar();
