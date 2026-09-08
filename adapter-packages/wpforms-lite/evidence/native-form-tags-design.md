@@ -1,8 +1,9 @@
 # Native form-tag round-trip — next evidence slice
 
-WPForms Lite remains experimental and unready. This is the work plan after
-the settings checkpoint in PR #599, not a native-run record or a capability
-promotion. No shipped manifest or executable changes are proposed here.
+WPForms Lite remains experimental and unready. This records the design after
+the settings checkpoint in PR #599; the completed bounded run is recorded in
+[native-form-tags.md](native-form-tags.md), not a capability promotion. No
+shipped manifest or executable changes are proposed here.
 
 ## Source contract
 
@@ -98,7 +99,7 @@ The existing shared transport, compiler, identity and transaction machinery
 remain the implementation boundary; a second admin route may justify a small
 capsule-local session/request helper, not a runtime HTTP framework.
 
-## Implemented producer, native verification in progress
+## Implemented producer and admission controls
 
 `tests/live/regress_location_apply.sh` now admits an explicit seeded-target
 `WPFORMS_APPLY_TAGS=1` profile. It runs the native sequence above and adds a
@@ -117,7 +118,8 @@ It also pins the native referrer and distinguishes an absent HTTP-API body
 from an observed empty string; the string `0` is retained without coercion.
 Every error-code data history and attempted request payload is retained
 privately; a partial or error-shaped record cannot pass native admission.
-These are deterministic fixture results, not a successful native round-trip.
+These are deterministic fixture results; the separate native-run record
+establishes which producer actually executed successfully.
 
 The first combined run, producer `999ab097070c7520af830121f7c9a34a3525ad59`,
 failed at the first tag POST with HTTP 400 before any physical change. Its
@@ -131,9 +133,12 @@ The corrected helper is red/green tested against that producer. Subsequent
 source tracing and a locked-sanitizer probe exposed the predicted QR-default
 postimage; the actual verifier rejected it before correction. Mutation
 controls now reject every missing/wrong value/type, reordered additions and
-preseeded, partial or configured QR preimages. A new full aggregate and
-exact-source native run remain required before any PASS claim.
+preseeded, partial or configured QR preimages. The corrected producer
+`fd603b475de7876342aceacd8b4deece942f1493` subsequently passed the full aggregate
+and exact-source combined native run; see the separate run record for its
+retained evidence and limits.
 
 Media/QR uploads, template conversion, deletion authority, lifecycle,
 submissions/mail and participant-declared combinations remain separate work.
-The production-readiness record is unchanged; no family is marked covered.
+The production-readiness record retains all twelve gaps; no family is marked
+covered.
