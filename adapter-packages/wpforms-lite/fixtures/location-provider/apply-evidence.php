@@ -18,7 +18,8 @@ final class WPFormsApplyEvidence {
         $pattern = ' ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-z0-9]+ (?:Creating|Created) *';
         // Only public candidate calls emit the shared lifecycle's pointer.
         // This is a retained diagnostic location, never a success certificate.
-        if (preg_match('/\A(?:baseline|embeds|widgets|routing)-(capture|plan|apply|repeat|recapture|source-repeat)\z/', $name, $match) === 1) {
+        if (preg_match('/\A(?:(?:baseline|embeds|widgets|routing)-(capture|plan|apply|repeat|recapture|source-repeat)|refusal-(apply))\z/', $name, $match) === 1) {
+            if ($name === 'refusal-apply') $match[1] = 'apply';
             $verb = match ($match[1]) {
                 'repeat' => 'apply',
                 'recapture', 'source-repeat' => 'capture',
@@ -127,6 +128,60 @@ final class WPFormsApplyEvidence {
             && ($row['post_status'] ?? null) === 'trash', 'target-local padding is outside authored capture');
     }
 
+    public static function refused(array $before, array $after, array $receipt, array $diagnostics): void {
+        self::emptyBefore($before);
+        self::emptyBefore($after);
+        self::check($before === $after, 'refused Apply preserves the complete empty-content and target-local native witnesses');
+        $keys = array_keys($receipt);
+        sort($keys, SORT_STRING);
+        self::check($keys === ['command', 'diagnostics', 'error', 'format', 'message', 'ok', 'reason_code', 'remediation']
+            && $receipt['format'] === 'wprism-command-refusal/v1' && $receipt['ok'] === false && $receipt['command'] === 'apply'
+            && $receipt['error'] === 'repository_compilation_failed' && $receipt['reason_code'] === 'repository_compilation_failed'
+            && $receipt['message'] === 'repository compilation refused this command'
+            && is_string($receipt['remediation']) && $receipt['remediation'] !== '', 'ordinary Apply refuses at the compiler before dispatch');
+        self::check(count($diagnostics) === 1 && ($diagnostics[0]['code'] ?? null) === 'semantic_delete_reference'
+            && ($diagnostics[0]['message'] ?? null) === 'reference target 10000000-0000-4000-8000-000000000099 is absent from the compiled revision'
+            && $receipt['diagnostics'] === $diagnostics, 'complete native refusal diagnostics match independent source compilation');
+    }
+
+    /** Shared tree confinement/retention; this fixture owns the one deliberately broken shortcode. */
+    public static function refusalInput(string $sourceRepo, string $refusalRepo, array $prepared, WPrism\AdapterLibrary $library): array {
+        require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FilesystemTreeEvidence.php';
+        require_once dirname(__DIR__, 4) . '/agent/src/Repository/RepositoryCompiler.php';
+        $policy = WPrism\Policy::load($sourceRepo, adapterLibrary: $library);
+        $compiled = WPrism\RepositoryCompiler::compile_staged($sourceRepo . '/state', $sourceRepo, $policy);
+        $entities = [];
+        foreach (['embed' => 'page', 'integer' => 'wpforms'] as $role => $type) {
+            $matches = array_filter($compiled->tree(), static fn(array $row): bool => $row['type'] === 'post'
+                && ($row['data']['type'] ?? null) === $type && ($row['data']['slug'] ?? null) === 'wprism-wpf-' . $role);
+            self::check(count($matches) === 1, 'refusal source contains its exact controlled entity');
+            $entities[$role] = ['uuid' => array_key_first($matches), 'entity' => reset($matches)];
+        }
+        $source = WPrismTest\FilesystemTreeEvidence::capture($sourceRepo, 'state');
+        $bad = WPrismTest\FilesystemTreeEvidence::capture($refusalRepo, 'state');
+        self::check($source['directories'] === $bad['directories'] && WPrism\Canon::read_file($sourceRepo . '/site.wprism.json')
+            === WPrism\Canon::read_file($refusalRepo . '/site.wprism.json'), 'refusal retains the full source topology and policy bytes');
+        // Authored file mtimes do not participate in repository semantics;
+        // compare every retained payload and path, never a selected file glob.
+        $expectedFiles = array_column($source['files'], 'contents_base64', 'path');
+        $path = $entities['embed']['entity']['path'];
+        $original = base64_decode($expectedFiles[$path], true);
+        $needle = '[wpforms id="{{post:' . $entities['integer']['uuid'] . '}}" title="true"]';
+        self::check(is_string($original) && substr_count($original, $needle) === 1, 'one complete source shortcode to break');
+        $missing = '10000000-0000-4000-8000-000000000099';
+        self::check(!isset($compiled->tree()[$missing]), 'refusal target is absent from the source compiler');
+        $changed = str_replace($needle, '[wpforms id="{{post:' . $missing . '}}" title="true"]', $original);
+        self::check(WPrism\Canon::encode($prepared) === WPrism\Canon::encode(['format' => 'wprism-wpforms-apply-refusal-input/v1', 'path' => $path,
+            'artifact_hash' => $compiled->artifact_hash(), 'missing_uuid' => $missing,
+            'original_sha256' => hash('sha256', $original), 'changed_sha256' => hash('sha256', $changed)]), 'refusal input is exactly the source-derived single reference mutation');
+        $expectedFiles[$path] = base64_encode($changed);
+        self::check($expectedFiles === array_column($bad['files'], 'contents_base64', 'path'), 'no unrelated source file changed in the negative repository');
+        $badPolicy = WPrism\Policy::load($refusalRepo, adapterLibrary: $library);
+        try { WPrism\RepositoryCompiler::compile_staged($refusalRepo . '/state', $refusalRepo, $badPolicy); }
+        catch (WPrism\RepositoryCompilationException $failure) { return $failure->diagnostics; }
+        throw new RuntimeException('WPForms Apply evidence: negative repository did not refuse compilation');
+    }
+
     /** Source compilation, never target observations or a magic plan count, owns the CREATE inventory. */
     public static function created(WPrism\CompiledRepository $compiled, array $source, array $plan, array $after): void {
         self::check(($plan['artifact_hash'] ?? null) === $compiled->artifact_hash(), 'creation plan consumes the retained source artifact');
@@ -150,13 +205,17 @@ final class WPFormsApplyEvidence {
         $ids = array_column($expected, 'uuid');
         $paths = array_column($expected, 'path');
         $actual = [];
+        $tree = $compiled->tree();
         // Core defaults can be adopted on an otherwise empty content target.
         // No fixture coordinate may hide in that global bucket (or unchanged).
         foreach (['create', 'update', 'unchanged', 'adopt', 'conflict', 'collision', 'drift', 'delete', 'delete_conflict'] as $bucket) {
             self::check(is_array($plan[$bucket] ?? null) && array_is_list($plan[$bucket]), 'complete creation plan bucket: ' . $bucket);
             foreach ($plan[$bucket] as $row) {
                 self::check(is_array($row), 'typed creation plan row');
-                if (!in_array($row['uuid'] ?? null, $ids, true) && !in_array($row['path'] ?? null, $paths, true)) continue;
+                $entity = $tree[$row['uuid'] ?? ''] ?? null;
+                self::check(is_array($entity) && ($row['type'] ?? null) === $entity['type']
+                    && ($row['path'] ?? null) === $entity['path'], 'every creation-lane plan row belongs to the actual compiled source');
+                if ($bucket !== 'create' && !in_array($row['uuid'] ?? null, $ids, true) && !in_array($row['path'] ?? null, $paths, true)) continue;
                 self::check($bucket === 'create' && !array_key_exists('env_id', $row), 'controlled entity must be created, never pre-adopted');
                 $actual[] = ['uuid' => $row['uuid'] ?? null, 'type' => $row['type'] ?? null, 'path' => $row['path'] ?? null];
             }
@@ -389,11 +448,27 @@ if (($argv[1] ?? null) === '--admit') {
     }
     $library = WPrism\AdapterLibrary::fromSourcePackage(dirname(__DIR__, 4), 'wpforms-lite');
     $before = $read('before2');
+    if ($targetKind === 'empty') {
+        $prepared = $read('refusal-prepare');
+        if (WPrism\Canon::encode($prepared) !== WPrism\Canon::encode($read('refusal-restore')) || ($prepared['artifact_hash'] ?? null) !== ($read('baseline-contract')['source']['artifact_hash'] ?? null)
+            || ($prepared['missing_uuid'] ?? null) !== '10000000-0000-4000-8000-000000000099') {
+            throw new RuntimeException('WPForms Apply evidence: refusal restoration differs from the real baseline artifact');
+        }
+        $diagnostics = WPFormsApplyEvidence::refusalInput($sink . '/baseline.source', $sink . '/refusal.source', $prepared, $library);
+        $refusal = json_decode(WPrismTest\PrivateCommandOutput::readObject($sink . '/refusal-apply',
+            WPFormsApplyEvidence::stderrPattern($pair, $root, 'refusal-apply'), expectedExit: 1), true, 32, JSON_THROW_ON_ERROR);
+        WPFormsApplyEvidence::refused($read('refusal-before'), $read('refusal-after'), $refusal, $diagnostics);
+        if ($before !== $read('refusal-before')) throw new RuntimeException('WPForms Apply evidence: empty target changed before the refusal premise');
+    }
     $priorSource = null;
     foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {
         $source = $read($case . '-source');
         $target = $read($case . '-target');
         $stable = $read($case . '-stable');
+        if (($source['home'] ?? null) !== 'http://' . $pair . '1.invalid' || ($target['home'] ?? null) !== 'http://' . $pair . '2.invalid'
+            || ($before['home'] ?? null) !== $target['home'] || ($stable['home'] ?? null) !== $target['home']) {
+            throw new RuntimeException('WPForms Apply evidence: native observations do not belong to their exact setup homes');
+        }
         WPFormsApplyEvidence::selection($read($case . '-contract'), $read($case . '-plan'), $read($case . '-apply'), $read($case . '-repeat'));
         WPFormsApplyEvidence::native($case, $source, $before, $target, $stable, $targetKind);
         if ($case !== 'baseline') {

@@ -34,6 +34,8 @@ foreach ($roles as $role => $type) {
         'slug' => $slug, 'status' => 'publish', 'terms' => (object) [], 'title' => 'Fixture ' . $role,
         'type' => $type, 'uuid' => $uuid];
     $canonical = $role === 'template' ? '{"settings":{"form_title":"WPrism WPForms template"}}' : 'Native fixture body.';
+    if ($role === 'embed') $canonical = '[wpforms id="{{post:' . $uuids['integer'] . '}}" title="true"]' . "\n"
+        . '<!-- wp:wpforms/form-selector {"formId":"{{post:' . $uuids['string'] . '}}","displayTitle":true} /-->';
     $index = array_search($role, array_keys($roles), true);
     foreach (['source', 'target'] as $side) {
         $id = ($side === 'source' ? 10 : 100) + $index;
@@ -74,6 +76,11 @@ $reordered['create'] = array_reverse($reordered['create']);
 WPFormsApplyEvidence::created($compiled, $source, $reordered, $target);
 wprism_check(true, 'creation inventory is an exact set, not a fabricated native execution order');
 foreach (['missing create' => static function (&$s, &$p, &$a): void { array_pop($p['create']); },
+    'unknown extra create' => static function (&$s, &$p, &$a): void { $p['create'][] = [
+        'uuid' => '10000000-0000-4000-8000-000000000099', 'type' => 'post',
+        'path' => 'posts/post/10000000-0000-4000-8000-000000000099--extra.md']; },
+    'unplanned core create' => static function (&$s, &$p, &$a): void { $row = array_shift($p['adopt']); unset($row['env_id']); $p['create'][] = $row; },
+    'unknown extra adoption' => static function (&$s, &$p, &$a): void { $p['adopt'][0]['uuid'] = '10000000-0000-4000-8000-000000000099'; },
     'duplicate create' => static function (&$s, &$p, &$a): void { $p['create'][] = $p['create'][0]; },
     'wrong UUID' => static function (&$s, &$p, &$a): void { $p['create'][0]['uuid'] = '10000000-0000-4000-8000-000000000099'; },
     'wrong path' => static function (&$s, &$p, &$a): void { $p['create'][0]['path'] .= '.other'; },
@@ -114,4 +121,39 @@ foreach (['integer self-ID type' => static function (&$doc): void { $doc['id'] =
     wprism_check_throws(static fn() => WPFormsApplyEvidence::created($compiled, $source, $plan, $a), RuntimeException::class,
         'native creation semantics refuse coordinated ' . $label, 'WPForms Apply evidence:');
 }
+require_once $root . '/sandbox/tests/lib/FilesystemTreeEvidence.php';
+$badRepo = WPrismTest\FrozenPolicy::library() . '/negative';
+mkdir($badRepo, 0700);
+WPrism\Canon::write_file($badRepo . '/site.wprism.json', WPrism\Canon::read_file($repo . '/site.wprism.json'));
+$sourceTree = WPrismTest\FilesystemTreeEvidence::capture($repo, 'state');
+foreach ($sourceTree['directories'] as $directory) mkdir($badRepo . '/state' . ($directory === '' ? '' : '/' . $directory), 0700);
+foreach ($sourceTree['files'] as $file) WPrism\Canon::write_file($badRepo . '/state/' . $file['path'], base64_decode($file['contents_base64'], true));
+$embedPath = 'posts/page/' . $uuids['embed'] . '--wprism-wpf-embed.md';
+$original = WPrism\Canon::read_file($repo . '/state/' . $embedPath);
+$missing = '10000000-0000-4000-8000-000000000099';
+$changed = str_replace('{{post:' . $uuids['integer'] . '}}', '{{post:' . $missing . '}}', $original);
+WPrism\Canon::write_file($badRepo . '/state/' . $embedPath, $changed);
+$prepared = ['format' => 'wprism-wpforms-apply-refusal-input/v1', 'path' => $embedPath,
+    'artifact_hash' => $compiled->artifact_hash(), 'missing_uuid' => $missing,
+    'original_sha256' => hash('sha256', $original), 'changed_sha256' => hash('sha256', $changed)];
+$library = WPrism\AdapterLibrary::fromSourcePackage($root, 'wpforms-lite');
+$diagnostics = WPFormsApplyEvidence::refusalInput($repo, $badRepo, $prepared, $library);
+wprism_check_same(1, count($diagnostics), 'actual compiler independently refuses the one retained missing reference');
+wprism_check_same('semantic_delete_reference', $diagnostics[0]['code'], 'actual compiler owns the precise refusal cause');
+wprism_check_same($embedPath, $diagnostics[0]['path'], 'the refusal is in the actual captured embedding page');
+foreach (['artifact_hash', 'original_sha256', 'changed_sha256', 'missing_uuid', 'path'] as $field) {
+    $p = $prepared;
+    $p[$field] .= 'x';
+    wprism_check_throws(static fn() => WPFormsApplyEvidence::refusalInput($repo, $badRepo, $p, $library), RuntimeException::class,
+        'refusal source admission rejects forged ' . $field, 'WPForms Apply evidence:');
+}
+$otherPath = 'posts/post/' . $uuids['core-default'] . '--hello-world.md';
+$otherBytes = WPrism\Canon::read_file($badRepo . '/state/' . $otherPath);
+WPrism\Canon::write_file($badRepo . '/state/' . $otherPath, $otherBytes . 'unrelated mutation');
+wprism_check_throws(static fn() => WPFormsApplyEvidence::refusalInput($repo, $badRepo, $prepared, $library), RuntimeException::class,
+    'refusal source admission rejects a coordinated unrelated state mutation', 'WPForms Apply evidence:');
+WPrism\Canon::write_file($badRepo . '/state/' . $otherPath, $otherBytes);
+WPrism\Canon::write_file($badRepo . '/state/' . $embedPath, $original);
+wprism_check_throws(static fn() => WPFormsApplyEvidence::refusalInput($repo, $badRepo, $prepared, $library), RuntimeException::class,
+    'refusal source admission rejects an unchanged healthy graph', 'WPForms Apply evidence:');
 wprism_check_summary('regress_wpforms_location_creation_evidence');

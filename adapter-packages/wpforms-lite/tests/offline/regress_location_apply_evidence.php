@@ -22,6 +22,8 @@ wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned
     'recapture binds the actual Capture verb');
 wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'baseline-source'), $pointer) === 0,
     'native observation cannot smuggle a public-command diagnostic pointer');
+wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'refusal-apply'), $pointer) === 1,
+    'negative Apply retains the same exact public-command diagnostic pointer');
 $action = ['manifest' => 'wpforms-lite', 'index' => 0, 'kind' => 'provider',
     'provider' => 'wpforms-form-locations', 'capability' => 'rebuild_form_locations', 'args' => [],
     'effects' => [['id' => 'location-rows']]];
@@ -282,5 +284,27 @@ foreach (['stored empty row' => static function (&$a): void {
     wprism_check_throws(static fn() => WPFormsApplyEvidence::native('embeds', $observation('embeds', false, true),
         $observation('baseline', true, true), $a, $a, 'empty'), RuntimeException::class,
         'unlocated form admission refuses ' . $label, 'WPForms Apply evidence:');
+}
+$diagnostics = [['code' => 'semantic_delete_reference', 'path' => 'posts/page/10000000-0000-4000-8000-000000000005--wprism-wpf-embed.md',
+    'locator' => 'body', 'message' => 'reference target 10000000-0000-4000-8000-000000000099 is absent from the compiled revision']];
+$refusal = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+    'error' => 'repository_compilation_failed', 'reason_code' => 'repository_compilation_failed',
+    'message' => 'repository compilation refused this command', 'remediation' => 'repair the source graph', 'diagnostics' => $diagnostics];
+WPFormsApplyEvidence::refused($emptyBefore, $emptyBefore, $refusal, $diagnostics);
+wprism_check(true, 'typed compiler refusal binds complete diagnostics and unchanged empty native witnesses');
+foreach (['wrong command' => static function (&$a, &$r, &$d): void { $r['command'] = 'plan'; },
+    'success envelope' => static function (&$a, &$r, &$d): void { $r['ok'] = true; },
+    'unclassified error' => static function (&$a, &$r, &$d): void { $r['reason_code'] = 'apply_failed'; },
+    'redacted unknown cause' => static function (&$a, &$r, &$d): void { $r['details_redacted'] = true; },
+    'provider executed' => static function (&$a, &$r, &$d): void { $r['actions'] = [['manifest' => 'wpforms-lite']]; },
+    'diagnostic hidden' => static function (&$a, &$r, &$d): void { $r['diagnostics'] = []; },
+    'wrong native diagnostic' => static function (&$a, &$r, &$d): void { $r['diagnostics'][0]['path'] = 'other'; },
+    'wrong host cause' => static function (&$a, &$r, &$d): void { $d[0]['code'] = 'malformed_reference'; $r['diagnostics'] = $d; },
+    'lost target-local bytes' => static function (&$a, &$r, &$d): void { $a['padding'][0]['unexpected'] = 'changed'; },
+    'assigned core widgets changed' => static function (&$a, &$r, &$d): void { $a['sidebars']['sidebar-1'] = []; }] as $label => $mutate) {
+    [$a, $r, $d] = [$emptyBefore, $refusal, $diagnostics];
+    $mutate($a, $r, $d);
+    wprism_check_throws(static fn() => WPFormsApplyEvidence::refused($emptyBefore, $a, $r, $d), RuntimeException::class,
+        'native refusal admission rejects ' . $label, 'WPForms Apply evidence:');
 }
 wprism_check_summary('regress_wpforms_location_apply_evidence');

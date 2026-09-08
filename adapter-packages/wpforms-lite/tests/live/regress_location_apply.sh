@@ -24,15 +24,16 @@ pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" 'WPForms native authored-s
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
 WPRISM_ARTIFACT_LIBRARY_ROOT="$REPO_ROOT" CONF_PAIR="$PAIR"
-capture() {
-  local name="$1" status=0 suffix
-  shift
+capture() { capture_status 0 "$@"; }
+capture_status() {
+  local expected="$1" name="$2" status=0 suffix
+  shift 2
   for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/$name.$suffix"); done
   wprism_private_capture_stage "$sink" "$name" "$@" || status=$?
-  [ "$status" -eq 0 ] || fail "native $name exited $status; retained $sink/$name"
-  php -r 'require $argv[1]; require $argv[2]; WPrismTest\PrivateCommandOutput::readBytes($argv[3], WPFormsApplyEvidence::stderrPattern($argv[4], $argv[5], $argv[6]));' \
+  [ "$status" -eq "$expected" ] || fail "native $name exited $status (expected $expected); retained $sink/$name"
+  php -r 'require $argv[1]; require $argv[2]; WPrismTest\PrivateCommandOutput::readBytes($argv[3], WPFormsApplyEvidence::stderrPattern($argv[4], $argv[5], $argv[6]), expectedExit: (int) $argv[7]);' \
     "$REPO_ROOT/sandbox/tests/lib/PrivateCommandOutput.php" "$PACKAGE_ROOT/fixtures/location-provider/apply-evidence.php" \
-    "$sink/$name" "$PAIR" "$REPO_ROOT" "$name"
+    "$sink/$name" "$PAIR" "$REPO_ROOT" "$name" "$expected"
 }
 wp_side() { local side="$1"; shift; "${COMPOSE[@]}" run --rm -T "cli$side" wp "$@"; }
 candidate() {
@@ -79,6 +80,17 @@ for case_name in baseline embeds widgets routing; do
   if [ "$case_name" = baseline ]; then
     capture binding2 establish_core_environment_bindings wp_side /siterepo admin@example.test \
       "http://${PAIR}2.invalid" "http://${PAIR}2.invalid" 2
+    if [ "$TARGET_KIND" = empty ]; then
+      capture refusal-before native 2 observe before
+      capture refusal-prepare native 2 prepare-refusal baseline
+      pair_live_ownership_repo_host
+      (umask 077; mkdir "$sink/refusal.source")
+      cp "$R2/site.wprism.json" "$sink/refusal.source/site.wprism.json"
+      cp -R "$R2/state" "$sink/refusal.source/state"
+      capture_status 1 refusal-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json
+      capture refusal-after native 2 observe before
+      capture refusal-restore native 2 restore-refusal baseline
+    fi
   fi
   capture "$case_name-plan" candidate 2 plan --repo=/siterepo --adopt-by-slug=posts,terms --format=json
   capture "$case_name-apply" candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json

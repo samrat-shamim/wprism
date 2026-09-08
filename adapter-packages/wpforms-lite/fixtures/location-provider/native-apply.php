@@ -74,8 +74,50 @@ if ($phase === 'seed') {
     return;
 }
 $saved = json_decode((string) file_get_contents($recordPath), true, 32, JSON_THROW_ON_ERROR);
-$check(($saved['empty_target'] ?? false) === ($targetKind === 'empty' && $saved['seed']['format'] === 'wprism-wpforms-apply-empty-seed/v1'),
+$check($saved['empty_target'] === ($targetKind === 'empty' && $saved['seed']['format'] === 'wprism-wpforms-apply-empty-seed/v1'),
     'saved seed and caller agree on the empty-target premise');
+if (in_array($phase, ['prepare-refusal', 'restore-refusal'], true)) {
+    $check($saved['empty_target'] && $case === 'baseline', 'refusal belongs only to the initial empty target');
+    $proofPath = '/siterepo/.wprism/wpforms-apply-refusal-original.json';
+    $library = WPrism\Policy::shipped_adapter_library();
+    if ($phase === 'prepare-refusal') {
+        $check(!file_exists($proofPath), 'one owned refusal original');
+        [$policy, $compiled] = WPFormsLocationProviderLibrary::compile_and_load('/siterepo', $library);
+        $tree = $compiled->tree();
+        $entities = [];
+        foreach (['embed' => 'page', 'integer' => 'wpforms'] as $role => $type) {
+            $matches = array_filter($tree, static fn(array $row): bool => $row['type'] === 'post'
+                && ($row['data']['type'] ?? null) === $type && ($row['data']['slug'] ?? null) === 'wprism-wpf-' . $role);
+            $check(count($matches) === 1, 'refusal uses the actual compiled native fixture');
+            $entities[$role] = ['uuid' => array_key_first($matches), 'entity' => reset($matches)];
+        }
+        $missing = '10000000-0000-4000-8000-000000000099';
+        $check(!isset($tree[$missing]), 'negative reference is actually absent');
+        $path = $entities['embed']['entity']['path'];
+        $original = WPrism\Canon::read_file('/siterepo/state/' . $path);
+        $needle = '[wpforms id="{{post:' . $entities['integer']['uuid'] . '}}" title="true"]';
+        $check(substr_count($original, $needle) === 1, 'single controlled native shortcode reference');
+        $changed = str_replace($needle, '[wpforms id="{{post:' . $missing . '}}" title="true"]', $original);
+        $receipt = ['format' => 'wprism-wpforms-apply-refusal-input/v1', 'path' => $path,
+            'artifact_hash' => $compiled->artifact_hash(), 'missing_uuid' => $missing,
+            'original_sha256' => hash('sha256', $original), 'changed_sha256' => hash('sha256', $changed)];
+        WPrism\Canon::write_file($proofPath, WPrism\Canon::encode(['receipt' => $receipt, 'original' => $original]));
+        $check(chmod($proofPath, 0600), 'private refusal original');
+        WPrism\Canon::write_file('/siterepo/state/' . $path, $changed);
+    } else {
+        $proof = json_decode(WPrism\Canon::read_file($proofPath), true, 32, JSON_THROW_ON_ERROR);
+        $receipt = $proof['receipt'];
+        $path = '/siterepo/state/' . $receipt['path'];
+        $check(hash_file('sha256', $path) === $receipt['changed_sha256']
+            && hash('sha256', $proof['original']) === $receipt['original_sha256'], 'restore only the exact owned refusal input');
+        WPrism\Canon::write_file($path, $proof['original']);
+        [, $compiled] = WPFormsLocationProviderLibrary::compile_and_load('/siterepo', $library);
+        $check($compiled->artifact_hash() === $receipt['artifact_hash'], 'restore recompiles to the original source artifact');
+        $check(unlink($proofPath), 'retire the exact owned refusal original');
+    }
+    echo wp_json_encode($receipt, JSON_THROW_ON_ERROR);
+    return;
+}
 $ids = array_column($saved['seed']['posts'], 'id', 'slug');
 $id = static fn(string $role): int => $ids['wprism-wpf-' . $role];
 if ($phase === 'mutate') {
