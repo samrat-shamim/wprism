@@ -1,0 +1,53 @@
+{
+  "status": "experimental",
+  "reason": "Authoring draft for exact Qi Blocks 1.5.2. Declarations follow native editor schemas, saved content and option writers. Package-local portability tests are in progress; no production, native editor convergence, lifecycle or host promotion claim is made.",
+  "supported_versions": {
+    "plugin": "qi-blocks/class-qi-blocks.php",
+    "range": {
+      "min": "1.5.2",
+      "max": "1.5.3"
+    }
+  },
+  "capabilities": {
+    "entity_sections": [],
+    "field_sections": [
+      "options",
+      "block_values",
+      "block_media_derivatives"
+    ],
+    "operations": [
+      "compile"
+    ],
+    "lifecycle_phases": [],
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "plugin-specific entity deletion"
+      ]
+    }
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-native-content"
+    ]
+  },
+  "unsupported": [
+    {
+      "operation": "all",
+      "surface": "production-qualification",
+      "reason": "Native plugin round trip, hostile cases, combinations and exact-version conformance are still being authored."
+    },
+    {
+      "operation": "all",
+      "surface": "premium",
+      "reason": "Only the official free 1.5.2 artifact is under review."
+    },
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "The platform supports single-site WordPress only."
+    }
+  ]
+}

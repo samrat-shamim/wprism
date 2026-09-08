@@ -2871,10 +2871,14 @@ branches can retain that bare value even after a future adapter leaves the
 library.
 
 1. **Create the capsule and write its manifest** at
-   `adapter-packages/<name>/package/manifest.json`. While the capsule is
+   `adapter-packages/<name>/package/manifest.json`, with a provisional
+   `experimental` disposition beside it. State the untested boundaries and
+   claim only operations the current evidence exercises. The library loader
+   requires the manifest/disposition pair even for grammar validation; a
+   missing disposition refuses before the grammar runs. While the capsule is
    incomplete, iterate with `php cli/wprism manifest-validate .
-   --manifest=<name> --pins=core,<name>`; the complete package validator intentionally refuses a
-   half-authored disposition/evidence boundary.
+   --manifest=<name> --pins=core,<name>`; the complete package validator also
+   requires the capsule's test and evidence boundary.
 2. **Add the reviewed entry** at
    `adapter-packages/<name>/package/disposition.json`, with a
    `reason` a human wrote. Coverage is exact, so this is not optional
