@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/CaptureGateScanner.php';
 require_once __DIR__ . '/CapturePublicationRecovery.php';
@@ -246,6 +248,15 @@ final class Capture {
             $compiled,
             $policy
         );
+    }
+
+    public static function snapshot_in_transaction(
+        string $repo,
+        Policy $policy,
+        CompiledRepository $compiled,
+        DatabaseWorkAuthority $workAuthority
+    ): array {
+        return CaptureSnapshotService::snapshotInTransaction($repo, $policy, $compiled, $workAuthority);
     }
 
     /**

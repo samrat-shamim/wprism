@@ -59,6 +59,8 @@
         "purpose": "Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.",
         "status": "populated",
         "entry_points": [
+          "BlockMediaDerivativeGrammar",
+          "MediaDerivativeRecipe",
           "ActionTriggerMatcher",
           "BlockAttributeReader",
           "BlockValueGrammar",
@@ -158,8 +160,10 @@
             ]
           }
         ],
-        "file_count": 79,
+        "file_count": 81,
         "files": [
+          "BlockMediaDerivativeGrammar.php",
+          "MediaDerivativeRecipe.php",
           "ActionTriggerMatcher.php",
           "BlockAttributeReader.php",
           "BlockValueGrammar.php",
@@ -475,6 +479,7 @@
         "purpose": "The durable repository of owned state: compiled artifacts, identity registry, ledger, provenance journal, reference graph, snapshots and their validators.",
         "status": "populated",
         "entry_points": [
+          "RepositoryMediaDerivatives",
           "Ledger",
           "CompiledArtifact",
           "Snapshot",
@@ -538,8 +543,9 @@
             ]
           }
         ],
-        "file_count": 29,
+        "file_count": 30,
         "files": [
+          "RepositoryMediaDerivatives.php",
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
           "CanonicalSurfaces.php",
@@ -850,8 +856,10 @@
             ]
           }
         ],
-        "file_count": 34,
+        "file_count": 36,
         "files": [
+          "MediaDerivativeObservation.php",
+          "MediaDerivativeWorkset.php",
           "Apply.php",
           "ApplyFieldMaterializer.php",
           "ApplyLedgerFinalizer.php",

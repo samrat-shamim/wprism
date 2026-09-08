@@ -26,7 +26,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-conditional-json-refs
 .PHONY: regress-serialized-data-preflight
 .PHONY: regress-php-container-values
-.PHONY: regress-block-attribute-values regress-html-media-references
+.PHONY: regress-block-attribute-values regress-html-media-references regress-media-derivative-recipes
 .PHONY: regress-url-query-reference-codec
 .PHONY: regress-rank-math-commerce-multilingual regress-rank-math-yoast-incompatibility
 .PHONY: regress-lint-primitives
@@ -2255,6 +2255,9 @@ regress-html-media-references:
 
 regress-block-attribute-values:
 	php sandbox/tests/offline/grammar/regress_block_attribute_values.php
+
+regress-media-derivative-recipes:
+	php sandbox/tests/offline/grammar/regress_media_derivative_recipes.php
 
 regress-conditional-json-refs:
 	php sandbox/tests/offline/grammar/regress_conditional_json_refs.php

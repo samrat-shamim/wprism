@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/ApplyWorkset.php';
+require_once __DIR__ . '/MediaDerivativeWorkset.php';
 require_once __DIR__ . '/../Delete/DeletionAuthority.php';
 
 /** Complete named input for the single authored database transaction. */
@@ -14,6 +15,7 @@ final class AuthoredTransactionRequest {
         public readonly bool $performTransaction,
         public readonly ?int $defaultAuthor,
         public readonly ?\Closure $commitScopedAuthoring,
-        public readonly ?\Closure $rollbackScopedAuthoring
+        public readonly ?\Closure $rollbackScopedAuthoring,
+        public readonly ?MediaDerivativeWorkset $mediaDerivatives = null
     ) {}
 }

@@ -7,6 +7,11 @@ require_once __DIR__ . '/AttachmentFilesystemTransaction.php';
 require_once __DIR__ . '/AttachmentNativeMetadataGenerator.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/MetaOwnerRangeLock.php';
+require_once __DIR__ . '/MediaDerivativeWorkset.php';
+require_once __DIR__ . '/MediaDerivativeObservation.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
+require_once __DIR__ . '/../Repository/RepositoryMediaDerivatives.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
@@ -77,12 +82,14 @@ final class AttachmentMaterializer {
     private readonly AttachmentFilesystemTransaction $filesystem;
     private readonly object $nativeAuthoritySecret;
     private ?string $attachedFileLockIndex = null;
+    private ?MediaDerivativeWorkset $derivativeWorkset = null;
 
     public function __construct(
         private readonly Policy $policy,
         private readonly ApplyFieldMaterializer $fieldMaterializer,
         private readonly CompiledRepository $compiled,
-        string $repositoryRoot
+        string $repositoryRoot,
+        private readonly ?MediaDerivativeObservation $mediaObservation = null
     ) {
         $this->filesystem = new AttachmentFilesystemTransaction($compiled, $repositoryRoot);
         $this->nativeAuthoritySecret = new \stdClass();
@@ -224,7 +231,11 @@ final class AttachmentMaterializer {
     }
 
     /** @param list<array<string,mixed>> $work */
-    public function prepare_filesystem(array $work, array $tree): void {
+    public function prepare_filesystem(array $work, array $tree, ?MediaDerivativeWorkset $derivatives = null): void {
+        if ($derivatives !== null && $derivatives->attachments !== [] && $this->mediaObservation === null) {
+            throw new \RuntimeException('wprism: derivative apply requires its native consumer observation boundary');
+        }
+        $this->derivativeWorkset = $derivatives;
         // The witness belongs to this one markerless-to-post-commit transition;
         // a retry must re-prove the target before accepting an absent callback pair.
         $this->polylangNativeGenerator = null;
@@ -241,11 +252,46 @@ final class AttachmentMaterializer {
         $this->filesystem->prepare(
             $work,
             $tree,
-            $generator
+            $generator,
+            $derivatives
         );
         $this->polylangNativeGenerator = !$generator->has_polylang_no_language_handoff()
             ? null
             : $generator;
+    }
+
+    public function consumer_database_profile(): ?NativeDatabaseProfile {
+        return $this->mediaObservation?->profile();
+    }
+
+    public function lock_derivative_inputs(DatabaseWorkAuthority $authority): void {
+        if ($this->derivativeWorkset === null || $this->derivativeWorkset->attachments === []) return;
+        $actual = DatabaseQueryIsolation::with_engine_work_units($authority,
+            fn(): array => $this->mediaObservation->read_locked($authority));
+        $this->derivativeWorkset->assert_target($this->policy, $actual);
+    }
+
+    /** Bind derived-only work without rewriting an unchanged post, attached-file or alt field. */
+    public function register_derivative_attachments(array $tree, array $work, DatabaseWorkAuthority $authority): array {
+        $authored = array_fill_keys(array_column($work, 'uuid'), true);
+        $ids = [];
+        foreach ($this->derivativeWorkset?->attachments ?? [] as $uuid) {
+            if (isset($authored[$uuid])) continue;
+            $ids[] = DatabaseQueryIsolation::work_unit($authority, function () use ($uuid, $tree): int {
+                $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+                if (!is_int($id) || $id <= 0) throw new \RuntimeException('wprism: derivative-only attachment lacks its existing identity');
+                $front = $tree[$uuid]['data'];
+                $mime = $this->assert_locked_binding(['attachment_id' => $id, 'attachment_uuid' => $uuid,
+                    'original_path' => $front['file']], false, 'derivative-only attachment binding');
+                if ($mime !== $front['mime']) throw new \RuntimeException('wprism: derivative-only attachment changed its native MIME identity');
+                [$lock, $backupRows] = $this->register_file_authority($id, $front);
+                $this->delete_native_backups($id, $lock, $backupRows);
+                CacheInvalidationTransaction::queue($id, 'post_meta', 'derivative-only attachment metadata');
+                CacheInvalidationTransaction::queue_generation('posts', 'derivative-only attachment metadata');
+                return $id;
+            });
+        }
+        return $ids;
     }
 
     /** Seal the exact UUID-to-post-ID mapping inside the authored DB transaction. */
@@ -376,7 +422,7 @@ final class AttachmentMaterializer {
         }
     }
 
-    public function place_attachment(int $id, array $front): void {
+    private function register_file_authority(int $id, array $front): array {
         global $wpdb;
         if ($id <= 0
             || !is_string($front['file'] ?? null)
@@ -403,6 +449,12 @@ final class AttachmentMaterializer {
         );
         $this->assert_global_attached_file_authorities($id, $ownedPriorPaths);
         $this->filesystem->register_attachment($id, $front, $ownedPriorPaths);
+        return [$lock, $priorBackupRows];
+    }
+
+    public function place_attachment(int $id, array $front): void {
+        global $wpdb;
+        [$lock, $priorBackupRows] = $this->register_file_authority($id, $front);
         $desired = [
             self::ATTACHED_FILE_KEY => $front['file'],
             '_wp_attachment_image_alt' => (string) ($front['alt'] ?? ''),
@@ -442,6 +494,14 @@ final class AttachmentMaterializer {
                 throw new \RuntimeException("wprism: attachment metadata '$key' lacks exact locked readback");
             }
         }
+        $this->delete_native_backups($id, $lock, $priorBackupRows);
+        $this->assert_global_attached_file_authority($id, $front['file']);
+        CacheInvalidationTransaction::queue($id, 'post_meta', 'attachment managed metadata reconciliation');
+        CacheInvalidationTransaction::queue_generation('posts', 'attachment managed metadata reconciliation');
+    }
+
+    private function delete_native_backups(int $id, MetaOwnerRangeLock $lock, array $priorBackupRows): void {
+        global $wpdb;
         foreach ($priorBackupRows as $row) {
             $metaId = MetaRows::positive_id($row['meta_id'] ?? null);
             if ($metaId === null) {
@@ -457,9 +517,6 @@ final class AttachmentMaterializer {
         if ($lock->exact_key_rows($id, '_wp_attachment_backup_sizes') !== []) {
             throw new \RuntimeException('wprism: attachment backup metadata deletion lacks exact locked readback');
         }
-        $this->assert_global_attached_file_authority($id, $front['file']);
-        CacheInvalidationTransaction::queue($id, 'post_meta', 'attachment managed metadata reconciliation');
-        CacheInvalidationTransaction::queue_generation('posts', 'attachment managed metadata reconciliation');
     }
 
     /** Run one filesystem transition while its exact physical attachment rows are locked. */
@@ -468,13 +525,15 @@ final class AttachmentMaterializer {
         $started = false;
         $lockBoundaryStarted = false;
         try {
-            Db::start_repeatable_read(
+            $consumerProfile = $this->mediaObservation?->profile();
+            $workAuthority = Db::start_repeatable_read(
                 $purpose . ' transaction start',
-                NativeDatabaseProfile::read_only([
+                new NativeDatabaseProfile(array_values(array_unique([
                     $wpdb->posts,
                     $wpdb->postmeta,
                     $wpdb->prefix . 'wprism_map',
-                ])
+                    ...($consumerProfile?->readable_tables() ?? []),
+                ])), [], $consumerProfile?->table_presence_reads() ?? [])
             );
             $started = true;
             // This wrapper runs after the authored COMMIT as a new physical
@@ -483,6 +542,14 @@ final class AttachmentMaterializer {
             // already-ended authored transaction.
             $this->fieldMaterializer->begin_authored_transaction();
             $lockBoundaryStarted = true;
+            if ($this->mediaObservation !== null && in_array($this->filesystem->phase(), [
+                'generating_metadata', 'metadata_generated', 'publishing_derivatives', 'derivatives_published',
+                'metadata_committing', 'metadata_committed', 'removing_stale', 'complete',
+            ], true)) {
+                $actual = DatabaseQueryIsolation::with_engine_work_units($workAuthority,
+                    fn(): array => $this->mediaObservation->read_locked($workAuthority));
+                $this->filesystem->assert_consumer_recipes(RepositoryMediaDerivatives::derive($actual, $this->policy));
+            }
             foreach ($this->filesystem->pending_bindings() as $binding) {
                 $this->assert_locked_binding($binding, false, $purpose);
             }

@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 
 require_once __DIR__ . '/AdapterSources.php';
 // The feature roster names the action grammar's bounded post-kind selector.
@@ -177,6 +178,7 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        BlockMediaDerivativeGrammar::FEATURE => ['since' => 3, 'keys' => [BlockMediaDerivativeGrammar::SECTION => 'field']],
         BlockValueGrammar::FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::SECTION => 'field']],
         PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
         ReferenceCondition::FEATURE => ['since' => 3, 'keys' => []],
@@ -571,6 +573,7 @@ final class AdapterContractGrammar {
         require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
         $grammars = [
             BlockValueGrammar::SECTION => BlockValueGrammar::section_grammar(),
+            BlockMediaDerivativeGrammar::SECTION => BlockMediaDerivativeGrammar::section_grammar(),
             AttrIdCodecGrammar::SECTION => AttrIdCodecGrammar::section_grammar(),
             BodyRefGrammar::SECTION => BodyRefGrammar::section_grammar(),
             ColumnCodecGrammar::SECTION => ColumnCodecGrammar::section_grammar(),

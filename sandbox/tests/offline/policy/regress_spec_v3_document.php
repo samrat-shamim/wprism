@@ -263,6 +263,7 @@ wprism_check_same(
     [
         'attr-id-codecs/v1',
         'block-attribute-values/v1',
+        'block-media-derivatives/v1',
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
@@ -288,8 +289,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries the implemented features, and five claim sections v3 did not have — '
-        . '"declared and implemented admits" is a path walked five times, not an admissibility argument'
+    'v3.2: the vocabulary carries the exact reviewed feature names independently of the spec version'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;

@@ -6,8 +6,10 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/DurableFilesystem.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
+require_once __DIR__ . '/../Kernel/MediaDerivativeRecipe.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/AttachmentNativeMetadataGenerator.php';
+require_once __DIR__ . '/MediaDerivativeWorkset.php';
 if (!class_exists(CompiledRepository::class, false)) {
     require_once __DIR__ . '/../Repository/CompiledArtifact.php';
 }
@@ -213,9 +215,14 @@ final class AttachmentFilesystemTransaction {
     public function prepare(
         array $work,
         array $tree,
-        AttachmentNativeMetadataGenerator $metadataGenerator
+        AttachmentNativeMetadataGenerator $metadataGenerator,
+        ?MediaDerivativeWorkset $derivatives = null
     ): void {
-        $planned = $this->planned_rows($work, $tree);
+        if ($derivatives === null && $this->compiled->media_derivatives() !== []) {
+            throw new \RuntimeException('wprism: declared media derivatives require observed consumer work selection');
+        }
+        $derivatives?->assert_artifact($this->compiled);
+        $planned = $this->planned_rows($work, $tree, $derivatives);
         if ($planned === []) {
             return;
         }
@@ -242,7 +249,8 @@ final class AttachmentFilesystemTransaction {
                 $existingRow = $this->journal['rows'][$position] ?? null;
                 if (!is_array($existingRow)
                     || !hash_equals((string) $existingRow['original_path'], (string) $wantedRow['original_path'])
-                    || !hash_equals((string) $existingRow['media_blob'], (string) $wantedRow['media_blob'])) {
+                    || !hash_equals((string) $existingRow['media_blob'], (string) $wantedRow['media_blob'])
+                    || ($existingRow['derivative_recipes'] ?? []) !== ($wantedRow['derivative_recipes'] ?? [])) {
                     throw new \RuntimeException(
                         'wprism: attachment filesystem recovery rows differ from the pending durable upload intent'
                     );
@@ -676,8 +684,44 @@ final class AttachmentFilesystemTransaction {
         $this->release_locks();
     }
 
+    /** Native generation can consume only the current journal's exact staged row. */
+    public function generation_recipes(int $attachmentId, string $stageOriginal): array {
+        $hasRecipes = false;
+        foreach ($this->journal['rows'] ?? [] as $position => $row) {
+            $hasRecipes = $hasRecipes || ($row['derivative_recipes'] ?? []) !== [];
+            if ($row['attachment_id'] !== $attachmentId) continue;
+            if (($row['derivative_recipes'] ?? []) === []) return [];
+            if ($this->journal['phase'] !== 'generating_metadata'
+                || !hash_equals($this->stage_directory($position) . '/' . basename($row['original_path']), $stageOriginal)) {
+                throw new \RuntimeException('wprism: native derivative recipes lack their exact journal generation boundary');
+            }
+            $this->assert_row_recipes($row);
+            return $row['derivative_recipes'];
+        }
+        if ($hasRecipes) throw new \RuntimeException('wprism: native derivative generation identity is absent from its journal');
+        return [];
+    }
+
+    /** A new content writer cannot make stale cleanup remove its selected file. */
+    public function assert_consumer_recipes(array $actual): void {
+        $allowed = [];
+        foreach ($this->journal['rows'] ?? [] as $row) {
+            $allowed[$row['attachment_uuid']] = [];
+            foreach ($row['derivative_recipes'] ?? [] as $recipe) {
+                $allowed[$row['attachment_uuid']][$recipe['target_path']] = $recipe['recipe_id'];
+            }
+        }
+        foreach ($actual as $recipe) {
+            $uuid = $recipe['attachment_uuid'];
+            if (!array_key_exists($uuid, $allowed)) continue;
+            if (($allowed[$uuid][$recipe['target_path']] ?? null) !== $recipe['recipe_id']) {
+                throw new \RuntimeException('wprism: native content now selects a media derivative outside the committed generation work');
+            }
+        }
+    }
+
     /** @return list<array<string,mixed>> */
-    private function planned_rows(array $work, array $tree): array {
+    private function planned_rows(array $work, array $tree, ?MediaDerivativeWorkset $derivatives): array {
         $inventory = [];
         foreach ($this->compiled->uploads_inventory() as $row) {
             if (!is_array($row) || !is_string($row['attachment_uuid'] ?? null)) {
@@ -686,7 +730,10 @@ final class AttachmentFilesystemTransaction {
             $inventory[$row['attachment_uuid']] = $row;
         }
         $planned = [];
-        foreach ($work as $entry) {
+        $selected = [];
+        foreach ($work as $entry) $selected[(string) ($entry['uuid'] ?? '')] = $entry;
+        foreach ($derivatives?->attachments ?? [] as $uuid) $selected[$uuid] = ['uuid' => $uuid];
+        foreach ($selected as $entry) {
             $uuid = is_array($entry) ? ($entry['uuid'] ?? null) : null;
             $entity = is_string($uuid) ? ($tree[$uuid] ?? null) : null;
             $front = is_array($entity) && is_array($entity['data'] ?? null) ? $entity['data'] : null;
@@ -704,7 +751,7 @@ final class AttachmentFilesystemTransaction {
                 throw new \RuntimeException('wprism: authored attachment lacks exact compiled upload authority');
             }
             $this->assert_relative_path((string) $row['original_path']);
-            $planned[] = [
+            $plannedRow = [
                 'attachment_id' => null,
                 'attachment_uuid' => $uuid,
                 'derivative_directory' => (string) $row['derivative_directory'],
@@ -717,6 +764,15 @@ final class AttachmentFilesystemTransaction {
                 'owned_prior_paths' => [],
                 'prior' => [],
             ];
+            $recipes = [];
+            foreach ($derivatives?->recipes ?? [] as $recipe) {
+                if ($recipe['attachment_uuid'] !== $uuid) continue;
+                $recipes[] = array_intersect_key($recipe, array_flip(['crop', 'height', 'recipe_id', 'target_path', 'width']));
+            }
+            // Empty-feature journals retain their existing wire bytes. Consumer
+            // selection stays with the workset; recovery needs only sealed effects.
+            if ($recipes !== []) $plannedRow['derivative_recipes'] = $recipes;
+            $planned[] = $plannedRow;
         }
         usort($planned, static fn(array $a, array $b): int => strcmp($a['original_path'], $b['original_path']));
         $this->assert_non_overlapping_rows($planned);
@@ -2110,11 +2166,17 @@ final class AttachmentFilesystemTransaction {
             }
             $keys = array_keys($row);
             sort($keys, SORT_STRING);
-            if ($keys !== [
+            $expectedKeys = [
                 'attachment_id', 'attachment_uuid', 'derivative_directory', 'derivative_prefix',
                 'media_blob', 'mime', 'original_path', 'original_sha256', 'original_status',
                 'owned_prior_paths', 'prior',
-            ]
+            ];
+            if (array_key_exists('derivative_recipes', $row)) {
+                $expectedKeys[] = 'derivative_recipes';
+                sort($expectedKeys, SORT_STRING);
+                $this->assert_row_recipes($row);
+            }
+            if ($keys !== $expectedKeys
                 || (!is_null($row['attachment_id'])
                     && (!is_int($row['attachment_id']) || $row['attachment_id'] <= 0))
                 || preg_match(
@@ -2219,6 +2281,36 @@ final class AttachmentFilesystemTransaction {
                 && (!isset($seenPrior[$pathIdentity]) || $row['prior'] === [])) {
                 throw new \RuntimeException('wprism: attachment durable journal lacks its original prior witness');
             }
+        }
+    }
+
+    private function assert_row_recipes(array $row): void {
+        $recipes = $row['derivative_recipes'] ?? null;
+        if (!is_array($recipes) || !array_is_list($recipes) || $recipes === []
+            || count($recipes) > MediaDerivativeRecipe::MAX_PER_ATTACHMENT
+            || !is_string($row['attachment_uuid'] ?? null) || !is_string($row['media_blob'] ?? null)
+            || !is_string($row['original_path'] ?? null)
+            || !in_array($row['mime'] ?? null, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true)) {
+            throw new \RuntimeException('wprism: attachment journal derivative recipes have an invalid closed shape');
+        }
+        $previous = null;
+        foreach ($recipes as $recipe) {
+            $keys = is_array($recipe) ? array_keys($recipe) : [];
+            sort($keys, SORT_STRING);
+            if ($keys !== ['crop', 'height', 'recipe_id', 'target_path', 'width']
+                || !is_bool($recipe['crop']) || !is_string($recipe['target_path']) || !is_string($recipe['recipe_id'])) {
+                throw new \RuntimeException('wprism: attachment journal derivative recipe has an invalid closed shape');
+            }
+            $width = MediaDerivativeRecipe::dimension($recipe['width'], 'integer');
+            $height = MediaDerivativeRecipe::dimension($recipe['height'], 'integer');
+            $bound = $recipe + array_intersect_key($row, array_flip(['attachment_uuid', 'media_blob', 'original_path']));
+            if ($width * $height > MediaDerivativeRecipe::MAX_PIXELS
+                || $recipe['target_path'] !== MediaDerivativeRecipe::target_path($row['original_path'], $width, $height)
+                || !hash_equals(MediaDerivativeRecipe::identity($bound), $recipe['recipe_id'])
+                || ($previous !== null && strcmp($previous, $recipe['target_path']) >= 0)) {
+                throw new \RuntimeException('wprism: attachment journal derivative recipe disagrees with its sealed original or transform');
+            }
+            $previous = $recipe['target_path'];
         }
     }
 

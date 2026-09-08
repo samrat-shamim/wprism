@@ -138,7 +138,7 @@ final class AuthoredTransactionExecutor {
         $retainNativeRebuildAuthority = false;
         Canary::arm();
         try {
-            $this->attachmentMaterializer->prepare_filesystem($work, $tree);
+            $this->attachmentMaterializer->prepare_filesystem($work, $tree, $request->mediaDerivatives);
             $deletionProfile = $executeDeletes && $deleteWork !== []
                 ? ($this->deletionDatabaseProfile)($deleteWork)
                 : ['read_tables' => [], 'table_presence_reads' => []];
@@ -164,6 +164,7 @@ final class AuthoredTransactionExecutor {
                     CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
                 }
             );
+            $this->attachmentMaterializer->lock_derivative_inputs($workAuthority);
             CacheInvalidationTransaction::prepare_term_hierarchy_options(
                 $this->taxonomy_hierarchy_roster($tree, $executeDeletes ? $deleteWork : [])
             );
@@ -397,6 +398,9 @@ final class AuthoredTransactionExecutor {
         }
         $readTables = array_merge([$wpdb->users], $deletionProfile['read_tables']);
         $presenceReads = $deletionProfile['table_presence_reads'];
+        $consumerProfile = $this->attachmentMaterializer->consumer_database_profile();
+        $readTables = array_merge($readTables, $consumerProfile?->readable_tables() ?? []);
+        $presenceReads = array_merge($presenceReads, $consumerProfile?->table_presence_reads() ?? []);
         $writeTables = [
             $wpdb->posts,
             $wpdb->postmeta,
@@ -519,6 +523,7 @@ final class AuthoredTransactionExecutor {
             });
         }
 
+        array_push($attachmentIds, ...$this->attachmentMaterializer->register_derivative_attachments($tree, $work, $workAuthority));
         $phase2 = $work;
         usort($phase2, fn(array $left, array $right): int =>
             $this->planner->phase2_rank($tree[$left['uuid']])

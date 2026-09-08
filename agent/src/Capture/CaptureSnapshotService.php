@@ -163,6 +163,28 @@ final class CaptureSnapshotService {
         );
     }
 
+    /** Borrow the caller's transaction; capture retains strict, non-minting identity semantics. */
+    public static function snapshotInTransaction(
+        string $repo,
+        Policy $policy,
+        CompiledRepository $compiled,
+        DatabaseWorkAuthority $workAuthority
+    ): array {
+        $capture = new CaptureCandidateBuilder($repo, $policy, null, $compiled->tree());
+        $build = $capture->build(
+            false,
+            false,
+            self::repositoryOptions($repo, $policy, $compiled),
+            self::repositoryUserLogins($compiled),
+            true,
+            workAuthority: $workAuthority
+        );
+        self::assertReadOnlyIdentityPrecondition(static function () use ($build): void {
+            Identity::assert_entities_unique($build['entities']);
+        });
+        return self::records($build['entities']);
+    }
+
     /** Read-only preflight shared by RefreshExport's snapshot boundary. */
     public static function assertReadOnlyExportEngineSupport(Policy $policy): void {
         CaptureTransaction::assert_engine_support($policy);

@@ -172,6 +172,14 @@ $expectedApi = [
         $parameter('compiled', '?WPrism\\CompiledRepository', false),
         $parameter('policy', '?WPrism\\Policy', false),
     ]],
+    // Apply borrows capture under its native consumer locks; the required
+    // authority keeps this separate from a snapshot that starts a transaction.
+    'snapshot_in_transaction' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('policy', 'WPrism\\Policy'),
+        $parameter('compiled', 'WPrism\\CompiledRepository'),
+        $parameter('workAuthority', 'WPrism\\DatabaseWorkAuthority'),
+    ]],
     'build_read_only_export' => ['array', [
         $parameter('repo', 'string'),
         $parameter('policy', 'WPrism\\Policy'),
@@ -225,7 +233,7 @@ $normalizedExpectedApi = array_map(
     $expectedApi
 );
 $check(array_keys($actualApi) === array_keys($normalizedExpectedApi),
-    'Capture preserves the complete historical public method set and declaration order');
+    'Capture preserves the declared public method set and declaration order');
 $check($actualApi === $normalizedExpectedApi,
     'Capture preserves visibility, staticness, return types, parameters, defaults, and references');
 
@@ -274,6 +282,7 @@ foreach ([
     'CapturePublicationWorkflow::run(' => 'publication workflow',
     'CaptureSnapshotService::snapshot(' => 'ordinary snapshot service',
     'CaptureSnapshotService::snapshotReadOnly(' => 'strict snapshot service',
+    'CaptureSnapshotService::snapshotInTransaction(' => 'caller-owned transaction snapshot service',
     'CaptureSnapshotService::buildReadOnlyExport(' => 'read-only export service',
     'CaptureSnapshotService::snapshotOptionsCore(' => 'lifecycle options service',
     'CaptureGateScanner(' => 'pending gate scanner',
