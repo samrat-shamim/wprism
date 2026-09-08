@@ -1,0 +1,29 @@
+{
+  "spec_version": 3,
+  "name": "speculation-rules",
+  "engine_features": ["manifest-provider-runtime/v1", "spec-window/v1"],
+  "interpreter": "speculation-rules",
+  "option_autoload": "preserve",
+  "plugin": "speculation-rules/load.php",
+  "version_range": {"min": "1.7.0", "max": "1.7.1"},
+  "notes": [
+    "Adapter-authoring probe 2026-09-08: inspected the official WordPress.org Speculative Loading 1.7.0 artifact (SHA-256 0006fda65ee5bd7c9f76f857af2ce4bcc1e82e47834bc8e3fca341af7c47b4c4). Its seven PHP files declare exactly one persistent row: option plsr_speculation_rules. Measured on WP 7.1: no post type, no taxonomy, no post/term/user meta, no custom table, no transient, no cron event, no site/network option, no shortcode, no widget, no block. uninstall.php deletes that one option and nothing else, so the adapter's ownership and the plugin's own teardown agree exactly.",
+    "settings.php plsr_sanitize_setting() seals the key set: array_intersect_key(array_merge($default, $input), $default) against plsr_get_setting_default()'s three keys, then clamps each value to plsr_get_mode_labels()/plsr_get_eagerness_labels()/plsr_get_authentication_labels(). Measured through the native path (update_option runs the registered sanitize_option_plsr_speculation_rules callback): an undeclared sibling key was dropped and an out-of-enum eagerness fell back to 'moderate', leaving exactly a:3:{s:4:\"mode\";...s:9:\"eagerness\";...s:14:\"authentication\";...}. closed_sub_keys therefore states a closure the plugin itself enforces — a fourth key in a future release aborts capture loudly instead of riding along unclassified.",
+    "All three sub-keys are site-builder choices constrained to word enums. None is an entity id, URL, secret, cache marker or version stamp, so the capsule withholds nothing and declares no lint_ok, no ref, no plain_data and no allow_secret.",
+    "The option is ABSENT on a fresh install (measured: no wp_options row until the first save) and register_setting()'s 'default' plus plsr_sanitize_setting()'s non-array fallback both resolve that absence to prerender/moderate/logged_out. Absence and a stored default row are therefore behaviourally identical by the plugin's own doubled guarantee. The interpreter completes that absence from the plugin's own plsr_get_setting_default() at capture time so an unsaved source still converges a diverged target, and absent_autoload declares the exact insertion storage ('auto' on WP 7.1) the engine refuses to guess.",
+    "1.6.0 (SHA-256 55d508085e295534f7592f9603a0603f727cdb3225a3d64c47a0466847e61ad2) carries a byte-identical option surface and identical defaults. The certified window therefore has to refuse it on the declared range alone, with no incidental schema difference to lean on — which is what tests/certify/version-matrix.sh asserts."
+  ],
+  "options": {
+    "plsr_speculation_rules": {
+      "class": "env",
+      "closed_sub_keys": true,
+      "required": false,
+      "absent_autoload": "auto",
+      "sub_keys": {
+        "authentication": {"class": "authored"},
+        "eagerness": {"class": "authored"},
+        "mode": {"class": "authored"}
+      }
+    }
+  }
+}

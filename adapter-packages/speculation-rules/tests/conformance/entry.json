@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core", "speculation-rules"],
+    "plugins": [
+      {"slug": "speculation-rules", "version": "1.7.0"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "speculation-rules"
+}
