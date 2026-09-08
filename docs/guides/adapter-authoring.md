@@ -3135,6 +3135,23 @@ init` writes a managed-baseline code revision into the compiled artifact, so
 `uncertified` state blocks. So an uncertified adapter is a **capture-and-plan**
 adapter, not a deployable one.
 
+For bounded adapter-authoring evidence, a **new content-only repository that
+has never declared `code`** can exercise ordinary Apply with the exact plugin
+already installed and active on both sites. It does not prove code deployment,
+activation lifecycle, promotion or production readiness. Never strip the code
+descriptor from an initialized repository to manufacture this premise.
+
+Use the actual experimental package for that lane. An explicit library object
+passed to a parent handler is not inherited authority for its fresh verifier:
+`ApplyRequestCoordinator::verify_canonical()` re-proves the frozen policy
+against the trusted shipped library. The WPForms `4756ad35` native run reached
+that guard after authored writes/rebuild and correctly refused its private
+candidate provenance. Place the reviewed provider in its capsule's `package/`,
+retain experimental/non-readiness status, recompile/re-pin the changed identity
+and use ordinary commands. Do not add a path selector or weaken provenance
+verification for a fixture. Retain private failure diagnostics before teardown;
+a post-mutation refusal is not rollback or successful Apply evidence.
+
 There are two ways to certify one, and which you want depends on **whose
 approval the certificate represents**.
 

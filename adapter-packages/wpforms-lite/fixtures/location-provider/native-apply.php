@@ -1,12 +1,11 @@
 <?php
 declare(strict_types=1);
 
-// Native writers/consumers only. The shared explicit-library transport calls
-// public Cli capture/plan/apply; this fixture never selects or invokes actions.
+// Native writers/consumers only. Ordinary WP-CLI owns Capture/Plan/Apply and
+// re-proves the same experimental package in its fresh convergence verifier.
 require_once __DIR__ . '/provider-library.php';
 $phase = $args[0] ?? '';
 $case = $args[1] ?? 'baseline';
-$libraryRoot = WP_CONTENT_DIR . '/wprism-wpforms-apply-library';
 $recordPath = WP_CONTENT_DIR . '/wprism-wpforms-apply-native.json';
 $check = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException('WPForms native Apply fixture: ' . $message);
@@ -14,7 +13,6 @@ $check = static function (bool $condition, string $message): void {
 $check(defined('WPFORMS_VERSION') && WPFORMS_VERSION === '2.0.1.1' && !wpforms()->is_pro(), 'exact native Lite release');
 $check(current_user_can('manage_options'), 'native fixture administrator');
 if ($phase === 'setup') {
-    WPFormsLocationProviderLibrary::create(dirname(__DIR__, 4), $libraryRoot);
     if ($case === 'source') {
         $check(!file_exists('/siterepo/site.wprism.json'), 'new authored-state repository, never strip a code baseline');
         WPrism\Canon::write_file('/siterepo/site.wprism.json', WPrism\Canon::encode([
@@ -85,7 +83,7 @@ if ($phase === 'mutate') {
     return;
 }
 if ($phase === 'contract') {
-    $library = WPrism\AdapterLibrary::fromSourcePackage($libraryRoot, 'wpforms-lite');
+    $library = WPrism\Policy::shipped_adapter_library();
     [$policy, $compiled] = WPFormsLocationProviderLibrary::compile_and_load('/siterepo', $library);
     $check($policy->code_config() === null && $compiled->code_descriptor() === null, 'authored-state-only premise');
     $selectors = $case === 'widgets' ? ['sidebar:sidebar-1'] : ['post:' . WPrism\Ledger::uuid_for($id('embed'), 'post')];

@@ -53,8 +53,8 @@ final class WPFormsApplyEvidence {
         self::check(count($blockers) === 2, 'only the two expected promotion blockers remain');
         $codes = [];
         foreach ($blockers as $blocker) {
-            self::check(($blocker['name'] ?? null) === 'wpforms-lite' && ($blocker['status'] ?? null) === 'unsupported',
-                'excluded candidate does not claim promotion readiness');
+            self::check(($blocker['name'] ?? null) === 'wpforms-lite' && ($blocker['status'] ?? null) === 'blocked',
+                'experimental package does not claim promotion readiness');
             $codes[] = $blocker['code'] ?? null;
         }
         sort($codes, SORT_STRING);
@@ -73,9 +73,25 @@ final class WPFormsApplyEvidence {
         self::check(($action['source'] ?? null) === $row['source'] && ($action['kind'] ?? null) === 'provider'
             && ($action['manifest'] ?? null) === 'wpforms-lite' && ($action['verified'] ?? null) === true,
             'Apply dispatch receipt belongs to the selected provider');
-        self::check(count($apply['warnings'] ?? []) === 1
-            && preg_match('/^provider capability fired: wpforms-form-locations@1\.0\.0 rebuild_form_locations \([0-9.eE+-]+s, verified\)$/D', $apply['warnings'][0]) === 1,
-            'only the exact verified action event is admitted, no diagnostic warning');
+        $expectedEvents = [];
+        self::check(is_array($plan['adopt'] ?? null) && array_is_list($plan['adopt']), 'complete adoption plan');
+        foreach ($plan['adopt'] as $adoption) {
+            self::check(in_array($adoption['type'] ?? null, ['post', 'term'], true)
+                && is_int($adoption['env_id'] ?? null) && $adoption['env_id'] > 0
+                && is_string($adoption['uuid'] ?? null) && is_string($adoption['path'] ?? null), 'exact planned native adoption');
+            $expectedEvents[] = 'adopted env ' . $adoption['type'] . ' ' . $adoption['env_id']
+                . ' as ' . $adoption['uuid'] . ' (' . $adoption['path'] . ')';
+        }
+        $events = $apply['warnings'] ?? [];
+        self::check(is_array($events) && array_is_list($events)
+            && count(array_filter($events, 'is_string')) === count($events), 'complete informational event list');
+        $providerEvents = array_values(array_filter($events, static fn(string $event): bool =>
+            preg_match('/^provider capability fired: wpforms-form-locations@1\.0\.0 rebuild_form_locations \([0-9.eE+-]+s, verified\)$/D', $event) === 1));
+        self::check(count($providerEvents) === 1, 'exactly one verified provider event');
+        $expectedEvents[] = $providerEvents[0];
+        sort($expectedEvents, SORT_STRING);
+        sort($events, SORT_STRING);
+        self::check($events === $expectedEvents, 'only exact planned adoption and verified provider events, no diagnostic warning');
         self::check(($repeat['applied'] ?? null) === 0 && ($repeat['actions'] ?? null) === []
             && ($repeat['warnings'] ?? null) === [], 'repeat Apply has zero authored writes and zero provider actions');
     }
@@ -172,9 +188,7 @@ if (($argv[1] ?? null) === '--admit') {
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/PrivateCommandOutput.php';
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/RepositoryConvergence.php';
-    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/frozen_policy.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Repository/RepositoryCompiler.php';
-    require_once __DIR__ . '/provider-library.php';
     require_once dirname(__DIR__) . '/capture-plan/probe.php';
     wprism_test_define_agent_versions();
     $sink = $argv[2] ?? '';
@@ -196,9 +210,7 @@ if (($argv[1] ?? null) === '--admit') {
         if (($setup['home'] ?? null) !== $home) throw new RuntimeException('WPForms Apply evidence: native setup home differs from headless bootstrap premise');
         WPFormsCaptureProbe::admit($read('seed' . $side), 'seed', $home);
     }
-    // Admission is repeatable and read-only over the retained evidence. The
-    // existing scratch owner cleans this reconstruction after every reviewer.
-    $library = WPFormsLocationProviderLibrary::create(dirname(__DIR__, 4), WPrismTest\FrozenPolicy::library() . '/candidate');
+    $library = WPrism\AdapterLibrary::fromSourcePackage(dirname(__DIR__, 4), 'wpforms-lite');
     $before = $read('before2');
     $priorSource = null;
     foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {

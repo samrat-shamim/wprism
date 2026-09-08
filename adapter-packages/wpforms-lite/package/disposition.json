@@ -35,7 +35,7 @@
       "regress-settings-and-embeds"
     ]
   },
-  "reason": "Experimental declaration and deterministic capture/compiler/codec evidence only. Native reconnaissance is not a completed capsule conformance run. Independent review and production-readiness evidence are pending; no production authorization.",
+  "reason": "Experimental declarations and bounded native location reconstruction. Native provider/refusal and SDK recovery evidence do not complete the capsule's authored-state, lifecycle or combination conformance. Production readiness remains blocked.",
   "status": "experimental",
   "supported_versions": {
     "plugin": "wpforms-lite/wpforms.php",
@@ -48,7 +48,7 @@
     {
       "operation": "apply",
       "surface": "wpforms_form_locations",
-      "reason": "The native location index requires a bounded, idempotent provider with hostile-target and failure-preservation evidence; none is declared in this slice."
+      "reason": "The experimental provider is declared and has native reconstruction/refusal and SDK recovery evidence. Complete authored-state Apply across all declared writers/consumers and hostile-target scenario families remains unproved."
     },
     {
       "operation": "deploy",

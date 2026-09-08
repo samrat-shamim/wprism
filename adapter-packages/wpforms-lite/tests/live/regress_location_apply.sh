@@ -17,7 +17,6 @@ export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CO
 . tests/lib/pair_live_ownership.sh
 . tests/lib/private_command_capture.sh
 . tests/lib/conformance_private_command.sh
-. tests/support/explicit_adapter_library.sh
 . conformance/asserts.sh
 pair_live_ownership_prepare "$PAIR" "$PORT1" "$PORT2" 'WPForms native authored-state Apply evidence' 'wprism-wpf-apply'
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
@@ -36,8 +35,7 @@ capture() {
 wp_side() { local side="$1"; shift; "${COMPOSE[@]}" run --rm -T "cli$side" wp "$@"; }
 candidate() {
   local side="$1" command="$2"; shift 2
-  conformance_private_command "cli$side" "$command" wprism_with_adapter_library \
-    "cli$side" /var/www/html/wp-content/wprism-wpforms-apply-library "$command" "$@"
+  conformance_private_command "cli$side" "$command" wp_side "$side" wprism "$command" "$@"
 }
 fixture=/var/www/html/wp-content/mu-plugins/adapter-packages/wpforms-lite/fixtures/location-provider/native-apply.php
 native() { local side="$1"; shift; wp_side "$side" eval-file "$fixture" "$@" --use-include --user=admin; }

@@ -1,7 +1,7 @@
 # Native location reconstruction — candidate contract and scoped evidence
 
 WPForms Lite remains experimental. This document records the reviewed design
-for the unshipped `wpforms_form_locations` provider; it grants no Apply, deploy,
+for the experimental `wpforms_form_locations` provider; it grants no complete Apply, deploy,
 lifecycle or production-readiness claim. The unfinished scenario families in
 `production-readiness.json` remain unfinished.
 
@@ -159,10 +159,11 @@ actual provider path:
   deletion/refusal, real submissions/mail isolation, adjacent artifacts and
   explicit participant-owned plugin combinations.
 
-These are requirements, not a completed run or an assertion that the current
-package ships the provider. The executable candidate in
-`fixtures/location-provider/wpforms-form-locations.php` is deliberately not
-registered in the manifest or assembled onto sites. Its capsule-local offline
+These are requirements, not a completed readiness run. The provider now lives
+at `package/runtime/providers/wpforms-form-locations.php` and is declared by
+the experimental manifest. Earlier native records below exercised an unshipped
+private copy; moving it into the package does not upgrade those records into
+installed-package or Apply evidence. Its capsule-local offline
 suite checks target-ID normalization, current-home URL policy and complete
 stable-ID mutation planning;
 that suite is mechanism evidence, separate from the focused native invocation
@@ -336,3 +337,30 @@ unrelated metadata. These are supplied-native-response/driver-model tests of
 the actual candidate's DML and classifier integration. They are not real-plugin,
 Policy-loaded, fresh-child or native server-fault evidence, and do not close a
 production-readiness scenario family by themselves.
+
+## Ordinary Apply requires the actual trusted package
+
+The first content-only lane ran against clean source
+`4756ad35fefbf0f07a8853ed40fdb677222f15cd` on owned MariaDB pair `wpfprov05`.
+Both native seeds, explicit core environment bindings, Capture and Plan
+succeeded. The target plan had nine explicit adoptions, two updates, one
+selected provider and the two expected experimental promotion blockers.
+Apply refused at fresh canonical verification: the parent-only private library
+could not re-prove its frozen manifest against the verifier's trusted library.
+This is the provenance guard working, not an invalid platform architecture.
+The refusal is after authored writes/rebuild; it is not rollback evidence.
+
+The complete outer streams are retained at
+`sandbox/tmp/wpforms-apply-native.bPW8kK/`; the shared diagnostic lifecycle
+retained one complete private Apply refusal record at
+`sandbox/tmp/wprism-conformance-apply.wpfprov05.UDRCIy/` before exact pair,
+database and disposable repository teardown. No private cause is published.
+The run exited 1 and is not positive Apply evidence.
+
+The corrected lane uses ordinary `wp wprism capture/plan/apply` and the actual
+experimental package in every process. The source repository is new and has
+never declared managed code; both sides already have the exact plugin active.
+No code baseline is removed, no certificate is manufactured and no verifier
+library override is introduced. Full package, lifecycle, recovery, data-boundary
+and cross-plugin readiness remain unfinished. Recompile/re-pin is required
+for the new package identity; old compiled pins do not silently follow it.

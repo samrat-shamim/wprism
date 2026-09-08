@@ -64,7 +64,7 @@ wprism_check_same(false, $policy->capability_report()['ready'], 'excluded fixtur
 $package = $scratch . '/candidate/adapter-packages/wpforms-lite/package';
 $disposition = json_decode((string) file_get_contents($package . '/disposition.json'), true, 64, JSON_THROW_ON_ERROR);
 wprism_check_same('excluded', $disposition['status'], 'fixture is excluded by disposition, not a name-prefix bypass');
-wprism_check_same(hash_file('sha256', dirname(__DIR__, 2) . '/fixtures/location-provider/wpforms-form-locations.php'),
+wprism_check_same(hash_file('sha256', dirname(__DIR__, 2) . '/package/runtime/providers/wpforms-form-locations.php'),
     hash_file('sha256', $package . '/runtime/providers/wpforms-form-locations.php'), 'the real candidate bytes enter its identity');
 wprism_check($compiled->manifest_hash() !== $before, 'candidate declaration and executable move only the private identity');
 wprism_check_same($before, WPrism\RepositoryCompiler::manifest_hash($original), 'shipped experimental identity stays byte-identical');
@@ -86,6 +86,11 @@ foreach (['manifest.json', 'disposition.json', 'runtime/providers/wpforms-form-l
     wprism_check_throws(static fn() => WPrism\RepositoryCompiler::read_artifact($repo . '/.wprism/compiled/provider.json', $changed),
         RuntimeException::class, 'changed private ' . $member . ' cannot reuse the compiled authority',
         'compiled manifest/interpreter set does not match active pins');
+    if ($member === 'manifest.json') {
+        wprism_check_throws(static fn() => WPrism\Policy::from_snapshot($changed->export_snapshot()),
+            RuntimeException::class, 'fresh verifier refuses parent-only private manifest authority',
+            'frozen provenance cannot relabel site content as shipped');
+    }
     file_put_contents($path, $bytes);
 }
 wprism_check_throws(static fn() => WPFormsLocationProviderLibrary::create($root, $scratch . '/candidate'),
@@ -110,6 +115,10 @@ WPrism\Canon::write_file($scopeRepo . '/state/posts/page/' . $pageId . '--placem
     'type' => 'page', 'uuid' => $pageId,
 ], 'A placement removed its last form.'));
 [$scopePolicy, $scopeCompiled] = WPFormsLocationProviderLibrary::compile_and_load($scopeRepo, $library);
+$actualPolicy = WPrism\Policy::load($scopeRepo, adapterLibrary: WPrism\AdapterLibrary::fromSourcePackage($root, 'wpforms-lite'));
+$restored = WPrism\Policy::from_snapshot($actualPolicy->export_snapshot());
+wprism_check_same(WPrism\RepositoryCompiler::manifest_hash($actualPolicy), WPrism\RepositoryCompiler::manifest_hash($restored),
+    'fresh verifier default library re-proves the actual experimental package without an override');
 $contract = WPrism\ScopeContract::resolve($scopeCompiled, $scopePolicy, ['post:' . $pageId]);
 wprism_check_same(null, $scopeCompiled->code_descriptor(), 'new authored-state evidence does not invent a managed-code baseline');
 wprism_check_same(1, count($contract['potential_actions']), 'page-only scope retains one global provider');

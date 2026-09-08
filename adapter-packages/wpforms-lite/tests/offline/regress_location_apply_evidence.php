@@ -29,13 +29,13 @@ $identity = ['manifest' => 'wpforms-lite', 'index' => 0, 'declaration_hash' => h
 $contract = ['format' => 'wprism-scope-contract/v1', 'code_diagnostic' => null,
     'source' => ['artifact_hash' => str_repeat('a', 64)],
     'potential_actions' => [['manifest' => 'wpforms-lite', 'index' => 0, 'source' => 'manifest:wpforms-lite:action:0', 'declaration' => $action]]];
-$plan = array_fill_keys(['conflict', 'collision', 'drift', 'delete', 'delete_conflict', 'code_mismatch', 'code_drift',
+$plan = array_fill_keys(['adopt', 'conflict', 'collision', 'drift', 'delete', 'delete_conflict', 'code_mismatch', 'code_drift',
     'incomplete_apply', 'incomplete_lifecycle', 'missing_user'], []);
 $plan['selected_actions'] = [$identity];
 $plan['artifact_hash'] = str_repeat('a', 64);
 $plan['adapter_dispositions'] = [
-    ['name' => 'wpforms-lite', 'status' => 'unsupported', 'code' => 'authored_state_not_certified'],
-    ['name' => 'wpforms-lite', 'status' => 'unsupported', 'code' => 'operation_not_certified'],
+    ['name' => 'wpforms-lite', 'status' => 'blocked', 'code' => 'authored_state_not_certified'],
+    ['name' => 'wpforms-lite', 'status' => 'blocked', 'code' => 'operation_not_certified'],
 ];
 $apply = ['canary' => 'clean', 'verification' => ['result' => 'pass'], 'drift' => [], 'applied' => 1,
     'artifact' => ['hash' => str_repeat('a', 64)],
@@ -44,6 +44,26 @@ $apply = ['canary' => 'clean', 'verification' => ['result' => 'pass'], 'drift' =
 $repeat = array_replace($apply, ['applied' => 0, 'warnings' => [], 'actions' => []]);
 WPFormsApplyEvidence::selection($contract, $plan, $apply, $repeat);
 wprism_check(true, 'actual admission accepts the documented public declaration/identity projections');
+$adoptPlan = $plan;
+$adoptPlan['adopt'] = [['type' => 'post', 'env_id' => 23, 'uuid' => '10000000-0000-4000-8000-000000000001', 'path' => 'posts/page/placement.md'],
+    ['type' => 'term', 'env_id' => 4, 'uuid' => '10000000-0000-4000-8000-000000000002', 'path' => 'terms/category/example.json']];
+$adoptApply = $apply;
+$adoptApply['warnings'][] = 'adopted env post 23 as 10000000-0000-4000-8000-000000000001 (posts/page/placement.md)';
+$adoptApply['warnings'][] = 'adopted env term 4 as 10000000-0000-4000-8000-000000000002 (terms/category/example.json)';
+WPFormsApplyEvidence::selection($contract, $adoptPlan, $adoptApply, $repeat);
+wprism_check(true, 'planned post and term adoptions have exact informational receipts');
+foreach (['missing event' => static function (&$p, &$a): void { array_pop($a['warnings']); },
+    'duplicate event' => static function (&$p, &$a): void { $a['warnings'][] = $a['warnings'][1]; },
+    'wrong native ID' => static function (&$p, &$a): void { $p['adopt'][0]['env_id'] = 99; },
+    'wrong canonical ID' => static function (&$p, &$a): void { $p['adopt'][0]['uuid'] .= 'x'; },
+    'wrong path' => static function (&$p, &$a): void { $p['adopt'][0]['path'] = 'other'; },
+    'unplanned adoption' => static function (&$p, &$a): void { array_pop($p['adopt']); },
+    'hidden warning' => static function (&$p, &$a): void { $a['warnings'][] = 'unresolved reference'; }] as $label => $mutate) {
+    [$p, $a] = [$adoptPlan, $adoptApply];
+    $mutate($p, $a);
+    wprism_check_throws(static fn() => WPFormsApplyEvidence::selection($contract, $p, $a, $repeat), RuntimeException::class,
+        'actual adoption event admission refuses ' . $label, 'WPForms Apply evidence:');
+}
 $cases = [
     'descriptor' => static function (&$c, &$p, &$a, &$r): void { $c['code_diagnostic'] = ['code_revision' => str_repeat('a', 64)]; },
     'missing diagnostic' => static function (&$c, &$p, &$a, &$r): void { unset($c['code_diagnostic']); },
@@ -53,6 +73,7 @@ $cases = [
     'private fields in plan' => static function (&$c, &$p, &$a, &$r): void { $p['selected_actions'][0]['provider'] = 'wpforms-form-locations'; },
     'duplicate action' => static function (&$c, &$p, &$a, &$r): void { $p['selected_actions'][] = $p['selected_actions'][0]; },
     'promotion erased' => static function (&$c, &$p, &$a, &$r): void { $p['adapter_dispositions'] = []; },
+    'wrong disposition status' => static function (&$c, &$p, &$a, &$r): void { $p['adapter_dispositions'][0]['status'] = 'unsupported'; },
     'runtime blocker' => static function (&$c, &$p, &$a, &$r): void { $p['adapter_dispositions'][1]['code'] = 'provider_requirement_unmet'; },
     'wrong artifact' => static function (&$c, &$p, &$a, &$r): void { $a['artifact']['hash'] = str_repeat('b', 64); },
     'wrong plan artifact' => static function (&$c, &$p, &$a, &$r): void { $p['artifact_hash'] = str_repeat('b', 64); },

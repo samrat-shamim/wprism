@@ -6,7 +6,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__, 4);
 require_once $root . '/sandbox/tests/lib/check.php';
 require_once $root . '/agent/src/Adapter/ManifestProviderRuntime.php';
-require_once dirname(__DIR__, 2) . '/fixtures/location-provider/wpforms-form-locations.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/providers/wpforms-form-locations.php';
 
 use WPrism\Providers\WpformsFormLocations;
 
@@ -114,11 +114,12 @@ for ($id = 1; $id <= 257; $id++) $many[] = ['meta_id' => (string) $id, 'post_id'
 wprism_check_same(256, count($call('reconciliation_plan', array_slice($many, 0, 256), [])), 'exact mutation frontier is admitted');
 wprism_check_throws(static fn() => $call('reconciliation_plan', $many, []), RuntimeException::class,
     'all mutation intent is bounded before any DML can begin', 'pre-write mutation frontier');
-$manifest = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
-wprism_check(!isset($manifest['providers']), 'the executable candidate cannot advertise an unproven native capability');
+$disposition = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/package/disposition.json'), true, 512, JSON_THROW_ON_ERROR);
+wprism_check($disposition['status'] === 'experimental' && !in_array('apply', $disposition['capabilities']['operations'], true),
+    'the bounded experimental provider does not advertise complete authored-state Apply readiness');
 // The SDK checks core function provenance before its single-site refusal,
 // including home-only batches. A capsule precheck would execute it too soon.
-$source = (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/location-provider/wpforms-form-locations.php');
+$source = (string) file_get_contents(dirname(__DIR__, 2) . '/package/runtime/providers/wpforms-form-locations.php');
 wprism_check(preg_match('/\\bis_multisite\\s*\\(/', $source) === 0,
     'single-site admission belongs to the source-checked engine reader, never a candidate precheck');
 wprism_check_summary('wpforms_location_reconciliation');

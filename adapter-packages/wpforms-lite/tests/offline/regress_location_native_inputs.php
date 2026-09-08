@@ -8,7 +8,7 @@ require_once $root . '/sandbox/tests/lib/check.php';
 require_once $root . '/sandbox/tests/lib/native_permalink_stubs.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 require_once $root . '/agent/src/Adapter/ProviderSdk.php';
-require_once dirname(__DIR__, 2) . '/fixtures/location-provider/wpforms-form-locations.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/providers/wpforms-form-locations.php';
 require_once dirname(__DIR__, 2) . '/fixtures/location-provider/locator-responses.php';
 
 use WPrism\DatabaseQueryIsolation;
