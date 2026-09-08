@@ -5,6 +5,7 @@ require_once __DIR__ . '/ReferencePath.php';
 require_once __DIR__ . '/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/ReferenceCondition.php';
 require_once __DIR__ . '/KeyBoundStrings.php';
+require_once __DIR__ . '/RecordFields.php';
 
 /**
  * Manifest-time normalization and validation for the shared structural-ref
@@ -72,7 +73,10 @@ final class ReferenceRules {
     }
 
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
-    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false): void {
+    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false): void {
+        if (array_key_exists(RecordFields::FIELD, $rule) && !$blockRecords) {
+            throw new \RuntimeException("wprism: $where.record_fields belongs only to negotiated block attribute values");
+        }
         KeyBoundStrings::assert_rule($rule, $where, $boundStrings);
         if (array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $rule)
             && !array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {

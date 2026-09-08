@@ -3202,6 +3202,37 @@ after normalization. Site policy cannot introduce this manifest-owned grammar.
 The public feature grammar describes the grouped form; canonical manifest
 identity binds the compact declaration, so changing syntax requires fresh pins.
 
+### v3.33 `block-record-fields/v1` — authored fields within native records
+
+A v3 manifest declaring this feature and `block-attribute-values/v1` may add
+`record_fields` to an authored block value rule. It is a closed object with
+`container` (`object` or `list`) and `fields` (1–256 distinct exact field names,
+each matching `[A-Za-z_][A-Za-z0-9_-]{0,127}`). The existing attribute boundary
+selects one record or a list of records; there is no nested projection path.
+
+Capture checks the ordinary bounded JSON contract before discarding unlisted
+immediate record fields. Retained fields preserve native key order, absence,
+types and nested values; lists preserve order and duplicates. Each record must
+be associative and retain at least one field. Empty lists are valid; empty
+records refuse because associative JSON decoding cannot preserve their object
+type. No required-field defaults, list deduplication or runtime schema lookup
+is implied by this declaration.
+
+The existing `json_refs`/`key_refs` or `plain_data` codec remains mandatory.
+Scalar `ref` is incompatible. Every reference path must start with an exact
+retained field; root key references and wildcard/recursive first segments
+refuse rather than claiming an identity the projection could discard. Later
+segments use the unchanged shared path dialect inside the retained value.
+
+`RecordFields` owns the pure declaration and record constraints;
+`BlockValueCodec` composes them with reference and text transport. Immutable
+post/widget compilation, lint and Apply reject excluded canonical fields
+through that same validator. Canonical inputs are never silently projected.
+Retained data crosses all existing privacy and scope gates. The feature changes
+neither capability surfaces nor transaction, recovery or executable authority.
+Changing a package to use it intentionally changes its identity and requires
+recapture, compilation and explicit new pins.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

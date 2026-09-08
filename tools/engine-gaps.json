@@ -206,8 +206,27 @@
     },
     "declared_media_derivative_recipes": {
       "title": "declared custom media derivative recipes with durable file ownership",
-      "status": "open",
-      "definition": "Rebuild custom image sizes selected by authored content when the native plugin writes those files outside attachment metadata. Derive bounded recipes from declared content references and dimensions, then publish and recover generated files through shared media authority rather than promoting a derived plugin cache as authored state."
+      "status": "shipped",
+      "definition": "Rebuild custom image sizes selected by authored content when the native plugin writes those files outside attachment metadata. Derive bounded recipes from declared content references and dimensions, then publish and recover generated files through shared media authority rather than promoting a derived plugin cache as authored state.",
+      "evidence": [
+        "agent/src/Kernel/BlockMediaDerivativeGrammar.php",
+        "agent/src/Apply/MediaDerivativeWorkset.php",
+        "agent/src/Apply/AttachmentFilesystemTransaction.php",
+        "sandbox/tests/offline/grammar/regress_media_derivative_recipes.php",
+        "adapter-packages/qi-blocks/tests/offline/regress_native_media.php",
+        "adapter-packages/qi-blocks/fixtures/native-media/README.md"
+      ]
+    },
+    "block_record_field_projection": {
+      "title": "authored fields within native structured block records",
+      "status": "shipped",
+      "definition": "Declare one record or a list of records and retain exact authored fields before existing reference, URL and privacy transport. Reject excluded canonical fields and any declaration that could discard a reference.",
+      "evidence": [
+        "agent/src/Kernel/RecordFields.php",
+        "agent/src/Grammar/BlockValueCodec.php",
+        "sandbox/tests/offline/grammar/regress_block_attribute_values.php",
+        "adapter-packages/qi-blocks/tests/offline/regress_native_controls.php"
+      ]
     }
   },
   "candidates": [
@@ -663,7 +682,7 @@
       "versions_probed": [
         "1.5.2"
       ],
-      "disposition": "rejected",
+      "disposition": "closed",
       "blocked_adapters": [
         "qi-blocks"
       ],
@@ -672,10 +691,43 @@
           "coordinate": "post_types.*.body.custom-image-size",
           "cannot_represent": "Native Single Image Custom 333 by 211 writes image.id, imageCustomWidth/Height and a -333x211.png URL, creates the image file and appends qi_blocks_cropped_images. The attachment metadata contains no 333x211 size. Original-only capture plus standard metadata regeneration cannot recreate this authored presentation; the cache also contains orphaned prior requests and is not authored authority.",
           "primitive_required": "declared_media_derivative_recipes",
-          "blocker_layer": "platform",
-          "remedy_phrase": "derive custom crop recipes from authored content and rebuild them through durable shared media ownership"
+          "closed_by": [
+            "agent/src/Kernel/BlockMediaDerivativeGrammar.php",
+            "agent/src/Apply/MediaDerivativeWorkset.php",
+            "agent/src/Apply/AttachmentFilesystemTransaction.php",
+            "sandbox/tests/offline/grammar/regress_media_derivative_recipes.php",
+            "adapter-packages/qi-blocks/tests/offline/regress_native_media.php",
+            "adapter-packages/qi-blocks/fixtures/native-media/README.md"
+          ]
         }
       ],
+      "probed_on": "2026-09-08",
+      "closing": "The negotiated block-media-derivatives/v1 grammar derives bounded file work from actual authored consumers and uses shared attachment ownership, checked file publication and recovery. Native controls proved four consumers, including a nested Parallax item omitted by the first declaration; all four corrected target images return HTTP 200 with matching decoded dimensions and pixels. The fixture is a uniform PNG and does not close asymmetric/multi-format, lifecycle, host, version or combination qualification."
+    },
+    {
+      "id": "qi-blocks-gallery-records",
+      "candidate": "Qi Blocks",
+      "versions_probed": [
+        "1.5.2"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "qi-blocks"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "block_values.qi-blocks/image-gallery.gallery",
+          "cannot_represent": "Actual Image Gallery, Pinterest and Slider media pickers save the full WordPress attachment response, including nonces and admin/user metadata. Declaring only the nested id reference leaves those derived fields in canonical content; empty/default and hand-built id/url fixtures do not expose the writer shape.",
+          "primitive_required": "block_record_field_projection",
+          "closed_by": [
+            "agent/src/Kernel/RecordFields.php",
+            "agent/src/Grammar/BlockValueCodec.php",
+            "sandbox/tests/offline/grammar/regress_block_attribute_values.php",
+            "adapter-packages/qi-blocks/tests/offline/regress_native_controls.php"
+          ]
+        }
+      ],
+      "closing": "The negotiated block-record-fields/v1 constraint retains id,url,alt,caption for the three full-response gallery writers, composing shared identity, text and privacy codecs. Four real-fixture capture assertions failed before the fix. Complete engine post/widget compilation and transactional materialization tests cover the constraint. Source native saver HTML equality and picker rehydration justify this representation; corrected target native qualification remains separate.",
       "probed_on": "2026-09-08"
     }
   ]

@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 require_once __DIR__ . '/../Kernel/KeyBoundStrings.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 
 require_once __DIR__ . '/AdapterSources.php';
@@ -184,6 +185,7 @@ final class AdapterContractGrammar {
         // Exact groups normalize inside block_values, so they retain that
         // section's certificate arm and cannot create a second state surface.
         BlockValueGrammar::GROUP_FEATURE => ['since' => 3, 'keys' => []],
+        RecordFields::FEATURE => ['since' => 3, 'keys' => []],
         PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
         KeyBoundStrings::FEATURE => ['since' => 3, 'keys' => []],
         ReferenceCondition::FEATURE => ['since' => 3, 'keys' => []],
@@ -540,6 +542,9 @@ final class AdapterContractGrammar {
             }
             if ($name === BlockValueGrammar::GROUP_FEATURE) {
                 $rows[$name]['value_constraint'] = BlockValueGrammar::group_grammar();
+            }
+            if ($name === RecordFields::FEATURE) {
+                $rows[$name]['value_constraint'] = RecordFields::declaration_grammar();
             }
             if ($name === KeyBoundStrings::FEATURE) {
                 $rows[$name]['value_constraint'] = KeyBoundStrings::declaration_grammar();

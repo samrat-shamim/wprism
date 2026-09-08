@@ -121,6 +121,14 @@ final class QiNativeApplyEvidence {
         self::check($rebound === $css['source'], 'complete frontend stylesheet changed beyond its independently proven home and page bindings');
     }
 
+    public static function content_update(array $apply, array $repeat): void {
+        foreach ([$apply, $repeat] as $result) QiNativeApplyEvidence::check($result['warnings'] === [] && $result['canary'] === 'clean'
+            && $result['drift'] === [] && $result['actions'] === [] && $result['verification'] === [
+                'verifier' => 'canonical-recapture/v1', 'result' => 'pass', 'live_entities' => 7, 'deletions' => 0, 'skipped_user_meta' => 0,
+            ], 'content Apply or repeat did not pass the actual product verifier');
+        QiNativeApplyEvidence::check($apply['applied'] === 1 && $repeat['applied'] === 0, 'content update must write one content entity, then zero on repeat');
+    }
+
     public static function product(array $plan, array $apply, array $repeat, array $captures, array $source): void {
         $created = array_column($plan['create'], 'uuid'); $expected = array_values($source['uuids']);
         sort($created, SORT_STRING); sort($expected, SORT_STRING);

@@ -398,13 +398,17 @@ final class EngineGapsTest extends TestCase
     /** New authoring evidence must retain the dates of earlier observations. */
     public function testRendersDifferentProbeDatesWithCandidateAttribution(): void
     {
-        $ledger = self::ledger();
-        $seen = 0;
-        foreach ($ledger['candidates'] as $i => $row) {
-            if ($row['disposition'] === 'rejected' && $seen++ === 1) {
-                $ledger['candidates'][$i]['probed_on'] = '2019-01-01';
-                break;
-            }
+        // Probe-date rendering must survive every production gap being closed.
+        // This fixture owns its three dates and one open grammar coordinate.
+        $ledger = ['format' => GAP_LEDGER_FORMAT, '_comment' => 'Probe-date renderer fixture',
+            'primitives' => ['fixture_dates' => ['title' => 'Date fixture', 'definition' => 'Renderer attribution', 'status' => 'open']],
+            'candidates' => []];
+        foreach (['2026-09-08', '2019-01-01', '2026-08-22'] as $i => $date) {
+            $ledger['candidates'][] = ['id' => 'date-fixture-' . $i, 'candidate' => 'Date fixture ' . $i,
+                'versions_probed' => ['1.0.0'], 'disposition' => 'rejected', 'blocked_adapters' => ['date-fixture'],
+                'probed_on' => $date, 'coordinates' => [['coordinate' => 'options.fixture',
+                    'cannot_represent' => 'Fixture state', 'primitive_required' => 'fixture_dates',
+                    'blocker_layer' => 'platform', 'remedy_phrase' => 'Fixture primitive']]];
         }
         gap_validate($ledger, self::sections(), self::exists());
         $rendered = gap_render($ledger);

@@ -5,12 +5,15 @@ Production qualification is incomplete. The package contains declarations only;
 block values, PHP containers and media effects use shared engine machinery.
 Its 177 exact declaration groups expand to 7,497 field rules across 49 blocks.
 The native inventory pins the pre-compaction expansion digest, and the content
-regression proves that grouping changes no ownership or value rule.
+regression proves that grouping changes no ownership or value rule. Three
+gallery rules additionally declare the four fields consumed by the native saver;
+shared `block-record-fields/v1` excludes their attachment-response caches.
 
 The native fixtures retain saved content and raw options from WordPress 7.1
 with Qi Blocks 1.5.2, Contact Form 7 6.1.7 and WooCommerce 11.0.0. The authoring
-inventory distinguishes observed defaults from empty media controls still
-requiring native Save/reopen coverage.
+inventory distinguishes defaults from native picker outputs. The separate
+[native control fixture](fixtures/native-controls/README.md) records six real
+selections, including the full gallery responses missed by empty defaults.
 
 Known upstream behavior remains visible: the typography configuration request
 rejects numeric defaults although its separate CSS request succeeds; widget-only
@@ -19,7 +22,7 @@ an array. The adapter must preserve native storage types and must not manufactur
 successful native writer evidence.
 
 The current draft is not ready to merge. Its native content regression passes
-475 assertions. Its native option regression
+478 assertions. Its native option regression
 now uses the shared `key-bound-strings/v1` codec to rebind all 88 saved CSS page
 identity frames with their owning map key. Capture refuses selectors that name
 a different page, and the checked option transaction preserves native types,
@@ -41,6 +44,7 @@ php adapter-packages/qi-blocks/tests/offline/regress_native_content.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_options.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_apply_evidence.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_media.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_controls.php
 ```
 
 Manifest grammar and structural package validation pass. The artifact lock

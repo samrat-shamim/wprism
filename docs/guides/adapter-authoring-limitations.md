@@ -4,7 +4,7 @@
 
 This ledger records plugin state shapes discovered during adapter authoring. `blocker_layer: platform` means the generic engine still lacks a reusable facility; `blocker_layer: adapter` means that facility already ships and the named plugin still needs its own bounded implementation and evidence.
 
-The currently rejected candidates were probed from official WordPress.org artifacts on 2026-08-22 and 2026-09-08; closed rows retain the evidence from their own authoring exercises. Candidate rows are deliberately separate from adapter package dispositions: a rejected candidate is not shipped adapter identity and makes no capability claim.
+The currently rejected candidates were probed from official WordPress.org artifacts on 2026-08-22; closed rows retain the evidence from their own authoring exercises. Candidate rows are deliberately separate from adapter package dispositions: a rejected candidate is not shipped adapter identity and makes no capability claim.
 
 Every coordinate names its `primitive_required` from a closed generic vocabulary in the ledger, so two candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike sentences. That is what makes the next table a ranking instead of a wishlist.
 
@@ -12,7 +12,6 @@ Every coordinate names its `primitive_required` from a closed generic vocabulary
 
 | Primitive | Candidates | Blocked adapters |
 |---|---|---|
-| declared custom media derivative recipes with durable file ownership | 1 (Qi Blocks) | qi-blocks |
 | a generic dynamic derived option-name reference rule | 1 (Custom Post Type UI) | custom-post-type-ui |
 | a verified post-apply type-registration/process boundary | 1 (Custom Post Type UI) | custom-post-type-ui |
 
@@ -43,14 +42,6 @@ Probed on 2026-08-22.
 
 Required platform work: a verified post-apply type-registration/process boundary and a generic dynamic derived option-name reference rule. Required adapter work: an explicit structured-leaf text codec independent of fake reference paths. Until those exist, no CPT UI manifest is shipped.
 
-## Qi Blocks 1.5.2
-
-Probed on 2026-09-08.
-
-- Native Single Image Custom 333 by 211 writes image.id, imageCustomWidth/Height and a -333x211.png URL, creates the image file and appends qi_blocks_cropped_images. The attachment metadata contains no 333x211 size. Original-only capture plus standard metadata regeneration cannot recreate this authored presentation; the cache also contains orphaned prior requests and is not authored authority.
-
-Required platform work: derive custom crop recipes from authored content and rebuild them through durable shared media ownership.
-
 ## Closed authoring gaps
 
 These shipped. A generic primitive and one plugin implementation are separate facts: the primitive column names the reusable facility, while Closed by names the coordinate-specific implementation/evidence.
@@ -79,6 +70,8 @@ Closure is per COORDINATE, so a candidate appears here for the blockers that shi
 | Qi Blocks 1.5.2 | `options.qi_blocks_global_styles` | a closed ordered PHP array/stdClass option codec | `agent/src/Kernel/PhpContainerValue.php`, `agent/src/Kernel/StructuredReferenceCodec.php`, `agent/src/Repository/RepositoryAuthorization.php`, `sandbox/tests/offline/grammar/regress_php_container_values.php` |
 | Qi Blocks 1.5.2 | `block_attrs.qi-blocks/*` | declarative structured block values and derived cache exclusion | `agent/src/Kernel/BlockValueGrammar.php`, `agent/src/Grammar/BlockValueCodec.php`, `agent/src/Kernel/BlockAttributeReader.php`, `sandbox/tests/offline/grammar/regress_block_attribute_values.php` |
 | Qi Blocks 1.5.2 | `post_types.*.body.html.class` | a shared structural HTML media-class reference codec | `agent/src/Kernel/HtmlAttributeReader.php`, `agent/src/Kernel/HtmlMediaReferences.php`, `agent/src/Grammar/Blocks.php`, `agent/src/Repository/RepositoryPortableShapeValidator.php`, `agent/src/Review/Lint.php`, `sandbox/tests/offline/grammar/regress_html_media_references.php`, `sandbox/tests/offline/grammar/regress_block_attribute_values.php` |
+| Qi Blocks 1.5.2 | `post_types.*.body.custom-image-size` | declared custom media derivative recipes with durable file ownership | `agent/src/Kernel/BlockMediaDerivativeGrammar.php`, `agent/src/Apply/MediaDerivativeWorkset.php`, `agent/src/Apply/AttachmentFilesystemTransaction.php`, `sandbox/tests/offline/grammar/regress_media_derivative_recipes.php`, `adapter-packages/qi-blocks/tests/offline/regress_native_media.php`, `adapter-packages/qi-blocks/fixtures/native-media/README.md` |
+| Qi Blocks 1.5.2 | `block_values.qi-blocks/image-gallery.gallery` | authored fields within native structured block records | `agent/src/Kernel/RecordFields.php`, `agent/src/Grammar/BlockValueCodec.php`, `sandbox/tests/offline/grammar/regress_block_attribute_values.php`, `adapter-packages/qi-blocks/tests/offline/regress_native_controls.php` |
 
 What each one could not represent:
 
@@ -102,6 +95,8 @@ What each one could not represent:
 - Qi Blocks 1.5.2 — `options.qi_blocks_global_styles`: The native update-styles REST writer persists an outer PHP array with nested stdClass style records and a post-ID-keyed posts map. PlainData refuses objects; ordinary JSON also erases container type and insertion order. Rewriting the keys independently of an ordering record would leave a dangling order entry when an unresolved reference is dropped.
 - Qi Blocks 1.5.2 — `block_attrs.qi-blocks/*`: Native editor saves nested media objects, repeater image references, CSV postIds selectors and derived query/form previews. Legacy block_attrs treats image.id as one top-level name and coerces CSV into an incomplete integer list. Preview HTML also carries source-local IDs and personal data that native dynamic rendering can reconstruct.
 - Qi Blocks 1.5.2 — `post_types.*.body.html.class`: Native saved Single Image markup carries wp-image-8 beside image.id=8. The old four-core-block allowlist rebounded the declared attribute to target ID 808 while leaving the plugin HTML class at 8; the text regex also rewrote prose rather than actual class attributes.
+- Qi Blocks 1.5.2 — `post_types.*.body.custom-image-size`: Native Single Image Custom 333 by 211 writes image.id, imageCustomWidth/Height and a -333x211.png URL, creates the image file and appends qi_blocks_cropped_images. The attachment metadata contains no 333x211 size. Original-only capture plus standard metadata regeneration cannot recreate this authored presentation; the cache also contains orphaned prior requests and is not authored authority.
+- Qi Blocks 1.5.2 — `block_values.qi-blocks/image-gallery.gallery`: Actual Image Gallery, Pinterest and Slider media pickers save the full WordPress attachment response, including nonces and admin/user metadata. Declaring only the nested id reference leaves those derived fields in canonical content; empty/default and hand-built id/url fixtures do not expose the writer shape.
 
 - Redirection 5.9.0: Closed by the 2026-08-27 one-prompt authoring exercise. `mixed-column-codecs/v1` represents the measured plain/serialized/NULL action_data union without changing strict `php_serialized` semantics. The exact 5.9.0 provider restricts state to the WordPress module, advances the native cache generation when enabled, and proves database/API/lookup convergence with value-free receipts. Offline mutation tests and the hostile-target live conformance exercise cover malformed framing, stale APIs, unsupported modules, cache repair, divergent identities, real HTTP behavior, conflicts, retry and recapture.
 - Code Snippets 3.9.6: Closed by the certified Code Snippets 3.9.5/3.9.6 provider path. It invokes the plugin's native cache and flat-file boundaries, verifies native readback plus hash-only receipts, and is exercised under enabled/disabled flat-file modes, injected faults, retry and recapture. The literal table-wide cache entry remains provider-owned because one plugin demand is not enough reason to widen the engine-native invalidation grammar.
@@ -115,3 +110,5 @@ What each one could not represent:
 - Qi Blocks 1.5.2: The shared php-container-values/v1 contract composes the existing URL, identity, privacy, immutable compiler and transactional option paths. Offline product tests cover divergent IDs, changed URL lengths, exact native type/order preservation, malformed data, late-write rollback, retry and full option recapture. This closes the representation gap only; Qi still requires its capsule and native behavior/lifecycle evidence.
 - Qi Blocks 1.5.2: The negotiated block-attribute-values/v1 section composes existing reference/text codecs and scope/privacy gates. Product tests cover native post capture, complete compilation without WordPress or database contact, checked SQL with divergent IDs, late-write rollback, retry, repeated apply, full recapture and widget-content validation. This closes these attribute representations only; Qi capsule qualification and custom-crop rebuilding remain separate work.
 - Qi Blocks 1.5.2: The shared whole-body reader composes existing identity lookup and scope rules. Product tests exercise capture/apply, immutable post and widget compilation, lint without block parsing, divergent IDs, rollback/retry and recapture. Literal canonical spelling keeps HTML references visible to the shared reference graph. This closes the saved-class mechanism; Qi native cross-environment qualification remains pending.
+- Qi Blocks 1.5.2: The negotiated block-media-derivatives/v1 grammar derives bounded file work from actual authored consumers and uses shared attachment ownership, checked file publication and recovery. Native controls proved four consumers, including a nested Parallax item omitted by the first declaration; all four corrected target images return HTTP 200 with matching decoded dimensions and pixels. The fixture is a uniform PNG and does not close asymmetric/multi-format, lifecycle, host, version or combination qualification.
+- Qi Blocks 1.5.2: The negotiated block-record-fields/v1 constraint retains id,url,alt,caption for the three full-response gallery writers, composing shared identity, text and privacy codecs. Four real-fixture capture assertions failed before the fix. Complete engine post/widget compilation and transactional materialization tests cover the constraint. Source native saver HTML equality and picker rehydration justify this representation; corrected target native qualification remains separate.

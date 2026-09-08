@@ -74,13 +74,6 @@ final class QiNativeMediaEvidence {
         }
     }
 
-    public static function product(array $apply, array $repeat): void {
-        foreach ([$apply, $repeat] as $result) QiNativeApplyEvidence::check($result['warnings'] === [] && $result['canary'] === 'clean'
-            && $result['drift'] === [] && $result['actions'] === [] && $result['verification'] === [
-                'verifier' => 'canonical-recapture/v1', 'result' => 'pass', 'live_entities' => 7, 'deletions' => 0, 'skipped_user_meta' => 0,
-            ], 'crop Apply or repeat did not pass the actual product verifier');
-        QiNativeApplyEvidence::check($apply['applied'] === 1 && $repeat['applied'] === 0, 'crop update must write one content entity, then zero on repeat');
-    }
 }
 
 if (($argv[1] ?? null) === '--admit-media') {
@@ -106,7 +99,7 @@ if (($argv[1] ?? null) === '--admit-media') {
         unset($image);
     }
     QiNativeMediaEvidence::http($http[1], $http[2], $source, $target);
-    QiNativeMediaEvidence::product($read('media-apply', 'apply'), $read('media-repeat', 'apply'));
+    QiNativeApplyEvidence::content_update($read('media-apply', 'apply'), $read('media-repeat', 'apply'));
     QiNativeApplyEvidence::check($target === $read('media-stable'), 'repeat or HTTP changed complete native target state');
     foreach (['media-capture', 'media-recapture', 'media-source-repeat'] as $name) {
         $capture = $read($name, 'capture');

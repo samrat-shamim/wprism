@@ -4,7 +4,7 @@
   "plugin": "qi-blocks/class-qi-blocks.php",
   "version_range": {"min": "1.5.2", "max": "1.5.3"},
   "engine_features": [
-    "block-attribute-groups/v1", "block-attribute-values/v1", "block-media-derivatives/v1",
+    "block-attribute-groups/v1", "block-attribute-values/v1", "block-media-derivatives/v1", "block-record-fields/v1",
     "key-bound-strings/v1", "php-container-values/v1", "spec-window/v1"
   ],
   "option_autoload": "preserve",
@@ -77,6 +77,7 @@
         "attributes": ["gallery"],
         "value": {
           "class": "authored",
+          "record_fields": {"container": "list", "fields": ["id", "url", "alt", "caption"]},
           "json_refs": [
             {"kind": "post", "path": "$.id"}
           ]

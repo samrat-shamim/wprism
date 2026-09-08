@@ -833,6 +833,7 @@ wprism_check_same(
         'block-attribute-groups/v1',
         'block-attribute-values/v1',
         'block-media-derivatives/v1',
+        'block-record-fields/v1',
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',

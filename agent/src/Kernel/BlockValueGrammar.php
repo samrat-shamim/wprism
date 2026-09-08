@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/ReferenceRules.php';
+require_once __DIR__ . '/RecordFields.php';
 
 /** Exact block attributes reuse the option/meta value grammar without changing legacy path semantics. */
 final class BlockValueGrammar {
@@ -18,7 +19,7 @@ final class BlockValueGrammar {
     public static function section_grammar(): array {
         return [
             'keyed_by' => 'block name, then exact top-level attribute name',
-            'authored' => ['class' => 'authored', 'optional' => ['ref', 'cast', 'json_refs', 'key_refs', 'plain_data']],
+            'authored' => ['class' => 'authored', 'optional' => ['ref', 'cast', 'json_refs', 'key_refs', 'plain_data', RecordFields::FIELD]],
             'derived' => ['class' => 'derived'],
             'ownership' => 'one manifest per block when block_values is present; no overlapping block_attrs or whole-block codec',
             'values' => 'exactly one of ref, json_refs/key_refs, or plain_data:true; CSV refs require an array ref',
@@ -50,10 +51,18 @@ final class BlockValueGrammar {
                     continue;
                 }
                 if (($rule['class'] ?? null) !== 'authored'
-                    || array_diff(array_keys($rule), ['class', 'ref', 'cast', 'json_refs', 'key_refs', 'plain_data'])) {
+                    || array_diff(array_keys($rule), ['class', 'ref', 'cast', 'json_refs', 'key_refs', 'plain_data', RecordFields::FIELD])) {
                     throw new \RuntimeException("wprism: $where has an unsupported value disposition or field");
                 }
-                ReferenceRules::value_rule($rule, $where);
+                ReferenceRules::value_rule($rule, $where, blockRecords: true);
+                if (array_key_exists(RecordFields::FIELD, $rule)) {
+                    if (($manifest['spec_version'] ?? 0) < 3
+                        || !in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
+                        || !in_array(RecordFields::FEATURE, $manifest['engine_features'] ?? [], true)) {
+                        throw new \RuntimeException("wprism: $where.record_fields requires both negotiated block value and record field features");
+                    }
+                    RecordFields::validate($rule, $where);
+                }
                 $choices = (int) isset($rule['ref']) + (int) (isset($rule['json_refs']) || isset($rule['key_refs']))
                     + (int) (($rule['plain_data'] ?? null) === true);
                 if ($choices !== 1 || (isset($rule['cast']) && !isset($rule['ref']))

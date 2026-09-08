@@ -19,7 +19,7 @@
     "content": {
       "script": "tests/offline/regress_native_content.php",
       "exit": 0,
-      "assertions": 475,
+      "assertions": 478,
       "native_block_types": 49,
       "native_instances": 52,
       "native_media_coordinates": 222
@@ -56,13 +56,14 @@
     "declaration_groups": {
       "script": "sandbox/tests/offline/grammar/regress_block_attribute_groups.php",
       "exit": 0,
-      "assertions": 175,
-      "scope": "43 group grammar, ownership, certificate derivation and identity assertions plus the complete 132-assertion block capture, immutable compiler, checked SQL, rollback, repeat apply and widget suite using grouped declarations.",
+      "assertions": 223,
+      "scope": "43 group grammar, ownership and identity assertions plus the complete 180-assertion block capture/compiler/SQL/rollback/widget suite. The historical 7497-rule inventory is unchanged apart from three explicitly pinned gallery record projections.",
       "groups": 177,
-      "manifest_bytes": 120618,
-      "manifest_lines": 2091,
+      "manifest_bytes": 120737,
+      "manifest_lines": 2092,
       "expanded_rules": 7497,
-      "expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"
+      "expanded_sha256": "fe99a8e3e8c58c58bb060560808f2c0c161f6a64d5933f69b161625337d834e5",
+      "original_expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"
     },
     "conformance_corpus": {
       "script": "tests/offline/regress_conformance_corpus.php",
@@ -82,7 +83,7 @@
     "native_apply_evidence": {
       "script": "tests/offline/regress_native_apply_evidence.php",
       "exit": 0,
-      "assertions": 79,
+      "assertions": 91,
       "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Executes the live snapshot operation with different per-site catalogs; these doubles do not qualify native execution."
     },
     "native_media": {
@@ -90,6 +91,12 @@
       "exit": 0,
       "assertions": 16,
       "scope": "Native saved crop fragments through actual block capture/apply, immutable compiler and content-only media work selection; stale nested dimensions/URLs refuse. Nine assertions failed against the prior declaration."
+    },
+    "native_controls": {
+      "script": "tests/offline/regress_native_controls.php",
+      "exit": 0,
+      "assertions": 21,
+      "scope": "Six genuine native picker fragments with exactly three sanitized nonce objects. Capture projects the three full-response galleries and preserves the simple-media fields; divergent-ID Apply and exact recapture pass. Four assertions failed before the shared record constraint. Native target qualification is separate."
     }
   },
   "quality_gates": {
@@ -115,7 +122,7 @@
   "limitations": [
     "This is an experimental draft, not a production qualification. Twelve readiness families remain open.",
     "Native content-only page Apply, four selected crops, zero-write repeats, complete recapture and HTTP CSS pass. Target editor reopen recognizes 51 valid blocks; broader editor interactions, widgets/templates, lifecycle, host, version-matrix and hostile families remain incomplete.",
-    "Signature, progress-bar images and empty galleries still need native Save/reopen evidence. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
+    "Signature, progress-bar images and all three galleries now have actual source picker Save/reopen fixtures. Three gallery writers exposed full response caches; shared record projection passes offline, while corrected native target editing remains pending. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
     "The crop fixture has uniform PNG pixels. Native multi-format/asymmetric crop, removal, collision, recovery, scope and co-install cases remain outside this capsule result."
   ],
   "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
@@ -289,5 +296,19 @@
       "media-browser-after": "f9e9aa411908083825fda0efe344a1a3209151977a4c9990ee91b42c55db7024"
     },
     "scope": "Selected native PNG crop controls, content-only page Apply, HTTP CSS/images and target editor reopen. Source interactive Save provenance is retained with the fixture. No complete readiness, lifecycle, host, version or combination claim."
+  },
+  "native_controls_source": {
+    "source_engine_commit": "3324ff7ee7a592ae3907e3c0c68356889b3d4e53",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "fixture": "fixtures/native-controls/blocks.html",
+    "fixture_sha256": "4d26fead2c183c392f01dae7d5838dc47bcf957c07ef5540f90f714fa7bb9f86",
+    "controls": 6,
+    "invalid_blocks": 0,
+    "discovery": "Actual gallery pickers saved complete wp.media responses; native Capture retained nonces and admin metadata. The separate simple-media controls save six-field image objects.",
+    "representation_probe": "Native savers produced identical HTML with id,url,alt,caption. Actual Save/reopen and Edit Gallery rehydration passed on source only. The initial empty-gallery picker emitted one native Backbone URL-property error; later reopen/Slider had zero errors and one known WordPress iframe stylesheet warning.",
+    "scope": "Source selection/projection evidence, not corrected-engine target Apply or complete readiness."
   }
 }

@@ -34,8 +34,14 @@ $site = FrozenPolicy::site([$core, $manifest], WPRISM_SPEC_VERSION);
 $site['policy']['post_types'] = ['post', 'page', 'attachment', 'product', 'wpcf7_contact_form'];
 $site['policy']['taxonomies'] = [];
 $policy = FrozenPolicy::policy([$core, $manifest], $site);
+$originalValues = $blockValues;
+foreach (['image-gallery', 'image-gallery-pinterest', 'image-slider'] as $name) {
+    wprism_check_same(['container' => 'list', 'fields' => ['id', 'url', 'alt', 'caption']],
+        $originalValues['qi-blocks/' . $name]['gallery']['record_fields'], 'only the three native full-response gallery controls declare record projection');
+    unset($originalValues['qi-blocks/' . $name]['gallery']['record_fields']);
+}
 wprism_check_same('5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27',
-    hash('sha256', Canon::encode($blockValues)), 'compact Qi declarations preserve every exact block/attribute rule of the reviewed native inventory');
+    hash('sha256', Canon::encode($originalValues)), 'compact Qi declarations preserve every reviewed attribute rule apart from the three intentional gallery projections');
 $inventory = Canon::decode(Canon::read_file($fixture . '/authoring-inventory.json'));
 $uuid = static fn(int $id): string => '11111111-1111-4111-8111-' . sprintf('%012d', $id);
 $database = static function (int $offset) use ($uuid): FakeWpdb {

@@ -37,14 +37,14 @@ use WPrism\Policy;
 
 // AIO Login and Qi add two subjects without changing the upstream adapters.
 // AIO Login has its own compatible world; Qi joins both maximal SEO worlds.
-// Native crop selection corrects only Qi package identity and pin sets that
+// Native crop and gallery declarations change only Qi identity and pin sets that
 // contain it. Its reviewed disposition and all unrelated pin sets stay exact.
-const BASELINE_FIXTURE_SHA256 = '2b56e2e3f2152272612239e8e8ff0658b6d2f8403029be97360f1805c73e7aaa';
-const RANK_WORLD_MANIFEST_HASH = 'a5a03f52d52e3b8602837664b1f3285b0a7e041d2343ba8ff61ed179e3a69ef6';
-const YOAST_WORLD_MANIFEST_HASH = 'fe65fcebca7eba41e44840f86702b6edd956fdbcb2ba7fe07d1f383412a64120';
+const BASELINE_FIXTURE_SHA256 = 'c34ac1895a7b7a39f5bcee1ae205363955bc2bcc7bb2fe3a2b1151e6da7622d4';
+const RANK_WORLD_MANIFEST_HASH = '5f592bf669041ac78c787d9f69c1d3e980e03e0398175d8b2e7e8d13b3c7645b';
+const YOAST_WORLD_MANIFEST_HASH = 'fadf91c950aab92b0e7dd42e2651311ec97387de97dc9f3a8520c3e9bbdad22c';
 const REGISTRY_SHA256 = '86f4d5165015effabb10605a2d74c9259208182572414b73ec512d3808c0f198';
-const RANK_WORLD_SNAPSHOT_SHA256 = '55904c436eb08176277f511bcae642b0363f3302e7e72cf16cc90d3d2999db15';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '49ef3b68864dff77655e0fc1fb7330466c5fa05e3e610b592d5d02455ee955db';
+const RANK_WORLD_SNAPSHOT_SHA256 = '95ad0844d65f284267996756f61d5f238569fadccb779d6b28514785dac1b103';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'b6d8fb580066143fa6fa08953dac140ee8be0f03a85be1f31d1891a1074b5619';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

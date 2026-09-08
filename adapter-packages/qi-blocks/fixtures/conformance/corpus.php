@@ -34,6 +34,7 @@ final class QiConformanceCorpus {
             if ($canonical && $block['blockName'] === 'qi-blocks/blog-list') {
                 unset($block['attrs']['maxNumPages'], $block['attrs']['queriedPostsData']);
             }
+            if ($canonical) self::exclude_gallery_response($block);
             foreach ($block['innerContent'] as &$fragment) if (is_string($fragment)) $fragment = self::text($fragment, $ids, $home, $imageUrl);
             unset($fragment);
             foreach ($block['innerBlocks'] as &$child) $walk($child);
@@ -62,11 +63,20 @@ final class QiConformanceCorpus {
                 // Native query previews are derived; the saved CSV selection
                 // remains a string after Apply, unlike its canonical token list.
                 if ($block['blockName'] === 'qi-blocks/blog-list') unset($block['attrs']['maxNumPages'], $block['attrs']['queriedPostsData']);
+                self::exclude_gallery_response($block);
                 $walk($block['innerBlocks']);
             }
         };
         $walk($blocks);
         return serialize_blocks($blocks);
+    }
+
+    /** Locked native savers consume four gallery fields; this expectation never reads the adapter. */
+    private static function exclude_gallery_response(array &$block): void {
+        if (!in_array($block['blockName'], ['qi-blocks/image-gallery', 'qi-blocks/image-gallery-pinterest', 'qi-blocks/image-slider'], true)) return;
+        foreach ($block['attrs']['gallery'] ?? [] as $i => $image) {
+            $block['attrs']['gallery'][$i] = array_intersect_key($image, ['id' => true, 'url' => true, 'alt' => true, 'caption' => true]);
+        }
     }
 
     public static function global_styles(object $styles, int $page): array {

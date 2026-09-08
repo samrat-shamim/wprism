@@ -26,7 +26,17 @@ saved body, style or rendered HTML and is absent from native attachment metadata
 The target must retain the original and all seven metadata-owned native sizes,
 while leaving that unused crop absent.
 
-A second phase replays the [four native crop selections](../native-media/README.md)
+A second phase replays the three full-response
+[native gallery selections](../native-controls/README.md) through WordPress
+REST. Complete source observations retain the response cache; target content
+must contain only the four native saver fields with correctly rebound IDs and
+URLs. All three galleries must render their selected image, whose HTTP bytes
+must match the native attachment. Complete target options, uploads and unrelated
+rows remain unchanged; zero-write repeat and four complete repositories converge.
+Signature and progress images have separate source/offline fixtures and are not
+part of this gallery phase. Fresh browser editing remains a separate check.
+
+A third phase replays the [four native crop selections](../native-media/README.md)
 on that converged source through Qi's native crop helper and WordPress's REST
 writer. Only page content changes in the repository. Target Apply must generate
 all four files from the unchanged attachment, publish their metadata ownership,

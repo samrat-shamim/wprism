@@ -6,6 +6,7 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/JsonRefs.php';
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
+require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/Tokens.php';
 
 /** Value framing belongs to the block grammar; identity and text rewriting stay in the shared codecs. */
@@ -13,6 +14,7 @@ final class BlockValueCodec {
     /** @param callable(int,string):void $unmapped */
     public static function capture(mixed $value, array $rule, Tokens $tokens, callable $unmapped, string $where): mixed {
         self::assert_value($value, $rule, false, $where);
+        if (isset($rule[RecordFields::FIELD])) $value = RecordFields::capture($value, $rule[RecordFields::FIELD]);
         $lookup = static function (int $id, string $kind) use ($tokens, $unmapped): ?string {
             $token = $kind === 'user' ? $tokens->user_id_to_token($id) : $tokens->id_to_token($id, $kind);
             if ($token === null && $kind !== 'user') $unmapped($id, $kind);
@@ -49,6 +51,7 @@ final class BlockValueCodec {
         }
         $nodes = 0;
         self::assert_json($value, 0, $nodes, $where);
+        if (isset($rule[RecordFields::FIELD])) RecordFields::assert_value($value, $rule[RecordFields::FIELD], $canonical, $where);
         if (isset($rule['ref'])) {
             $list = str_ends_with($rule['ref'], '[]');
             $kind = $list ? substr($rule['ref'], 0, -2) : $rule['ref'];

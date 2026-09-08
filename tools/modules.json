@@ -64,6 +64,7 @@
           "ActionTriggerMatcher",
           "BlockAttributeReader",
           "BlockValueGrammar",
+          "RecordFields",
           "Canon",
     "Db",
     "DatabaseLockBoundary",
@@ -161,13 +162,14 @@
             ]
           }
         ],
-        "file_count": 82,
+        "file_count": 83,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
           "ActionTriggerMatcher.php",
           "BlockAttributeReader.php",
           "BlockValueGrammar.php",
+          "RecordFields.php",
           "BoundedChildProcess.php",
           "Canary.php",
           "Canon.php",

@@ -512,6 +512,47 @@ an earlier write, retry, repeat and complete recapture. Include widget content
 when the same block can be stored there. `regress-block-attribute-values` is
 the engine pin; native plugin render and editor validation remain capsule work.
 
+### Records that mix authored fields and response caches
+
+Use actual media picker selections when investigating a structured attribute.
+An empty default or hand-built `{id,url}` example does not reveal whether the
+native writer saves its entire API response. Qi's three gallery controls save
+nonces, user details and admin links beside their authored image selection.
+Classifying the entire record as authored would publish those caches.
+
+After proving which fields the native saver consumes and that its picker can
+rehydrate the rest, negotiate `block-record-fields/v1` and add a bounded
+`record_fields` declaration to the existing value rule:
+
+```json
+"gallery": {
+  "class": "authored",
+  "record_fields": {"container": "list", "fields": ["id", "url", "alt", "caption"]},
+  "json_refs": [{"path": "$.id", "kind": "post"}]
+}
+```
+
+`container` is explicitly `object` or `list` of records. Capture removes only
+unlisted immediate record fields before the ordinary reference, URL and privacy
+pipeline. Field order, absence, types, list order and duplicate selections stay
+unchanged. A record must contain at least one retained field; an empty list is
+valid. This avoids turning an empty object into an array under associative JSON
+decoding. The declaration has no recursive selector or implicit defaults.
+
+Each `json_refs` or nested `key_refs` path must start with a retained exact
+field. A root key reference, wildcard or recursive first edge cannot silently
+lose declared identities. Canonical input containing excluded fields refuses
+in compilation, lint and Apply; it is never silently repaired. Existing
+repositories need recapture, compilation and new identity pins after this
+intentional semantic change. Retained fields keep all ordinary privacy gates.
+
+Preserve real picker output as a regression fixture, replacing temporary
+credentials with documented fixture literals. Prove native saved HTML,
+fresh editor validation and media-dialog reopening, then repeat those checks
+after cross-environment Apply. A source-only projection probe is evidence for
+the declaration, not target qualification. Keep differently shaped native
+controls on their own rules even when their UI labels look similar.
+
 ### Content-selected image crops
 
 Use the plugin's actual editor Save path and inspect both saved content and

@@ -271,14 +271,51 @@ foreach ([[['status' => 404], 'native png bytes', $servedHtml], [['status' => 20
         'served crop cannot hide a failed response, wrong bytes or missing frontend consumer');
 }
 $cropApply = array_replace($apply, ['applied' => 1, 'warnings' => []]);
-QiNativeMediaEvidence::product($cropApply, $repeat);
+QiNativeApplyEvidence::content_update($cropApply, $repeat);
 wprism_check(true, 'content-only crop Apply and zero-write repeat require the actual full product verifier');
 foreach (['warning', 'partial verifier', 'repeat write'] as $fault) {
     $badApply = $cropApply; $badRepeat = $repeat;
     if ($fault === 'warning') $badApply['warnings'][] = 'unproved';
     if ($fault === 'partial verifier') $badApply['verification']['live_entities'] = 6;
     if ($fault === 'repeat write') $badRepeat['applied'] = 1;
-    wprism_check_throws(static fn() => QiNativeMediaEvidence::product($badApply, $badRepeat), RuntimeException::class, 'crop product admission rejects ' . $fault);
+    wprism_check_throws(static fn() => QiNativeApplyEvidence::content_update($badApply, $badRepeat), RuntimeException::class, 'crop product admission rejects ' . $fault);
+}
+require_once "$capsule/fixtures/native-controls/evidence.php";
+$gallerySaved = QiNativeControlsCorpus::saved($saved, file_get_contents($capsule . '/fixtures/native-controls/blocks.html'));
+$gallerySource = $records['source']; $galleryTarget = $records['target'];
+$gallerySource['page_body'] = QiConformanceCorpus::body($gallerySaved, $sourceIds, $seed['home'], $seed['image_url']);
+$database($sourceIds);
+$galleryCanonical = Blocks::capture_rewrite($gallerySource['page_body'], $policy, new Tokens($seed['home'], $seed['home'] . '/wp-content/uploads'));
+$database($targetIds);
+$galleryTarget['page_body'] = Blocks::apply_rewrite($galleryCanonical, $policy, new Tokens($before['home'], $before['home'] . '/wp-content/uploads'));
+foreach ([&$gallerySource, &$galleryTarget] as &$record) {
+    foreach ($record['posts'] as &$post) if ((int) $post['ID'] === $record['ids']['page']) $post['post_content'] = $record['page_body'];
+    unset($post);
+}
+unset($record);
+$galleryAdmission = static fn(array $source, array $target) => QiNativeControlsEvidence::native($source, $target, $records['target'], $seed, $gallerySaved);
+$galleryAdmission($gallerySource, $galleryTarget);
+wprism_check(true, 'native gallery admission compares complete product output to independently retained picker expectations');
+foreach (['body', 'cache', 'row', 'upload', 'option', 'identity', 'format'] as $fault) {
+    $bad = $galleryTarget;
+    if ($fault === 'body') $bad['page_body'] .= '<p>Lost equality</p>';
+    if ($fault === 'cache') $bad['page_body'] .= '<!-- wp:qi-blocks/image-gallery {"gallery":[{"id":108,"nonces":{"edit":"unexpected"}}]} /-->';
+    if ($fault === 'row') $bad['posts'][0]['post_content'] .= 'changed';
+    if ($fault === 'upload') $bad['uploads']['extra.png'] = [];
+    if ($fault === 'option') $bad['options'][0]['option_value'] = 'copied';
+    if ($fault === 'identity') $bad['ids']['image'] = $sourceIds['image'];
+    if ($fault === 'format') $bad['format'] = 'unknown';
+    wprism_check_throws(static fn() => $galleryAdmission($gallerySource, $bad), RuntimeException::class, 'gallery native admission rejects ' . $fault);
+}
+$galleryHtml = '';
+foreach (QiNativeControlsCorpus::GALLERIES as $name) {
+    $galleryHtml .= '<div class="wp-block-' . str_replace('/', '-', $name) . '"><img src="' . $galleryTarget['attachment']['url'] . '" /></div>';
+}
+QiNativeControlsEvidence::images($galleryHtml, $galleryTarget);
+wprism_check(true, 'gallery frontend admission requires all three native owners and their selected image');
+foreach (['', $galleryHtml . $galleryHtml, str_replace('tmp-qi-image.png', 'wrong.png', $galleryHtml)] as $badHtml) {
+    wprism_check_throws(static fn() => QiNativeControlsEvidence::images($badHtml, $galleryTarget), RuntimeException::class,
+        'gallery frontend admission rejects absent, duplicated or incorrectly selected images');
 }
 if (wprism_check_failed() > 0) exit(1);
 echo 'PASS: Qi native Apply evidence (' . wprism_check_stats()['passed'] . " assertions)\n";
