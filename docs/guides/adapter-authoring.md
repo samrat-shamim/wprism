@@ -1047,6 +1047,57 @@ explicit dependencies and the module assignment are required alongside the
 classmap and public API fixture. Package validation alone does not check that
 engine/tooling boundary.
 
+For current native links, `ProviderSdk::checked_native_permalinks($ids,
+$context)` owns **both** `home_url()` and the complete `get_permalink($id)`
+batch. Declare `provider-native-permalinks/v1` with `spec-window/v1`. It returns
+`home` and ordered `permalinks` (including exact absence `false`), admits at
+most 128 distinct positive integer IDs, and accepts an empty batch for a
+home-only read. Both posts/options table authority and the authorized mutation
+callback are required; fresh observers and classifiers remain physical-only.
+
+Its current closed native API families are the builtin post-link branch
+(including templates/template parts), pages and ordinarily registered custom
+types: plain/pretty/index.php links, front pages, hierarchical ancestors,
+and the five stock publish/draft/pending/future/private statuses. Private links
+require the already initialized anonymous core user, never a user swap or a
+capability grant. Category and author tokens, attachments, revisions, custom
+statuses and unreviewed relevant hook participants refuse. This frontier is
+not a claim that every plugin or permalink extension composes with the reader.
+
+The engine uses the bounded whole-table physical reader for the standard
+23-column post roster (8,192 rows / 16 MiB), then admits complete selected and
+ancestor cache fields, exact selected physical option/cache bytes, native
+registry and request-scheme inputs, and the relevant hook topology. The stock
+constant-home filter and, for private links, the three stock capability filters
+are reviewed participants. A defined `WP_HOME` is separate immutable
+configuration authority and may intentionally override the durable `home`
+row; the returned batch uses that effective native home. WP-CLI's stock
+`home_url` closure is separately admitted at its exact priority/arity, Runner
+source provenance and normalized token identity, without captures, bound
+objects or namespace-shadowed functions. Its intentional scheme override
+retains the effective option's scheme even under an HTTPS request. This is
+not permission to remove the CLI hook, admit other Runner callbacks or accept
+foreign URL filters. The complete physical
+options table and warm alloptions cache are separately allocation-bounded
+(8,192 entries / 16 MiB, 1 MiB per value), including unrelated entries, because
+the native loader can load that whole map. Native functions/classes retain core provenance.
+An independent native `WP_Rewrite` instance checks current initialization and
+selected custom permastructs; it is never installed into globals. The target's
+lazy page structure may populate normally but cannot already contain a stale
+route. No target cache or rewrite state is cleared, seeded or repaired. The
+reader rechecks native inputs and physical rows after the batch and poisons the
+transaction on refusal. These are current-input checks, not historical replay,
+HTTP routing evidence or a sandbox for arbitrary extension PHP. Each consuming
+capsule still owes actual provider, native-consumer and lifecycle evidence.
+
+The native reader's focused harness is
+`make regress-native-permalinks-live`, with `NATIVE_PERMALINK_PAIR`,
+`NATIVE_PERMALINK_PORT1`, `NATIVE_PERMALINK_PORT2` and exact
+`WPRISM_EXPECTED_SOURCE_SHA` required. It owns one MariaDB pair and retains
+private concrete URL/preservation records for host admission after cleanup.
+Its fixture-only loader join exercises the real SDK and WordPress, not a
+Policy-loaded adapter or a capability/readiness claim.
+
 Do not spell an exact presence probe as raw `SHOW TABLES LIKE '$table'` (or
 `SHOW TABLE STATUS LIKE '$table'`): `_` and `%` are LIKE wildcards. Bind
 `$wpdb->esc_like($table)` through `%s`; the profile gate decodes only that
@@ -2893,6 +2944,23 @@ library.
    and reference them from the hooks; do not hide them in `tests/lib` or label
    them as independent regressions. The package validator uses the runner's
    same closed discovery boundary before reporting success.
+   A direct capsule live regression can reuse the reviewed
+   `tests/lib/pair_live_ownership.sh` helper for exact-source leases, partial
+   startup cleanup, teardown and PASS-after-cleanup. After changing directory
+   to the repository's physical `sandbox/`, source it with the literal
+   `. tests/lib/pair_live_ownership.sh` spelling the capsule validator admits.
+   Pair lifecycle remains shared test machinery, not a capsule-owned copy.
+   Direct `tests/live/` callers must first establish package artifact authority,
+   even when they consume an already downloaded exact ZIP. Their first three
+   active statements are the standard preamble enforced by
+   `regress-fetch-artifact`:
+
+   ```sh
+   set -euo pipefail
+   PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+   export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+   ```
+
    Run the candidate-bound gate from its exact commit:
 
    ```sh

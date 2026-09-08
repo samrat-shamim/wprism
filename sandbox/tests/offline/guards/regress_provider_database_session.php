@@ -3729,4 +3729,26 @@ wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], ['table:pos
     'the authorized native post writer reaches core provenance without accepting host stubs', 'request-local core cache');
 wprism_check(!DatabaseQueryIsolation::is_active(), 'native post refusal is settled by the existing transaction owner');
 
+$nativePermalinkRead = static fn() => ProviderSdk::checked_native_permalinks([7], 'native permalink SDK fixture');
+$wpdb = $physicalFixture();
+wprism_check_throws($nativePermalinkRead, RuntimeException::class, 'native permalink IDs cannot mint manifest-provider authority');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::runUnbound(['table:options'], ['table:posts'], $nativePermalinkRead),
+    RuntimeException::class, 'a directly constructed runtime cannot authorize native permalinks');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'], $nativePermalinkRead),
+    RuntimeException::class, 'native permalinks require the mutation callback, not just a bound runtime', 'authorized mutation callback');
+foreach ([['table:posts'], ['table:options']] as $tables) {
+    wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], $tables, $nativePermalinkRead), RuntimeException::class,
+        'native permalink inputs require both declared tables', 'outside its active manifest-provider contract');
+}
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'],
+    static fn() => ProviderSdk::database_read_contract_snapshot('native permalink observer refusal', $nativePermalinkRead)),
+    RuntimeException::class, 'physical observers and classifiers cannot borrow native permalink cache effects', 'authorized mutation callback');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options'], ['table:posts'],
+    static fn() => ProviderSdk::database_write_contract_transaction('native permalink SDK environment', $nativePermalinkRead,
+        static fn() => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN)), RuntimeException::class,
+    'authorized native permalink writer reaches core provenance without accepting host stubs', 'request-local core cache');
+wprism_check(!DatabaseQueryIsolation::is_active(), 'native permalink refusal is settled by the existing transaction owner');
+
 wprism_check_summary('regress_provider_database_session');

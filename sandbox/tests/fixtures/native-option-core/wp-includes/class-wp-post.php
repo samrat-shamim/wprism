@@ -26,4 +26,9 @@ final class WP_Post {
     public function filter(string $context): self|false {
         return ($this->filter ?? null) === $context ? $this : self::get_instance((int) $this->ID);
     }
+
+    public function __get(string $name): mixed {
+        if ($name === 'ancestors') return get_post_ancestors($this);
+        return null;
+    }
 }

@@ -6,7 +6,7 @@ namespace WPrism\Providers;
 use WPrism\ManifestProviderRuntime;
 use WPrism\ProviderSdk;
 
-/** Unshipped executable candidate: native permalink/home and metadata-cache premises remain open. */
+/** Unshipped candidate: current native permalink/filter inputs still require admission. */
 final class WpformsFormLocations extends ManifestProviderRuntime {
     private const META_KEY = 'wpforms_form_locations';
     private const MAX_FORMS = 128;
@@ -39,9 +39,6 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
 
     protected function invoke_rebuild_form_locations(array $args): array {
         self::assert_arguments($args);
-        if (is_multisite()) {
-            self::refuse('reconstruction is scoped to single-site WordPress');
-        }
         $first = $this->rebuild_pass();
         $committed = $this->durable_snapshot();
         if ($committed !== $first['after']) {
@@ -176,8 +173,7 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
         if (count($forms) > self::MAX_FORMS) self::refuse('form population exceeds the bounded frontier');
         $locations = [];
         $total = 0;
-        $home = home_url();
-        self::native_string($home);
+        $placements = [];
         foreach ($posts as $post) {
             if (!in_array($post['post_type'], $types, true) || !in_array($post['post_status'], $statuses, true)) continue;
             $ids = $locator->get_form_ids($post['post_content']);
@@ -187,12 +183,19 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
             $targets = [];
             foreach ($ids as $id) $targets[self::form_id($id, $forms)] = true;
             if ($targets === []) continue;
-            $nativePost = new \WP_Post((object) ($post + ['filter' => 'raw']));
-            $url = get_permalink($nativePost);
-            $url = $url === false || is_wp_error($url) ? '' : $url;
+            $placements[] = ['post' => $post, 'targets' => $targets];
+        }
+        $links = ProviderSdk::checked_native_permalinks(array_map(
+            static fn(array $placement): int => self::positive_id($placement['post']['ID']), $placements),
+            'WPForms complete native placement permalinks');
+        $home = $links['home'];
+        foreach ($placements as $index => $placement) {
+            $post = $placement['post'];
+            $url = $links['permalinks'][$index];
+            $url = $url === false ? '' : $url;
             self::native_string($url);
-            $url = str_replace($home, '', $url);
-            foreach ($targets as $formId => $_present) {
+            $url = self::relative_location_url($home, $url);
+            foreach ($placement['targets'] as $formId => $_present) {
                 self::add_location($locations, $total, $formId, [
                     'type' => $post['post_type'], 'title' => $post['post_title'], 'form_id' => $formId,
                     'id' => self::positive_id($post['ID']), 'status' => $post['post_status'], 'url' => $url,
@@ -272,6 +275,60 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
         // Locator's public writers use update_post_meta(), whose core
         // update_metadata() unslashes recursively before serialization.
         return serialize(wp_unslash($values));
+    }
+
+    /** Canonical current-home policy, not replay of Locator's historical private home snapshot. */
+    private static function relative_location_url(string $home, string $url): string {
+        self::absolute_location_url($home, true);
+        if ($url === '') return ''; // The public writer preserves an unavailable permalink as no link.
+        self::absolute_location_url($url, false);
+        if (!str_starts_with($url, $home)) self::refuse('native permalink is outside the admitted current home');
+        $relative = substr($url, strlen($home));
+        if ($relative !== '' && !in_array($relative[0], ['/', '?', '#'], true)) {
+            self::refuse('native permalink crosses the current-home path or authority boundary');
+        }
+        // Locator.php:620-630 renders home + stored URL. Remove only one
+        // leading home, never a matching string inside a slug/query/fragment.
+        return $relative;
+    }
+
+    private static function absolute_location_url(string $url, bool $home): void {
+        self::native_string($url);
+        if (preg_match('/[\x00-\x20\x7f<>"\\\\]/', $url) === 1
+            || preg_match('/%(?![a-fA-F0-9]{2})/', $url) === 1) {
+            self::refuse('native home or permalink is outside the canonical URL frontier');
+        }
+        // Locator.php:647 decodes the entire escaped link before KSES. Native
+        // evidence turns /a%3Fb into /a?b and truncates an encoded quote. Only
+        // unreserved ASCII and valid UTF-8 escapes survive that renderer with
+        // equivalent targets; never double-encode storage to conceal the gap.
+        if (str_contains($url, '+') || preg_match('//u', rawurldecode($url)) !== 1) {
+            self::refuse('native URL is outside the current-home renderer frontier');
+        }
+        for ($offset = 0; ($offset = strpos($url, '%', $offset)) !== false; $offset += 3) {
+            $byte = chr(hexdec(substr($url, $offset + 1, 2)));
+            if (ord($byte) < 128 && preg_match('/^[A-Za-z0-9._~-]$/D', $byte) !== 1) {
+                self::refuse('native URL is outside the current-home renderer frontier');
+            }
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts) || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
+            || !is_string($parts['host'] ?? null) || $parts['host'] === ''
+            || isset($parts['user']) || isset($parts['pass'])
+            || (isset($parts['port']) && ($parts['port'] < 1 || $parts['port'] > 65535))
+            || str_contains($parts['host'], '%')
+            || ($home && (isset($parts['query']) || isset($parts['fragment']) || str_ends_with($url, '/')))) {
+            self::refuse('native home or permalink is outside the canonical URL frontier');
+        }
+        // Browsers resolve encoded dot segments before navigation. A lexical
+        // home prefix must not admit /base/../outside or encoded separators.
+        foreach (explode('/', $parts['path'] ?? '') as $segment) {
+            $decoded = rawurldecode($segment);
+            if (in_array($decoded, ['.', '..'], true) || str_contains($decoded, '/') || str_contains($decoded, '\\')
+                || preg_match('/[\x00-\x1f\x7f]/', $decoded) === 1) {
+                self::refuse('native URL path escapes the canonical current-home frontier');
+            }
+        }
     }
 
     private static function assert_widget_inputs(mixed $widgets, string $content): void {

@@ -30,6 +30,69 @@ $slashed = [['type' => 'widget', 'title' => "a\\b \\\"quote\\\"", 'form_id' => '
 $stored = [['type' => 'widget', 'title' => 'ab "quote"', 'form_id' => '01', 'id' => 'text-7']];
 wprism_check_same(serialize($stored), $call('location_bytes', $slashed), 'location storage matches recursive core metadata unslashing and preserves native raw ID type');
 wprism_check($call('location_bytes', $slashed) !== serialize($slashed), 'literal serialization cannot masquerade as native metadata storage');
+
+foreach ([
+    ['https://target.example.test', 'https://target.example.test/a', '/a'],
+    ['https://target.example.test/base', 'https://target.example.test/base/a', '/a'],
+    ['https://target.example.test', 'https://target.example.test/?p=1', '/?p=1'],
+    ['https://target.example.test/base', 'https://target.example.test/base?q=1#here', '?q=1#here'],
+    ['https://target.example.test', 'https://target.example.test/#here', '/#here'],
+    ['https://target.example.test:8443', 'https://target.example.test:8443/a', '/a'],
+    ['http://[::1]:8080/base', 'http://[::1]:8080/base/a', '/a'],
+    ['https://target.example.test', 'https://target.example.test/%E6%9D%B1%E4%BA%AC', '/%E6%9D%B1%E4%BA%AC'],
+    ['https://target.example.test', 'https://target.example.test/%41%7a%30%2d%5f%7e', '/%41%7a%30%2d%5f%7e'],
+    ['https://target.example.test', 'https://target.example.test/a?next=https://target.example.test/b', '/a?next=https://target.example.test/b'],
+    ['https://target.example.test', 'https://target.example.test', ''],
+    ['https://target.example.test', '', ''],
+] as [$home, $url, $relative]) {
+    wprism_check_same($relative, $call('relative_location_url', $home, $url), 'canonical policy removes one exact leading current home and preserves suffix bytes');
+    if ($url !== '') wprism_check_same($url, $home . $relative, 'fresh Locator home-plus-suffix renders the exact admitted native permalink');
+}
+$historicalHome = 'https://old.example.test';
+$currentHome = 'https://new.example.test';
+$currentUrl = $currentHome . '/page';
+$nativeHistorical = str_replace($historicalHome, '', $currentUrl);
+$canonicalCurrent = $call('relative_location_url', $currentHome, $currentUrl);
+wprism_check($nativeHistorical !== $canonicalCurrent, 'historical private-home replay is an explicitly different policy');
+wprism_check_same($currentUrl, $currentHome . $canonicalCurrent, 'fresh consumer renders the canonical current-home policy correctly');
+wprism_check($historicalHome . $nativeHistorical !== $currentUrl, 'replaying the stale writer can produce the historical double-home bug');
+foreach ([
+    ['', 'https://target.example.test/a'], ['not-a-url', 'https://target.example.test/a'],
+    ['https://target.example.test/', 'https://target.example.test/a'],
+    ['https://target.example.test?x=1', 'https://target.example.test/a'],
+    ['https://target.example.test#fragment', 'https://target.example.test/a'],
+    ['https://user:pass@target.example.test', 'https://user:pass@target.example.test/a'],
+    ['https://target.example.test', 'https://outside.example.test/a'],
+    ['https://target.example.test', 'https://target.example.test.evil/a'],
+    ['https://target.example.test/base', 'https://target.example.test/baseball/a'],
+    ['https://target.example.test', 'https://target.example.test:443/a'],
+    ['https://target.example.test', '/a'],
+    ['https://target.example.test', 'https://target.example.test/a b'],
+    ['https://target.example.test', 'https://target.example.test/a\\outside'],
+    ['https://target.example.test', 'https://target.example.test/%zz'],
+    ['https://target.example.test/base', 'https://target.example.test/base/../outside'],
+    ['https://target.example.test/base', 'https://target.example.test/base/%2e%2e/outside'],
+    ['https://target.example.test/base', 'https://target.example.test/base/%2Foutside'],
+    ['https://target.example.test/base', 'https://target.example.test/base/%5coutside'],
+    ['https://target.example.test', "https://target.example.test/\n"],
+    ['https://target.example.test', 'https://target.example.test/%00'],
+] as [$home, $url]) {
+    wprism_check_throws(static fn() => $call('relative_location_url', $home, $url), RuntimeException::class,
+        'malformed, external, prefix-trapped or path-escaping native URLs refuse before mutation planning');
+}
+// Locator.php:647 URL-decodes the whole link markup before KSES. These
+// were admitted at bedfd61c but the real public column renderer changes the
+// target; a lexical home-plus-suffix equality cannot prove native UI behavior.
+foreach (['/a%3Fb', '/a%23frag', '/a?x=a%26b', '/a?x=a%3Db', '/a+b',
+    '/a?x=a%2Bb', '/a%252foutside', '/a%22%20title%3D%22x', '/a%27b', '/a%20b',
+    '/a%80', '/a%C0%AF', '/a%ED%A0%80'] as $suffix) {
+    wprism_check_throws(static fn() => $call('relative_location_url', 'https://target.example.test', 'https://target.example.test' . $suffix),
+        RuntimeException::class, 'native whole-markup URL decoding cannot alter the admitted navigation target', 'renderer');
+}
+foreach (['https://target.example.test/base+part', 'https://target.example.test/base%3Fpart'] as $home) {
+    wprism_check_throws(static fn() => $call('relative_location_url', $home, $home . '/a'), RuntimeException::class,
+        'the renderer decodes the current home as well as the stored suffix', 'renderer');
+}
 $owned = [
     ['meta_id' => '2', 'post_id' => '1', 'meta_value' => 'old'],
     ['meta_id' => '5', 'post_id' => '1', 'meta_value' => 'duplicate'],
@@ -53,4 +116,9 @@ wprism_check_throws(static fn() => $call('reconciliation_plan', $many, []), Runt
     'all mutation intent is bounded before any DML can begin', 'pre-write mutation frontier');
 $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
 wprism_check(!isset($manifest['providers']), 'the executable candidate cannot advertise an unproven native capability');
+// The SDK checks core function provenance before its single-site refusal,
+// including home-only batches. A capsule precheck would execute it too soon.
+$source = (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/location-provider/wpforms-form-locations.php');
+wprism_check(preg_match('/\\bis_multisite\\s*\\(/', $source) === 0,
+    'single-site admission belongs to the source-checked engine reader, never a candidate precheck');
 wprism_check_summary('wpforms_location_reconciliation');
