@@ -162,6 +162,10 @@ if (($argv[1] ?? '') === '--native') {
     $wpdb->seedTable('wp_wprism_map', array_map(static fn(string $kind): array => [
         'uuid' => '11111111-1111-4111-8111-111111111111', 'entity_type' => 'fixture', 'id_kind' => $kind, 'local_id' => '7',
     ], ['post', 'term', 'term_taxonomy', 'widget:block']));
+    $wpdb->seedTable('wp_options', [
+        ['option_id' => 1, 'option_name' => '_transient_doing_cron', 'option_value' => 'clock-before'],
+        ['option_id' => 2, 'option_name' => 'core_native_mutation_tooth', 'option_value' => 'durable-before'],
+    ]);
     $mutation = $argv[3];
     if (str_starts_with($mutation, 'error:')) {
         $wpdb->failNextQuery('private-core-fixture-value', 'FROM wp_' . substr($mutation, 6) . ' ');
@@ -173,6 +177,10 @@ if (($argv[1] ?? '') === '--native') {
         $wpdb->returnNextGetResultsAs([['value' => str_repeat('x', 1048576)]], 'FROM wp_posts ');
     } elseif ($mutation === 'native-change') {
         $wpdb->seedTable('wp_posts', [['ID' => 1, 'post_title' => 'private-core-fixture-value']]);
+    } elseif ($mutation === 'cron-change' || $mutation === 'option-change') {
+        $rows = $wpdb->rows('wp_options');
+        $rows[$mutation === 'cron-change' ? 0 : 1]['option_value'] = 'private-core-fixture-value';
+        $wpdb->seedTable('wp_options', $rows);
     }
     try {
         eval($argv[2]);
@@ -329,10 +337,12 @@ PAIR_SOURCE_ROOT="$scratch/source root" COMPOSE=fixture_compose
 mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp" "$PAIR_SOURCE_ROOT/sandbox/tests" "$PAIR_SOURCE_ROOT/sandbox/conformance"
 ln -s "$root/sandbox/tests/lib" "$PAIR_SOURCE_ROOT/sandbox/tests/lib"
 ln -s "$root/sandbox/conformance/fixtures" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures"
+mkdir "$scratch/mu"
 fixture_cleanup() {
   local status=$? stage retained=1
   trap - EXIT
-  if [ "$mutation" = ready ] || [ "$mutation" = empty-baseline ] || [ "$mutation" = native-change ]; then
+  if [ "$mutation" = ready ] || [ "$mutation" = empty-baseline ] || [ "$mutation" = native-change ] \
+      || [ "$mutation" = cron-churn ] || [ "$mutation" = cron-write-through-guard ] || [ "$mutation" = durable-option-write ]; then
     local directories=("$PAIR_SOURCE_ROOT/sandbox/tmp"/wprism-core-deletion.*)
     [ "${#directories[@]}" = 1 ] && [ -d "${directories[0]}" ] || retained=0
     for stage in native-before native-after; do
@@ -340,6 +350,9 @@ fixture_cleanup() {
         "${directories[0]}/$stage" >/dev/null 2>&1 || retained=0
     done
     [ "$retained" = 0 ] || printf 'CORE_PRIVATE_RETAINED\n'
+  fi
+  if [ -f "$scratch/cron-prepared" ] && [ ! -e "$scratch/mu/wprism-native-read-window.php" ]; then
+    printf 'CORE_CRON_REMOVED\n'
   fi
   rm -rf -- "$scratch"
   exit "$status"
@@ -352,6 +365,16 @@ fixture_observation_diagnostic() {
   esac
 }
 fixture_compose() {
+  if [ "${4:-}" = --no-deps ]; then
+    local guard_expected=(run --rm -T --no-deps --user root --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh cli2)
+    local word
+    for word in "${guard_expected[@]}"; do [ "${1:-}" = "$word" ] || return 92; shift; done
+    [ "$mutation" != cron-install-failure ] || [ "${3:-}" != prepare ] || return 7
+    [ "$mutation" != cron-release-failure ] || [ "${3:-}" != release ] || return 7
+    (cd "$scratch/mu" && sh "$@") || return $?
+    [ "${3:-}" != prepare ] || touch "$scratch/cron-prepared"
+    return 0
+  fi
   local expected=(run --rm -T --volume "$PAIR_SOURCE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro"
     --volume "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures/core-private-refusal-evidence.php:/wprism-test/core-private-refusal-evidence.php:ro"
     --entrypoint php cli2 /wprism-test/core-private-refusal-evidence.php /wprism-test/PrivateRefusalReceipt.php)
@@ -368,12 +391,25 @@ fixture_compose() {
 }
 wp_conf2() {
   if [ "$1" = eval ]; then
+    if [[ "$2" = *WPRISM_TEST_CRON_WINDOW_TOKEN* ]]; then
+      [ "$mutation" != cron-premise-warning ] || printf 'PHP Warning: fixture cron premise\n' >&2
+      if [ "$mutation" = cron-premise-false ]; then printf '{"disabled":false,"owner":null}\n'; return; fi
+      "$php" -r 'require $argv[1]; eval($argv[2]);' "$scratch/mu/wprism-native-read-window.php" "$2"
+      return
+    fi
     local boundary=native-before
     [ ! -f "$scratch/applied" ] || boundary=native-after
     fixture_observation_diagnostic "$boundary"
     [ "$mutation" != empty-native ] || return 0
     local native_mutation=ready
     [ "$mutation" != native-change ] || [ ! -f "$scratch/applied" ] || native_mutation=native-change
+    if [ -f "$scratch/applied" ]; then
+      case "$mutation" in
+        cron-churn) [ -f "$scratch/mu/wprism-native-read-window.php" ] || native_mutation=cron-change ;;
+        cron-write-through-guard) native_mutation=cron-change ;;
+        durable-option-write) native_mutation=option-change ;;
+      esac
+    fi
     "$php" "$self" --native "$2" "$native_mutation" || return $?
     [ "$mutation" != "$boundary-nonzero" ] || return 7
     return 0
@@ -403,7 +439,9 @@ wprism_check(count($calls) === 5, 'all five direct-deletion acceptance sites use
 foreach ($calls as $index => $call) {
     $name = $call[1];
     $mutations = ['ready', 'empty-baseline', 'zero-exit', 'wrong-envelope', 'php-stdout', 'php-stderr', 'private-leak',
-        'stale', 'unrelated', 'incomplete', 'extra', 'missing-mount', 'native-change', 'empty-native'];
+        'stale', 'unrelated', 'incomplete', 'extra', 'missing-mount', 'native-change', 'empty-native',
+        'cron-churn', 'cron-write-through-guard', 'durable-option-write', 'cron-premise-false',
+        'cron-premise-warning', 'cron-install-failure', 'cron-release-failure'];
     foreach (['native-before', 'native-after', 'private-snapshot', 'private-verify'] as $boundary) {
         foreach (['php-stdout', 'php-stderr', 'nonzero'] as $failure) {
             $mutations[] = "$boundary-$failure";
@@ -415,7 +453,7 @@ foreach ($calls as $index => $call) {
     foreach ($mutations as $mutation) {
         [$status, $stdout, $stderr] = ShellProbe::run($setup . "\n" . $helpers . "\n" . $call[0] . "\nprintf 'CORE_READY\\n'\n",
             [$root, PHP_BINARY, $self, $name, $contexts[$name], $records[$name], $answers[$name], $mutation], $root);
-        $positive = in_array($mutation, ['ready', 'empty-baseline'], true);
+        $positive = in_array($mutation, ['ready', 'empty-baseline', 'cron-churn'], true);
         if ($positive && $status !== 0) {
             fwrite(STDERR, $stderr);
         }
@@ -425,7 +463,11 @@ foreach ($calls as $index => $call) {
                 && !str_contains($stdout . $stderr, 'private-core-fixture-value')
                 && !str_contains($stdout . $stderr, WPRISM_CORE_DELETION_EXCLUSION_CAUSE),
             "actual core deletion site $index ($name): $mutation is classified without private payload (exit $status)");
-        if ($positive || $mutation === 'native-change') {
+        if (!in_array($mutation, ['cron-install-failure', 'cron-release-failure'], true)) {
+            wprism_check(str_contains($stdout, 'CORE_CRON_REMOVED'),
+                "core deletion site $index removes its exact owned cron guard on $mutation success or refusal");
+        }
+        if ($positive || in_array($mutation, ['native-change', 'cron-write-through-guard', 'durable-option-write'], true)) {
             wprism_check(str_contains($stdout, 'CORE_PRIVATE_RETAINED'),
                 "core deletion site $index retains both bounded native row captures when $mutation completes or fails");
         }

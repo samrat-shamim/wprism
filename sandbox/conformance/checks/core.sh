@@ -1006,7 +1006,7 @@ core_capture_native_state() { # <output variable> <label> <private stage>
   fi
 }
 
-core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
+core_assert_deletion_exclusion() ( # <profile> <frozen-context> <apply-flags...>
   local profile="$1" context="$2" reason='' nodes=1 before='' after='' baseline='' output='' answer='' receipt='' rc=0
   local CORE_NATIVE_EVIDENCE
   shift 2
@@ -1022,6 +1022,16 @@ core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
   mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp"
   CORE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$PAIR_SOURCE_ROOT/sandbox/tmp/wprism-core-deletion.${profile}.XXXXXX")
   printf 'core deletion diagnostics (unverified): %s\n' "$CORE_NATIVE_EVIDENCE" >&2
+  . "$PAIR_SOURCE_ROOT/sandbox/tests/lib/wordpress_cron_window.sh"
+  core_cron_window_transport() {
+    wordpress_cron_window_compose_transport cli2 "$@"
+  }
+  trap 'wordpress_cron_window_exit "$?"' EXIT
+  trap 'exit 130' INT TERM
+  # The complete-row contract includes doing_cron. Like the fresh-map window
+  # below, control new spawning before baseline boot; writes through the guard
+  # and durable option changes must still fail the unchanged row comparison.
+  wordpress_cron_window_begin wp_conf2 core_cron_window_transport
   core_capture_native_state before 'core direct-deletion native and ledger baseline' native-before
   require_observed_nonempty "core direct-deletion native and ledger baseline" "$before"
   capture_wprism_json_success baseline 'core direct-deletion private baseline' \
@@ -1065,7 +1075,7 @@ core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
          {table:$table,before:$before[$table],after:$after[$table]}]}' >&2
     fail 'direct core deletion changed target posts, revisions, comments, relationships, options or identity/base/recovery ledgers'
   fi
-}
+)
 
 # issue #3210: absence alone is not authority; capture replaces the prior Home
 # page with a versioned tombstone. A target-only comment blocks deletion;
