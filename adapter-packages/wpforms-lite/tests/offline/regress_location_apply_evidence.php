@@ -22,6 +22,8 @@ wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned
     'recapture binds the actual Capture verb');
 wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'baseline-source'), $pointer) === 0,
     'native observation cannot smuggle a public-command diagnostic pointer');
+wprism_check(preg_match(WPFormsApplyEvidence::stderrPattern('wpfprov05', '/owned/root', 'refusal-apply'), $pointer) === 1,
+    'negative Apply retains the same exact public-command diagnostic pointer');
 $action = ['manifest' => 'wpforms-lite', 'index' => 0, 'kind' => 'provider',
     'provider' => 'wpforms-form-locations', 'capability' => 'rebuild_form_locations', 'args' => [],
     'effects' => [['id' => 'location-rows']]];
@@ -96,7 +98,7 @@ foreach ($cases as $label => $mutate) {
         'actual public-path admission refuses ' . $label, 'WPForms Apply evidence:');
 }
 
-$observation = static function (string $case, bool $target): array {
+$observation = static function (string $case, bool $target, bool $empty = false): array {
     $home = $target ? 'http://target.invalid' : 'http://source.invalid';
     $posts = [];
     foreach (['integer', 'string', 'template', 'destination', 'embed'] as $i => $role) {
@@ -129,6 +131,10 @@ $observation = static function (string $case, bool $target): array {
         }
     }
     $widgets = [['type' => 'widget', 'title' => 'Local orphan', 'form_id' => (string) $integer, 'id' => 'wpforms-widget-99']];
+    if ($empty) {
+        $families['wpforms-widget'] = [];
+        $widgets = [];
+    }
     if (in_array($case, ['widgets', 'routing'], true)) {
         $families['wpforms-widget'][100] = ['title' => 'Apply widget', 'form_id' => (string) $integer];
         $families['block'][3] = ['content' => '<!-- wp:wpforms/form-selector {"formId":"' . $integer . '"} /-->'];
@@ -143,14 +149,20 @@ $observation = static function (string $case, bool $target): array {
         if ($case === 'baseline' || $role === 'string') $locations[] = ['type' => 'page', 'title' => $posts['embed']['title'],
             'form_id' => $form, 'id' => $posts['embed']['id'], 'status' => 'publish', 'url' => substr($posts['embed']['url'], strlen($home))];
         if ($role === 'integer') $locations = array_merge($locations, $widgets);
-        $native[$role] = ['locations' => $locations, 'column' => str_repeat('class="wpforms-locations-list-item"', count($locations)),
+        $native[$role] = ['locations' => $locations === [] ? '' : $locations,
+            'column' => $locations === [] ? '—' : str_repeat('class="wpforms-locations-list-item"', count($locations)),
             'rendered' => 'id="wpforms-form-' . $form . '" data-token-time="1788860225" name="wpforms[fields][1]" name="wpforms[fields][2]"'];
-        $owned[] = ['meta_id' => count($owned) + 1, 'post_id' => $form, 'meta_key' => 'wpforms_form_locations', 'meta_value' => serialize($locations)];
+        if ($locations !== []) $owned[] = ['meta_id' => count($owned) + 1, 'post_id' => $form, 'meta_key' => 'wpforms_form_locations', 'meta_value' => serialize($locations)];
     }
+    $census = [];
+    if ($empty && $target) $census = ['sidebars' => ['sidebar-1' => [], 'array_version' => 3],
+        'content_roster' => array_values(array_map(static fn(array $post): array => ['ID' => (string) $post['id'],
+            'post_type' => $post['type'], 'post_name' => $post['slug'], 'post_parent' => '0', 'post_content' => $post['body'],
+            'post_title' => $post['title'], 'post_status' => $post['status']], $posts))];
     return ['format' => 'wprism-wpforms-apply-observation/v1', 'case' => $case, 'version' => '2.0.1.1', 'home' => $home,
         'posts' => $posts, 'native' => $native, 'widgets' => $widgets, 'widget_options' => $families, 'owned' => $owned,
         'block_form_ids' => $blockFormIds,
-        'padding' => array_map(static fn(int $id): array => ['ID' => $id, 'post_status' => 'trash'], range(200, 206))];
+        'padding' => array_map(static fn(int $id): array => ['ID' => $id, 'post_type' => 'post', 'post_status' => 'trash'], range(200, 206))] + $census;
 };
 $prior = $observation('baseline', true);
 foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {
@@ -235,5 +247,93 @@ foreach ($nativeCases as $label => $mutate) {
     $mutate($s, $b, $a, $r);
     wprism_check_throws(static fn() => WPFormsApplyEvidence::native('routing', $s, $b, $a, $r), RuntimeException::class,
         'actual native admission refuses ' . $label, 'WPForms Apply evidence:');
+}
+$emptyBefore = $observation('baseline', true, true);
+$emptyBefore['case'] = 'before';
+foreach (['posts', 'native', 'content_roster', 'owned', 'widgets'] as $field) $emptyBefore[$field] = [];
+$emptyBefore['sidebars'] = ['sidebar-1' => ['block-71', 'block-72'], 'wp_inactive_widgets' => [], 'array_version' => 3];
+WPFormsApplyEvidence::emptyBefore($emptyBefore);
+wprism_check(true, 'empty-content preimage has real local witnesses, not fabricated source post IDs');
+$prior = $emptyBefore;
+foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {
+    $source = $observation($case, false, true);
+    $target = $observation($case, true, true);
+    WPFormsApplyEvidence::native($case, $source, $prior, $target, $target, 'empty');
+    wprism_check(true, 'empty-target native admission accepts ' . $case . ' including genuinely absent location rows');
+    $prior = $target;
+}
+foreach (['hidden native form' => static function (&$b): void { $b['content_roster'][] = ['post_type' => 'wpforms', 'post_status' => 'trash']; },
+    'fake mapped posts' => static function (&$b): void { $b['posts']['integer'] = ['id' => 7]; },
+    'owned location row' => static function (&$b): void { $b['owned'][] = ['post_id' => 7]; },
+    'orphan widget' => static function (&$b): void { $b['widget_options']['wpforms-widget'][99] = ['form_id' => 7]; },
+    'native widget location' => static function (&$b): void { $b['widgets'][] = ['id' => 'wpforms-widget-2']; },
+    'sidebar-only widget' => static function (&$b): void { $b['sidebars']['sidebar-1'][] = 'wpforms-widget-2'; },
+    'block-hidden selector' => static function (&$b): void { $b['widget_options']['block'][71]['content'] = '<!-- wp:wpforms/form-selector {"formId":"7"} /-->'; },
+    'block roster missing' => static function (&$b): void { unset($b['block_form_ids'][71]); },
+    'block roster nonempty' => static function (&$b): void { $b['block_form_ids'][71] = [7]; },
+    'lost core witness' => static function (&$b): void { unset($b['widget_options']['block'][99], $b['block_form_ids'][99]); },
+    'duplicate trash witness' => static function (&$b): void { $b['padding'][1] = $b['padding'][0]; },
+    'capturable padding' => static function (&$b): void { $b['padding'][0]['post_status'] = 'publish'; }] as $label => $mutate) {
+    $b = $emptyBefore;
+    $mutate($b);
+    wprism_check_throws(static fn() => WPFormsApplyEvidence::emptyBefore($b), RuntimeException::class,
+        'empty-content admission refuses ' . $label, 'WPForms Apply evidence:');
+}
+$unlocated = $observation('embeds', true, true);
+foreach (['stored empty row' => static function (&$a): void {
+    $a['owned'][] = ['meta_id' => 9, 'post_id' => $a['posts']['integer']['id'], 'meta_key' => 'wpforms_form_locations', 'meta_value' => serialize([])];
+}, 'wrong native absence' => static function (&$a): void { $a['native']['integer']['locations'] = []; },
+    'wrong empty column' => static function (&$a): void { $a['native']['integer']['column'] = ''; }] as $label => $mutate) {
+    $a = $unlocated;
+    $mutate($a);
+    wprism_check_throws(static fn() => WPFormsApplyEvidence::native('embeds', $observation('embeds', false, true),
+        $observation('baseline', true, true), $a, $a, 'empty'), RuntimeException::class,
+        'unlocated form admission refuses ' . $label, 'WPForms Apply evidence:');
+}
+foreach (['embeds', 'widgets', 'routing'] as $case) {
+    foreach (['extra physical post' => static function (&$a): void { $a['content_roster'][] = $a['content_roster'][0]; },
+        'missing physical post' => static function (&$a): void { array_pop($a['content_roster']); },
+        'duplicate hiding lost physical post' => static function (&$a): void { $a['content_roster'][1] = $a['content_roster'][0]; },
+        'coordinated trash status' => static function (&$a): void { $a['posts']['integer']['status'] = $a['content_roster'][0]['post_status'] = 'trash'; },
+        'unbound physical title' => static function (&$a): void { $a['content_roster'][0]['post_title'] .= ' changed'; }] as $label => $mutate) {
+        $a = $observation($case, true, true);
+        $mutate($a);
+        wprism_check_throws(static fn() => WPFormsApplyEvidence::native($case, $observation($case, false, true),
+            $observation('baseline', true, true), $a, $a, 'empty'), RuntimeException::class,
+            $case . ' empty-target census refuses ' . $label, 'WPForms Apply evidence:');
+    }
+}
+$a = $observation('embeds', true, true);
+$stable = $a;
+$stable['content_roster'][0]['post_modified_gmt'] = 'unexpected post-write';
+wprism_check_throws(static fn() => WPFormsApplyEvidence::native('embeds', $observation('embeds', false, true),
+    $observation('baseline', true, true), $a, $stable, 'empty'), RuntimeException::class,
+    'empty-target repeat preserves every physical post column, not only the native projection', 'WPForms Apply evidence:');
+$stable = $a;
+$stable['sidebars']['sidebar-1'] = ['block-999'];
+wprism_check_throws(static fn() => WPFormsApplyEvidence::native('embeds', $observation('embeds', false, true),
+    $observation('baseline', true, true), $a, $stable, 'empty'), RuntimeException::class,
+    'empty-target repeat preserves complete native sidebar assignments', 'WPForms Apply evidence:');
+$diagnostics = [['code' => 'semantic_delete_reference', 'path' => 'posts/page/10000000-0000-4000-8000-000000000005--wprism-wpf-embed.md',
+    'locator' => 'body', 'message' => 'reference target 10000000-0000-4000-8000-000000000099 is absent from the compiled revision']];
+$refusal = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+    'error' => 'repository_compilation_failed', 'reason_code' => 'repository_compilation_failed',
+    'message' => 'repository compilation refused this command', 'remediation' => 'repair the source graph', 'diagnostics' => $diagnostics];
+WPFormsApplyEvidence::refused($emptyBefore, $emptyBefore, $refusal, $diagnostics);
+wprism_check(true, 'typed compiler refusal binds complete diagnostics and unchanged empty native witnesses');
+foreach (['wrong command' => static function (&$a, &$r, &$d): void { $r['command'] = 'plan'; },
+    'success envelope' => static function (&$a, &$r, &$d): void { $r['ok'] = true; },
+    'unclassified error' => static function (&$a, &$r, &$d): void { $r['reason_code'] = 'apply_failed'; },
+    'redacted unknown cause' => static function (&$a, &$r, &$d): void { $r['details_redacted'] = true; },
+    'provider executed' => static function (&$a, &$r, &$d): void { $r['actions'] = [['manifest' => 'wpforms-lite']]; },
+    'diagnostic hidden' => static function (&$a, &$r, &$d): void { $r['diagnostics'] = []; },
+    'wrong native diagnostic' => static function (&$a, &$r, &$d): void { $r['diagnostics'][0]['path'] = 'other'; },
+    'wrong host cause' => static function (&$a, &$r, &$d): void { $d[0]['code'] = 'malformed_reference'; $r['diagnostics'] = $d; },
+    'lost target-local bytes' => static function (&$a, &$r, &$d): void { $a['padding'][0]['unexpected'] = 'changed'; },
+    'assigned core widgets changed' => static function (&$a, &$r, &$d): void { $a['sidebars']['sidebar-1'] = []; }] as $label => $mutate) {
+    [$a, $r, $d] = [$emptyBefore, $refusal, $diagnostics];
+    $mutate($a, $r, $d);
+    wprism_check_throws(static fn() => WPFormsApplyEvidence::refused($emptyBefore, $a, $r, $d), RuntimeException::class,
+        'native refusal admission rejects ' . $label, 'WPForms Apply evidence:');
 }
 wprism_check_summary('regress_wpforms_location_apply_evidence');

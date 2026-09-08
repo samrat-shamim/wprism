@@ -431,3 +431,67 @@ convergence. Readiness remains experimental: this is native content-only
 Apply evidence, not managed-code installation/deploy, lifecycle, native
 server-fault recovery, deletion, submission/mail isolation or plugin-combination
 certification.
+
+### Empty-content target creation and preflight refusal
+
+Source `d49152a0f9e3b9b6aace91df0f73dd3d1c84f0cb`, locked WPForms Lite
+2.0.1.1, owned MariaDB pair `wpfempty02`: the same ordinary Apply driver passed
+with `WPFORMS_APPLY_TARGET_KIND=empty`. The plugin was already installed and
+active. The target never ran the source wizard/form writers; an all-status
+physical census proved both WPForms post types and the named fixture pages
+absent, alongside absent location rows and WPForms widget placements.
+This is empty **authored content**, not a blank WordPress installation or
+managed-code installation/activation evidence.
+
+The initial public plan contained five creates derived from the real source
+compiler, four Core default adoptions, and two updates. Admission requires the
+complete CREATE bucket to equal those five source UUID/type/path rows; every
+other plan row must also name a real compiled entity. Fresh native target IDs
+were distinct from source IDs, mapped to those exact UUIDs, and consumed by
+the native integer/string self-ID documents, confirmation pages/redirects,
+shortcode/block embeds, renderer and Locator. The template retained no self-ID
+and received no derived location row.
+
+| Native case | Authored operations | Verified provider actions | Repeat writes/actions | Fresh canonical verification |
+| --- | ---: | ---: | --- | --- |
+| Empty-content creation | 11 | 1 | 0 / 0 | pass |
+| Last integer-form embed removed | 1 | 1 | 0 / 0 | pass |
+| Sidebar/widget-only change | 1 | 1 | 0 / 0 | pass |
+| Page title/slug-only change | 1 | 1 | 0 / 0 | pass |
+
+The second case leaves the integer form genuinely unlocated: its physical
+location row is absent, `get_post_meta(..., true)` returns `''`, and the native
+unscanned Locator column is `—` (`Locator.php:261-270` in the locked artifact).
+An empty serialized array is not equivalent evidence. Every post-creation
+case checks the complete physical post census, native type/status/title/body
+binding and repeat equality, not only the initial creation case.
+
+Target-local preservation means the seven complete trash rows and the
+**unassigned** core block99 sentinel. Managed sidebar assignments are
+source-authored: their numeric slots may be reallocated, and the widgets case
+deliberately replaces the source's old managed core widgets. Full compiler
+convergence binds those assignments; raw before/after sidebar equality would
+incorrectly reject that intended change. The complete resulting native sidebar
+option and physical rows must be identical on repeat.
+
+Before initial creation, the driver changed exactly one source-derived
+shortcode reference to an absent UUID. The complete retained negative tree
+differs in only those bytes. Ordinary `wp wprism apply` exited 1 with
+`repository_compilation_failed` / `semantic_delete_reference`; independent
+compilation reproduces the exact diagnostic. Complete native absence/local
+witnesses were byte-identical before and after. Restoring the original source
+recompiled to the exact baseline artifact before the successful Apply.
+
+All 59 retained phase commands have their expected status (58 successes and
+one deliberate refusal). The producer exited 0 and emitted PASS only after
+its exact pair, databases and disposable repositories were destroyed and its
+lease released. Streams plus twelve positive source/recapture trees and the
+negative source tree remain under the producer worktree at
+`sandbox/tmp/wpforms-apply-native.tIQJAN/`; the outer run is
+`sandbox/tmp/empty-native-v2.{stdout,stderr,exit}`. Read-only re-admission passed
+all four cases with empty stderr at `sandbox/tmp/empty-native-v2-readmit.*`.
+An earlier launch with a wrong caller umask was intentionally interrupted
+(exit 130) during pair bootstrap and fully cleaned up; it is not native
+evidence. No shipped package bytes changed in this follow-up. WPForms remains
+experimental, with the broader readiness gaps listed in
+`production-readiness.json`.
