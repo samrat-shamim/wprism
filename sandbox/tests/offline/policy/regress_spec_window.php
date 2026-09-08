@@ -365,6 +365,7 @@ wprism_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'qi-blocks',
         'rank-math',
         'redirection',
         'the-events-calendar',

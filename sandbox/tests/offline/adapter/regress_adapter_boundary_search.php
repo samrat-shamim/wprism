@@ -176,7 +176,7 @@ wprism_check_same(
     '17 of the 18 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 wprism_check_same(
-    ['wpforms-lite'],
+    ['qi-blocks', 'wpforms-lite'],
     array_keys($exerciseOnly),
     'unqualified blocks with exercise/refusal fixtures are not bisection results, so the search never proposes it'
 );

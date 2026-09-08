@@ -354,6 +354,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '933ff6b878ef3545597b9111aeade9aa13d54389a168f9a44ddee89984991e17',
+    'qi-blocks' => '437e4846e1c0ef58ecdcfa694af21edff4715d26292bffb8536df8244645bdab',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
@@ -364,11 +365,11 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '968c2eb9047d3c915f39e9dd094ae9cc04daf1b7e1fa175fb91a7bbaa0eb2226';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '7df2e24bc021a38e55554df9eab308fa4e36116c05941d0f80730c815b2ffb54';
-const WPRISM_CURRENT_REGISTRY_SHA = '241cd807eaa6781874c750fa6797b45b67ff41666987b432126a8bbb3b0a72c3';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'f846b1a552c433f355dff4ef6b4d0e78808a81f1682b0f40693f9ff644c1b561';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '08d4b1377bab366d042e11a79ce413f79fe7755687a28d5a2602c1f72cd8bd03';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '7d2e1d886f65d5876ae49431e26678f2ec8a03c00cdbe9c3c61ace16591c0993';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '535b535dfc8cf8772a079b3c15fdd961de1230f7ae026b5348983eed1443f88c';
+const WPRISM_CURRENT_REGISTRY_SHA = 'c02f1ab140271a3d906e4c922ff7f4de860f32e2235e23d2fd4b1a078f92ad12';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '76c2805d8a577d511063a3d6d4384fc2180686c9b3ac1b920896cc4c4e3e07f2';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '03f708f9c4a4311d34269e6cf1aa7ff41eeefbd13e08c11f24bec8ccd68624eb';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -688,9 +689,9 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
 $priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['wpforms-lite'], $priorRegistry['manifests']['change-wp-admin-login']);
+unset($priorRegistry['manifests']['wpforms-lite'], $priorRegistry['manifests']['change-wp-admin-login'], $priorRegistry['manifests']['qi-blocks']);
 wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 18 pre-existing reviewed dispositions remain byte-identical after adding the WPForms and AIO Login previews');
+    'all 18 pre-existing reviewed dispositions remain byte-identical after adding WPForms, AIO Login and Qi Blocks');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
     'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
@@ -812,7 +813,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(21, $documentCount, 'the reviewed source is 21 documents: 20 subjects and the profiles map');
+wprism_check_same(22, $documentCount, 'the reviewed source is 22 documents: 21 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

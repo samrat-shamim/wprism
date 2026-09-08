@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Experimental exact Qi Blocks 1.5.2 declarations follow native schemas, saved content and option writers. Package-local offline portability and shared key-bound string checks pass; native editor convergence, lifecycle and host promotion remain unqualified.",
+  "reason": "Experimental exact Qi Blocks 1.5.2 declarations follow native schemas, saved content and option writers. Deterministic capture/compiler/recapture and native corpus preparation checks pass. Source conformance is an authoring workflow, not completed native editor, lifecycle or host-promotion qualification; no production authorization.",
   "supported_versions": {
     "plugin": "qi-blocks/class-qi-blocks.php",
     "range": {
@@ -16,7 +16,9 @@
       "block_media_derivatives"
     ],
     "operations": [
-      "compile"
+      "capture",
+      "compile",
+      "recapture"
     ],
     "lifecycle_phases": [],
     "deletion_semantics": {
@@ -31,7 +33,8 @@
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
       "regress-native-content",
-      "regress-native-options"
+      "regress-native-options",
+      "regress-conformance-corpus"
     ]
   },
   "unsupported": [

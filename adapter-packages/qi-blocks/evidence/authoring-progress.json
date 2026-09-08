@@ -63,14 +63,29 @@
       "manifest_lines": 2129,
       "expanded_rules": 7497,
       "expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"
+    },
+    "conformance_corpus": {
+      "script": "tests/offline/regress_conformance_corpus.php",
+      "exit": 0,
+      "assertions": 91,
+      "native_block_types": 47,
+      "native_instances": 50,
+      "native_selector_frames": 84,
+      "scope": "Independent standalone native corpus preparation compared with actual block capture; target hook refuses. Native REST writer/capture-plan conformance is authored but not yet executed."
     }
   },
+  "quality_gates": {
+    "regress-offline-all": {"exit": 0, "shared_suites": 375, "packages": 20, "package_tests": 78, "scenario_gates": 9, "scenarios": 5},
+    "composer check": {"exit": 0, "phpunit_tests": 1322, "phpunit_assertions": 36534},
+    "release-gate": {"exit": 0},
+    "scope": "Current compact declarations, shared codecs, Qi source-conformance corpus and measured library integration; native source conformance has not yet run."
+  },
   "limitations": [
-    "This is an experimental draft, not a production qualification or a passing full offline aggregate.",
+    "This is an experimental draft, not a production qualification. Complete current aggregate results are recorded separately from targeted checks.",
     "No Qi capsule live round trip, version matrix, host conformance or hostile readiness claim yet.",
     "Signature, progress-bar images, empty galleries and responsive crop controls still need native Save/reopen evidence.",
     "The broad native engine media probe is separate from this capsule and does not qualify its editor behavior."
   ],
-  "source_engine_base_commit": "596d9b29",
-  "source_engine_state": "working-tree implementation of key-bound-strings/v1 and block-attribute-groups/v1"
+  "source_engine_base_commit": "74f80f77",
+  "source_engine_state": "working-tree Qi source conformance and measured library integration; shared codec engine unchanged"
 }

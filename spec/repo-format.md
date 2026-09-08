@@ -1173,7 +1173,7 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-21 documents, 1,490 lines, 66,065 bytes — the current entries and profile, addressed as 21 roots
+22 documents, 1,547 lines, 67,731 bytes — the current entries and profile, addressed as 22 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
@@ -1682,7 +1682,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 20 adapter names, 21 `id_kind`s, 16 provider ids = 57 identities, all of which already pass the one
+- 21 adapter names, 21 `id_kind`s, 16 provider ids = 58 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **28** of them — the 7 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 21 `id_kind`s, every one of

@@ -386,6 +386,7 @@ wprism_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'qi-blocks',
         'rank-math',
         'redirection',
         'the-events-calendar',
@@ -413,7 +414,7 @@ $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
 $outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
 wprism_check_same(
-    ['attr_id_codecs', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    ['attr_id_codecs', 'block_media_derivatives', 'block_values', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $outsidePartition,
     'the shipped keys outside the signer partition are exactly the feature-claimed sections'
 );

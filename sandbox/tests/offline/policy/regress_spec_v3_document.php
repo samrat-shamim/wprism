@@ -229,13 +229,14 @@ wprism_check_same(
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'agent/src/Policy/Policy.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER beside six gate readers of exact declarations or '
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside seven gate readers of exact declarations or '
         . 'interpreter ownership, and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
@@ -438,7 +439,7 @@ wprism_check_same(
 // subsection whose "Enforced today:" line says "yes" about one half must not be
 // readable as a claim about the other.
 wprism_check(
-    count($adapterLibrary->packages()) === 20
+    count($adapterLibrary->packages()) === 21
         && !file_exists($repo . '/manifests')
         && array_reduce(
             $adapterLibrary->packages(),
@@ -877,9 +878,9 @@ wprism_check(
     . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
 );
 wprism_check_same(
-    20,
+    21,
     $entryCount,
-    'the current split has exactly 20 subject documents, independently of the historical monolith count'
+    'the current split has exactly 21 subject documents, independently of the historical monolith count'
 );
 wprism_check_same(['fse'], $profileNames, 'and `profiles` is the one row the split gave its own document');
 

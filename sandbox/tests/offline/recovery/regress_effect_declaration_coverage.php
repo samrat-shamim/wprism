@@ -42,10 +42,10 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only. The two
- * maximal compatible worlds project 405 effects / 120 database selectors
- * (Rank Math world) and 394 / 111 (Yoast world); the remainder selects external
+ * maximal compatible worlds project 406 effects / 120 database selectors
+ * (Rank Math world) and 395 / 111 (Yoast world); the remainder selects external
  * hooks, cache namespaces and provider resources that no journal row can
- * confirm or refute. Nine of the nineteen adapters declare no journal-observable effect at all. That is reported as
+ * confirm or refute. Ten of the nineteen adapters in each compatible world declare no journal-observable effect at all. That is reported as
  * `scorable => false` rather than as a clean score, and asserted below, because
  * the honest answer to "can this become blocking?" has to start from how much
  * of the library it can see.
@@ -120,8 +120,8 @@ $aioPins = ['core', 'change-wp-admin-login'];
 $aioPolicy = Policy::load(null, $aioPins, true, null, $adapterLibrary);
 $worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins, $aioPins)));
 sort($worldUnion, SORT_STRING);
-wprism_check_same(18, count($rankWorldPins), 'the established Rank Math world excludes Yoast and the separate AIO Login candidate');
-wprism_check_same(18, count($yoastWorldPins), 'the established Yoast world excludes Rank Math and the separate AIO Login candidate');
+wprism_check_same(19, count($rankWorldPins), 'the established Rank Math world excludes Yoast and the separate AIO Login candidate');
+wprism_check_same(19, count($yoastWorldPins), 'the established Yoast world excludes Rank Math and the separate AIO Login candidate');
 wprism_check_same($shipped, $worldUnion, 'the three executable worlds cover every shipped adapter');
 
 // The behavioral probes below need WooCommerce and Rank Math but not Yoast.
@@ -216,17 +216,17 @@ echo "\n== the measured baseline: every shipped adapter across three compatible 
 
 $rankWorldFixture = edc_derived_fixture($rankWorldPolicy);
 $yoastWorldFixture = edc_derived_fixture($yoastWorldPolicy);
-wprism_check_same(661, count($rankWorldFixture), 'the Rank Math world fixture contains every database surface its valid policy declares');
-wprism_check_same(647, count($yoastWorldFixture), 'the Yoast world fixture contains every database surface its valid policy declares');
+wprism_check_same(670, count($rankWorldFixture), 'the Rank Math world fixture contains every database surface its valid policy declares');
+wprism_check_same(656, count($yoastWorldFixture), 'the Yoast world fixture contains every database surface its valid policy declares');
 
 $rankWorldBaseline = EffectDeclarationCoverage::from_facts($rankWorldPolicy, ['rows' => $rankWorldFixture]);
 $yoastWorldBaseline = EffectDeclarationCoverage::from_facts($yoastWorldPolicy, ['rows' => $yoastWorldFixture]);
 foreach ([
-    'Rank Math world' => [$rankWorldBaseline, 405, 120, 3218],
-    'Yoast world' => [$yoastWorldBaseline, 394, 111, 3686],
+    'Rank Math world' => [$rankWorldBaseline, 406, 120, 3272],
+    'Yoast world' => [$yoastWorldBaseline, 395, 111, 3749],
 ] as $label => [$report, $declared, $observable, $scored]) {
     wprism_check_same(EffectDeclarationCoverage::FORMAT, $report['format'], "$label names the versioned report format");
-    wprism_check_same(18, $report['totals']['adapters'], "$label reports each pinned adapter, scorable or not");
+    wprism_check_same(19, $report['totals']['adapters'], "$label reports each pinned adapter, scorable or not");
     wprism_check_same($declared, $report['totals']['declared_effects'], "$label measures its complete effects inventory");
     wprism_check_same($observable, $report['totals']['observable_effects'], "$label measures every database-checkpoint selector");
     wprism_check_same(9, $report['totals']['scorable_adapters'], "$label names only adapters with journal-observable effects as scorable");
@@ -322,7 +322,7 @@ wprism_check_same(5, $yoast['observable_effects'], 'five Yoast effects are datab
 wprism_check_same(5, $yoast['exercised_effects'], 'the Yoast-world fixture exercises every observable Yoast effect');
 
 $woo = edc_adapter($baseline, 'woocommerce');
-wprism_check_same(280, $woo['declared_effects'], 'woocommerce declares 280 of the Rank Math world\'s 405 effect rows');
+wprism_check_same(280, $woo['declared_effects'], 'woocommerce declares 280 of the Rank Math world\'s 406 effect rows');
 wprism_check_same(86, $woo['observable_effects'], '86 of them are journal-observable');
 wprism_check_same(86, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
 wprism_check_same([], $woo['unexercised_effects'], 'nothing is left unexercised when every declared surface is written');

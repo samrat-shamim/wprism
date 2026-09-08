@@ -42,12 +42,15 @@ use WPrism\Policy;
 // sets. Adding AIO Login preserves those pins and adds a separate compatible
 // world; the whole-registry address moves again under the documented WP-4.5
 // boundary, while all pre-existing adapter digests remain byte-pinned.
-const BASELINE_FIXTURE_SHA256 = 'd96fd365c8171e5d1d8d4e10e8064a3ff4b6dfe738d5aa6ca3752de145b0122d';
-const RANK_WORLD_MANIFEST_HASH = '968c2eb9047d3c915f39e9dd094ae9cc04daf1b7e1fa175fb91a7bbaa0eb2226';
-const YOAST_WORLD_MANIFEST_HASH = '7df2e24bc021a38e55554df9eab308fa4e36116c05941d0f80730c815b2ffb54';
-const REGISTRY_SHA256 = '241cd807eaa6781874c750fa6797b45b67ff41666987b432126a8bbb3b0a72c3';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'f846b1a552c433f355dff4ef6b4d0e78808a81f1682b0f40693f9ff644c1b561';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '08d4b1377bab366d042e11a79ce413f79fe7755687a28d5a2602c1f72cd8bd03';
+// Qi adds one subject to both compatible worlds and a core+Qi pin set. The
+// measured twenty pre-existing digests and smaller manifest pin sets stay
+// byte-identical; only their whole-registry snapshots incur the known cost.
+const BASELINE_FIXTURE_SHA256 = 'bd50209d7eccd13012f27f811bd6c16f3c00ae6932af94c1e916c91d69d17c0c';
+const RANK_WORLD_MANIFEST_HASH = '7d2e1d886f65d5876ae49431e26678f2ec8a03c00cdbe9c3c61ace16591c0993';
+const YOAST_WORLD_MANIFEST_HASH = '535b535dfc8cf8772a079b3c15fdd961de1230f7ae026b5348983eed1443f88c';
+const REGISTRY_SHA256 = 'c02f1ab140271a3d906e4c922ff7f4de860f32e2235e23d2fd4b1a078f92ad12';
+const RANK_WORLD_SNAPSHOT_SHA256 = '76c2805d8a577d511063a3d6d4384fc2180686c9b3ac1b920896cc4c4e3e07f2';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '03f708f9c4a4311d34269e6cf1aa7ff41eeefbd13e08c11f24bec8ccd68624eb';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
@@ -82,8 +85,8 @@ sort($actualNames, SORT_STRING);
 wprism_check_same($actualNames, $baselineNames, 'the literal identity baseline covers the actual library, including newly added capsules');
 wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'yoast'])), $rankPins, 'the Rank-compatible world is the original subject set except Yoast');
 wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'rank-math'])), $yoastPins, 'the Yoast-compatible world is the original subject set except Rank Math');
-wprism_check_same(18, count($rankPins), 'the Rank-compatible maximal world contains 18 adapters');
-wprism_check_same(18, count($yoastPins), 'the Yoast-compatible maximal world contains 18 adapters');
+wprism_check_same(19, count($rankPins), 'the Rank-compatible maximal world contains 19 adapters');
+wprism_check_same(19, count($yoastPins), 'the Yoast-compatible maximal world contains 19 adapters');
 $worldUnion = array_values(array_unique(array_merge($rankPins, $yoastPins, $baseline['pin_sets']['core+change-wp-admin-login']['pins'])));
 sort($worldUnion, SORT_STRING);
 wprism_check_same($baselineNames, $worldUnion, 'the compatible worlds jointly cover all shipped adapters');
@@ -111,7 +114,7 @@ ksort($observedDigests, SORT_STRING);
 wprism_check_same(
     $baseline['adapter_digests'] ?? null,
     $observedDigests,
-    'the compatible-world union exactly matches all 20 shipped adapter digests'
+    'the compatible-world union exactly matches all 21 shipped adapter digests'
 );
 wprism_check_same(
     array_keys($baseline['adapter_digests'] ?? []),
@@ -136,25 +139,30 @@ wprism_check_same(
 );
 
 $observedPinHashes = [];
+$observedSnapshotHashes = [];
 foreach ((array) ($baseline['pin_sets'] ?? []) as $label => $expected) {
     $pins = is_array($expected) ? ($expected['pins'] ?? null) : null;
     wprism_check(is_array($pins) && array_is_list($pins), "pin set '$label' is an ordered list");
     if (!is_array($pins)) {
         continue;
     }
-    $observedPinHashes[(string) $label] = ArtifactPolicyIdentity::manifest_hash(
-        Policy::load(null, $pins, adapterLibrary: $adapterLibrary)
-    );
+    $pinPolicy = Policy::load(null, $pins, adapterLibrary: $adapterLibrary);
+    $observedPinHashes[(string) $label] = ArtifactPolicyIdentity::manifest_hash($pinPolicy);
+    $observedSnapshotHashes[(string) $label] = hash('sha256', Canon::encode($pinPolicy->export_snapshot()));
 }
 $expectedPinHashes = [];
+$expectedSnapshotHashes = [];
 foreach ((array) ($baseline['pin_sets'] ?? []) as $label => $expected) {
     $expectedPinHashes[(string) $label] = is_array($expected) ? ($expected['manifest_hash'] ?? null) : null;
+    $expectedSnapshotHashes[(string) $label] = is_array($expected) ? ($expected['snapshot_sha256'] ?? null) : null;
 }
 wprism_check_same(
     $expectedPinHashes,
     $observedPinHashes,
     'every representative repository pin map exactly binds its current WPrism manifest hash'
 );
+wprism_check_same($expectedSnapshotHashes, $observedSnapshotHashes,
+    'every representative pin set, including core+Qi, binds its exact frozen policy snapshot');
 $worldManifestHashes = [
     'rank-world' => RANK_WORLD_MANIFEST_HASH,
     'yoast-world' => YOAST_WORLD_MANIFEST_HASH,
