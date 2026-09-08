@@ -44,12 +44,14 @@ use WPrism\Policy;
 // and the reviewed registry; no unrelated adapter or smaller pin set moves.
 // Native Lite settings review narrows two Pro-only controls to local state;
 // only WPForms and its two containing worlds move, not the reviewed registry.
-const BASELINE_FIXTURE_SHA256 = 'e32ef7f423decf1561627f3af911cdd755c13b745409f041d74cb60aedb8be40';
-const RANK_WORLD_MANIFEST_HASH = 'af24228b63b27dda4bf340809775f8340d5f9ed36446dce9c93018b3c19ae79b';
-const YOAST_WORLD_MANIFEST_HASH = 'c1aa6d89c57d244f5035b9298a2a43a604de25b005ef2b0c0183ab1ded1a9902';
-const REGISTRY_SHA256 = 'd7fbe8e3aa12dbe2fbd1c0dfcfc209444e58c4dd8366586944602238f9cff3b6';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'e2a7c90b5759fd3a84de7d7a0826bc7dbbaf3bf3de4317aad3dfd414fe3948bc';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '97e5aef666c52f3cb35e6c459d690afb7d7cf36da3c4b2bfec66e97692b585a5';
+// Withdrawing Yoast Duplicate Post's unproved managed-clone certification
+// moves its disposition, both containing worlds and the whole-registry snapshots.
+const BASELINE_FIXTURE_SHA256 = '73074ba723c71e030598b9d7e50c10cf13ced600ac33e023c02d3c7baf1d1fb8';
+const RANK_WORLD_MANIFEST_HASH = '37fb63ff449c34d5640c8784cfa137ffac026e6caca0a709d5f72af573ec51d3';
+const YOAST_WORLD_MANIFEST_HASH = '9a82f4109840f1664159fea9e24fd4ead969f9f601bcc21cbf62fc8d03a42a24';
+const REGISTRY_SHA256 = '8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc';
+const RANK_WORLD_SNAPSHOT_SHA256 = '454e99aed56b98e0b09e0f09d0902d21933cf8bce584d80d2261bc00d6860e34';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'bc6ce45921fb339252902621cb0e4a6725286b8a5c8b7058fdb19241d088a673';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

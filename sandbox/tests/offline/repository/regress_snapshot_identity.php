@@ -503,6 +503,67 @@ $throws(
     'embedded identity validation refuses its high-cardinality frontier before building an unbounded owner list'
 );
 
+// Native duplication after first capture is a different identity boundary
+// from cloning an unmanaged post. A copy/import can carry the original UUID
+// without carrying its ledger history; the guard must not choose an owner or
+// silently rotate either row. Use the shared row interpreter, not a canned
+// duplicate response, so both the physical census and the refusal execute.
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
+$copiedUuid = '11111111-1111-4111-8111-111111111111';
+$independentUuid = '22222222-2222-4222-8222-222222222222';
+foreach ([
+    'managed original, unassigned new post' => [[], [], null],
+    'copied post identity' => [
+        [['meta_id' => 2, 'post_id' => 13, 'meta_key' => '_wprism_uuid', 'meta_value' => $copiedUuid]], [],
+        "wprism: duplicate _wprism_uuid $copiedUuid is attached to post:12, post:13; copied metadata must be replaced with a fresh identity before capture",
+    ],
+    'multiple copied owners' => [
+        [
+            ['meta_id' => 2, 'post_id' => 3100001, 'meta_key' => '_wprism_uuid', 'meta_value' => $copiedUuid],
+            ['meta_id' => 3, 'post_id' => 13, 'meta_key' => '_wprism_uuid', 'meta_value' => $copiedUuid],
+        ], [],
+        "wprism: duplicate _wprism_uuid $copiedUuid is attached to post:12, post:13, post:3100001; copied metadata must be replaced with a fresh identity before capture",
+    ],
+    'duplicate metadata on original' => [
+        [['meta_id' => 2, 'post_id' => 12, 'meta_key' => '_wprism_uuid', 'meta_value' => $copiedUuid]], [],
+        'wprism: duplicate _wprism_uuid metadata rows on post:12 (2 rows); refusing to choose one',
+    ],
+    'cross-kind copied identity' => [[],
+        [['meta_id' => 1, 'term_id' => 20, 'meta_key' => '_wprism_uuid', 'meta_value' => $copiedUuid]],
+        "wprism: duplicate _wprism_uuid $copiedUuid is attached to post:12, term:20; copied metadata must be replaced with a fresh identity before capture",
+    ],
+    'independent durable identities' => [
+        [['meta_id' => 2, 'post_id' => 13, 'meta_key' => '_wprism_uuid', 'meta_value' => $independentUuid]], [], null,
+    ],
+] as $case => [$postMetadata, $termMetadata, $expectedMessage]) {
+    $copyDb = new \WPrismTest\FakeWpdb();
+    $physical = [
+        'wp_posts' => [['ID' => 12, 'post_title' => 'Managed original'], ['ID' => 13, 'post_title' => 'Native copy'], ['ID' => 3100001, 'post_title' => 'Second copy']],
+        'wp_postmeta' => array_merge([
+            ['meta_id' => 1, 'post_id' => 12, 'meta_key' => '_wprism_uuid', 'meta_value' => $copiedUuid],
+        ], $postMetadata),
+        'wp_terms' => [['term_id' => 20]],
+        'wp_termmeta' => $termMetadata,
+        'wp_wprism_map' => [['uuid' => $copiedUuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 12]],
+        'wp_wprism_state' => [['uuid' => $copiedUuid, 'entity_type' => 'post', 'state_hash' => str_repeat('a', 64)]],
+    ];
+    foreach ($physical as $table => $rows) $copyDb->seedTable($table, $rows);
+    $GLOBALS['wpdb'] = $copyDb;
+    $actualMessage = null;
+    try {
+        \WPrism\Identity::assert_embedded_unique();
+    } catch (\RuntimeException $failure) {
+        $actualMessage = $failure->getMessage();
+    }
+    $check($actualMessage === $expectedMessage, "$case: exact physical-owner verdict");
+    foreach ($physical as $table => $rows) {
+        $check($copyDb->rows($table) === $rows, "$case: complete $table preimage is unchanged");
+    }
+    $check(count($copyDb->queries()) >= 3
+        && !array_filter($copyDb->queries(), static fn(string $sql): bool => !str_starts_with($sql, 'SELECT ')),
+        "$case: identity diagnosis reads real rows without minting, mapping, pruning or repair");
+}
+
 if ($failures !== []) {
     fwrite(STDERR, count($failures) . " snapshot-identity regression(s) failed\n");
     exit(1);
