@@ -102,15 +102,26 @@ foreach (['before_false', 'before_throw', 'after_false', 'after_throw', 'after_r
     Db::rollback('post-SET rollback');
 }
 
-foreach (['before_false', 'before_throw', 'success_no_apply', 'after_reconnect_same_id_replay'] as $outcome) {
-    $wpdb = rr_fixture()->injectTransactionOutcome('START', $outcome);
+foreach (['before_false', 'before_throw', 'acknowledged_without_execution', 'after_reconnect_same_id_replay'] as $outcome) {
+    $wpdb = rr_fixture();
+    if ($outcome === 'acknowledged_without_execution') {
+        // injectTransactionOutcome('START', 'success_no_apply') throws in
+        // the fake before simulating the control; use the actual no-op ack.
+        $wpdb->acknowledgeNextQueryWithoutExecution('START TRANSACTION');
+    } else {
+        $wpdb->injectTransactionOutcome('START', $outcome);
+    }
     $failure = rr_failure(static fn() => Db::start_repeatable_read(
         "START $outcome", new NativeDatabaseProfile([])
     ));
-    $expectedFailure = $outcome === 'after_reconnect_same_id_replay'
+    $expectedFailure = in_array($outcome, ['acknowledged_without_execution', 'after_reconnect_same_id_replay'], true)
         ? DatabaseTransactionOutcomeException::class : DatabaseMutationException::class;
     wprism_check($failure instanceof $expectedFailure,
         "START $outcome refuses an unproved original transaction");
+    if ($outcome === 'acknowledged_without_execution') {
+        wprism_check(str_contains($failure?->getMessage() ?? '', 'reported success without starting'),
+            'the acknowledged no-op START refuses its inactive postimage, not an unsupported fake control');
+    }
     wprism_check_same(null, $wpdb->activeTransactionIsolation(),
         "START $outcome settles without a product transaction");
     rr_refused("START $outcome cleanup");

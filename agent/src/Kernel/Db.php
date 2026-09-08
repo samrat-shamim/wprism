@@ -1207,9 +1207,14 @@ final class Db {
      *
      * CONNECTION_ID + the session nonce prove transaction continuity, not
      * isolation: start() intentionally inherits an unknown session default.
-     * Only a positively consumed one-shot SET + START grants this witness;
+     * Only an accepted one-shot SET + witnessed START grants this witness;
      * data-free cleanup transactions never do. An uncertain terminal control
      * retains tracking, but transaction_authority() makes it unusable here.
+     * Accepted SET means the supported server's acknowledgement, not an
+     * independently readable isolation postimage. DatabaseTransportBoundary
+     * pins stock wpdb/mysqli and rejects custom wpdb/database drop-ins; a
+     * server or proxy fabricating successful SQL execution is outside this
+     * contract, not a condition this witness claims to detect.
      */
     public static function repeatable_read_authority(string $context): TransactionAuthority {
         $active = self::transaction_authority($context);
