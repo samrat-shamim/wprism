@@ -103,9 +103,15 @@ if ($phase === 'setup') {
             'cpt_public' => ['wpf_public', 'publish', $shortcode], 'cpt_query' => ['wpf_query', 'publish', $shortcode],
             'template' => ['wp_template', 'publish', $block], 'template_part' => ['wp_template_part', 'publish', $shortcode],
             'duplicates' => ['page', 'publish', $shortcode . $shortcode . '[wpforms id="0' . $id . '"]' . $block],
+            // Locator's greedy lexical parser crosses adjacent bracket pairs.
+            // Individually malformed controls below are not equivalent to
+            // concatenating them into a string its public parser recognizes.
+            'cross_shortcode' => ['page', 'publish', "[wpforms id='$id'] [WPFORMS id=\"$id\"] [wpforms id=$id]"],
             'excluded_attachment' => ['attachment', 'publish', $shortcode], 'excluded_trash' => ['page', 'trash', $shortcode],
             'excluded_hidden' => ['wpf_hidden', 'publish', $shortcode],
-            'malformed' => ['page', 'publish', "[wpforms id='$id'] [WPFORMS id=\"$id\"] [wpforms id=$id]"],
+            'malformed' => ['page', 'publish', "[wpforms id='$id']"],
+            'wrong_case' => ['page', 'publish', '[WPFORMS id="' . $id . '"]'],
+            'unquoted' => ['page', 'publish', '[wpforms id=' . $id . ']'],
             'reusable_only' => ['page', 'publish', '<!-- wp:block {"ref":' . $id . '} /-->'],
         ];
         $posts = [];

@@ -13,8 +13,8 @@ function location_provider_evidence_model(): array {
     $expected = array_fill_keys(array_keys($forms), []);
     $posts = [];
     $names = ['post_publish', 'post_pending', 'post_draft', 'post_future', 'post_private', 'page_root', 'page_child',
-        'cpt_both', 'cpt_public', 'cpt_query', 'template', 'template_part', 'duplicates', 'excluded_attachment',
-        'excluded_trash', 'excluded_hidden', 'malformed', 'reusable_only'];
+        'cpt_both', 'cpt_public', 'cpt_query', 'template', 'template_part', 'duplicates', 'cross_shortcode', 'excluded_attachment',
+        'excluded_trash', 'excluded_hidden', 'malformed', 'wrong_case', 'unquoted', 'reusable_only'];
     foreach ($names as $offset => $name) {
         $id = 100 + $offset;
         $type = match ($name) {
@@ -29,8 +29,8 @@ function location_provider_evidence_model(): array {
         };
         $posts[$name] = ['id' => $id, 'type' => $type, 'status' => $status, 'title' => 'WPrism ' . $name,
             'url' => $home . '/' . $name . '/', 'parser' => $name === 'duplicates' ? [1, 1]
-                : (in_array($name, ['malformed', 'reusable_only'], true) ? [] : [1])];
-        if ($offset < 13) {
+                : (in_array($name, ['malformed', 'wrong_case', 'unquoted', 'reusable_only'], true) ? [] : [1])];
+        if ($offset < 14) {
             $expected['embeds'][] = ['type' => $type, 'title' => 'WPrism ' . $name, 'form_id' => 1,
                 'id' => $id, 'status' => $status, 'url' => '/' . $name . '/'];
         }
@@ -85,6 +85,7 @@ WPFormsLocationProviderEvidence::verify(...$model);
 wprism_check(true, 'complete synthetic control reaches host admission (not native evidence)');
 $mutations = [
     'missing parser vector' => static function (array &$r): void { unset($r[0]['posts']['malformed']); },
+    'native cross-shortcode recognition dropped' => static function (array &$r): void { $r[0]['posts']['cross_shortcode']['parser'] = []; },
     'missing widget family' => static function (array &$r): void { array_pop($r[0]['widgets']); },
     'template builder not excluded' => static function (array &$r): void { $r[0]['template_standalone'] = ['unexpected']; },
     'extra transport field' => static function (array &$r): void { $r[1]['success'] = true; },

@@ -6,7 +6,8 @@ final class WPFormsLocationProviderEvidence {
     private const FORMS = ['embeds', 'no_locations', 'form_page', 'conversation', 'precedence', 'null_defaults', 'unicode'];
     private const POSTS = ['post_publish', 'post_pending', 'post_draft', 'post_future', 'post_private',
         'page_root', 'page_child', 'cpt_both', 'cpt_public', 'cpt_query', 'template', 'template_part',
-        'duplicates', 'excluded_attachment', 'excluded_trash', 'excluded_hidden', 'malformed', 'reusable_only'];
+        'duplicates', 'cross_shortcode', 'excluded_attachment', 'excluded_trash', 'excluded_hidden',
+        'malformed', 'wrong_case', 'unquoted', 'reusable_only'];
 
     public static function verify(array $seed, array $invoke, array $observe, array $repeat, array $stable): void {
         foreach ([[$seed, 'seed', 'positive'], [$invoke, 'invoke', 'positive'], [$observe, 'observe', 'positive'],
@@ -54,9 +55,10 @@ final class WPFormsLocationProviderEvidence {
                 'post_private' => 'private', 'excluded_trash' => 'trash', default => 'publish',
             };
             self::check($post['type'] === $type && $post['status'] === $status, 'native type/status discriminator: ' . $name);
-            $excluded = str_starts_with($name, 'excluded_') || in_array($name, ['malformed', 'reusable_only'], true);
+            $unparsed = in_array($name, ['malformed', 'wrong_case', 'unquoted', 'reusable_only'], true);
+            $excluded = str_starts_with($name, 'excluded_') || $unparsed;
             $parsed = array_values($post['parser']);
-            self::check($parsed === (in_array($name, ['malformed', 'reusable_only'], true) ? []
+            self::check($parsed === ($unparsed ? []
                 : ($name === 'duplicates' ? [$form, $form] : [$form])), 'native parser discriminator: ' . $name);
             if ($excluded) continue;
             self::check($post['url'] === false || (is_string($post['url']) && str_starts_with($post['url'], $seed['home'])), 'native current-home URL');
