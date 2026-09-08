@@ -493,7 +493,11 @@ Do not add a plugin executable to copy arbitrary cache paths into metadata.
 Prove same-size repeat, resized content with an unchanged attachment, multiple
 consumers, scoped preservation, removal of the last consumer, original path
 and blob changes, existing native crops, unrelated file collisions, native
-failures and interrupted metadata publication. Compare real output dimensions
+failures and interrupted metadata publication. Exercise first Apply on a fresh
+target with uncaptured stock categories and pages.
+The locked media reader observes its block/original/widget inputs without
+minting identities or requiring a full export; unmanaged crop consumers must
+remain visible to the guard. Compare real output dimensions
 and filenames separately, including oversized and zero-dimension requests if
 the editor can produce them. Test native Save, frontend rendering, editor
 reopen and fresh-process convergence; offline image doubles cannot qualify

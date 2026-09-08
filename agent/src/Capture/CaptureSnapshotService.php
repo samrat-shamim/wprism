@@ -163,26 +163,22 @@ final class CaptureSnapshotService {
         );
     }
 
-    /** Borrow the caller's transaction; capture retains strict, non-minting identity semantics. */
-    public static function snapshotInTransaction(
+    /** Borrowed block inputs carry no full-entity export or publication claim. */
+    public static function blockInputsInTransaction(
         string $repo,
         Policy $policy,
         CompiledRepository $compiled,
-        DatabaseWorkAuthority $workAuthority
+        DatabaseWorkAuthority $workAuthority,
+        array $blockNames
     ): array {
         $capture = new CaptureCandidateBuilder($repo, $policy, null, $compiled->tree());
-        $build = $capture->build(
-            false,
-            false,
-            self::repositoryOptions($repo, $policy, $compiled),
-            self::repositoryUserLogins($compiled),
-            true,
-            workAuthority: $workAuthority
-        );
-        self::assertReadOnlyIdentityPrecondition(static function () use ($build): void {
-            Identity::assert_entities_unique($build['entities']);
+        $entities = $capture->buildBlockInputs($blockNames, $workAuthority);
+        self::assertReadOnlyIdentityPrecondition(static function () use ($entities): void {
+            Identity::assert_entities_unique($entities);
         });
-        return self::records($build['entities']);
+        $inputs = [];
+        foreach ($entities as $entity) $inputs[$entity['uuid']] = $entity;
+        return $inputs;
     }
 
     /** Read-only preflight shared by RefreshExport's snapshot boundary. */

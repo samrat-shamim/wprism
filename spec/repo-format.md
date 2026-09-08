@@ -3105,6 +3105,15 @@ against the committed generation work; a new unplanned transform refuses.
 Scoped consumer preservation does not import those consumers into the authored
 write set. Path changes that strand a preserved consumer refuse.
 
+The locked reader borrows Capture's block, attachment-original and widget
+codecs as an input projection, not as a full export. Unrelated uncaptured
+terms, authors and options impose no export prerequisites on this reader.
+Existing post identities require exact durable mappings without repair.
+Unmanaged posts receive private comparison identities so a selected crop
+cannot disappear from the consumer guard; those identities never enter the
+ledger or authored write set. A stock page or a block selecting the original
+has no custom recipe. Strict full export retains its identity requirements.
+
 An existing crop outside native attachment metadata may acquire prior-file
 ownership only from a manifest-declared selection observed in target content.
 A desired new selection, filename prefix, runtime crop cache or equal bytes

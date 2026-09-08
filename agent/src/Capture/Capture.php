@@ -250,13 +250,14 @@ final class Capture {
         );
     }
 
-    public static function snapshot_in_transaction(
+    public static function block_inputs_in_transaction(
         string $repo,
         Policy $policy,
         CompiledRepository $compiled,
-        DatabaseWorkAuthority $workAuthority
+        DatabaseWorkAuthority $workAuthority,
+        array $blockNames
     ): array {
-        return CaptureSnapshotService::snapshotInTransaction($repo, $policy, $compiled, $workAuthority);
+        return CaptureSnapshotService::blockInputsInTransaction($repo, $policy, $compiled, $workAuthority, $blockNames);
     }
 
     /**

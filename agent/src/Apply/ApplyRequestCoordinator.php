@@ -202,14 +202,15 @@ final class ApplyRequestCoordinator {
             endDeleteTransaction: fn(): mixed =>
                 $this->deleteGuardCoordinator->end_writer_exclusion_transaction()
         );
+        $mediaBlocks = array_keys(BlockMediaDerivativeGrammar::project($policy->manifests));
         $this->services = new ApplyServices(
             $policy,
             $compiled,
             $callbacks,
             $this->repo,
-            BlockMediaDerivativeGrammar::project($policy->manifests) === [] ? null : new MediaDerivativeObservation(
+            $mediaBlocks === [] ? null : new MediaDerivativeObservation(
                 $policy,
-                fn(DatabaseWorkAuthority $authority): array => Capture::snapshot_in_transaction($this->repo, $policy, $compiled, $authority),
+                fn(DatabaseWorkAuthority $authority): array => Capture::block_inputs_in_transaction($this->repo, $policy, $compiled, $authority, $mediaBlocks),
                 static function () use ($policy): NativeDatabaseProfile {
                     // Preflight-only callers do not own a capture transaction.
                     // Load that owner when native consumer observation asks

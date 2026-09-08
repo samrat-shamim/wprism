@@ -181,10 +181,10 @@ if (!function_exists('PLL')) {
     }
 }
 if (!function_exists('get_taxonomies')) {
-    function get_taxonomies(array $args = [], string $output = 'names'): array { return []; }
+    function get_taxonomies(array $args = [], string $output = 'names'): array { return empty($GLOBALS['full_apply_stock_category']) ? [] : ['category']; }
 }
 if (!function_exists('get_taxonomy')) {
-    function get_taxonomy(string $taxonomy): object { return (object) ['hierarchical' => false]; }
+    function get_taxonomy(string $taxonomy): object { return (object) ['name' => $taxonomy, 'hierarchical' => $taxonomy === 'category', 'object_type' => ['post']]; }
 }
 if (!function_exists('get_post_types')) {
     function get_post_types(array $args = [], string $output = 'names'): array { return ['attachment', 'page']; }
@@ -193,7 +193,19 @@ if (!function_exists('wp_clear_scheduled_hook')) {
     function wp_clear_scheduled_hook(string $hook, array $args = []): int { return 0; }
 }
 if (!function_exists('taxonomy_exists')) {
-    function taxonomy_exists(string $taxonomy): bool { return false; }
+    function taxonomy_exists(string $taxonomy): bool { return !empty($GLOBALS['full_apply_stock_category']) && $taxonomy === 'category'; }
+}
+if (!function_exists('wp_update_term_count_now')) {
+    function wp_update_term_count_now(array $termTaxonomyIds, string $taxonomy): bool {
+        global $wpdb;
+        if ($taxonomy !== 'category' || $wpdb->rows('wp_term_relationships') !== []) {
+            throw new RuntimeException('full Apply term-count fixture only supports an unused stock category');
+        }
+        foreach ($termTaxonomyIds as $id) {
+            $wpdb->update('wp_term_taxonomy', ['count' => 0], ['term_taxonomy_id' => $id]);
+        }
+        return true;
+    }
 }
 // Deploy's code-mismatch probe normally loads wp-admin/includes/plugin.php;
 // this offline target has no WordPress checkout, so provide the exact empty
@@ -337,7 +349,7 @@ $store = WpStore::reset()->seedOptions([
     'template' => 'fixture-theme',
 ]);
 $store->ensureUploadDir();
-$wpdb = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions();
+$wpdb = FakeWpdb::install()->enableInformationSchema()->enableFullApplySqlExtensions()->enableJoinedCaptureSql();
 foreach (full_apply_attachment_core_columns() as $table => $columns) {
     $wpdb->seedTable('wp_' . $table, [])->setColumns(
         'wp_' . $table,
@@ -881,6 +893,7 @@ $mediaRepo = (string) realpath($mediaRepo);
 $mediaSite = Canon::decode(Canon::read_file($repo . '/site.wprism.json'));
 $mediaSite['manifests'] = ['core'];
 $mediaSite['policy']['post_types'] = ['attachment', 'page'];
+$mediaSite['policy']['taxonomies'] = ['category'];
 Canon::write_file($mediaRepo . '/site.wprism.json', Canon::encode($mediaSite));
 file_put_contents($mediaRepo . '/media/' . $mediaName, $bytes);
 $mediaPost = full_apply_attachment_post($uuid);
@@ -901,6 +914,12 @@ $wpdb->onQuery(null);
 foreach (['wp_posts', 'wp_postmeta', 'wp_wprism_map', 'wp_wprism_state', 'wp_wprism_kv', 'wp_wprism_journal'] as $table) {
     $wpdb->seedTable($table, []);
 }
+// The first native target contained this ordinary uncaptured default. Media
+// observation must not run strict export's unrelated term identity gate.
+$GLOBALS['full_apply_stock_category'] = true;
+$stockTerm = [['term_id' => 1, 'name' => 'Uncategorized', 'slug' => 'uncategorized', 'term_group' => 0]];
+$stockTaxonomy = [['term_taxonomy_id' => 1, 'term_id' => 1, 'taxonomy' => 'category', 'description' => '', 'parent' => 0, 'count' => 0]];
+$wpdb->seedTable('wp_terms', $stockTerm)->seedTable('wp_term_taxonomy', $stockTaxonomy)->seedTable('wp_termmeta', []);
 $GLOBALS['full_apply_repo'] = $mediaRepo;
 $mediaFailure = null;
 try {
@@ -917,6 +936,20 @@ wprism_check($mediaFailure !== null && str_contains($mediaFailure->getMessage(),
     'derivative public apply completes native work before its explicit unavailable-verifier refusal');
 wprism_check(!is_file($mediaRepo . '/.wprism/attachment-filesystem/current/journal.json'),
     'derivative public apply settles its native metadata and filesystem journal');
+wprism_check_same($stockTerm, $wpdb->rows('wp_terms'), 'media observation leaves the unrelated stock category byte-identical');
+wprism_check_same($stockTaxonomy, $wpdb->rows('wp_term_taxonomy'), 'media observation preserves unrelated native taxonomy rows');
+wprism_check_same([], $wpdb->rows('wp_termmeta'), 'media observation does not mint an unrelated stock category identity');
+$strictStockFailure = null;
+try {
+    \WPrism\Capture::snapshot_read_only($mediaRepo, false, $mediaCompiled, $mediaPolicy);
+} catch (Throwable $failure) {
+    $strictStockFailure = $failure;
+}
+wprism_check($strictStockFailure !== null && str_contains($strictStockFailure->getMessage(), 'term 1 has no durable _wprism_uuid'),
+    'strict export observation retains its durable-identity requirement for the uncaptured category');
+// Subsequent exact full-entity recapture tests retain their original fixture
+// premise. No capture or identity repair was needed to pass the Apply case.
+$wpdb->seedTable('wp_terms', [])->seedTable('wp_term_taxonomy', []);
 
 // Establish the next test's baseline from actual canonical capture bytes.
 // This is fixture seeding, not a claim that the unavailable fresh-process
@@ -968,6 +1001,35 @@ wprism_check(in_array($uuid, array_column($mediaPlan['unchanged'], 'uuid'), true
     && in_array($pageUuid, array_column($mediaPlan['update'], 'uuid'), true),
     'content-only derivative plan keeps its attachment authored state unchanged and selects only the page update');
 $pageId = Ledger::id_for($pageUuid, Ledger::KIND_POST);
+$managedPosts = $wpdb->rows('wp_posts');
+$nativeConsumer = array_values(array_filter($managedPosts,
+    static fn(array $row): bool => (int) $row['ID'] === $pageId))[0];
+$unmanagedConsumer = array_replace($nativeConsumer, ['ID' => 901, 'post_name' => 'unmanaged-crop-consumer']);
+$wpdb->seedTable('wp_posts', [...$managedPosts, $unmanagedConsumer]);
+$beforeUnmanagedMeta = $wpdb->rows('wp_postmeta');
+$beforeUnmanagedMap = $wpdb->rows('wp_wprism_map');
+$unmanagedFailure = null;
+try {
+    ApplyRequestCoordinator::apply($mediaRepo, $mediaOptions);
+} catch (Throwable $failure) {
+    $unmanagedFailure = $failure;
+}
+wprism_check($unmanagedFailure !== null
+    && str_contains($unmanagedFailure->getMessage(), 'derivative consumers or original bindings changed since work selection'),
+    'public Apply refuses an unmanaged crop consumer omitted from its authored preflight snapshot');
+wprism_check_same([...$managedPosts, $unmanagedConsumer], $wpdb->rows('wp_posts'),
+    'unmanaged consumer refusal leaves managed and unmanaged post rows intact');
+wprism_check_same($beforeUnmanagedMeta, $wpdb->rows('wp_postmeta'), 'input observation never mints unmanaged post metadata');
+wprism_check_same($beforeUnmanagedMap, $wpdb->rows('wp_wprism_map'), 'comparison-only input identities never enter the durable ledger');
+wprism_check(is_file($store->uploadBaseDir . '/2026/08/recipe-note-333x211.png')
+    && !file_exists($store->uploadBaseDir . '/2026/08/recipe-note-444x211.png'),
+    'unmanaged consumer refusal preserves the native crop before any replacement publication');
+// A matching block selecting the original has no custom recipe; a stock page
+// has no matching block at all. Neither may acquire synthetic authored state
+// or impose strict export prerequisites on the later successful media work.
+$unmanagedConsumer['post_content'] = str_replace('recipe-note-333x211.png', 'recipe-note.png', $nativeConsumer['post_content']);
+$stockPage = array_replace($nativeConsumer, ['ID' => 902, 'post_name' => 'stock-page', 'post_content' => '<p>Sample page</p>']);
+$wpdb->seedTable('wp_posts', [...$managedPosts, $unmanagedConsumer, $stockPage]);
 $beforeCropCollisionPosts = $wpdb->rows('wp_posts');
 $beforeCropCollisionMeta = $wpdb->rows('wp_postmeta');
 $injectedCropOwner = false;
@@ -1043,6 +1105,14 @@ wprism_check_same([true, true, true, true], $consumerLockProbe,
 wprism_check_same(1, $contender->insert('wp_posts', ['ID' => 900, 'post_type' => 'page']),
     'public apply releases its consumer range locks after the verifier refusal');
 $contender->delete('wp_posts', ['ID' => 900]);
+wprism_check_same([$unmanagedConsumer, $stockPage], array_values(array_filter($wpdb->rows('wp_posts'),
+    static fn(array $row): bool => in_array((int) $row['ID'], [901, 902], true))),
+    'successful content-only media work preserves unrelated and original-URL unmanaged posts exactly');
+wprism_check_same([], array_values(array_filter($wpdb->rows('wp_postmeta'),
+    static fn(array $row): bool => in_array((int) $row['post_id'], [901, 902], true))),
+    'successful media observation leaves unmanaged identities absent');
+$wpdb->delete('wp_posts', ['ID' => 901]);
+$wpdb->delete('wp_posts', ['ID' => 902]);
 $nextSnapshot = \WPrism\Capture::snapshot_read_only($mediaRepo, false, $nextCompiled, $mediaPolicy);
 foreach ($nextCompiled->tree() as $id => $entity) {
     wprism_check_same($entity['hash'], $nextSnapshot[$id]['hash'] ?? null,

@@ -9370,6 +9370,55 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "block_inputs_in_transaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "WPrism\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "workAuthority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "blockNames",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "build_read_only_export": {
                     "abstract": false,
                     "final": false,
@@ -9747,47 +9796,6 @@
                     "static": true,
                     "visibility": "public"
                 },
-                "snapshot_in_transaction": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "repo",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "policy",
-                            "type": "WPrism\\Policy",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "compiled",
-                            "type": "WPrism\\CompiledRepository",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "workAuthority",
-                            "type": "WPrism\\DatabaseWorkAuthority",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
                 "snapshot_options_core": {
                     "abstract": false,
                     "final": false,
@@ -10005,6 +10013,31 @@
                             "has_default": true,
                             "name": "workAuthority",
                             "type": "?WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "buildBlockInputs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "blockNames",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "workAuthority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],
@@ -10275,6 +10308,31 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "observePost": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "entityType",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
@@ -10851,6 +10909,55 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "blockInputsInTransaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "WPrism\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "workAuthority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "blockNames",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "buildReadOnlyExport": {
                     "abstract": false,
                     "final": false,
@@ -10999,47 +11106,6 @@
                             "has_default": true,
                             "name": "unmappedTermObserver",
                             "type": "?Closure",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "snapshotInTransaction": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "repo",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "policy",
-                            "type": "WPrism\\Policy",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "compiled",
-                            "type": "WPrism\\CompiledRepository",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "workAuthority",
-                            "type": "WPrism\\DatabaseWorkAuthority",
                             "variadic": false
                         }
                     ],
@@ -57348,6 +57414,31 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "captureBlockInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "post",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "uuid",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
