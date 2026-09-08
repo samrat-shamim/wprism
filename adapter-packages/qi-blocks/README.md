@@ -41,9 +41,10 @@ php adapter-packages/qi-blocks/tests/offline/regress_native_options.php
 Manifest grammar and structural package validation pass. The artifact lock
 pins 1.5.2 as an exercise fixture and 1.5.1 as an unexecuted refusal fixture.
 The twelve-family readiness ledger is explicitly unready. The source
-conformance hooks exercise the 47 standalone block types through native REST
-writers and independently compare complete canonical content and styles;
-their live run is still unqualified. The two integration blocks require a
+conformance run passes on WordPress 7.1 with Qi Blocks 1.5.2: it exercises the
+47 standalone block types through native REST writers and independently
+compares complete canonical content and styles, then verifies clean lint,
+deterministic recapture, compilation and planning. The two integration blocks require a
 participant-declared combination scenario. Target conformance explicitly
 refuses until its native assertions are authored. The complete offline,
 tooling and release gates pass; native qualification remains unfinished. See

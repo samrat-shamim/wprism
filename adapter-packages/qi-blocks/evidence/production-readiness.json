@@ -4,7 +4,7 @@
   "readiness": "unready",
   "covered": {},
   "gaps": {
-    "contract-dependency": "Exact free 1.5.2 declarations and both downloaded artifacts are pinned; clean installation, adjacent-version refusal and upgrade conformance remain pending.",
+    "contract-dependency": "Exact free 1.5.2 declarations and both downloaded artifacts are pinned. Fresh source installation and capture-plan pass; native target, adjacent-version refusal and upgrade conformance remain pending.",
     "clean-target": "Offline content and option transport pass with divergent IDs. A complete native Qi capsule source-to-target apply and host promotion remain pending.",
     "dirty-target": "Checked option rollback and runtime preservation pass offline. Native hostile target rows, files, ID collisions and unmanaged consumers remain to be exercised together.",
     "identity-references": "Native saved content covers 49 block types and 222 media coordinates; selectors now bind 88 page-ID frames to their owning map key. Native divergent-ID render, widgets, templates, media and scope closure remain pending.",
@@ -14,7 +14,7 @@
     "failure-recovery": "Checked option write failure, rollback and identical retry pass offline. Native media, lifecycle and promotion failures and recovery remain pending.",
     "concurrency-idempotence": "Exact option/content recapture and shared engine Apply probes pass. Native concurrent Qi writes and complete capsule fixed points still require evidence.",
     "lifecycle": "Activation, retirement, reactivation, downgrade refusal and target-local setup/cache preservation remain pending.",
-    "data-boundary": "Runtime keyspaces are declared and the exact public generated-style PII exception is reviewed. Native full secret/PII, runtime and premium-residue boundaries remain to be exercised.",
+    "data-boundary": "Runtime keyspaces are declared. Complete native source capture and offline capture/compiler privacy guards pass without a CSS privacy exception. Native hostile secret/PII, runtime and premium-residue boundaries remain to be exercised.",
     "scope-platform": "Source fixtures include Contact Form 7 and WooCommerce blocks. Explicit capsule combination scenarios, scoped host promotion and the supported platform boundary remain pending."
   },
   "blocked": {},

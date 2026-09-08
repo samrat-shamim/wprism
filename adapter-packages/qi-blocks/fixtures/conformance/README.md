@@ -26,3 +26,7 @@ transport evidence, not editor Save/reopen, native target rendering, complete
 settings, lifecycle, recovery or host-promotion qualification. The conformance
 entry uses the experimental capture-plan mode. Its target hook exits with an
 explicit failure, so changing the mode alone cannot create a passing claim.
+
+The complete source conformance passed on engine commit `202d7f85` with
+WordPress 7.1 and the exact Qi Blocks 1.5.2 archive. Its receipt and limits are
+recorded in `evidence/authoring-progress.json` at the capsule root.

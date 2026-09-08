@@ -97,8 +97,8 @@
     "release-gate": {
       "exit": 0
     },
-    "scope": "Current complete-identifier, SVG viewport and complete-UUID privacy handling, Qi source-conformance corpus and measured library integration. All full gates pass; the fresh native source run remains pending.",
-    "source_base_commit": "be8bfecb381fd5c1357eb54ffcc7b2e6104aae76"
+    "scope": "All full gates pass for the shared privacy handling, Qi source-conformance corpus and measured library integration. Native source capture-plan also passes on the named engine commit; target qualification remains pending.",
+    "tested_engine_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34"
   },
   "limitations": [
     "This is an experimental draft, not a production qualification. Complete current aggregate results are recorded separately from targeted checks.",
@@ -106,10 +106,10 @@
     "Signature, progress-bar images, empty galleries and responsive crop controls still need native Save/reopen evidence.",
     "The broad native engine media probe is separate from this capsule and does not qualify its editor behavior."
   ],
-  "source_engine_base_commit": "be8bfecb",
-  "source_engine_state": "Shared complete-identifier, SVG viewport and complete-UUID privacy handling passed the full offline, tooling and release gates; fresh native source conformance is pending.",
+  "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
+  "source_engine_state": "Full offline, tooling, release and native source capture-plan checks pass. Qi remains experimental with target qualification pending.",
   "native_source_conformance": {
-    "status": "unqualified",
+    "status": "source-capture-plan-passed",
     "first_attempt": {
       "source_commit": "be8bfecb381fd5c1357eb54ffcc7b2e6104aae76",
       "exit": 1,
@@ -120,6 +120,36 @@
       "fresh_native_readback": "passed: 47 block types, 50 instances, 84 selector frames",
       "capture": "refused by the canonical body phone detector before publication; reproduced offline and fixed in the shared detector without privacy exceptions"
     },
-    "clean_rerun": "pending"
+    "clean_rerun": {
+      "source_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
+      "command": "CONF_PAIR=qicf01 CONF1_PORT=9176 CONF2_PORT=9177 CONF_EXPECTED_SOURCE_SHA=202d7f85a90587af16fa194b3025f0b5b1580c34 WPRISM_SOURCE_ROOT=<candidate-worktree> bash sandbox/conformance/run.sh qi-blocks",
+      "exit": 0,
+      "wordpress": "7.1",
+      "qi_blocks": "1.5.2",
+      "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+      "source_ids": {
+        "image": 1,
+        "first": 2,
+        "second": 3,
+        "page": 4
+      },
+      "native_block_types": 47,
+      "native_instances": 50,
+      "native_selector_frames": 84,
+      "native_body_sha256": "d0b383c3a5ded1f7207fa1e4f4cc0073d3a854735c02fb77754b6d89dd8d6ea8",
+      "native_styles_sha256": "9a5a2ab17d5b682a4774f1761fb0c1afd7d73bd8c8a6e9ebd46d282ed70b0c12",
+      "log_sha256": "39fafaaf9009f48d435d214b46d356d4be85e7c3994f85462f748fb13cd804ce",
+      "verified": [
+        "native WordPress REST content writers",
+        "native Qi style REST writer",
+        "fresh native readback",
+        "complete canonical body and style equality",
+        "zero lint findings",
+        "capture-twice equality",
+        "immutable compilation",
+        "experimental plan and capability boundaries"
+      ],
+      "scope": "Source capture-plan only. No target apply, render, editor Save/reopen, lifecycle, host promotion or combination qualification."
+    }
   }
 }
