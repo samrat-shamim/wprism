@@ -20,29 +20,39 @@ $disposition = json_decode((string) file_get_contents($package . '/package/dispo
 $artifacts = json_decode((string) file_get_contents($package . '/evidence/artifacts.lock.json'), true, 512, JSON_THROW_ON_ERROR);
 $policy = Policy::load(null, ['core', 'wordpress-popup'], adapterLibrary: AdapterLibrary::fromSourcePackage($root, 'wordpress-popup'));
 
-wprism_check_same('experimental', $disposition['status'], 'source-read reconnaissance does not authorize production');
-$blockers = array_values(array_filter(
-    $policy->adapter_readiness_blockers(),
-    static fn(array $row): bool => ($row['code'] ?? null) === 'authored_state_not_certified'
-        && ($row['name'] ?? null) === 'wordpress-popup'
-));
-wprism_check_same(1, count($blockers), 'the actual capsule projects a structured production-readiness blocker');
-wprism_check_same(false, $policy->capability_report()['ready'], 'experimental capture support never reports production-ready');
-wprism_check_same('unready', AdapterProductionReadiness::record($root, 'wordpress-popup')['readiness'], 'all unfinished scenario families stay explicit');
+wprism_check_same('certified', $disposition['status'], 'the reviewed claim is certified, and the assertions below are what stands behind it');
+wprism_check_same([], $policy->adapter_readiness_blockers(), 'a certified capsule projects no structured readiness blocker');
+wprism_check_same(true, $policy->capability_report()['ready'], 'and the capability report reaches production-ready');
 
-wprism_check_same([], array_values(array_intersect(['apply', 'deploy'], $disposition['capabilities']['operations'])), 'no target mutation operation is claimed');
-wprism_check_same([], $manifest['deletions'] ?? [], 'module and module-meta deletion authority is withheld');
-wprism_check_same([], $disposition['capabilities']['lifecycle_phases'], 'no unexercised lifecycle claim');
+$readiness = AdapterProductionReadiness::record($root, 'wordpress-popup');
+wprism_check_same('ready', $readiness['readiness'], 'every scenario family is accounted for without an open gap');
+wprism_check_same([], $readiness['gaps'], 'no family is left as unfinished work');
+wprism_check_same([], $readiness['blocked'], 'and none is blocked by an external cause');
+wprism_check_same(['derived-state'], array_keys($readiness['not_applicable']), 'exactly one family is not applicable: Hustle declares no derived surface');
+
+// Certification is only meaningful if the operations it claims are the ones the
+// evidence exercised, and the lifecycle phases deploy actually runs.
+wprism_check_same(
+    ['capture', 'compile', 'plan', 'deploy', 'apply', 'recapture', 'render-api'],
+    $disposition['capabilities']['operations'],
+    'the claimed operations are exactly those the round trip exercises'
+);
+wprism_check_same(['retire', 'activate', 'verify'], $disposition['capabilities']['lifecycle_phases'], 'and the lifecycle phases deploy drives');
+wprism_check_same([], $manifest['deletions'] ?? [], 'no deletion selector is declared, which is why deletion intent refuses at capture');
 foreach (['providers', 'regenerators', 'interpreter', 'actions', 'lifecycle_effects'] as $hook) {
-    wprism_check(!array_key_exists($hook, $manifest), "portable declarations use shared machinery without a $hook executable");
+    wprism_check(!array_key_exists($hook, $manifest), "certification rests on shared machinery, without a $hook executable");
 }
 
+// The exact-artifact boundary: one admitted release and one refusal fixture.
 wprism_check_same(
-    ['7.8.14.2'],
+    ['7.8.14.1', '7.8.14.2'],
     array_keys(ArtifactLibrary::loadPackage($root, 'wordpress-popup')['plugins']['wordpress-popup']),
-    'the capsule owns exactly the exercised official artifact'
+    'the capsule pins both the admitted contract and the adjacent release its matrix refuses'
 );
-wprism_check_same('exercise-fixture', $artifacts['plugins']['wordpress-popup']['7.8.14.2']['role'], 'the observed artifact is not labeled certified');
+wprism_check_same('certified-boundary', $artifacts['plugins']['wordpress-popup']['7.8.14.2']['role'], 'the admitted release carries the certified-boundary role');
+wprism_check_same('refusal-fixture', $artifacts['plugins']['wordpress-popup']['7.8.14.1']['role'], 'and the adjacent release is a refusal fixture, not a second contract');
+wprism_check(in_array('exact-artifact-version-matrix', $disposition['evidence']['tests'], true), 'the reviewed claim cites the exact-artifact matrix that produces its boundary');
+
 wprism_check_same(
     'https://downloads.wordpress.org/plugin/wordpress-popup.7.8.14.2.zip',
     $artifacts['plugins']['wordpress-popup']['7.8.14.2']['url'],
