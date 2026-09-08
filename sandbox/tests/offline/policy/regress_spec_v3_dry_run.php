@@ -835,12 +835,12 @@ wprism_check_same(
 // intersection made thirteen, native value validation fourteen, and retained
 // JSON-body reference types fifteen, JSON-body URL rebinding sixteen, and
 // reviewed JSON-body scalar privacy paths seventeen, and closed sibling
-// reference discriminators eighteen,
+// reference discriminators eighteen, and ordered PHP option containers nineteen,
 // each without a new top-level section.
 // The count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// seventeen of these eighteen shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// eighteen of these nineteen shipped after the flip with WPRISM_SPEC_VERSION left at 3.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
@@ -853,6 +853,7 @@ wprism_check_same(
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'native-value-validation/v1',
+        'php-container-values/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
         'scalar-reference-intersection/v1',
@@ -863,7 +864,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries eighteen names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries nineteen names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
