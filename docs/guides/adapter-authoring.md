@@ -2773,6 +2773,20 @@ library.
    zero-exit PHP warning on each stream, retaining a healthy control. Correct
    payloads do not make ignored diagnostics into valid evidence.
 
+   Separate **empty-content creation** from seeded adoption and managed-code
+   installation. Prove the declared target coordinates absent across native
+   statuses before any identity lookup or writer; do not pre-create them to
+   make reference resolution pass. Derive the complete expected CREATE set
+   from the real source compiler, bind all plan rows to that tree, and allow
+   only the independently declared Core/default adoptions outside that set.
+   Reject extra creates as well as missing ones. Carry complete physical
+   censuses through every later mutation and retry, not just initial creation;
+   bind native IDs, types, statuses and payloads back to those rows. An absent
+   derived row can have different native behavior from a stored empty value.
+   State target-local witnesses separately from source-managed state: managed
+   sidebar assignments may be replaced or reallocated by Apply, whereas an
+   explicitly unassigned local widget can be a preservation witness.
+
    Prove a coherent **source** at the actual Capture boundary, after all native
    authoring lifecycle work. In the Rank Math/ACF/Polylang/Woo combination,
    fresh raw metadata and API readbacks showed that Polylang post-meta sync
