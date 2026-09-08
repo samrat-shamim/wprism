@@ -36,6 +36,34 @@ $fixtureBytes = (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/nati
 $fixture = json_decode($fixtureBytes, true, 512, JSON_THROW_ON_ERROR);
 wprism_check_same('wprism-wpforms-native-fixtures/v1', $fixture['format'], 'native fixture framing is explicit');
 wprism_check_same(11, count($fixture['cases']), 'all retained native body variants are exercised');
+$builderFixture = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/native-builder-qr-authoring.json'), true, 512, JSON_THROW_ON_ERROR);
+wprism_check_same('wprism-wpforms-builder-qr-fixtures/v1', $builderFixture['format'], 'browser-observed SQL body fixtures have separate exploratory provenance');
+wprism_check_same([$fixture['version'], $fixture['artifact_sha256']], [$builderFixture['version'], $builderFixture['artifact_sha256']], 'browser body bytes use the same locked native release');
+wprism_check_same(['builder-qr-baseline', 'builder-qr-stale-page', 'builder-qr-stale-url', 'builder-qr-generated-url', 'builder-qr-none'],
+    array_keys($builderFixture['cases']), 'every measured Builder QR transition is retained');
+$builderExpectedQr = [
+    'builder-qr-baseline' => ['none', 0, '', ''],
+    'builder-qr-stale-page' => ['page', 5, '', 'http://localhost:9544/wprism-qr-page-a/'],
+    'builder-qr-stale-url' => ['url', 5, 'http://localhost:9544/wprism-qr-page-b/?label=701', 'http://localhost:9544/wprism-qr-page-a/'],
+    'builder-qr-generated-url' => ['url', 5, 'http://localhost:9544/wprism-qr-page-b/?label=701', 'http://localhost:9544/wprism-qr-page-b/?label=701'],
+    'builder-qr-none' => ['none', 0, '', ''],
+];
+$builderNonQr = null;
+foreach ($builderFixture['cases'] as $name => $case) {
+    wprism_check_same($case['body_sha256'], hash('sha256', $case['body']), "$name retains the measured complete native post_content bytes");
+    $doc = json_decode($case['body'], false, 512, JSON_THROW_ON_ERROR);
+    $settings = $doc->settings;
+    wprism_check_same($builderExpectedQr[$name], [$settings->qr_code, $settings->qr_code_page_id, $settings->qr_code_url, $settings->qr_code_generated],
+        "$name binds the selected identity, inactive value and independent generated snapshot with native scalar types");
+    wprism_check_same(['6', 2, '1', 'wpforms', 0, []], [$doc->id, $doc->field_id, $doc->fields->{'1'}->id,
+        $settings->qr_code_logo, $settings->qr_code_logo_id, $settings->form_tags], "$name preserves local field identity and legal untagged Lite logo state");
+    foreach (['qr_code', 'qr_code_page_id', 'qr_code_url', 'qr_code_logo', 'qr_code_generated', 'qr_code_logo_id'] as $key) unset($settings->$key);
+    $nonQr = json_encode($doc, JSON_THROW_ON_ERROR);
+    $builderNonQr ??= $nonQr;
+    wprism_check_same($builderNonQr, $nonQr, "$name retains the entire non-QR form, including nested theme JSON and provider controls");
+}
+wprism_check_same($builderFixture['cases']['builder-qr-baseline']['body'], $builderFixture['cases']['builder-qr-none']['body'],
+    'native None returns the complete stored body to its first Builder-saved baseline');
 $targetHome = 'https://target.example.test';
 $uuidFor = static fn(int $id): string => '019200cc-0000-7000-8000-' . sprintf('%012d', $id);
 $post = static fn(array $case, string $slug, string $body, int $id): object => (object) [
@@ -99,8 +127,11 @@ $expectedBody = static function (string $raw, array $case, bool $canonical) use 
     return json_encode($text($doc), JSON_THROW_ON_ERROR);
 };
 
-foreach ($fixture['cases'] as $name => $case) {
-    $ids = [$case['post_id']];
+// The browser archive supplies complete stored bodies, not admitted HTTP or
+// physical-preservation evidence. Replay stays the existing product codec;
+// it does not turn this exploratory source run into Capture/Apply evidence.
+foreach ($fixture['cases'] + $builderFixture['cases'] as $name => $case) {
+    $ids = array_merge([$case['post_id']], $case['page_ids'] ?? []);
     foreach (['page_id', 'attachment_id'] as $key) {
         if (isset($case[$key])) {
             $ids[] = $case[$key];

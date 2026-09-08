@@ -8,9 +8,13 @@ declaration changes here.
 ## Exact native authoring contract
 
 The source is the locked Lite **2.0.1.1** artifact in `artifacts.lock.json`.
-`src/Admin/Builder/Settings/QrCode.php:147-298` renders None, Page (when
-readable published pages exist), and Custom URL. It supplies page permalink
-choices and the hidden `settings[qr_code_generated]` value. That value is a
+`src/Admin/Builder/Settings/QrCode.php:147-298` renders None, Page, and Custom
+URL. Initial page choices come from the capability-checked, capped and ordered
+`wpforms_search_posts()` query (`includes/functions/access.php:341-439`):
+readability alone is insufficient because that query checks delete-page
+capabilities. Bind the actual Page A/B controls and `data-pages` permalink map.
+The saved-page read-capability fallback (`QrCode.php:384-394`) does not prove
+both pages are selectable. The hidden `settings[qr_code_generated]` value is a
 saved URL snapshot, not an attachment ID, PNG file or server-rendered image.
 
 In `assets/js/admin/builder/modules/settings-qr-code.min.js`, only successful
@@ -38,7 +42,7 @@ The declared logo reference and possible downgraded residue need a separate
 provenance/ownership review before readiness, not silent normalization in
 this destination slice.
 
-## Initial mechanism checkpoint
+## Mechanism and exploratory checkpoints
 
 `tests/offline/regress_native_bodies.php` now models two explicitly synthetic
 stale Page/URL states from the retained native body shape. It drives the
@@ -49,6 +53,13 @@ declared identity/URL rebinding occurs. Recapture must be byte-identical and
 diagnostic-free. This proves the body codec, not full Apply, a new complete
 compiler comparison or browser generation. Existing native fixture bytes
 are unchanged.
+
+The later [browser reconnaissance](native-qr-destination-recon.md) retains
+five complete SQL body postimages in `fixtures/native-builder-qr-authoring.json`.
+The same product-codec harness now checks those measured transitions, complete
+non-QR preservation, nested theme JSON, native ID types and divergent-ID
+recapture: **155 assertions** total. The archive has no complete retained HTTP
+exchange and no Apply run; these are offline body fixtures, not a native gate.
 
 No engine primitive is missing in this modeled domain. Existing structured
 body references map the selected page, while ordinary body URL/reference
@@ -92,3 +103,38 @@ boundary; native UI/form/physical observations remain capsule-owned.
 7. Destroy the owned pair, databases, roots and lease before PASS; retain
    complete evidence. Obtain final Luna/Terra review and run the full merge
    gates before merging. Other readiness families stay explicitly open.
+
+## Quiescence and evidence-capture corrections
+
+Builder GET can initialize `wpforms_builder_opened_date`, and first native
+creation can initialize `wpforms_forms_first_created`. Establish both before
+the QR-save baseline. A saved text field also materializes theme, notification,
+confirmation and provider controls; preserve their complete values, not just
+the field roster. Revisions require full row/metadata checks, and a legitimate
+insert advances the native dump's `AUTO_INCREMENT` table option. Bind that
+exact progression separately from column/index equality.
+
+`DISABLE_WP_CRON` is not a shutdown-hook barrier. The locked bundled Action
+Scheduler's
+`vendor/woocommerce/action-scheduler/classes/ActionScheduler_QueueRunner.php:96,109-145`
+acquires its async-runner option lock before checking for due work. Its sibling
+`ActionScheduler_OptionLock.php` uses an opaque token and a 60-second default
+expiry. For exactly one
+Builder Save, require a captured clock and no due pending actions, unchanged
+complete scheduler action/group/claim/log rows, and unchanged options except
+possibly that one existing lock row's value. Bind its ID/name/autoload, native
+value grammar and expiry window; reject insert/delete or another changed row.
+Do not apply this exception to WPrism Apply or observer phases. Collect with
+non-admin readers immediately after the one save; another admin read can
+renew the lock. No scheduler filter, locked-plugin edit or engine branch is
+needed to hide this native effect.
+
+The exploratory browser's configured HAR was absent after close. Retain and
+admit actual request **and response bodies** before retiring the session;
+configuration, request listings and successful CLI exit codes are not proof
+that those bytes exist. Fail closed on missing artifacts, tool error envelopes,
+console warnings or page errors. The exploratory tour's two native deprecation
+warnings and logout's `Transition was skipped` page error remain recorded;
+neither is approved as a blanket diagnostic allowance. Observe the native
+tour-skip choice before Builder creation and test the producer's diagnostic
+collection/retirement path independently before a final live gate.

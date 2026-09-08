@@ -412,6 +412,30 @@ exact native delta and its absent preimage; do not preseed the defaults or
 suppress the filter to make a tag-only expectation pass. Automatic defaults
 do not establish UI authoring or a license-gated feature's support.
 
+A generated browser preview may preserve an older snapshot independently of
+the currently selected destination. Exercise Generate, change without
+regeneration, Save and fresh reload through the actual complete form. Bind
+the native choices, inactive inputs and stored scalar types; do not derive the
+snapshot from the selected identity in a provider. WPForms QR destination
+reconnaissance is documented in its capsule's `native-qr-destination-recon.md`;
+its measured body fixtures are not admitted browser or Apply evidence.
+
+Verify evidence artifacts themselves before retiring a browser session.
+Capture configuration, a request list or an exit-zero tool command does not
+establish retained request/response bodies. Require complete private bytes,
+bounded framing and diagnostic admission; fail on missing artifacts or tool
+error envelopes even when the process exits zero. Decode a downloaded QR
+independently before claiming its encoded destination; a preview label alone
+proves neither the downloaded bytes nor their content.
+
+Disabling WP-Cron does not quiesce every native shutdown callback. Trace any
+operational transition to its source, bind its exact phase, row identity and
+clock window, and prove no work was dispatched before permitting its measured
+value change. Keep all other rows and logical schema constrained, including
+the exact table-counter advancement authorized by new revisions. Never turn
+that authoring-only allowance into an Apply/observer waiver or disable a
+native hook to make a preservation comparison pass.
+
 ### Portable validation versus WordPress-native predicates
 
 Run your real adapter through the standalone `RepositoryCompiler`, with no
