@@ -111,8 +111,8 @@ and reviewed stock hooks. Category/author dependencies and extension-specific
 permalink participants remain explicitly unclosed and refuse. The focused
 native provider lane below now exercises the admitted positive subset through
 the real SDK and process protocol. Six native pre-write refusal cases are
-recorded below; recovery paths and complete WPForms lifecycle evidence are
-still owed. The candidate is not registered in
+recorded below; native recovery evidence through the fresh-child path and
+complete WPForms lifecycle evidence are still owed. The candidate is not registered in
 the shipped package, advertised or counted as ready.
 Do not warm or repopulate a cache to manufacture a premise, and do not reject
 all native permalink filters simply to avoid reviewing their semantics.
