@@ -45,6 +45,7 @@ php adapter-packages/qi-blocks/tests/offline/regress_native_options.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_apply_evidence.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_media.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_controls.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_contexts.php
 ```
 
 Manifest grammar and structural package validation pass. The artifact lock
@@ -78,6 +79,13 @@ produce identical canonical bodies and styles, with only their two authored
 save timestamps differing; complete recapture converges within each site.
 This single-image result leaves multi-image galleries and other target media
 controls unqualified. See the [native control evidence](fixtures/native-controls/README.md).
+
+The [native context fixture](fixtures/native-contexts/README.md) additionally
+exercises six saved widgets and all three observed widget/page/template style
+combinations through Capture, compilation and a checked transaction. It proves
+divergent widget allocation, rollback, preservation of native object storage
+and exact recapture. Native template discovery, rendering and corrected target
+editor evidence remain separate obligations.
 
 The promotion conformance target hook still refuses; broader editor,
 widget/template, crop failure/removal, lifecycle, host, version and combination qualification remain
