@@ -1,22 +1,63 @@
 {
   "format": "wprism-adapter-production-readiness-record/v1",
   "adapter": "wordpress-popup",
-  "readiness": "unready",
-  "covered": {},
-  "gaps": {
-    "contract-dependency": "Declarations are read from the exact locked 7.8.14.2 artifact. Fresh installation, adjacent-artifact refusal and the in-range upgrade workflow have not been exercised through capsule conformance.",
-    "clean-target": "Deploy and apply DO complete on a clean target: a scratch run with the claim temporarily flipped reached deploy, apply with a clean side-effect canary, byte-identical recapture across environments, and a target check in which Hustle's own model loaded the applied module. That measurement is why this family is a volume-of-evidence gap rather than a blocker, but it was taken under a claim this capsule does not hold, so it is not counted as covered until the reviewed status authorizes the run that produces it.",
-    "dirty-target": "Hostile stored values, extra module-meta rows and divergent module ids need complete native before/after witnesses.",
-    "identity-references": "The wd_hustle module reference is proven to rebind: with source ids deliberately burned the source module was 3, the target minted 1, and the applied embed read id=\"1\" \u2014 resolved through the canonical hustle_module token rather than carried verbatim. Still open: the legacy shortcode_id string form, and hustle_module_widget.module_id, which widget_setting_refs cannot express at all.",
-    "native-behavior": "Source reading covers the schema and the model key vocabulary. Module render, opt-in submission, provider dispatch, tracking and unsubscribe flows remain unproven.",
-    "derived-state": "hustle_tracking counters and any cached module projection need a bounded plugin-owned derivation with exact postconditions before apply could be claimed.",
-    "deletion": "No selectors declared. Native captured deletion and independent valid-intent compiler/plan/apply refusal with preservation are pending.",
-    "failure-recovery": "No provider or lifecycle failure injection, rollback or retry evidence exists.",
-    "concurrency-idempotence": "Native concurrent module writes and a complete target/recapture fixed point remain to be exercised.",
-    "lifecycle": "Activation, Hustle_Db::maybe_create_tables schema settlement, retirement, downgrade refusal and installation-local state preservation remain pending.",
-    "data-boundary": "The withheld credential, submission and absolute-URL families have declarative controls only. Native full-settings capture, entries rows and provider residues remain to be proven.",
-    "scope-platform": "Explicit module/sidebar scope, real plugin combinations, multisite blog_id semantics and the supported platform boundary remain unproven."
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/wordpress-popup/package/manifest.json",
+      "adapter-packages/wordpress-popup/evidence/artifacts.lock.json",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/wordpress-popup/tests/conformance/entry.json",
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/wordpress-popup/tests/conformance/postdeploy.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/capture-check.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/capture-check.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
   },
+  "gaps": {},
   "blocked": {},
-  "not_applicable": {}
+  "not_applicable": {
+    "derived-state": "Hustle declares no derived surface. hustle_tracking holds visitor view/conversion counters and is runtime, not a projection the engine must rebuild, so there is no derivation to prove bounded or idempotent."
+  }
 }

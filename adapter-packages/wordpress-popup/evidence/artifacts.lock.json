@@ -1,10 +1,15 @@
 {
   "plugins": {
     "wordpress-popup": {
+      "7.8.14.1": {
+        "url": "https://downloads.wordpress.org/plugin/wordpress-popup.7.8.14.1.zip",
+        "sha256": "d11c3c4bd81e6ff6a213ff23dc1de5e9de7c3204d666bf37ce5165f33c1f880b",
+        "role": "refusal-fixture"
+      },
       "7.8.14.2": {
         "url": "https://downloads.wordpress.org/plugin/wordpress-popup.7.8.14.2.zip",
         "sha256": "8dcc4bec8176ba68193d8c57f381fcfdc79bbbe605d47fb8dbc3f728060b7d00",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     }
   },

@@ -15,23 +15,33 @@
       "option_patterns",
       "shortcode_attrs"
     ],
-    "lifecycle_phases": [],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
     "operations": [
       "capture",
       "compile",
-      "recapture"
+      "plan",
+      "deploy",
+      "apply",
+      "recapture",
+      "render-api"
     ]
   },
   "default_authored_keyspaces": [],
   "evidence": {
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
-      "regress-package-contract",
-      "regress-module-boundary"
+      "conformance-wordpress-popup",
+      "exact-artifact-version-matrix",
+      "regress-module-boundary",
+      "regress-package-contract"
     ]
   },
-  "reason": "Source-read declaration of official Hustle 7.8.14.2 plus deterministic offline policy evidence. Every classification was derived by reading the exact locked artifact, not by observing a native writer on a live pair, and no capsule conformance run has completed. Independent review and production-readiness evidence are pending; no production authorization.",
-  "status": "experimental",
+  "reason": "Reviewed against the exact official Hustle 7.8.14.2 artifact and exercised through the product path: the capsule round-trips deploy, apply and byte-identical recapture on a clean target, rebinds its custom-table module reference across diverging auto-increments, preserves target-only module, meta, counter and neighbour state through a converging apply, is idempotent on retry, survives deactivate/reactivate, and refuses unauthorized module deletion. The exact-artifact matrix admits 7.8.14.2 and refuses the adjacent official 7.8.14.1 by name without mutating an authored row.",
+  "status": "certified",
   "supported_versions": {
     "plugin": "wordpress-popup/popover.php",
     "range": {
@@ -40,11 +50,6 @@
     }
   },
   "unsupported": [
-    {
-      "operation": "deploy",
-      "surface": "adapter",
-      "reason": "Experimental support is not production-authorizing; full native source-to-target conformance and independent review remain pending."
-    },
     {
       "operation": "delete",
       "surface": "deletions.*",
