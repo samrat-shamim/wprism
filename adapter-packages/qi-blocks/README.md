@@ -23,8 +23,9 @@ The current draft is not ready to merge. Its native content regression passes
 now uses the shared `key-bound-strings/v1` codec to rebind all 88 saved CSS page
 identity frames with their owning map key. Capture refuses selectors that name
 a different page, and the checked option transaction preserves native types,
-order, URLs, rollback and exact recapture. Native target rendering and complete
-qualification remain pending.
+order, URLs, rollback and exact recapture. Native content-only target Apply now
+passes complete body, attachment metadata and HTTP stylesheet comparisons.
+Browser/editor behavior and complete qualification remain pending.
 
 The complete native body also exercises the final publication privacy guard.
 Shared identifier, SVG viewport and complete-UUID handling prevents generated
@@ -36,6 +37,7 @@ Run the current portability probes directly:
 ```bash
 php adapter-packages/qi-blocks/tests/offline/regress_native_content.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_options.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_apply_evidence.php
 ```
 
 Manifest grammar and structural package validation pass. The artifact lock
@@ -45,8 +47,15 @@ conformance run passes on WordPress 7.1 with Qi Blocks 1.5.2: it exercises the
 47 standalone block types through native REST writers and independently
 compares complete canonical content and styles, then verifies clean lint,
 deterministic recapture, compilation and planning. The two integration blocks require a
-participant-declared combination scenario. Target conformance explicitly
-refuses until its native assertions are authored. The complete offline,
-tooling and release gates pass; native qualification remains unfinished. See
+participant-declared combination scenario. The separate native Apply runner
+passes on `44c3cf3f`: all four target IDs diverge, all 204 emitted CSS page
+selectors match their native owner, eight target-local trash rows and every Qi
+runtime option remain intact, and repeat Apply writes nothing. Complete native
+media observations and independently retained per-site media catalogs converge;
+the source's unused 333×211 crop correctly stays absent on the target. See
+[the native Apply workflow](fixtures/native-apply/README.md) for its command and
+scope. The promotion conformance target hook still refuses; browser/editor,
+selected crop, lifecycle, host, version and combination qualification remain
+unfinished. See
 [evidence/authoring-progress.json](evidence/authoring-progress.json) for the
 observed results and qualification limits.

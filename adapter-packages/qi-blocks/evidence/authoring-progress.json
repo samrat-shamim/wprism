@@ -34,7 +34,7 @@
         "engine_commit": "596d9b29",
         "failure": "Map key 13 became 813 but 88 saved CSS page identity frames remained at source ID 13. The unchanged native round-trip assertion failed before the shared key-bound string codec."
       },
-      "scope": "Read-only native option capture, immutable compilation, checked SQL transaction, injected rollback/retry and exact recapture. No CSS privacy exception; capture and compilation independently reject private values. Native target rendering remains unqualified."
+      "scope": "Read-only native option capture, immutable compilation, checked SQL transaction, injected rollback/retry and exact recapture. No CSS privacy exception; capture and compilation independently reject private values. Native target behavior is measured separately."
     },
     "manifest_validation": {
       "command": "php cli/wprism manifest-validate . --manifest=qi-blocks --pins=core,qi-blocks",
@@ -78,6 +78,12 @@
       "exit": 0,
       "assertions": 147,
       "scope": "Complete alphabetic identifiers with one numeric suffix, native SVG viewport coordinates, complete UUIDs across scan windows, and hostile phone/email/secret controls. Named personal roles and bare numeric URL query keys retain their existing privacy refusals."
+    },
+    "native_apply_evidence": {
+      "script": "tests/offline/regress_native_apply_evidence.php",
+      "exit": 0,
+      "assertions": 53,
+      "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Executes the live snapshot operation with different per-site catalogs; these doubles do not qualify native execution."
     }
   },
   "quality_gates": {
@@ -102,12 +108,12 @@
   },
   "limitations": [
     "This is an experimental draft, not a production qualification. Complete current aggregate results are recorded separately from targeted checks.",
-    "No Qi capsule live round trip, version matrix, host conformance or hostile readiness claim yet.",
+    "Content-only page Apply, repeat, recapture, native media and HTTP CSS pass; no browser/editor, selected custom crop, lifecycle, host, version-matrix or hostile readiness qualification yet.",
     "Signature, progress-bar images, empty galleries and responsive crop controls still need native Save/reopen evidence.",
     "The broad native engine media probe is separate from this capsule and does not qualify its editor behavior."
   ],
   "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
-  "source_engine_state": "Full offline, tooling, release and native source capture-plan checks pass. Qi remains experimental with target qualification pending.",
+  "source_engine_state": "Native source capture-plan and the separately recorded content-only target Apply pass on their named commits. Qi remains experimental; complete production qualification is pending.",
   "native_source_conformance": {
     "status": "source-capture-plan-passed",
     "first_attempt": {
@@ -151,5 +157,61 @@
       ],
       "scope": "Source capture-plan only. No target apply, render, editor Save/reopen, lifecycle, host promotion or combination qualification."
     }
+  },
+  "native_apply_conformance": {
+    "status": "content-only-native-apply-passed",
+    "source_commit": "44c3cf3fa0f0bce162d2c79fc3da78ecba310e8e",
+    "script": "tests/live/regress_native_apply.sh",
+    "command": "QI_APPLY_PAIR=qia02 QI_APPLY_PORT1=9176 QI_APPLY_PORT2=9177 QI_APPLY_ZIP=<locked-local-archive> WPRISM_EXPECTED_SOURCE_SHA=44c3cf3fa0f0bce162d2c79fc3da78ecba310e8e bash adapter-packages/qi-blocks/tests/live/regress_native_apply.sh",
+    "exit": 0,
+    "wordpress": "7.1",
+    "qi_blocks": "1.5.2",
+    "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "native_block_types": 47,
+    "native_block_instances": 50,
+    "saved_selector_frames": 84,
+    "emitted_selector_frames": 204,
+    "compiled_entities": 7,
+    "preserved_target_trash_rows": 8,
+    "source_uploads": 9,
+    "target_uploads": 8,
+    "source_body_sha256": "5ea30585f85f28dc007d0ca29b61a2c9c0c8e6197081c83599b6f65028c3dfcd",
+    "target_body_sha256": "9b7f2f0668cd92b08310236db6495e0f0684648f926dd8b79f4b15b9fc0df002",
+    "source_styles_sha256": "a661590fb4cfe78385a1504e7804bd109ab8e69c2211589c8c06ea18ddfb905d",
+    "target_styles_sha256": "6366d98721cdcf20c4c55956eca4a13db4bd3cbfc2d432d8af884427eee5642d",
+    "log_sha256": "572031bf0caa6a4c5fda09862582ae53421b567b7d7b413b59e85d0886b2274e",
+    "retained_repositories": [
+      "source",
+      "target-input",
+      "target",
+      "source-repeat",
+      "render-source",
+      "render-target"
+    ],
+    "verified": [
+      "native WordPress and Qi REST writers and fresh readback",
+      "complete native target body and ordered PHP style container against independent corpus expectations",
+      "all four target post/attachment IDs diverge while durable identities remain unchanged",
+      "complete target-local trash rows and every Qi runtime option row preserved",
+      "native attachment metadata, URL, featured-image references and complete upload hashes, lengths and dimensions",
+      "unused source-only 333x211 crop stays absent from target and has no saved or rendered consumer",
+      "actual Apply canary and canonical recapture verifier, zero-write repeat and unchanged complete native observation",
+      "independently retained per-site media catalogs and complete compiled repository convergence across all six snapshots",
+      "complete emitted HTTP stylesheet and all 204 page selectors, with no native mutation during frontend requests",
+      "owned pair, site roots and lease destroyed"
+    ],
+    "scope": "Content-only Apply, repeat, complete native body/options/media and HTTP CSS. No browser, selected custom crop, lifecycle, host, version or combination qualification."
   }
 }
