@@ -60,6 +60,9 @@ if ($phase === 'setup') {
     $bytes = "<?php\n/* Plugin Name: WPrism WPForms provider fixture\nVersion: 1.0.0\n*/\nrequire_once WPMU_PLUGIN_DIR . '/adapter-packages/wpforms-lite/fixtures/location-provider/native-provider-boot.php';\n";
     $check(file_put_contents($bootstrap, $bytes) === strlen($bytes) && chmod($bootstrap, 0600), 'owned fixture bootstrap');
     require_once ABSPATH . 'wp-admin/includes/plugin.php';
+    // Native installation invalidates discovery before activation; a plugin
+    // list cached earlier in this setup boot cannot know the new fixture file.
+    wp_clean_plugins_cache(false);
     $activated = activate_plugin($plugin, '', false, true);
     $check(!is_wp_error($activated) && is_plugin_active($plugin), 'ordinary fixture plugin activation');
     WPFormsLocationProviderLibrary::create(dirname(__DIR__, 4), $proof . '/library');
