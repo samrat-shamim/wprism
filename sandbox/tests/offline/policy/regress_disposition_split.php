@@ -16,13 +16,13 @@
  * one-byte canonical difference in one document would move that adapter's
  * digest, every `site.wprism.json` content pin naming it, and — through
  * `manifest_hash` — every compiled artifact in the field. The WPrism
- * greenfield baseline below pins the current 18-subject identity map through
- * two maximal compatible 17-subject policy worlds, so a split-induced byte
+ * greenfield baseline below pins the current 21-subject identity map through
+ * two maximal compatible 19-subject policy worlds and a separate AIO world, so a split-induced byte
  * change is still a measured fleet-visible failure.
  *
  * THE GATE ASSERTION, AND WHY IT IS NOT A TAUTOLOGY
  * ------------------------------------------------
- * PART 1 pins the current WPrism 18-subject digest union, each compatible
+ * PART 1 pins the current WPrism 21-subject digest union, each compatible
  * world's `manifest_hash` and snapshot, and `registry_sha256` as LITERALS
  * captured from this greenfield tree, through the product path a deployed
  * site uses. Recomputing both sides of an equality would prove nothing — it
@@ -162,7 +162,7 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * Rule 2 makes each of those historical transitions fleet-visible BY DESIGN.
  *
  * The frozen map and these overlays remain historical evidence only. The
- * current WPrism gate is the explicit 18-subject map below, observed as the
+ * current WPrism gate is the explicit 21-subject map below, observed as the
  * union of two valid maximal policy worlds; it does not infer an unmoved or
  * moved count from the pre-split capture.
  */
@@ -335,6 +335,16 @@ const POST_CONTEXT_CHANNEL_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b79
 const POST_CONTEXT_CHANNEL_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
 const POST_CONTEXT_CHANNEL_SNAPSHOT_SHA = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
 
+// Staging the experimental WPForms provider changes its package identity and
+// reviewed reason, not readiness. Keep the immediately preceding addresses
+// explicit: both compatible worlds require deliberate recompile/re-pin.
+const PRE_WPFORMS_LOCATION_PROVIDER_DIGEST = 'c427fa5a6c5ca83c092c9e9b266b34a4e932d44f505fc4fb918c1a17fea3d8c8';
+const PRE_WPFORMS_LOCATION_PROVIDER_RANK_MANIFEST_HASH = '968c2eb9047d3c915f39e9dd094ae9cc04daf1b7e1fa175fb91a7bbaa0eb2226';
+const PRE_WPFORMS_LOCATION_PROVIDER_YOAST_MANIFEST_HASH = '7df2e24bc021a38e55554df9eab308fa4e36116c05941d0f80730c815b2ffb54';
+const PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
+const PRE_WPFORMS_LOCATION_PROVIDER_RANK_SNAPSHOT_SHA = 'c54d19c1c4722335f9f2e3a586baed2ff47c8cd8aff962d4b24cd6c9f5cbd4a3';
+const PRE_WPFORMS_LOCATION_PROVIDER_YOAST_SNAPSHOT_SHA = 'c6e85f18d1da81585d333c29deffcfed673c91df7ff5aecc054d7bbcd36fa9c3';
+
 /**
  * The current WPrism greenfield baseline. Unlike the historical split
  * overlays above, this map includes every currently shipped subject,
@@ -359,17 +369,17 @@ const WPRISM_CURRENT_DIGESTS = [
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
-    'wpforms-lite' => 'c427fa5a6c5ca83c092c9e9b266b34a4e932d44f505fc4fb918c1a17fea3d8c8',
+    'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'bddd9df271e8aa00552ce25fd8e359730ca0043a5b5ff50a27fcb006b86a3c28';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'bb15647284472ff0483774c1601c5e53179e957575d8f38179a4ff27a8ac3dd0';
-const WPRISM_CURRENT_REGISTRY_SHA = 'c02f1ab140271a3d906e4c922ff7f4de860f32e2235e23d2fd4b1a078f92ad12';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'cf1fa204e91e7676f73ccfa4e6d1a3389afc26ea12cedc229c136e7c51be4c65';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '4f02070b868780cba85f2a28a45f9ee8fddf97860e033ed6543e4c0a65c42a53';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'bfaf45ed2f985742dd6a4174d9b22a86e7e9412e1425e9b78d8bd6c1142c0bbe';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '00d8e80efdfc11fdf1c7ed92c2bf766f8775b1e0f51cf0aaa4750f5a1fdc97a1';
+const WPRISM_CURRENT_REGISTRY_SHA = '86f4d5165015effabb10605a2d74c9259208182572414b73ec512d3808c0f198';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'ed4ee62440064dc04b4e3dea2c0e6561df41d19ad920bf45ea8fd9c6da81422a';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '45fd42af992fa865417d0a8edb5e2e6351728cdcc00e6ebf7273cfce91a1460a';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -680,6 +690,15 @@ wprism_check_same(
     'the current WPrism greenfield baseline pins every shipped adapter digest explicitly; a disposition split that '
     . 'changes any manifest row is a measured identity failure'
 );
+wprism_check_same(['wpforms-lite'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'wpforms-lite' => PRE_WPFORMS_LOCATION_PROVIDER_DIGEST,
+]))), 'the experimental location provider moves only WPForms package identity, not its engine consumers or neighbours');
+wprism_check(PRE_WPFORMS_LOCATION_PROVIDER_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+    && PRE_WPFORMS_LOCATION_PROVIDER_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
+    && PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA
+    && PRE_WPFORMS_LOCATION_PROVIDER_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
+    && PRE_WPFORMS_LOCATION_PROVIDER_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    'WPForms declaration and reviewed reason explicitly re-pin both compatible compiled and frozen-policy worlds');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'polylang' => PRE_NATIVE_VALUE_POLYLANG_DIGEST,
 ]))), 'the native value declaration moves only Polylang, not the generic engine consumers');

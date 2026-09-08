@@ -35,22 +35,17 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-// Adding WPForms expands the two maximal worlds and the whole-registry
-// snapshot. Every pre-existing adapter digest and smaller pin set stays exact;
-// the registry-wide addressing cost is still the explicit WP-4.5 boundary.
-// The subsequent native-flag review moves only WPForms and its containing pin
-// sets. Adding AIO Login preserves those pins and adds a separate compatible
-// world; the whole-registry address moves again under the documented WP-4.5
-// boundary, while all pre-existing adapter digests remain byte-pinned.
-// Qi adds one subject to both compatible worlds and a core+Qi pin set. The
-// measured twenty pre-existing digests and smaller manifest pin sets stay
-// byte-identical; only their whole-registry snapshots incur the known cost.
-const BASELINE_FIXTURE_SHA256 = 'fc7cdd77cb7791f48d0ed4677ea5b68a91a3f72e8495e6aaee14edb1f9f1b6e6';
-const RANK_WORLD_MANIFEST_HASH = 'bddd9df271e8aa00552ce25fd8e359730ca0043a5b5ff50a27fcb006b86a3c28';
-const YOAST_WORLD_MANIFEST_HASH = 'bb15647284472ff0483774c1601c5e53179e957575d8f38179a4ff27a8ac3dd0';
-const REGISTRY_SHA256 = 'c02f1ab140271a3d906e4c922ff7f4de860f32e2235e23d2fd4b1a078f92ad12';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'cf1fa204e91e7676f73ccfa4e6d1a3389afc26ea12cedc229c136e7c51be4c65';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '4f02070b868780cba85f2a28a45f9ee8fddf97860e033ed6543e4c0a65c42a53';
+// AIO Login and Qi add two subjects without changing the upstream adapters.
+// AIO Login has its own compatible world; Qi joins both maximal SEO worlds.
+// The merged WPForms provider/settings review moves only that existing adapter
+// and its containing manifest pin sets. The whole-registry snapshot cost
+// remains the explicit WP-4.5 boundary; all smaller manifest pin sets stay exact.
+const BASELINE_FIXTURE_SHA256 = '12642e88b3bc00a4fbdd4e9710e813b20db5dbcf804506512a5489a5ee2d74fa';
+const RANK_WORLD_MANIFEST_HASH = 'bfaf45ed2f985742dd6a4174d9b22a86e7e9412e1425e9b78d8bd6c1142c0bbe';
+const YOAST_WORLD_MANIFEST_HASH = '00d8e80efdfc11fdf1c7ed92c2bf766f8775b1e0f51cf0aaa4750f5a1fdc97a1';
+const REGISTRY_SHA256 = '86f4d5165015effabb10605a2d74c9259208182572414b73ec512d3808c0f198';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'ed4ee62440064dc04b4e3dea2c0e6561df41d19ad920bf45ea8fd9c6da81422a';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '45fd42af992fa865417d0a8edb5e2e6351728cdcc00e6ebf7273cfce91a1460a';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

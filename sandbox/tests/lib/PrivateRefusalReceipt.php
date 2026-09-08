@@ -195,12 +195,39 @@ final class PrivateRefusalReceipt {
             || ($record['traversal']['record_complete'] ?? null) !== true) {
             self::fail('the appended refusal record has an incomplete envelope');
         }
-        $nodes = $record['throwable'] ?? null;
-        if (!is_array($nodes) || !array_is_list($nodes) || count($nodes) !== count($profile['nodes'])) {
+        self::assertGraph(['throwable' => $record['throwable'] ?? null, 'traversal' => $record['traversal']], $profile['nodes']);
+        return json_encode([
+            'command' => $profile['command'],
+            'format' => 'wprism-private-refusal-check/v1',
+            'new_records' => 1,
+            'node_message_sha256' => array_map(
+                static fn(array $node): string => hash('sha256', $node['message']),
+                $profile['nodes']
+            ),
+            'verified' => true,
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Check a complete kernel graph, not its invocation or transport provenance.
+     * CLI records and provider-child reports carry the same graph; neither
+     * caller may fabricate the other's envelope merely to share these checks.
+     *
+     * @param list<array{class:string,message:string,parent_index:?int,relation:string}> $expectedNodes
+     */
+    public static function assertGraph(array $graph, array $expectedNodes): void {
+        self::checkNodeProfile($expectedNodes);
+        if (!self::exactKeys($graph, ['throwable', 'traversal']) || !is_array($graph['traversal'] ?? null)
+            || ($graph['traversal']['scan_complete'] ?? null) !== true
+            || ($graph['traversal']['record_complete'] ?? null) !== true) {
+            self::fail('the appended refusal record has an incomplete envelope');
+        }
+        $nodes = $graph['throwable'] ?? null;
+        if (!is_array($nodes) || !array_is_list($nodes) || count($nodes) !== count($expectedNodes)) {
             self::fail('the appended refusal record does not retain the exact complete cause graph');
         }
         $privateEdges = 0;
-        foreach ($profile['nodes'] as $index => $expected) {
+        foreach ($expectedNodes as $index => $expected) {
             $node = $nodes[$index];
             if (!is_array($node)
                 || ($node['index'] ?? null) !== $index
@@ -231,20 +258,10 @@ final class PrivateRefusalReceipt {
             'truncated_pending_edges' => 0,
             'graph_errors' => 0,
         ] as $field => $expected) {
-            if (($record['traversal'][$field] ?? null) !== $expected) {
+            if (($graph['traversal'][$field] ?? null) !== $expected) {
                 self::fail('the appended cause graph has an incomplete traversal witness');
             }
         }
-        return json_encode([
-            'command' => $profile['command'],
-            'format' => 'wprism-private-refusal-check/v1',
-            'new_records' => 1,
-            'node_message_sha256' => array_map(
-                static fn(array $node): string => hash('sha256', $node['message']),
-                $profile['nodes']
-            ),
-            'verified' => true,
-        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
     /** @param array<string,mixed> $profile */
@@ -258,7 +275,14 @@ final class PrivateRefusalReceipt {
             self::fail('verification profile is not one closed bounded declaration');
         }
         self::checkCommand($profile['command']);
-        foreach ($profile['nodes'] as $index => $node) {
+        self::checkNodeProfile($profile['nodes']);
+    }
+
+    private static function checkNodeProfile(array $nodes): void {
+        if (!array_is_list($nodes) || count($nodes) < 1 || count($nodes) > self::NODE_LIMIT) {
+            self::fail('verification profile is not one closed bounded declaration');
+        }
+        foreach ($nodes as $index => $node) {
             if (!is_array($node)
                 || !self::exactKeys($node, ['class', 'message', 'parent_index', 'relation'])
                 || !is_string($node['class']) || strlen($node['class']) < 1

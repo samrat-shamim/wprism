@@ -1070,6 +1070,7 @@ copy(
     $shippedRoot . '/agent/src/Kernel/WpCliChildProcess.php'
 );
 $copied = [];
+$expectedProviders = [];
 $sourceLibrary = AdapterLibrary::fromSourceTree($root);
 foreach ($sourceLibrary->packages() as $package) {
     $name = $package->name();
@@ -1079,6 +1080,7 @@ foreach ($sourceLibrary->packages() as $package) {
     foreach ((array) ($manifest['providers'] ?? []) as $provider) {
         $id = is_array($provider) ? ($provider['id'] ?? null) : null;
         if (is_string($id) && ($provider['source'] ?? null) === 'manifest') {
+            $expectedProviders[] = "$name:$id";
             copy($package->providerPath($id), "$shipped/providers/$id.php");
         }
     }
@@ -1254,13 +1256,13 @@ if ($agency !== null) {
 echo "\n== the shipped provider files: real classes, real identities, real capability declarations ==\n";
 
 $declareCapability = new \ReflectionMethod(Providers::class, 'validate_capability_declaration');
-$providerCount = 0;
+$exercisedProviders = [];
 foreach ($shippedPolicies as $name => $shippedPolicy) {
     foreach ($shippedPolicy->provider_declarations() as $id => $declaration) {
         if (($declaration['source'] ?? null) !== 'manifest') {
             continue;
         }
-        $providerCount++;
+        $priorFailures = $failures;
         $file = "$shipped/providers/$id.php";
         check(is_file($file), "manifest '$name' declares provider '$id' and its package runtime ships $id.php");
         if (!is_file($file)) {
@@ -1333,9 +1335,21 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
                 "provider '$id' capability '$capability' is idempotent (apply's retry re-fires the rebuild pass)"
             );
         }
+        if ($failures === $priorFailures) {
+            $exercisedProviders[] = "$name:$id";
+        }
     }
 }
-check($providerCount === 15, "all fifteen shipped manifest-sourced providers were exercised (found $providerCount)");
+// Source declarations, not a catalog-size constant or the successfully loaded
+// policies, define coverage. A failed load/class/contract cannot erase its row.
+sort($expectedProviders, SORT_STRING);
+sort($exercisedProviders, SORT_STRING);
+check(
+    $expectedProviders !== [] && $exercisedProviders === $expectedProviders,
+    'every source-declared manifest provider passed its complete runtime contract'
+        . ' (missing: ' . implode(', ', array_diff($expectedProviders, $exercisedProviders))
+        . '; unexpected: ' . implode(', ', array_diff($exercisedProviders, $expectedProviders)) . ')'
+);
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";

@@ -132,6 +132,27 @@ if [ "${WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF:-0}" = 1 ]; then
   esac
 fi
 
+# Execute the actual mounted permission payload against the exact scratch
+# mount, as the current uid. Existing ordering/foreign-uid fixtures remain
+# recorders; this branch proves real mode, inode and byte preservation.
+if [ "${WPRISM_PAIR_TEST_EXEC_REPO_HANDOFF:-0}" = 1 ] && [ "${1:-}" = run ]; then
+  args=("$@")
+  root='' script=''
+  for index in "${!args[@]}"; do
+    case "${args[$index]}" in
+      type=bind,src=*,dst=/siterepo)
+        root="${args[$index]#type=bind,src=}"; root="${root%,dst=/siterepo}" ;;
+      type=bind,src=*,dst=/wprism-pair-permissions.sh,readonly)
+        script="${args[$index]#type=bind,src=}"; script="${script%,dst=/wprism-pair-permissions.sh,readonly}" ;;
+      /wprism-pair-permissions.sh)
+        [ -d "$root" ] && [ -f "$script" ] && [ "${args[$((index + 1))]}" = /siterepo ] || exit 84
+        sh "$script" "$root" "${args[@]:$((index + 2))}"
+        exit $? ;;
+    esac
+  done
+  exit 85
+fi
+
 # The ownership-proof fixture needs its fake stat readback to change only
 # after pair.sh has issued its one exact-root-plus-probe handback command.
 # Touching this test-owned marker models that ordering without changing either
@@ -518,6 +539,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
   cp "$ROOT/sandbox/lib/pair_bootstrap.sh" "$bin_dir/../lib/pair_bootstrap.sh"
   cp "$ROOT/sandbox/lib/pair_siterepo.sh" "$bin_dir/../lib/pair_siterepo.sh"
+  cp "$ROOT/sandbox/lib/pair_siterepo_permissions.sh" "$bin_dir/../lib/pair_siterepo_permissions.sh"
 }
 
 copy_artifact_library_runtime() { # copy_artifact_library_runtime <case-root>
@@ -2115,6 +2137,109 @@ run_repo_host_scope_case() {
   pass "$label: one exact pair side is handed back without inode/content/peer mutation"
 }
 
+run_repo_host_private_permissions_case() {
+  local label=repo_host_private_permissions pair=hostprivate
+  local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log"
+  local output="$TMP/$label/output.log" root name snapshot_before snapshot_after
+  mkdir -p "$case_root/sandbox/bin" "$fake_bin"
+  copy_pair_launcher "$case_root/sandbox/bin"
+  root="$case_root/sandbox/siterepo/${pair}1"
+  mkdir -p "$root/.wprism/refusals" "$root/.wprism/control" "$root/.wprism/compiled" \
+    "$root/.wprism/authority" "$root/unknown-runtime"
+  for name in state code media adapters .git; do
+    mkdir -p "$root/$name/nested"
+    printf 'authored\n' >"$root/$name/nested/record"
+  done
+  for name in site.wprism.json .gitignore .gitattributes .wprism/authority/authorities.json; do
+    printf '{}\n' >"$root/$name"
+  done
+  for name in .wprism-env-values.json .wprism-env-values.json.tmp.pending \
+    .wprism-envs.json state.capture.lock state.capture-receipt \
+    .wprism/refusals/record.json .wprism/control/private-key \
+    .wprism/compiled/snapshot .wprism/authority/untracked-private unknown-runtime/record; do
+    printf 'private fixture only\n' >"$root/$name"
+    chmod 0600 "$root/$name"
+  done
+  chmod 0700 "$root/.wprism/refusals" "$root/.wprism/control" "$root/.wprism/compiled" "$root/unknown-runtime"
+  printf 'outside link destination\n' >"$case_root/outside"
+  chmod 0600 "$case_root/outside"
+  ln -s "$case_root/outside" "$root/code/nested/link"
+  write_fake_docker "$fake_bin"
+  write_fake_git "$fake_bin"
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF=0 WPRISM_PAIR_TEST_EXEC_REPO_HANDOFF=1 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" PAIR_SOURCE_ROOT='' WPRISM_SOURCE_ROOT='' \
+    PATH="$fake_bin:$ORIGINAL_PATH"
+  snapshot_private() {
+    php -r '
+      $root = $argv[1]; $rows = [];
+      foreach (array_slice($argv, 2) as $path) {
+        $s = lstat($root . "/" . $path);
+        $rows[$path] = [$s["ino"], $s["uid"], $s["gid"], $s["mode"], is_file($root . "/" . $path) ? hash_file("sha256", $root . "/" . $path) : null];
+      }
+      echo json_encode($rows, JSON_THROW_ON_ERROR);
+    ' "$root" .wprism-env-values.json .wprism-env-values.json.tmp.pending .wprism-envs.json \
+      state.capture.lock state.capture-receipt .wprism/refusals .wprism/refusals/record.json \
+      .wprism/control .wprism/control/private-key .wprism/compiled .wprism/compiled/snapshot \
+      .wprism/authority/untracked-private unknown-runtime unknown-runtime/record ../outside-sentinel
+  }
+  # The last path is still inside this case's sandbox; it witnesses that a
+  # descendant link cannot widen the selected-root permission authority.
+  ln "$case_root/outside" "$(dirname "$root")/outside-sentinel"
+  snapshot_before="$(snapshot_private)"
+  "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1 \
+    || { cat "$output" >&2; fail "$label live handoff failed"; }
+  snapshot_after="$(snapshot_private)"
+  [ "$snapshot_before" = "$snapshot_after" ] || fail "$label changed runtime or outside inode/owner/mode/bytes"
+  php -r '
+    $root = $argv[1];
+    foreach (["site.wprism.json", "state/nested/record", "code/nested/record", "media/nested/record", "adapters/nested/record", ".git/nested/record", ".gitignore", ".gitattributes", ".wprism/authority/authorities.json"] as $path) {
+      if ((fileperms($root . "/" . $path) & 0666) !== 0666) exit(86);
+    }
+    foreach ([".wprism", ".wprism/authority"] as $path) if ((fileperms($root . "/" . $path) & 07777) !== 01777) exit(87);
+  ' "$root" || fail "$label public handoff did not share exactly the authored paths"
+  PATH="$ORIGINAL_PATH" git -C "$root" init -q
+  PATH="$ORIGINAL_PATH" git -C "$root" add site.wprism.json state code media adapters .gitignore .gitattributes .wprism/authority/authorities.json
+  PATH="$ORIGINAL_PATH" git -C "$root" -c user.name=fixture -c user.email=fixture@example.test commit -qm 'Host-owned authored state'
+  [ "$snapshot_before" = "$(snapshot_private)" ] || fail "$label Git work changed runtime-private state"
+  "$case_root/sandbox/bin/pair.sh" destroy "$pair" >>"$output" 2>&1 \
+    || { cat "$output" >&2; fail "$label terminal handoff failed"; }
+  [ "$snapshot_before" = "$(snapshot_private)" ] || fail "$label terminal handoff broadened private modes or changed bytes"
+  assert_file_contains "$log" '<terminal>' "$label destroy did not use the terminal transition"
+  # Without a tracked authority, the private parent itself stays untouched.
+  rm "$root/.wprism/authority/authorities.json"
+  chmod 0700 "$root/.wprism"
+  "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >>"$output" 2>&1 \
+    || { cat "$output" >&2; fail "$label private-parent handoff failed"; }
+  php -r 'exit((fileperms($argv[1]) & 07777) === 0700 ? 0 : 1);' "$root/.wprism" \
+    || fail "$label broadened a wholly runtime-private parent"
+  if "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 terminal >>"$output" 2>&1; then
+    fail "$label public repo-host accepted a terminal cleanup mode"
+  fi
+  export WPRISM_PAIR_TEST_DELETE_SENTINEL="$root/.wprism-env-values.json" \
+    WPRISM_PAIR_TEST_DELETE_MODE_LOG="$case_root/deletion-mode" WPRISM_PAIR_TEST_REAL_RM
+  WPRISM_PAIR_TEST_REAL_RM="$(PATH="$ORIGINAL_PATH" command -v rm)"
+  cat >"$fake_bin/rm" <<'PRIVATE_DELETE_GUARD'
+#!/bin/sh
+set -eu
+for path do
+  if [ -f "$path" ] && [ "$(php -r 'echo realpath($argv[1]);' "$path")" = "$WPRISM_PAIR_TEST_DELETE_SENTINEL" ]; then
+    php -r 'exit((fileperms($argv[1]) & 0777) === 0600 ? 0 : 1);' "$path" \
+      || { echo 'reset published private bytes before deletion' >&2; exit 88; }
+    printf '0600 at deletion\n' >"$WPRISM_PAIR_TEST_DELETE_MODE_LOG"
+  fi
+done
+exec "$WPRISM_PAIR_TEST_REAL_RM" "$@"
+PRIVATE_DELETE_GUARD
+  chmod +x "$fake_bin/rm"
+  "$case_root/sandbox/bin/pair.sh" reset "$pair" >>"$output" 2>&1 \
+    || { cat "$output" >&2; fail "$label reset did not keep bytes private through deletion"; }
+  [ ! -e "$WPRISM_PAIR_TEST_DELETE_SENTINEL" ] && [ -s "$WPRISM_PAIR_TEST_DELETE_MODE_LOG" ] \
+    || fail "$label reset lacks its private-mode deletion witness"
+  unset WPRISM_PAIR_TEST_EXEC_REPO_HANDOFF
+  pass "$label: live shares authored paths only; terminal preserves privacy through actual reset deletion"
+}
+
 run_repo_host_shape_refusal_case() {
   local label=repo_host_shape_refusal pair=hostshape
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
@@ -2585,6 +2710,7 @@ say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" \
   "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" \
   "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/lib/pair_lease.sh" \
+  "$ROOT/sandbox/lib/pair_siterepo_permissions.sh" \
   "$ROOT/sandbox/tests/offline/guards/regress_pair_bootstrap_unit.sh"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_readiness.sh"' \
   'pair launcher no longer loads its readiness library'
@@ -2764,6 +2890,9 @@ run_reset_inode_preservation_case
 
 say "exact side ownership handback preserves inode/content/peer isolation"
 run_repo_host_scope_case
+
+say "live and terminal handoffs preserve runtime-private permissions (actual payload; no Docker)"
+run_repo_host_private_permissions_case
 
 say "ownership handback rejects symlink and non-directory roots before allocating a probe/container"
 run_repo_host_shape_refusal_case

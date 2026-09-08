@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-// Native public writer/UI evidence for the unshipped URL policy only. The
+// Native public writer/UI evidence for the experimental URL policy only. The
 // fixture intentionally supplies metadata to the renderer; no Apply/provider
 // invocation, cache-input admission or private Locator method is claimed.
 require_once WPMU_PLUGIN_DIR . '/wprism/src/Adapter/ManifestProviderRuntime.php';
-require_once __DIR__ . '/wpforms-form-locations.php';
+require_once dirname(__DIR__, 2) . '/package/runtime/providers/wpforms-form-locations.php';
 $phase = $args[0] ?? '';
 $check = static function (bool $value, string $label): void {
     if (!$value) throw new RuntimeException('WPForms current-home fixture: ' . $label);

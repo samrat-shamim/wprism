@@ -5,17 +5,17 @@
   "covered": {},
   "gaps": {
     "contract-dependency": "Experimental exact 2.0.1.1 declarations; fresh installation, adjacent artifact refusal and upgrade workflow remain to be exercised through capsule conformance.",
-    "clean-target": "Native source-to-target deploy/apply is not yet exercised with this capsule.",
-    "dirty-target": "Hostile target values, extra rows and divergent IDs need complete native before/after witnesses.",
-    "identity-references": "Offline native-body replay covers declared coordinates; native target IDs, widgets, tags, media and scope closure still require end-to-end evidence.",
-    "native-behavior": "Reconnaissance covers native writers, but target render, submission, mail, template conversion and all settings consumers remain unproven.",
-    "derived-state": "wpforms_form_locations needs a bounded plugin-owned derivation over engine-owned read/write authority, with exact postconditions.",
+    "clean-target": "Seeded and empty-content preinstalled targets have native content-only Apply evidence, including five source-compiler-bound creates; managed-code deployment and the complete authored-surface matrix remain pending (native-location-design.md).",
+    "dirty-target": "Divergent native IDs, seven complete target-only trash rows, unassigned widgets and complete mixed settings/crypto rows have preservation witnesses; settings retain synthetic Pro, credential/PII-shaped and nested unknown local state (native-settings.md). Broader runtime/table residues remain pending.",
+    "identity-references": "Native Apply maps divergent form/template/page IDs and widget references, with real page/sidebar ScopeContract association; tags, media and the remaining scope/reference matrix still need end-to-end evidence.",
+    "native-behavior": "Fresh form rendering and Locator consumers pass four content-only Apply cases; authenticated General/Validation saves and selected settings consumers now round-trip (native-settings.md). Conditional markup UI, browser validation, submission, mail, template conversion and other settings remain unproven.",
+    "derived-state": "The bounded SDK-backed location provider has native exact-row, consumer and fixed-point evidence; broader placement/removal families and complete effect-boundary coverage remain pending.",
     "deletion": "No selectors declared; native captured deletion and independent valid-intent compiler/plan/apply refusal with preservation are pending.",
-    "failure-recovery": "Provider and lifecycle failure injection, rollback and retry remain unproven.",
-    "concurrency-idempotence": "Native concurrent writes and complete target/recapture fixed points remain to be exercised with the capsule.",
+    "failure-recovery": "Actual-provider SDK recovery models, native pre-DML refusals and ordinary Apply's dangling-source preflight refusal with unchanged empty-target witnesses are exercised; native injected DML/commit failures, full rollback and lifecycle recovery remain pending.",
+    "concurrency-idempotence": "Four native content-only Apply cases reach zero-write/action retry and full source/target/source-repeat compiler convergence; concurrent native writers and the complete family matrix remain pending.",
     "lifecycle": "Activation, retirement, downgrade/refusal, recovery and installation-local state preservation remain pending.",
-    "data-boundary": "Named PII paths and native bodies have offline controls; native full target settings, secrets, runtime submissions/payment rows and Pro residues remain to be proven.",
-    "scope-platform": "Explicit post/template/tag/sidebar scope, real plugin combinations and the supported platform boundary remain unproven."
+    "data-boundary": "Named PII paths and native bodies have offline controls; complete native settings and distinct crypto rows preserve synthetic target-only Pro, credential/PII-shaped and unknown nested residues through Apply/retry (native-settings.md). Runtime submissions/payment rows and broader local state remain pending.",
+    "scope-platform": "Native page/sidebar action selection and full source-artifact association are exercised; remaining explicit scopes, participant-declared plugin combinations and the full supported platform boundary remain pending."
   },
   "blocked": {},
   "not_applicable": {}

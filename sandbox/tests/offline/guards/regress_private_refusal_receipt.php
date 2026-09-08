@@ -60,6 +60,21 @@ $refuses = static function (callable $operation, string $label): void {
 };
 
 wprism_check_same('[]', PrivateRefusalReceipt::snapshot($directory, $profile), 'a missing store has one empty filename baseline');
+$graph = ['throwable' => $record['throwable'], 'traversal' => $record['traversal']];
+PrivateRefusalReceipt::assertGraph($graph, $profile['nodes']);
+wprism_check(true, 'the actual kernel graph can be checked without inventing a CLI record or producing a receipt');
+foreach (['extra' => $graph + ['command' => 'apply'], 'missing' => ['throwable' => $graph['throwable']],
+    'missing throwable' => ['traversal' => $graph['traversal']],
+    'nonarray throwable' => array_replace($graph, ['throwable' => null]),
+    'nonarray traversal' => array_replace($graph, ['traversal' => null])] as $label => $badGraph) {
+    $refuses(fn() => PrivateRefusalReceipt::assertGraph($badGraph, $profile['nodes']), 'direct graph envelope ' . $label);
+}
+foreach ([[], array_fill(0, 65, $profile['nodes'][0]), [null], ['named' => $profile['nodes'][0]],
+    [array_replace($profile['nodes'][0], ['relation' => 'previous'])],
+    [array_replace($profile['nodes'][0], ['message' => str_repeat('x', 4097)])],
+    [array_replace($profile['nodes'][0], ['unexpected' => true])]] as $badNodes) {
+    $refuses(fn() => PrivateRefusalReceipt::assertGraph($graph, $badNodes), 'direct graph invalid bounded node profile');
+}
 mkdir($directory, 0700);
 $old = '20260905-090000-apply-' . str_repeat('a', 24) . '.json';
 $new = '20260905-090001-apply-' . str_repeat('b', 24) . '.json';
@@ -266,6 +281,11 @@ foreach ($mutations as $label => [$path, $value]) {
     }
     $slot = $value;
     unset($slot);
+    if (str_starts_with($path, 'throwable') || str_starts_with($path, 'traversal.')) {
+        $refuses(fn() => PrivateRefusalReceipt::assertGraph(
+            ['throwable' => $changed['throwable'], 'traversal' => $changed['traversal']], $profile['nodes']),
+            'direct graph ' . $label);
+    }
     $write($directory . '/' . $new, $changed);
     $refuses(fn() => PrivateRefusalReceipt::verify($directory, $baseline, $profile), $label);
     $failedCollection = json_decode(PrivateRefusalReceipt::collect($directory, $baseline, $profile), true, 32, JSON_THROW_ON_ERROR);

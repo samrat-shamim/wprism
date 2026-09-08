@@ -44,3 +44,41 @@ through the shared private transport reader. Its offline probe exercises actual
 PostCapture and hostile transport controls; those synthetic controls are not
 proof that the new native workflow has run. The target `check.sh` intentionally
 refuses until real round-trip evidence replaces the source-only boundary.
+
+`location-provider/provider-library.php` builds an explicitly **excluded**,
+private source-layout library containing the unshipped candidate. Its native
+fixture loads ordinary Policy, compiles and persists an empty fixture repository,
+reopens the artifact through the normal reader, negotiates the declared action,
+and invokes the existing provider runtime. The engine owns both actual WP-CLI
+children; the fixture adds only native CPT/sidebar registrations and a private
+boot journal, not another process runner. The empty repository intentionally
+proves provider execution against existing target state, not authored Apply.
+
+`tests/live/regress_location_provider.sh` owns one source-bound MariaDB pair and
+compares concrete native public-writer/column-renderer output, complete physical
+input and nonowned rows, duplicate/orphan reconciliation, and a fresh-boot retry.
+Native writer values are observed during seeding; UI is observed only in fresh
+boots, because updating sidebar options does not refresh WordPress's warm
+sidebar globals. Those observers require the complete rendered roster and exact
+markup across retry. The attachment discriminator records native `inherit`
+creation, then explicitly seeds a dirty physical `publish` status to isolate
+type exclusion from status exclusion; it is not a claimed native writer output.
+It requires `WPFORMS_PROVIDER_PAIR`, `WPFORMS_PROVIDER_PORT1`,
+`WPFORMS_PROVIDER_PORT2`, `WPFORMS_PROVIDER_ZIP`, and exact
+`WPRISM_EXPECTED_SOURCE_SHA`. The host admits all five private records together.
+The offline library test proves normal identity binding and stale-artifact
+refusal; the synthetic host-admission controls are not a native run. Neither
+fixture changes the shipped package or grants Apply, deployment, lifecycle,
+deletion, submission, locale or cross-plugin readiness.
+
+The same owned live lane also requires six isolated dirty-input refusals:
+missing/non-form/template embedded IDs, malformed form JSON, a raw-null widget
+title, and an unsafe standalone URI. Each case starts from the admitted
+positive fixed point, changes one physical input cell, invokes the ordinary
+provider, reads back in another WordPress boot, and restores only that cell.
+The host re-admits the full positive baseline and requires exact preservation
+of every captured input, nonowned and owned row. Shared `assertGraph()` checks
+the complete private child cause and normal transport topology; a public
+wrapper or a copied success flag cannot stand in for that cause. These fixture
+restorations are not product rollback or uncertain-commit evidence, and raw
+hostile seeds are never presented as native writer output.

@@ -42,10 +42,11 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only. The two
- * maximal compatible worlds project 406 effects / 120 database selectors
- * (Rank Math world) and 395 / 111 (Yoast world); the remainder selects external
+ * maximal compatible worlds project 408 effects / 121 database selectors
+ * (Rank Math world) and 397 / 112 (Yoast world); the remainder selects external
  * hooks, cache namespaces and provider resources that no journal row can
- * confirm or refute. Ten of the nineteen adapters in each compatible world declare no journal-observable effect at all. That is reported as
+ * confirm or refute. Nine of the nineteen adapters in each compatible world declare no
+ * journal-observable effect at all. That is reported as
  * `scorable => false` rather than as a clean score, and asserted below, because
  * the honest answer to "can this become blocking?" has to start from how much
  * of the library it can see.
@@ -72,8 +73,11 @@
  * redirection table to the derived topology. The clean sheet -- 0 findings -- survived
  * these reviewed changes unchanged. The experimental WPForms declaration
  * adds 17 database surfaces and one non-journal-observable effect, without
- * adding a scorable adapter or granting production readiness. That clean sheet,
- * not the totals, is the property this suite asserts.
+ * adding a scorable adapter or granting production readiness. Staging its
+ * bounded location provider adds two effects: one postmeta checkpoint and one
+ * unobservable native request-cache effect. Each world gains one scorable
+ * adapter and one scored surface, with no new fixture surface or readiness
+ * promotion. That clean sheet, not the totals, is the property this suite asserts.
  */
 declare(strict_types=1);
 
@@ -222,14 +226,14 @@ wprism_check_same(656, count($yoastWorldFixture), 'the Yoast world fixture conta
 $rankWorldBaseline = EffectDeclarationCoverage::from_facts($rankWorldPolicy, ['rows' => $rankWorldFixture]);
 $yoastWorldBaseline = EffectDeclarationCoverage::from_facts($yoastWorldPolicy, ['rows' => $yoastWorldFixture]);
 foreach ([
-    'Rank Math world' => [$rankWorldBaseline, 406, 120, 3272],
-    'Yoast world' => [$yoastWorldBaseline, 395, 111, 3749],
+    'Rank Math world' => [$rankWorldBaseline, 408, 121, 3273],
+    'Yoast world' => [$yoastWorldBaseline, 397, 112, 3750],
 ] as $label => [$report, $declared, $observable, $scored]) {
     wprism_check_same(EffectDeclarationCoverage::FORMAT, $report['format'], "$label names the versioned report format");
     wprism_check_same(19, $report['totals']['adapters'], "$label reports each pinned adapter, scorable or not");
     wprism_check_same($declared, $report['totals']['declared_effects'], "$label measures its complete effects inventory");
     wprism_check_same($observable, $report['totals']['observable_effects'], "$label measures every database-checkpoint selector");
-    wprism_check_same(9, $report['totals']['scorable_adapters'], "$label names only adapters with journal-observable effects as scorable");
+    wprism_check_same(10, $report['totals']['scorable_adapters'], "$label names only adapters with journal-observable effects as scorable");
     wprism_check_same(0, $report['totals']['outside_declaration'], "$label has no write outside declared authority");
     wprism_check_same($scored, $report['baseline']['scored_surfaces'], "$label pins its executable (adapter, surface) judgement count");
     wprism_check_same(0, $report['baseline']['outside_declaration_surfaces'], "$label produces no finding");
@@ -260,9 +264,9 @@ foreach ($baseline['adapters'] as $row) {
     }
 }
 wprism_check_same(
-    ['core', 'elementor', 'ninja-forms', 'polylang', 'rank-math', 'redirection', 'the-events-calendar', 'woocommerce', 'yoast-duplicate-post'],
+    ['core', 'elementor', 'ninja-forms', 'polylang', 'rank-math', 'redirection', 'the-events-calendar', 'woocommerce', 'wpforms-lite', 'yoast-duplicate-post'],
     $scorable,
-    'the nine scorable adapters in the Rank Math world are named, so silent adapters cannot be summed as clean'
+    'the ten scorable adapters in the Rank Math world are named, so silent adapters cannot be summed as clean'
 );
 $yoastScorable = [];
 foreach ($yoastWorldBaseline['adapters'] as $row) {
@@ -271,7 +275,7 @@ foreach ($yoastWorldBaseline['adapters'] as $row) {
     }
 }
 wprism_check_same(
-    ['core', 'elementor', 'ninja-forms', 'polylang', 'redirection', 'the-events-calendar', 'woocommerce', 'yoast', 'yoast-duplicate-post'],
+    ['core', 'elementor', 'ninja-forms', 'polylang', 'redirection', 'the-events-calendar', 'woocommerce', 'wpforms-lite', 'yoast', 'yoast-duplicate-post'],
     $yoastScorable,
     'the Yoast world replaces only the incompatible Rank Math row and remains independently scorable'
 );
@@ -284,6 +288,30 @@ $polylang = edc_adapter($baseline, 'polylang');
 wprism_check_same(7, $polylang['declared_effects'], 'Polylang has seven declared effects: the reviewed port added five to its two pre-existing effects');
 wprism_check_same(2, $polylang['observable_effects'], 'two Polylang effects are database-checkpoint observable, making it scorable');
 wprism_check_same(2, $polylang['exercised_effects'], 'the derived fixture exercises both Polylang database effects');
+
+foreach ([$rankWorldBaseline, $yoastWorldBaseline] as $world) {
+    $wpforms = edc_adapter($world, 'wpforms-lite');
+    wprism_check_same(3, $wpforms['declared_effects'], 'WPForms retains its prior external effect and adds exactly two location-provider effects');
+    wprism_check_same(1, $wpforms['observable_effects'], 'only the WPForms postmeta checkpoint is journal-observable');
+    wprism_check_same(2, $wpforms['unobservable_effects'], 'the native request cache and prior external effect cannot be proved by database writes');
+    wprism_check_same(1, $wpforms['exercised_effects'], 'each complete world exercises precisely the WPForms database effect');
+}
+$wpformsLocationEffects = [];
+foreach ($rankWorldPolicy->effects_inventory() as $entry) {
+    if ($entry['manifest'] === 'wpforms-lite' && str_starts_with($entry['effect']['id'], 'wpforms-location-')) {
+        $wpformsLocationEffects[$entry['effect']['id']] = [$entry['phase'], $entry['effect']];
+    }
+}
+wprism_check_same([
+    'wpforms-location-native-cache' => ['rebuild', [
+        'id' => 'wpforms-location-native-cache', 'kind' => 'external', 'mode' => 'irreversible',
+        'selector' => ['scope' => 'external', 'type' => 'provider_resource', 'value' => 'wpforms-location-native-readers:v1:request-object-cache'],
+    ]],
+    'wpforms-location-rows' => ['rebuild', [
+        'id' => 'wpforms-location-rows', 'kind' => 'database', 'mode' => 'restorable',
+        'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'postmeta'],
+    ]],
+], $wpformsLocationEffects, 'the measured WPForms increment is exactly its reviewed postmeta and request-cache authority');
 
 $rankMath = edc_adapter($baseline, 'rank-math');
 wprism_check_same(17, $rankMath['declared_effects'], 'Rank Math declares every schema, lifecycle and rebuild side effect');
@@ -322,7 +350,7 @@ wprism_check_same(5, $yoast['observable_effects'], 'five Yoast effects are datab
 wprism_check_same(5, $yoast['exercised_effects'], 'the Yoast-world fixture exercises every observable Yoast effect');
 
 $woo = edc_adapter($baseline, 'woocommerce');
-wprism_check_same(280, $woo['declared_effects'], 'woocommerce declares 280 of the Rank Math world\'s 406 effect rows');
+wprism_check_same(280, $woo['declared_effects'], 'woocommerce declares 280 of the Rank Math world\'s 408 effect rows');
 wprism_check_same(86, $woo['observable_effects'], '86 of them are journal-observable');
 wprism_check_same(86, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
 wprism_check_same([], $woo['unexercised_effects'], 'nothing is left unexercised when every declared surface is written');
@@ -383,7 +411,7 @@ echo "\n== an over-declared effect is NAMED as unexercised, and that is not an e
 // unexercised; nothing is a finding. Treating this as a defect would punish
 // exactly the over-declaration this report exists to reward.
 $empty = EffectDeclarationCoverage::from_facts($policy, ['rows' => []]);
-wprism_check_same(120, $empty['totals']['unexercised'], 'all 120 Rank Math-world database declarations report unexercised against an empty journal');
+wprism_check_same(121, $empty['totals']['unexercised'], 'all 121 Rank Math-world database declarations report unexercised against an empty journal');
 wprism_check_same(0, $empty['totals']['outside_declaration'], 'unexercised is NOT an error: an empty journal produces zero findings');
 wprism_check_same(false, $empty['blocking'], 'the document still says it blocks nothing');
 wprism_check_same(null, $empty['baseline']['outside_declaration_rate'], 'a rate over zero scored surfaces is null, never a fabricated 0');

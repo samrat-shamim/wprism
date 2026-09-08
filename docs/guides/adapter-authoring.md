@@ -1511,6 +1511,19 @@ A timeout, parent death, warning on stderr, malformed or noncanonical envelope,
 identity drift, or projection mismatch is recovery debt rather than a retryable
 success.
 
+That equality proves the durable postimage, not an independent native
+recomputation. For reviewed target-local derived display state, such as a
+localized label retained by a normally initialized plugin service, keep the
+public native consumer and validate its bounded output before writing. A
+same-child reconstruction fixed point and the separate physical observer do
+not promise identical labels after a later locale/catalog change. Declare that
+environmental meaning and test the actual native consumer under the relevant
+locales; do not label option rows as physical provenance for an initialization-
+time translation. Nor should a provider read private properties, reinitialize
+the service or invent a source-literal-only restriction to prove a cross-boot
+invariant its contract never promised. Authored/portable values and other
+undeclared environment dependencies gain no exemption from this distinction.
+
 The observer boundary is database-specific, not a general PHP sandbox. It
 prevents writes only through the canonical `$wpdb` transport and grants only
 the tables implied by declared `option:*` and `table:*` surfaces. Filesystem,
@@ -1931,6 +1944,23 @@ the reviewed field. The capsule's `regress_settings_and_embeds.php` exercises
 native settings with hostile excluded siblings and independent secret/PII
 controls through `OptionsCapture` and `CaptureSafetyGates`.
 
+A persisted default is not proof that the installed edition can author it.
+WPForms Lite 2.0.1.1 registers `gdpr-disable-uuid` and
+`gdpr-disable-details` as disabled Pro-only education controls. Its ordinary
+General save still writes the absent toggle inputs as `false`. The initial
+declaration wrongly treated those observed defaults and existing privacy
+readers as portable authority: shared Apply then replaced target-local Pro
+residue. The correction is two exact `env` subkey declarations, not a special
+case in the option engine. `regress_settings_ownership.php` proves actual
+Capture exclusion, mixed-option Apply preservation, recapture, and refusal of
+forged authored subkeys. Inspect edition, visibility, enabled state and save
+semantics together. Separately identify automatic initialization and native UI
+saves: the conditional modern-markup control has both, with different stored
+scalar types. Do not unhide a control or spoof a disabled POST field merely to
+claim native authoring coverage. Audit environment gates too: on a local
+`.invalid` HTTP host, Lite Connect is not registered at all. Pin that actual
+form shape instead of forcing the cloud integration to load for the test.
+
 `structured-evidence/v1` claims `declaration_evidence`
 (`spec/repo-format.md` § v3.14) — an object keyed by TARGET, each record
 `{"evidence": [{source, locator, observation}, …]}` and optionally
@@ -2256,6 +2286,15 @@ plugin faithfully.
    that tree's permissions and reset removes its contents. Verify retention
    after cleanup, not just before it. Its diagnostic-only record is not a passing certificate;
    a malformed, warning-bearing, oversized or mismatched observation refuses.
+
+   Native workers and host verifiers have different physical dependency roots:
+   the pair mounts `mu-plugins/adapter-packages/` beside the drop-in's `src/`,
+   not a host `agent/` directory. Keep shared native assertions independent of
+   host-only compiler loads; require those dependencies at the host comparison
+   boundary. Exercise the actual helper in a fresh capsule-only process where
+   host classes are not already declared. WPForms' settings regression pins
+   this layout after an eager host require failed before the first native save;
+   alternate-path guesses or an autoload fallback would hide the boundary.
 
    Put reusable capsule shell helpers in `fixtures/`, not beside class-named
    test entrypoints. Source them through the explicit
@@ -3064,6 +3103,20 @@ library.
    zero-exit PHP warning on each stream, retaining a healthy control. Correct
    payloads do not make ignored diagnostics into valid evidence.
 
+   Separate **empty-content creation** from seeded adoption and managed-code
+   installation. Prove the declared target coordinates absent across native
+   statuses before any identity lookup or writer; do not pre-create them to
+   make reference resolution pass. Derive the complete expected CREATE set
+   from the real source compiler, bind all plan rows to that tree, and allow
+   only the independently declared Core/default adoptions outside that set.
+   Reject extra creates as well as missing ones. Carry complete physical
+   censuses through every later mutation and retry, not just initial creation;
+   bind native IDs, types, statuses and payloads back to those rows. An absent
+   derived row can have different native behavior from a stored empty value.
+   State target-local witnesses separately from source-managed state: managed
+   sidebar assignments may be replaced or reallocated by Apply, whereas an
+   explicitly unassigned local widget can be a preservation witness.
+
    Prove a coherent **source** at the actual Capture boundary, after all native
    authoring lifecycle work. In the Rank Math/ACF/Polylang/Woo combination,
    fresh raw metadata and API readbacks showed that Polylang post-meta sync
@@ -3342,6 +3395,19 @@ library.
    the start of this section. Re-measure explicit aggregate baselines such as
    effect-declaration coverage; do not replace behavioral numbers with a
    directory count merely to make the gate green.
+
+   For a deliberate package identity change, check the complete re-pin set
+   before the aggregate: `regress-disposition-split`,
+   `regress-spec-v3-digest-neutrality` (including its byte-pinned
+   `sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json`),
+   `regress-effect-declaration-coverage`, and `regress-spec-v3-document`.
+   The latter pins measured disposition sizes and the provider identity census
+   in `spec/repo-format.md`. Change only affected literal addresses/counts,
+   retain unrelated pin sets and historical witnesses, and bind a new effect
+   count to its exact phase/mode/selector authority. Never derive the expected
+   identity from the same live value under test. During diagnosis,
+   `make -k regress-offline-all` keeps independent leaves running after a
+   failure; ordinary Make fail-fast can otherwise hide later stale baselines.
 9. **Render and validate the aggregate** without checking it in:
 
    ```sh
@@ -3428,6 +3494,23 @@ init` writes a managed-baseline code revision into the compiled artifact, so
 <env>` has run — and `wprism deploy` is host promotion, which the same
 `uncertified` state blocks. So an uncertified adapter is a **capture-and-plan**
 adapter, not a deployable one.
+
+For bounded adapter-authoring evidence, a **new content-only repository that
+has never declared `code`** can exercise ordinary Apply with the exact plugin
+already installed and active on both sites. It does not prove code deployment,
+activation lifecycle, promotion or production readiness. Never strip the code
+descriptor from an initialized repository to manufacture this premise.
+
+Use the actual experimental package for that lane. An explicit library object
+passed to a parent handler is not inherited authority for its fresh verifier:
+`ApplyRequestCoordinator::verify_canonical()` re-proves the frozen policy
+against the trusted shipped library. The WPForms `4756ad35` native run reached
+that guard after authored writes/rebuild and correctly refused its private
+candidate provenance. Place the reviewed provider in its capsule's `package/`,
+retain experimental/non-readiness status, recompile/re-pin the changed identity
+and use ordinary commands. Do not add a path selector or weaken provenance
+verification for a fixture. Retain private failure diagnostics before teardown;
+a post-mutation refusal is not rollback or successful Apply evidence.
 
 There are two ways to certify one, and which you want depends on **whose
 approval the certificate represents**.

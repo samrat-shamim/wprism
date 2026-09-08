@@ -571,6 +571,30 @@ final class AdapterPackageTestsTest extends TestCase
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testRuntimeClassConstantsAreMembersNotNamespaceDependencies(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $this->runtimeProbe($root);
+        self::write($path, (string) file_get_contents($path) . <<<'PHP'
+
+class LocalConstantReader {
+    private const META_KEY = 'owned';
+    public static function read(string $key): array {
+        $rows = [];
+        if ($key === self::META_KEY) $rows[] = $key;
+        return $rows;
+    }
+}
+PHP);
+        $result = AdapterPackageValidator::validate($root, 'acf');
+        self::assertContains('runtime-sdk:wprism-adapter-runtime-sdk/v2', $result['checks']);
+
+        self::write($path, (string) file_get_contents($path) . "\n\\WPrism\\RepositoryCompiler::META_KEY;\n");
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("depends on non-SDK WPrism symbol 'WPrism\\RepositoryCompiler'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
     /** @return iterable<string,array{0:string}> */
     public static function hiddenRuntimeSdkDependencies(): iterable
     {

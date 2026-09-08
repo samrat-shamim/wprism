@@ -1173,19 +1173,20 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-22 documents, 1,547 lines, 67,731 bytes — the current entries and profile, addressed as 22 roots
+22 documents, 1,547 lines, 67,804 bytes — the current entries and profile, addressed as 22 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
 review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
-virgin-target settlement correction and the experimental WPForms and AIO Login capsules, all without changing the split topology.)
+virgin-target settlement correction, the WPForms capsule and location-provider review, and the
+AIO Login and Qi Blocks capsules, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
 rests on: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own disposition into that
 adapter's row (`:82`) and the row hashed is its `digest` (`:162`), so a canonical-encoding difference of
 one byte in one document would move that adapter's digest and every `site.wprism.json` pin naming it. It is
-proved rather than argued: `regress_disposition_split.php` pins all 20 shipped digests through three
+proved rather than argued: `regress_disposition_split.php` pins all 21 shipped digests through three
 compatible worlds, their `manifest_hash` and snapshot, and `registry_sha256` as
 explicit current greenfield literals. Separate frozen constants preserve the pre-move capture, and the
 suite carries one case per enumerated Canon-encoding hazard, in three verdicts rather than one. A nested LIST re-ordered and a UTF-8 prose
@@ -1682,7 +1683,7 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 21 adapter names, 21 `id_kind`s, 16 provider ids = 58 identities, all of which already pass the one
+- 21 adapter names, 21 `id_kind`s, 17 provider ids = 59 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **28** of them — the 7 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 21 `id_kind`s, every one of
@@ -1690,9 +1691,10 @@ rule V3-NS, against the shipped library):
 - the other 12 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
   vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 19
   names; all 21 `id_kind`s remain governed by R-17 rather than that name list;
-- all 16 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
+- all 17 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
   convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
-  `paid-memberships-pro-cache` when generic invalidation absorbed it; Redirection adds one manifest provider.)
+  `paid-memberships-pro-cache` when generic invalidation absorbed it; Redirection and experimental WPForms
+  each add one manifest provider.)
 
 **`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
 rules on this at R-17: captured state and `wprism_map` rows embed the BARE kind, so a prefix rule introduced

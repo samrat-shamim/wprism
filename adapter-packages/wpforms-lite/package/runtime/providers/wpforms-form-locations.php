@@ -6,10 +6,11 @@ namespace WPrism\Providers;
 use WPrism\ManifestProviderRuntime;
 use WPrism\ProviderSdk;
 
-/** Unshipped candidate: current native permalink/filter inputs still require admission. */
+/** Experimental native derivation; the capsule disposition grants no production readiness. */
 final class WpformsFormLocations extends ManifestProviderRuntime {
     private const META_KEY = 'wpforms_form_locations';
     private const MAX_FORMS = 128;
+    private const MAX_PLACEMENTS = 128;
     private const MAX_LOCATIONS = 2048;
     private const MAX_VALUE_BYTES = 262144;
     private const MAX_OUTPUT_BYTES = 2097152;
@@ -183,6 +184,10 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
             $targets = [];
             foreach ($ids as $id) $targets[self::form_id($id, $forms)] = true;
             if ($targets === []) continue;
+            // The SDK's 128-ID frontier runs after selection. This capsule
+            // owns scanner work and must stop at the first actual overflow,
+            // not scan the remaining 8,192-row physical roster before refusing.
+            if (count($placements) >= self::MAX_PLACEMENTS) self::refuse('native placement population exceeds the bounded frontier');
             $placements[] = ['post' => $post, 'targets' => $targets];
         }
         $links = ProviderSdk::checked_native_permalinks(array_map(
@@ -208,6 +213,11 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
             self::assert_widget_inputs($widgets, $content);
             $inputs[] = ['name' => $name, 'default' => [], 'passed_default' => true, 'reads' => 1];
         }
+        // Locator.php:177-186 freezes translated display titles at normal
+        // service initialization. Public scanning retains that target-process
+        // meaning; option witnesses do not claim physical title provenance or
+        // identical recomputation on a later boot. The observer reads only the
+        // committed postimage, while both native passes reuse this service.
         $widgets = ProviderSdk::native_option_inputs($inputs, static fn(): array => $locator->search_in_widgets(),
             'WPForms public widget scanner');
         if (!array_is_list($widgets) || count($widgets) > self::MAX_LOCATIONS) {
@@ -233,9 +243,16 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
                 self::refuse('standalone form input or self identity is malformed');
             }
             foreach (\WPForms\Forms\Locator::STANDALONE_LOCATION_TYPES as $type) {
-                if (!empty($data['settings'][$type . '_enable']) && !array_key_exists('id', $data)) {
+                if (empty($data['settings'][$type . '_enable'])) continue;
+                if (!array_key_exists('id', $data)) {
                     self::refuse('enabled standalone form has no native self identity');
                 }
+                // Locator.php:1327-1341 concatenates the slug before returning.
+                // Bound consumed source fields before that native allocation;
+                // its first-enabled precedence leaves later settings unread.
+                self::native_string($data['settings'][$type . '_title'] ?? '');
+                self::native_string($data['settings'][$type . '_page_slug'] ?? '');
+                break;
             }
             $standalone[$id] = [$data, $post['post_status']];
         }
@@ -255,6 +272,8 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
                     || $location['status'] !== $status) {
                     self::refuse('native standalone location is malformed');
                 }
+                self::native_string($location['url']);
+                $location['url'] = self::relative_location_url($home, $home . $location['url']);
                 self::add_location($locations, $total, $id, $location);
             }
         }

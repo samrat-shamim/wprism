@@ -70,10 +70,10 @@ $lint = static function (array $document) use ($state, $policy): array {
 // not a finding-shaped stub or a test that avoids allocating the small ID.
 $native = $capture($fixture['settings']);
 wprism_check_same([], $lint($native), 'retained native settings lint clean even when a flag coincides with a real form ID');
-$flags = ['gdpr', 'gdpr-disable-details', 'gdpr-disable-uuid', 'global-assets', 'modern-markup'];
+$flags = ['gdpr', 'global-assets', 'modern-markup'];
 $reviews = array_keys(array_filter($policy->option_rule('wpforms_settings')['sub_keys'], static fn(array $rule): bool => ($rule['lint_ok'] ?? false) === true));
 sort($reviews, SORT_STRING);
-wprism_check_same(array_merge(['disable-css'], $flags), $reviews, 'only the native stylesheet enum and five flag fields carry non-reference reviews');
+wprism_check_same(array_merge(['disable-css'], $flags), $reviews, 'only the native stylesheet enum and three portable flag fields carry non-reference reviews');
 
 foreach ($flags as $flag) {
     foreach ([true, false, 1, 0, '1', '0'] as $value) {

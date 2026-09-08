@@ -11,6 +11,13 @@
     "body-pii-paths/v1",
     "body-ref-preserve-type/v1",
     "body-url-rebinding/v1",
+    "manifest-provider-fresh-process/v1",
+    "manifest-provider-runtime/v1",
+    "provider-native-option-inputs/v1",
+    "provider-native-permalinks/v1",
+    "provider-native-post-types/v1",
+    "provider-physical-table-rows/v1",
+    "provider-typed-row-mutations/v1",
     "spec-window/v1",
     "structured-body-refs/v1"
   ],
@@ -67,19 +74,17 @@
           "note": "WPForms 2.0.1.1 includes/admin/class-settings.php:453-471 declares the GDPR toggle; includes/functions/privacy.php:81-102 uses it in boolean privacy decisions."
         },
         "gdpr-disable-uuid": {
-          "class": "authored",
-          "lint_ok": true,
-          "note": "WPForms 2.0.1.1 includes/functions/privacy.php:100-103 consumes this as a cookie-collection flag. Its numeric-looking value is not an entity reference."
+          "class": "env",
+          "note": "Lite 2.0.1.1 src/Lite/Admin/Education/Admin/Settings/Gdpr.php:65-99 declares this as a disabled Pro-only upgrade control. General Save Settings persists its absent input as false; that default is not portable authored intent. Preserve target-local Pro/downgrade residue."
         },
         "gdpr-disable-details": {
-          "class": "authored",
-          "lint_ok": true,
-          "note": "WPForms 2.0.1.1 includes/functions/privacy.php:78-90 consumes this as an IP-collection flag, not an entity ID."
+          "class": "env",
+          "note": "Lite 2.0.1.1 src/Lite/Admin/Education/Admin/Settings/Gdpr.php:65-99 declares this as a disabled Pro-only upgrade control. The privacy consumer does not establish a supported Lite authoring path. Preserve target-local Pro/downgrade residue."
         },
         "modern-markup": {
           "class": "authored",
           "lint_ok": true,
-          "note": "WPForms 2.0.1.1 src/Frontend/Frontend.php:194 writes string '0'/'1'; src/Admin/Settings/ModernMarkup.php:75-94 declares its toggle. Native conformance observed '1' coinciding with form post ID 1."
+          "note": "WPForms 2.0.1.1 src/Frontend/Frontend.php:181-202 automatically initializes string '0'/'1'; src/Admin/Settings/ModernMarkup.php:55-145 conditionally registers a native toggle, saved as boolean by Settings. Retained native '1' establishes the non-reference type, not successful UI authoring of the hidden/legacy-dependent control."
         },
         "modern-markup-is-set": {
           "class": "env"
@@ -239,7 +244,7 @@
   "post_meta": {
     "wpforms_form_locations": {
       "class": "derived",
-      "note": "Locator rebuilds this denormalized index from embedding posts/widgets. Direct engine post writes do not run its native incremental hooks. No provider is claimed yet; deploy/apply remain unsupported until an exact, bounded, idempotent rebuild is proven."
+      "note": "Locator rebuilds this denormalized index from embedding posts/widgets and current native routing. The experimental global provider uses bounded SDK read/write contracts and requires an exact physical fixed point. This is not production, deployment or complete authored-state Apply readiness."
     }
   },
   "tables": {
@@ -305,8 +310,43 @@
       }
     }
   },
+  "providers": [
+    {
+      "id": "wpforms-form-locations",
+      "source": "manifest",
+      "plugin": "wpforms-lite/wpforms.php",
+      "version": "1.0.0",
+      "capabilities": ["rebuild_form_locations"],
+      "fresh_process_capabilities": ["rebuild_form_locations"],
+      "requires": {"classes": ["WPForms\\Forms\\Locator"], "functions": ["wp_unslash", "wpforms"]},
+      "contracts": {
+        "rebuild_form_locations": {
+          "args": [],
+          "idempotent": true,
+          "scope": "site",
+          "timeout_seconds": 600,
+          "reads": ["table:options", "table:postmeta", "table:posts", "table:term_relationships", "table:term_taxonomy", "table:termmeta", "table:terms", "table:usermeta", "table:users"],
+          "writes": ["table:postmeta"],
+          "scoped": {"operation_envelope": "wprism-scoped-effect-operation/v1", "receipt_projection": "handler", "reconcile": true}
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "kind": "provider",
+      "provider": "wpforms-form-locations",
+      "capability": "rebuild_form_locations",
+      "args": [],
+      "effects": [
+        {"id": "wpforms-location-rows", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "postmeta"}},
+        {"id": "wpforms-location-native-cache", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "wpforms-location-native-readers:v1:request-object-cache"}}
+      ]
+    }
+  ],
   "notes": [
-    "Experimental authoring capsule for the exact observed official Lite 2.0.1.1 artifact. No certification, deployment, apply, deletion, lifecycle or production-readiness claim.",
+    "Experimental authoring capsule for the exact observed official Lite 2.0.1.1 artifact. No certification, deployment, complete authored-state Apply, deletion, lifecycle or production-readiness claim.",
+    "Location repair has no triggers: native placements, widgets and routing can change while every form body stays identical. Policy selects this global provider for nonempty authored work; an empty Apply selects no actions. SDK native readers can warm request caches, so that external effect is explicit rather than claimed restorable by the database checkpoint.",
     "Native add/update/duplicate writes prove optional integer/string self IDs and local field allocators; only declared post coordinates are references. Field IDs, numeric limits and smart-tag field operands remain local form structure.",
     "The four exact notification scalar paths admit authored routing/display configuration, not submissions or arbitrary body PII. All keys, other values and secrets retain engine clearance checks.",
     "QR page/logo IDs are native integers, including zero; Lite sanitization retains a custom-logo residue even when the paid logo UI is unavailable. Portability of stored references is not paid-feature support.",

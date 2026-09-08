@@ -1658,7 +1658,10 @@ final class AdapterPackageValidator
         if (in_array($previous, [T_NEW, T_INSTANCEOF, T_EXTENDS, T_IMPLEMENTS, T_ATTRIBUTE], true)) {
             return true;
         }
-        if (in_array($previous, [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_FUNCTION, T_CONST], true)) {
+        // A token after :: is a member, not a namespaced class. In
+        // `if ($key === self::KEY) $rows[] = ...`, the later variable is
+        // not a type terminator for KEY; the class owner is checked separately.
+        if (in_array($previous, [T_DOUBLE_COLON, T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_FUNCTION, T_CONST], true)) {
             return false;
         }
         for ($next = $offset + 1, $count = count($tokens); $next < $count; $next++) {
