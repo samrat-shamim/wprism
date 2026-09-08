@@ -513,7 +513,13 @@ For a crop determined by saved attachment, URL and dimension fields, negotiate
 The same manifest must declare `image.id` as a post reference in this block's
 `block_values`. Use `path` for repeated object contexts, exact child paths for
 fields and `truncate` only when the native writer demonstrably truncates
-fractional numeric dimensions. Declare each responsive selection separately.
+fractional numeric dimensions. Inspect both top-level and nested repeater
+controls: Qi's Parallax item saves a custom image inside `items[].itemImage`,
+which requires `"path": "$.items.itemImage"` with the shared list traversal.
+Declare a responsive selection only after proving its editor writer and saved
+render consumer. Shared registration helpers can create Tablet/Mobile defaults
+even when a particular block disables those controls and never renders them;
+those placeholders must not authorize file generation.
 The [recipe contract](../../spec/repo-format.md#v330-block-media-derivativesv1--content-selected-image-recipes)
 defines the closed shapes and bounds.
 
@@ -534,7 +540,10 @@ The locked media reader observes its block/original/widget inputs without
 minting identities or requiring a full export; unmanaged crop consumers must
 remain visible to the guard. Compare real output dimensions
 and filenames separately, including oversized and zero-dimension requests if
-the editor can produce them. Test native Save, frontend rendering, editor
+the editor can produce them. Request every selected output image on the fresh
+target and check its decoded dimensions. Canonical recapture alone cannot
+detect an omitted recipe: Qi's nested item converged while its image returned
+404. Test native Save, frontend rendering, editor
 reopen and fresh-process convergence; offline image doubles cannot qualify
 those outcomes. Qi Blocks motivated this mechanism, but its native adapter
 qualification remains pending.

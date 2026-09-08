@@ -2034,27 +2034,10 @@
         "crop": true,
         "filename": "requested-dimensions",
         "dimension_cast": "truncate",
-        "when": {"key": "imageSize", "equals": "custom"}
-      },
-      {
-        "attachment": "$.imageTablet.id",
-        "url": "$.imageTablet.url",
-        "width": "$.imageCustomWidthTablet",
-        "height": "$.imageCustomHeightTablet",
-        "crop": true,
-        "filename": "requested-dimensions",
-        "dimension_cast": "truncate",
-        "when": {"key": "imageSizeTablet", "equals": "custom"}
-      },
-      {
-        "attachment": "$.imageMobile.id",
-        "url": "$.imageMobile.url",
-        "width": "$.imageCustomWidthMobile",
-        "height": "$.imageCustomHeightMobile",
-        "crop": true,
-        "filename": "requested-dimensions",
-        "dimension_cast": "truncate",
-        "when": {"key": "imageSizeMobile", "equals": "custom"}
+        "when": {
+          "key": "imageSize",
+          "equals": "custom"
+        }
       }
     ],
     "qi-blocks/parallax-images": [
@@ -2066,27 +2049,24 @@
         "crop": true,
         "filename": "requested-dimensions",
         "dimension_cast": "truncate",
-        "when": {"key": "mainImageSize", "equals": "custom"}
+        "when": {
+          "key": "mainImageSize",
+          "equals": "custom"
+        }
       },
       {
-        "attachment": "$.mainImageTablet.id",
-        "url": "$.mainImageTablet.url",
-        "width": "$.mainImageCustomWidthTablet",
-        "height": "$.mainImageCustomHeightTablet",
+        "path": "$.items.itemImage",
+        "attachment": "$.image.id",
+        "url": "$.image.url",
+        "width": "$.imageCustomWidth",
+        "height": "$.imageCustomHeight",
         "crop": true,
         "filename": "requested-dimensions",
         "dimension_cast": "truncate",
-        "when": {"key": "mainImageSizeTablet", "equals": "custom"}
-      },
-      {
-        "attachment": "$.mainImageMobile.id",
-        "url": "$.mainImageMobile.url",
-        "width": "$.mainImageCustomWidthMobile",
-        "height": "$.mainImageCustomHeightMobile",
-        "crop": true,
-        "filename": "requested-dimensions",
-        "dimension_cast": "truncate",
-        "when": {"key": "mainImageSizeMobile", "equals": "custom"}
+        "when": {
+          "key": "imageSize",
+          "equals": "custom"
+        }
       }
     ],
     "qi-blocks/single-image": [
@@ -2098,27 +2078,10 @@
         "crop": true,
         "filename": "requested-dimensions",
         "dimension_cast": "truncate",
-        "when": {"key": "imageSize", "equals": "custom"}
-      },
-      {
-        "attachment": "$.imageTablet.id",
-        "url": "$.imageTablet.url",
-        "width": "$.imageCustomWidthTablet",
-        "height": "$.imageCustomHeightTablet",
-        "crop": true,
-        "filename": "requested-dimensions",
-        "dimension_cast": "truncate",
-        "when": {"key": "imageSizeTablet", "equals": "custom"}
-      },
-      {
-        "attachment": "$.imageMobile.id",
-        "url": "$.imageMobile.url",
-        "width": "$.imageCustomWidthMobile",
-        "height": "$.imageCustomHeightMobile",
-        "crop": true,
-        "filename": "requested-dimensions",
-        "dimension_cast": "truncate",
-        "when": {"key": "imageSizeMobile", "equals": "custom"}
+        "when": {
+          "key": "imageSize",
+          "equals": "custom"
+        }
       }
     ]
   },

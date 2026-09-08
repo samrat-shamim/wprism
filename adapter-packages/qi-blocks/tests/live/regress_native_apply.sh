@@ -103,4 +103,40 @@ snapshot render-target "$R2" "$R2/.tmp-qi-render-recapture"
 capture render-repeat1 capture candidate 1 capture --repo=/siterepo --out=/siterepo/.tmp-qi-render-repeat --format=json
 snapshot render-source "$R1" "$R1/.tmp-qi-render-repeat"
 php "$PACKAGE_ROOT/fixtures/native-apply/evidence.php" --admit "$sink" "$PAIR"
+# The baseline above has no selected crop. Exercise content-only file work on
+# that already-converged target; native HTTP must detect an omitted recipe.
+for side in 1 2; do
+  dest="$PAIR_LIVE_OWNERSHIP_SITE1/.tmp-qi-native"; [ "$side" = 1 ] || dest="$PAIR_LIVE_OWNERSHIP_SITE2/.tmp-qi-native"
+  mkdir "$dest/native-media" "$dest/conformance"
+  cp "$PACKAGE_ROOT/fixtures/native-media/"*.php "$PACKAGE_ROOT/fixtures/native-media/blocks.html" "$dest/native-media/"
+  cp "$PACKAGE_ROOT/fixtures/conformance/corpus.php" "$dest/conformance/"
+done
+capture media-seed '' wp_side 1 eval-file /siterepo/.tmp-qi-native/native-media/native.php seed --use-include --user=admin
+capture media-capture capture candidate 1 capture --repo=/siterepo --format=json
+capture media-source '' wp_side 1 eval-file /siterepo/.tmp-qi-native/apply-native.php observe --use-include --user=admin
+snapshot media-source "$R1" "$R1/state"
+git -C "$R1" add state media
+git -C "$R1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'Qi native selected crop controls'
+git -C "$R2" fetch -q "$R1" evidence
+git -C "$R2" merge -q --ff-only FETCH_HEAD
+snapshot media-input "$R2" "$R2/state"
+capture media-apply apply candidate 2 apply --repo=/siterepo --default-author=admin --format=json
+capture media-target '' wp_side 2 eval-file /siterepo/.tmp-qi-native/apply-native.php observe --use-include --user=admin
+capture media-repeat apply candidate 2 apply --repo=/siterepo --default-author=admin --format=json
+for side in 1 2; do
+  port="$PORT1"; [ "$side" = 1 ] || port="$PORT2"
+  capture "media-pixels$side" '' wp_side "$side" eval-file /siterepo/.tmp-qi-native/native-media/native.php pixels --use-include --user=admin
+  capture "media-page-http$side" '' curl --fail-with-body --silent --show-error --max-time 60 "http://localhost:$port/qi-native-corpus/"
+  for index in 0 1 2 3; do
+    url=$(jq -er --argjson index "$index" '.images[$index].url' "$sink/media-pixels$side.stdout")
+    capture "media-image$side-$index" '' curl --fail-with-body --silent --show-error --max-time 60 \
+      --output "$sink/media-image$side-$index.png" --write-out '{"status":%{http_code}}\n' "$url"
+  done
+done
+capture media-stable '' wp_side 2 eval-file /siterepo/.tmp-qi-native/apply-native.php observe --use-include --user=admin
+capture media-recapture capture candidate 2 capture --repo=/siterepo --out=/siterepo/.tmp-qi-media-recapture --format=json
+snapshot media-target "$R2" "$R2/.tmp-qi-media-recapture"
+capture media-source-repeat capture candidate 1 capture --repo=/siterepo --out=/siterepo/.tmp-qi-media-source-repeat --format=json
+snapshot media-source-repeat "$R1" "$R1/.tmp-qi-media-source-repeat"
+php "$PACKAGE_ROOT/fixtures/native-media/evidence.php" --admit-media "$sink" "$PAIR"
 pair_live_ownership_complete 'REGRESS_QI_NATIVE_APPLY PASSED'

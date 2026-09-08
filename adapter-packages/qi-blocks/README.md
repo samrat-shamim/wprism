@@ -38,6 +38,7 @@ Run the current portability probes directly:
 php adapter-packages/qi-blocks/tests/offline/regress_native_content.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_options.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_apply_evidence.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_media.php
 ```
 
 Manifest grammar and structural package validation pass. The artifact lock

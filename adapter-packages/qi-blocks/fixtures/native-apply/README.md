@@ -24,8 +24,18 @@ policy, effects, deletions and the entire media catalog without target filters.
 The source's 333×211 crop is an explicit unselected witness. It appears in no
 saved body, style or rendered HTML and is absent from native attachment metadata.
 The target must retain the original and all seven metadata-owned native sizes,
-while leaving that unused crop absent. Selected desktop/tablet/mobile custom
-crops still require separate native Save/reopen and recipe evidence.
+while leaving that unused crop absent.
+
+A second phase replays the [four native crop selections](../native-media/README.md)
+on that converged source through Qi's native crop helper and WordPress's REST
+writer. Only page content changes in the repository. Target Apply must generate
+all four files from the unchanged attachment, publish their metadata ownership,
+and leave complete target-local rows, options and existing uploads intact.
+Every selected URL must appear in native frontend HTML and return HTTP 200 with
+the same decoded dimensions and pixels as Qi's native source file. Encoding
+bytes may differ. A second zero-write Apply and four additional independently
+retained repositories must converge. Tablet/Mobile registration placeholders
+are not native crop controls; they confer no file work.
 
 Run from a clean candidate with distinct available even/successor ports:
 
@@ -41,6 +51,6 @@ after admission and verified teardown. The offline owner exercises the full
 block materialization path, hostile native/HTTP/receipt controls, private
 transport admission, and the runner's actual snapshot operation with different
 per-site media catalogs. This workflow leaves Qi experimental: editor
-Save/reopen, widgets/templates, selected custom crops, concurrent native writes,
+Save/reopen, widgets/templates, concurrent native writes,
 lifecycle/recovery, host promotion, other versions and combinations remain
 outside its qualification.

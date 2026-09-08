@@ -196,5 +196,89 @@ foreach (['site.wprism.json' => 'target policy', 'state/native.json' => 'target 
 }
 wprism_check(strpos($runner, 'snapshot source "$R1" "$R1/state"') < strpos($runner, 'capture plan2')
     && strpos($runner, 'snapshot target-input "$R2" "$R2/state"') < strpos($runner, 'capture plan2'), 'both native input repositories survive a failed target plan or Apply');
+
+require_once "$capsule/fixtures/native-media/evidence.php";
+$mediaSaved = QiNativeMediaCorpus::saved($saved, file_get_contents($capsule . '/fixtures/native-media/blocks.html'));
+$mediaRecords = $records;
+foreach ($mediaRecords as $side => &$record) {
+    $record['page_body'] = $side === 'source'
+        ? QiConformanceCorpus::body($mediaSaved, $record['ids'], $record['home'], $record['attachment']['url'])
+        : QiConformanceCorpus::applied_body($mediaSaved, $record['ids'], $record['home'], $record['attachment']['url']);
+    foreach ($record['posts'] as &$post) if ((int) $post['ID'] === $record['ids']['page']) $post['post_content'] = $record['page_body'];
+    unset($post);
+}
+unset($record);
+$database($sourceIds);
+$portableMedia = Blocks::capture_rewrite($mediaRecords['source']['page_body'], $policy, new Tokens($seed['home'], $seed['home'] . '/wp-content/uploads'));
+$database($targetIds);
+wprism_check_same($mediaRecords['target']['page_body'], Blocks::apply_rewrite($portableMedia, $policy, new Tokens($before['home'], $before['home'] . '/wp-content/uploads')),
+    'complete native media corpus expectation equals actual product block materialization');
+$http = [];
+foreach ($mediaRecords as $side => &$record) {
+    $http[$side] = ['format' => 'wprism-qi-native-media-pixels/v1', 'home' => $record['home'],
+        'page' => $record['ids']['page'], 'attachment' => $record['ids']['image'], 'images' => []];
+    foreach (QiNativeMediaCorpus::DIMENSIONS as $i => [$width, $height]) {
+        $path = '2026/09/tmp-qi-image-' . $width . 'x' . $height . '.png';
+        $file = ['sha256' => hash('sha256', $path), 'bytes' => 90 + $i, 'width' => $width, 'height' => $height, 'mime' => 'image/png'];
+        $record['uploads'][$path] = $file;
+        if ($side === 'target') $record['attachment']['metadata']['sizes']['wprism_recipe_' . hash('sha256', $path)] = [
+            'file' => basename($path), 'width' => $width, 'height' => $height, 'mime-type' => 'image/png', 'filesize' => $file['bytes'],
+        ];
+        $http[$side]['images'][] = ['width' => $width, 'height' => $height,
+            'url' => $record['home'] . '/wp-content/uploads/' . $path, 'status' => 200,
+            'bytes_sha256' => hash('sha256', $side . $path), 'pixels_sha256' => hash('sha256', $path)];
+    }
+}
+unset($record);
+$nativeMedia = static fn(array $target) => QiNativeMediaEvidence::native($mediaRecords['source'], $target, $records['target'], $seed, $mediaSaved);
+$nativeMedia($mediaRecords['target']);
+wprism_check(true, 'native crop admission checks complete body, preserved rows/options/files and all four metadata entries');
+foreach ([
+    'missing nested file' => static function (array &$r): void { unset($r['uploads']['2026/09/tmp-qi-image-293x181.png']); },
+    'wrong record format' => static function (array &$r): void { $r['format'] = 'unproved'; },
+    'wrong target home' => static function (array &$r): void { $r['home'] = 'https://elsewhere.example.test'; },
+    'wrong crop metadata' => static function (array &$r): void { $key = array_key_last($r['attachment']['metadata']['sizes']); $r['attachment']['metadata']['sizes'][$key]['width'] = 1; },
+    'unowned metadata' => static function (array &$r): void { $key = array_key_last($r['attachment']['metadata']['sizes']); $r['attachment']['metadata']['sizes']['unowned'] = $r['attachment']['metadata']['sizes'][$key]; unset($r['attachment']['metadata']['sizes'][$key]); },
+    'changed runtime' => static function (array &$r): void { $r['options'][0]['option_value'] = 'changed'; },
+    'changed trash' => static function (array &$r): void { $r['posts'][0]['post_content'] = 'changed'; },
+    'changed page row only' => static function (array &$r): void { $r['posts'][array_key_last($r['posts'])]['post_content'] = 'changed'; },
+    'missing body selection' => static function (array &$r): void { $r['page_body'] = str_replace('293x181', 'original', $r['page_body']); },
+] as $label => $edit) {
+    $bad = $mediaRecords['target']; $edit($bad);
+    wprism_check_throws(static fn() => $nativeMedia($bad), RuntimeException::class, 'crop admission rejects ' . $label);
+}
+$httpMedia = static fn(array $target) => QiNativeMediaEvidence::http($http['source'], $target, $mediaRecords['source'], $mediaRecords['target']);
+$httpMedia($http['target']);
+wprism_check(true, 'all four HTTP images bind native owners, URLs, dimensions and decoded pixels independently of PNG encoding');
+foreach (['missing image', 'wrong pixels', '404', 'wrong dimensions', 'wrong home', 'missing digest'] as $fault) {
+    $bad = $http['target'];
+    if ($fault === 'missing image') array_pop($bad['images']);
+    if ($fault === 'wrong pixels') $bad['images'][1]['pixels_sha256'] = str_repeat('f', 64);
+    if ($fault === '404') $bad['images'][1]['status'] = 404;
+    if ($fault === 'wrong dimensions') $bad['images'][1]['width'] = 295;
+    if ($fault === 'wrong home') $bad['home'] = $seed['home'];
+    if ($fault === 'missing digest') $bad['images'][1]['bytes_sha256'] = '';
+    wprism_check_throws(static fn() => $httpMedia($bad), RuntimeException::class, 'crop HTTP admission rejects ' . $fault);
+}
+$servedImage = $http['target']['images'][0]; unset($servedImage['status']);
+$servedImage['bytes_sha256'] = hash('sha256', 'native png bytes');
+$servedHtml = '<img src="' . $servedImage['url'] . '">';
+wprism_check_same($servedImage + ['status' => 200], QiNativeMediaEvidence::served($servedImage, ['status' => 200], 'native png bytes', $servedHtml),
+    'actual curl status and bytes plus frontend selection complete the native pixel observation');
+foreach ([[['status' => 404], 'native png bytes', $servedHtml], [['status' => 200], 'wrong bytes', $servedHtml],
+    [['status' => 200], 'native png bytes', '<img src="elsewhere">']] as [$receipt, $bytes, $html]) {
+    wprism_check_throws(static fn() => QiNativeMediaEvidence::served($servedImage, $receipt, $bytes, $html), RuntimeException::class,
+        'served crop cannot hide a failed response, wrong bytes or missing frontend consumer');
+}
+$cropApply = array_replace($apply, ['applied' => 1, 'warnings' => []]);
+QiNativeMediaEvidence::product($cropApply, $repeat);
+wprism_check(true, 'content-only crop Apply and zero-write repeat require the actual full product verifier');
+foreach (['warning', 'partial verifier', 'repeat write'] as $fault) {
+    $badApply = $cropApply; $badRepeat = $repeat;
+    if ($fault === 'warning') $badApply['warnings'][] = 'unproved';
+    if ($fault === 'partial verifier') $badApply['verification']['live_entities'] = 6;
+    if ($fault === 'repeat write') $badRepeat['applied'] = 1;
+    wprism_check_throws(static fn() => QiNativeMediaEvidence::product($badApply, $badRepeat), RuntimeException::class, 'crop product admission rejects ' . $fault);
+}
 if (wprism_check_failed() > 0) exit(1);
 echo 'PASS: Qi native Apply evidence (' . wprism_check_stats()['passed'] . " assertions)\n";
