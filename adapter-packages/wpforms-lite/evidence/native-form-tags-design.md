@@ -78,6 +78,27 @@ The existing shared transport, compiler, identity and transaction machinery
 remain the implementation boundary; a second admin route may justify a small
 capsule-local session/request helper, not a runtime HTTP framework.
 
+## Implemented producer, pending native execution
+
+`tests/live/regress_location_apply.sh` now admits an explicit seeded-target
+`WPFORMS_APPLY_TAGS=1` profile. It runs the native sequence above and adds a
+fifth `tags` selection after the existing baseline/embed/widget/routing cases.
+The settings profile can run in the same pair, exercising both consumers of
+the capsule-local `native-admin.php` session helper. Neither profile changes
+the default content-only lane or creates a code baseline.
+
+The actual author and Apply admission functions are exercised by
+`tests/offline/regress_native_tag_evidence.php` (56 assertions), including
+successfully compiled but wrong term/label inputs and complete target-only
+inventory rejection without explicit preservation proof. The helper's
+`regress_native_admin.php` (22 assertions) injects HTTP status/size failures,
+multi-code transport errors, cookie failure and failed session retirement.
+Every error-code data history and attempted request payload is retained
+privately; a partial or error-shaped record cannot pass native admission.
+These are deterministic fixture results, not evidence that the native
+producer has run. The next gate is the full offline aggregate, followed by
+one exact-source combined settings/tags run and independent review.
+
 Media/QR uploads, template conversion, deletion authority, lifecycle,
 submissions/mail and participant-declared combinations remain separate work.
 The production-readiness record is unchanged; no family is marked covered.

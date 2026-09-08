@@ -6,6 +6,9 @@ require_once dirname(__DIR__, 4) . '/agent/src/Policy/ScopeContract.php';
 
 /** Independent native semantics; shared transport/compiler own their contracts. */
 final class WPFormsApplyEvidence {
+    public static function largeRecord(string $name): bool {
+        return preg_match('/^(?:settings-(?:general|validation)[12]|tags-author-(?:first1|initial[12]|local2|clear2|change1))$/D', $name) === 1;
+    }
     public static function source(array $contract, WPrism\CompiledRepository $repository, WPrism\Policy $policy): void {
         self::check($policy->code_config() === null && $repository->code_descriptor() === null, 'code descriptor is outside this lane');
         // Semantic recapture equality cannot bind a run to these executable
@@ -18,7 +21,7 @@ final class WPFormsApplyEvidence {
         $pattern = ' ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-z0-9]+ (?:Creating|Created) *';
         // Only public candidate calls emit the shared lifecycle's pointer.
         // This is a retained diagnostic location, never a success certificate.
-        if (preg_match('/\A(?:(?:baseline|embeds|widgets|routing)-(capture|plan|apply|repeat|recapture|source-repeat)|refusal-(apply))\z/', $name, $match) === 1) {
+        if (preg_match('/\A(?:(?:baseline|embeds|widgets|routing|tags)-(capture|plan|apply|repeat|recapture|source-repeat)|refusal-(apply))\z/', $name, $match) === 1) {
             if ($name === 'refusal-apply') $match[1] = 'apply';
             $verb = match ($match[1]) {
                 'repeat' => 'apply',
@@ -311,6 +314,7 @@ final class WPFormsApplyEvidence {
         }
         if ($case !== 'baseline') {
             foreach (['integer', 'string', 'template'] as $role) {
+                if ($case === 'tags' && $role === 'integer') continue;
                 self::check($before['posts'][$role]['body'] === $after['posts'][$role]['body'], 'non-form Apply leaves complete form bytes unchanged: ' . $role);
             }
         }
@@ -320,8 +324,8 @@ final class WPFormsApplyEvidence {
         $block = '<!-- wp:wpforms/form-selector {"formId":"' . $string . '","displayTitle":true} /-->';
         self::check($embedding['body'] === ($case === 'baseline' ? '[wpforms id="' . $integer . '" title="true"]' . "\n" : '') . $block,
             'native embed bytes contain target IDs and the exact case mutation');
-        self::check($embedding['slug'] === ($case === 'routing' ? 'wprism-wpf-embed-renamed' : 'wprism-wpf-embed')
-            && $embedding['title'] === ($case === 'routing' ? 'Renamed placement Ω' : 'WPrism WPForms embed'), 'native routing mutation is discriminating');
+        self::check($embedding['slug'] === (in_array($case, ['routing', 'tags'], true) ? 'wprism-wpf-embed-renamed' : 'wprism-wpf-embed')
+            && $embedding['title'] === (in_array($case, ['routing', 'tags'], true) ? 'Renamed placement Ω' : 'WPrism WPForms embed'), 'native routing mutation is discriminating');
         $expectedWidgets = [];
         foreach ($after['widget_options']['wpforms-widget'] as $number => $settings) {
             if ($number === '_multiwidget') continue;
@@ -356,7 +360,7 @@ final class WPFormsApplyEvidence {
             self::check($ids === [$sourceInteger] && $settings === $sourceBlock, 'source native roster matches the exact controlled WPForms block');
             ++$sourceFormBlocks;
         }
-        self::check($sourceFormBlocks === (in_array($case, ['widgets', 'routing'], true) ? 1 : 0), 'exact source WPForms block count for the native case');
+        self::check($sourceFormBlocks === (in_array($case, ['widgets', 'routing', 'tags'], true) ? 1 : 0), 'exact source WPForms block count for the native case');
         $actualUnrelated = [];
         foreach ($after['widget_options']['block'] as $number => $settings) {
             if ($number === '_multiwidget') continue;
@@ -377,7 +381,7 @@ final class WPFormsApplyEvidence {
         // Recapture convergence separately binds managed sidebar identities.
         self::check(self::ordered($actualUnrelated) === self::ordered($expectedUnrelated),
             'complete source core-widget settings plus the exact target-local sentinel, independent of allocator slots');
-        self::check(count($expectedWidgets) === (in_array($case, ['widgets', 'routing'], true) ? 2 : 0) + ($targetKind === 'seeded' ? 1 : 0)
+        self::check(count($expectedWidgets) === (in_array($case, ['widgets', 'routing', 'tags'], true) ? 2 : 0) + ($targetKind === 'seeded' ? 1 : 0)
             && self::ordered($expectedWidgets) === self::ordered($after['widgets']), 'all native widget locations independently match stored settings');
         $expectedOwned = 0;
         foreach (['integer', 'string'] as $role) {
@@ -438,6 +442,11 @@ if (($argv[1] ?? null) === '--admit') {
     $pair = $argv[3] ?? '';
     $targetKind = $argv[4] ?? 'seeded';
     $settingsProfile = $argv[5] ?? '0';
+    $tagsProfile = $argv[6] ?? '0';
+    if (!in_array($tagsProfile, ['0', '1'], true) || ($tagsProfile === '1' && $targetKind !== 'seeded')) {
+        throw new RuntimeException('WPForms Apply evidence: explicit seeded-target tags profile required');
+    }
+    if ($tagsProfile === '1') require_once __DIR__ . '/tag-evidence.php';
     if (!in_array($settingsProfile, ['0', '1'], true) || ($settingsProfile === '1' && $targetKind !== 'seeded')) {
         throw new RuntimeException('WPForms Apply evidence: explicit seeded-target settings profile required');
     }
@@ -452,7 +461,7 @@ if (($argv[1] ?? null) === '--admit') {
     }
     $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject($sink . '/' . $name,
         WPFormsApplyEvidence::stderrPattern($pair, $root, $name),
-        profile: preg_match('/^settings-(?:general|validation)[12]$/D', $name) === 1
+        profile: WPFormsApplyEvidence::largeRecord($name)
             ? WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE : WPrismTest\EvidenceSizeProfile::COMPACT), true, 32, JSON_THROW_ON_ERROR);
     foreach ([1, 2] as $side) {
         WPrismTest\PrivateCommandOutput::readBytes($sink . '/binding' . $side,
@@ -477,6 +486,15 @@ if (($argv[1] ?? null) === '--admit') {
                 throw new RuntimeException('WPForms settings evidence: native settings changed between the two registered view saves');
             }
         }
+        if ($tagsProfile === '1') {
+            $previous = null;
+            foreach ($side === 1 ? ['first', 'initial'] : ['local', 'clear', 'initial'] as $mode) {
+                $author = $read('tags-author-' . $mode . $side);
+                WPFormsTagEvidence::author($author, $pair, $side === 1 ? 'source' : 'target', $mode);
+                if ($previous !== null && $previous['after'] !== $author['before']) throw new RuntimeException('WPForms tag evidence: author sequence has an unproved intervening change');
+                $previous = $author;
+            }
+        }
     }
     $library = WPrism\AdapterLibrary::fromSourcePackage(dirname(__DIR__, 4), 'wpforms-lite');
     $before = $read('before2');
@@ -493,7 +511,7 @@ if (($argv[1] ?? null) === '--admit') {
         if ($before !== $read('refusal-before')) throw new RuntimeException('WPForms Apply evidence: empty target changed before the refusal premise');
     }
     $priorSource = null;
-    foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {
+    foreach ($tagsProfile === '1' ? ['baseline', 'embeds', 'widgets', 'routing', 'tags'] : ['baseline', 'embeds', 'widgets', 'routing'] as $case) {
         $source = $read($case . '-source');
         $target = $read($case . '-target');
         $stable = $read($case . '-stable');
@@ -505,13 +523,14 @@ if (($argv[1] ?? null) === '--admit') {
         WPFormsApplyEvidence::native($case, $source, $before, $target, $stable, $targetKind);
         if ($case !== 'baseline') {
             $plan = $read($case . '-plan');
-            $expected = $case === 'widgets' ? 'sidebar/sidebar-1' : $source['posts']['embed']['uuid'];
+            $expected = $case === 'widgets' ? 'sidebar/sidebar-1' : $source['posts'][$case === 'tags' ? 'integer' : 'embed']['uuid'];
             if (($plan['create'] ?? null) !== [] || ($plan['adopt'] ?? null) !== []
                 || array_column($plan['update'] ?? [], 'uuid') !== [$expected]) {
                 throw new RuntimeException('WPForms Apply evidence: non-form case does not select exactly its native authored entity');
             }
         }
         if ($priorSource !== null) foreach (['integer', 'string', 'template'] as $role) {
+            if ($case === 'tags' && $role === 'integer') continue;
             if ($source['posts'][$role]['body'] !== $priorSource['posts'][$role]['body']) throw new RuntimeException('WPForms Apply evidence: source changed a form during non-form case');
         }
         $repositories = [];
@@ -523,7 +542,23 @@ if (($argv[1] ?? null) === '--admit') {
             if ($side === 'source') WPFormsApplyEvidence::source($read($case . '-contract'), $compiled, $policy);
             $repositories[$side] = $compiled;
         }
-        WPrismTest\RepositoryConvergence::assertSame($repositories['source'], $repositories['target']);
+        $targetOnly = [];
+        if ($tagsProfile === '1') {
+            if ($case === 'baseline') {
+                WPFormsTagEvidence::authoredToObserved($read('tags-author-initial1'), $source['tags']);
+                WPFormsTagEvidence::authoredToObserved($read('tags-author-initial2'), $before['tags']);
+                WPFormsTagEvidence::observation($before['tags'], $before['posts'], WPFormsTagEvidence::labels('initial'));
+            }
+            if ($case === 'tags') {
+                $author = $read('tags-author-change1');
+                WPFormsTagEvidence::author($author, $pair, 'source', 'change');
+                WPFormsTagEvidence::authoredToObserved(['form_id' => $author['form_id'], 'after' => $author['before']], $priorSource['tags']);
+                WPFormsTagEvidence::authoredToObserved($author, $source['tags']);
+            }
+            $targetOnly = WPFormsTagEvidence::native($case, $source, $before, $target, $stable, $read($case . '-recaptured'),
+                $repositories['source'], $repositories['target']);
+        }
+        WPrismTest\RepositoryConvergence::assertSame($repositories['source'], $repositories['target'], $targetOnly);
         WPrismTest\RepositoryConvergence::assertSame($repositories['source'], $repositories['source-repeat']);
         if ($settingsProfile === '1') {
             if ($case === 'baseline') WPFormsSettingsEvidence::initial($read('settings-validation1'), $read('settings-validation2'),
@@ -531,8 +566,8 @@ if (($argv[1] ?? null) === '--admit') {
             WPFormsSettingsEvidence::native($source, $before, $target, $stable, $repositories['source']->tree()['options/core']['data']);
         }
         if ($targetKind === 'empty' && $case === 'baseline') WPFormsApplyEvidence::created($repositories['source'], $source, $read('baseline-plan'), $target);
-        $before = $stable;
+        $before = $tagsProfile === '1' ? $read($case . '-recaptured') : $stable;
         $priorSource = $source;
-        echo 'Admitted native content-only Apply, non-form selection and full compiler convergence: ' . $case . ' (' . $targetKind . " target)\n";
+        echo 'Admitted native content-only Apply, ' . ($case === 'tags' ? 'tag selection' : 'non-form selection') . ' and full compiler convergence: ' . $case . ' (' . $targetKind . " target)\n";
     }
 }

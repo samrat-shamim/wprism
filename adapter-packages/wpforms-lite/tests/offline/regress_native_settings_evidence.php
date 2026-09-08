@@ -156,7 +156,7 @@ require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/ShellProbe.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/frozen_policy.php';
 $mounted = WPrismTest\FrozenPolicy::library() . '/mu-plugins/adapter-packages/wpforms-lite/fixtures/location-provider';
 if (!mkdir($mounted, 0700, true)) throw new RuntimeException('cannot create native fixture mount');
-foreach (['native-settings.php', 'settings-evidence.php'] as $file) {
+foreach (['native-settings.php', 'settings-evidence.php', 'native-admin.php'] as $file) {
     if (!copy(dirname(__DIR__, 2) . '/fixtures/location-provider/' . $file, $mounted . '/' . $file)) {
         throw new RuntimeException('cannot copy actual native fixture');
     }
