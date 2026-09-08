@@ -47,7 +47,7 @@
     ]
   },
   "gaps": {
-    "identity-references": "The _dp_original round-trip evidence remains, but native duplication of an already-captured source and its complete identity/history preservation are not exercised. See managed-clone-gap.md; cloning before first Capture does not cover copied reserved UUID metadata."
+    "identity-references": "The _dp_original round-trip evidence remains. Native post-Capture duplication now proves copied UUIDs and exact refusal preservation, not a successful managed-clone identity/round-trip or recovery workflow. See managed-clone-gap.md."
   },
   "blocked": {
     "native-behavior": "Exact 4.7 native duplication copies _wprism_uuid under the fixture/default blacklist. No reviewed operator-authorized identity-fork/recovery primitive closes that managed-clone workflow; a hidden filter or settings mutation is not a repair. See managed-clone-gap.md."

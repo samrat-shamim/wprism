@@ -7,13 +7,14 @@
  * --------------------------------------------
  * `adapter-packages/<name>/package/disposition.json` carries a three-value
  * status and every read surface projects it BINARY. Measured on the shipped
- * library through the product path in PART 6 below: 16 of the 17 reviewed subjects print the same
+ * historical 17-subject library: 16 printed the same
  * word, `certified`. Their evidence is not the same. `acf` carries 11 of its
  * 11 applicable scenario families; `polylang` and `woocommerce` carry 12 of 12
  * — and an operator choosing between two adapters for one plugin cannot see
  * that difference anywhere, because the only vocabulary available is the word
  * itself. The structural consequence is the dangerous one: the ONLY way to say
  * "this one carries far more evidence" was to widen what `certified` means.
+ * PART 6 independently pins the current source census, including withdrawals.
  *
  * Three machine-readable records already answered it and projected into
  * nothing. `tools/adapter-grade.php` is the one definition of what they add up

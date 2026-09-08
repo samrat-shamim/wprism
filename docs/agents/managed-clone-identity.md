@@ -120,6 +120,11 @@ must remain the operation that establishes the new object's published state.
 Commit uncertainty requires a closed, durable receipt/status protocol before
 such a mutation is safe. This is an open product boundary, **not an implemented
 repair command** or evidence that embedded identity must be abandoned.
+The reviewed design uses a private caller-owned preview/request (intent, not
+success authority), a receipt written in the same transaction as the selected
+metadata CAS, and a fresh locking status read. Status must prove either the
+exact request preimage with no receipt or the exact receipt and postimage;
+missing intent or external drift cannot become an inferred rollback or retry.
 
 Independent Luna/Terra source review also found native behaviors requiring
 separate evidence: same-key metadata collapse, ignored native write failures,
@@ -132,5 +137,7 @@ production-ready adapter coverage.
 The same audit found a second consumer: exact Yoast Duplicate Post 4.7 also
 copies the reserved key, and its certified fixture clones only before first
 Capture. Its [capsule gap record](../../adapter-packages/yoast-duplicate-post/evidence/managed-clone-gap.md)
-therefore withdraws production authorization. The genuine ready count drops
+now also records its own exact-artifact native reproduction and independently
+verified repeated refusal. Production authorization is withdrawn, not restored
+by that safety evidence. The genuine ready count drops
 by one; a catalog target is not grounds to retain an overbroad certification.
