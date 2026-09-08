@@ -85,6 +85,24 @@ $capture = static function (string $home) use ($policy, $scratch): array {
 $sourceDb = $database($nativeRows, 0);
 $sourceBefore = $sourceDb->rows('wp_options');
 $document = $capture('http://localhost:9164');
+wprism_check(empty($manifest['options']['qi_blocks_global_styles']['allow_pii']), 'native CSS transport has no blanket privacy exception');
+foreach (['+1 (415) 555-2671' => 'personal_data_refused', 'private@example.test' => 'personal_data_refused',
+    'api_key=MixedCredential-2026-Value' => 'secret_state_refused'] as $private => $reason) {
+    $hostileRows = $sourceBefore;
+    foreach ($hostileRows as &$row) if ($row['option_name'] === 'qi_blocks_global_styles') {
+        $styles = unserialize($row['option_value'], ['allowed_classes' => ['stdClass']]);
+        $styles['posts'][13]->{'qodef-block-65138488'}->values[0]->styles .= ' ' . $private;
+        $row['option_value'] = serialize($styles);
+    }
+    unset($row);
+    $sourceDb->seedTable('wp_options', $hostileRows);
+    $privacyFailure = null;
+    try { $capture('http://localhost:9164'); }
+    catch (WPrism\CommandRefusalException $failure) { $privacyFailure = $failure; }
+    wprism_check_same($reason, $privacyFailure?->reasonCode, 'native CSS transport refuses unrelated private values');
+    wprism_check_same($hostileRows, $sourceDb->rows('wp_options'), 'privacy refusal preserves every native option row');
+}
+$sourceDb->seedTable('wp_options', $sourceBefore);
 $values = OptionState::values($document);
 wprism_check_same($sourceBefore, $sourceDb->rows('wp_options'), 'actual native Qi option capture never changes source rows');
 wprism_check_same(['{{post:' . $uuid . '}}'], array_keys($values['qi_blocks_global_styles']['root']['items']['posts']['items']),
@@ -119,6 +137,22 @@ Canon::write_file($scratch . '/state/options/core.json', Canon::encode($document
 $beforeCompile = $sourceDb->queries();
 $compiled = RepositoryCompiler::compile($scratch, $policy);
 wprism_check_same($beforeCompile, $sourceDb->queries(), 'immutable Qi option compilation makes no database queries');
+foreach (['+1 (415) 555-2671' => 'repository_pii_not_allowed', 'private@example.test' => 'repository_pii_not_allowed',
+    'api_key=MixedCredential-2026-Value' => 'repository_secret_not_allowed'] as $private => $reason) {
+    $records = OptionState::records($document);
+    $styles = WPrism\PhpContainerValue::restore($records['qi_blocks_global_styles']['value'], 'Qi compiler privacy fixture');
+    $styles['posts']['{{post:' . $uuid . '}}']->{'qodef-block-65138488'}->values[0]->styles .= ' ' . $private;
+    $records['qi_blocks_global_styles']['value'] = WPrism\PhpContainerValue::capture_raw(serialize($styles), 'Qi compiler privacy fixture');
+    $hostile = Canon::encode(OptionState::document($records));
+    Canon::write_file($scratch . '/state/options/core.json', $hostile);
+    $codes = [];
+    try { RepositoryCompiler::compile($scratch, $policy); }
+    catch (WPrism\RepositoryAuthorizationException $failure) { $codes = array_column($failure->diagnostics, 'code'); }
+    wprism_check_same([$reason], $codes, 'immutable compilation independently refuses private native CSS values');
+    wprism_check_same($hostile, file_get_contents($scratch . '/state/options/core.json'), 'compiler privacy refusal preserves complete rejected input');
+}
+Canon::write_file($scratch . '/state/options/core.json', Canon::encode($document));
+wprism_check_same($beforeCompile, $sourceDb->queries(), 'hostile native CSS compilation also makes no database queries');
 $runtime = [['option_name' => 'qi_blocks_cropped_images', 'option_value' => 'a:1:{s:5:"local";s:4:"kept";}', 'autoload' => 'off'],
     ['option_name' => 'qi_blocks_setup_wizard', 'option_value' => 'target-local-step', 'autoload' => 'auto-off']];
 $targetDb = $database($runtime, 800);

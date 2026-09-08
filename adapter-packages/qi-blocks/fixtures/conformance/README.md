@@ -14,6 +14,12 @@ expectations, including all 84 remaining page selector frames. The corpus
 preparer reads no adapter rule, so a missing reference declaration cannot be
 hidden by the seed using that same declaration.
 
+Draft creation omits the slug; the publish request supplies it. The first
+WordPress 7.1 run exposed undefined `id` and `post_parent` properties in its
+REST posts controller when creating a draft with an explicit slug, and the
+diagnostics guard correctly refused. This fixture keeps both writes native
+and retains the strict diagnostics guard.
+
 Retained query preview caches deliberately contain historical fixture IDs;
 capture must omit those derived attributes. This is REST writer and source
 transport evidence, not editor Save/reopen, native target rendering, complete

@@ -37,14 +37,17 @@ if ($phase === 'seed') {
     $assert(is_array($crop) && is_file($cropFile) && array_slice(getimagesize($cropFile), 0, 2) === [333, 211], 'Native Qi crop helper did not produce the saved custom image');
     $first = $rest('/wp/v2/posts', ['title' => 'Qi first source post', 'status' => 'publish', 'featured_media' => (int) $attachment, 'content' => '<p>Qi first native query result.</p>']);
     $second = $rest('/wp/v2/posts', ['title' => 'Qi second source post', 'status' => 'publish', 'featured_media' => (int) $attachment, 'content' => '<p>Qi second native query result.</p>']);
-    $page = $rest('/wp/v2/pages', ['title' => 'Qi native corpus', 'slug' => 'qi-native-corpus', 'status' => 'draft']);
+    // WordPress 7.1 create_item() reads absent id/post_parent properties for a
+    // draft with an explicit slug (posts controller:769/772). Assign the slug
+    // through the native publish request; diagnostics remain fatal throughout.
+    $page = $rest('/wp/v2/pages', ['title' => 'Qi native corpus', 'status' => 'draft']);
     $ids = ['image' => (int) $attachment, 'first' => (int) $first['id'], 'second' => (int) $second['id'], 'page' => (int) $page['id']];
     $assert($ids['image'] !== 8 && $ids['page'] !== 13, 'Source identities must diverge from the retained fixture');
     $home = home_url(); $imageUrl = wp_get_attachment_url($attachment);
     $body = QiConformanceCorpus::body($saved, $ids, $home, $imageUrl);
     $names = QiConformanceCorpus::block_names($body);
     $assert(count($names) === 50 && count(array_unique($names)) === 47, 'Standalone native corpus must retain all 47 independent block types and 50 instances');
-    $rest('/wp/v2/pages/' . $ids['page'], ['status' => 'publish', 'content' => $body]);
+    $rest('/wp/v2/pages/' . $ids['page'], ['status' => 'publish', 'slug' => 'qi-native-corpus', 'content' => $body]);
     $assert(get_post_field('post_content', $ids['page'], 'raw') === $body, 'Native REST save changed the retained block corpus');
     $receipt = ['format' => 'wprism-qi-native-source/v1', 'ids' => $ids, 'home' => $home, 'image_url' => $imageUrl,
         'body_sha256' => hash('sha256', $body), 'block_types' => 47, 'block_instances' => 50];

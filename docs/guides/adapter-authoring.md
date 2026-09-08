@@ -543,6 +543,16 @@ native fixture and hostile-reference tests. Store the compact capsule and the
 inventory digest. The Qi capsule reduces its declaration to 177 groups while
 preserving the exact original 7,497 field rules.
 
+Exercise the complete candidate's publication clearance as well as the block
+codec. Qi's native corpus exposed phone false positives in hyphenated numeric
+identifiers, SVG viewport coordinates and UUIDs cut by overlapping scan windows.
+These belong in the shared personal-data detector: SVG's
+[four-number viewport grammar](https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute)
+uses the existing HTML reader, and complete UUIDs are recognized before phone
+windows are formed. Keep named contact fields, neighboring private prose and
+secrets protected. Generated markup is not a reason to grant an entire CSS
+option or post body a privacy exception.
+
 ### Native PHP container types and insertion order
 
 Inspect raw option bytes after using the plugin's real writer. Qi Blocks 1.5.2

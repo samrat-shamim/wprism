@@ -27,14 +27,14 @@
     "options": {
       "script": "tests/offline/regress_native_options.php",
       "exit": 0,
-      "assertions": 20,
+      "assertions": 34,
       "native_selector_strings": 86,
       "native_identity_frames": 88,
       "prior_failure": {
         "engine_commit": "596d9b29",
         "failure": "Map key 13 became 813 but 88 saved CSS page identity frames remained at source ID 13. The unchanged native round-trip assertion failed before the shared key-bound string codec."
       },
-      "scope": "Read-only native option capture, immutable compilation, checked SQL transaction, injected rollback/retry and exact recapture. Native target rendering is not yet qualified."
+      "scope": "Read-only native option capture, immutable compilation, checked SQL transaction, injected rollback/retry and exact recapture. No CSS privacy exception; capture and compilation independently reject private values. Native target rendering remains unqualified."
     },
     "manifest_validation": {
       "command": "php cli/wprism manifest-validate . --manifest=qi-blocks --pins=core,qi-blocks",
@@ -59,26 +59,46 @@
       "assertions": 175,
       "scope": "43 group grammar, ownership, certificate derivation and identity assertions plus the complete 132-assertion block capture, immutable compiler, checked SQL, rollback, repeat apply and widget suite using grouped declarations.",
       "groups": 177,
-      "manifest_bytes": 122449,
-      "manifest_lines": 2129,
+      "manifest_bytes": 122301,
+      "manifest_lines": 2128,
       "expanded_rules": 7497,
       "expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"
     },
     "conformance_corpus": {
       "script": "tests/offline/regress_conformance_corpus.php",
       "exit": 0,
-      "assertions": 91,
+      "assertions": 98,
       "native_block_types": 47,
       "native_instances": 50,
       "native_selector_frames": 84,
-      "scope": "Independent standalone native corpus preparation compared with actual block capture; target hook refuses. Native REST writer/capture-plan conformance is authored but not yet executed."
+      "scope": "Independent standalone native corpus preparation, complete block capture and final publication clearance; hostile private prose refuses and the target hook remains explicitly unqualified."
+    },
+    "shared_clearance": {
+      "script": "sandbox/tests/offline/capture/regress_capture_safety_gates.php",
+      "exit": 0,
+      "assertions": 147,
+      "scope": "Complete alphabetic identifiers with one numeric suffix, native SVG viewport coordinates, complete UUIDs across scan windows, and hostile phone/email/secret controls. Named personal roles and bare numeric URL query keys retain their existing privacy refusals."
     }
   },
   "quality_gates": {
-    "regress-offline-all": {"exit": 0, "shared_suites": 375, "packages": 20, "package_tests": 78, "scenario_gates": 9, "scenarios": 5},
-    "composer check": {"exit": 0, "phpunit_tests": 1322, "phpunit_assertions": 36534},
-    "release-gate": {"exit": 0},
-    "scope": "Current compact declarations, shared codecs, Qi source-conformance corpus and measured library integration; native source conformance has not yet run."
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 375,
+      "packages": 20,
+      "package_tests": 78,
+      "scenario_gates": 9,
+      "scenarios": 5
+    },
+    "composer check": {
+      "exit": 0,
+      "phpunit_tests": 1322,
+      "phpunit_assertions": 36582
+    },
+    "release-gate": {
+      "exit": 0
+    },
+    "scope": "Current complete-identifier, SVG viewport and complete-UUID privacy handling, Qi source-conformance corpus and measured library integration. All full gates pass; the fresh native source run remains pending.",
+    "source_base_commit": "be8bfecb381fd5c1357eb54ffcc7b2e6104aae76"
   },
   "limitations": [
     "This is an experimental draft, not a production qualification. Complete current aggregate results are recorded separately from targeted checks.",
@@ -86,6 +106,20 @@
     "Signature, progress-bar images, empty galleries and responsive crop controls still need native Save/reopen evidence.",
     "The broad native engine media probe is separate from this capsule and does not qualify its editor behavior."
   ],
-  "source_engine_base_commit": "74f80f77",
-  "source_engine_state": "working-tree Qi source conformance and measured library integration; shared codec engine unchanged"
+  "source_engine_base_commit": "be8bfecb",
+  "source_engine_state": "Shared complete-identifier, SVG viewport and complete-UUID privacy handling passed the full offline, tooling and release gates; fresh native source conformance is pending.",
+  "native_source_conformance": {
+    "status": "unqualified",
+    "first_attempt": {
+      "source_commit": "be8bfecb381fd5c1357eb54ffcc7b2e6104aae76",
+      "exit": 1,
+      "failure": "WordPress 7.1 REST draft creation with an explicit slug emitted undefined id/post_parent warnings. The fixture now assigns its slug through the publish request; diagnostics remain fatal."
+    },
+    "follow_up_observations": {
+      "native_styles_writer": "passed",
+      "fresh_native_readback": "passed: 47 block types, 50 instances, 84 selector frames",
+      "capture": "refused by the canonical body phone detector before publication; reproduced offline and fixed in the shared detector without privacy exceptions"
+    },
+    "clean_rerun": "pending"
+  }
 }

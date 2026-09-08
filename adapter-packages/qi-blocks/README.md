@@ -26,6 +26,11 @@ a different page, and the checked option transaction preserves native types,
 order, URLs, rollback and exact recapture. Native target rendering and complete
 qualification remain pending.
 
+The complete native body also exercises the final publication privacy guard.
+Shared identifier, SVG viewport and complete-UUID handling prevents generated
+markup from being mistaken for phone numbers. The CSS option needs no privacy
+exception; capture and immutable compilation still refuse private values.
+
 Run the current portability probes directly:
 
 ```bash

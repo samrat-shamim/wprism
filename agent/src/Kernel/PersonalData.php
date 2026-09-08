@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/JsonRefs.php';
+require_once __DIR__ . '/HtmlAttributeReader.php';
 
 /**
  * Conservative PII detector for values entering canonical state.
@@ -110,18 +111,35 @@ final class PersonalData {
         if (filter_var($value, FILTER_VALIDATE_IP) !== false) {
             return 'IP address';
         }
+        // Project complete technical identities before overlapping windows:
+        // a 65,536-byte slice cut `11111111-1111-4111-8` out of a valid
+        // canonical UUID in the native Qi corpus and called it a phone.
+        // Equal-length nonnumeric masks keep all window coordinates stable.
+        // Email/IP detectors still see the original bytes, including a UUID
+        // used as a mailbox local part; this authority belongs only to phones.
+        $phoneValue = preg_replace_callback(
+            [
+                '/(?<![0-9a-f])[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![0-9a-f])/i',
+                // Every stem segment starts alphabetically; only the final
+                // segment is decimal. A bare -14155552671 URL key or a real
+                // block-415-555-2671 telephone keeps its existing refusal.
+                '/(?<![A-Za-z0-9_-])[A-Za-z_][A-Za-z0-9_]{0,63}(?:-[A-Za-z_][A-Za-z0-9_]{0,63}){0,7}-[0-9]{1,32}(?![A-Za-z0-9_-])/',
+            ],
+            static function (array $match): string {
+                $lastDash = strrpos($match[0], '-');
+                // Existing field-role authority also protects labelled
+                // values such as billing-phone-14155552671 in public prose.
+                if ($lastDash !== false && self::match_key(substr($match[0], 0, $lastDash), []) !== null) {
+                    return $match[0];
+                }
+                return str_repeat('x', strlen($match[0]));
+            },
+            self::prose_without_svg_viewports($value)
+        );
+        if ($phoneValue === null) throw new \RuntimeException('wprism: canonical identity privacy scan failed');
         $length = strlen($value);
         for ($offset = 0; $offset < $length; $offset += 32768) {
             $window = substr($value, $offset, self::MAX_LEN);
-            // Canonical entity tokens and ordinary UUIDs are technical
-            // identities, not phone numbers. Remove only that exact closed
-            // shape before the prose detectors; adjacent content is still
-            // scanned and key-name classification is unchanged.
-            $window = preg_replace(
-                '/(?<![0-9a-f])[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![0-9a-f])/i',
-                '',
-                $window
-            ) ?? $window;
             if (preg_match('/(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63}(?![A-Z0-9._%+-])/i', $window)) {
                 return 'email address';
             }
@@ -143,9 +161,10 @@ final class PersonalData {
             // A generic numeric id and an ISO date are not a phone merely
             // because they contain enough digits; the value also needs phone
             // punctuation or internal spacing unless its key named it.
+            $phoneWindow = substr($phoneValue, $offset, self::MAX_LEN);
             if (preg_match_all(
                 '/(?<![0-9])\+?[() .\/-]*[0-9][0-9+() .\/-]{5,}[0-9](?![0-9])/',
-                $window,
+                $phoneWindow,
                 $phones,
                 PREG_OFFSET_CAPTURE
             )) {
@@ -190,7 +209,7 @@ final class PersonalData {
                         continue;
                     }
                     $digits = preg_replace('/[^0-9]/', '', $candidate) ?? '';
-                    $prefix = substr($window, max(0, (int) $phoneOffset - 16), min(16, (int) $phoneOffset));
+                    $prefix = substr($phoneWindow, max(0, (int) $phoneOffset - 16), min(16, (int) $phoneOffset));
                     $isbnLabelled = preg_match('/ISBN(?:-1[03])?\s*[:#]?\s*$/i', $prefix) === 1;
                     $isbn13 = strlen($digits) === 13
                         && (str_starts_with($digits, '978') || str_starts_with($digits, '979'));
@@ -230,6 +249,28 @@ final class PersonalData {
             }
         }
         return null;
+    }
+
+    /**
+     * SVG 2 §8.6 defines four numeric viewport coordinates, not prose. Native
+     * saved icons contain `viewBox="0 0 16.2 15.2"`, which satisfies the broad
+     * phone alphabet. Reuse the bounded HTML reader so comments, raw text,
+     * duplicate attributes and incomplete tags cannot grant this authority.
+     * This is a local scan projection: canonical bytes and Secrets are untouched.
+     */
+    private static function prose_without_svg_viewports(string $value): string {
+        if (stripos($value, '<svg') === false) return $value;
+        return HtmlAttributeReader::rewrite($value, ['viewbox'], static function (array $attribute): ?string {
+            if ($attribute['tag'] !== 'svg' || $attribute['namespace'] !== 'svg' || strlen($attribute['value']) > 256) return null;
+            $parts = preg_split('/(?:[\t\r\n ]*,[\t\r\n ]*|[\t\r\n ]+)/', trim($attribute['value'], " \t\r\n"));
+            if (!is_array($parts) || count($parts) !== 4) return null;
+            foreach ($parts as $part) {
+                if (preg_match('/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/D', $part) !== 1
+                    || !is_finite((float) $part)) return null;
+            }
+            if ((float) $parts[2] < 0 || (float) $parts[3] < 0) return null;
+            return str_repeat(' ', strlen($attribute['value']));
+        });
     }
 
     private static function normalize_key(string $key): string {

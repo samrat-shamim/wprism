@@ -10,6 +10,7 @@ require_once "$root/agent/src/Grammar/Blocks.php";
 require_once "$root/agent/src/Grammar/Tokens.php";
 require_once "$root/agent/src/Repository/Ledger.php";
 require_once "$root/agent/src/Policy/Policy.php";
+require_once "$root/agent/src/Capture/CaptureSafetyGates.php";
 require_once "$capsule/fixtures/conformance/corpus.php";
 wprism_test_define_agent_versions();
 
@@ -43,6 +44,19 @@ $canonical = Blocks::capture_rewrite($body, $policy, $codec);
 $expected = QiConformanceCorpus::body($saved, $tokens, '{{home}}', '{{uploads}}/2027/03/fixture.png', true);
 wprism_check_same([], $codec->warnings, 'native seed preparation leaves no stale fixture references');
 wprism_check_same($expected, $canonical, 'independent native corpus expectation matches the complete actual block capture');
+$gates = new WPrism\CaptureSafetyGates('/native-qi-source');
+$entity = static fn(string $body): array => ['type' => 'post', 'path' => 'posts/page/native-qi-source.md',
+    'content' => Canon::post_file(['type' => 'page', 'title' => 'Qi native corpus'], $body)];
+$gates->assertCanonicalContent([$entity($canonical)], $policy);
+wprism_check(true, 'complete native Qi corpus passes the final publication clearance without a privacy exception');
+foreach (['+1 (415) 555-2671' => 'personal_data_refused', 'private@example.test' => 'personal_data_refused',
+    'api_key=MixedCredential-2026-Value' => 'secret_state_refused'] as $private => $reason) {
+    $refusal = null;
+    try { $gates->assertCanonicalContent([$entity($canonical . '<p>' . $private . '</p>')], $policy); }
+    catch (WPrism\CommandRefusalException $failure) { $refusal = $failure; }
+    wprism_check_same($reason, $refusal?->reasonCode, 'generated block identities do not clear unrelated private content');
+    wprism_check($refusal !== null && !str_contains(json_encode($refusal->payload()), $private), 'publication refusal keeps private content out of its diagnostics');
+}
 $styles = QiConformanceCorpus::styles(file_get_contents($capsule . '/fixtures/native-options.json'), $body, $ids, $home, $image);
 $frames = 0;
 foreach ($styles as $style) foreach ($style->values as $value) {

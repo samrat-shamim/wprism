@@ -12,7 +12,7 @@ final class HtmlAttributeReader {
      * or null to preserve it. They never replace attribute names or tag framing.
      *
      * @param list<string> $names
-     * @param callable(array{tag:string,name:string,value:string,quote:string,offset:int}):?string $attribute
+     * @param callable(array{tag:string,namespace:string,name:string,value:string,quote:string,offset:int}):?string $attribute
      * @param null|callable(string,int):void $comment
      */
     public static function rewrite(string $html, array $names, callable $attribute, ?callable $comment = null): string {
@@ -73,7 +73,7 @@ final class HtmlAttributeReader {
             foreach ($parsed['attributes'] as $name => $span) {
                 if (!in_array($name, $names, true)) continue;
                 $value = substr($html, $span['offset'], $span['length']);
-                $replacement = $attribute(['tag' => $tag, 'name' => $name, 'value' => $value,
+                $replacement = $attribute(['tag' => $tag, 'namespace' => $namespace, 'name' => $name, 'value' => $value,
                     'quote' => $span['quote'], 'offset' => $span['offset']]);
                 if ($replacement !== null && $replacement !== $value) $edits[] = [$span['offset'], $span['length'], $replacement];
             }

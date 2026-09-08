@@ -29,8 +29,7 @@
         "bound_strings": [
           {"path": "$.items.*.items.values.items.items.selector", "prefix": "body[class*=\"-", "suffix": "\"]"}
         ]
-      },
-      "allow_pii": true
+      }
     },
     "qi_blocks_setup_wizard": {"class": "runtime"}
   },
@@ -2124,6 +2123,6 @@
     ]
   },
   "notes": [
-    "Exact qi_blocks_global_styles PII clearance: native generated selectors qodef-block-65138488 and qodef-block-82128164 trigger the phone detector. The public CSS option retains the native sanitizer output and storage types; this exception does not apply to other options or secret detection. Native selector post identities still require a shared structured-string reference codec before production qualification."
+    "Native global styles retain PHP container types and insertion order. Saved CSS page identity frames follow their owning typed map key. Generated numeric block identifiers require no privacy exception; personal data and secrets remain subject to the ordinary capture and compilation guards."
   ]
 }

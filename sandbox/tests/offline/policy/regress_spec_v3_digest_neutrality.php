@@ -45,12 +45,12 @@ use WPrism\Policy;
 // Qi adds one subject to both compatible worlds and a core+Qi pin set. The
 // measured twenty pre-existing digests and smaller manifest pin sets stay
 // byte-identical; only their whole-registry snapshots incur the known cost.
-const BASELINE_FIXTURE_SHA256 = 'bd50209d7eccd13012f27f811bd6c16f3c00ae6932af94c1e916c91d69d17c0c';
-const RANK_WORLD_MANIFEST_HASH = '7d2e1d886f65d5876ae49431e26678f2ec8a03c00cdbe9c3c61ace16591c0993';
-const YOAST_WORLD_MANIFEST_HASH = '535b535dfc8cf8772a079b3c15fdd961de1230f7ae026b5348983eed1443f88c';
+const BASELINE_FIXTURE_SHA256 = 'fc7cdd77cb7791f48d0ed4677ea5b68a91a3f72e8495e6aaee14edb1f9f1b6e6';
+const RANK_WORLD_MANIFEST_HASH = 'bddd9df271e8aa00552ce25fd8e359730ca0043a5b5ff50a27fcb006b86a3c28';
+const YOAST_WORLD_MANIFEST_HASH = 'bb15647284472ff0483774c1601c5e53179e957575d8f38179a4ff27a8ac3dd0';
 const REGISTRY_SHA256 = 'c02f1ab140271a3d906e4c922ff7f4de860f32e2235e23d2fd4b1a078f92ad12';
-const RANK_WORLD_SNAPSHOT_SHA256 = '76c2805d8a577d511063a3d6d4384fc2180686c9b3ac1b920896cc4c4e3e07f2';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '03f708f9c4a4311d34269e6cf1aa7ff41eeefbd13e08c11f24bec8ccd68624eb';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'cf1fa204e91e7676f73ccfa4e6d1a3389afc26ea12cedc229c136e7c51be4c65';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '4f02070b868780cba85f2a28a45f9ee8fddf97860e033ed6543e4c0a65c42a53';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
