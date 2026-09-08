@@ -7,12 +7,12 @@ require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/PrivateCommandOutput.php'
 final class WPFormsBuilderSaveEvidence {
     public const QR_KEYS = ['qr_code', 'qr_code_page_id', 'qr_code_url', 'qr_code_logo', 'qr_code_generated'];
 
-    public static function invocation(string $home, int $formId): string {
+    public static function invocation(string $home, int $formId, bool $observeOnly = false): string {
         self::identity($home, $formId);
         $code = file_get_contents(__DIR__ . '/browser-save.js');
         self::check(is_string($code) && $code !== '' && strlen($code) <= 16384, 'exact capsule collector source');
         return 'async (page) => await (' . "\n" . $code . "\n" . ')(page, '
-            . json_encode(['home' => $home, 'form_id' => $formId], JSON_THROW_ON_ERROR) . ')' . "\n";
+            . json_encode(['home' => $home, 'form_id' => $formId, 'mode' => $observeOnly ? 'observe' : 'save'], JSON_THROW_ON_ERROR) . ')' . "\n";
     }
 
     public static function read(string $stem): array {
@@ -26,17 +26,27 @@ final class WPFormsBuilderSaveEvidence {
     }
 
     /** Caller-selected identities and values cannot be supplied by the observed record itself. */
-    public static function admit(array $record, string $home, int $formId, array $qr, array $pages): array {
+    public static function admit(array $record, string $home, int $formId, array $qr, array $pages, array $baseline): array {
         self::identity($home, $formId);
         self::keys($qr, self::QR_KEYS);
-        self::check(in_array($qr['qr_code'], ['none', 'page', 'url'], true) && $qr['qr_code_logo'] === 'wpforms', 'legal Lite destination and fixed logo');
+        self::check(in_array($qr['qr_code'], ['none', 'page', 'url'], true) && $qr['qr_code_logo'] === 'wpforms', 'declared submitted destination and fixed Lite logo');
         foreach ($qr as $value) self::check(is_string($value), 'native submitted QR scalar types');
+        // The native picker submits an empty placeholder, not stored integer0.
+        // None's persisted normalization belongs to the separate SQL checker;
+        // its still-mounted inactive inputs must not be silently cleared here.
+        $page = $qr['qr_code_page_id'];
+        self::check($page === '' || (preg_match('/^[1-9][0-9]*$/D', $page) === 1
+            && array_key_exists($page, $pages)), 'submitted page placeholder or independently selectable identity');
+        self::keys($baseline, ['format', 'observed_ms', 'snapshot']);
+        self::check($baseline['format'] === 'wprism-wpforms-builder-baseline/v1' && is_int($baseline['observed_ms']), 'separate pre-click DOM baseline');
+        $baselineControls = self::snapshot($baseline['snapshot'], $home, $formId, $qr, $pages);
         self::keys($record, ['format', 'started_ms', 'ended_ms', 'before', 'after', 'events', 'exchanges', 'console', 'page_errors', 'errors', 'drained']);
         self::check($record['format'] === 'wprism-wpforms-builder-save/v1' && $record['drained'] === true
             && $record['console'] === [] && $record['page_errors'] === [] && $record['errors'] === [], 'complete diagnostic-free drained collector');
         $start = $record['started_ms'];
         $end = $record['ended_ms'];
         self::check(is_int($start) && is_int($end) && $start > 0 && $end >= $start && $end - $start <= 30000, 'bounded native Save clock');
+        self::check($baseline['observed_ms'] <= $start && $start - $baseline['observed_ms'] <= 60000, 'baseline belongs to the immediate pre-click interval');
         $before = self::snapshot($record['before'], $home, $formId, $qr, $pages);
         $after = self::snapshot($record['after'], $home, $formId, $qr, $pages);
         self::check($record['after']['saved'] === true, 'native complete form state is saved');
@@ -44,17 +54,21 @@ final class WPFormsBuilderSaveEvidence {
             self::check($record['before'][$key] === $record['after'][$key], 'same native Builder context after Save');
         }
         self::check($before === $after, 'entire observed form-control list preserved by this QR-only Save');
-        self::keys($record['events'], ['before_save', 'saved']);
+        self::check($before === $baselineControls, 'complete controls match the independently retained pre-click baseline');
+        self::keys($record['events'], ['before_save', 'saved', 'closed_ms']);
         foreach (['before_save', 'saved'] as $name) self::check(is_array($record['events'][$name])
             && array_is_list($record['events'][$name]) && count($record['events'][$name]) === 1, 'exactly one native ' . $name . ' event');
         $beforeSave = $record['events']['before_save'][0];
         $saved = $record['events']['saved'][0];
         self::keys($beforeSave, ['at_ms', 'controls']);
         self::keys($saved, ['at_ms', 'data']);
+        self::check(is_int($saved['at_ms']) && is_int($record['events']['closed_ms'])
+            && $record['events']['closed_ms'] >= $saved['at_ms'] + 250 && $record['events']['closed_ms'] <= $end,
+            'explicit bounded post-saved observation window, not indefinite quiescence');
         $submitted = self::controls($beforeSave['controls']);
         self::check($submitted === $before, 'post-rich-text-sync native serialization matches the complete observed controls');
         self::check(is_array($record['exchanges']) && array_is_list($record['exchanges']) && count($record['exchanges']) === 1,
-            'one Save exchange, with no ignored background request');
+            'one exchange in the retained observation interval, without ignored recorded requests');
         $exchange = $record['exchanges'][0];
         self::keys($exchange, ['ordinal', 'started_ms', 'method', 'url', 'resource_type', 'redirected', 'request_headers', 'request_body', 'response', 'failure']);
         self::check($exchange['ordinal'] === 1 && $exchange['method'] === 'POST' && $exchange['url'] === $home . '/wp-admin/admin-ajax.php'
@@ -114,6 +128,7 @@ final class WPFormsBuilderSaveEvidence {
         $fieldTypes = [];
         foreach ($values as $name => $value) {
             self::check(!str_starts_with($name, 'payments['), 'no payment contract in the QR fixture');
+            if (str_starts_with($name, 'fields[')) self::check(str_starts_with($name, 'fields[1]['), 'every native field control belongs to field1');
             if (preg_match('/^fields\[[^]]+\]\[type\]$/D', $name) === 1) $fieldTypes[$name] = $value;
         }
         self::check($fieldTypes === ['fields[1][type]' => 'text'] && ($values['fields[1][id]'] ?? null) === '1'

@@ -61,6 +61,27 @@ non-QR preservation, nested theme JSON, native ID types and divergent-ID
 recapture: **155 assertions** total. The archive has no complete retained HTTP
 exchange and no Apply run; these are offline body fixtures, not a native gate.
 
+The first checked-in `fixtures/qr-destination/browser-save.js` collector now
+binds an explicit owned origin/form before an actual Save click. Its read-only
+mode retains a separate immediate pre-click DOM baseline; the host admission
+equates that complete control list, the post-rich-text-sync `wpformsBeforeSave`
+observation and the actual XHR `data`. The complete native success response must
+match one `wpformsSaved` event. A 250-ms suffix starts at that event, followed
+by bounded body-task draining. This is an explicit observation interval, not
+proof that no work can ever run later. Missing bytes, failed lifecycle events,
+extra observed requests, tool errors or diagnostics refuse. The deterministic
+host-admission suite has **77 assertions**; native execution and delayed-request
+timing evidence are still required before this collector can support a gate.
+
+The measured Lite UI submits **five** QR controls. It does not submit
+`qr_code_logo_id`; the server supplies the sixth stored key. Its page placeholder
+is `''`, and switching to None can leave inactive inputs in the mounted DOM.
+`browser-evidence.php` deliberately does not turn that submitted state into a
+persisted-body verdict. The complete SQL witness must independently bind
+None's stored clearing and all six native postimage keys. A separately observed
+DOM baseline is also not reconstructed from stored JSON: doing so would conflate
+submitted empty strings with stored integer defaults.
+
 No engine primitive is missing in this modeled domain. Existing structured
 body references map the selected page, while ordinary body URL/reference
 rebinding maps the independent snapshot. Do not add a provider that derives

@@ -54,7 +54,7 @@ async (page, expected) => {
   };
   try {
     check(/^http:\/\/localhost:[0-9]{4,5}$/.test(expected.home) && Number.isSafeInteger(expected.form_id)
-      && expected.form_id > 0, 'explicit owned QR Builder identity required');
+      && expected.form_id > 0 && ['observe', 'save'].includes(expected.mode), 'explicit owned QR Builder identity and mode required');
     check(context.pages().length === 1 && context.serviceWorkers().length === 0, 'isolated browser context required');
     check(page.url().startsWith(expected.home + '/wp-admin/'), 'wrong owned admin page');
     const candidates = [];
@@ -66,9 +66,11 @@ async (page, expected) => {
     record.before = await snapshot();
     check(record.before.home === expected.home && record.before.form_id === expected.form_id
       && record.before.ajax_url === expected.home + '/wp-admin/admin-ajax.php', 'wrong native Builder target');
+    if (expected.mode === 'observe') return {format: 'wprism-wpforms-builder-baseline/v1', observed_ms: Date.now(), snapshot: record.before};
     await frame.evaluate(() => {
       if (Object.prototype.hasOwnProperty.call(window, '__wprismQrEvidence')) throw new Error('occupied observer namespace');
-      const state = window.__wprismQrEvidence = {before_save: [], saved: [], drainTimer: null, drainResolve: null};
+      const state = window.__wprismQrEvidence = {before_save: [], saved: [], closed_ms: null,
+        observationTimer: null, drainTimer: null, drainResolve: null};
       const builder = window.jQuery('#wpforms-builder');
       builder.on('wpformsBeforeSave.wprismQrEvidence', () => {
         if (state.before_save.length >= 2) throw new Error('extra native before-save event');
@@ -78,7 +80,10 @@ async (page, expected) => {
       });
       builder.on('wpformsSaved.wprismQrEvidence', (_event, data) => {
         if (state.saved.length >= 2) throw new Error('extra native saved event');
-        state.saved.push({at_ms: Date.now(), data});
+        state.saved.push({at_ms: Date.now(), data: JSON.parse(JSON.stringify(data))});
+        // Native success remains the oracle. This explicitly bounded suffix
+        // catches delayed native callbacks; it proves no indefinite quiescence.
+        if (state.saved.length === 1) state.observationTimer = setTimeout(() => { state.closed_ms = Date.now(); }, 250);
       });
     });
     observing = true;
@@ -129,7 +134,7 @@ async (page, expected) => {
     // before invoking the collector. This is the only authoring action here.
     await frame.locator('#wpforms-save').click({timeout: 10000});
     await frame.waitForFunction(() => window.__wprismQrEvidence.saved.length === 1
-      && window.WPFormsBuilder.formIsSaved(), null, {timeout: 10000});
+      && window.__wprismQrEvidence.closed_ms !== null && window.WPFormsBuilder.formIsSaved(), null, {timeout: 10000});
     record.after = await snapshot();
   } catch (error) { fail(error); }
   finally {
@@ -138,11 +143,12 @@ async (page, expected) => {
       try {
         record.events = await frame.evaluate(() => {
           const state = window.__wprismQrEvidence;
+          clearTimeout(state.observationTimer);
           clearTimeout(state.drainTimer);
           if (state.drainResolve) state.drainResolve(false);
           window.jQuery('#wpforms-builder').off('.wprismQrEvidence');
           delete window.__wprismQrEvidence;
-          return {before_save: state.before_save, saved: state.saved};
+          return {before_save: state.before_save, saved: state.saved, closed_ms: state.closed_ms};
         });
       } catch (error) { fail(error); }
     }
