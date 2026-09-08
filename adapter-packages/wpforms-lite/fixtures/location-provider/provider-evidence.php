@@ -177,6 +177,128 @@ final class WPFormsLocationProviderEvidence {
         return $rows;
     }
 
+    /** The positive baseline is re-admitted, not a caller-supplied success flag. */
+    public static function verifyRefusal(string $case, array $positive, array $prepared, array $invoke, array $observed, array $restored): void {
+        self::check(array_is_list($positive) && count($positive) === 5, 'complete positive baseline for refusal evidence');
+        self::verify(...$positive);
+        [$seed, $accepted, , , $stable] = $positive;
+        $message = match ($case) {
+            'missing-embed', 'nonform-embed', 'template-embed' => 'wprism: WPForms locations a native placement references a missing or non-form post',
+            'malformed-body' => 'wprism: WPForms location source has malformed form JSON',
+            'null-widget-title' => 'wprism: WPForms locations native location text is malformed or over the bounded frontier',
+            'unsafe-standalone-uri' => 'wprism: WPForms locations native URL is outside the current-home renderer frontier',
+            default => throw new RuntimeException('WPForms native provider evidence refused: undeclared refusal case'),
+        };
+        foreach ([[$prepared, 'refusal-seed', ['before', 'mutation', 'parser', 'physical']],
+            [$invoke, 'invoke', ['artifact', 'before', 'receipt', 'failure', 'after', 'children']],
+            [$observed, 'physical', ['physical']], [$restored, 'refusal-restore', ['before', 'physical']]] as [$record, $phase, $fields]) {
+            self::check(array_keys($record) === array_merge(['format', 'phase', 'case', 'version', 'home'], $fields, ['boot'])
+                && $record['format'] === $seed['format'] && $record['version'] === $seed['version']
+                && $record['home'] === $seed['home'] && $record['phase'] === $phase && $record['case'] === $case,
+                'closed source-scoped refusal phase');
+            self::boot($record['boot'], false);
+        }
+        $boots = array_column(array_column([$prepared, $invoke, $observed, $restored], 'boot'), 'boot');
+        self::check(count(array_unique($boots)) === 4, 'independent refusal preparation, invocation, readback and restoration boots');
+        $baseline = $stable['physical'];
+        self::check($prepared['before'] === $baseline, 'refusal begins at the proven complete fixed point');
+        $property = $case === 'null-widget-title' ? 'options' : 'posts';
+        $identity = $property === 'posts' ? 'ID' : 'option_id';
+        $column = $property === 'posts' ? 'post_content' : 'option_value';
+        $target = match ($case) {
+            'malformed-body' => $seed['native']['no_locations']['id'],
+            'unsafe-standalone-uri' => $seed['native']['form_page']['id'],
+            default => $seed['posts']['post_publish']['id'],
+        };
+        $indexes = [];
+        foreach ($baseline['inputs'][$property] as $index => $row) {
+            if ($property === 'posts' ? (int) $row['ID'] === $target : $row['option_name'] === 'widget_wpforms-widget') $indexes[] = $index;
+        }
+        self::check(count($indexes) === 1, 'one independently selected dirty input');
+        $index = $indexes[0];
+        $row = $baseline['inputs'][$property][$index];
+        $parsed = null;
+        if (str_ends_with($case, '-embed')) {
+            $reference = $case === 'missing-embed' ? 2147483646 : $target;
+            if ($case === 'template-embed') {
+                $templates = array_values(array_filter($baseline['inputs']['posts'], static fn(array $post): bool =>
+                    $post['post_type'] === 'wpforms-template' && $post['post_title'] === 'WPrism template exclusion'));
+                self::check(count($templates) === 1, 'one real native form template discriminator');
+                $reference = (int) $templates[0]['ID'];
+            } elseif ($case === 'missing-embed') {
+                self::check(array_filter($baseline['inputs']['posts'], static fn(array $post): bool => (int) $post['ID'] === $reference) === [],
+                    'missing form discriminator really has no physical post');
+            }
+            $new = '[wpforms id="' . $reference . '"]';
+            $parsed = [$reference];
+        } elseif ($case === 'null-widget-title') {
+            $widget = [2 => ['form_id' => (string) $seed['native']['embeds']['id'], 'title' => ''], '_multiwidget' => 1];
+            self::check($row[$column] === serialize($widget), 'null title is the only changed widget coordinate');
+            $widget[2]['title'] = null;
+            $new = serialize($widget);
+        } else {
+            $data = json_decode($row[$column], true, 64, JSON_THROW_ON_ERROR);
+            self::check(is_array($data) && ($data['id'] ?? null) === $target, 'hostile body starts as the native form identified by this case');
+            $new = '{';
+            if ($case === 'unsafe-standalone-uri') {
+                self::check(($data['settings']['form_pages_enable'] ?? null) === true
+                    && ($data['settings']['form_pages_page_slug'] ?? null) === 'standalone-page', 'standalone slug is the isolated enabled coordinate');
+                $data['settings']['form_pages_page_slug'] = 'a%3Fb';
+                $new = json_encode($data, JSON_THROW_ON_ERROR);
+            }
+        }
+        self::check(is_string($row[$column]) && $row[$column] !== $new && $prepared['parser'] === $parsed,
+            'actual changed input and independent native parser discriminator');
+        $mutation = ['table' => $property, 'identity' => [$identity => $row[$identity]], 'column' => $column,
+            'before' => $row[$column], 'after' => $new];
+        self::check($prepared['mutation'] === $mutation, 'one exact case-owned mutation, never a reset or unrelated failure');
+        $dirty = $baseline;
+        $dirty['inputs'][$property][$index][$column] = $new;
+        self::check($prepared['physical'] === $dirty && $invoke['before'] === $dirty && $invoke['after'] === $dirty
+            && $observed['physical'] === $dirty && $restored['before'] === $dirty && $restored['physical'] === $baseline,
+            'every input, nonowned and owned row survives refusal, fresh readback and exact one-cell restoration');
+        self::check($invoke['artifact'] === $accepted['artifact'] && $invoke['receipt'] === null && is_array($invoke['failure'])
+            && is_array($invoke['children']) && array_is_list($invoke['children']) && count($invoke['children']) === 1,
+            'real unchanged compiled authority refused in exactly one mutation child without a success observer');
+        self::boot($invoke['children'][0], true);
+        self::check($invoke['children'][0]['pid'] !== $invoke['boot']['pid']
+            && !in_array($invoke['children'][0]['boot'], $boots, true), 'failed child is not any fixture parent');
+        $outer = $invoke['failure'];
+        self::check(is_array($outer['throwable'] ?? null) && array_is_list($outer['throwable']) && count($outer['throwable']) === 7,
+            'complete normal provider failure transport topology');
+        $reports = [];
+        foreach ($outer['throwable'] as $node) {
+            if (($node['message_encoding'] ?? null) !== 'utf-8' || ($node['message_truncated'] ?? null) !== false
+                || !is_string($node['message'] ?? null)) continue;
+            $report = json_decode($node['message'], true, 32);
+            if (is_array($report) && ($report['format'] ?? null) === 'wprism-provider-operation-failure/v1') {
+                $reports[] = ['bytes' => $node['message'], 'report' => $report];
+            }
+        }
+        self::check(count($reports) === 1, 'one complete private child failure report, not a public wrapper match');
+        ['bytes' => $bytes, 'report' => $report] = $reports[0];
+        $keys = array_keys($report);
+        sort($keys, SORT_STRING);
+        self::check($keys === ['evidence', 'format', 'request_sha256'] && is_array($report['evidence'])
+            && is_string($report['request_sha256']) && preg_match('/^[a-f0-9]{64}$/D', $report['request_sha256']) === 1,
+            'closed bounded private child failure envelope');
+        require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/PrivateRefusalReceipt.php';
+        $inner = [['parent_index' => null, 'relation' => 'root', 'class' => RuntimeException::class, 'message' => $message]];
+        if ($case === 'malformed-body') $inner[] = ['parent_index' => 0, 'relation' => 'previous', 'class' => JsonException::class, 'message' => 'Syntax error'];
+        WPrismTest\PrivateRefusalReceipt::assertGraph($report['evidence'], $inner);
+        $node = static fn(?int $parent, string $class, string $message): array => ['parent_index' => $parent,
+            'relation' => $parent === null ? 'root' : 'private_evidence', 'class' => $class, 'message' => $message];
+        WPrismTest\PrivateRefusalReceipt::assertGraph($outer, [
+            $node(null, 'WPrism\\PrivateEvidenceException', "wprism: provider 'wpforms-form-locations' capability 'rebuild_form_locations' failed"),
+            $node(0, 'WPrism\\PrivateEvidenceException', 'wprism: manifest-provider fresh process did not complete cleanly; recovery_required'),
+            $node(1, RuntimeException::class, 'wprism: child process return_code=1'),
+            $node(1, 'WPrism\\PrivateEvidenceException', 'wprism: child process stdout'),
+            $node(1, 'WPrism\\PrivateEvidenceException', 'wprism: child process stderr'),
+            $node(3, RuntimeException::class, $bytes),
+            $node(4, RuntimeException::class, "wprism-provider-operation-failed\n"),
+        ]);
+    }
+
     private static function boot(mixed $boot, bool $child): void {
         self::check(is_array($boot) && array_keys($boot) === ['pid', 'boot', 'child'] && is_int($boot['pid']) && $boot['pid'] > 0
             && is_string($boot['boot']) && preg_match('/^[a-f0-9]{32}$/D', $boot['boot']) === 1 && $boot['child'] === $child, 'observed native process identity');
@@ -188,13 +310,21 @@ final class WPFormsLocationProviderEvidence {
 }
 
 if (isset($argv[0]) && realpath($argv[0]) === __FILE__) {
-    if ($argc !== 7 || $argv[1] !== '--admit') throw new RuntimeException('expected --admit seed invoke observe repeat stable private stems');
+    $refusal = ($argv[1] ?? '') === '--admit-refusal';
+    if ($refusal ? $argc !== 12 : ($argc !== 7 || $argv[1] !== '--admit')) {
+        throw new RuntimeException('expected --admit five positive stems, or --admit-refusal case five positive and four refusal private stems');
+    }
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/PrivateCommandOutput.php';
     $records = [];
-    foreach (array_slice($argv, 2) as $stem) {
+    foreach (array_slice($argv, $refusal ? 3 : 2) as $stem) {
         $records[] = json_decode(WPrismTest\PrivateCommandOutput::readObject($stem,
             '/^ ?Container wprism-[a-z0-9]+-cli1-run-[a-z0-9]+ (Creating|Created) *$/D'), true, 32, JSON_THROW_ON_ERROR);
     }
-    WPFormsLocationProviderEvidence::verify(...$records);
-    echo "WPForms Policy-loaded native provider, two-child observation, UI and fixed-point evidence admitted\n";
+    if ($refusal) {
+        WPFormsLocationProviderEvidence::verifyRefusal($argv[2], array_slice($records, 0, 5), ...array_slice($records, 5));
+        echo "WPForms native provider refusal and complete physical preservation admitted: " . $argv[2] . "\n";
+    } else {
+        WPFormsLocationProviderEvidence::verify(...$records);
+        echo "WPForms Policy-loaded native provider, two-child observation, UI and fixed-point evidence admitted\n";
+    }
 }

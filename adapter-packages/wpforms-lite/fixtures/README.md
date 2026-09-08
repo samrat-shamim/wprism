@@ -70,3 +70,15 @@ The offline library test proves normal identity binding and stale-artifact
 refusal; the synthetic host-admission controls are not a native run. Neither
 fixture changes the shipped package or grants Apply, deployment, lifecycle,
 deletion, submission, locale or cross-plugin readiness.
+
+The same owned live lane also requires six isolated dirty-input refusals:
+missing/non-form/template embedded IDs, malformed form JSON, a raw-null widget
+title, and an unsafe standalone URI. Each case starts from the admitted
+positive fixed point, changes one physical input cell, invokes the ordinary
+provider, reads back in another WordPress boot, and restores only that cell.
+The host re-admits the full positive baseline and requires exact preservation
+of every captured input, nonowned and owned row. Shared `assertGraph()` checks
+the complete private child cause and normal transport topology; a public
+wrapper or a copied success flag cannot stand in for that cause. These fixture
+restorations are not product rollback or uncertain-commit evidence, and raw
+hostile seeds are never presented as native writer output.

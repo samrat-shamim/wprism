@@ -153,4 +153,21 @@ wprism_check_same(256, $locator->postScans, '128 accepted placements are scanned
 location_input_reject($db, $runtime, 'placement overflow stops native scanner work', 'placement population');
 wprism_check_same(129, $locator->postScans, 'the overflow refusal precedes scanning the next placement');
 
+foreach (['missing' => 2147483646, 'nonform' => 2, 'template' => 3] as $case => $reference) {
+    [$db, $runtime, $locator] = location_input_fixture(placements: 1);
+    if ($case === 'template') $db->seedTable('posts', [...$db->rows('posts'), location_input_post(3, 'wpforms-template', '{}')]);
+    $locator->formsByContent['supplied-response-2'] = [$reference];
+    location_input_reject($db, $runtime, 'recognized embed targets ' . $case, 'a native placement references a missing or non-form post');
+    wprism_check_same(1, $locator->postScans, 'the supplied parser response reaches target admission: ' . $case);
+}
+[$db, $runtime] = location_input_fixture();
+$posts = $db->rows('posts');
+$posts[0]['post_content'] = '{';
+$db->seedTable('posts', $posts);
+location_input_reject($db, $runtime, 'malformed JSON in an otherwise unlocated form', 'WPForms location source has malformed form JSON');
+[$db, $runtime] = location_input_fixture();
+$db->seedTable('options', [...$db->rows('options'), ['option_id' => 5, 'option_name' => 'widget_wpforms-widget',
+    'option_value' => serialize([2 => ['form_id' => '1', 'title' => null], '_multiwidget' => 1]), 'autoload' => 'on']]);
+location_input_reject($db, $runtime, 'raw-null native widget title', 'native location text is malformed or over the bounded frontier');
+
 wprism_check_summary('wpforms_location_native_inputs');

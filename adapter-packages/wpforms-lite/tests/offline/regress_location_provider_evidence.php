@@ -5,6 +5,8 @@ declare(strict_types=1);
 $root = dirname(__DIR__, 4);
 require_once $root . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 2) . '/fixtures/location-provider/provider-evidence.php';
+require_once $root . '/agent/src/Kernel/PrivateRefusalEvidence.php';
+require_once $root . '/agent/src/Kernel/BoundedChildProcess.php';
 
 function location_provider_evidence_model(): array {
     $home = 'http://wpfmodel1.invalid';
@@ -63,7 +65,17 @@ function location_provider_evidence_model(): array {
     $after = ['inputs' => array_fill_keys(['posts', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta', 'users', 'usermeta'], []),
         'remainder' => [['meta_id' => '50', 'post_id' => '1', 'meta_key' => 'unrelated', 'meta_value' => 'untouched']], 'owned' => $owned];
     $after['inputs']['posts'] = array_values(array_map(static fn(array $post): array => ['ID' => (string) $post['id'],
-        'post_type' => $post['type'], 'post_status' => $post['status'], 'post_title' => $post['title']], $posts));
+        'post_type' => $post['type'], 'post_status' => $post['status'], 'post_title' => $post['title'], 'post_content' => '[wpforms id="1"]'], $posts));
+    foreach ($forms as $name => $id) {
+        $settings = $name === 'form_page' ? ['form_pages_enable' => true, 'form_pages_page_slug' => 'standalone-page'] : [];
+        $after['inputs']['posts'][] = ['ID' => (string) $id, 'post_type' => 'wpforms', 'post_status' => 'publish',
+            'post_title' => 'WPrism ' . $name, 'post_content' => json_encode(['id' => $id, 'settings' => $settings], JSON_THROW_ON_ERROR)];
+    }
+    $after['inputs']['posts'][] = ['ID' => '130', 'post_type' => 'wpforms-template', 'post_status' => 'publish',
+        'post_title' => 'WPrism template exclusion', 'post_content' => '{}'];
+    usort($after['inputs']['posts'], static fn(array $a, array $b): int => (int) $a['ID'] <=> (int) $b['ID']);
+    $after['inputs']['options'][] = ['option_id' => '1', 'option_name' => 'widget_wpforms-widget',
+        'option_value' => serialize([2 => ['form_id' => '1', 'title' => ''], '_multiwidget' => 1]), 'autoload' => 'yes'];
     $before = $after;
     $before['owned'] = [['meta_id' => '1', 'post_id' => '1', 'meta_key' => 'wpforms_form_locations', 'meta_value' => 'stale'],
         ['meta_id' => '2', 'post_id' => '1', 'meta_key' => 'wpforms_form_locations', 'meta_value' => 'duplicate']];
@@ -124,7 +136,9 @@ $mutations = [
     'ambiguous attachment exclusion' => static function (array &$r): void { $r[0]['posts']['excluded_attachment']['status'] = 'inherit'; },
     'unrecorded dirty attachment provenance' => static function (array &$r): void { $r[0]['posts']['excluded_attachment']['writer_status'] = 'publish'; },
     'claimed status differs from physical row' => static function (array &$r): void {
-        $r[0]['physical']['inputs']['posts'][14]['post_status'] = 'inherit';
+        foreach ($r[0]['physical']['inputs']['posts'] as &$post) {
+            if ((int) $post['ID'] === $r[0]['posts']['excluded_attachment']['id']) $post['post_status'] = 'inherit';
+        }
     },
     'extra provider projection field' => static function (array &$r): void { $r[1]['receipt']['after']['unexpected'] = true; },
     'wrong default native title' => static function (array &$r): void { $r[2]['native']['embeds']['html'] = str_replace('WPForms Widget', 'wrong', $r[2]['native']['embeds']['html']); },
@@ -141,6 +155,113 @@ foreach ($mutations as $name => $mutate) {
     $mutate($changed);
     wprism_check_throws(static fn() => WPFormsLocationProviderEvidence::verify(...$changed), RuntimeException::class,
         'host rejects ' . $name, 'WPForms native provider evidence refused:');
+}
+
+/** Actual kernel graph framing around synthetic transport, not a child run. */
+function location_provider_failure_graph(array $report): array {
+    $transport = WPrism\BoundedChildProcess::failure_evidence(
+        'wprism: manifest-provider fresh process did not complete cleanly; recovery_required',
+        ['return_code' => 1, 'stdout' => json_encode($report, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            'stderr' => "wprism-provider-operation-failed\n"]);
+    return WPrism\PrivateRefusalEvidence::graph(new WPrism\PrivateEvidenceException(
+        "wprism: provider 'wpforms-form-locations' capability 'rebuild_form_locations' failed", $transport));
+}
+
+function location_provider_refusal_model(string $case, array $positive): array {
+    $baseline = $positive[4]['physical'];
+    $property = $case === 'null-widget-title' ? 'options' : 'posts';
+    $column = $property === 'posts' ? 'post_content' : 'option_value';
+    $key = $property === 'posts' ? 'ID' : 'option_id';
+    $target = match ($case) { 'malformed-body' => '2', 'unsafe-standalone-uri' => '3', 'null-widget-title' => '1', default => '100' };
+    $index = array_search($target, array_column($baseline['inputs'][$property], $key), true);
+    $old = $baseline['inputs'][$property][$index][$column];
+    $new = match ($case) {
+        'missing-embed' => '[wpforms id="2147483646"]', 'nonform-embed' => '[wpforms id="100"]', 'template-embed' => '[wpforms id="130"]',
+        'malformed-body' => '{', 'null-widget-title' => serialize([2 => ['form_id' => '1', 'title' => null], '_multiwidget' => 1]),
+        'unsafe-standalone-uri' => json_encode(['id' => 3, 'settings' => ['form_pages_enable' => true, 'form_pages_page_slug' => 'a%3Fb']], JSON_THROW_ON_ERROR),
+    };
+    $dirty = $baseline;
+    $dirty['inputs'][$property][$index][$column] = $new;
+    $message = match ($case) {
+        'missing-embed', 'nonform-embed', 'template-embed' => 'wprism: WPForms locations a native placement references a missing or non-form post',
+        'malformed-body' => 'wprism: WPForms location source has malformed form JSON',
+        'null-widget-title' => 'wprism: WPForms locations native location text is malformed or over the bounded frontier',
+        'unsafe-standalone-uri' => 'wprism: WPForms locations native URL is outside the current-home renderer frontier',
+    };
+    $failure = new RuntimeException($message, 0, $case === 'malformed-body' ? new JsonException('Syntax error') : null);
+    $report = ['evidence' => WPrism\PrivateRefusalEvidence::graph($failure),
+        'format' => 'wprism-provider-operation-failure/v1', 'request_sha256' => str_repeat('c', 64)];
+    $header = static fn(string $phase): array => ['format' => 'wprism-wpforms-native-provider/v1',
+        'phase' => $phase, 'case' => $case, 'version' => '2.0.1.1', 'home' => 'http://wpfmodel1.invalid'];
+    $boot = static fn(int $pid, bool $child = false): array => ['pid' => $pid,
+        'boot' => str_pad((string) $pid, 32, '0', STR_PAD_LEFT), 'child' => $child];
+    $prepared = $header('refusal-seed') + ['before' => $baseline,
+        'mutation' => ['table' => $property, 'identity' => [$key => $target], 'column' => $column, 'before' => $old, 'after' => $new],
+        'parser' => match ($case) { 'missing-embed' => [2147483646], 'nonform-embed' => [100], 'template-embed' => [130], default => null },
+        'physical' => $dirty, 'boot' => $boot(20)];
+    $invoke = $header('invoke') + ['artifact' => $positive[1]['artifact'], 'before' => $dirty, 'receipt' => null,
+        'failure' => location_provider_failure_graph($report), 'after' => $dirty, 'children' => [$boot(22, true)], 'boot' => $boot(21)];
+    $observed = $header('physical') + ['physical' => $dirty, 'boot' => $boot(23)];
+    $restored = $header('refusal-restore') + ['before' => $dirty, 'physical' => $baseline, 'boot' => $boot(24)];
+    return [$positive, $prepared, $invoke, $observed, $restored];
+}
+
+foreach (['missing-embed', 'nonform-embed', 'template-embed', 'malformed-body', 'null-widget-title', 'unsafe-standalone-uri'] as $case) {
+    $refusalModel = location_provider_refusal_model($case, $model);
+    WPFormsLocationProviderEvidence::verifyRefusal($case, ...$refusalModel);
+    wprism_check(true, 'synthetic complete refusal model admitted (not a native run): ' . $case);
+    $mutateReport = static function (array &$r, callable $change): void {
+        $report = json_decode($r[2]['failure']['throwable'][5]['message'], true, 32, JSON_THROW_ON_ERROR);
+        $change($report);
+        $r[2]['failure'] = location_provider_failure_graph($report);
+    };
+    $faults = [
+        'wrong case' => static function (array &$r): void { $r[1]['case'] = 'unrelated'; },
+        'wrong home' => static function (array &$r): void { $r[2]['home'] = 'http://foreign1.invalid'; },
+        'extra phase field' => static function (array &$r): void { $r[2]['accepted'] = true; },
+        'missing positive record' => static function (array &$r): void { array_pop($r[0]); },
+        'unverified positive baseline' => static function (array &$r): void { $r[0][1]['receipt']['verified'] = false; },
+        'stale baseline' => static function (array &$r): void { $r[1]['before']['owned'][0]['meta_value'] = 'stale'; },
+        'wrong mutation coordinate' => static function (array &$r): void { $r[1]['mutation']['column'] = 'post_title'; },
+        'unchanged claimed input' => static function (array &$r): void { $r[1]['mutation']['after'] = $r[1]['mutation']['before']; },
+        'wrong parser witness' => static function (array &$r): void { $r[1]['parser'] = ['unrelated']; },
+        'unexpected dirty input' => static function (array &$r): void { $r[1]['physical']['inputs']['posts'][0]['post_title'] = 'changed'; },
+        'changed input during refusal' => static function (array &$r): void { $r[2]['after']['inputs']['posts'][0]['post_title'] = 'changed'; },
+        'changed owned row' => static function (array &$r): void { $r[2]['after']['owned'][0]['meta_value'] = 'changed'; },
+        'changed nonowned row' => static function (array &$r): void { $r[2]['after']['remainder'][0]['meta_value'] = 'changed'; },
+        'fresh readback disagreement' => static function (array &$r): void { $r[3]['physical']['owned'][0]['meta_value'] = 'changed'; },
+        'bad restored state' => static function (array &$r): void { $r[4]['physical']['remainder'][0]['meta_value'] = 'changed'; },
+        'bad restore preimage' => static function (array &$r): void { $r[4]['before']['owned'] = []; },
+        'changed compiled identity' => static function (array &$r): void { $r[2]['artifact']['artifact_hash'] = str_repeat('b', 64); },
+        'success receipt on refusal' => static function (array &$r): void { $r[2]['receipt'] = ['verified' => true]; },
+        'missing failure' => static function (array &$r): void { $r[2]['failure'] = null; },
+        'public wrapper alone' => static function (array &$r): void { $r[2]['failure']['throwable'] = [$r[2]['failure']['throwable'][0]]; },
+        'no child' => static function (array &$r): void { $r[2]['children'] = []; },
+        'unexpected success observer' => static function (array &$r): void { $r[2]['children'][] = $r[2]['children'][0]; },
+        'parent posed as child' => static function (array &$r): void { $r[2]['children'][0]['pid'] = $r[2]['boot']['pid']; },
+        'reused observation boot' => static function (array &$r): void { $r[3]['boot'] = $r[1]['boot']; },
+        'wrong report format' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void { $report['format'] = 'unrelated'; }); },
+        'extra report field' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void { $report['accepted'] = true; }); },
+        'invalid request identity' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void { $report['request_sha256'] = 'invalid'; }); },
+        'wrong exact cause' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void {
+            $report['evidence'] = WPrism\PrivateRefusalEvidence::graph(new RuntimeException('unrelated failure'));
+        }); },
+        'incomplete inner traversal' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void { $report['evidence']['traversal']['record_complete'] = false; }); },
+        'wrong inner message digest' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void { $report['evidence']['throwable'][0]['message_sha256'] = str_repeat('0', 64); }); },
+        'encoded inner message' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void { $report['evidence']['throwable'][0]['message_encoding'] = 'base64'; }); },
+        'truncated inner message' => static function (array &$r) use ($mutateReport): void { $mutateReport($r, static function (array &$report): void { $report['evidence']['throwable'][0]['message_truncated'] = true; }); },
+        'multiple child reports' => static function (array &$r): void { $r[2]['failure']['throwable'][6]['message'] = $r[2]['failure']['throwable'][5]['message']; },
+        'truncated report field' => static function (array &$r): void { $r[2]['failure']['throwable'][5]['message_truncated'] = true; },
+        'report digest disagreement' => static function (array &$r): void { $r[2]['failure']['throwable'][5]['message_sha256'] = str_repeat('0', 64); },
+        'wrong exit evidence' => static function (array &$r): void { $r[2]['failure']['throwable'][2]['message'] = 'wprism: child process return_code=0'; },
+        'incomplete outer traversal' => static function (array &$r): void { $r[2]['failure']['traversal']['record_complete'] = false; },
+    ];
+    foreach ($faults as $fault => $mutate) {
+        $changed = $refusalModel;
+        $mutate($changed);
+        wprism_check_throws(static fn() => WPFormsLocationProviderEvidence::verifyRefusal($case, ...$changed),
+            RuntimeException::class, $case . ' refuses ' . $fault);
+    }
 }
 
 // Invoke the live harness's actual capture function. The low-level stage
