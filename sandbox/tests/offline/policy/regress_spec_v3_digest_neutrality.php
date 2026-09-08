@@ -42,12 +42,14 @@ use WPrism\Policy;
 // sets. The disposition registry and every other adapter remain byte-pinned.
 // Staging the location provider then moves WPForms, both containing worlds
 // and the reviewed registry; no unrelated adapter or smaller pin set moves.
-const BASELINE_FIXTURE_SHA256 = '07b216ecfe67ae22c9fdf3d23e2574fd16344c82fd853b9ca842bfd663fd647c';
-const RANK_WORLD_MANIFEST_HASH = '3e62c22bcc169f1a4bb37e2e926bc8d61809c50bea6444b5add7edfc9ba20191';
-const YOAST_WORLD_MANIFEST_HASH = '12a23b14a4822245cbce30ce50ccdac9d14e7f355ccd05cd6f1bfee8f60d521c';
+// Native Lite settings review narrows two Pro-only controls to local state;
+// only WPForms and its two containing worlds move, not the reviewed registry.
+const BASELINE_FIXTURE_SHA256 = 'e32ef7f423decf1561627f3af911cdd755c13b745409f041d74cb60aedb8be40';
+const RANK_WORLD_MANIFEST_HASH = 'af24228b63b27dda4bf340809775f8340d5f9ed36446dce9c93018b3c19ae79b';
+const YOAST_WORLD_MANIFEST_HASH = 'c1aa6d89c57d244f5035b9298a2a43a604de25b005ef2b0c0183ab1ded1a9902';
 const REGISTRY_SHA256 = 'd7fbe8e3aa12dbe2fbd1c0dfcfc209444e58c4dd8366586944602238f9cff3b6';
-const RANK_WORLD_SNAPSHOT_SHA256 = '65bd094f36fdda8eacde16f66a6beddbfcab62264417311c7a63a1b00d6ae23b';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '76bc07c8a1ebe8bc6a890e902ef7d83bca23bc712bd7e1ffcb98e8bed52dabd1';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'e2a7c90b5759fd3a84de7d7a0826bc7dbbaf3bf3de4317aad3dfd414fe3948bc';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '97e5aef666c52f3cb35e6c459d690afb7d7cf36da3c4b2bfec66e97692b585a5';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

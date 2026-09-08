@@ -71,6 +71,7 @@ final class WPFormsSettingsEvidence {
             foreach (['gdpr-disable-uuid', 'gdpr-disable-details'] as $key) {
                 self::check($one($key)->hasAttribute('disabled'), 'Pro-only education control stays disabled');
             }
+            self::check($one('lite-connect-enabled')->hasAttribute('disabled'), 'native Lite Connect cloud-enrollment control stays disabled');
             self::check($xpath->query('.//*[@name="modern-markup"]', $form)->length === 0,
                 'fresh-site conditional markup UI is not silently enabled');
         }
@@ -87,6 +88,8 @@ final class WPFormsSettingsEvidence {
     }
 
     public static function author(array $record, string $pair, string $side, string $view): void {
+        self::keys($record, ['format', 'version', 'side', 'view', 'home', 'actor', 'session_retired', 'debug_config',
+            'diagnostics_before', 'diagnostics_after', 'requests', 'before', 'after']);
         $number = $side === 'source' ? 1 : 2;
         self::check(($record['format'] ?? null) === 'wprism-wpforms-native-settings-author/v1'
             && ($record['version'] ?? null) === '2.0.1.1' && ($record['side'] ?? null) === $side
@@ -96,10 +99,12 @@ final class WPFormsSettingsEvidence {
         self::check(($record['debug_config'] ?? null) === [true, true, false]
             && is_array($record['diagnostics_before'] ?? null) && $record['diagnostics_before'] === ($record['diagnostics_after'] ?? null),
             'native HTTP server diagnostics are enabled and unchanged');
+        self::diagnostics($record['diagnostics_before']);
         $requests = $record['requests'] ?? null;
         self::check(is_array($requests) && array_is_list($requests) && count($requests) === 2, 'complete GET and POST native exchange');
         $path = '/wp-admin/admin.php?page=wpforms-settings&view=' . $view;
         foreach ($requests as $index => $request) {
+            self::keys($request, ['url', 'host', 'method', 'post', 'status', 'headers', 'body']);
             self::check(($request['url'] ?? null) === 'http://wprism-' . $pair . '-wp' . $number . '-1' . $path
                 && ($request['host'] ?? null) === $pair . $number . '.invalid'
                 && ($request['method'] ?? null) === ($index === 0 ? 'GET' : 'POST')
@@ -143,6 +148,7 @@ final class WPFormsSettingsEvidence {
     }
 
     public static function native(array $source, array $before, array $after, array $stable, array $compiledOptions): void {
+        foreach ([$source, $before, $after, $stable] as $record) self::diagnostics($record['settings_diagnostics'] ?? []);
         $sourceValues = self::stored($source['settings'] ?? []);
         $beforeValues = self::stored($before['settings'] ?? []);
         $afterValues = self::stored($after['settings'] ?? []);
@@ -200,5 +206,17 @@ final class WPFormsSettingsEvidence {
 
     public static function check(bool $condition, string $message): void {
         if (!$condition) throw new RuntimeException('WPForms settings evidence: ' . $message);
+    }
+
+    public static function diagnostics(array $record): void {
+        self::check(in_array($record, [['present' => false, 'bytes' => ''], ['present' => true, 'bytes' => '']], true),
+            'native server diagnostic witness is complete and empty, not a preserved warning');
+    }
+
+    private static function keys(array $record, array $expected): void {
+        $actual = array_keys($record);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        self::check($actual === $expected, 'native author record has exactly its declared members');
     }
 }

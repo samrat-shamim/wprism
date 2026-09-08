@@ -15,7 +15,7 @@ $html = static function (string $view): string {
         $body .= $key === 'disable-css' ? '<select' . $identity . '><option value="1">Full</option><option value="2">Base</option><option value="3">None</option></select>'
             : '<input type="' . ($view === 'general' ? 'checkbox' : 'text') . '"' . $identity . '>';
     }
-    if ($view === 'general') foreach (['gdpr-disable-uuid', 'gdpr-disable-details'] as $key) {
+    if ($view === 'general') foreach (['gdpr-disable-uuid', 'gdpr-disable-details', 'lite-connect-enabled'] as $key) {
         $body .= '<input type="checkbox" name="' . $key . '" disabled>';
     }
     return $body . '</form><p>Settings were successfully saved.</p></body></html>';
@@ -61,12 +61,14 @@ foreach ([
     'wrong response view' => static function (&$r): void { $r['requests'][1]['body'] = str_replace('value="general"', 'value="validation"', $r['requests'][1]['body']); },
     'disabled authored control' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('name="gdpr"', 'name="gdpr" disabled', $r['requests'][0]['body']); },
     'enabled Pro control' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('name="gdpr-disable-uuid" disabled', 'name="gdpr-disable-uuid"', $r['requests'][0]['body']); },
+    'enabled cloud enrollment' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('name="lite-connect-enabled" disabled', 'name="lite-connect-enabled"', $r['requests'][0]['body']); },
     'invented markup UI' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('</form>', '<input name="modern-markup"></form>', $r['requests'][0]['body']); },
     'duplicate nonce' => static function (&$r): void { $r['requests'][0]['body'] = str_replace('</form>', '<input name="nonce" value="123456abcd"></form>', $r['requests'][0]['body']); },
     'missing success notice' => static function (&$r): void { $r['requests'][1]['body'] = str_replace('Settings were successfully saved.', '', $r['requests'][1]['body']); },
     'native PHP diagnostic' => static function (&$r): void { $r['requests'][1]['body'] .= '<b>Warning</b>: native request failed'; },
     'server diagnostics disabled' => static function (&$r): void { $r['debug_config'][0] = false; },
     'new server diagnostic' => static function (&$r): void { $r['diagnostics_after'] = ['present' => true, 'bytes' => 'PHP Warning: unexpected']; },
+    'preserved preexisting diagnostic' => static function (&$r): void { $r['diagnostics_before'] = $r['diagnostics_after'] = ['present' => true, 'bytes' => 'PHP Warning: unexpected']; },
     'wrong stored toggle type' => static function (&$r) use ($stored): void { $r['after'] = $stored(array_replace($r['after']['values'], ['gdpr' => '1'])); },
     'unrelated native setting changed' => static function (&$r) use ($stored): void { $r['after'] = $stored(array_replace($r['after']['values'], ['modern-markup-hide-setting' => false])); },
     'native crypto changed' => static function (&$r): void { $r['after']['rows'][1]['option_value'] = base64_encode(str_repeat('x', 32)); },
@@ -74,6 +76,8 @@ foreach ([
     'missing physical column' => static function (&$r): void { unset($r['after']['rows'][0]['autoload']); },
     'extra physical column' => static function (&$r): void { $r['after']['rows'][0]['extra'] = 'unproved'; },
     'extra physical row' => static function (&$r): void { $r['after']['rows'][] = $r['after']['rows'][0]; },
+    'hidden transport failure' => static function (&$r): void { $r['transport_error'] = ['codes' => ['http_request_failed']]; },
+    'undeclared request data' => static function (&$r): void { $r['requests'][1]['unexpected'] = 'hidden'; },
 ] as $label => $mutate) {
     $record = $positive;
     $mutate($record);
@@ -85,11 +89,12 @@ $sourceValues = ['modern-markup' => '1'] + WPFormsSettingsEvidence::values('sour
 $targetValues = ['modern-markup' => '1', 'gdpr-disable-uuid' => true, 'gdpr-disable-details' => true,
     'opaque' => ['secret' => 'sk_live_NATIVELOCAL123456789012', 'nested' => [false, null, '0']]]
     + WPFormsSettingsEvidence::values('target', 'general') + WPFormsSettingsEvidence::values('target', 'validation');
-$source = ['settings' => $stored($sourceValues)];
-$before = ['settings' => $stored($targetValues, 't')];
+$source = ['settings' => $stored($sourceValues), 'settings_diagnostics' => ['present' => false, 'bytes' => '']];
+$before = ['settings' => $stored($targetValues, 't'), 'settings_diagnostics' => ['present' => false, 'bytes' => '']];
 $strings = [];
 foreach (WPFormsSettingsEvidence::VALIDATION as $key => $consumer) $strings[$consumer] = $sourceValues[$key];
 $after = ['settings' => $stored(array_replace($targetValues, $sourceValues), 't'),
+    'settings_diagnostics' => ['present' => false, 'bytes' => ''],
     'settings_consumers' => ['strings' => $strings, 'global_assets' => true, 'render_engine' => 'modern',
         'styles' => ['wpforms-modern-base'], 'ip_allowed' => false, 'cookies_allowed' => false]];
 $compiled = OptionState::document(['wpforms_settings' => OptionState::present($sourceValues, 'auto')]);
@@ -106,6 +111,7 @@ foreach ([
     'native stylesheet wrong' => static function (&$s, &$b, &$a, &$r, &$c): void { $a['settings_consumers']['styles'] = ['wpforms-no-styles']; },
     'native privacy wrong' => static function (&$s, &$b, &$a, &$r, &$c): void { $a['settings_consumers']['ip_allowed'] = true; },
     'autoload changed' => static function (&$s, &$b, &$a, &$r, &$c): void { $a['settings']['rows'][0]['autoload'] = 'no'; $r = $a; },
+    'consumer server warning' => static function (&$s, &$b, &$a, &$r, &$c): void { $r['settings_diagnostics'] = ['present' => true, 'bytes' => 'PHP Notice: hidden']; },
 ] as $label => $mutate) {
     [$s, $b, $a, $r, $c] = [$source, $before, $after, $after, $compiled];
     $mutate($s, $b, $a, $r, $c);

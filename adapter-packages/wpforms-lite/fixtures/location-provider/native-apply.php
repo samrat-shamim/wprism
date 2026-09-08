@@ -230,4 +230,5 @@ echo wp_json_encode(['format' => 'wprism-wpforms-apply-observation/v1', 'case' =
     'widget_options' => ['wpforms-widget' => get_option('widget_wpforms-widget', []), 'block' => $blockWidgets],
     'block_form_ids' => $blockFormIds,
     'owned' => $owned, 'padding' => $padding] + $emptyWitness
-    + ($settingsProfile === '1' ? ['settings' => WPFormsNativeSettings::observe(), 'settings_consumers' => WPFormsNativeSettings::consumers()] : []), JSON_THROW_ON_ERROR);
+    + ($settingsProfile === '1' ? ['settings' => WPFormsNativeSettings::observe(), 'settings_consumers' => WPFormsNativeSettings::consumers(),
+        'settings_diagnostics' => WPFormsNativeSettings::diagnostics()] : []), JSON_THROW_ON_ERROR);
