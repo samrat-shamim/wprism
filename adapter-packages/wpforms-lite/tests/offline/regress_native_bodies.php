@@ -36,6 +36,34 @@ $fixtureBytes = (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/nati
 $fixture = json_decode($fixtureBytes, true, 512, JSON_THROW_ON_ERROR);
 wprism_check_same('wprism-wpforms-native-fixtures/v1', $fixture['format'], 'native fixture framing is explicit');
 wprism_check_same(11, count($fixture['cases']), 'all retained native body variants are exercised');
+$builderFixture = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/native-builder-qr-authoring.json'), true, 512, JSON_THROW_ON_ERROR);
+wprism_check_same('wprism-wpforms-builder-qr-fixtures/v1', $builderFixture['format'], 'browser-observed SQL body fixtures have separate exploratory provenance');
+wprism_check_same([$fixture['version'], $fixture['artifact_sha256']], [$builderFixture['version'], $builderFixture['artifact_sha256']], 'browser body bytes use the same locked native release');
+wprism_check_same(['builder-qr-baseline', 'builder-qr-stale-page', 'builder-qr-stale-url', 'builder-qr-generated-url', 'builder-qr-none'],
+    array_keys($builderFixture['cases']), 'every measured Builder QR transition is retained');
+$builderExpectedQr = [
+    'builder-qr-baseline' => ['none', 0, '', ''],
+    'builder-qr-stale-page' => ['page', 5, '', 'http://localhost:9544/wprism-qr-page-a/'],
+    'builder-qr-stale-url' => ['url', 5, 'http://localhost:9544/wprism-qr-page-b/?label=701', 'http://localhost:9544/wprism-qr-page-a/'],
+    'builder-qr-generated-url' => ['url', 5, 'http://localhost:9544/wprism-qr-page-b/?label=701', 'http://localhost:9544/wprism-qr-page-b/?label=701'],
+    'builder-qr-none' => ['none', 0, '', ''],
+];
+$builderNonQr = null;
+foreach ($builderFixture['cases'] as $name => $case) {
+    wprism_check_same($case['body_sha256'], hash('sha256', $case['body']), "$name retains the measured complete native post_content bytes");
+    $doc = json_decode($case['body'], false, 512, JSON_THROW_ON_ERROR);
+    $settings = $doc->settings;
+    wprism_check_same($builderExpectedQr[$name], [$settings->qr_code, $settings->qr_code_page_id, $settings->qr_code_url, $settings->qr_code_generated],
+        "$name binds the selected identity, inactive value and independent generated snapshot with native scalar types");
+    wprism_check_same(['6', 2, '1', 'wpforms', 0, []], [$doc->id, $doc->field_id, $doc->fields->{'1'}->id,
+        $settings->qr_code_logo, $settings->qr_code_logo_id, $settings->form_tags], "$name preserves local field identity and legal untagged Lite logo state");
+    foreach (['qr_code', 'qr_code_page_id', 'qr_code_url', 'qr_code_logo', 'qr_code_generated', 'qr_code_logo_id'] as $key) unset($settings->$key);
+    $nonQr = json_encode($doc, JSON_THROW_ON_ERROR);
+    $builderNonQr ??= $nonQr;
+    wprism_check_same($builderNonQr, $nonQr, "$name retains the entire non-QR form, including nested theme JSON and provider controls");
+}
+wprism_check_same($builderFixture['cases']['builder-qr-baseline']['body'], $builderFixture['cases']['builder-qr-none']['body'],
+    'native None returns the complete stored body to its first Builder-saved baseline');
 $targetHome = 'https://target.example.test';
 $uuidFor = static fn(int $id): string => '019200cc-0000-7000-8000-' . sprintf('%012d', $id);
 $post = static fn(array $case, string $slug, string $body, int $id): object => (object) [
@@ -99,8 +127,11 @@ $expectedBody = static function (string $raw, array $case, bool $canonical) use 
     return json_encode($text($doc), JSON_THROW_ON_ERROR);
 };
 
-foreach ($fixture['cases'] as $name => $case) {
-    $ids = [$case['post_id']];
+// The browser archive supplies complete stored bodies, not admitted HTTP or
+// physical-preservation evidence. Replay stays the existing product codec;
+// it does not turn this exploratory source run into Capture/Apply evidence.
+foreach ($fixture['cases'] + $builderFixture['cases'] as $name => $case) {
+    $ids = array_merge([$case['post_id']], $case['page_ids'] ?? []);
     foreach (['page_id', 'attachment_id'] as $key) {
         if (isset($case[$key])) {
             $ids[] = $case[$key];
@@ -129,6 +160,43 @@ foreach ($fixture['cases'] as $name => $case) {
         $notificationPost = $post($case, $name, $native, $case['post_id']);
         $notificationCase = $case;
     }
+}
+
+// Locked settings-qr-code.min.js changes the selected destination without
+// replacing its last-generated URL until onGenerate() succeeds. These two
+// synthetic states pin that codec contract, not a native Builder/browser run.
+$qrCase = $fixture['cases']['qr-page'];
+foreach (['page', 'url'] as $destination) {
+    $qrDoc = json_decode($qrCase['body'], false, 512, JSON_THROW_ON_ERROR);
+    $qrDoc->settings->qr_code = $destination;
+    $qrDoc->settings->qr_code_page_id = 41;
+    $qrDoc->settings->qr_code_url = $qrCase['source_home'] . '/different-qr-destination/?label=701';
+    $qrNative = json_encode($qrDoc, JSON_THROW_ON_ERROR);
+    $seedMap([$qrCase['post_id'], $qrCase['page_id'], 41]);
+    $sourceTokens = new Tokens($qrCase['source_home'], $qrCase['source_home'] . '/wp-content/uploads');
+    $sourceTokens->policy = $policy;
+    $qrEntity = $capture($sourceTokens)->capture($post($qrCase, 'qr-stale-' . $destination, $qrNative, $qrCase['post_id']),
+        $uuidFor($qrCase['post_id']), []);
+    [, $qrCanonical] = Canon::parse_post_file($qrEntity['entity']['content']);
+    wprism_check_same($expectedBody($qrNative, $qrCase, true), $qrCanonical,
+        "stale QR $destination captures the independent page ID and generated URL without normalization");
+    $seedMap([$qrCase['post_id'], $qrCase['page_id'], 41], 1000);
+    $targetTokens = new Tokens($targetHome, $targetHome . '/wp-content/uploads');
+    $targetTokens->policy = $policy;
+    $qrTarget = BodyRefGrammar::apply($qrCanonical, $policy->body_ref_rule('wpforms'),
+        $targetTokens->token_to_id(...), 'qr-stale-' . $destination, $targetTokens->detokenize_text(...));
+    wprism_check_same($expectedBody($qrNative, $qrCase, false), $qrTarget,
+        "stale QR $destination remaps only declared identities and URLs across the complete body");
+    $targetSettings = json_decode($qrTarget, true, 512, JSON_THROW_ON_ERROR)['settings'];
+    wprism_check_same([1041, $targetHome . '/wprism-native-qr-destination/', $targetHome . '/different-qr-destination/?label=701'],
+        [$targetSettings['qr_code_page_id'], $targetSettings['qr_code_generated'], $targetSettings['qr_code_url']],
+        "stale QR $destination preserves the old generated destination, inactive input and non-reference numeric query");
+    $qrRecaptured = $capture($targetTokens)->capture($post($qrCase, 'qr-stale-' . $destination, $qrTarget, $qrCase['post_id'] + 1000),
+        $uuidFor($qrCase['post_id']), []);
+    wprism_check_same($qrEntity['entity']['content'], $qrRecaptured['entity']['content'],
+        "stale QR $destination complete canonical entity is a divergent-ID codec fixed point");
+    wprism_check_same([[], []], [$sourceTokens->warnings, $targetTokens->warnings],
+        "stale QR $destination needs no warning or fallback");
 }
 
 $compileRoot = sys_get_temp_dir() . '/wprism-wpforms-package-' . bin2hex(random_bytes(6));
