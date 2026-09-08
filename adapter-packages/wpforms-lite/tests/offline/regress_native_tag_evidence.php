@@ -25,6 +25,8 @@ $empty = static fn(int $id): array => ['terms' => [['term_id' => '1', 'name' => 
     'term_relationships' => [], 'termmeta' => [], 'forms' => [$form($id, 'integer')]];
 $slugs = ['Intake Ω' => 'intake-%cf%89', '701' => '701', Tags::LOCAL => 'unrelated-local-tag'];
 $labels = ['first' => ['Intake Ω'], 'initial' => ['Intake Ω', '701'], 'local' => [Tags::LOCAL], 'clear' => [], 'change' => ['701']];
+$disabledQr = ['qr_code' => 'none', 'qr_code_logo' => 'wpforms',
+    'qr_code_page_id' => 0, 'qr_code_logo_id' => 0, 'qr_code_url' => '', 'qr_code_generated' => ''];
 $choices = static function (array $physical): array {
     $terms = array_column($physical['terms'], null, 'term_id');
     $out = [];
@@ -34,7 +36,7 @@ $choices = static function (array $physical): array {
     }
     return $out;
 };
-$author = static function (string $side, string $mode, array $before) use ($slugs, $labels, $choices): array {
+$author = static function (string $side, string $mode, array $before) use ($slugs, $labels, $choices, $disabledQr): array {
     $id = (int) $before['forms'][0]['ID'];
     $number = $side === 'source' ? 1 : 2;
     $values = $labels[$mode];
@@ -66,6 +68,7 @@ $author = static function (string $side, string $mode, array $before) use ($slug
     unset($tt);
     $body = json_decode($next['forms'][0]['post_content'], true, 32, JSON_THROW_ON_ERROR);
     $body['settings']['form_tags'] = $values;
+    foreach ($disabledQr as $key => $value) $body['settings'][$key] = $value;
     $next['forms'][0]['post_content'] = json_encode($body, JSON_THROW_ON_ERROR);
     $html = '<html><body><div class="wpforms-column-tags-links" data-form-id="' . $id . '" data-is-editable="1">'
         . '<a class="wpforms-column-tags-edit">Edit</a></div><script>var wpforms_admin_forms_overview = '
@@ -142,6 +145,34 @@ foreach ([
     wprism_check_throws(static fn() => Tags::author($record, 'wpftags', 'source', 'initial'), RuntimeException::class,
         'actual native tag author admission refuses ' . $label, 'WPForms tag evidence:');
 }
+
+foreach ($disabledQr as $field => $value) foreach (['missing', 'wrong value', 'wrong type'] as $mutation) {
+    $record = $authors['source:first'];
+    $body = json_decode($record['after']['forms'][0]['post_content'], true, 32, JSON_THROW_ON_ERROR);
+    if ($mutation === 'missing') unset($body['settings'][$field]);
+    elseif ($mutation === 'wrong value') $body['settings'][$field] = is_int($value) ? 9 : 'not-native-default';
+    else $body['settings'][$field] = is_int($value) ? '0' : false;
+    $record['after']['forms'][0]['post_content'] = json_encode($body, JSON_THROW_ON_ERROR);
+    wprism_check_throws(static fn() => Tags::author($record, 'wpftags', 'source', 'first'), RuntimeException::class,
+        'actual author admission refuses ' . $mutation . ' for native ' . $field, 'exact native disabled QR defaults');
+}
+foreach (['preseeded first', 'partial first', 'configured repeat'] as $premise) {
+    $mode = $premise === 'configured repeat' ? 'initial' : 'first';
+    $record = $authors['source:' . $mode];
+    $body = json_decode($record['before']['forms'][0]['post_content'], true, 32, JSON_THROW_ON_ERROR);
+    if ($premise === 'preseeded first') $body['settings'] += $disabledQr;
+    elseif ($premise === 'partial first') $body['settings']['qr_code'] = 'none';
+    else $body['settings']['qr_code'] = 'page';
+    $record['before']['forms'][0]['post_content'] = json_encode($body, JSON_THROW_ON_ERROR);
+    wprism_check_throws(static fn() => Tags::author($record, 'wpftags', 'source', $mode), RuntimeException::class,
+        'actual author admission refuses ' . $premise . ' QR premise', 'native QR preimage');
+}
+$record = $authors['source:first'];
+$body = json_decode($record['after']['forms'][0]['post_content'], true, 32, JSON_THROW_ON_ERROR);
+$body['settings'] = ['qr_code' => $body['settings']['qr_code']] + $body['settings'];
+$record['after']['forms'][0]['post_content'] = json_encode($body, JSON_THROW_ON_ERROR);
+wprism_check_throws(static fn() => Tags::author($record, 'wpftags', 'source', 'first'), RuntimeException::class,
+    'actual author admission refuses reordered native QR additions', 'exact native disabled QR defaults');
 
 $uuid = static fn(int $id): string => '019200dd-0000-7000-8000-' . sprintf('%012d', $id);
 $observe = static function (array $physical, string $side, bool $managed, bool $local) use ($form, $choices, $uuid): array {

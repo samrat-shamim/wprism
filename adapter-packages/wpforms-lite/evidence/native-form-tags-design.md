@@ -27,6 +27,19 @@ The fixture therefore sends the exact native overview `Referer` only after
 the same authenticated session has successfully read that page. Missing,
 foreign, unvisited and failed-overview requests refuse before transport.
 
+Admin bootstrap also loads the QR save filter
+(`src/Loader.php:744-746`, `QrCode.php:75-80`). The Tags writer's ordinary
+`Form_Handler::update()` invokes it (`includes/class-form.php:755-782`),
+unlike the CLI seed's pre-admin context. For this QR-absent seed the first
+HTTP save appends, after `form_tags`, exactly `qr_code: "none"`,
+`qr_code_logo: "wpforms"`, integer-zero `qr_code_page_id` and
+`qr_code_logo_id`, then empty-string `qr_code_url` and `qr_code_generated`.
+`QrCode.php:424-432,448-460` owns these disabled defaults. Admission requires
+their complete absence before the first source/target native save and their
+exact values, types and order thereafter; no fixture seed conceals the delta.
+This is automatic disabled-state normalization, not QR UI authoring, custom
+logo support, an attachment upload or generated QR image evidence.
+
 ## Offline mechanism checkpoint
 
 `tests/offline/regress_form_tags.php` uses the shipped capsule policy,
@@ -95,7 +108,7 @@ the capsule-local `native-admin.php` session helper. Neither profile changes
 the default content-only lane or creates a code baseline.
 
 The actual author and Apply admission functions are exercised by
-`tests/offline/regress_native_tag_evidence.php` (58 assertions), including
+`tests/offline/regress_native_tag_evidence.php` (80 assertions), including
 successfully compiled but wrong term/label inputs and complete target-only
 inventory rejection without explicit preservation proof. The helper's
 `regress_native_admin.php` (37 assertions) injects HTTP status/size failures,
@@ -114,8 +127,12 @@ rows, an empty diagnostic witness and successful session retirement. It is
 not a wire capture and does not prove a raw `0` response. The missing native
 overview referrer prevented the locked loader from registering the handler.
 The owned pair `wpftags01` and its disposable resources were destroyed.
-The corrected helper is red/green tested against that producer, with a new
-full aggregate and exact-source native run required before any PASS claim.
+The corrected helper is red/green tested against that producer. Subsequent
+source tracing and a locked-sanitizer probe exposed the predicted QR-default
+postimage; the actual verifier rejected it before correction. Mutation
+controls now reject every missing/wrong value/type, reordered additions and
+preseeded, partial or configured QR preimages. A new full aggregate and
+exact-source native run remain required before any PASS claim.
 
 Media/QR uploads, template conversion, deletion authority, lifecycle,
 submissions/mail and participant-declared combinations remain separate work.

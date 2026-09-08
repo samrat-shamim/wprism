@@ -189,7 +189,16 @@ final class WPFormsTagEvidence {
         $form = $record['before']['forms'][0];
         $doc = json_decode($form['post_content'], true, 32, JSON_THROW_ON_ERROR);
         self::check(is_array($doc) && is_array($doc['settings'] ?? null), 'complete prior native form body');
+        // Loader.php:744-746 registers QrCode on admin_init, unlike the CLI
+        // seed. Its save filter (QrCode.php:424-432,448-460) adds these exact
+        // disabled defaults even when the native action only edits tags.
+        $disabledQr = ['qr_code' => 'none', 'qr_code_logo' => 'wpforms',
+            'qr_code_page_id' => 0, 'qr_code_logo_id' => 0, 'qr_code_url' => '', 'qr_code_generated' => ''];
+        $first = in_array($side . ':' . $mode, ['source:first', 'target:local'], true);
+        self::check(array_intersect_key($doc['settings'], $disabledQr) === ($first ? [] : $disabledQr),
+            'native QR preimage is absent on first admin save and exactly disabled thereafter');
         $doc['settings']['form_tags'] = self::labels($mode);
+        foreach ($disabledQr as $key => $value) $doc['settings'][$key] = $value;
         // Locked wpforms_encode() uses ordinary wp_json_encode; wp_insert_post
         // removes its wp_slash layer. Retain all other bytes and scalar types.
         $form['post_content'] = json_encode($doc, JSON_THROW_ON_ERROR);
@@ -198,7 +207,7 @@ final class WPFormsTagEvidence {
             self::check(preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', $value) === 1 && $value >= $form[$key], 'native modified time is monotonic');
             $form[$key] = $value;
         }
-        self::check($record['after']['forms'] === [$form], 'only exact literal form_tags and native modification times changed');
+        self::check($record['after']['forms'] === [$form], 'only literal form_tags, exact native disabled QR defaults and modification times changed');
         $response = json_decode($post['body'], true, 32, JSON_THROW_ON_ERROR);
         self::keys($response, ['success', 'data']);
         self::check($response['success'] === true && is_array($response['data']), 'native AJAX success envelope');

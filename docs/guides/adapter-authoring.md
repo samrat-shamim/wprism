@@ -405,6 +405,13 @@ page read, route, host and `Referer` in the retained exchange; a header
 invented without that read or a direct class bootstrap is not the native
 authoring flow. Keep this plugin-specific loader contract in its capsule.
 
+A CLI-authored native seed can be a fixed point before admin-only save
+filters load. WPForms' first Tags AJAX save also adds six disabled QR
+defaults through `admin_init` and `wpforms_save_form_args`. Require that
+exact native delta and its absent preimage; do not preseed the defaults or
+suppress the filter to make a tag-only expectation pass. Automatic defaults
+do not establish UI authoring or a license-gated feature's support.
+
 ### Portable validation versus WordPress-native predicates
 
 Run your real adapter through the standalone `RepositoryCompiler`, with no
