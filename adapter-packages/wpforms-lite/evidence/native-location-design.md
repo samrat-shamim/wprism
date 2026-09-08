@@ -387,3 +387,47 @@ the complete native Locator form-ID roster for block widgets, including empty
 rosters, and a deliberately unassigned target-local core block proves
 preservation independently of managed sidebar changes. The c42 observations
 are not retroactively promoted into this stronger evidence format.
+
+### Native authored-state Apply evidence
+
+Source `078c440b35633c61399e66f0e578b78d4c4bfab0`, locked WPForms Lite
+2.0.1.1, owned MariaDB pair `wpfprov07`: all four ordinary command cycles
+completed, including fresh native observations and both complete recaptures.
+The source repository never declared managed code; both plugins were already
+active. Complete phase streams and all twelve recapture/source trees remain
+at `sandbox/tmp/wpforms-apply-native.DjPJZZ/`.
+
+| Native case | Authored Apply operations | Verified provider actions | Repeat writes/actions | Fresh canonical verification |
+| --- | ---: | ---: | --- | --- |
+| Baseline adoption | 11 | 1 | 0 / 0 | pass |
+| Embed-only removal | 1 | 1 | 0 / 0 | pass |
+| Sidebar/widget-only change | 1 | 1 | 0 / 0 | pass |
+| Page title/slug-only change | 1 | 1 | 0 / 0 | pass |
+
+The producer's final host verifier incorrectly required pre-Apply numeric
+slots for managed core block widgets. The engine correctly allocated new
+target-local slots; the complete five source setting values were unchanged.
+The producer therefore exited 255 after successful native commands and exact
+pair/database/repository teardown. No producer PASS is fabricated.
+
+The corrected read-only verifier admits these same retained records without
+modifying them: complete zero-form-ID source block settings, with multiplicity,
+plus the exact unassigned target-local block99 equal the target multiset.
+Target/stable option arrays still compare strictly, while full compiler-backed
+convergence independently binds the managed sidebar identities. Offline
+controls now exercise source/target reindexing and missing, duplicate or
+changed complete values. Source WPForms rosters must match the complete
+controlled selector settings and the exact case count; empty rosters cannot
+hide selector bytes. Coordinated forged-source/dropped-target controls pin
+both directions. This is slot-independent comparison of complete authored
+settings, not a content normalizer or an omitted native row.
+
+Root re-admission passed all four cases with empty stderr at
+`sandbox/tmp/wpforms-apply-native-v3-readmit-v2.{stdout,stderr}`. It checks all
+public phase transports, exact ScopeContract/action/artifact association,
+native consumers, mapped IDs, both local widget sentinels, all target-only
+trash rows, physical metadata and full source/target/source-repeat compiler
+convergence. Readiness remains experimental: this is native content-only
+Apply evidence, not managed-code installation/deploy, lifecycle, native
+server-fault recovery, deletion, submission/mail isolation or plugin-combination
+certification.

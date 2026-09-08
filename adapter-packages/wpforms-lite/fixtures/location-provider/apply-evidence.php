@@ -153,17 +153,39 @@ final class WPFormsApplyEvidence {
             $expectedWidgets[] = ['type' => 'widget', 'title' => $settings['title'],
                 'form_id' => $settings['form_id'], 'id' => 'wpforms-widget-' . $number];
         }
-        $blockNumbers = array_values(array_filter(array_keys($after['widget_options']['block']), static fn($number): bool => $number !== '_multiwidget'));
-        self::check(is_array($after['block_form_ids'] ?? null)
-            && array_keys($after['block_form_ids']) === $blockNumbers
-            && $after['block_form_ids'] === ($stable['block_form_ids'] ?? null), 'complete stable native block-form roster');
+        foreach ([$source, $after, $stable] as $record) {
+            $blockNumbers = array_values(array_filter(array_keys($record['widget_options']['block']), static fn($number): bool => $number !== '_multiwidget'));
+            self::check(is_array($record['block_form_ids'] ?? null)
+                && array_keys($record['block_form_ids']) === $blockNumbers, 'complete native block-form roster');
+        }
+        self::check($after['block_form_ids'] === $stable['block_form_ids'], 'stable native block-form roster');
+        $expectedUnrelated = [$coreOrphan];
+        $sourceInteger = $source['posts']['integer']['id'];
+        $sourceBlock = ['content' => '<!-- wp:wpforms/form-selector {"formId":"' . $sourceInteger . '"} /-->'];
+        $sourceFormBlocks = 0;
+        foreach ($source['widget_options']['block'] as $number => $settings) {
+            if ($number === '_multiwidget') continue;
+            self::check(is_array($settings) && is_string($settings['content'] ?? null), 'complete source block settings');
+            $ids = $source['block_form_ids'][$number];
+            // This controlled source authors one exact selector, only in the
+            // sidebar cases. Bind its native roster in both directions before
+            // zero-form rows enter the complete-settings conservation proof.
+            if ($ids === []) {
+                self::check(!str_contains($settings['content'], '<!-- wp:wpforms/form-selector'),
+                    'source WPForms selector cannot masquerade as an unrelated block');
+                $expectedUnrelated[] = $settings;
+                continue;
+            }
+            self::check($ids === [$sourceInteger] && $settings === $sourceBlock, 'source native roster matches the exact controlled WPForms block');
+            ++$sourceFormBlocks;
+        }
+        self::check($sourceFormBlocks === (in_array($case, ['widgets', 'routing'], true) ? 1 : 0), 'exact source WPForms block count for the native case');
+        $actualUnrelated = [];
         foreach ($after['widget_options']['block'] as $number => $settings) {
             if ($number === '_multiwidget') continue;
             $ids = $after['block_form_ids'][$number];
             if ($ids === []) {
-                self::check(($before['block_form_ids'][$number] ?? null) === []
-                    && ($before['widget_options']['block'][$number] ?? null) === $settings,
-                    'unrelated native block widget retains its complete bytes and empty form roster');
+                $actualUnrelated[] = $settings;
                 continue;
             }
             self::check($ids === [$integer], 'native WPForms block has precisely the target integer form reference');
@@ -172,6 +194,12 @@ final class WPFormsApplyEvidence {
             // native English label even when the widget has no title field.
             $expectedWidgets[] = ['type' => 'widget', 'title' => 'Block Widget', 'form_id' => $integer, 'id' => 'block-' . $number];
         }
+        // SidebarState allocates target-local slots for managed core widgets.
+        // Their complete source values (with duplicate multiplicity), plus
+        // the explicit unmapped local sentinel, are the expected target set.
+        // Recapture convergence separately binds managed sidebar identities.
+        self::check(self::ordered($actualUnrelated) === self::ordered($expectedUnrelated),
+            'complete source core-widget settings plus the exact target-local sentinel, independent of allocator slots');
         self::check(count($expectedWidgets) === (in_array($case, ['widgets', 'routing'], true) ? 3 : 1)
             && self::ordered($expectedWidgets) === self::ordered($after['widgets']), 'all native widget locations independently match stored settings');
         foreach (['integer', 'string'] as $role) {
