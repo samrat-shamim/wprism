@@ -2893,6 +2893,12 @@ library.
    and reference them from the hooks; do not hide them in `tests/lib` or label
    them as independent regressions. The package validator uses the runner's
    same closed discovery boundary before reporting success.
+   A direct capsule live regression can reuse the reviewed
+   `tests/lib/pair_live_ownership.sh` helper for exact-source leases, partial
+   startup cleanup, teardown and PASS-after-cleanup. After changing directory
+   to the repository's physical `sandbox/`, source it with the literal
+   `. tests/lib/pair_live_ownership.sh` spelling the capsule validator admits.
+   Pair lifecycle remains shared test machinery, not a capsule-owned copy.
    Run the candidate-bound gate from its exact commit:
 
    ```sh

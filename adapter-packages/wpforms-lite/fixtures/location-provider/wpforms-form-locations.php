@@ -295,6 +295,19 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
             || preg_match('/%(?![a-fA-F0-9]{2})/', $url) === 1) {
             self::refuse('native home or permalink is outside the canonical URL frontier');
         }
+        // Locator.php:647 decodes the entire escaped link before KSES. Native
+        // evidence turns /a%3Fb into /a?b and truncates an encoded quote. Only
+        // unreserved ASCII and valid UTF-8 escapes survive that renderer with
+        // equivalent targets; never double-encode storage to conceal the gap.
+        if (str_contains($url, '+') || preg_match('//u', rawurldecode($url)) !== 1) {
+            self::refuse('native URL is outside the current-home renderer frontier');
+        }
+        for ($offset = 0; ($offset = strpos($url, '%', $offset)) !== false; $offset += 3) {
+            $byte = chr(hexdec(substr($url, $offset + 1, 2)));
+            if (ord($byte) < 128 && preg_match('/^[A-Za-z0-9._~-]$/D', $byte) !== 1) {
+                self::refuse('native URL is outside the current-home renderer frontier');
+            }
+        }
         $parts = parse_url($url);
         if (!is_array($parts) || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
             || !is_string($parts['host'] ?? null) || $parts['host'] === ''

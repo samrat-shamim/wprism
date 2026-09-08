@@ -87,6 +87,18 @@ pure factory. The intended provider will:
    outside this canonical representation. Do not silently normalize different
    authority spellings or default ports into equality.
 
+   The public renderer has a second boundary: `Locator.php:647` applies
+   `urldecode()` to the whole escaped link markup before KSES. Actual native
+   reconnaissance reproduced `%3F` becoming a query delimiter, `%23` a
+   fragment, `%26` a query separator, `+` a space, and an encoded quote
+   truncating the link. Therefore both the current home and permalink refuse
+   literal plus and encoded ASCII other than RFC unreserved characters;
+   decoded non-ASCII must be valid UTF-8. Encoded unreserved characters and
+   Unicode may render decoded but preserve the same target. Stored suffix
+   bytes remain unchanged. Do not silently double-encode derived storage to
+   work around a native renderer whose other consumers are not yet proven.
+   This is a WPForms consumer limitation, not a missing engine URL primitive.
+
 ## Boundaries that must close before a provider can succeed
 
 The merged native-option witness proves the widget inputs, not an arbitrary
@@ -168,3 +180,31 @@ Locator's historical private home field. It does **not** remove the need to
 admit the actual current native home/permalink/filter inputs, or to prove the
 two-pass fixed point and fresh-consumer behavior. These remain open before
 the provider can be registered or advertised.
+
+## Focused native current-home proof
+
+`tests/live/regress_location_current_home.sh` exercises the actual public
+normal writer and `Locator::column_value()` on one owned exact-artifact pair.
+Separate WordPress processes observe initial, changed and later durable homes.
+Its native fixture deliberately supplies the candidate's canonical metadata
+through the public metadata API, then separately renders pre-fix unsafe bytes
+to distinguish the seven refusal cases from the four admitted examples.
+The host independently checks all three complete private records, identities,
+stored location arrays and actual link targets; its admission regressions use
+synthetic inputs and make no native claim.
+
+Run after the unconditional offline gate, from a clean committed checkout:
+
+```sh
+WPFORMS_LOCATION_PAIR=<owned-name> WPFORMS_LOCATION_PORT1=<even-port> \
+WPFORMS_LOCATION_PORT2=<successor-port> \
+WPFORMS_LOCATION_ZIP=<absolute-locked-2.0.1.1-zip> \
+WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
+bash adapter-packages/wpforms-lite/tests/live/regress_location_current_home.sh
+```
+
+This is scoped native writer/rendering evidence, not a provider invocation,
+HTTP routing proof, capture/apply/recapture fixed point or native-input scope.
+Those requirements remain open. The script retains private command streams
+under `sandbox/tmp/` and delegates leases, teardown and PASS-after-cleanup to
+the shared pair ownership helper; it owns no persistent pair.

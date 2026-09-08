@@ -40,6 +40,7 @@ foreach ([
     ['https://target.example.test:8443', 'https://target.example.test:8443/a', '/a'],
     ['http://[::1]:8080/base', 'http://[::1]:8080/base/a', '/a'],
     ['https://target.example.test', 'https://target.example.test/%E6%9D%B1%E4%BA%AC', '/%E6%9D%B1%E4%BA%AC'],
+    ['https://target.example.test', 'https://target.example.test/%41%7a%30%2d%5f%7e', '/%41%7a%30%2d%5f%7e'],
     ['https://target.example.test', 'https://target.example.test/a?next=https://target.example.test/b', '/a?next=https://target.example.test/b'],
     ['https://target.example.test', 'https://target.example.test', ''],
     ['https://target.example.test', '', ''],
@@ -78,6 +79,19 @@ foreach ([
 ] as [$home, $url]) {
     wprism_check_throws(static fn() => $call('relative_location_url', $home, $url), RuntimeException::class,
         'malformed, external, prefix-trapped or path-escaping native URLs refuse before mutation planning');
+}
+// Locator.php:647 URL-decodes the whole link markup before KSES. These
+// were admitted at bedfd61c but the real public column renderer changes the
+// target; a lexical home-plus-suffix equality cannot prove native UI behavior.
+foreach (['/a%3Fb', '/a%23frag', '/a?x=a%26b', '/a?x=a%3Db', '/a+b',
+    '/a?x=a%2Bb', '/a%252foutside', '/a%22%20title%3D%22x', '/a%27b', '/a%20b',
+    '/a%80', '/a%C0%AF', '/a%ED%A0%80'] as $suffix) {
+    wprism_check_throws(static fn() => $call('relative_location_url', 'https://target.example.test', 'https://target.example.test' . $suffix),
+        RuntimeException::class, 'native whole-markup URL decoding cannot alter the admitted navigation target', 'renderer');
+}
+foreach (['https://target.example.test/base+part', 'https://target.example.test/base%3Fpart'] as $home) {
+    wprism_check_throws(static fn() => $call('relative_location_url', $home, $home . '/a'), RuntimeException::class,
+        'the renderer decodes the current home as well as the stored suffix', 'renderer');
 }
 $owned = [
     ['meta_id' => '2', 'post_id' => '1', 'meta_value' => 'old'],
