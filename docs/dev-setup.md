@@ -274,6 +274,14 @@ An engine-owned feature name can expand Policy's static load closure: bare
 provider loads after Policy caused class-redeclaration failures in six host
 and capsule harnesses when the SDK became a feature owner. Fix the harness
 load, never remove the production dependency to preserve an accidental order.
+When a new SDK method or feature enters that closure, run
+`make regress-manifest-validate` and both `make regress-spec-v3-document` /
+`make regress-spec-v3-dry-run` during iteration. The host validator inventories
+deferred WordPress-dependent methods separately from load-time execution;
+update that exact inventory only with evidence that the host path invokes
+none of them. The two spec suites independently assert the sorted feature
+roster. The native-permalink change exposed both omissions only in the full
+aggregate; package-local validation cannot establish this host boundary.
 
 ## `wprism assess` / `wprism contract` (round-3 MUP)
 
