@@ -437,6 +437,11 @@ if (($argv[1] ?? null) === '--admit') {
     $sink = $argv[2] ?? '';
     $pair = $argv[3] ?? '';
     $targetKind = $argv[4] ?? 'seeded';
+    $settingsProfile = $argv[5] ?? '0';
+    if (!in_array($settingsProfile, ['0', '1'], true) || ($settingsProfile === '1' && $targetKind !== 'seeded')) {
+        throw new RuntimeException('WPForms Apply evidence: explicit seeded-target settings profile required');
+    }
+    if ($settingsProfile === '1') require_once __DIR__ . '/settings-evidence.php';
     if (!in_array($targetKind, ['seeded', 'empty'], true)) throw new RuntimeException('WPForms Apply evidence: declared target kind required');
     if (preg_match('/^[a-z][a-z0-9]+$/D', $pair) !== 1) throw new RuntimeException('WPForms Apply evidence: exact pair required');
     // Reviewers run this verifier from their own checkout; the retained
@@ -446,7 +451,9 @@ if (($argv[1] ?? null) === '--admit') {
         throw new RuntimeException('WPForms Apply evidence: exact retained sink required');
     }
     $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject($sink . '/' . $name,
-        WPFormsApplyEvidence::stderrPattern($pair, $root, $name)), true, 32, JSON_THROW_ON_ERROR);
+        WPFormsApplyEvidence::stderrPattern($pair, $root, $name),
+        profile: preg_match('/^settings-(?:general|validation)[12]$/D', $name) === 1
+            ? WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE : WPrismTest\EvidenceSizeProfile::COMPACT), true, 32, JSON_THROW_ON_ERROR);
     foreach ([1, 2] as $side) {
         WPrismTest\PrivateCommandOutput::readBytes($sink . '/binding' . $side,
             WPFormsApplyEvidence::stderrPattern($pair, $root, 'binding' . $side));
@@ -462,6 +469,14 @@ if (($argv[1] ?? null) === '--admit') {
                 throw new RuntimeException('WPForms Apply evidence: target content was pre-seeded');
             }
         } else WPFormsCaptureProbe::admit($read('seed' . $side), 'seed', $home);
+        if ($settingsProfile === '1') {
+            foreach (['general', 'validation'] as $view) {
+                WPFormsSettingsEvidence::author($read('settings-' . $view . $side), $pair, $side === 1 ? 'source' : 'target', $view);
+            }
+            if ($read('settings-general' . $side)['after'] !== $read('settings-validation' . $side)['before']) {
+                throw new RuntimeException('WPForms settings evidence: native settings changed between the two registered view saves');
+            }
+        }
     }
     $library = WPrism\AdapterLibrary::fromSourcePackage(dirname(__DIR__, 4), 'wpforms-lite');
     $before = $read('before2');
@@ -510,6 +525,11 @@ if (($argv[1] ?? null) === '--admit') {
         }
         WPrismTest\RepositoryConvergence::assertSame($repositories['source'], $repositories['target']);
         WPrismTest\RepositoryConvergence::assertSame($repositories['source'], $repositories['source-repeat']);
+        if ($settingsProfile === '1') {
+            if ($case === 'baseline') WPFormsSettingsEvidence::initial($read('settings-validation1'), $read('settings-validation2'),
+                $read('settings-local2'), $source, $before);
+            WPFormsSettingsEvidence::native($source, $before, $target, $stable, $repositories['source']->tree()['options/core']['data']);
+        }
         if ($targetKind === 'empty' && $case === 'baseline') WPFormsApplyEvidence::created($repositories['source'], $source, $read('baseline-plan'), $target);
         $before = $stable;
         $priorSource = $source;

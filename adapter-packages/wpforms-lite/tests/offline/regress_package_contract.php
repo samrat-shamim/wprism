@@ -53,6 +53,10 @@ wprism_check_same('authored', $settings['sub_keys']['disable-css']['class'], 'na
 wprism_check_same('authored', $settings['sub_keys']['validation-email']['class'], 'native validation copy is portable');
 wprism_check_same('env', $settings['sub_keys']['lite-connect-enabled']['class'], 'cloud enrollment stays target-local');
 wprism_check_same('env', $settings['sub_keys']['modern-markup-is-set']['class'], 'installation markers stay target-local');
+foreach (['gdpr-disable-uuid', 'gdpr-disable-details'] as $key) {
+    wprism_check_same('env', $settings['sub_keys'][$key]['class'], 'disabled Pro-only GDPR controls are not Lite-authored intent');
+    wprism_check(!isset($settings['sub_keys'][$key]['lint_ok']), 'target-local Pro residue has no authored lint clearance');
+}
 wprism_check(!isset($settings['sub_keys']['license-key']), 'no credential carve-out exists');
 wprism_check_same('env', $policy->option_rule('wpforms_crypto_secret_key')['class'], 'encryption material never becomes authored configuration');
 wprism_check_same('derived', $policy->post_meta_rule('wpforms_form_locations')['class'], 'location index values never enter authored metadata');
