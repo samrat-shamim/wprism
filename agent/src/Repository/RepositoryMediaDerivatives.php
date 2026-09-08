@@ -137,13 +137,29 @@ final class RepositoryMediaDerivatives {
     }
 
     private static function typed_tree(array $tree): array {
-        foreach ($tree as &$entity) {
-            if (isset($entity['data'])) continue;
-            if (!is_string($entity['content'] ?? null)) throw new \RuntimeException('wprism: media derivative consumer lacks canonical content');
-            if (($entity['type'] ?? '') === 'post') [$entity['data'], $entity['body']] = Canon::parse_post_file($entity['content']);
-            else $entity['data'] = Canon::decode($entity['content']);
+        $list = array_is_list($tree);
+        $typed = [];
+        foreach ($tree as $key => $entity) {
+            if (!is_array($entity)) throw new \RuntimeException('wprism: media derivative tree contains a malformed entity');
+            $uuid = $list ? ($entity['uuid'] ?? null) : $key;
+            if (!is_string($uuid) || $uuid === '' || isset($typed[$uuid])
+                || (isset($entity['uuid']) && $entity['uuid'] !== $uuid)) {
+                throw new \RuntimeException('wprism: media derivative tree has a missing, duplicated or contradictory identity');
+            }
+            if (!isset($entity['data'])) {
+                if (!is_string($entity['content'] ?? null)) throw new \RuntimeException('wprism: media derivative consumer lacks canonical content');
+                if (($entity['type'] ?? '') === 'post') [$entity['data'], $entity['body']] = Canon::parse_post_file($entity['content']);
+                else $entity['data'] = Canon::decode($entity['content']);
+            }
+            if (!is_array($entity['data'])) throw new \RuntimeException('wprism: media derivative entity data is malformed');
+            if (($entity['type'] ?? '') === 'post' && ($entity['data']['uuid'] ?? null) !== $uuid) {
+                throw new \RuntimeException('wprism: media derivative post identity disagrees with its canonical content');
+            }
+            // CaptureCandidateBuilder validates its entity list before the
+            // snapshot service keys records by UUID. Never treat list offsets
+            // as attachment identities or overwrite a duplicate native row.
+            $typed[$uuid] = $entity;
         }
-        unset($entity);
-        return $tree;
+        return $typed;
     }
 }

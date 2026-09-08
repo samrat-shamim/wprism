@@ -90,6 +90,8 @@ if (!class_exists('WP_CLI')) {
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
+require_once __DIR__ . '/../../support/wp-shortcode-stub.php';
 require_once dirname(__DIR__, 4) . '/adapter-packages/polylang/fixtures/polylang_language_factory_double.php';
 
 // AttachmentNativeMetadataGenerator audits WordPress's native callback
@@ -99,10 +101,23 @@ $GLOBALS['wp_filter'] = [];
 $GLOBALS['full_apply_metadata_calls'] = 0;
 
 if (!class_exists('WP_Image_Editor_GD')) {
-    class WP_Image_Editor_GD {}
+    class WP_Image_Editor_GD {
+        public function __construct(private readonly string $file) {}
+        public function resize(int $width, int $height, bool $crop): bool { return true; }
+        public function save(string $path, string $mime): array {
+            if (!copy($this->file, $path)) throw new RuntimeException('fixture editor save failed');
+            return ['path' => $path, 'file' => basename($path), 'width' => 1, 'height' => 1,
+                'mime-type' => $mime, 'filesize' => filesize($path)];
+        }
+    }
 }
 if (!function_exists('wp_get_image_editor')) {
-    function wp_get_image_editor(string $file): object { return new WP_Image_Editor_GD(); }
+    function wp_get_image_editor(string $file): object { return new WP_Image_Editor_GD($file); }
+}
+if (!function_exists('image_resize_dimensions')) {
+    // The one-pixel source cannot be enlarged: this is the native no-op arm,
+    // not evidence that this fixture implements GD's resizing algorithm.
+    function image_resize_dimensions(int $oldWidth, int $oldHeight, int $width, int $height, bool $crop): bool { return false; }
 }
 if (!function_exists('wp_get_registered_image_subsizes')) {
     function wp_get_registered_image_subsizes(): array {
@@ -112,7 +127,7 @@ if (!function_exists('wp_get_registered_image_subsizes')) {
 if (!function_exists('wp_generate_attachment_metadata')) {
     function wp_generate_attachment_metadata(int $id, string $file): array {
         ++$GLOBALS['full_apply_metadata_calls'];
-        $derivative = dirname($file) . '/recovery-note-1x1.png';
+        $derivative = dirname($file) . '/' . pathinfo($file, PATHINFO_FILENAME) . '-1x1.png';
         if (!copy($file, $derivative)) {
             throw new RuntimeException('offline core could not write its staged attachment derivative');
         }
@@ -172,7 +187,7 @@ if (!function_exists('get_taxonomy')) {
     function get_taxonomy(string $taxonomy): object { return (object) ['hierarchical' => false]; }
 }
 if (!function_exists('get_post_types')) {
-    function get_post_types(array $args = [], string $output = 'names'): array { return ['attachment']; }
+    function get_post_types(array $args = [], string $output = 'names'): array { return ['attachment', 'page']; }
 }
 if (!function_exists('wp_clear_scheduled_hook')) {
     function wp_clear_scheduled_hook(string $hook, array $args = []): int { return 0; }
@@ -217,9 +232,10 @@ function full_apply_attachment_post(string $uuid): array {
         'author' => 'user:admin', 'comment_status' => 'open',
         'date' => '2026-08-25 00:00:00', 'date_gmt' => '2026-08-25 00:00:00',
         'excerpt' => '', 'menu_order' => 0, 'meta' => (object) [],
+        'modified' => '2026-08-25 00:00:00',
         'modified_gmt' => '2026-08-25 00:00:00', 'parent' => null,
         'ping_status' => 'closed', 'slug' => 'recovery-note', 'status' => 'inherit',
-        'terms' => (object) [], 'title' => 'Recovery note', 'type' => 'attachment',
+        'terms' => (object) [], 'term_orders' => (object) [], 'title' => 'Recovery note', 'type' => 'attachment',
         'uuid' => $uuid,
         'alt' => '', 'file' => '2026/08/recovery-note.png', 'media' => '',
         'mime' => 'image/png',
@@ -332,6 +348,7 @@ $wpdb->seedTable('wp_options', [
     ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'fixture-theme', 'autoload' => 'yes'],
     ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'fixture-theme', 'autoload' => 'yes'],
 ]);
+$wpdb->seedTable('wp_users', [['ID' => 1, 'user_login' => 'admin']]);
 $index = static function (string $name, int $unique, int $seq, string $column, ?int $subPart = null): array {
     return [
         'Key_name' => $name, 'Non_unique' => $unique, 'Seq_in_index' => $seq,
@@ -352,12 +369,15 @@ foreach ([
     'wp_users' => [$index('PRIMARY', 0, 1, 'ID'), $index('user_login', 0, 1, 'user_login')],
     'wp_usermeta' => [$index('PRIMARY', 0, 1, 'umeta_id'), $index('user_id', 1, 1, 'user_id')],
     'wp_wprism_kv' => [$index('PRIMARY', 0, 1, 'k')],
+    'wp_wprism_state' => [$index('PRIMARY', 0, 1, 'uuid')],
 ] as $table => $indexes) {
     $wpdb->setIndexes($table, $indexes);
 }
 $wpdb->setIndexes('wp_wprism_map', [
     $index('PRIMARY', 0, 1, 'uuid'),
+    $index('PRIMARY', 0, 2, 'id_kind'),
     $index('id_kind_local_id', 0, 1, 'id_kind'),
+    $index('id_kind_local_id', 0, 2, 'local_id'),
 ]);
 foreach (['wp_wprism_map', 'wp_wprism_state', 'wp_wprism_kv', 'wp_wprism_journal'] as $table) {
     $wpdb->seedTable($table, [])->setTableEngine($table, 'InnoDB');
@@ -827,6 +847,197 @@ wprism_check(
         && $writerVerifications >= 6,
     'absent optional storage is never admitted as a readable table and external deletion authority spans every destructive frontier'
 );
+
+// A private core library introduces the engine declaration under test. It is
+// never installed or used as plugin capability evidence; the public request
+// still performs real policy, compiler, plan and transaction admission.
+$mediaLibraryRoot = $tmp . '/media-library';
+mkdir($mediaLibraryRoot . '/adapter-packages', 0700, true);
+foreach (['profiles.json', 'capabilities/platform.json', 'capabilities/adapter-authorities.json',
+    'core/manifest.json', 'core/disposition.json'] as $relative) {
+    $destination = $mediaLibraryRoot . '/platform/adapter-library/' . $relative;
+    if (!is_dir(dirname($destination))) mkdir(dirname($destination), 0700, true);
+    copy($repoRoot . '/platform/adapter-library/' . $relative, $destination);
+}
+$mediaManifestPath = $mediaLibraryRoot . '/platform/adapter-library/core/manifest.json';
+$mediaManifest = Canon::decode(Canon::read_file($mediaManifestPath));
+$mediaManifest['spec_version'] = 3;
+$mediaManifest['engine_features'] = array_values(array_unique([
+    ...($mediaManifest['engine_features'] ?? []), 'spec-window/v1', 'block-attribute-values/v1', 'block-media-derivatives/v1',
+]));
+sort($mediaManifest['engine_features'], SORT_STRING);
+$mediaManifest['block_values']['fixture/image'] = ['image' => ['class' => 'authored',
+    'json_refs' => [['path' => '$.id', 'kind' => 'post']]]];
+$mediaManifest['block_media_derivatives']['fixture/image'] = [[
+    'attachment' => '$.image.id', 'url' => '$.image.url', 'width' => '$.width', 'height' => '$.height',
+    'crop' => true, 'filename' => 'requested-dimensions', 'dimension_cast' => 'integer',
+]];
+Canon::write_file($mediaManifestPath, Canon::encode($mediaManifest));
+$mediaLibrary = \WPrism\AdapterLibrary::fromSourceTree($mediaLibraryRoot);
+$mediaRepo = $tmp . '/media-repo';
+foreach (['state/posts/attachment', 'state/posts/page', 'media'] as $dir) mkdir($mediaRepo . '/' . $dir, 0700, true);
+$mediaRepo = (string) realpath($mediaRepo);
+$mediaSite = Canon::decode(Canon::read_file($repo . '/site.wprism.json'));
+$mediaSite['manifests'] = ['core'];
+$mediaSite['policy']['post_types'] = ['attachment', 'page'];
+Canon::write_file($mediaRepo . '/site.wprism.json', Canon::encode($mediaSite));
+file_put_contents($mediaRepo . '/media/' . $mediaName, $bytes);
+$mediaPost = full_apply_attachment_post($uuid);
+$mediaPost['file'] = '2026/08/recipe-note.png';
+$mediaPost['media'] = $mediaName;
+Canon::write_file($mediaRepo . '/state/posts/attachment/' . $uuid . '--recovery-note.md', Canon::post_file($mediaPost, ''));
+$pageUuid = '22222222-2222-4222-8222-222222222222';
+$pagePost = array_replace($mediaPost, ['uuid' => $pageUuid, 'type' => 'page', 'status' => 'publish', 'slug' => 'crop-consumer']);
+foreach (['alt', 'file', 'media', 'mime'] as $key) unset($pagePost[$key]);
+$mediaBody = '<!-- wp:fixture/image ' . json_encode(['image' => ['id' => '{{post:' . $uuid . '}}',
+    'url' => '{{uploads}}/2026/08/recipe-note-333x211.png'], 'width' => 333, 'height' => 211], JSON_UNESCAPED_SLASHES) . ' /-->';
+Canon::write_file($mediaRepo . '/state/posts/page/' . $pageUuid . '--crop-consumer.md', Canon::post_file($pagePost, $mediaBody));
+$mediaPolicy = Policy::load($mediaRepo, adapterLibrary: $mediaLibrary);
+$mediaCompiled = RepositoryCompiler::compile($mediaRepo, $mediaPolicy);
+$mediaArtifact = $tmp . '/media-compiled.json';
+$mediaCompiled->write($mediaArtifact);
+$wpdb->onQuery(null);
+foreach (['wp_posts', 'wp_postmeta', 'wp_wprism_map', 'wp_wprism_state', 'wp_wprism_kv', 'wp_wprism_journal'] as $table) {
+    $wpdb->seedTable($table, []);
+}
+$GLOBALS['full_apply_repo'] = $mediaRepo;
+$mediaFailure = null;
+try {
+    ApplyRequestCoordinator::apply($mediaRepo, ['compiled' => $mediaArtifact, 'adapter_library' => $mediaLibrary]);
+} catch (Throwable $failure) {
+    $mediaFailure = $failure;
+    wprism_check_detail('derivative full apply: ' . get_class($failure) . ': ' . $failure->getMessage());
+    if ($failure->getPrevious() !== null) wprism_check_detail('previous: ' . $failure->getPrevious()->getMessage());
+}
+wprism_check(count($wpdb->rows('wp_posts')) === 2, 'derivative public apply commits both authored entities');
+wprism_check(is_file($store->uploadBaseDir . '/2026/08/recipe-note-333x211.png'),
+    'derivative public apply publishes the content-selected requested filename');
+wprism_check($mediaFailure !== null && str_contains($mediaFailure->getMessage(), 'offline verifier child has no shared target database'),
+    'derivative public apply completes native work before its explicit unavailable-verifier refusal');
+wprism_check(!is_file($mediaRepo . '/.wprism/attachment-filesystem/current/journal.json'),
+    'derivative public apply settles its native metadata and filesystem journal');
+
+// Establish the next test's baseline from actual canonical capture bytes.
+// This is fixture seeding, not a claim that the unavailable fresh-process
+// verifier accepted the prior request. Only the page changes from this state.
+$mediaSnapshot = \WPrism\Capture::snapshot_read_only($mediaRepo, false, $mediaCompiled, $mediaPolicy);
+foreach ($mediaCompiled->tree() as $id => $entity) {
+    if ($entity['hash'] !== ($mediaSnapshot[$id]['hash'] ?? null)) {
+        [$observedFront, $observedBody] = Canon::parse_post_file($mediaSnapshot[$id]['content']);
+        foreach (array_unique([...array_keys($entity['data']), ...array_keys($observedFront)]) as $key) {
+            if (($entity['data'][$key] ?? null) !== ($observedFront[$key] ?? null)) {
+                wprism_check_detail($id . ':' . $key . ': ' . json_encode([$entity['data'][$key] ?? null, $observedFront[$key] ?? null]));
+            }
+        }
+        if ($entity['body'] !== $observedBody) wprism_check_detail('body: ' . json_encode([$entity['body'], $observedBody]));
+    }
+    wprism_check_same($entity['hash'], $mediaSnapshot[$id]['hash'] ?? null,
+        "first derivative apply recaptures the exact compiled entity $id");
+    Ledger::set_state_hash($id, 'post:' . $entity['data']['type'], $mediaSnapshot[$id]['hash']);
+}
+$wpdb->seedTable('wp_wprism_kv', []);
+$attachmentId = Ledger::id_for($uuid, Ledger::KIND_POST);
+$originalRow = array_values(array_filter($wpdb->rows('wp_posts'), static fn(array $row): bool => (int) $row['ID'] === $attachmentId));
+$authoredSidecars = static fn(): array => array_values(array_filter($GLOBALS['wpdb']->rows('wp_postmeta'),
+    static fn(array $row): bool => (int) $row['post_id'] === $attachmentId && $row['meta_key'] !== '_wp_attachment_metadata'));
+$originalSidecars = $authoredSidecars();
+$generationCalls = $GLOBALS['full_apply_metadata_calls'];
+$nextBody = str_replace(['333x211', '"width":333'], ['444x211', '"width":444'], $mediaBody);
+Canon::write_file($mediaRepo . '/state/posts/page/' . $pageUuid . '--crop-consumer.md', Canon::post_file($pagePost, $nextBody));
+$nextCompiled = RepositoryCompiler::compile($mediaRepo, $mediaPolicy);
+$nextCompiled->write($mediaArtifact);
+$mediaOptions = ['compiled' => $mediaArtifact, 'adapter_library' => $mediaLibrary];
+$mediaPlan = ApplyRequestCoordinator::plan($mediaRepo, $mediaOptions);
+wprism_check(in_array($uuid, array_column($mediaPlan['unchanged'], 'uuid'), true)
+    && in_array($pageUuid, array_column($mediaPlan['update'], 'uuid'), true),
+    'content-only derivative plan keeps its attachment authored state unchanged and selects only the page update');
+$pageId = Ledger::id_for($pageUuid, Ledger::KIND_POST);
+$contender = (new FakeWpdb())->setConnectionId(2)->shareDatabaseStateWith($wpdb);
+$consumerLockProbe = null;
+$wpdb->onQuery(static function (string $sql) use (&$consumerLockProbe, $contender, $mediaRepo, $pageId): ?string {
+    if ($consumerLockProbe !== null || !str_contains($sql, 'SELECT option_id, option_name FROM wp_options FORCE INDEX')) return null;
+    $journal = $mediaRepo . '/.wprism/attachment-filesystem/current/journal.json';
+    if (!is_file($journal) || (Canon::decode(Canon::read_file($journal))['phase'] ?? null) !== 'metadata_generated') return null;
+    // This callback is the simulated second native connection after every
+    // consumer post range is locked and before publication observes content.
+    // Only blocked writes are modelled; this fake does not implement MVCC.
+    $blocked = static function (callable $write) use ($contender): bool {
+        return $write() === false && $contender->last_error === 'simulated InnoDB row lock wait timeout';
+    };
+    $consumerLockProbe = [
+        $blocked(static fn() => $contender->insert('wp_posts', ['ID' => 900, 'post_type' => 'page'])),
+        $blocked(static fn() => $contender->update('wp_posts', ['post_content' => 'foreign consumer write'], ['ID' => $pageId])),
+        $blocked(static fn() => $contender->update('wp_posts', ['post_type' => 'unselected_type'], ['ID' => $pageId])),
+        $blocked(static fn() => $contender->delete('wp_posts', ['ID' => $pageId])),
+    ];
+    return null;
+});
+$nextFailure = null;
+try {
+    ApplyRequestCoordinator::apply($mediaRepo, $mediaOptions);
+} catch (Throwable $failure) {
+    $nextFailure = $failure;
+    wprism_check_detail('content-only derivative apply: ' . $failure->getMessage());
+}
+wprism_check($nextFailure !== null && str_contains($nextFailure->getMessage(), 'offline verifier child has no shared target database'),
+    'content-only public apply finishes native work and reaches the explicit final-verifier boundary');
+wprism_check_same($generationCalls + 1, $GLOBALS['full_apply_metadata_calls'],
+    'a page-only edit regenerates its unchanged attachment exactly once');
+wprism_check_same($originalRow, array_values(array_filter($wpdb->rows('wp_posts'),
+    static fn(array $row): bool => (int) $row['ID'] === $attachmentId)), 'content-only crop work preserves the complete native attachment row');
+wprism_check_same($originalSidecars, $authoredSidecars(), 'content-only crop work preserves exact authored attachment sidecar rows');
+wprism_check(is_file($store->uploadBaseDir . '/2026/08/recipe-note-444x211.png')
+    && !file_exists($store->uploadBaseDir . '/2026/08/recipe-note-333x211.png'),
+    'content-only public apply publishes the new crop and removes only the stale previously owned crop');
+wprism_check_same(hash('sha256', $bytes), hash_file('sha256', $store->uploadBaseDir . '/2026/08/recipe-note.png'),
+    'content-only derivative work preserves its original payload bytes');
+$wpdb->onQuery(null);
+wprism_check_same([true, true, true, true], $consumerLockProbe,
+    'public derivative publication holds consumer post ranges against a new consumer, body change, type escape and deletion');
+wprism_check_same(1, $contender->insert('wp_posts', ['ID' => 900, 'post_type' => 'page']),
+    'public apply releases its consumer range locks after the verifier refusal');
+$contender->delete('wp_posts', ['ID' => 900]);
+$nextSnapshot = \WPrism\Capture::snapshot_read_only($mediaRepo, false, $nextCompiled, $mediaPolicy);
+foreach ($nextCompiled->tree() as $id => $entity) {
+    wprism_check_same($entity['hash'], $nextSnapshot[$id]['hash'] ?? null,
+        "content-only derivative apply recaptures the exact compiled entity $id");
+    Ledger::set_state_hash($id, 'post:' . $entity['data']['type'], $nextSnapshot[$id]['hash']);
+}
+$wpdb->seedTable('wp_wprism_kv', []);
+Canon::write_file($mediaRepo . '/state/posts/page/' . $pageUuid . '--crop-consumer.md', Canon::post_file($pagePost, ''));
+$removedCompiled = RepositoryCompiler::compile($mediaRepo, $mediaPolicy);
+$removedCompiled->write($mediaArtifact);
+$failedMetadataCommit = false;
+$wpdb->onQuery(static function (string $sql) use (&$failedMetadataCommit, $mediaRepo): ?string {
+    if ($failedMetadataCommit || $sql !== 'COMMIT AND NO CHAIN NO RELEASE') return null;
+    $journal = $mediaRepo . '/.wprism/attachment-filesystem/current/journal.json';
+    if (!is_file($journal) || (Canon::decode(Canon::read_file($journal))['phase'] ?? null) !== 'metadata_committing') return null;
+    $failedMetadataCommit = true;
+    return 'injected native metadata commit failure';
+});
+$removalFailure = null;
+try {
+    ApplyRequestCoordinator::apply($mediaRepo, $mediaOptions);
+} catch (Throwable $failure) {
+    $removalFailure = $failure;
+    wprism_check_detail('last-consumer commit failure: ' . $failure->getMessage());
+}
+wprism_check($failedMetadataCommit && $removalFailure !== null, 'last-consumer removal reaches the injected native metadata COMMIT failure');
+wprism_check(is_file($store->uploadBaseDir . '/2026/08/recipe-note-444x211.png'),
+    'failed native metadata commit retains the previously owned crop even after its last consumer was authored away');
+$wpdb->onQuery(null);
+$removalRetryFailure = null;
+try {
+    ApplyRequestCoordinator::apply($mediaRepo, $mediaOptions);
+} catch (Throwable $failure) {
+    $removalRetryFailure = $failure;
+    wprism_check_detail('last-consumer retry: ' . $failure->getMessage());
+}
+wprism_check($removalRetryFailure !== null && str_contains($removalRetryFailure->getMessage(), 'offline verifier child has no shared target database'),
+    'identical public retry recovers last-consumer cleanup before the explicit final-verifier boundary');
+wprism_check(!file_exists($store->uploadBaseDir . '/2026/08/recipe-note-444x211.png')
+    && is_file($store->uploadBaseDir . '/2026/08/recipe-note-1x1.png'),
+    'last-consumer recovery removes the stale custom crop and retains the core native size');
 
 if (wprism_check_failed() > 0) {
     exit(1);

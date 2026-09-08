@@ -171,7 +171,22 @@ foreach ($capturedTree as &$entity) {
 unset($entity);
 WPrism\RepositoryValueValidation::assert_native_tree($capturedTree, $unionPolicy);
 wprism_check_same($union->media_derivatives(), WPrism\RepositoryMediaDerivatives::derive($capturedTree, $unionPolicy),
-    'native capture candidate shape reaches the same recipe proof before publication');
+    'UUID-keyed native snapshots retain the same recipe proof');
+$captureCandidates = [];
+foreach ($capturedTree as $uuid => $entity) $captureCandidates[] = ['uuid' => $uuid] + $entity;
+WPrism\RepositoryValueValidation::assert_native_tree($captureCandidates, $unionPolicy);
+wprism_check_same($union->media_derivatives(), WPrism\RepositoryMediaDerivatives::derive($captureCandidates, $unionPolicy),
+    'the actual pre-publication capture entity list derives UUID-bound recipes, never numeric consumer offsets');
+foreach (['duplicate', 'missing', 'contradictory', 'object-row', 'object-data'] as $fault) {
+    $malformedCandidates = $captureCandidates;
+    if ($fault === 'duplicate') $malformedCandidates[] = $captureCandidates[0];
+    if ($fault === 'missing') unset($malformedCandidates[0]['uuid']);
+    if ($fault === 'contradictory') $malformedCandidates[0]['uuid'] = '99999999-9999-4999-8999-999999999999';
+    if ($fault === 'object-row') $malformedCandidates[0] = (object) $malformedCandidates[0];
+    if ($fault === 'object-data') $malformedCandidates[0]['data'] = (object) [];
+    wprism_check_throws(static fn() => WPrism\RepositoryValueValidation::assert_native_tree($malformedCandidates, $unionPolicy),
+        RuntimeException::class, "capture candidate $fault identity refuses before recipe selection");
+}
 $badCapture = $capturedTree;
 $badCapture[$page]['content'] = str_replace('image-333x211.png', 'image-334x211.png', $badCapture[$page]['content']);
 wprism_check_throws(static fn() => WPrism\RepositoryValueValidation::assert_native_tree($badCapture, $unionPolicy), RuntimeException::class,
