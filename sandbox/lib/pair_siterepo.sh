@@ -77,8 +77,8 @@ pair_siterepo_revalidate_root() { # <root> <expected-inode>
     || fail "exact pair repository inode changed during ownership handback: $root"
 }
 
-pair_siterepo_host_one() { # <name> <side (1|2)>
-  local name="$1" side="$2" root root_abs host_uid host_gid owner owner_uid root_inode_before cli_image
+pair_siterepo_host_one() { # <name> <side (1|2)> <live|terminal>
+  local name="$1" side="$2" transition="$3" root root_abs host_uid host_gid owner owner_uid root_inode_before cli_image permission_script
   root="siterepo/${name}${side}"
   case "$side" in
     1|2) ;;
@@ -105,14 +105,11 @@ pair_siterepo_host_one() { # <name> <side (1|2)>
     || fail "exact pair repository inode is malformed before ownership handback: $root"
 
   cli_image="${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}"
+  permission_script="$(cd lib && pwd -P)/pair_siterepo_permissions.sh"
   if ! docker run --rm -u root \
     --mount "type=bind,src=${root_abs},dst=/siterepo" \
-    --entrypoint sh "$cli_image" -ceu '
-uid="$1"; gid="$2"
-chown -R "$uid:$gid" /siterepo
-chmod -R ugo+rwX /siterepo
-chmod 0777 /siterepo
-' sh "$host_uid" "$host_gid"; then
+    --mount "type=bind,src=${permission_script},dst=/wprism-pair-permissions.sh,readonly" \
+    --entrypoint sh "$cli_image" /wprism-pair-permissions.sh /siterepo "$host_uid" "$host_gid" "$transition"; then
     fail "could not return exact pair repository $root from container uid 33 to host ${host_uid}:${host_gid}"
   fi
 
@@ -133,7 +130,7 @@ chmod 0777 /siterepo
   fi
   if [ "$owner" != "${host_uid}:${host_gid}" ]; then
     # -h prevents a root-path symlink race from following a target; no -R is
-    # intentional. Docker already chowns the tree recursively, while this
+    # intentional. Docker already hands back the selected paths, while this
     # host repair changes only the prevalidated exact bind-root directory.
     if ! chgrp -h "$host_gid" "$root_abs"; then
       pair_siterepo_revalidate_root "$root_abs" "$root_inode_before"
@@ -148,11 +145,12 @@ chmod 0777 /siterepo
     || fail "exact pair repository $root still has owner $owner after handback (expected ${host_uid}:${host_gid})"
 }
 
-pair_siterepo_host() { # <name> [1|2|both]
-  local name="$1" selector="${2:-both}"
+pair_siterepo_host() { # <name> [1|2|both] [live|terminal; internal only]
+  local name="$1" selector="${2:-both}" transition="${3:-live}"
   validate_name "$name"
+  case "$transition" in live|terminal) ;; *) fail 'invalid repository ownership transition' ;; esac
   case "$selector" in
-    1|2) pair_siterepo_host_one "$name" "$selector" ;;
+    1|2) pair_siterepo_host_one "$name" "$selector" "$transition" ;;
     both)
       # Validate both exact roots before mutating either one, so a malformed
       # peer path cannot leave a half-transition behind.
@@ -162,8 +160,8 @@ pair_siterepo_host() { # <name> [1|2|both]
           fail "pair '$name' repository root is not an ordinary directory: $root — refusing ownership handback"
         fi
       done
-      pair_siterepo_host_one "$name" 1
-      pair_siterepo_host_one "$name" 2
+      pair_siterepo_host_one "$name" 1 "$transition"
+      pair_siterepo_host_one "$name" 2 "$transition"
       ;;
     *) fail "repository side '$selector' invalid — expected 1, 2, or both" ;;
   esac
@@ -183,7 +181,9 @@ pair_siterepo_clear_root() { # <path>
     rm -rf -- "$root"
   fi
   mkdir -p -- "$root"
-  chmod -R ugo+rwX "$root"
+  # Terminal handback already made the host owner of private 0700 trees.
+  # Publishing their 0600 children even just before deletion violates the
+  # same boundary as live handoff; only the emptied bind root is shared.
   find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   chmod 0777 "$root"
 }

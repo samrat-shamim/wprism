@@ -115,11 +115,14 @@ $observation = static function (string $case, bool $target): array {
         $posts['embed']['slug'] = 'wprism-wpf-embed-renamed';
         $posts['embed']['url'] = $home . '/wprism-wpf-embed-renamed/';
     }
-    $families = ['wpforms-widget' => [99 => ['title' => 'Local orphan', 'form_id' => (string) $integer]], 'block' => []];
+    $families = ['wpforms-widget' => [99 => ['title' => 'Local orphan', 'form_id' => (string) $integer]],
+        'block' => [99 => ['content' => '<!-- wp:paragraph --><p>Unrelated core widget</p><!-- /wp:paragraph -->']]];
+    $blockFormIds = [99 => []];
     $widgets = [['type' => 'widget', 'title' => 'Local orphan', 'form_id' => (string) $integer, 'id' => 'wpforms-widget-99']];
     if (in_array($case, ['widgets', 'routing'], true)) {
         $families['wpforms-widget'][100] = ['title' => 'Apply widget', 'form_id' => (string) $integer];
         $families['block'][3] = ['content' => '<!-- wp:wpforms/form-selector {"formId":"' . $integer . '"} /-->'];
+        $blockFormIds[3] = [$integer];
         $widgets[] = ['type' => 'widget', 'title' => 'Apply widget', 'form_id' => (string) $integer, 'id' => 'wpforms-widget-100'];
         $widgets[] = ['type' => 'widget', 'title' => 'Block Widget', 'form_id' => $integer, 'id' => 'block-3'];
     }
@@ -131,22 +134,39 @@ $observation = static function (string $case, bool $target): array {
             'form_id' => $form, 'id' => $posts['embed']['id'], 'status' => 'publish', 'url' => substr($posts['embed']['url'], strlen($home))];
         if ($role === 'integer') $locations = array_merge($locations, $widgets);
         $native[$role] = ['locations' => $locations, 'column' => str_repeat('class="wpforms-locations-list-item"', count($locations)),
-            'rendered' => 'id="wpforms-form-' . $form . '" name="wpforms[fields][1]" name="wpforms[fields][2]"'];
+            'rendered' => 'id="wpforms-form-' . $form . '" data-token-time="1788860225" name="wpforms[fields][1]" name="wpforms[fields][2]"'];
         $owned[] = ['meta_id' => count($owned) + 1, 'post_id' => $form, 'meta_key' => 'wpforms_form_locations', 'meta_value' => serialize($locations)];
     }
     return ['format' => 'wprism-wpforms-apply-observation/v1', 'case' => $case, 'version' => '2.0.1.1', 'home' => $home,
         'posts' => $posts, 'native' => $native, 'widgets' => $widgets, 'widget_options' => $families, 'owned' => $owned,
+        'block_form_ids' => $blockFormIds,
         'padding' => array_map(static fn(int $id): array => ['ID' => $id, 'post_status' => 'trash'], range(200, 206))];
 };
 $prior = $observation('baseline', true);
 foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {
     $source = $observation($case, false);
     $target = $observation($case, true);
-    WPFormsApplyEvidence::native($case, $source, $prior, $target, $target);
+    $stable = $target;
+    foreach (['integer', 'string'] as $role) {
+        $stable['native'][$role]['rendered'] = str_replace('1788860225', '1788860231', $stable['native'][$role]['rendered']);
+    }
+    WPFormsApplyEvidence::native($case, $source, $prior, $target, $stable);
     wprism_check(true, 'native admission accepts complete ' . $case . ' verifier fixture');
     $prior = $target;
 }
 $nativeCases = [
+    'missing render timestamp' => static function (&$s, &$b, &$a, &$r): void { $r['native']['integer']['rendered'] = str_replace(' data-token-time="1788860225"', '', $r['native']['integer']['rendered']); },
+    'duplicate render timestamp' => static function (&$s, &$b, &$a, &$r): void { $r['native']['integer']['rendered'] .= ' data-token-time="1788860231"'; },
+    'malformed render timestamp' => static function (&$s, &$b, &$a, &$r): void { $r['native']['integer']['rendered'] = str_replace('1788860225', 'not-a-time', $r['native']['integer']['rendered']); },
+    'non-token markup changed' => static function (&$s, &$b, &$a, &$r): void { $r['native']['integer']['rendered'] .= ' changed'; },
+    'unrelated block changed' => static function (&$s, &$b, &$a, &$r): void { $a['widget_options']['block'][99]['content'] .= ' changed'; $r = $a; },
+    'unrelated block lost' => static function (&$s, &$b, &$a, &$r): void { unset($a['widget_options']['block'][99], $a['block_form_ids'][99]); $r = $a; },
+    'missing block roster row' => static function (&$s, &$b, &$a, &$r): void { unset($a['block_form_ids'][99]); $r = $a; },
+    'additional block roster row' => static function (&$s, &$b, &$a, &$r): void { $a['block_form_ids'][9] = []; $r = $a; },
+    'duplicate block form ID' => static function (&$s, &$b, &$a, &$r): void { $a['block_form_ids'][3][] = $a['posts']['integer']['id']; $r = $a; },
+    'malformed block form ID' => static function (&$s, &$b, &$a, &$r): void { $a['block_form_ids'][3] = [true]; $r = $a; },
+    'forged empty block roster' => static function (&$s, &$b, &$a, &$r): void { $a['block_form_ids'][3] = []; $r = $a; },
+    'forged unrelated form roster' => static function (&$s, &$b, &$a, &$r): void { $a['block_form_ids'][99] = [$a['posts']['integer']['id']]; $r = $a; },
     'same IDs' => static function (&$s, &$b, &$a, &$r): void { $a['posts']['integer']['id'] = $s['posts']['integer']['id']; },
     'unmapped ID' => static function (&$s, &$b, &$a, &$r): void { $a['posts']['integer']['uuid'] = null; },
     'lost trash' => static function (&$s, &$b, &$a, &$r): void { array_pop($a['padding']); },

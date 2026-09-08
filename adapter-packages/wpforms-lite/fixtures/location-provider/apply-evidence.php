@@ -115,9 +115,23 @@ final class WPFormsApplyEvidence {
         self::check(is_array($orphan) && ($orphan['title'] ?? null) === 'Local orphan'
             && $orphan === ($after['widget_options']['wpforms-widget'][99] ?? null)
             && $orphan === ($stable['widget_options']['wpforms-widget'][99] ?? null), 'unmanaged native widget survives allocation and retry');
-        self::check($after['owned'] === $stable['owned'] && $after['native'] === $stable['native']
+        $coreOrphan = $before['widget_options']['block'][99] ?? null;
+        self::check($coreOrphan === ['content' => '<!-- wp:paragraph --><p>Unrelated core widget</p><!-- /wp:paragraph -->']
+            && $coreOrphan === ($after['widget_options']['block'][99] ?? null)
+            && $coreOrphan === ($stable['widget_options']['block'][99] ?? null), 'unmanaged core block survives allocation and retry');
+        self::check($after['owned'] === $stable['owned']
             && $after['posts'] === $stable['posts'] && $after['widget_options'] === $stable['widget_options'],
             'fresh native consumers and complete owned rows reach a physical fixed point');
+        foreach (['integer', 'string'] as $role) {
+            $initial = $after['native'][$role];
+            $repeated = $stable['native'][$role];
+            // Locked Token.php:169 emits time() on every native render. This
+            // single validated attribute is request-time data, not stored
+            // convergence state; every other native/rendered byte must agree.
+            $initial['rendered'] = self::renderedInvariant($initial['rendered']);
+            $repeated['rendered'] = self::renderedInvariant($repeated['rendered']);
+            self::check($initial === $repeated, 'complete native consumers agree apart from their explicit request timestamp');
+        }
         if ($case !== 'baseline') {
             foreach (['integer', 'string', 'template'] as $role) {
                 self::check($before['posts'][$role]['body'] === $after['posts'][$role]['body'], 'non-form Apply leaves complete form bytes unchanged: ' . $role);
@@ -139,8 +153,20 @@ final class WPFormsApplyEvidence {
             $expectedWidgets[] = ['type' => 'widget', 'title' => $settings['title'],
                 'form_id' => $settings['form_id'], 'id' => 'wpforms-widget-' . $number];
         }
+        $blockNumbers = array_values(array_filter(array_keys($after['widget_options']['block']), static fn($number): bool => $number !== '_multiwidget'));
+        self::check(is_array($after['block_form_ids'] ?? null)
+            && array_keys($after['block_form_ids']) === $blockNumbers
+            && $after['block_form_ids'] === ($stable['block_form_ids'] ?? null), 'complete stable native block-form roster');
         foreach ($after['widget_options']['block'] as $number => $settings) {
             if ($number === '_multiwidget') continue;
+            $ids = $after['block_form_ids'][$number];
+            if ($ids === []) {
+                self::check(($before['block_form_ids'][$number] ?? null) === []
+                    && ($before['widget_options']['block'][$number] ?? null) === $settings,
+                    'unrelated native block widget retains its complete bytes and empty form roster');
+                continue;
+            }
+            self::check($ids === [$integer], 'native WPForms block has precisely the target integer form reference');
             self::check(($settings['content'] ?? null) === '<!-- wp:wpforms/form-selector {"formId":"' . $integer . '"} /-->', 'native block widget targets the remapped form');
             // Locked Locator::init()/search_in_block_widgets() supplies this
             // native English label even when the widget has no title field.
@@ -177,6 +203,12 @@ final class WPFormsApplyEvidence {
         $encoded = array_map(static fn(array $row): string => WPrism\Canon::encode($row), $rows);
         sort($encoded, SORT_STRING);
         return $encoded;
+    }
+
+    private static function renderedInvariant(string $html): string {
+        self::check(substr_count($html, 'data-token-time') === 1
+            && preg_match('/ data-token-time="[0-9]+"/', $html) === 1, 'exact single native render timestamp');
+        return (string) preg_replace('/ data-token-time="[0-9]+"/', ' data-token-time="<request-time>"', $html, 1);
     }
 
     private static function check(bool $condition, string $message): void {

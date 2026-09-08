@@ -50,6 +50,10 @@ if ($phase === 'seed') {
         update_option('widget_wpforms-widget', [99 => ['title' => 'Local orphan',
             'form_id' => (string) $seed['posts']['integer']['id'], 'show_title' => false, 'show_desc' => false],
             '_multiwidget' => 1]);
+        $blocks = get_option('widget_block', []);
+        $check(is_array($blocks) && !isset($blocks[99]), 'fresh target-local core block sentinel');
+        $blocks[99] = ['content' => '<!-- wp:paragraph --><p>Unrelated core widget</p><!-- /wp:paragraph -->'];
+        update_option('widget_block', $blocks);
     }
     $bytes = wp_json_encode(['seed' => $seed, 'padding' => $padding], JSON_THROW_ON_ERROR);
     $check(file_put_contents($recordPath, $bytes) === strlen($bytes) && chmod($recordPath, 0600), 'private native identities');
@@ -116,8 +120,19 @@ foreach ($saved['padding'] as $paddingId) {
     $check(is_array($row) && $wpdb->last_error === '', 'complete target-only native preimage');
     $padding[] = $row;
 }
+$blockWidgets = get_option('widget_block', []);
+$check(is_array($blockWidgets), 'complete native block-widget option');
+$blockFormIds = [];
+foreach ($blockWidgets as $number => $settings) {
+    if ($number === '_multiwidget') continue;
+    $check(is_array($settings) && is_string($settings['content'] ?? null), 'native block-widget content');
+    // Locator documents int[] but preserves regex capture-array offsets.
+    // This observation transports the ordered ID values, not regex offsets.
+    $blockFormIds[$number] = array_values($locator->get_form_ids($settings['content']));
+}
 echo wp_json_encode(['format' => 'wprism-wpforms-apply-observation/v1', 'case' => $case,
     'version' => WPFORMS_VERSION, 'home' => home_url(), 'posts' => $posts, 'native' => $native,
     'widgets' => $locator->search_in_widgets(),
-    'widget_options' => ['wpforms-widget' => get_option('widget_wpforms-widget', []), 'block' => get_option('widget_block', [])],
+    'widget_options' => ['wpforms-widget' => get_option('widget_wpforms-widget', []), 'block' => $blockWidgets],
+    'block_form_ids' => $blockFormIds,
     'owned' => $owned, 'padding' => $padding], JSON_THROW_ON_ERROR);

@@ -400,6 +400,16 @@ captured descendants removable by the host-side harness. These exceptions
 are confined to disposable sandbox paths and processes; they are not guidance
 for production repository permissions.
 
+`pair.sh repo-host <pair> [1|2|both]` shares only the repository's authored
+paths and Git metadata. It does not recursively change runtime ownership or
+permissions: environment bindings, compiled artifacts, checkpoints, refusal
+records and unknown runtime entries remain untouched. The sole public
+`.wprism/authority/authorities.json` exception gets host access through sticky
+parents when present. Reset/destroy separately reclaim complete ownership for
+host cleanup without broadening private file or directory modes. This split
+keeps a second Plan/Apply from failing its real owner-only binding guard after
+host Git work; a driver must never repair that guard with its own chmod.
+
 The shared recovery helper applies the same test-only boundary to `.wprism`
 and `.wprism/control` with mode `1777`. Recovery initialization deliberately
 normalizes its control root to the production `0700` mode, so the helper

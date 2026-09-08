@@ -364,3 +364,26 @@ No code baseline is removed, no certificate is manufactured and no verifier
 library override is introduced. Full package, lifecycle, recovery, data-boundary
 and cross-plugin readiness remain unfinished. Recompile/re-pin is required
 for the new package identity; old compiled pins do not silently follow it.
+
+The second run used actual package source
+`c42c43d35e16d314873685bb00a13656f9e5bdd5` on owned pair `wpfprov06`.
+Its baseline ordinary Apply returned eleven authored operations, one verified
+provider action and passing fresh canonical verification; repeat Apply
+returned zero writes/actions. Both recaptures and complete repository trees
+were retained. The next embeds-only Plan refused the environment-binding
+mode guard after shared `repo-host` recursively broadened the private file's
+permissions. Complete streams remain at
+`sandbox/tmp/wpforms-apply-native.dlXS0g/`, with one complete private Plan
+diagnostic at `sandbox/tmp/wprism-conformance-plan.wpfprov06.GWE7gs/`.
+Exact pair, database and disposable repository teardown completed; the run
+exited 1, with no full-lane PASS or readiness claim.
+
+Independent Luna review also rejected the old verifier's whole-render
+fixed-point assumption (`Token.php:169` emits request-time anti-spam data)
+and its assumption that every core block widget contains a WPForms reference.
+The next run requires exactly one numeric `data-token-time` attribute per
+render and compares every other rendered byte. Fresh observations now carry
+the complete native Locator form-ID roster for block widgets, including empty
+rosters, and a deliberately unassigned target-local core block proves
+preservation independently of managed sidebar changes. The c42 observations
+are not retroactively promoted into this stronger evidence format.
