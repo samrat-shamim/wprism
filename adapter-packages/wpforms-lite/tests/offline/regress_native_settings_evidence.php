@@ -98,7 +98,7 @@ foreach (WPFormsSettingsEvidence::VALIDATION as $key => $consumer) $strings[$con
 $after = ['settings' => $stored(array_replace($targetValues, $sourceValues), 't'),
     'settings_diagnostics' => ['present' => false, 'bytes' => ''],
     'settings_consumers' => ['strings' => $strings, 'global_assets' => true, 'render_engine' => 'modern',
-        'styles' => ['wpforms-modern-base'], 'ip_allowed' => false, 'cookies_allowed' => false]];
+        'styles' => ['wpforms-choicesjs', 'wpforms-modern-base'], 'ip_allowed' => false, 'cookies_allowed' => false]];
 $compiled = OptionState::document(['wpforms_settings' => OptionState::present($sourceValues, 'auto')]);
 WPFormsSettingsEvidence::native($source, $before, $after, $after, $compiled);
 wprism_check(true, 'actual native Apply settings admission accepts complete source-bound merge and consumers');
@@ -111,6 +111,7 @@ foreach ([
     'retry mutation' => static function (&$s, &$b, &$a, &$r, &$c): void { $r['settings']['rows'][0]['autoload'] = 'no'; },
     'native consumer missing' => static function (&$s, &$b, &$a, &$r, &$c): void { unset($a['settings_consumers']['strings']['val_creditcard']); },
     'native stylesheet wrong' => static function (&$s, &$b, &$a, &$r, &$c): void { $a['settings_consumers']['styles'] = ['wpforms-no-styles']; },
+    'global field stylesheet missing' => static function (&$s, &$b, &$a, &$r, &$c): void { $a['settings_consumers']['styles'] = ['wpforms-modern-base']; },
     'native privacy wrong' => static function (&$s, &$b, &$a, &$r, &$c): void { $a['settings_consumers']['ip_allowed'] = true; },
     'autoload changed' => static function (&$s, &$b, &$a, &$r, &$c): void { $a['settings']['rows'][0]['autoload'] = 'no'; $r = $a; },
     'consumer server warning' => static function (&$s, &$b, &$a, &$r, &$c): void { $r['settings_diagnostics'] = ['present' => true, 'bytes' => 'PHP Notice: hidden']; },

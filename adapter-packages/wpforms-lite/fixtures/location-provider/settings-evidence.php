@@ -176,9 +176,12 @@ final class WPFormsSettingsEvidence {
                 self::check(($record['settings_consumers']['strings'][$consumer] ?? null) === $expected[$key],
                     'fresh native frontend validation consumer: ' . $key);
             }
+            // Frontend::assets_css fires native field hooks first; Select's
+            // enqueue_frontend_css():679-688 loads Choices under global-assets
+            // even though these forms contain no dropdown. Keep the whole queue.
             self::check(($record['settings_consumers']['global_assets'] ?? null) === true
                 && ($record['settings_consumers']['render_engine'] ?? null) === 'modern'
-                && ($record['settings_consumers']['styles'] ?? null) === ['wpforms-modern-base'], 'fresh native general presentation consumers');
+                && ($record['settings_consumers']['styles'] ?? null) === ['wpforms-choicesjs', 'wpforms-modern-base'], 'fresh native general presentation consumers');
             self::check(($afterValues['gdpr-disable-uuid'] ?? null) === true && ($afterValues['gdpr-disable-details'] ?? null) === true
                 && ($record['settings_consumers']['ip_allowed'] ?? null) === false
                 && ($record['settings_consumers']['cookies_allowed'] ?? null) === false, 'portable GDPR toggle composes with preserved target-local privacy residue');
