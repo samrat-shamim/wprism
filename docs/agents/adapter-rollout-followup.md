@@ -405,6 +405,63 @@ eight final trees and both complete 16-table exports were re-admitted after
 the shared framing fix. No protected uninstall Plan or complete scenario-lane
 pass is implied. Owned pairs were removed; foreign containers were untouched.
 
+The follow-up now also includes an **experimental Download Manager capsule**,
+again not a production-ready adapter. Its declaration was derived by reading
+the exact locked official 3.3.68 artifact, not by observing a native writer on
+a live pair, and its disposition says so in those words. It claims only
+capture, compile and recapture to the cited offline boundary; no plan, deploy,
+apply, deletion or lifecycle support, and all twelve readiness families remain
+explicit gaps. The locked ZIP is labeled an exercise fixture.
+
+The capsule declares one post type, two taxonomies, the eight runtime `ahm_*`
+tables, 139 exact option rules plus two bounded option patterns, 35 post-meta
+and 5 term-meta rules plus one post-meta pattern, three package-id shortcodes
+and five widgets — all through shared machinery, with no plugin-specific
+executable, interpreter, provider or regenerator. Three
+families are deliberately withheld rather than carried, each with its reason
+recorded on the rule: absolute stored URLs (`__wpdm_icon` on posts and terms,
+`__wpdm_preview`) have no scalar-meta rebinding path in this slice; download
+credentials and cryptographic material never become authored configuration;
+and `__wpdm_terms_page` stores WordPress's `-1` "none" sentinel from
+`wp_dropdown_pages`, which a scalar post reference cannot express here.
+
+Both writers the plugin actually uses are open by construction —
+`Packages::savePackage()` stores every posted `file[<k>]` as `__wpdm_<k>`, and
+`Settings::basic()` and its five siblings persist any posted key matching
+`_wpdm_` — so the capsule enumerates what the shipped free-plugin forms post
+and lets anything else stay unclassified. That is the intended loud boundary,
+not a coverage gap to paper over with a blanket authored grant.
+
+Two package-local offline suites exercise this (126 assertions): the package
+contract, and a classification-boundary suite that asserts the carried and
+withheld families through the product accessors, proves exact rules outrank
+the patterns, and measures that the engine's automatic secret screen does
+**not** catch `__wpdm_enc_key` or `__wpdm_masterkey` — the reviewed `env`
+classification is the only thing keeping the target's own encryption key out
+of `state/`. The capsule owns a `capture-plan` conformance entry with native
+seed and source-observation hooks that prove the plugin's own `save_post` and
+`create_wpdmcategory` writers ran, but that workflow has not yet run against a
+candidate-bound pair. The target hook fails explicitly until real round-trip
+evidence replaces the source-only boundary.
+
+The follow-up also includes an **experimental Hustle capsule** (`wordpress-popup`
+7.8.14.2), again not a production-ready adapter, derived by reading its exact
+locked artifact. It is the first capsule here whose authored content is entirely
+custom-table state: Hustle registers no post type and no taxonomy, so
+`hustle_modules` is an `authored_snapshot` entity with `hustle_modules_meta`
+attached to it, beside three runtime tables holding visitor submissions,
+submitted field values and view/conversion counters. `hustle_module` is a 22nd
+shipped `id_kind` and was added to the reviewed permanent floor.
+
+Two boundaries are recorded rather than mis-declared. The shortcode id resolves
+as a legacy `shortcode_id` string before the numeric `module_id`
+(hustle-model.php:891-917); the declaration binds the numeric form, which a live
+sweep confirms tokenizes, and the legacy string form stays an explicit
+unsupported surface. A widget setting cannot reference a custom-table entity at
+all, because `widget_setting_refs` admits only `term` and `post`, so
+`hustle_module_widget.module_id` is carried verbatim and marked non-reference
+instead of being mis-declared as a post reference.
+
 For each follow-up change, run the full offline gate and the minimal live set
 that executes the changed paths, as required by
 [the dispatch and evidence protocol](linear-loop.md). Use exact candidate
@@ -412,3 +469,58 @@ mounts, fresh owned pairs, complete warning-free observations and verified
 teardown. Keep PR descriptions explicit about incomplete lanes and historical
 versus current evidence. The goal completes only when twenty product adapters
 have the required evidence, review and merged implementation.
+
+## Engine ruling: a lifecycle phase is judged by its record, not by its child's exit status
+
+Authoring Download Manager surfaced a promotion-path defect that is not specific
+to that plugin. Recording the ruling here because it needs implementing, and
+because the next adapter that meets it should not have to re-derive it.
+
+**The defect, measured.** `Deploy.php:217` opens a lifecycle phase with
+`assert_lifecycle_phase_start()`; `Deploy.php:610` closes it with
+`complete_lifecycle_phase()`. Between them, `LifecycleExecutor.php:102` calls
+`activate_plugin()` in-process, deliberately, because firing activation hooks is
+the point of that class. Download Manager's `Welcome::activationRedirect()`
+hooks `activated_plugin` and calls `wp_safe_redirect()` then `exit` — its guards
+cover network, bulk, AJAX and `headers_sent`, but not WP-CLI. The child process
+therefore terminates between those two lines, with **status 0**.
+
+`DeployCommand.php:447` judges the phase solely by that status
+(`if ($activate !== 0)`), so deploy reports success while the phase never
+recorded completion. The unresolved attempt then blocks the *next* command:
+every following apply refuses with `unresolved lifecycle attempt blocks a new
+promotion session`, an accurate message pointing at the wrong moment. The
+operator sees a passing deploy and an inexplicable apply.
+
+**Ruling.** A lifecycle phase's success criterion is its recorded completion,
+not its child's exit status. Two changes follow:
+
+1. The child registers, immediately after `assert_lifecycle_phase_start()`, a
+   shutdown handler that records a TERMINATED attempt naming the phase when the
+   process ends without `complete_lifecycle_phase()` having run. The journal
+   then holds the truth rather than an ambiguous silence.
+2. The host stops treating exit 0 as phase success. The branch directly below
+   the activate call already carries the right shape for this — "lifecycle
+   activation succeeded but durable phase progress was not recorded" — and the
+   phase itself should be held to the same standard.
+
+**Rejected: auto-resolving the attempt from observed state.** Activation does
+persist before the plugin exits, so the engine *could* observe `active_plugins`
+and declare the phase complete. It must not. The phase does more than call
+`activate_plugin()` — the authored plugin ordering (`update_option
+('active_plugins', $desiredActive)`) and the post-activation verification loop
+also did not run. Declaring completion from outside would be precisely the
+silent fallback AGENTS.md rule 9 forbids, and it would convert a known-partial
+state into a claimed-good one.
+
+**Consequence, stated plainly: this ruling does not make Download Manager
+deployable.** It makes the refusal immediate, precise and attributable instead
+of surfacing one command later. Download Manager becomes deployable only if the
+plugin gains a WP-CLI guard upstream, or if a reviewer explicitly decides to
+accept plugin-terminated activation as complete — a safety-relevant policy
+choice that belongs to an owner, not to an adapter author.
+
+**Not implemented here.** The change touches the promotion path every certified
+adapter deploys through, so it needs its own live evidence across a
+representative adapter subset, not the single capture-plan sweep this capsule
+runs. It is scoped, not started.

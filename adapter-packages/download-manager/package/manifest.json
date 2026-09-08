@@ -1,0 +1,841 @@
+{
+  "name": "download-manager",
+  "spec_version": 3,
+  "plugin": "download-manager/download-manager.php",
+  "version_range": {
+    "min": "3.3.68",
+    "max": "3.3.69"
+  },
+  "engine_features": [
+    "spec-window/v1"
+  ],
+  "option_autoload": "preserve",
+  "options": {
+    "__wpdm_activation_history": {
+      "class": "runtime"
+    },
+    "__wpdm_activation_redirect": {
+      "class": "runtime"
+    },
+    "__wpdm_bsversion": {
+      "class": "runtime"
+    },
+    "__wpdm_db_version": {
+      "class": "runtime"
+    },
+    "__wpdm_hide_admin_notice": {
+      "class": "runtime"
+    },
+    "__hide_wpdmpro_notice": {
+      "class": "runtime"
+    },
+    "__wpdm_ping": {
+      "class": "runtime"
+    },
+    "__wpdm_total_downloads": {
+      "class": "runtime"
+    },
+    "__wpdm_user_type": {
+      "class": "runtime"
+    },
+    "__wpdm_welcome": {
+      "class": "runtime"
+    },
+    "wpdm_latest": {
+      "class": "runtime"
+    },
+    "wpdm_setup_complete": {
+      "class": "runtime"
+    },
+    "__wpdm_access_token": {
+      "class": "env",
+      "required": false
+    },
+    "__wpdm_cron_key": {
+      "class": "env",
+      "required": false
+    },
+    "__wpdm_enc_key": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_facebook_app_id": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_facebook_app_secret": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_google_app_secret": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_google_client_id": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_google_client_secret": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_linkedin_client_id": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_linkedin_client_secret": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_recaptcha_project_id": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_recaptcha_secret_key": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_recaptcha_site_key": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_twitter_access_token": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_twitter_access_token_secret": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_twitter_api_key": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_twitter_api_secret": {
+      "class": "env",
+      "required": false
+    },
+    "_wpdm_file_browser_root": {
+      "class": "env",
+      "required": false,
+      "note": "Settings::basic() stores realpath(get_home_path() . '/' . $posted); an absolute host path is never portable intent."
+    },
+    "_wpdm_file_browser_access": {
+      "class": "env",
+      "required": false,
+      "note": "Grants filesystem browsing to named roles beside the target-local root above. It stays with the root it qualifies."
+    },
+    "__wpdm_tmp_storage": {
+      "class": "env",
+      "required": false,
+      "note": "Chooses 'db' or a target-local temporary directory for download assembly."
+    },
+    "__wpdm_author_dashboard": {
+      "class": "authored",
+      "ref": "post"
+    },
+    "__wpdm_author_profile": {
+      "class": "authored",
+      "ref": "post",
+      "note": "Settings::frontEnd() reads this with wpdm_query_var(..., 'int') and adds a rewrite rule from that page's post_name. Apply.php:195-198 also self-heals it to a freshly created page id."
+    },
+    "__wpdm_login_url": {
+      "class": "authored",
+      "ref": "post"
+    },
+    "__wpdm_register_url": {
+      "class": "authored",
+      "ref": "post"
+    },
+    "__wpdm_user_dashboard": {
+      "class": "authored",
+      "ref": "post",
+      "note": "Welcome.php:80 and Apply.php:184-191 both write a page id here; wpdm-functions.php:712 resolves it as a post id. Its wp_dropdown_pages control (profile-dashboard.php:7) sets option_none_value to the empty string, which (int)-casts to the engine's durable-zero unset contract (OptionsCapture.php:735-742) — the same zero every reader here already applies."
+    },
+    "__wpdm_adblocked_msg": {
+      "class": "authored"
+    },
+    "__wpdm_adblocked_msgd": {
+      "class": "authored"
+    },
+    "__wpdm_adblocked_off": {
+      "class": "authored"
+    },
+    "__wpdm_ajax_popup": {
+      "class": "authored"
+    },
+    "__wpdm_allow_index": {
+      "class": "authored"
+    },
+    "__wpdm_allowed_file_types": {
+      "class": "authored"
+    },
+    "__wpdm_archive_page_slug": {
+      "class": "authored"
+    },
+    "__wpdm_auto_clean_cache": {
+      "class": "authored"
+    },
+    "__wpdm_blocked_domain_msg": {
+      "class": "authored"
+    },
+    "__wpdm_blocked_domains": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_blocked_emails": {
+      "class": "authored",
+      "plain_data": true,
+      "allow_pii": true,
+      "note": "Operator-authored rejection list for signup addresses. It is an authored policy list, not captured visitor data; no sibling clearance is granted."
+    },
+    "__wpdm_blocked_ips": {
+      "class": "env",
+      "required": false,
+      "note": "Deployment-specific address blocklist. Source-site addresses are not intent at a different target."
+    },
+    "__wpdm_blocked_ips_msg": {
+      "class": "authored"
+    },
+    "__wpdm_cat_desc": {
+      "class": "env",
+      "required": false,
+      "note": "Settings::basic() retains only the pruning half of these three category-listing toggles (Settings.php:147-149 deletes each when unposted); 3.3.68 ships no input that writes one. A value present on an upgraded site is pre-3.3.68 residue with no writer to reproduce it."
+    },
+    "__wpdm_cat_img": {
+      "class": "env",
+      "required": false
+    },
+    "__wpdm_cat_tb": {
+      "class": "env",
+      "required": false
+    },
+    "__wpdm_checkout_privacy": {
+      "class": "authored"
+    },
+    "__wpdm_checkout_privacy_label": {
+      "class": "authored"
+    },
+    "__wpdm_chunk_size": {
+      "class": "authored"
+    },
+    "__wpdm_chunk_upload": {
+      "class": "authored"
+    },
+    "__wpdm_color_scheme": {
+      "class": "authored"
+    },
+    "__wpdm_cpage": {
+      "class": "authored",
+      "plain_data": true,
+      "lint_ok": true,
+      "note": "Global category-page layout defaults (template, cols, colspad, colsphone, heading, items_per_page) read at Categories.php:152-153. The per-term override is term_meta __wpdm_pagestyle, which carries the identical member shape and the same non-reference declaration."
+    },
+    "__wpdm_cpage_style": {
+      "class": "authored"
+    },
+    "__wpdm_crop_thumbs": {
+      "class": "authored"
+    },
+    "__wpdm_curl_base": {
+      "class": "authored",
+      "note": "Category permalink base. A slug is authored routing intent, unlike the absolute URLs this capsule refuses below."
+    },
+    "__wpdm_declined_signup_msg": {
+      "class": "authored"
+    },
+    "__wpdm_delete_expired": {
+      "class": "authored"
+    },
+    "__wpdm_delstats_on_udel": {
+      "class": "authored"
+    },
+    "__wpdm_disable_frontend_css": {
+      "class": "authored"
+    },
+    "__wpdm_disable_scripts": {
+      "class": "authored"
+    },
+    "__wpdm_download_limit_exceeded": {
+      "class": "authored"
+    },
+    "__wpdm_download_resume": {
+      "class": "authored"
+    },
+    "__wpdm_download_speed": {
+      "class": "authored"
+    },
+    "__wpdm_download_url_base": {
+      "class": "authored"
+    },
+    "__wpdm_email_setting": {
+      "class": "authored",
+      "plain_data": true,
+      "allow_pii": true,
+      "note": "Operator-authored from-name/from-address notification identity, not a captured recipient."
+    },
+    "__wpdm_email_template": {
+      "class": "authored"
+    },
+    "__wpdm_enable_gf": {
+      "class": "authored"
+    },
+    "__wpdm_exclude_from_search": {
+      "class": "authored"
+    },
+    "__wpdm_flat_download_url": {
+      "class": "authored"
+    },
+    "__wpdm_front_end_access": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "Role slugs. Settings::frontEnd() adds or removes upload_files on exactly these roles when saved natively; direct engine writes run none of that, which is why the disposition withholds apply."
+    },
+    "__wpdm_front_end_admin": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_google_font": {
+      "class": "authored"
+    },
+    "__wpdm_gutenberg_editor": {
+      "class": "authored",
+      "note": "Feeds show_in_rest for wpdmpro and wpdmcategory at download-manager.php:303 and :350, so it changes the editor a target registers."
+    },
+    "__wpdm_has_archive": {
+      "class": "authored"
+    },
+    "__wpdm_individual_file_download": {
+      "class": "authored"
+    },
+    "__wpdm_left_aligned": {
+      "class": "authored"
+    },
+    "__wpdm_login_form": {
+      "class": "authored"
+    },
+    "__wpdm_mask_dlink": {
+      "class": "authored"
+    },
+    "__wpdm_mask_link": {
+      "class": "authored",
+      "note": "basic.php:333 posts the unchecked value beside the checkbox, so the pair always writes one of the two states."
+    },
+    "__wpdm_max_upload_size": {
+      "class": "authored"
+    },
+    "__wpdm_mdl_off": {
+      "class": "authored"
+    },
+    "__wpdm_media_private": {
+      "class": "authored"
+    },
+    "__wpdm_modal_login": {
+      "class": "authored"
+    },
+    "__wpdm_noip": {
+      "class": "authored"
+    },
+    "__wpdm_open_in_browser": {
+      "class": "authored"
+    },
+    "__wpdm_parallel_download": {
+      "class": "authored"
+    },
+    "__wpdm_parallel_download_msg": {
+      "class": "authored"
+    },
+    "__wpdm_pending_approval_msg": {
+      "class": "authored"
+    },
+    "__wpdm_permission_denied_msg": {
+      "class": "authored"
+    },
+    "__wpdm_private_link_expiration_period": {
+      "class": "authored"
+    },
+    "__wpdm_private_link_expiration_period_unit": {
+      "class": "authored"
+    },
+    "__wpdm_private_link_usage_limit": {
+      "class": "authored"
+    },
+    "__wpdm_publicly_queryable": {
+      "class": "authored"
+    },
+    "__wpdm_purl_base": {
+      "class": "authored"
+    },
+    "__wpdm_purl_with_front": {
+      "class": "authored"
+    },
+    "__wpdm_pwsc": {
+      "class": "authored"
+    },
+    "__wpdm_recaptcha_loginform": {
+      "class": "authored"
+    },
+    "__wpdm_recaptcha_regform": {
+      "class": "authored"
+    },
+    "__wpdm_rss_feed_main": {
+      "class": "authored"
+    },
+    "__wpdm_sanitize_filename": {
+      "class": "authored"
+    },
+    "__wpdm_signup_autologin": {
+      "class": "authored"
+    },
+    "__wpdm_signup_email_verify": {
+      "class": "authored"
+    },
+    "__wpdm_signup_roles": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_signups_need_approval": {
+      "class": "authored"
+    },
+    "__wpdm_skip_locks": {
+      "class": "authored"
+    },
+    "__wpdm_social_login": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_support_output_buffer": {
+      "class": "authored"
+    },
+    "__wpdm_suspended_acc_msg": {
+      "class": "authored"
+    },
+    "__wpdm_turl_base": {
+      "class": "authored"
+    },
+    "__wpdm_ui_colors": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "Installer.php:180-182 seeds exactly eighteen colour scalars; the user-interface form posts the same keyspace."
+    },
+    "__wpdm_ui_download_button": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "user-interface.php posts color/size/br members under this one name; the __wpdm_ui_download_button_color style class names beside them are CSS hooks, not options."
+    },
+    "__wpdm_ui_download_button_sc": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_verify_dns": {
+      "class": "authored"
+    },
+    "_wpdm_etpl": {
+      "class": "env",
+      "required": false,
+      "note": "Read once by the legacy emails-template.php view; its save-etpl handler no longer exists in 3.3.68, so this is read-only residue rather than authored intent."
+    },
+    "_wpdm_hide_all": {
+      "class": "authored"
+    },
+    "_wpdm_social_lock_panel_desc": {
+      "class": "authored"
+    },
+    "_wpdm_social_lock_panel_title": {
+      "class": "authored"
+    },
+    "__wpdmcategory": {
+      "class": "env",
+      "required": false,
+      "note": "The pre-term-meta category store CategoryController.php:118-155 still reads as a fallback. Categories::saveMetaData writes term meta instead and its option write is commented out, so 3.3.68 never authors this."
+    },
+    "wpdm_login_msg": {
+      "class": "authored"
+    },
+    "wpdm_permission_msg": {
+      "class": "authored"
+    },
+    "_fm_email_template_status": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "_fm_link_template_status": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "_fm_link_templates": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "Operator-authored custom link templates. PackageTemplate.php:23 clamps templateType to exactly link|page, so link and page are the whole family plus Templates.php's email status row."
+    },
+    "_fm_page_template_status": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "_fm_page_templates": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_activity_report_admin": {
+      "class": "authored"
+    },
+    "__wpdm_activity_report_day": {
+      "class": "authored"
+    },
+    "__wpdm_activity_report_emails": {
+      "class": "authored",
+      "allow_pii": true,
+      "note": "Operator-authored report recipients typed into the activity-report settings form, not addresses harvested from visitors."
+    },
+    "__wpdm_activity_report_enabled": {
+      "class": "authored"
+    },
+    "__wpdm_activity_report_frequency": {
+      "class": "authored"
+    },
+    "__wpdm_activity_report_hour": {
+      "class": "authored"
+    },
+    "__wpdm_activity_report_sections": {
+      "class": "authored",
+      "plain_data": true
+    }
+  },
+  "option_patterns": [
+    {
+      "class": "runtime",
+      "match": "^__wpdm_[0-9a-f]{32}$"
+    },
+    {
+      "class": "authored",
+      "match": "^__wpdm_etpl_[a-z0-9_-]{1,64}$"
+    }
+  ],
+  "post_types": {
+    "wpdmpro": {
+      "class": "authored"
+    }
+  },
+  "taxonomies": {
+    "wpdmcategory": {
+      "class": "authored",
+      "object_type": [
+        "wpdmpro"
+      ]
+    },
+    "wpdmtag": {
+      "class": "authored",
+      "object_type": [
+        "wpdmpro"
+      ]
+    }
+  },
+  "post_meta": {
+    "__wpdm_access": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "Role slugs allowed to download. PackageController::metaData() types it 'array'."
+    },
+    "__wpdm_additional_previews": {
+      "class": "authored",
+      "ref": "post[]",
+      "note": "PackageController.php:2493-2495 iterates the stored value as $media_id, so these are attachment post ids, not URLs."
+    },
+    "__wpdm_captcha_lock": {
+      "class": "authored",
+      "lint_ok": true,
+      "note": "0/1 captcha lock from lock-options.php. A toggle's small value collides with small post ids, so the non-reference semantics are declared rather than left to a per-environment lint coincidence."
+    },
+    "__wpdm_changelog": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "savePackage sanitizes id/version/date/changes/timestamp per entry; the whole structure is authored release copy."
+    },
+    "__wpdm_download_limit_per_user": {
+      "class": "authored",
+      "lint_ok": true,
+      "note": "Per-user download allowance, typed 'int' by the same reader."
+    },
+    "__wpdm_expire_date": {
+      "class": "authored"
+    },
+    "__wpdm_files": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "Names files under the plugin upload directory, or absolute URLs. The names are authored intent; this capsule claims nothing about moving the bytes those names point at."
+    },
+    "__wpdm_individual_file_download": {
+      "class": "authored",
+      "lint_ok": true,
+      "note": "0/1 per-file download toggle on the package."
+    },
+    "__wpdm_link_label": {
+      "class": "authored"
+    },
+    "__wpdm_media_access": {
+      "class": "authored",
+      "note": "Lives on attachments, not on wpdmpro. MediaAccessControl.php:271 writes it for core media rows, so it must be classified even where no package exists."
+    },
+    "__wpdm_page_template": {
+      "class": "authored"
+    },
+    "__wpdm_password_lock": {
+      "class": "authored",
+      "lint_ok": true,
+      "note": "0/1 password lock from lock-options.php."
+    },
+    "__wpdm_private": {
+      "class": "authored",
+      "lint_ok": true,
+      "note": "Attachment-scoped private flag read at MediaAccessControl.php:58; a 0/1 flag, never an entity id."
+    },
+    "__wpdm_publish_date": {
+      "class": "authored"
+    },
+    "__wpdm_quota": {
+      "class": "authored",
+      "lint_ok": true,
+      "note": "PackageController::metaData() types this 'int': a download allowance, never an entity id."
+    },
+    "__wpdm_template": {
+      "class": "authored",
+      "note": "Link template basename resolved at Shortcodes.php:66; wp_basename() is applied before the file is fetched."
+    },
+    "__wpdm_terms_check_label": {
+      "class": "authored"
+    },
+    "__wpdm_terms_conditions": {
+      "class": "authored"
+    },
+    "__wpdm_terms_lock": {
+      "class": "authored",
+      "lint_ok": true,
+      "note": "0/1 terms lock from lock-options.php. Measured: on a fresh conformance fixture its value 1 coincided with page id 1 and the lint reported a bare_id."
+    },
+    "__wpdm_terms_title": {
+      "class": "authored"
+    },
+    "__wpdm_version": {
+      "class": "authored"
+    },
+    "__wpdm_download_count": {
+      "class": "runtime"
+    },
+    "__wpdm_items_per_page": {
+      "class": "runtime",
+      "note": "Shortcodes.php:349 writes this on the EMBEDDING post during [wpdm_search_result] render, so any post type can carry it."
+    },
+    "__wpdm_legacy_id": {
+      "class": "runtime"
+    },
+    "__wpdm_link_template": {
+      "class": "runtime",
+      "note": "Also written on the embedding post at Shortcodes.php:342 during render. Distinct from the authored __wpdm_template above."
+    },
+    "__wpdm_password_usage": {
+      "class": "runtime"
+    },
+    "__wpdm_view_count": {
+      "class": "runtime"
+    },
+    "__wpdm_package_size": {
+      "class": "derived",
+      "note": "Human-readable size recomputed from __wpdm_files. No provider is claimed; apply and deploy stay unsupported until an exact bounded rebuild is proven."
+    },
+    "__wpdm_package_size_b": {
+      "class": "derived",
+      "note": "Byte count written at PackageController.php:836 from the same file walk."
+    },
+    "__wpdm_icon": {
+      "class": "env",
+      "note": "Stored as an absolute URL (icons.php renders it through esc_url). Nothing in this slice rebinds a scalar meta URL to a target home, so carrying it would point a target at the source site."
+    },
+    "__wpdm_preview": {
+      "class": "env",
+      "note": "package-settings.php:307 posts attachment.url, so this is the same unrebindable absolute-URL shape as __wpdm_icon."
+    },
+    "__wpdm_masterkey": {
+      "class": "env",
+      "note": "Crypt::encrypt([id, time]) under the target's own __wpdm_enc_key. savePackage regenerates it when absent, so a target mints its own."
+    },
+    "__wpdm_media_pass": {
+      "class": "env",
+      "note": "Attachment access password stored verbatim at MediaAccessControl.php:272."
+    },
+    "__wpdm_password": {
+      "class": "env",
+      "note": "savePackage deliberately stores this without sanitization ('don't alter/sanitize password'). It is a shared download credential, so it stays with the target that issued it."
+    },
+    "__wpdm_terms_page": {
+      "class": "env",
+      "note": "wp_dropdown_pages() with show_option_none stores WordPress's -1 sentinel for 'use custom content below'. A scalar post ref has no sentinel grammar in this slice, so binding it as a reference would either resolve -1 or silently drop the operator's choice. Held target-local until sentinel handling is designed and exercised."
+    }
+  },
+  "post_meta_patterns": [
+    {
+      "class": "runtime",
+      "match": "^__wpdm_users_params[a-zA-Z0-9_-]*\\z"
+    }
+  ],
+  "term_meta": {
+    "__wpdm_access": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_pagestyle": {
+      "class": "authored",
+      "plain_data": true,
+      "lint_ok": true,
+      "note": "The per-term category-page layout override: a template basename plus cols/colspad/colsphone/heading/items_per_page counts. Measured: on a fresh conformance fixture cols=3, colspad=2, colsphone=1 and heading=1 each coincided with a real post id and the lint reported four bare_ids. No member here is ever an entity reference."
+    },
+    "__wpdm_style": {
+      "class": "authored"
+    },
+    "__wpdm_user_access": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "__wpdm_icon": {
+      "class": "env",
+      "note": "Category icon URL, same unrebindable absolute-URL shape as the post_meta rule of this name. term_meta and post_meta are separate sections, so the two rules never collide."
+    }
+  },
+  "tables": {
+    "ahm_asset_links": {
+      "class": "runtime"
+    },
+    "ahm_assets": {
+      "class": "runtime"
+    },
+    "ahm_cron_jobs": {
+      "class": "runtime"
+    },
+    "ahm_download_stats": {
+      "class": "runtime"
+    },
+    "ahm_emails": {
+      "class": "runtime"
+    },
+    "ahm_sessions": {
+      "class": "runtime"
+    },
+    "ahm_social_conns": {
+      "class": "runtime"
+    },
+    "ahm_user_download_counts": {
+      "class": "runtime"
+    }
+  },
+  "shortcode_attrs": {
+    "wpdm_package": [
+      {
+        "kind": "post",
+        "path": "id"
+      }
+    ],
+    "wpdm_direct_link": [
+      {
+        "kind": "post",
+        "path": "id"
+      }
+    ],
+    "wpdm_changelog": [
+      {
+        "kind": "post",
+        "path": "id"
+      }
+    ]
+  },
+  "widgets": {
+    "catpackages": {
+      "settings": {
+        "title": {
+          "class": "authored"
+        },
+        "scat": {
+          "class": "authored",
+          "ref": "term"
+        },
+        "nop1": {
+          "class": "authored"
+        },
+        "sdc3": {
+          "class": "authored"
+        }
+      }
+    },
+    "listpackages": {
+      "settings": {
+        "title": {
+          "class": "authored"
+        },
+        "scat": {
+          "class": "authored",
+          "ref": "term"
+        },
+        "nop1": {
+          "class": "authored"
+        },
+        "sdc3": {
+          "class": "authored"
+        },
+        "order_by": {
+          "class": "authored"
+        },
+        "order": {
+          "class": "authored"
+        }
+      }
+    },
+    "wpdm_newdownloads": {
+      "settings": {
+        "title": {
+          "class": "authored"
+        },
+        "nop1": {
+          "class": "authored"
+        },
+        "sdc": {
+          "class": "authored"
+        }
+      }
+    },
+    "wpdm_topdownloads": {
+      "settings": {
+        "title": {
+          "class": "authored"
+        },
+        "nop": {
+          "class": "authored"
+        },
+        "sdc": {
+          "class": "authored"
+        }
+      }
+    },
+    "wpdm_search": {
+      "settings": {
+        "title": {
+          "class": "authored"
+        },
+        "result_page": {
+          "class": "authored",
+          "ref": "post"
+        },
+        "cv": {
+          "class": "authored"
+        }
+      }
+    }
+  },
+  "notes": [
+    "Experimental authoring capsule measured against the exact official Download Manager 3.3.68 artifact in this capsule's evidence lock. Every rule below was read out of that artifact's source; none has a completed live conformance run behind it. No certification, deployment, apply, deletion, lifecycle or production-readiness claim.",
+    "download-manager.php:320 registers exactly one post type (wpdmpro) and :346/:370 register wpdmcategory and wpdmtag over it. wpdmtag is conditional: a site defining WPDM_USE_POST_TAGS, or redefining WPDM_TAG to 'post_tag', gets register_taxonomy_for_object_type('post_tag', 'wpdmpro') instead (:348, :382), so packages carry core tags and no wpdmtag term exists for this rule to match. wpdmpro supports 'editor', and show_in_rest is the __wpdm_gutenberg_editor option, so post_content is ordinary editor content and takes the engine's default body mode rather than a declared codec.",
+    "Package metadata is written by one uniform loop: Packages.php:75-115 stores every $_POST['file'][<k>] as __wpdm_<k>, deleting any prior __wpdm_ key the form did not post except __wpdm_favs and __wpdm_masterkey. Each key here is therefore classified individually; declaring the post type without classifying them would abort capture with unclassified_state, which is the intended loud boundary rather than a blanket authored grant.",
+    "Three families are deliberately held target-local rather than carried. Absolute stored URLs (__wpdm_icon on posts and terms, __wpdm_preview) have no scalar-meta rebinding path in this slice. Credentials (__wpdm_password, __wpdm_media_pass, __wpdm_masterkey, the social and reCAPTCHA secrets, __wpdm_enc_key, __wpdm_cron_key) never become authored configuration. __wpdm_terms_page stores WordPress's -1 'none' sentinel from wp_dropdown_pages, which a scalar post reference cannot express here.",
+    "Settings::basic() and its five sibling savers persist ANY posted key matching _wpdm_ (Settings.php:129-140), so the option namespace is open by construction. The exact rules here cover what the shipped free-plugin settings views post, including the three category-listing toggles that release now only prunes. The two option patterns cover the md5 update-notice markers minted at wpdm-core.php:347 and the __wpdm_etpl_<id> email templates written at Templates.php:84, whose shipped ids are exactly default, user-signup, user-signup-admin, user-signup-approved, user-signup-declined and user-signup-suspended (Email.php:119-175). An add-on option outside both stays unclassified and is simply not captured.",
+    "Widget id_bases are derived, not declared: every widget class calls parent::__construct(false, ...), so WP_Widget lowercases the class name. WPDM_Categories, WPDM_Tags and PackageInfo are omitted here because their update() returns $new_instance wholesale or stores a nested checkbox map, and neither shape has been exercised.",
+    "The eight ahm_* tables created by Installer.php:47-126 are download statistics, email queue, social connections, assets, sessions, per-user counters and cron jobs. All are runtime and deliberately excluded from the portable row set.",
+    "Not claimed and not silently absorbed: user metadata (__wpdm_favs, __wpdm_public_profile and siblings), the fifteen user, category, media and asset-manager shortcodes beyond the three package-id ones declared, __wpdm_category post meta (its only writer, wpdm_cblist_categories at wpdm-core.php:91, has no caller in the free plugin and emits term slugs rather than ids), and every Pro or add-on surface."
+  ]
+}

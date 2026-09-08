@@ -1,0 +1,10 @@
+{
+  "entry": {
+    "mode": "capture-plan",
+    "pin": ["core", "download-manager"],
+    "plugins": [{"slug": "download-manager", "version": "3.3.68"}],
+    "post_types": ["post", "page", "attachment", "wpdmpro"],
+    "taxonomies": ["category", "post_tag", "wpdmcategory", "wpdmtag"]
+  },
+  "manifest": "download-manager"
+}

@@ -1,0 +1,23 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "download-manager",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {
+    "contract-dependency": "Declarations are read from the exact locked 3.3.68 artifact. Fresh installation, adjacent-artifact refusal and the in-range upgrade workflow have not been exercised through capsule conformance.",
+    "dirty-target": "Hostile stored values, extra __wpdm_ rows and divergent package/term ids need complete native before/after witnesses. Additionally gated by the clean-target/lifecycle blocker above, which no apply can currently get past.",
+    "identity-references": "The declared coordinates are __wpdm_additional_previews attachment ids, the three package-id shortcodes and the scat/result_page widget refs. None has an end-to-end native identity witness; embed scope closure and widget sidebars are unproven.",
+    "native-behavior": "Source reading covers the writers. Target render of a package template, the download route, mail, template import and every settings consumer remain unproven.",
+    "derived-state": "__wpdm_package_size and __wpdm_package_size_b need a bounded plugin-owned derivation over engine-owned read/write authority, with exact postconditions. Additionally gated by the clean-target/lifecycle blocker above, which no apply can currently get past.",
+    "deletion": "No selectors declared. Native captured deletion and independent valid-intent compiler/plan/apply refusal with preservation are pending. Additionally gated by the clean-target/lifecycle blocker above, which no apply can currently get past.",
+    "failure-recovery": "No provider or lifecycle failure injection, rollback or retry evidence exists. Additionally gated by the clean-target/lifecycle blocker above, which no apply can currently get past.",
+    "concurrency-idempotence": "Native concurrent package writes and a complete target/recapture fixed point remain to be exercised. Additionally gated by the clean-target/lifecycle blocker above, which no apply can currently get past.",
+    "data-boundary": "The withheld credential, absolute-URL and sentinel families have declarative controls only. Native full-settings capture, runtime statistics rows, session and email-queue tables and Pro residues remain to be proven.",
+    "scope-platform": "Explicit package/category/tag/sidebar scope, real plugin combinations and the supported platform boundary remain unproven."
+  },
+  "blocked": {
+    "clean-target": "Native source-to-target deploy+apply cannot complete. Blocked by the plugin, not by missing work here. Welcome::activationRedirect() (src/Admin/Menu/Welcome.php:20-53) hooks activated_plugin and calls wp_safe_redirect() then exit on every activation whose guards do not fire; its guards cover network, bulk, AJAX and headers_sent, and there is no WP-CLI guard. LifecycleExecutor.php:102 calls activate_plugin() in-process because firing those hooks is the point of that class, so the call never returns, the phase never records resolution, and the next apply refuses with 'unresolved lifecycle attempt blocks a new promotion session'. Measured on a live pair: deploy reports success and the plugin does activate, but every subsequent apply refuses. Unblocking needs either an upstream WP-CLI guard in the plugin or an engine decision about surviving a plugin that exits during activation; neither is an adapter-manifest change.",
+    "lifecycle": "Activation cannot complete under the promotion lifecycle. Blocked by the plugin, not by missing work here. Welcome::activationRedirect() (src/Admin/Menu/Welcome.php:20-53) hooks activated_plugin and calls wp_safe_redirect() then exit on every activation whose guards do not fire; its guards cover network, bulk, AJAX and headers_sent, and there is no WP-CLI guard. LifecycleExecutor.php:102 calls activate_plugin() in-process because firing those hooks is the point of that class, so the call never returns, the phase never records resolution, and the next apply refuses with 'unresolved lifecycle attempt blocks a new promotion session'. Measured on a live pair: deploy reports success and the plugin does activate, but every subsequent apply refuses. Unblocking needs either an upstream WP-CLI guard in the plugin or an engine decision about surviving a plugin that exits during activation; neither is an adapter-manifest change."
+  },
+  "not_applicable": {}
+}

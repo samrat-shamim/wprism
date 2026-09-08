@@ -8,7 +8,7 @@
  * ---------------------
  * `manifests/dispositions.json` was 302 lines, 37,707 bytes and 16 entries in
  * one file; the current library has one package-local disposition per adapter
- * plus `platform/adapter-library/core/disposition.json` — 19 subjects in all.
+ * plus `platform/adapter-library/core/disposition.json` — 21 subjects in all.
  * That is a
  * relocation of bytes AGENTS.md rule 2 calls adapter identity:
  * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
@@ -369,6 +369,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
+    'download-manager' => 'f95ce694b1b3c55ee67eda17077bcc56394680ac2ca19108239e0c179afbb499',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
@@ -377,12 +378,17 @@ const WPRISM_CURRENT_DIGESTS = [
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
+    'wordpress-popup' => 'd78aac304617bc7723b142438b7565fa86ca7dbb063948e9c2c1de5195c99b88',
     'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
+// The registry as each preview joined it, so the transitions below prove that
+// a new capsule changed no pre-existing disposition byte.
+const PRE_DOWNLOAD_MANAGER_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
+const PRE_WORDPRESS_POPUP_REGISTRY_SHA = 'e5921a18d722993112d1195e7c4752127288ff0bd71c90f6ebad1823a7cd2887';
 const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '37fb63ff449c34d5640c8784cfa137ffac026e6caca0a709d5f72af573ec51d3';
 const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '9a82f4109840f1664159fea9e24fd4ead969f9f601bcc21cbf62fc8d03a42a24';
 const WPRISM_CURRENT_REGISTRY_SHA = '8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc';
@@ -735,7 +741,15 @@ wprism_check(PRE_MANAGED_CLONE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_
 $priorRegistry = $preManagedCloneRegistry;
 unset($priorRegistry['manifests']['wpforms-lite']);
 wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 18 pre-existing reviewed dispositions remain byte-identical after adding the WPForms preview');
+    'all 18 reviewed dispositions that predate all three capture previews remain byte-identical');
+$priorRegistry = $shippedRegistry->data();
+unset($priorRegistry['manifests']['download-manager'], $priorRegistry['manifests']['wordpress-popup']);
+wprism_check_same(PRE_DOWNLOAD_MANAGER_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
+    'all 19 pre-existing reviewed dispositions remain byte-identical after adding the Download Manager preview');
+$priorRegistry = $shippedRegistry->data();
+unset($priorRegistry['manifests']['wordpress-popup']);
+wprism_check_same(PRE_WORDPRESS_POPUP_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
+    'all 20 pre-existing reviewed dispositions remain byte-identical after adding the Hustle preview');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
     'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
@@ -857,7 +871,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(20, $documentCount, 'the reviewed source is 20 documents: 19 subjects and the profiles map');
+wprism_check_same(22, $documentCount, 'the reviewed source is 22 documents: 21 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

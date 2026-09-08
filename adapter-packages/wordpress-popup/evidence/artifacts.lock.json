@@ -1,0 +1,12 @@
+{
+  "plugins": {
+    "wordpress-popup": {
+      "7.8.14.2": {
+        "url": "https://downloads.wordpress.org/plugin/wordpress-popup.7.8.14.2.zip",
+        "sha256": "8dcc4bec8176ba68193d8c57f381fcfdc79bbbe605d47fb8dbc3f728060b7d00",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}

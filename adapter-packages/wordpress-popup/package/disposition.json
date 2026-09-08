@@ -1,0 +1,74 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "module and module-meta deletion"
+      ]
+    },
+    "entity_sections": [
+      "tables",
+      "widgets"
+    ],
+    "field_sections": [
+      "options",
+      "option_patterns",
+      "shortcode_attrs"
+    ],
+    "lifecycle_phases": [],
+    "operations": [
+      "capture",
+      "compile",
+      "recapture"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-package-contract",
+      "regress-module-boundary"
+    ]
+  },
+  "reason": "Source-read declaration of official Hustle 7.8.14.2 plus deterministic offline policy evidence. Every classification was derived by reading the exact locked artifact, not by observing a native writer on a live pair, and no capsule conformance run has completed. Independent review and production-readiness evidence are pending; no production authorization.",
+  "status": "experimental",
+  "supported_versions": {
+    "plugin": "wordpress-popup/popover.php",
+    "range": {
+      "min": "7.8.14.2",
+      "max": "7.8.14.3"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "deploy",
+      "surface": "adapter",
+      "reason": "Experimental support is not production-authorizing; full native source-to-target conformance and independent review remain pending."
+    },
+    {
+      "operation": "delete",
+      "surface": "deletions.*",
+      "reason": "No deletion selector is declared until module, module-meta and embed references have capsule-owned proof of intent refusal and preservation."
+    },
+    {
+      "operation": "capture",
+      "surface": "shortcode_attrs.wd_hustle legacy string ids",
+      "reason": "hustle-model.php:891-917 resolves the shortcode attribute as a shortcode_id meta string first and only then as the numeric module_id. The declaration binds the numeric form; whether a legacy string id survives an entity-ref declaration unharmed is unproven and must be settled by live evidence before any apply claim."
+    },
+    {
+      "operation": "capture",
+      "surface": "widgets.hustle_module_widget.module_id",
+      "reason": "The setting holds a hustle_module id, but widget_setting_refs admits only term and post, so no custom-table reference can be declared. The value is carried verbatim and will not resolve on a target. This is an engine grammar gap, recorded rather than mis-declared as a post reference."
+    },
+    {
+      "operation": "capture",
+      "surface": "hustle_entries, hustle_entries_meta, hustle_tracking",
+      "reason": "Visitor submissions, submitted field values and view/conversion counters. Runtime by construction and never authored configuration."
+    },
+    {
+      "operation": "capture",
+      "surface": "integrations_settings; hustle_provider_*_settings; hustle_global_email_settings; hustle_unsubscribe_page",
+      "reason": "Third-party API credentials, list bindings and an absolute permalink. None becomes authored configuration."
+    }
+  ]
+}

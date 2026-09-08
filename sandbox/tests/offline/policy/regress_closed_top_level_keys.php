@@ -381,6 +381,7 @@ wprism_check_same(
 wprism_check_same(
     [
         'code-snippets',
+        'download-manager',
         'elementor',
         'ninja-forms',
         'paid-memberships-pro',
@@ -389,6 +390,7 @@ wprism_check_same(
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wordpress-popup',
         'wpforms-lite',
         'yoast',
         'yoast-duplicate-post',

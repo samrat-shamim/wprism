@@ -288,6 +288,7 @@ usort($stampedAtGate, static fn(string $left, string $right): int => strcmp($lef
 wprism_check_same(
     [
         'code-snippets',
+        'download-manager',
         'elementor',
         'ninja-forms',
         'paid-memberships-pro',
@@ -296,6 +297,7 @@ wprism_check_same(
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wordpress-popup',
         'wpforms-lite',
         'yoast-duplicate-post',
         'yoast',
@@ -325,7 +327,7 @@ wprism_check_same(
 $unprefixed = $namespaceVerdict($manifest('cache', 3), 'cache');
 wprism_check(
     is_string($unprefixed) && str_contains($unprefixed, "the unprefixed name 'cache'")
-        && str_contains($unprefixed, 'closed reserved list of 19 names')
+        && str_contains($unprefixed, 'closed reserved list of 21 names')
         && str_contains($unprefixed, '§ v3.9'),
     'an unprefixed out-of-tree name refuses BY NAME, naming the closed list and the section that decided it'
 );

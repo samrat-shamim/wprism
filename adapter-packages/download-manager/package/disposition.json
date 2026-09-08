@@ -1,0 +1,99 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "package, category and tag deletion"
+      ]
+    },
+    "entity_sections": [
+      "post_types",
+      "tables",
+      "taxonomies",
+      "widgets"
+    ],
+    "field_sections": [
+      "options",
+      "option_patterns",
+      "post_meta",
+      "post_meta_patterns",
+      "term_meta",
+      "shortcode_attrs"
+    ],
+    "lifecycle_phases": [],
+    "operations": [
+      "capture",
+      "compile",
+      "recapture"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-package-contract",
+      "regress-classification-boundary"
+    ]
+  },
+  "reason": "Source-read declaration of official Download Manager 3.3.68 plus deterministic offline policy evidence. Every classification here was derived by reading the exact locked artifact, not by observing a native writer on a live pair, and no capsule conformance run has completed. Independent review and production-readiness evidence are pending; no production authorization.",
+  "status": "experimental",
+  "supported_versions": {
+    "plugin": "download-manager/download-manager.php",
+    "range": {
+      "min": "3.3.68",
+      "max": "3.3.69"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "apply",
+      "surface": "__wpdm_package_size, __wpdm_package_size_b",
+      "reason": "PackageController.php:836 recomputes both from a filesystem walk over __wpdm_files. Direct engine writes run no such walk, and no bounded idempotent provider with hostile-target and failure-preservation evidence is declared."
+    },
+    {
+      "operation": "deploy",
+      "surface": "lifecycle-activate",
+      "reason": "Measured on a live pair, not inferred: the plugin's Welcome::activationRedirect() calls wp_safe_redirect() then exit on every activation whose guards do not fire, and it has no WP-CLI guard. LifecycleExecutor.php:102 activates in-process, so the call never returns, the lifecycle attempt is never resolved, and every following apply refuses with 'unresolved lifecycle attempt blocks a new promotion session'. Deploy reports success and the plugin does activate; the damage is to the promotion session that follows."
+    },
+    {
+      "operation": "apply",
+      "surface": "options.__wpdm_front_end_access",
+      "reason": "Settings::frontEnd() adds and removes the upload_files capability on exactly the roles named here when saved natively. An engine option write performs none of that role reconciliation, so the stored value and the resulting capabilities would diverge."
+    },
+    {
+      "operation": "deploy",
+      "surface": "adapter",
+      "reason": "Experimental support is not production-authorizing. Full native source-to-target conformance, live evidence and independent review remain pending."
+    },
+    {
+      "operation": "delete",
+      "surface": "deletions.*",
+      "reason": "No deletion selector is declared until package/category/tag references, embed references, intent refusal and preservation have capsule-owned proof."
+    },
+    {
+      "operation": "capture",
+      "surface": "__wpdm_icon, __wpdm_preview, term_meta.__wpdm_icon",
+      "reason": "These store absolute URLs. This slice declares no scalar-meta URL rebinding, so the values stay target-local rather than carrying a source-site origin to a different home."
+    },
+    {
+      "operation": "capture",
+      "surface": "__wpdm_terms_page",
+      "reason": "wp_dropdown_pages() stores WordPress's -1 'none' sentinel beside real page ids. A scalar post reference has no sentinel grammar in this slice, so the rule is held env until sentinel handling is designed and exercised."
+    },
+    {
+      "operation": "capture",
+      "surface": "__wpdm_password, __wpdm_media_pass, __wpdm_masterkey, __wpdm_enc_key, __wpdm_cron_key, __wpdm_access_token, the social and reCAPTCHA credentials",
+      "reason": "Download credentials and cryptographic material never become authored configuration. The masterkey is additionally derived under the target's own encryption key and is reminted by savePackage when absent."
+    },
+    {
+      "operation": "capture",
+      "surface": "package files under the plugin upload directory",
+      "reason": "__wpdm_files names files on disk. This capsule declares the names as authored intent and claims nothing about transporting the bytes those names resolve to."
+    },
+    {
+      "operation": "capture",
+      "surface": "user_meta.*; the twelve user, category, media and asset-manager shortcodes; __wpdm_category; Pro and add-on surfaces",
+      "reason": "None is declared, so none is captured. Add-on options outside the two declared patterns are likewise not captured rather than being absorbed by a blanket grant."
+    }
+  ]
+}
