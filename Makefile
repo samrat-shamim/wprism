@@ -1154,6 +1154,10 @@ regress-db-transaction-authority:
 regress-db-repeatable-read-authority:
 	php sandbox/tests/offline/guards/regress_db_repeatable_read_authority.php
 
+.PHONY: regress-locked-embedded-uuid-owners
+regress-locked-embedded-uuid-owners:
+	php sandbox/tests/offline/repository/regress_locked_embedded_uuid_owners.php
+
 .PHONY: regress-ledger-large-values
 regress-ledger-large-values:
 	php sandbox/tests/offline/repository/regress_ledger_large_values.php

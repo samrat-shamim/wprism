@@ -89,6 +89,76 @@ final class HarnessLibTest extends TestCase
         }
     }
 
+    public function testBoundedIndexedLockReadsUseRowsRatherThanCannedIdentityAnswers(): void
+    {
+        $db = $this->seededDb()->setIndexes('wp_postmeta', [[
+            'Key_name' => 'meta_key', 'Non_unique' => 1, 'Seq_in_index' => 1,
+            'Column_name' => 'meta_key', 'Sub_part' => 191, 'Index_type' => 'BTREE',
+        ], [
+            'Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+            'Column_name' => 'meta_id', 'Sub_part' => null, 'Index_type' => 'BTREE',
+        ]]);
+        $before = $db->rows('wp_postmeta');
+        $db->query('START TRANSACTION');
+        self::assertSame(['1', '3'], $db->get_col(
+            "SELECT meta_id FROM wp_postmeta FORCE INDEX (`meta_key`) WHERE meta_key = 'ALPHA' ORDER BY meta_id ASC LIMIT 3 FOR UPDATE"
+        ));
+        self::assertSame(['2'], $db->get_col(
+            'SELECT meta_id FROM wp_postmeta FORCE INDEX (`PRIMARY`) WHERE meta_id IN (3,2,99) ORDER BY meta_id ASC LIMIT 1 FOR UPDATE'
+        ));
+        self::assertSame([], $db->get_col(
+            "SELECT meta_id FROM wp_postmeta FORCE INDEX (`meta_key`) WHERE meta_key = 'absent' ORDER BY meta_id ASC LIMIT 3 FOR UPDATE"
+        ));
+        self::assertSame($before, $db->rows('wp_postmeta'));
+        $db->query('ROLLBACK');
+    }
+
+    public function testBoundedLockReadsCannotInventAnUndeclaredLeadingIndex(): void
+    {
+        $db = $this->seededDb();
+        $db->query('START TRANSACTION');
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unregistered SELECT FOR UPDATE lock target');
+        $db->get_col("SELECT meta_id FROM wp_postmeta FORCE INDEX (`absent`) WHERE meta_key = 'alpha' ORDER BY meta_id ASC LIMIT 3 FOR UPDATE");
+    }
+
+    public function testBoundedInLockReadsCannotTreatAnOwnerColumnAsThePrimaryKey(): void
+    {
+        $db = $this->seededDb();
+        $db->query('START TRANSACTION');
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unregistered SELECT FOR UPDATE lock target');
+        $db->get_col('SELECT meta_id FROM wp_postmeta FORCE INDEX (`PRIMARY`) WHERE post_id IN (7,9) ORDER BY post_id ASC LIMIT 3 FOR UPDATE');
+    }
+
+    #[DataProvider('boundedLockForceCases')]
+    public function testBoundedLockReadsRequireTheExactForcedIndex(string $hint, string $predicate): void
+    {
+        $db = $this->seededDb()->setIndexes('wp_postmeta', [[
+            'Key_name' => 'meta_key', 'Non_unique' => 1, 'Seq_in_index' => 1,
+            'Column_name' => 'meta_key', 'Sub_part' => 191, 'Index_type' => 'BTREE',
+        ], [
+            'Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+            'Column_name' => 'meta_id', 'Sub_part' => null, 'Index_type' => 'BTREE',
+        ]]);
+        $db->query('START TRANSACTION');
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unregistered SELECT FOR UPDATE lock target');
+        $db->get_col("SELECT meta_id FROM wp_postmeta $hint WHERE $predicate ORDER BY meta_id ASC LIMIT 3 FOR UPDATE");
+    }
+
+    public static function boundedLockForceCases(): array
+    {
+        return [
+            'no equality hint' => ['', "meta_key = 'alpha'"],
+            'absent equality index' => ['FORCE INDEX (`absent`)', "meta_key = 'alpha'"],
+            'swapped equality index' => ['FORCE INDEX (`PRIMARY`)', "meta_key = 'alpha'"],
+            'no primary hint' => ['', 'meta_id IN (1,3)'],
+            'absent primary index' => ['FORCE INDEX (`absent`)', 'meta_id IN (1,3)'],
+            'swapped primary index' => ['FORCE INDEX (`meta_key`)', 'meta_id IN (1,3)'],
+        ];
+    }
+
     // ------------------------------------------------------ path constants
 
     /**

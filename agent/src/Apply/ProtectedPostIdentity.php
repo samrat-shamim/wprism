@@ -14,6 +14,7 @@ if (!class_exists(Db::class, false)) {
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
+require_once __DIR__ . '/../Repository/LockedEmbeddedUuidOwners.php';
 if (!class_exists(Ledger::class, false)) {
     require_once __DIR__ . '/../Repository/Ledger.php';
 }
@@ -22,8 +23,6 @@ if (!class_exists(Ledger::class, false)) {
 final class ProtectedPostIdentity {
     private const IDENTITY_KEY = '_wprism_uuid';
     private const OBSERVATION_LIMIT = 3;
-    private const MAX_IDENTITY_ROWS = 100000;
-    private const OWNER_LOCK_CHUNK = 500;
     private const PURPOSE = 'protected post identity locking';
 
     /**
@@ -99,30 +98,11 @@ final class ProtectedPostIdentity {
             ['uuid', 'id_kind'],
             self::PURPOSE
         );
-        $postIndex = DeleteGuardEvaluator::full_width_lock_index(
-            $wpdb->posts,
-            'ID',
-            self::PURPOSE,
-            true
+        $owners = LockedEmbeddedUuidOwners::prepare(
+            Db::repeatable_read_authority(self::PURPOSE),
+            'protected post identity'
         );
-        $termIndex = DeleteGuardEvaluator::full_width_lock_index(
-            $wpdb->terms,
-            'term_id',
-            self::PURPOSE,
-            true
-        );
-        $postmetaIndex = DeleteGuardEvaluator::bounded_prefix_lock_index(
-            $wpdb->postmeta,
-            'meta_key',
-            strlen(self::IDENTITY_KEY),
-            self::PURPOSE
-        );
-        $termmetaIndex = DeleteGuardEvaluator::bounded_prefix_lock_index(
-            $wpdb->termmeta,
-            'meta_key',
-            strlen(self::IDENTITY_KEY),
-            self::PURPOSE
-        );
+        $postIndex = $owners->post_index();
         DeleteGuardEvaluator::assert_transaction_isolation(self::PURPOSE);
 
         $mappings = self::checked_rows($wpdb->prepare(
@@ -165,27 +145,14 @@ final class ProtectedPostIdentity {
             throw self::mismatch();
         }
 
-        $postRows = self::locked_meta_rows($wpdb->postmeta, 'post_id', $postmetaIndex);
-        $termRows = self::locked_meta_rows($wpdb->termmeta, 'term_id', $termmetaIndex);
-        $livePostOwners = self::locked_live_owner_ids(
-            $wpdb->posts,
-            'ID',
-            $postIndex,
-            self::matching_owner_ids($postRows, $uuid)
-        );
-        $liveTermOwners = self::locked_live_owner_ids(
-            $wpdb->terms,
-            'term_id',
-            $termIndex,
-            self::matching_owner_ids($termRows, $uuid)
-        );
+        $inventory = $owners->lock([$uuid]);
         self::assert_locked_global_identity(
             $uuid,
             $localId,
-            $postRows,
-            $termRows,
-            $livePostOwners,
-            $liveTermOwners
+            $inventory['post_rows'],
+            $inventory['term_rows'],
+            $inventory['live_post_owners'],
+            $inventory['live_term_owners']
         );
         return self::confirmed_lock(['post_id' => $localId, 'post_password' => $post['post_password']]);
     }
@@ -346,118 +313,6 @@ final class ProtectedPostIdentity {
             || $globalTerm !== []) {
             throw self::mismatch();
         }
-    }
-
-    /** @return list<array<string,mixed>> */
-    private static function locked_meta_rows(string $table, string $ownerColumn, string $index): array {
-        global $wpdb;
-        $rows = self::checked_rows($wpdb->prepare(
-            "SELECT meta_id, `$ownerColumn` AS owner_id, meta_key, "
-            . 'LEFT(meta_value, 37) AS meta_value_prefix, OCTET_LENGTH(meta_value) AS meta_value_bytes '
-            . "FROM `$table` FORCE INDEX (`$index`) WHERE meta_key = %s "
-            . 'ORDER BY meta_id ASC LIMIT ' . (self::MAX_IDENTITY_ROWS + 1) . ' FOR UPDATE',
-            self::IDENTITY_KEY
-        ), "locked $table identity range");
-        if (count($rows) > self::MAX_IDENTITY_ROWS) {
-            throw new \RuntimeException('wprism: protected post identity range exceeded its bounded row limit');
-        }
-        $previousMetaId = 0;
-        foreach ($rows as $position => $row) {
-            $metaId = is_array($row) ? self::positive_id($row['meta_id'] ?? null) : null;
-            $ownerId = is_array($row) ? self::positive_id($row['owner_id'] ?? null) : null;
-            $valueBytes = is_array($row) ? ($row['meta_value_bytes'] ?? null) : null;
-            if (!is_array($row)
-                || array_keys($row) !== ['meta_id', 'owner_id', 'meta_key', 'meta_value_prefix', 'meta_value_bytes']
-                || $metaId === null
-                || $ownerId === null
-                || $metaId <= $previousMetaId
-                || !is_string($row['meta_key'] ?? null)
-                || strlen($row['meta_key']) > 1020
-                || !(is_string($row['meta_value_prefix'] ?? null) || ($row['meta_value_prefix'] ?? null) === null)
-                || !(is_string($valueBytes) || $valueBytes === null)
-                || (is_string($valueBytes) && preg_match('/^(?:0|[1-9][0-9]*)$/D', $valueBytes) !== 1)) {
-                throw new \RuntimeException(
-                    "wprism: protected post identity range returned a malformed row at bounded position $position"
-                );
-            }
-            $previousMetaId = $metaId;
-        }
-        return $rows;
-    }
-
-    /** @param list<array<string,mixed>> $rows @return list<int> */
-    private static function matching_owner_ids(array $rows, string $uuid): array {
-        $ownerIds = [];
-        foreach ($rows as $row) {
-            if (!self::row_has_uuid($row, $uuid)) {
-                continue;
-            }
-            $ownerId = self::positive_id($row['owner_id'] ?? null);
-            if ($ownerId === null) {
-                throw new \RuntimeException('wprism: protected post identity range lost a validated owner');
-            }
-            $ownerIds[$ownerId] = true;
-        }
-        $ids = array_keys($ownerIds);
-        sort($ids, SORT_NUMERIC);
-        return $ids;
-    }
-
-    /**
-     * Lock every candidate's owner row or unique-primary-key absence gap.
-     * The metadata range is already locked, so this closes both directions:
-     * an orphan cannot become live and a live duplicate cannot disappear
-     * while its target UUID is being classified.
-     *
-     * @param list<int> $ownerIds
-     * @return array<int,true>
-     */
-    private static function locked_live_owner_ids(
-        string $table,
-        string $primaryKey,
-        string $index,
-        array $ownerIds
-    ): array {
-        global $wpdb;
-        if ($ownerIds === []) {
-            return [];
-        }
-        $requested = array_fill_keys($ownerIds, true);
-        $live = [];
-        foreach (array_chunk($ownerIds, self::OWNER_LOCK_CHUNK) as $chunkOffset => $chunk) {
-            $chunkSet = array_fill_keys($chunk, true);
-            $placeholders = implode(',', array_fill(0, count($chunk), '%d'));
-            $rows = self::checked_rows($wpdb->prepare(
-                "SELECT `$primaryKey` AS owner_id FROM `$table` FORCE INDEX (`$index`) "
-                . "WHERE `$primaryKey` IN ($placeholders) ORDER BY `$primaryKey` ASC LIMIT "
-                . (count($chunk) + 1) . ' FOR UPDATE',
-                ...$chunk
-            ), "locked $table live-owner lookup");
-            if (count($rows) > count($chunk)) {
-                throw new \RuntimeException(
-                    "wprism: protected post identity $table live-owner lookup exceeded its chunk bound"
-                );
-            }
-            $previous = 0;
-            foreach ($rows as $position => $row) {
-                $ownerId = is_array($row) ? self::positive_id($row['owner_id'] ?? null) : null;
-                if (!is_array($row)
-                    || array_keys($row) !== ['owner_id']
-                    || $ownerId === null
-                    || !isset($requested[$ownerId])
-                    || !isset($chunkSet[$ownerId])
-                    || $ownerId <= $previous) {
-                    $boundedPosition = ($chunkOffset * self::OWNER_LOCK_CHUNK) + $position;
-                    throw new \RuntimeException(
-                        "wprism: protected post identity $table live-owner lookup returned a malformed row "
-                        . "at bounded position $boundedPosition"
-                    );
-                }
-                $live[$ownerId] = true;
-                $previous = $ownerId;
-            }
-        }
-        return $live;
     }
 
     /** @param array<string,mixed> $row */

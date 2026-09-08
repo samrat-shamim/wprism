@@ -107,6 +107,12 @@
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
  *
+ * Bounded FOR UPDATE reads also admit a declared leading-index string
+ * equality or numeric primary-key IN list, with explicit ORDER BY and LIMIT.
+ * They execute the same row interpreter and retain the existing metadata-lock
+ * model. This is not a next-key/gap-lock or optimizer concurrency simulation;
+ * product suites must pin emitted lock scope and prove real races natively.
+ *
  * The default admits exactly one join form: a SINGLE LEFT JOIN whose ON is
  * one equality between qualified columns. It is the engine's term-deletion
  * lookup, and its NULL-preserving result is load-bearing refusal evidence.
@@ -2881,6 +2887,10 @@ class FakeWpdb {
                     // Attachment recovery's exact bounded metadata roster is
                     // separately interpreted below; it has no shared-write
                     // seam, so a synthetic range lock would only reject it.
+                } elseif ($this->isBoundedIndexedLockRead($trimmed, $table)) {
+                    // Only grammar admission: the ordinary SELECT below
+                    // computes rows, ordering and limits. The caller's real
+                    // index proof is not replaced by a fake lock answer.
                 } elseif (preg_match(
                     '/\bWHERE\b[^;]*\b`?(?:ID|option_id|meta_id|event_id|occurrence_id|post_id|post_parent|term_id|term_taxonomy_id|user_id|object_id|action_id|claim_id|group_id|log_id)`?\s*=\s*[0-9]+\b/is',
                     $trimmed
@@ -5102,6 +5112,45 @@ class FakeWpdb {
             $this->setConnectionId($this->connectionId + 1);
         }
         return ['kind' => 'ok'];
+    }
+
+    private function isBoundedIndexedLockRead(string $sql, string $table): bool {
+        if (preg_match(
+            '/\bFROM\s+`?[A-Za-z0-9_]{1,64}`?\s+FORCE\s+INDEX\s*\(`?([A-Za-z0-9_]{1,64})`?\)\s+WHERE\b/i',
+            $sql,
+            $forced
+        ) !== 1) {
+            return false;
+        }
+        $indexRows = array_values(array_filter($this->indexes[$table] ?? [],
+            static fn(array $row): bool => ($row['Key_name'] ?? null) === $forced[1]));
+        $leading = array_values(array_filter($indexRows,
+            static fn(array $row): bool => (string) ($row['Seq_in_index'] ?? '') === '1'));
+        if (count($leading) !== 1) {
+            return false;
+        }
+        if (preg_match(
+            '/\bWHERE\s+`?([A-Za-z0-9_]{1,64})`?\s+IN\s*\(([1-9][0-9]*(?:\s*,\s*[1-9][0-9]*)*)\)'
+                . '\s+ORDER\s+BY\s+`?\1`?\s+ASC\s+LIMIT\s+[1-9][0-9]*\s+FOR\s+UPDATE$/iD',
+            $sql,
+            $primary
+        ) === 1) {
+            return ($this->primaryKeys[$table] ?? null) === $primary[1]
+                && count($indexRows) === 1
+                && ($leading[0]['Column_name'] ?? null) === $primary[1]
+                && (string) ($leading[0]['Non_unique'] ?? '') === '0'
+                && array_key_exists('Sub_part', $leading[0]) && $leading[0]['Sub_part'] === null;
+        }
+        if (preg_match(
+            '/\bWHERE\s+`?([A-Za-z0-9_]{1,64})`?\s*=\s*'
+                . "'((?:[^'\\\\]|\\\\.)*)'\\s+ORDER\\s+BY\\s+`?[A-Za-z0-9_]{1,64}`?\\s+ASC"
+                . '\s+LIMIT\s+[1-9][0-9]*\s+FOR\s+UPDATE$/isD',
+            $sql,
+            $equality
+        ) !== 1) {
+            return false;
+        }
+        return ($leading[0]['Column_name'] ?? null) === $equality[1];
     }
 
     /** InnoDB 1213 restores the START snapshot and releases transaction state. */

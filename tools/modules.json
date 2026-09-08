@@ -461,6 +461,7 @@
         "status": "populated",
         "entry_points": [
           "Ledger",
+          "LockedEmbeddedUuidOwners",
           "CompiledArtifact",
           "Snapshot",
           "RepositoryCompiler",
@@ -523,7 +524,7 @@
             ]
           }
         ],
-        "file_count": 29,
+        "file_count": 30,
         "files": [
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
@@ -535,6 +536,7 @@
           "IdentityNotes.php",
           "Journal.php",
           "Ledger.php",
+          "LockedEmbeddedUuidOwners.php",
           "ReferenceGraph.php",
           "RepositoryAuthorization.php",
           "RepositoryCompiler.php",
