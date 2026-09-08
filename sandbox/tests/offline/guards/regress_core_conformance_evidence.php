@@ -171,6 +171,8 @@ if (($argv[1] ?? '') === '--native') {
         $wpdb->returnNextGetResultsAs(array_fill(0, $mutation === 'rows' ? 4097 : 4096, ['ID' => 1]), 'FROM wp_posts ');
     } elseif ($mutation === 'bytes') {
         $wpdb->returnNextGetResultsAs([['value' => str_repeat('x', 1048576)]], 'FROM wp_posts ');
+    } elseif ($mutation === 'native-change') {
+        $wpdb->seedTable('wp_posts', [['ID' => 1, 'post_title' => 'private-core-fixture-value']]);
     }
     try {
         eval($argv[2]);
@@ -323,9 +325,26 @@ root="$1" php="$2" self="$3" profile="$4" context="$5" record="$6" fixture_answe
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 . "$root/sandbox/conformance/asserts.sh"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-core-evidence.XXXXXX")
-trap 'rm -rf -- "$scratch"' EXIT
-ln -s "$root" "$scratch/source root"
 PAIR_SOURCE_ROOT="$scratch/source root" COMPOSE=fixture_compose
+mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp" "$PAIR_SOURCE_ROOT/sandbox/tests" "$PAIR_SOURCE_ROOT/sandbox/conformance"
+ln -s "$root/sandbox/tests/lib" "$PAIR_SOURCE_ROOT/sandbox/tests/lib"
+ln -s "$root/sandbox/conformance/fixtures" "$PAIR_SOURCE_ROOT/sandbox/conformance/fixtures"
+fixture_cleanup() {
+  local status=$? stage retained=1
+  trap - EXIT
+  if [ "$mutation" = ready ] || [ "$mutation" = empty-baseline ] || [ "$mutation" = native-change ]; then
+    local directories=("$PAIR_SOURCE_ROOT/sandbox/tmp"/wprism-core-deletion.*)
+    [ "${#directories[@]}" = 1 ] && [ -d "${directories[0]}" ] || retained=0
+    for stage in native-before native-after; do
+      "$php" "$root/sandbox/conformance/fixtures/core-native-state-evidence.php" \
+        "${directories[0]}/$stage" >/dev/null 2>&1 || retained=0
+    done
+    [ "$retained" = 0 ] || printf 'CORE_PRIVATE_RETAINED\n'
+  fi
+  rm -rf -- "$scratch"
+  exit "$status"
+}
+trap fixture_cleanup EXIT
 fixture_observation_diagnostic() {
   case "$mutation" in
     "$1-php-stdout") printf 'PHP Warning: fixture observation in /fixture.php on line 1\n' ;;
@@ -353,7 +372,9 @@ wp_conf2() {
     [ ! -f "$scratch/applied" ] || boundary=native-after
     fixture_observation_diagnostic "$boundary"
     [ "$mutation" != empty-native ] || return 0
-    if [ "$mutation" = native-change ] && [ -f "$scratch/applied" ]; then printf '{"posts":"after"}\n'; else printf '{"posts":"before"}\n'; fi
+    local native_mutation=ready
+    [ "$mutation" != native-change ] || [ ! -f "$scratch/applied" ] || native_mutation=native-change
+    "$php" "$self" --native "$2" "$native_mutation" || return $?
     [ "$mutation" != "$boundary-nonzero" ] || return 7
     return 0
   fi
@@ -404,6 +425,25 @@ foreach ($calls as $index => $call) {
                 && !str_contains($stdout . $stderr, 'private-core-fixture-value')
                 && !str_contains($stdout . $stderr, WPRISM_CORE_DELETION_EXCLUSION_CAUSE),
             "actual core deletion site $index ($name): $mutation is classified without private payload (exit $status)");
+        if ($positive || $mutation === 'native-change') {
+            wprism_check(str_contains($stdout, 'CORE_PRIVATE_RETAINED'),
+                "core deletion site $index retains both bounded native row captures when $mutation completes or fails");
+        }
+        if ($mutation === 'native-change') {
+            $differences = [];
+            foreach (explode("\n", $stderr) as $line) {
+                $diagnostic = json_decode($line, true);
+                if (($diagnostic['format'] ?? null) === 'wprism-core-native-state-difference/v1') $differences[] = $diagnostic;
+            }
+            $difference = $differences[0] ?? [];
+            $table = $difference['changed_tables'][0] ?? [];
+            wprism_check(count($differences) === 1 && ($difference['purpose'] ?? null) === 'diagnostic_only'
+                && ($difference['verified'] ?? null) === false && ($difference['profile'] ?? null) === $name
+                && array_column($difference['changed_tables'] ?? [], 'table') === ['posts']
+                && ($table['before']['count'] ?? null) === 1 && ($table['after']['count'] ?? null) === 1
+                && ($table['before']['sha256'] ?? null) !== ($table['after']['sha256'] ?? null),
+                "core deletion site $index names exactly the changed table using counts and hashes without asserting a cause");
+        }
     }
 }
 
