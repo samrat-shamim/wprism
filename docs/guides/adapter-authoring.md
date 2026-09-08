@@ -1850,6 +1850,19 @@ plugin faithfully.
 2. Inspect every persisted scalar and every nested JSON, PHP-serialized, block,
    shortcode, option-name, and custom-table payload. Search for self ids as
    well as foreign ids; plugins often copy their own row id into a body blob.
+   For duplicators/importers, repeat the native action **after** ordinary
+   Capture has established the source object's `_wprism_uuid` and ledger
+   history. Cloning only before first capture misses copied reserved identity.
+   Duplicate Page 4.5.9 copies every metadata key: a native managed-post clone
+   reproduced two live owners of one UUID and the next Capture refused. The
+   complete native database and canonical tree stayed unchanged by that
+   refusal; this is safety evidence, not successful clone support. Retain the
+   exact native writer/actor, old and new physical owners, original ledger,
+   fresh private refusal cause and complete before/after witnesses. Do not
+   delete metadata in the fixture or infer which object deserves a new UUID.
+   The shared row-backed guard regression is `regress-snapshot-identity`;
+   [the native investigation](../agents/managed-clone-identity.md) records the
+   missing authoring sequence and the still-open explicit-repair boundary.
 3. Preserve the stored type. A reference written as JSON `"12"` is not
    equivalent to JSON `12`; reject the adapter when the available codec changes
    that distinction.

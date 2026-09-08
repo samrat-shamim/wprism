@@ -34,8 +34,8 @@
             "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Certified for exact Yoast Duplicate Post 4.7 on single-site WordPress with all 28 authored settings, native clone/taxonomy/meta behavior, large divergent post identities, durable _dp_original rewriting and plugin-native removal, settings/row-action/post-state/metabox rendering, a verified role-capability provider over hostile and missing-role targets, target-sovereign Rewrite & Republish residue, option and duplicated-post deletion authorization, conflict/force/idempotence, failure/retry, lifecycle residue and exact reinstall, credential-shaped-setting refusal, and official 4.6 refusal evidence.",
-    "status": "certified",
+    "reason": "Experimental: exact 4.7 source review found that native duplication after WPrism Capture copies the original _wprism_uuid unless the operator has explicitly excluded that key. Existing conformance clones only before first Capture, so its settings, _dp_original, role-provider, deletion, lifecycle and round-trip evidence does not establish the managed-cloning workflow. Production authorization is withdrawn until that identity boundary and its native recovery workflow have complete evidence.",
+    "status": "experimental",
     "supported_versions": {
         "plugin": "duplicate-post/duplicate-post.php",
         "range": {
@@ -44,6 +44,11 @@
         }
     },
     "unsupported": [
+        {
+            "operation": "all",
+            "reason": "The default native metadata copier includes _wprism_uuid. A clone of an already-managed post therefore creates conflicting embedded identity, and WPrism refuses rather than choosing an owner. There is no reviewed automatic repair or general identity-fork command. Neither an implicit blacklist change nor pre-Capture-only cloning establishes support.",
+            "surface": "native-managed-duplication"
+        },
         {
             "operation": "apply",
             "reason": "In-progress Rewrite & Republish workflow state is target-sovereign and is neither migrated nor cleaned when a separately-authored duplicated post is deleted; the exact conformance profile proves those bytes remain untouched, including malformed and dangling values.",
