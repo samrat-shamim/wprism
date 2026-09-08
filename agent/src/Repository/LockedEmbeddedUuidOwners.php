@@ -5,7 +5,9 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
 require_once __DIR__ . '/../Kernel/DatabaseLockBoundary.php';
-require_once __DIR__ . '/../Kernel/Db.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/../Kernel/TransactionAuthority.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
