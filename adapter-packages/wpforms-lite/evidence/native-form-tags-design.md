@@ -50,10 +50,14 @@ of the three-entity managed compiler comparison.
    nonce, and submit the legal Tags AJAX payload in an authenticated native
    session. Prove HTTP/JSON success, native capability context, exact submitted
    fields, complete diagnostic witnesses and session retirement.
-2. Create and assign two discriminating source tags. Seed target tag IDs and
-   TT IDs independently, including an unrelated local tag with a separate
-   native preservation witness. Do not make source and target IDs equal or
-   inject a canonical UUID as a substitute for native creation.
+2. Create and assign the exact source labels `Intake Ω` and `701`. Require
+   native source and target term/TT IDs to differ and none to equal `701`;
+   bind the submitted labels and exact post-save `settings.form_tags` string
+   values, types and order. The native AJAX writer resolves submitted `value`
+   as identity but stores submitted `label` separately; ordinary alphabetic
+   tags alone do not exercise this discriminator. Seed target IDs independently,
+   including an unrelated local tag with a separate native preservation witness.
+   Do not inject a canonical UUID as a substitute for native creation.
 3. Run ordinary Capture/Plan/Apply, then fresh native `get_the_terms()` and
    form-handler reads. Bind the complete physical term, TT and relationship
    rosters plus exact form bodies; compare both assigned identities and body
