@@ -2139,6 +2139,23 @@ plugin faithfully.
    inside a roster loop must receive closed stdin: otherwise `compose run`
    can consume subsequent roster entries before the next `read`.
 
+   A complete native Save can contain multiple writers and non-database
+   effects. WPForms' first collected Builder Save posted the form and then
+   custom themes, writing an uploads JSON file. Declare and admit that exact
+   request sequence; do not filter extra requests to preserve a one-XHR
+   assumption. Pair full SQL with the existing filesystem-tree witness for
+   file effects. Preserve ordered serialized controls, including legitimate
+   duplicate widget search names under an explicit multiplicity/value bound.
+   Prime first-save rich-text synchronization through the actual UI before
+   claiming later QR-only control preservation.
+
+   Read diagnostics in complete HTTP headers too. The same Save's theme
+   response was HTTP200 with a successful JSON body and empty browser/server
+   logs, but carried `X-WP-DoingItWrong`. Such a response is not diagnostic-free.
+   Refuse the native gate and record the upstream limitation; do not turn off
+   debug mode, allowlist the warning or patch a locked vendor artifact to make
+   evidence green.
+
    Execute a PHP fixture with `wp eval-file --use-include` when it declares
    `strict_types` or resolves sibling files through `__DIR__`. WP-CLI's default
    evaluation mode is not an ordinary file include: the first native Polylang
