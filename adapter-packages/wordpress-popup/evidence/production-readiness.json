@@ -5,9 +5,9 @@
   "covered": {},
   "gaps": {
     "contract-dependency": "Declarations are read from the exact locked 7.8.14.2 artifact. Fresh installation, adjacent-artifact refusal and the in-range upgrade workflow have not been exercised through capsule conformance.",
-    "clean-target": "Native source-to-target deploy and apply have never been run with this capsule.",
+    "clean-target": "Deploy and apply DO complete on a clean target: a scratch run with the claim temporarily flipped reached deploy, apply with a clean side-effect canary, byte-identical recapture across environments, and a target check in which Hustle's own model loaded the applied module. That measurement is why this family is a volume-of-evidence gap rather than a blocker, but it was taken under a claim this capsule does not hold, so it is not counted as covered until the reviewed status authorizes the run that produces it.",
     "dirty-target": "Hostile stored values, extra module-meta rows and divergent module ids need complete native before/after witnesses.",
-    "identity-references": "The declared coordinates are the three wd_hustle shortcode module ids over a custom-table keyspace. The dual string/numeric resolution at hustle-model.php:891-917 is unproven end to end, and the widget module_id cannot be declared at all.",
+    "identity-references": "The wd_hustle module reference is proven to rebind: with source ids deliberately burned the source module was 3, the target minted 1, and the applied embed read id=\"1\" \u2014 resolved through the canonical hustle_module token rather than carried verbatim. Still open: the legacy shortcode_id string form, and hustle_module_widget.module_id, which widget_setting_refs cannot express at all.",
     "native-behavior": "Source reading covers the schema and the model key vocabulary. Module render, opt-in submission, provider dispatch, tracking and unsubscribe flows remain unproven.",
     "derived-state": "hustle_tracking counters and any cached module projection need a bounded plugin-owned derivation with exact postconditions before apply could be claimed.",
     "deletion": "No selectors declared. Native captured deletion and independent valid-intent compiler/plan/apply refusal with preservation are pending.",

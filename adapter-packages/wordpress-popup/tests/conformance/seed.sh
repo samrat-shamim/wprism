@@ -14,6 +14,21 @@ wp_set_current_user(1);
 if ( ! class_exists( 'Hustle_Module_Model' ) ) {
     throw new RuntimeException('Hustle model classes are unavailable; the plugin did not load');
 }
+// Burn two auto-increment ids on the SOURCE so the fixture module cannot share
+// an id with the one apply mints on a fresh target. Without this the embed
+// rebinding assertion passes by coincidence — measured: source and target both
+// landed on module_id 1, so a verbatim id would have satisfied it.
+global $wpdb;
+foreach ( array( 'wprism-burn-1', 'wprism-burn-2' ) as $burn ) {
+    $throwaway = Hustle_Module_Model::new_instance();
+    $throwaway->module_name = $burn;
+    $throwaway->module_type = Hustle_Module_Model::EMBEDDED_MODULE;
+    $throwaway->module_mode = Hustle_Module_Model::INFORMATIONAL_MODE;
+    $throwaway->active      = 1;
+    $throwaway->save();
+    $wpdb->delete( $wpdb->prefix . 'hustle_modules', array( 'module_id' => (int) $throwaway->id ), array( '%d' ) );
+}
+
 // hustle-model.php:211 makes the constructor private on purpose ("Hide
 // constructor to force use of new_instance method"), and new_instance() with
 // no id is documented as the empty model for creating one (:1481-1487).
@@ -59,7 +74,6 @@ if ( is_wp_error( $embed ) ) {
     throw new RuntimeException('embedding page was not created: ' . $embed->get_error_message());
 }
 
-global $wpdb;
 $metaRows = (int) $wpdb->get_var( $wpdb->prepare(
     'SELECT COUNT(*) FROM ' . $wpdb->prefix . 'hustle_modules_meta WHERE module_id = %d', $moduleId
 ) );
@@ -78,7 +92,7 @@ SEED_OUT=$(wp_conf1 eval-file /siterepo/.tmp-hustle-seed.php)
 rm -f "$SEED_FILE"
 require_observed_nonempty "Hustle native source seed" "$SEED_OUT"
 SEED_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
-printf '%s\n' "$SEED_JSON" | jq -e '.module > 0 and .embed > 0 and .module_row == 1 and .meta_rows >= 4' >/dev/null \
-  || fail "Hustle's own model did not persist the module and its meta rows: $SEED_JSON"
+printf '%s\n' "$SEED_JSON" | jq -e '.module > 2 and .embed > 0 and .module_row == 1 and .meta_rows >= 4' >/dev/null \
+  || fail "Hustle's own model did not persist the module and its meta rows above the burned id range: $SEED_JSON"
 printf '%s\n' "$SEED_JSON"
 pass "Hustle module, its content/settings/design/shortcode_id meta and a numeric-id embed were authored through the plugin's own model"
