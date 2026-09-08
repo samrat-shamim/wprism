@@ -60,6 +60,8 @@
         "status": "populated",
         "entry_points": [
           "ActionTriggerMatcher",
+          "BlockAttributeReader",
+          "BlockValueGrammar",
           "Canon",
     "Db",
     "DatabaseLockBoundary",
@@ -154,9 +156,11 @@
             ]
           }
         ],
-        "file_count": 74,
+        "file_count": 76,
         "files": [
           "ActionTriggerMatcher.php",
+          "BlockAttributeReader.php",
+          "BlockValueGrammar.php",
           "BoundedChildProcess.php",
           "Canary.php",
           "Canon.php",
@@ -373,6 +377,7 @@
         "status": "populated",
         "entry_points": [
           "Tokens",
+          "BlockValueCodec",
           "Blocks",
           "OptionGrammar",
           "SubKeyGrammar",
@@ -428,10 +433,11 @@
             ]
           }
         ],
-        "file_count": 27,
+        "file_count": 28,
         "files": [
           "AttrIdCodecGrammar.php",
           "AttributeGrammar.php",
+          "BlockValueCodec.php",
           "Blocks.php",
           "BodyRefGrammar.php",
           "ColumnCodecGrammar.php",

@@ -3,6 +3,8 @@ namespace WPrism;
 
 require_once __DIR__ . '/Pending.php';
 require_once __DIR__ . '/LintFinding.php';
+require_once __DIR__ . '/../Grammar/BlockValueCodec.php';
+require_once __DIR__ . '/StructuredReferenceScanner.php';
 
 /**
  * Manifest-declared Gutenberg block-reference scanning behind Lint's facade.
@@ -73,6 +75,18 @@ final class BlockReferenceScanner {
                                 );
                             }
                         }
+                    } elseif (isset($rule['value'])) {
+                        $locator = 'blocks.' . $name . '.attrs.' . $attrKey;
+                        try {
+                            BlockValueCodec::assert_value($attrVal, $rule['value'], true, $locator);
+                        } catch (\RuntimeException $e) {
+                            $findings[] = LintFinding::make('invalid_block_value', $rel, $locator,
+                                '<declared-value>', null, $e->getMessage());
+                        }
+                        if (isset($rule['value']['json_refs']) || isset($rule['value']['key_refs'])) {
+                            array_push($findings, ...StructuredReferenceScanner::scan($attrVal, $rel, $locator,
+                                $rule['value']['json_refs'] ?? [], $rule['value']['key_refs'] ?? null, $resolveId));
+                        }
                     } elseif (array_key_exists('unsupported', $rule)) {
                         $findings[] = LintFinding::make(
                             'unsupported_block_attr', $rel,
@@ -124,6 +138,7 @@ final class BlockReferenceScanner {
                             continue;
                         }
                         $registered = ($rule['tokenize'] ?? null) === 'text'
+                            || isset($rule['value'])
                             || array_key_exists('codec', (array) $rule);
                         $findings[] = LintFinding::make(
                             $registered ? 'unrewritten_registered_text' : 'unregistered_block_attr',

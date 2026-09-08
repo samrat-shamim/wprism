@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 require_once __DIR__ . '/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/Shortcodes.php';
+require_once __DIR__ . '/BlockValueCodec.php';
 
 /**
  * Structure-aware content rewriting via the official block parser:
@@ -325,6 +326,21 @@ final class Blocks {
         }
         foreach ($codec === null ? $declaredRules : [] as $rule) {
             $path = $rule['path'];
+            if (isset($rule['value']) && array_key_exists($path, (array) ($block['attrs'] ?? []))) {
+                $valueRule = $rule['value'];
+                if ($capture && ($valueRule['class'] ?? '') === 'derived') {
+                    unset($block['attrs'][$path]);
+                    continue;
+                }
+                $where = "block '$name' attribute '$path'";
+                $block['attrs'][$path] = $capture
+                    ? BlockValueCodec::capture($block['attrs'][$path], $valueRule, $tokens,
+                        static function (int $id, string $kind) use ($tokens, $policy, $forceUnresolvedRefs, $postLabel, $name, $path): void {
+                            self::queue_unscoped($tokens, $policy, $forceUnresolvedRefs, $postLabel, $name, $path, $kind, $id);
+                        }, $where)
+                    : BlockValueCodec::apply($block['attrs'][$path], $valueRule, $tokens, $where);
+                continue;
+            }
             if (!isset($block['attrs'][$path])) {
                 continue;
             }

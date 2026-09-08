@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 
 require_once __DIR__ . '/AdapterSources.php';
 // The feature roster names the action grammar's bounded post-kind selector.
@@ -176,6 +177,7 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        BlockValueGrammar::FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::SECTION => 'field']],
         PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
         ReferenceCondition::FEATURE => ['since' => 3, 'keys' => []],
         // A predicate on an existing metadata field, not a new surface. Its
@@ -567,6 +569,7 @@ final class AdapterContractGrammar {
         require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
         require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
         $grammars = [
+            BlockValueGrammar::SECTION => BlockValueGrammar::section_grammar(),
             AttrIdCodecGrammar::SECTION => AttrIdCodecGrammar::section_grammar(),
             BodyRefGrammar::SECTION => BodyRefGrammar::section_grammar(),
             ColumnCodecGrammar::SECTION => ColumnCodecGrammar::section_grammar(),

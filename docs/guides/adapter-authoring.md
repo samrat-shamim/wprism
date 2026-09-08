@@ -403,6 +403,56 @@ or missing discriminator, wrong-kind token, malformed native ID, and a secret
 beside the positive data. `regress-conditional-json-refs` is the shared engine
 pin; each plugin still needs its own native writer and behavior evidence.
 
+### Structured block attributes and derived editor caches
+
+Use the plugin's editor and inspect the stored block comments. `block_attrs`
+paths are exact top-level attribute names; `image.id` does not traverse an
+`image` object. A query selector stored as CSV also needs its native string
+shape restored after identity rebinding.
+
+Declare `block-attribute-values/v1` and a `block_values` map keyed by block,
+then exact attribute name. Each authored attribute uses the existing value
+rules: `ref` with optional `cast`, `json_refs`/`key_refs`, or `plain_data:true`.
+For example:
+
+```json
+"block_values": {
+  "example/gallery": {
+    "image": {"class":"authored", "json_refs":[{"path":"$.id", "kind":"post"}]},
+    "slides": {"class":"authored", "json_refs":[{"path":"$.image.id", "kind":"post"}]},
+    "postIds": {"class":"authored", "ref":"post[]", "cast":"csv"},
+    "queriedPostsData": {"class":"derived"}
+  }
+}
+```
+
+The shared JSON path walker transparently handles repeater lists. Native IDs
+must match their declared integer/string type; CSV uses positive decimal IDs
+separated by single commas, with no whitespace, empty members or leading
+zeros. Empty CSV is allowed. Canonical CSV is a token list, restored to a
+string on apply. Order and duplicate selections are preserved. Missing targets
+use the existing dangling-reference and unscoped-reference gates.
+
+Use `derived` only after proving the attribute is a reproducible native cache.
+Capture removes that attribute; compilation and apply refuse it if it appears
+in canonical content. The plugin must rebuild it from authored inputs when
+needed. A preview's presence in saved JSON alone is not evidence of ownership.
+Qi Blocks' query previews and contact-form HTML motivated this distinction;
+its adapter still needs native frontend and editor reopen evidence.
+
+One manifest owns a block using these rules. Disjoint legacy `block_attrs`
+can coexist in that manifest; overlapping attributes and whole-block codecs
+refuse. Site policy cannot introduce or replace this grammar. `plain_data`
+rewrites URL-bearing strings without interpreting arbitrary numbers as IDs;
+it grants no executable decoder or privacy exemption. Native PHP container
+wrapping belongs to options, not Gutenberg JSON.
+
+Prove full PostCapture, immutable compilation without WordPress/database
+contact, checked PostMaterializer SQL with different IDs/URLs, rollback after
+an earlier write, retry, repeat and complete recapture. Include widget content
+when the same block can be stored there. `regress-block-attribute-values` is
+the engine pin; native plugin render and editor validation remain capsule work.
+
 ### Native PHP container types and insertion order
 
 Inspect raw option bytes after using the plugin's real writer. Qi Blocks 1.5.2
@@ -2128,6 +2178,17 @@ native writer, run observation/coverage/probe/draft, ratify the smallest
 defensible manifest, add adversarial offline and live tests, and run the
 repository gates. It records commands, visible outputs, corrections and
 assumptions; it does not record private chain-of-thought.
+
+Verify every plugin-owned writer triggered by the visible Save action. A
+successful core REST post update or `core/editor.savePost()` does not prove
+that a plugin's editor state was flushed. Qi Blocks 1.5.2 attaches a debounced
+style save to the editor Save-button click: the core save API persisted all
+block comments while leaving `qi_blocks_global_styles` empty. Clicking the
+actual Save button persisted the styles and changed frontend rendering. Trace
+such event handlers, wait for their responses, and retain raw owned-row
+readback plus frontend behavior. If a native request fails while a sibling
+request succeeds, record both outcomes; do not invent the missing state or
+claim the whole settings form saved successfully.
 
 Continue autonomously when a command already supplies a typed recovery. In
 particular, narrow an over-broad or under-broad `--match`, use `--force` after

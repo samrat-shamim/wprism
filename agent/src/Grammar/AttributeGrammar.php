@@ -140,6 +140,12 @@ final class AttributeGrammar {
         if (!is_array($rule) || (array_is_list($rule) && $rule !== [])) {
             throw new \RuntimeException("wprism: $where must be an object");
         }
+        // `value` exists only in the effective registry projected from the
+        // negotiated block_values section. Legacy rules previously ignored
+        // extra fields; accepting it here would bypass feature admission.
+        if (array_key_exists('value', $rule)) {
+            throw new \RuntimeException("wprism: $where cannot carry value rules; declare them in block_values");
+        }
         $hasPathKey = array_key_exists('path', $rule);
         $hasPath = is_string($rule['path'] ?? null) && $rule['path'] !== '';
         $hasPosition = array_key_exists('position', $rule);

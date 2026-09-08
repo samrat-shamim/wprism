@@ -109,6 +109,14 @@ atomically. Repository authorization validates this representation without
 WordPress or plugin code, and the checked option materializer restores native
 types before serialization. No plugin executable owns this storage conversion.
 
+Structured Gutenberg attributes use the negotiated `block_values` grammar.
+`Kernel/BlockValueGrammar` owns pure declaration and ownership projection;
+`Grammar/BlockValueCodec` composes the existing identity and text codecs.
+The immutable compiler uses `Kernel/BlockAttributeReader` to inspect declared
+comment attributes without WordPress, database access or body reserialization.
+Derived editor caches are explicit exclusions, and their canonical presence
+refuses. Post materialization and transaction recovery remain engine-owned.
+
 ### 2. Declarative manifest
 
 A manifest describes facts that can be represented as data:

@@ -23,6 +23,7 @@ require_once __DIR__ . '/../Kernel/ReferenceShapeGrammar.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 
 /**
  * Pure per-manifest validation pipeline shared by live and frozen policy
@@ -118,6 +119,7 @@ final class ManifestValidator {
         // an author to fix a declaration this engine was never going to admit.
         ColumnCodecGrammar::validate_column_codecs($manifest, $label);
         AttrIdCodecGrammar::validate_attr_id_codecs($manifest, $label);
+        BlockValueGrammar::validate($manifest);
         // WP-6.5's staged section, in the same slot and for the same reason.
         // Its BODY-MODE half is gated earlier, inside
         // PostTypeGrammar::validate_post_type_contracts() — the same placement

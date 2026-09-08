@@ -40,6 +40,8 @@ if (!class_exists(Secrets::class, false)) {
     require_once __DIR__ . '/../Kernel/Secrets.php';
 }
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/BlockValueCodec.php';
+require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 
 final class RepositoryPortableShapeValidator {
     private const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -90,6 +92,10 @@ final class RepositoryPortableShapeValidator {
             $path = $entity['path'];
             $d = $entity['data'];
             if ($entity['type'] === 'post') {
+                if (method_exists($this->policy, 'body_mode')
+                    && $this->policy->body_mode((string) ($d['type'] ?? '')) === 'blocks') {
+                    $this->validate_block_values((string) ($entity['body'] ?? ''), $path);
+                }
                 if (($d['author'] ?? null) !== null
                     && (!is_string($d['author']) || !str_starts_with($d['author'], 'user:')
                         || strlen($d['author']) === 5)) {
@@ -229,6 +235,8 @@ final class RepositoryPortableShapeValidator {
                                 'schema_content_mismatch', $path, "widgets[$i].settings.$setting",
                                 'block-content widget setting must be a string'
                             );
+                        } elseif (($rule['codec'] ?? '') === 'blocks') {
+                            $this->validate_block_values($value, $path, "widgets[$i].settings.$setting");
                         }
                     }
                 }
@@ -539,6 +547,32 @@ final class RepositoryPortableShapeValidator {
                 'body',
                 "serialized authored configuration contains $pii"
             );
+        }
+    }
+
+    private function validate_block_values(string $body, string $path, string $rootLocator = 'body'): void {
+        $rules = [];
+        foreach ($this->policy->block_attr_rules() as $block => $attributes) {
+            foreach ($attributes as $rule) {
+                if (isset($rule['value'])) $rules[$block][$rule['path']] = $rule['value'];
+            }
+        }
+        try {
+            $blocks = BlockAttributeReader::read($body, array_keys($rules));
+        } catch (\RuntimeException $e) {
+            $this->add('repository_block_value_invalid', $path, $rootLocator, $e->getMessage());
+            return;
+        }
+        foreach ($blocks as $block) {
+            foreach ($rules[$block['blockName']] as $attribute => $rule) {
+                if (!array_key_exists($attribute, $block['attrs'])) continue;
+                $locator = $rootLocator . '@' . $block['offset'] . '.attrs.' . $attribute;
+                try {
+                    BlockValueCodec::assert_value($block['attrs'][$attribute], $rule, true, $locator);
+                } catch (\RuntimeException $e) {
+                    $this->add('repository_block_value_invalid', $path, $locator, $e->getMessage());
+                }
+            }
         }
     }
 

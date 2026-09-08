@@ -822,12 +822,13 @@ wprism_check_same(
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
-// The admitted set includes all twenty-three implemented features. The explicit
+// The admitted set includes all twenty-four implemented features. The explicit
 // roster proves declarations remain negotiated without a spec-version bump;
 // provider observation/input features and reference/container codecs coexist.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'block-attribute-values/v1',
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
@@ -852,7 +853,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries twenty-three names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries twenty-four names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
@@ -909,14 +910,15 @@ wprism_check_same(
 
 echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate arm\n";
 
-// The ROWS, pinned whole. Every one of these six is a permanent decision the
+// The ROWS, pinned whole. Every one of these seven is a permanent decision the
 // register records (R-31): the arm reaches `claim_from_disposition()`, which
 // builds the `surfaces` list inside a signed statement, so moving a key between
 // arms invalidates every certificate already issued over an adapter declaring
-// it. A seventh row, or a moved arm, is a reviewed edit here.
+// it. An eighth row, or a moved arm, is a reviewed edit here.
 wprism_check_same(
     [
         'attr_id_codecs' => 'field',
+        'block_values' => 'field',
         'body_refs' => 'field',
         'column_codecs' => 'field',
         'declaration_evidence' => 'non_surface',
@@ -924,7 +926,7 @@ wprism_check_same(
         'incompatible_plugins' => 'non_surface',
     ],
     AdapterContractGrammar::feature_key_arms(),
-    'V3-ARM: the roster classifies six keys — three typed refinements over an already-declared surface as '
+    'V3-ARM: the roster classifies seven keys — four value grammar sections as '
         . '`field`, and the claim channel, evidence records, and incompatibility list as `non_surface`'
 );
 $report('feature-claimed key arms: ' . json_encode(AdapterContractGrammar::feature_key_arms(), JSON_UNESCAPED_SLASHES));

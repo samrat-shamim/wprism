@@ -45,6 +45,11 @@ final class ReferenceKeyspaceGrammar {
         $allowed = array_values(array_unique($allowed));
 
         $checkSource = static function (array $source, string $label) use ($allowed): void {
+            foreach ($source['block_values'] ?? [] as $block => $attributes) {
+                foreach ($attributes as $attribute => $rule) {
+                    self::assert_reference_rule_keyspaces($rule, $allowed, "$label.block_values.$block.$attribute");
+                }
+            }
             foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
                 foreach (($source[$section] ?? []) as $name => $rule) {
                     if (is_array($rule) && !array_is_list($rule)) {

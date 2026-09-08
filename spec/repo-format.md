@@ -3018,6 +3018,49 @@ secret/PII checks. Capture, immutable compilation, lint and checked option
 materialization share the representation; materialization restores native
 containers and serializes them with target-local string lengths.
 
+### v3.29 `block-attribute-values/v1` — declarative block value transport
+
+A v3 adapter declaring this feature may declare `block_values`, a nonempty
+object keyed by WordPress block name and then exact top-level attribute name.
+The section uses the certificate's field arm. A block with this section has
+one manifest owner across all block declarations; disjoint `block_attrs`
+rules in that same manifest can coexist. Whole-block codecs and overlapping
+attributes refuse. Site policy cannot supply this section. Legacy
+`block_attrs` cannot carry the effective registry's internal `value` field.
+
+An attribute declares exactly `{"class":"derived"}`, or `class:authored`
+plus one of the ordinary scalar `ref` codec, `json_refs`/`key_refs`, or
+`plain_data:true`. Scalar refs accept `cast:string`; list refs additionally
+accept `cast:csv`. The shared structural reference dialect is unchanged;
+conditional references, PHP container wrapping, custom executable codecs,
+sub-key ownership, and metadata-only options are not admitted here.
+
+Native scalar references require positive integers in their declared native
+JSON type. Optional scalar references retain null, empty string and the typed
+zero sentinel. Lists contain references only. Native CSV is empty or a
+comma-separated sequence of positive canonical decimal integers, without
+whitespace or empty members. Capture emits a token list; apply restores the
+CSV string, preserving selection order and duplicates. Structured values
+require arrays/objects decoded into ordinary JSON data; selected reference
+leaves must have their declared scalar shape. Whole-value and nested text
+leaves use the existing environment URL codec. No new identity kind exists.
+
+Derived attributes are removed during capture. Their presence in canonical
+content is an error, including a null value. Authored attributes preserve
+ordinary JSON fields outside declared reference paths. Missing identity
+mappings use the existing warning/drop and blocking scope gates. Canonical
+references must be exact tokens in the declared keyspace; malformed shapes,
+foreign tokens, raw IDs and unsupported native coercions refuse.
+
+The same value validator runs at capture, immutable compilation, lint and
+apply. Compilation reads opening block-comment attributes without WordPress
+or database contact, for post bodies in blocks mode and declared block-content
+widget settings. The reader preserves body bytes and limits documents to
+16 MiB and 100,000 delimiters. Value validation limits nesting to 64 and nodes
+to 100,000; non-finite numbers, objects outside decoded JSON and invalid UTF-8
+refuse. Checked post SQL and its transaction owner retain responsibility for
+atomic writes, rollback, retry and canonical recapture.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |
