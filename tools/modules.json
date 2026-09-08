@@ -118,6 +118,7 @@
           "TermRows",
           "TableGraph",
           "TableSchema",
+          "HtmlMediaReferences",
           "IdentityTokenCodec",
           "ProcessFence",
           "ReferenceKeyspaceGrammar",
@@ -156,7 +157,7 @@
             ]
           }
         ],
-        "file_count": 76,
+        "file_count": 78,
         "files": [
           "ActionTriggerMatcher.php",
           "BlockAttributeReader.php",
@@ -180,6 +181,8 @@
     "ExactOptionWriter.php",
     "ExecutableTreeIdentity.php",
     "FilesystemTreeSnapshot.php",
+          "HtmlAttributeReader.php",
+          "HtmlMediaReferences.php",
     "IdentityTokenCodec.php",
     "JsonRefs.php",
     "LockedOptionRows.php",

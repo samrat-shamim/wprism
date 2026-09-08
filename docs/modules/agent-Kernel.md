@@ -29,3 +29,9 @@ Neither class loads adapter executables or chooses transaction policy.
 - DurableFilesystem requires Publish/PublicationJournal, dragging an engine module under the kernel.
 
 **Sub-namespace plan.** Target `WPrism\Kernel\`. Not in this round: the move keeps `namespace WPrism;` flat so that manifest interpreters/providers can keep naming `\WPrism\Policy`, `\WPrism\ProviderSdk`, `\WPrism\Providers` and `\WPrism\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.
+
+`HtmlAttributeReader` and `HtmlMediaReferences` own the bounded, byte-preserving
+HTML class grammar. Grammar supplies identity lookup and capture scope handling;
+Repository validates canonical classes without WordPress or database access;
+Review uses the same recognition for lint. A block name or adapter executable
+never grants authority to rewrite arbitrary text containing `wp-image-`.

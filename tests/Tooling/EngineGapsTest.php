@@ -395,11 +395,8 @@ final class EngineGapsTest extends TestCase
         $this->assertRefuses($ledger, 'expected one of');
     }
 
-    /**
-     * The preamble prints ONE probe date for every rejected candidate, so two
-     * dates would make that projected sentence false about at least one row.
-     */
-    public function testRefusesRejectedCandidatesThatDisagreeOnTheProbeDate(): void
+    /** New authoring evidence must retain the dates of earlier observations. */
+    public function testRendersDifferentProbeDatesWithCandidateAttribution(): void
     {
         $ledger = self::ledger();
         $seen = 0;
@@ -409,9 +406,22 @@ final class EngineGapsTest extends TestCase
                 break;
             }
         }
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('different dates');
-        gap_render($ledger);
+        gap_validate($ledger, self::sections(), self::exists());
+        $rendered = gap_render($ledger);
+        self::assertStringContainsString('Probed on 2019-01-01.', $rendered);
+        self::assertStringContainsString('Probed on 2026-08-22.', $rendered);
+        self::assertStringContainsString('on 2019-01-01, 2026-08-22, and 2026-09-08;', $rendered);
+        $preamble = gap_preamble($ledger);
+        $ledger['candidates'] = array_reverse($ledger['candidates']);
+        self::assertSame($preamble, gap_preamble($ledger));
+    }
+
+    public function testPreambleAllowsEveryCandidateToBeClosed(): void
+    {
+        $ledger = self::ledger();
+        $ledger['candidates'] = array_values(array_filter($ledger['candidates'],
+            static fn (array $row): bool => $row['disposition'] !== 'rejected'));
+        self::assertStringContainsString('There are no currently rejected candidates;', gap_preamble($ledger));
     }
 
     /**

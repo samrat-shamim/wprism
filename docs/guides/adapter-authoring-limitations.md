@@ -4,7 +4,7 @@
 
 This ledger records plugin state shapes discovered during adapter authoring. `blocker_layer: platform` means the generic engine still lacks a reusable facility; `blocker_layer: adapter` means that facility already ships and the named plugin still needs its own bounded implementation and evidence.
 
-The currently rejected candidates were probed from official WordPress.org artifacts on 2026-08-22; closed rows retain the evidence from their own authoring exercises. Candidate rows are deliberately separate from adapter package dispositions: a rejected candidate is not shipped adapter identity and makes no capability claim.
+The currently rejected candidates were probed from official WordPress.org artifacts on 2026-08-22 and 2026-09-08; closed rows retain the evidence from their own authoring exercises. Candidate rows are deliberately separate from adapter package dispositions: a rejected candidate is not shipped adapter identity and makes no capability claim.
 
 Every coordinate names its `primitive_required` from a closed generic vocabulary in the ledger, so two candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike sentences. That is what makes the next table a ranking instead of a wishlist.
 
@@ -12,6 +12,7 @@ Every coordinate names its `primitive_required` from a closed generic vocabulary
 
 | Primitive | Candidates | Blocked adapters |
 |---|---|---|
+| declared custom media derivative recipes with durable file ownership | 1 (Qi Blocks) | qi-blocks |
 | a generic dynamic derived option-name reference rule | 1 (Custom Post Type UI) | custom-post-type-ui |
 | a verified post-apply type-registration/process boundary | 1 (Custom Post Type UI) | custom-post-type-ui |
 
@@ -26,17 +27,29 @@ These rows use a shipped generic platform facility, but the named plugin still l
 
 ## WPForms Lite 2.0.0.4 / 2.0.0.5
 
+Probed on 2026-08-22.
+
 - Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored — `WPForms\Forms\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: "derived"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: WPrism writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.
 
 Required adapter work: a bounded postcondition over the plugin's scheduled form-locations derivation. Fixed-type JSON reference paths, block selector codecs and the fixture taxonomy decision matrix have offline evidence at their cited owners. The optional integer/string self-reference is represented by body-ref-preserve-type/v1, not preserved as an undeclared source-local id. The body-url-rebinding/v1 feature separately composes the existing URL/query text codec with exact reference/sentinel protection; real compiler, checked-SQL post materialization and PostCapture prove an exact body fixed point and mutation-free hostile input refusal. These close the measured representation/dispatch gaps, not the native product evidence. The bounded native form-locations postcondition remains adapter-owned. The historical taxonomy matrix proves offline declaration/decision behavior only, not concurrent InnoDB locking or a production deletion claim. The WPForms site adapter and captured 2.0.0.5 bodies are authoring/trust-flow fixtures, not platform support. Complete native create/update/builder/duplicate, divergent-ID materialization, submission, URL, location, lifecycle and composition evidence is still required before any product disposition.
 
 ## Custom Post Type UI 1.19.3
 
+Probed on 2026-08-22.
+
 - `cptui_post_types` and `cptui_taxonomies` are nested authored arrays whose menu_icon may be a site URL. The shared plain_data rule now supplies explicit string-leaf URL rebinding through OptionsCapture, Tokens and OptionsMaterializer, without a fake reference declaration. CPT UI still needs its own reviewed declaration and native round-trip/registration evidence; this coordinate is adapter work, not a missing text primitive.
 - WPrism writes options after WordPress `init`; CPT UI registers its dynamic post types and taxonomies during `init`. Newly applied definitions therefore do not exist in the same process that would need them for entity materialization.
 - A taxonomy `default_term` produces `default_term_<taxonomy>` with a local term id. The option name is dynamic and the value is derived/reference-shaped; treating it as ordinary authored data would leak a local id.
 
 Required platform work: a verified post-apply type-registration/process boundary and a generic dynamic derived option-name reference rule. Required adapter work: an explicit structured-leaf text codec independent of fake reference paths. Until those exist, no CPT UI manifest is shipped.
+
+## Qi Blocks 1.5.2
+
+Probed on 2026-09-08.
+
+- Native Single Image Custom 333 by 211 writes image.id, imageCustomWidth/Height and a -333x211.png URL, creates the image file and appends qi_blocks_cropped_images. The attachment metadata contains no 333x211 size. Original-only capture plus standard metadata regeneration cannot recreate this authored presentation; the cache also contains orphaned prior requests and is not authored authority.
+
+Required platform work: derive custom crop recipes from authored content and rebuild them through durable shared media ownership.
 
 ## Closed authoring gaps
 
@@ -65,6 +78,7 @@ Closure is per COORDINATE, so a candidate appears here for the blockers that shi
 | AIO Login 2.4.1 | `options.aio_login_pro_login_redirection_rules.json_refs` | closed sibling-discriminated structural references | `agent/src/Kernel/ReferenceCondition.php`, `agent/src/Kernel/StructuredReferenceCodec.php`, `agent/src/Repository/RepositoryPortableShapeValidator.php`, `sandbox/tests/offline/grammar/regress_conditional_json_refs.php` |
 | Qi Blocks 1.5.2 | `options.qi_blocks_global_styles` | a closed ordered PHP array/stdClass option codec | `agent/src/Kernel/PhpContainerValue.php`, `agent/src/Kernel/StructuredReferenceCodec.php`, `agent/src/Repository/RepositoryAuthorization.php`, `sandbox/tests/offline/grammar/regress_php_container_values.php` |
 | Qi Blocks 1.5.2 | `block_attrs.qi-blocks/*` | declarative structured block values and derived cache exclusion | `agent/src/Kernel/BlockValueGrammar.php`, `agent/src/Grammar/BlockValueCodec.php`, `agent/src/Kernel/BlockAttributeReader.php`, `sandbox/tests/offline/grammar/regress_block_attribute_values.php` |
+| Qi Blocks 1.5.2 | `post_types.*.body.html.class` | a shared structural HTML media-class reference codec | `agent/src/Kernel/HtmlAttributeReader.php`, `agent/src/Kernel/HtmlMediaReferences.php`, `agent/src/Grammar/Blocks.php`, `agent/src/Repository/RepositoryPortableShapeValidator.php`, `agent/src/Review/Lint.php`, `sandbox/tests/offline/grammar/regress_html_media_references.php`, `sandbox/tests/offline/grammar/regress_block_attribute_values.php` |
 
 What each one could not represent:
 
@@ -87,6 +101,7 @@ What each one could not represent:
 - AIO Login 2.4.1 — `options.aio_login_pro_login_redirection_rules.json_refs`: The native REST writer stores decimal page IDs as strings and custom URLs at identical login_target_value/logout_target_value coordinates, selected by sibling target-type fields. Applying unconditional json_refs converted a custom URL to string 0.
 - Qi Blocks 1.5.2 — `options.qi_blocks_global_styles`: The native update-styles REST writer persists an outer PHP array with nested stdClass style records and a post-ID-keyed posts map. PlainData refuses objects; ordinary JSON also erases container type and insertion order. Rewriting the keys independently of an ordering record would leave a dangling order entry when an unresolved reference is dropped.
 - Qi Blocks 1.5.2 — `block_attrs.qi-blocks/*`: Native editor saves nested media objects, repeater image references, CSV postIds selectors and derived query/form previews. Legacy block_attrs treats image.id as one top-level name and coerces CSV into an incomplete integer list. Preview HTML also carries source-local IDs and personal data that native dynamic rendering can reconstruct.
+- Qi Blocks 1.5.2 — `post_types.*.body.html.class`: Native saved Single Image markup carries wp-image-8 beside image.id=8. The old four-core-block allowlist rebounded the declared attribute to target ID 808 while leaving the plugin HTML class at 8; the text regex also rewrote prose rather than actual class attributes.
 
 - Redirection 5.9.0: Closed by the 2026-08-27 one-prompt authoring exercise. `mixed-column-codecs/v1` represents the measured plain/serialized/NULL action_data union without changing strict `php_serialized` semantics. The exact 5.9.0 provider restricts state to the WordPress module, advances the native cache generation when enabled, and proves database/API/lookup convergence with value-free receipts. Offline mutation tests and the hostile-target live conformance exercise cover malformed framing, stale APIs, unsupported modules, cache repair, divergent identities, real HTTP behavior, conflicts, retry and recapture.
 - Code Snippets 3.9.6: Closed by the certified Code Snippets 3.9.5/3.9.6 provider path. It invokes the plugin's native cache and flat-file boundaries, verifies native readback plus hash-only receipts, and is exercised under enabled/disabled flat-file modes, injected faults, retry and recapture. The literal table-wide cache entry remains provider-owned because one plugin demand is not enough reason to widen the engine-native invalidation grammar.
@@ -98,4 +113,5 @@ What each one could not represent:
 - Rank Math SEO 1.0.277.1 / 1.0.277.2: Closed by the Rank Math one-prompt authoring exercise at the reusable platform boundaries rather than with plugin-name branches. Schema settlement publishes exact recovery authority before the first lifecycle/provider mutation and creates only the declared empty tables under an authenticated checkpoint. The incompatibility feature makes the competing Yoast composition fail identically in both manifest and active-plugin orders before repository or target mutation.
 - AIO Login 2.4.1: The shared conditional-json-refs/v1 declaration reuses the existing JSON-path traversal, identity ledger, URL codec, linter and checked option materializer. Offline evidence includes immutable compilation and divergent-ID SQL round trips. This closes the representation gap; the adapter still requires its own native behavior and production-readiness evidence.
 - Qi Blocks 1.5.2: The shared php-container-values/v1 contract composes the existing URL, identity, privacy, immutable compiler and transactional option paths. Offline product tests cover divergent IDs, changed URL lengths, exact native type/order preservation, malformed data, late-write rollback, retry and full option recapture. This closes the representation gap only; Qi still requires its capsule and native behavior/lifecycle evidence.
-- Qi Blocks 1.5.2: The negotiated block-attribute-values/v1 section composes existing reference/text codecs and scope/privacy gates. Product tests cover native post capture, complete compilation without WordPress or database contact, checked SQL with divergent IDs, late-write rollback, retry, repeated apply, full recapture and widget-content validation. This closes these attribute representations only; native media classes in saved HTML and Qi capsule qualification remain separate work.
+- Qi Blocks 1.5.2: The negotiated block-attribute-values/v1 section composes existing reference/text codecs and scope/privacy gates. Product tests cover native post capture, complete compilation without WordPress or database contact, checked SQL with divergent IDs, late-write rollback, retry, repeated apply, full recapture and widget-content validation. This closes these attribute representations only; Qi capsule qualification and custom-crop rebuilding remain separate work.
+- Qi Blocks 1.5.2: The shared whole-body reader composes existing identity lookup and scope rules. Product tests exercise capture/apply, immutable post and widget compilation, lint without block parsing, divergent IDs, rollback/retry and recapture. Literal canonical spelling keeps HTML references visible to the shared reference graph. This closes the saved-class mechanism; Qi native cross-environment qualification remains pending.

@@ -193,6 +193,21 @@
         "agent/src/Kernel/BlockAttributeReader.php",
         "sandbox/tests/offline/grammar/regress_block_attribute_values.php"
       ]
+    },
+    "saved_html_media_references": {
+      "title": "a shared structural HTML media-class reference codec",
+      "status": "shipped",
+      "definition": "Recognize reserved WordPress media class tokens in actual HTML class attributes across plugin, core, classic and widget content. Reuse identity/scope handling and require literal canonical tokens visible to the repository graph.",
+      "evidence": [
+        "agent/src/Kernel/HtmlMediaReferences.php",
+        "sandbox/tests/offline/grammar/regress_html_media_references.php",
+        "sandbox/tests/offline/grammar/regress_block_attribute_values.php"
+      ]
+    },
+    "declared_media_derivative_recipes": {
+      "title": "declared custom media derivative recipes with durable file ownership",
+      "status": "open",
+      "definition": "Rebuild custom image sizes selected by authored content when the native plugin writes those files outside attachment metadata. Derive bounded recipes from declared content references and dimensions, then publish and recover generated files through shared media authority rather than promoting a derived plugin cache as authored state."
     }
   },
   "candidates": [
@@ -612,7 +627,56 @@
           ]
         }
       ],
-      "closing": "The negotiated block-attribute-values/v1 section composes existing reference/text codecs and scope/privacy gates. Product tests cover native post capture, complete compilation without WordPress or database contact, checked SQL with divergent IDs, late-write rollback, retry, repeated apply, full recapture and widget-content validation. This closes these attribute representations only; native media classes in saved HTML and Qi capsule qualification remain separate work."
+      "closing": "The negotiated block-attribute-values/v1 section composes existing reference/text codecs and scope/privacy gates. Product tests cover native post capture, complete compilation without WordPress or database contact, checked SQL with divergent IDs, late-write rollback, retry, repeated apply, full recapture and widget-content validation. This closes these attribute representations only; Qi capsule qualification and custom-crop rebuilding remain separate work."
+    },
+    {
+      "id": "qi-blocks-html-media",
+      "candidate": "Qi Blocks",
+      "versions_probed": [
+        "1.5.2"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "qi-blocks"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "post_types.*.body.html.class",
+          "cannot_represent": "Native saved Single Image markup carries wp-image-8 beside image.id=8. The old four-core-block allowlist rebounded the declared attribute to target ID 808 while leaving the plugin HTML class at 8; the text regex also rewrote prose rather than actual class attributes.",
+          "primitive_required": "saved_html_media_references",
+          "closed_by": [
+            "agent/src/Kernel/HtmlAttributeReader.php",
+            "agent/src/Kernel/HtmlMediaReferences.php",
+            "agent/src/Grammar/Blocks.php",
+            "agent/src/Repository/RepositoryPortableShapeValidator.php",
+            "agent/src/Review/Lint.php",
+            "sandbox/tests/offline/grammar/regress_html_media_references.php",
+            "sandbox/tests/offline/grammar/regress_block_attribute_values.php"
+          ]
+        }
+      ],
+      "closing": "The shared whole-body reader composes existing identity lookup and scope rules. Product tests exercise capture/apply, immutable post and widget compilation, lint without block parsing, divergent IDs, rollback/retry and recapture. Literal canonical spelling keeps HTML references visible to the shared reference graph. This closes the saved-class mechanism; Qi native cross-environment qualification remains pending."
+    },
+    {
+      "id": "qi-blocks-custom-crops",
+      "candidate": "Qi Blocks",
+      "versions_probed": [
+        "1.5.2"
+      ],
+      "disposition": "rejected",
+      "blocked_adapters": [
+        "qi-blocks"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "post_types.*.body.custom-image-size",
+          "cannot_represent": "Native Single Image Custom 333 by 211 writes image.id, imageCustomWidth/Height and a -333x211.png URL, creates the image file and appends qi_blocks_cropped_images. The attachment metadata contains no 333x211 size. Original-only capture plus standard metadata regeneration cannot recreate this authored presentation; the cache also contains orphaned prior requests and is not authored authority.",
+          "primitive_required": "declared_media_derivative_recipes",
+          "blocker_layer": "platform",
+          "remedy_phrase": "derive custom crop recipes from authored content and rebuild them through durable shared media ownership"
+        }
+      ],
+      "probed_on": "2026-09-08"
     }
   ]
 }

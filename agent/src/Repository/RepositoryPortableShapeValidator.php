@@ -42,6 +42,7 @@ if (!class_exists(Secrets::class, false)) {
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Grammar/BlockValueCodec.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
 
 final class RepositoryPortableShapeValidator {
     private const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -551,6 +552,11 @@ final class RepositoryPortableShapeValidator {
     }
 
     private function validate_block_values(string $body, string $path, string $rootLocator = 'body'): void {
+        try {
+            HtmlMediaReferences::assert_canonical($body);
+        } catch (\RuntimeException $e) {
+            $this->add('repository_html_media_invalid', $path, $rootLocator, $e->getMessage());
+        }
         $rules = [];
         foreach ($this->policy->block_attr_rules() as $block => $attributes) {
             foreach ($attributes as $rule) {

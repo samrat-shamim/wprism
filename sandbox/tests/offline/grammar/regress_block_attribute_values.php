@@ -29,6 +29,7 @@ require_once $root . '/agent/src/Kernel/BlockValueGrammar.php';
 require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Repository/Ledger.php';
 require_once $root . '/agent/src/Review/BlockReferenceScanner.php';
+require_once $root . '/agent/src/Review/Lint.php';
 require_once $root . '/agent/src/Capture/PostCapture.php';
 require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
 require_once $root . '/agent/src/Apply/PostMaterializer.php';
@@ -120,11 +121,12 @@ $attrs = ['image' => ['id' => 4, 'url' => 'https://source.test/image.png'],
     'preview' => ['post_id' => 4, 'email' => 'editor@example.test', 'html' => '<form data-source="4"></form>'],
     'caption' => 'https://source.test/caption', 'localCounter' => 3];
 $block = static fn(array $a): string => '<!-- wp:fixture/media ' . serialize_block_attributes($a) . ' /-->';
-$native = '<!-- wp:group --><div>' . $block($attrs) . '</div><!-- /wp:group -->';
+$native = '<!-- wp:group --><div>' . $block($attrs) . '<img class="wp-image-4"/></div><!-- /wp:group -->';
 $database(0);
 $sourceTokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
 $captured = Blocks::capture_rewrite($native, $policy, $sourceTokens);
 $a = parse_blocks($captured)[0]['innerBlocks'][0]['attrs'];
+wprism_check(str_contains($captured, 'class="wp-image-' . $token4 . '"'), 'saved media outside the core image allowlist captures its reserved class');
 wprism_check_same($token4, $a['image']['id'], 'nested image identity is tokenized');
 wprism_check_same($token9, $a['slides'][0]['image']['id'], 'shared JSON paths transparently traverse repeaters');
 wprism_check_same([$token4, $token9, $token4], $a['postIds'], 'CSV capture keeps order, every selection and duplicate selections');
@@ -172,6 +174,7 @@ $database(800);
 $targetTokens = new Tokens('https://target.example.test/longer-prefix', 'https://target.example.test/longer-prefix/wp-content/uploads');
 $applied = Blocks::apply_rewrite($captured, $policy, $targetTokens);
 $appliedAttrs = parse_blocks($applied)[0]['innerBlocks'][0]['attrs'];
+wprism_check(str_contains($applied, 'class="wp-image-804"'), 'saved media class follows the target identity alongside structured attributes');
 wprism_check_same(804, $appliedAttrs['image']['id'], 'target attachment identity is resolved from its ledger');
 wprism_check_same('804,809,804', $appliedAttrs['postIds'], 'target query selector restores native CSV storage');
 wprism_check_same('809', $appliedAttrs['formID'], 'selected form keeps its declared native string type');
@@ -248,11 +251,13 @@ wprism_check_same(['entities' => 2, 'wordpress' => false, 'database' => false], 
     'complete immutable compiler needs neither WordPress parsing nor a database object');
 wprism_check_same($databaseBefore, $GLOBALS['wpdb']->queries(), 'immutable compiler validates block references without database contact');
 wprism_check($artifact->tree() !== [], 'real immutable compiler admits the complete canonical post graph');
-foreach (['raw', 'derived', 'malformed-json'] as $fault) {
+foreach (['raw', 'derived', 'malformed-json', 'raw-html', 'encoded-html'] as $fault) {
     $bad = $a;
     if ($fault === 'raw') $bad['image']['id'] = 804;
     if ($fault === 'derived') $bad['preview'] = ['source' => 4];
     $badBody = $fault === 'malformed-json' ? '<!-- wp:fixture/media {"image":broken} /-->' : $block($bad);
+    if ($fault === 'raw-html') $badBody = str_replace('wp-image-' . $token4, 'wp-image-804', $captured);
+    if ($fault === 'encoded-html') $badBody = str_replace('wp-image-{{', 'wp-image-&#123;&#123;', $captured);
     Canon::write_file($scratch . '/state/posts/page/' . $uuid4 . '--first.md', Canon::post_file($firstFront, $badBody));
     wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), RuntimeException::class,
         "immutable compiler refuses $fault before any apply");
@@ -399,13 +404,37 @@ $sidebar = ['widgets' => [['uuid' => '33333333-3333-4333-8333-333333333333', 'ty
 Canon::write_file($scratch . '/state/sidebars/main.json', Canon::encode($sidebar));
 wprism_check_same(3, count(RepositoryCompiler::compile($scratch, $policy)->tree()),
     'complete compiler accepts the same canonical block inside a widget');
-foreach (['raw', 'derived'] as $fault) {
+foreach (['raw', 'derived', 'raw-html', 'encoded-html'] as $fault) {
     $bad = $a;
     if ($fault === 'raw') $bad['image']['id'] = 4;
     if ($fault === 'derived') $bad['preview'] = ['source' => 4];
-    $sidebar['widgets'][0]['settings']['content'] = $block($bad);
+    $sidebar['widgets'][0]['settings']['content'] = $fault === 'raw-html' ? str_replace('wp-image-' . $token4, 'wp-image-804', $captured) : $block($bad);
+    if ($fault === 'encoded-html') $sidebar['widgets'][0]['settings']['content'] = str_replace('wp-image-{{', 'wp-image-&#123;&#123;', $captured);
     Canon::write_file($scratch . '/state/sidebars/main.json', Canon::encode($sidebar));
     wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), RuntimeException::class,
         "immutable widget block content refuses $fault just like a post body");
 }
+$badHtml = str_replace('wp-image-' . $token4, 'wp-image-804', $captured);
+Canon::write_file($scratch . '/state/posts/page/' . $uuid4 . '--first.md', Canon::post_file($firstFront, $badHtml));
+$sidebar['widgets'][0]['settings']['content'] = $badHtml;
+Canon::write_file($scratch . '/state/sidebars/main.json', Canon::encode($sidebar));
+$lintEnvironment = WPrism\LintEnvironment::recorded(['format' => WPrism\LintEnvironment::FORMAT,
+    'home' => 'https://source.test', 'entities' => [['id' => 804, 'resolved' => null]],
+    'scanned' => ['blocks' => false, 'shortcodes' => false],
+    'state_hash' => WPrism\LintEnvironment::state_hash($scratch . '/state')]);
+$beforeLint = $GLOBALS['wpdb']->queries();
+$findings = WPrism\Lint::scan_tree($scratch . '/state', $policy, $lintEnvironment);
+$htmlFindings = array_values(array_filter($findings, static fn(array $finding) => str_ends_with($finding['locator'], '.class')));
+wprism_check_same([804, 804], array_column($htmlFindings, 'value'), 'public lint finds raw media IDs in posts and widgets even when block parsing is unavailable');
+wprism_check_same($beforeLint, $GLOBALS['wpdb']->queries(), 'recorded HTML lint needs no database reads');
+$encodedHtml = str_replace('wp-image-{{', 'wp-image-&#123;&#123;', $captured);
+wprism_check_throws(static fn() => Blocks::apply_rewrite($encodedHtml, $policy, $targetTokens), RuntimeException::class, 'direct apply refuses an encoded canonical HTML token before returning native content');
+Canon::write_file($scratch . '/state/posts/page/' . $uuid4 . '--first.md', Canon::post_file($firstFront, $encodedHtml));
+$sidebar['widgets'][0]['settings']['content'] = $encodedHtml;
+Canon::write_file($scratch . '/state/sidebars/main.json', Canon::encode($sidebar));
+$lintEnvironment = WPrism\LintEnvironment::recorded(['format' => WPrism\LintEnvironment::FORMAT,
+    'home' => 'https://source.test', 'entities' => [], 'scanned' => ['blocks' => false, 'shortcodes' => false],
+    'state_hash' => WPrism\LintEnvironment::state_hash($scratch . '/state')]);
+$findings = WPrism\Lint::scan_tree($scratch . '/state', $policy, $lintEnvironment);
+wprism_check_same(2, count(array_filter($findings, static fn(array $finding) => $finding['class'] === 'invalid_html_media_reference')), 'public lint names hidden encoded identity edges in posts and widgets');
 wprism_check_summary('block attribute values');
