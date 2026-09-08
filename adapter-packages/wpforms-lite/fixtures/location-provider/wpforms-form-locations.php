@@ -39,9 +39,6 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
 
     protected function invoke_rebuild_form_locations(array $args): array {
         self::assert_arguments($args);
-        if (is_multisite()) {
-            self::refuse('reconstruction is scoped to single-site WordPress');
-        }
         $first = $this->rebuild_pass();
         $committed = $this->durable_snapshot();
         if ($committed !== $first['after']) {

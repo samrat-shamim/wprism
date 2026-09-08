@@ -116,4 +116,9 @@ wprism_check_throws(static fn() => $call('reconciliation_plan', $many, []), Runt
     'all mutation intent is bounded before any DML can begin', 'pre-write mutation frontier');
 $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
 wprism_check(!isset($manifest['providers']), 'the executable candidate cannot advertise an unproven native capability');
+// The SDK checks core function provenance before its single-site refusal,
+// including home-only batches. A capsule precheck would execute it too soon.
+$source = (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/location-provider/wpforms-form-locations.php');
+wprism_check(preg_match('/\\bis_multisite\\s*\\(/', $source) === 0,
+    'single-site admission belongs to the source-checked engine reader, never a candidate precheck');
 wprism_check_summary('wpforms_location_reconciliation');
