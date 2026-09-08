@@ -388,6 +388,7 @@ wprism_check_same(
         'polylang',
         'rank-math',
         'redirection',
+        'speculation-rules',
         'the-events-calendar',
         'woocommerce',
         'wordpress-popup',

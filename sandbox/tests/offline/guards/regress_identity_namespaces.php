@@ -295,6 +295,7 @@ wprism_check_same(
         'polylang',
         'rank-math',
         'redirection',
+        'speculation-rules',
         'the-events-calendar',
         'woocommerce',
         'wordpress-popup',
@@ -327,7 +328,7 @@ wprism_check_same(
 $unprefixed = $namespaceVerdict($manifest('cache', 3), 'cache');
 wprism_check(
     is_string($unprefixed) && str_contains($unprefixed, "the unprefixed name 'cache'")
-        && str_contains($unprefixed, 'closed reserved list of 21 names')
+        && str_contains($unprefixed, 'closed reserved list of 22 names')
         && str_contains($unprefixed, '§ v3.9'),
     'an unprefixed out-of-tree name refuses BY NAME, naming the closed list and the section that decided it'
 );

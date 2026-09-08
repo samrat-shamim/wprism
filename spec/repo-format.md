@@ -1681,14 +1681,14 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 19 adapter names, 21 `id_kind`s, 17 provider ids = 57 identities, all of which already pass the one
+- 22 adapter names, 22 `id_kind`s, 17 provider ids = 61 identities, all of which already pass the one
   shared grammar;
-- a bare `<vendor>-<name>` refusal would break **28** of them — the 7 adapter names carrying no hyphen at
-  all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 21 `id_kind`s, every one of
+- a bare `<vendor>-<name>` refusal would break **29** of them — the 7 adapter names carrying no hyphen at
+  all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 22 `id_kind`s, every one of
   which is underscore-separated;
-- the other 12 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 19
-  names; all 21 `id_kind`s remain governed by R-17 rather than that name list;
+- the other 15 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
+  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 22
+  names; all 22 `id_kind`s remain governed by R-17 rather than that name list;
 - all 17 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
   convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
   `paid-memberships-pro-cache` when generic invalidation absorbed it; Redirection and experimental WPForms

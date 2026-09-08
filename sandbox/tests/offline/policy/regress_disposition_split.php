@@ -376,15 +376,21 @@ const WPRISM_CURRENT_DIGESTS = [
     'polylang' => '933ff6b878ef3545597b9111aeade9aa13d54389a168f9a44ddee89984991e17',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
+    'speculation-rules' => '170301093e21115a50380bd3aca55f8fea38ccaee5b8b33a9c0f49813f76350f',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
-    'wordpress-popup' => 'd78aac304617bc7723b142438b7565fa86ca7dbb063948e9c2c1de5195c99b88',
+    'wordpress-popup' => 'e1208792f2dfdad05b76c3f5cb3d98899b441aeb616224df04955a52abd5097c',
     'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
+// The registry as each capsule joined it, so the transitions below prove that
+// a new capsule changed no pre-existing disposition byte. The first address is
+// main's own reviewed registry, which is what makes the ladder a statement
+// about THIS branch rather than a restatement of its own numbers.
+const PRE_SPECULATION_RULES_REGISTRY_SHA = '0efc7cf53360dc26e42ca40d8ed97b9c489f0ac6c48883649801af4a17e0e6bd';
 // The registry as each preview joined it, so the transitions below prove that
 // a new capsule changed no pre-existing disposition byte.
 const PRE_DOWNLOAD_MANAGER_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
@@ -743,13 +749,21 @@ unset($priorRegistry['manifests']['wpforms-lite']);
 wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
     'all 18 reviewed dispositions that predate all three capture previews remain byte-identical');
 $priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['download-manager'], $priorRegistry['manifests']['wordpress-popup']);
+unset(
+    $priorRegistry['manifests']['download-manager'],
+    $priorRegistry['manifests']['speculation-rules'],
+    $priorRegistry['manifests']['wordpress-popup']
+);
 wprism_check_same(PRE_DOWNLOAD_MANAGER_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
     'all 19 pre-existing reviewed dispositions remain byte-identical after adding the Download Manager preview');
 $priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['wordpress-popup']);
+unset($priorRegistry['manifests']['speculation-rules'], $priorRegistry['manifests']['wordpress-popup']);
 wprism_check_same(PRE_WORDPRESS_POPUP_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
     'all 20 pre-existing reviewed dispositions remain byte-identical after adding the Hustle preview');
+$priorRegistry = $shippedRegistry->data();
+unset($priorRegistry['manifests']['speculation-rules']);
+wprism_check_same(PRE_SPECULATION_RULES_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
+    'all 21 pre-existing reviewed dispositions remain byte-identical after adding the Speculative Loading capsule');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
     'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
@@ -871,7 +885,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(22, $documentCount, 'the reviewed source is 22 documents: 21 subjects and the profiles map');
+wprism_check_same(23, $documentCount, 'the reviewed source is 23 documents: 22 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,
