@@ -17,7 +17,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 367 offline suites green"
+	@echo "regress-offline-all: 368 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-action-provider-grammar \
@@ -126,6 +126,7 @@ regress-offline-corpus: code-half-unit \
 	regress-coverage-offline \
 	regress-cross-manifest-guards \
 	regress-cross-root-replay \
+	regress-db-repeatable-read-authority \
 	regress-db-transaction-authority \
 	regress-delete-authorization-receipt \
 	regress-delete-executor \
@@ -387,4 +388,4 @@ regress-offline-corpus: code-half-unit \
 	regress-wp-cli-child-process \
 	regress-wpforms-lite-adapter \
 	regress-wpforms-lite-term-deletion
-	@echo "regress-offline-corpus: 367 offline suites green"
+	@echo "regress-offline-corpus: 368 offline suites green"

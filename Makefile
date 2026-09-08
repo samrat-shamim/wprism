@@ -1150,6 +1150,10 @@ regress-agent-src-requires:
 regress-db-transaction-authority:
 	php sandbox/tests/offline/guards/regress_db_transaction_authority.php
 
+.PHONY: regress-db-repeatable-read-authority
+regress-db-repeatable-read-authority:
+	php sandbox/tests/offline/guards/regress_db_repeatable_read_authority.php
+
 .PHONY: regress-ledger-large-values
 regress-ledger-large-values:
 	php sandbox/tests/offline/repository/regress_ledger_large_values.php

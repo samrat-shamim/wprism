@@ -17409,6 +17409,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "repeatable_read_authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\TransactionAuthority",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "rollback": {
                     "abstract": false,
                     "final": false,
