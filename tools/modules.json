@@ -76,6 +76,8 @@
     "DatabaseTransactionOutcomeException",
     "ExactOptionReader",
     "NativeOptionInputs",
+    "NativeCoreCache",
+    "NativePostTypes",
     "ExactOptionWriter",
     "ExecutableTreeIdentity",
     "FilesystemTreeSnapshot",
@@ -149,7 +151,7 @@
             ]
           }
         ],
-  "file_count": 69,
+  "file_count": 71,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -177,6 +179,8 @@
     "ManifestExecutableLoader.php",
     "NativeDatabaseProfile.php",
     "NativeOptionInputs.php",
+    "NativeCoreCache.php",
+    "NativePostTypes.php",
     "NativeTableDefinition.php",
     "NativeValueValidation.php",
           "MediaPayloadAuthority.php",

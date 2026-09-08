@@ -603,6 +603,10 @@ wprism_check_detail('manifest-validate exit ' . $validated['exit']
 // Exercise each new dependency through the real Policy/ManifestValidator path,
 // including an unknown successor version before executable resolution.
 $sdkFeatures = [
+    'provider-native-post-types/v1' => [
+        'constant' => 'NATIVE_POST_TYPES_FEATURE',
+        'methods' => ['checked_native_post_types'],
+    ],
     'provider-native-option-inputs/v1' => [
         'constant' => 'NATIVE_OPTION_INPUTS_FEATURE',
         'methods' => ['native_option_inputs'],

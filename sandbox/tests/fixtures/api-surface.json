@@ -1,5 +1,5 @@
 {
-    "class_count": 487,
+    "class_count": 489,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -29019,6 +29019,109 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\NativeCoreCache": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "group",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "purpose",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_current": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_environment": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "purpose",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "entries": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "key": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "string|int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\NativeDatabaseProfile": {
             "abstract": false,
             "constants": [],
@@ -29183,6 +29286,43 @@
                         }
                     ],
                     "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\NativePostTypes": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ids",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -59195,6 +59335,9 @@
                 "NATIVE_OPTION_INPUTS_FEATURE": {
                     "value_repr": "provider-native-option-inputs/v1"
                 },
+                "NATIVE_POST_TYPES_FEATURE": {
+                    "value_repr": "provider-native-post-types/v1"
+                },
                 "PHYSICAL_TABLE_ROWS_FEATURE": {
                     "value_repr": "provider-physical-table-rows/v1"
                 },
@@ -59384,6 +59527,31 @@
                         }
                     ],
                     "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "checked_native_post_types": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ids",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },

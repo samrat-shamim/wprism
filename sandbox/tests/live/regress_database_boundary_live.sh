@@ -22,6 +22,8 @@
 #      binary/null values, composite identities, bounds and rollback on both drivers.
 #   9. Native option input witnesses observe actual core getter/default/cache
 #      paths, reject unsafe inputs before invocation and preserve rollback.
+#  10. Native post types admit full cold allocations and selected raw caches
+#      without cloning hostile objects or borrowing observer authority.
 #
 # This live, per-mechanism suite owns its one pair from creation through
 # destruction and is intentionally outside regress-offline-all. Invoke it only
@@ -733,7 +735,23 @@ prove_native_option_inputs() {
   printf 'retained native option-input transport: %s\n' "$sink/native"
   [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE native option-input command failed with exit $status"
   php "$REPO_ROOT/sandbox/tests/fixtures/native-option-inputs.php" --admit "$sink/native" "$expected_engine"
-  pass "$CURRENT_DB_ENGINE proved actual native inputs, safe cache refusal, exact hook cleanup and complete option rollback"
+  pass "$CURRENT_DB_ENGINE proved actual native inputs, safe cache refusal, exact hook cleanup and complete option-row rollback"
+}
+
+prove_native_post_types() {
+  local sink suffix status=0 expected_engine
+  case "$CURRENT_DB_ENGINE" in mariadb) expected_engine=MariaDB ;; mysql) expected_engine=MySQL ;; esac
+  say "$CURRENT_DB_ENGINE: native post types, full-row allocation and poisoned-failure rollback"
+  sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/native-post-types-$CURRENT_DB_ENGINE.XXXXXX")
+  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/native.$suffix"); done
+  . "$REPO_ROOT/sandbox/tests/lib/private_command_capture.sh"
+  wprism_private_capture_stage "$sink" native compose run --rm -T \
+    -v "$REPO_ROOT/sandbox/tests/fixtures/native-post-types.php:/native-post-types.php:ro" \
+    cli1 wp eval-file /native-post-types.php --use-include || status=$?
+  printf 'retained native post-type transport: %s\n' "$sink/native"
+  [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE native post-type command failed with exit $status"
+  php "$REPO_ROOT/sandbox/tests/fixtures/native-post-types.php" --admit "$sink/native" "$expected_engine"
+  pass "$CURRENT_DB_ENGINE proved native post types, bounded cache admission and complete post-row rollback"
 }
 
 start_pair() {
@@ -771,6 +789,7 @@ prove_session_grammar
 prove_large_keyed_values
 prove_physical_rows
 prove_native_option_inputs
+prove_native_post_types
 finish_pair
 
 start_pair mysql mysql MySQL
@@ -781,6 +800,7 @@ prove_session_grammar
 prove_large_keyed_values
 prove_physical_rows
 prove_native_option_inputs
+prove_native_post_types
 finish_pair
 
 # The MySQL container is shared infrastructure, not this script's resource.

@@ -6,6 +6,7 @@ namespace WPrism;
 require_once __DIR__ . '/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/DatabaseExceptions.php';
 require_once __DIR__ . '/ExactOptionReader.php';
+require_once __DIR__ . '/NativeCoreCache.php';
 require_once __DIR__ . '/PlainData.php';
 
 /**
@@ -42,8 +43,7 @@ final class NativeOptionInputs {
     /** @var array<string,array{object:object,callbacks:array,callback:\Closure}> */
     private array $ownedHooks = [];
     private ?string $pending = null;
-    private ?object $cache = null;
-    private ?string $cachePrefix = null;
+    private ?NativeCoreCache $cache = null;
     private ?string $optionSource = null;
 
     private function __construct(private readonly string $context) {
@@ -232,12 +232,7 @@ final class NativeOptionInputs {
     }
 
     private function assert_core_cache(): void {
-        if (defined('WP_SETUP_CONFIG') || !function_exists('wp_installing') || wp_installing()
-            || !function_exists('wp_using_ext_object_cache') || !in_array(wp_using_ext_object_cache(), [null, false], true)
-            || !defined('ABSPATH') || !defined('WPINC')) {
-            $this->refuse('native option inputs require ordinary WordPress with its request-local core cache');
-        }
-        $cache = $GLOBALS['wp_object_cache'] ?? null;
+        NativeCoreCache::assert_environment($this->context, 'native option inputs');
         $core = rtrim(ABSPATH, '/\\') . '/' . WPINC . '/';
         $optionSource = realpath($core . 'option.php');
         if ($optionSource === false || !function_exists('get_option')
@@ -245,51 +240,15 @@ final class NativeOptionInputs {
             $this->refuse('native option inputs require the standard core getter');
         }
         $this->optionSource = $optionSource;
-        // WP 7.1 load.php:810-819 returns its initially unset global as null.
-        // Only that native absent/false state is admitted, not arbitrary falsy
-        // flags; exact core object/function provenance remains mandatory below.
-        if (!is_object($cache) || get_class($cache) !== 'WP_Object_Cache'
-            || realpath($core . 'class-wp-object-cache.php') === false
-            || (new \ReflectionClass($cache))->getFileName() !== realpath($core . 'class-wp-object-cache.php')) {
-            $this->refuse('native option inputs cannot witness a substituted object cache');
-        }
-        foreach (['wp_cache_get', 'wp_cache_set', 'wp_cache_add'] as $function) {
-            if (!function_exists($function) || realpath($core . 'cache.php') === false
-                || (new \ReflectionFunction($function))->getFileName() !== realpath($core . 'cache.php')) {
-                $this->refuse('native option inputs cannot witness substituted cache functions');
-            }
-        }
-        foreach (['cache', 'multisite', 'global_groups', 'blog_prefix'] as $property) {
-            if (!$cache->__isset($property)) {
-                $this->refuse('native option inputs found incomplete core cache state');
-            }
-        }
-        // Core explicitly exposes these properties through its public __get
-        // compatibility view. Do not use get(): it clones objects before a
-        // caller can reject them (WP 7.1 class-wp-object-cache.php:378-379).
-        $multisite = $cache->__get('multisite');
-        $groups = $cache->__get('global_groups');
-        if (!is_bool($multisite) || !is_array($groups)) {
-            $this->refuse('native option inputs found malformed core cache routing');
-        }
-        $prefix = $multisite && !isset($groups['options']) ? $cache->__get('blog_prefix') : '';
-        if (!is_string($prefix) || ($prefix !== '' && preg_match('/^[1-9][0-9]*:$/D', $prefix) !== 1)
-            || ($this->cache !== null && ($cache !== $this->cache || $prefix !== $this->cachePrefix))) {
-            $this->refuse('native option inputs found changed core cache routing');
-        }
-        $this->cache = $cache;
-        $this->cachePrefix = $prefix;
+        $this->cache ??= new NativeCoreCache('options', $this->context, 'native option inputs');
+        $this->cache->assert_current();
     }
 
     private function assert_cache(): void {
         $this->assert_core_cache();
-        $cache = $this->cache->__get('cache');
-        if (!is_array($cache) || (array_key_exists('options', $cache) && !is_array($cache['options']))) {
-            $this->refuse('native option inputs found malformed local option-cache storage');
-        }
-        $options = $cache['options'] ?? [];
-        $allKey = $this->cachePrefix . 'alloptions';
-        $notKey = $this->cachePrefix . 'notoptions';
+        $options = $this->cache->entries();
+        $allKey = $this->cache->key('alloptions');
+        $notKey = $this->cache->key('notoptions');
         $all = array_key_exists($allKey, $options) ? $options[$allKey] : [];
         $not = array_key_exists($notKey, $options) ? $options[$notKey] : [];
         if (!is_array($all) || !is_array($not)) {
@@ -297,7 +256,7 @@ final class NativeOptionInputs {
         }
         foreach ($this->inputs as $name => $input) {
             $row = $input['row'];
-            foreach ([[$all, $name], [$options, $this->cachePrefix . $name]] as [$values, $key]) {
+            foreach ([[$all, $name], [$options, $this->cache->key($name)]] as [$values, $key]) {
                 if (array_key_exists($key, $values)
                     && ($row === null || !is_string($values[$key]) || !hash_equals($row['raw'], $values[$key]))) {
                     $this->refuse('native option cache bytes disagree with the exact physical input');
