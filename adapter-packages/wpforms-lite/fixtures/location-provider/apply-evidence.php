@@ -41,6 +41,7 @@ final class WPFormsApplyEvidence {
         self::check(is_int($apply['applied'] ?? null) && $apply['applied'] > 0 && count($apply['actions'] ?? []) === 1,
             'Apply actually mutates authored state and runs one provider');
         self::check(is_string($contract['source']['artifact_hash'] ?? null)
+            && ($plan['artifact_hash'] ?? null) === $contract['source']['artifact_hash']
             && ($apply['artifact']['hash'] ?? null) === $contract['source']['artifact_hash']
             && ($repeat['artifact']['hash'] ?? null) === $contract['source']['artifact_hash'], 'Apply and repeat consume the scope contract artifact');
         $action = $apply['actions'][0];
@@ -100,18 +101,21 @@ final class WPFormsApplyEvidence {
         foreach ($after['widget_options']['block'] as $number => $settings) {
             if ($number === '_multiwidget') continue;
             self::check(($settings['content'] ?? null) === '<!-- wp:wpforms/form-selector {"formId":"' . $integer . '"} /-->', 'native block widget targets the remapped form');
-            $expectedWidgets[] = ['type' => 'widget', 'title' => '', 'form_id' => $integer, 'id' => 'block-' . $number];
+            // Locked Locator::init()/search_in_block_widgets() supplies this
+            // native English label even when the widget has no title field.
+            $expectedWidgets[] = ['type' => 'widget', 'title' => 'Block Widget', 'form_id' => $integer, 'id' => 'block-' . $number];
         }
         self::check(count($expectedWidgets) === (in_array($case, ['widgets', 'routing'], true) ? 3 : 1)
             && self::ordered($expectedWidgets) === self::ordered($after['widgets']), 'all native widget locations independently match stored settings');
         foreach (['integer', 'string'] as $role) {
             $form = $after['posts'][$role]['id'];
-            $expected = $role === 'integer' ? $expectedWidgets : [];
+            $expected = [];
             if ($case === 'baseline' || $role === 'string') {
                 self::check(is_string($embedding['url']) && str_starts_with($embedding['url'], $after['home']), 'target-derived placement permalink');
                 $expected[] = ['type' => 'page', 'title' => $embedding['title'], 'form_id' => $form,
                     'id' => $embedding['id'], 'status' => 'publish', 'url' => substr($embedding['url'], strlen($after['home']))];
             }
+            if ($role === 'integer') $expected = array_merge($expected, $expectedWidgets);
             $native = $after['native'][$role];
             self::check(self::ordered($expected) === self::ordered($native['locations']), 'complete target-native location values: ' . $role);
             self::check(substr_count($native['column'], 'class="wpforms-locations-list-item"') === count($expected)
@@ -119,7 +123,10 @@ final class WPFormsApplyEvidence {
                 && str_contains($native['rendered'], 'name="wpforms[fields][1]"')
                 && str_contains($native['rendered'], 'name="wpforms[fields][2]"'), 'fresh location and form UI consumers: ' . $role);
             $rows = array_values(array_filter($after['owned'], static fn(array $row): bool => (int) $row['post_id'] === $form));
-            self::check(count($rows) === 1 && self::ordered(unserialize($rows[0]['meta_value'], ['allowed_classes' => false])) === self::ordered($expected),
+            // Native storage order is posts then widgets, already pinned by
+            // the lower-level native lane. No untrusted unserialize is needed.
+            self::check(count($rows) === 1 && ($rows[0]['meta_key'] ?? null) === 'wpforms_form_locations'
+                && is_string($rows[0]['meta_value'] ?? null) && $rows[0]['meta_value'] === serialize($expected),
                 'complete physical location row agrees with native consumers: ' . $role);
         }
         self::check(count($after['owned']) === 2, 'no unproved duplicate or orphan location row');
@@ -140,6 +147,7 @@ if (($argv[1] ?? null) === '--admit') {
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/PrivateCommandOutput.php';
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/RepositoryConvergence.php';
+    require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/frozen_policy.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Repository/RepositoryCompiler.php';
     require_once __DIR__ . '/provider-library.php';
     require_once dirname(__DIR__) . '/capture-plan/probe.php';
@@ -149,8 +157,15 @@ if (($argv[1] ?? null) === '--admit') {
     if (preg_match('/^[a-z][a-z0-9]+$/D', $pair) !== 1) throw new RuntimeException('WPForms Apply evidence: exact pair required');
     $pattern = '/^ ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-z0-9]+ (Creating|Created) *$/D';
     $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject($sink . '/' . $name, $pattern), true, 32, JSON_THROW_ON_ERROR);
-    foreach ([1, 2] as $side) WPFormsCaptureProbe::admit($read('seed' . $side), 'seed', 'http://' . $pair . $side . '.invalid');
-    $library = WPFormsLocationProviderLibrary::create(dirname(__DIR__, 4), $sink . '/library');
+    foreach ([1, 2] as $side) {
+        $home = 'http://' . $pair . $side . '.invalid';
+        $setup = $read('setup' . $side);
+        if (($setup['home'] ?? null) !== $home) throw new RuntimeException('WPForms Apply evidence: native setup home differs from headless bootstrap premise');
+        WPFormsCaptureProbe::admit($read('seed' . $side), 'seed', $home);
+    }
+    // Admission is repeatable and read-only over the retained evidence. The
+    // existing scratch owner cleans this reconstruction after every reviewer.
+    $library = WPFormsLocationProviderLibrary::create(dirname(__DIR__, 4), WPrismTest\FrozenPolicy::library() . '/candidate');
     $before = $read('before2');
     $priorSource = null;
     foreach (['baseline', 'embeds', 'widgets', 'routing'] as $case) {

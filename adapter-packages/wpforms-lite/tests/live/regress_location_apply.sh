@@ -2,8 +2,8 @@
 # Content-only Apply evidence. No init, code descriptor, deploy or certification.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-REPO_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+REPO_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 cd "$REPO_ROOT/sandbox"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 PAIR="${WPFORMS_APPLY_PAIR:?unique owned pair required}"

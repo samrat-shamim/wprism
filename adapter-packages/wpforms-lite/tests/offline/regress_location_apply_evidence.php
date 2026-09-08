@@ -15,6 +15,7 @@ $contract = ['format' => 'wprism-scope-contract/v1', 'code_diagnostic' => null,
 $plan = array_fill_keys(['conflict', 'collision', 'drift', 'delete', 'delete_conflict', 'code_mismatch', 'code_drift',
     'incomplete_apply', 'incomplete_lifecycle', 'missing_user'], []);
 $plan['selected_actions'] = [$identity];
+$plan['artifact_hash'] = str_repeat('a', 64);
 $plan['adapter_dispositions'] = [
     ['name' => 'wpforms-lite', 'status' => 'unsupported', 'code' => 'authored_state_not_certified'],
     ['name' => 'wpforms-lite', 'status' => 'unsupported', 'code' => 'operation_not_certified'],
@@ -37,6 +38,7 @@ $cases = [
     'promotion erased' => static function (&$c, &$p, &$a, &$r): void { $p['adapter_dispositions'] = []; },
     'runtime blocker' => static function (&$c, &$p, &$a, &$r): void { $p['adapter_dispositions'][1]['code'] = 'provider_requirement_unmet'; },
     'wrong artifact' => static function (&$c, &$p, &$a, &$r): void { $a['artifact']['hash'] = str_repeat('b', 64); },
+    'wrong plan artifact' => static function (&$c, &$p, &$a, &$r): void { $p['artifact_hash'] = str_repeat('b', 64); },
     'code stale' => static function (&$c, &$p, &$a, &$r): void { $p['code_mismatch'][] = ['issue' => 'code_revision_stale']; },
     'target drift' => static function (&$c, &$p, &$a, &$r): void { $p['drift'][] = ['path' => 'posts/page/example.md']; },
     'no authored work' => static function (&$c, &$p, &$a, &$r): void { $a['applied'] = 0; },
@@ -81,14 +83,15 @@ $observation = static function (string $case, bool $target): array {
         $families['wpforms-widget'][100] = ['title' => 'Apply widget', 'form_id' => (string) $integer];
         $families['block'][3] = ['content' => '<!-- wp:wpforms/form-selector {"formId":"' . $integer . '"} /-->'];
         $widgets[] = ['type' => 'widget', 'title' => 'Apply widget', 'form_id' => (string) $integer, 'id' => 'wpforms-widget-100'];
-        $widgets[] = ['type' => 'widget', 'title' => '', 'form_id' => $integer, 'id' => 'block-3'];
+        $widgets[] = ['type' => 'widget', 'title' => 'Block Widget', 'form_id' => $integer, 'id' => 'block-3'];
     }
     $native = $owned = [];
     foreach (['integer', 'string'] as $role) {
         $form = $posts[$role]['id'];
-        $locations = $role === 'integer' ? $widgets : [];
+        $locations = [];
         if ($case === 'baseline' || $role === 'string') $locations[] = ['type' => 'page', 'title' => $posts['embed']['title'],
             'form_id' => $form, 'id' => $posts['embed']['id'], 'status' => 'publish', 'url' => substr($posts['embed']['url'], strlen($home))];
+        if ($role === 'integer') $locations = array_merge($locations, $widgets);
         $native[$role] = ['locations' => $locations, 'column' => str_repeat('class="wpforms-locations-list-item"', count($locations)),
             'rendered' => 'id="wpforms-form-' . $form . '" name="wpforms[fields][1]" name="wpforms[fields][2]"'];
         $owned[] = ['meta_id' => count($owned) + 1, 'post_id' => $form, 'meta_key' => 'wpforms_form_locations', 'meta_value' => serialize($locations)];
@@ -119,6 +122,11 @@ $nativeCases = [
     'missing UI row' => static function (&$s, &$b, &$a, &$r): void { $a['native']['integer']['column'] = ''; $r = $a; },
     'source render ID' => static function (&$s, &$b, &$a, &$r): void { $a['native']['integer']['rendered'] = $s['native']['integer']['rendered']; $r = $a; },
     'physical duplicate' => static function (&$s, &$b, &$a, &$r): void { $a['owned'][] = $a['owned'][0]; $r = $a; },
+    'malformed physical bytes' => static function (&$s, &$b, &$a, &$r): void { $a['owned'][0]['meta_value'] = 'a:broken'; $r = $a; },
+    'object physical bytes' => static function (&$s, &$b, &$a, &$r): void { $a['owned'][0]['meta_value'] = 'O:8:"stdClass":0:{}'; $r = $a; },
+    'wrong physical type' => static function (&$s, &$b, &$a, &$r): void { $a['owned'][0]['meta_value'] = null; $r = $a; },
+    'wrong physical owner' => static function (&$s, &$b, &$a, &$r): void { $a['owned'][0]['meta_key'] = 'unrelated'; $r = $a; },
+    'wrong block title' => static function (&$s, &$b, &$a, &$r): void { $a['widgets'][2]['title'] = ''; $r = $a; },
 ];
 foreach ($nativeCases as $label => $mutate) {
     [$s, $b, $a, $r] = [$observation('routing', false), $observation('widgets', true), $observation('routing', true), $observation('routing', true)];
