@@ -46,6 +46,9 @@ final class AdapterPackageValidator
         'tests/lib/private_command_capture.sh',
         'tests/lib/conformance_private_command.sh',
         'tests/lib/wordpress_cron_window.sh',
+        // The object-only Cli seam is shared evidence transport, not a
+        // package executable or an operator-selectable library override.
+        'tests/support/explicit_adapter_library.sh',
     ];
 
     /** @var list<string> */

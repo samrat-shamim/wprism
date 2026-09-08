@@ -1445,6 +1445,32 @@ PHP
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testValidatorAcceptsTheExistingClosedLibraryEvidenceTransport(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/sandbox/tests/support/explicit_adapter_library.sh', "#!/usr/bin/env bash\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_explicit_library.sh',
+            "#!/usr/bin/env bash\n. tests/support/explicit_adapter_library.sh\n"
+        );
+
+        self::assertSame('acf', AdapterPackageValidator::validate($root, 'acf')['adapter']);
+    }
+
+    public function testClosedLibraryEvidenceTransportDoesNotGrantItsDirectory(): void
+    {
+        $root = $this->validatorFixture();
+        self::write($root . '/sandbox/tests/support/other_library.sh', "#!/usr/bin/env bash\n");
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_other_library.sh',
+            "#!/usr/bin/env bash\n. tests/support/other_library.sh\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not an explicit recognized .sh file');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
     public function testValidatorRejectsAConditionalSourceCommand(): void
     {
         $root = $this->validatorFixture();

@@ -34,9 +34,12 @@ final class WPFormsLocationProviderLibrary {
                     'receipt_projection' => 'handler', 'reconcile' => true],
             ]],
         ]];
+        // Locations depend on placements, widget options and current native
+        // routing, not just form bodies. Policy keeps an untriggered provider
+        // global for authored changes while actions_for([]) remains a no-op.
         $manifest['actions'] = [[
             'kind' => 'provider', 'provider' => self::PROVIDER, 'capability' => self::CAPABILITY,
-            'args' => [], 'triggers' => ['post:wpforms'],
+            'args' => [],
             'effects' => [
                 ['id' => 'wpforms-location-rows', 'kind' => 'database', 'mode' => 'restorable',
                     'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'postmeta']],
