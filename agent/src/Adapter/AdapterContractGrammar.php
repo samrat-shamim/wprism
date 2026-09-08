@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+require_once __DIR__ . '/../Kernel/KeyBoundStrings.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 
@@ -180,7 +181,11 @@ final class AdapterContractGrammar {
     private const IMPLEMENTED_FEATURES = [
         BlockMediaDerivativeGrammar::FEATURE => ['since' => 3, 'keys' => [BlockMediaDerivativeGrammar::SECTION => 'field']],
         BlockValueGrammar::FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::SECTION => 'field']],
+        // Exact groups normalize inside block_values, so they retain that
+        // section's certificate arm and cannot create a second state surface.
+        BlockValueGrammar::GROUP_FEATURE => ['since' => 3, 'keys' => []],
         PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
+        KeyBoundStrings::FEATURE => ['since' => 3, 'keys' => []],
         ReferenceCondition::FEATURE => ['since' => 3, 'keys' => []],
         // A predicate on an existing metadata field, not a new surface. Its
         // native arm executes only at explicit Capture/Plan/Apply boundaries.
@@ -532,6 +537,12 @@ final class AdapterContractGrammar {
             }
             if ($name === NativeValueValidation::FEATURE) {
                 $rows[$name]['value_constraint'] = NativeValueValidation::declaration_grammar();
+            }
+            if ($name === BlockValueGrammar::GROUP_FEATURE) {
+                $rows[$name]['value_constraint'] = BlockValueGrammar::group_grammar();
+            }
+            if ($name === KeyBoundStrings::FEATURE) {
+                $rows[$name]['value_constraint'] = KeyBoundStrings::declaration_grammar();
             }
             if ($name === PhpContainerValue::FEATURE) {
                 $rows[$name]['value_constraint'] = PhpContainerValue::declaration_grammar();

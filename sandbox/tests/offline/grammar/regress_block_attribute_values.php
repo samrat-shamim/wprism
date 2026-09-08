@@ -107,6 +107,18 @@ foreach ([[$manifest, $foreign], [$foreign, $manifest]] as $manifests) {
     wprism_check_throws(static fn() => FrozenPolicy::policy($manifests, FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION)),
         RuntimeException::class, 'two block owners refuse in either pin order');
 }
+// The groups suite reuses this complete product-path proof: compiler isolation,
+// checked SQL, rollback, repeat apply and widget content must share the same
+// normalized contract as capture. Keep declaration-refusal cases above exact.
+if (($argv[1] ?? '') === '--grouped-attributes') {
+    $manifest['engine_features'][] = BlockValueGrammar::GROUP_FEATURE;
+    sort($manifest['engine_features'], SORT_STRING);
+    $manifest['block_values'] = ['groups' => []];
+    foreach ($values as $attribute => $value) {
+        $manifest['block_values']['groups'][] = ['blocks' => ['fixture/media'], 'attributes' => [$attribute], 'value' => $value];
+    }
+    $policy = FrozenPolicy::policy([$manifest], $site);
+}
 $database = static function (int $offset) use ($uuid4, $uuid9): FakeWpdb {
     return FakeWpdb::install()->seedTable('wp_wprism_map', [
         ['uuid' => $uuid4, 'entity_type' => 'post:page', 'id_kind' => 'post', 'local_id' => 4 + $offset],

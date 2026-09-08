@@ -9,6 +9,7 @@ require_once __DIR__ . '/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/NativeValueValidation.php';
 require_once __DIR__ . '/ReferenceCondition.php';
 require_once __DIR__ . '/PhpContainerValue.php';
+require_once __DIR__ . '/KeyBoundStrings.php';
 
 /**
  * Pure loader-time grammar for reference-valued manifest declarations.
@@ -30,6 +31,8 @@ final class ReferenceShapeGrammar {
             && in_array(ReferenceCondition::FEATURE, (array) ($source['engine_features'] ?? []), true);
         $containerOptions = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
             && in_array(PhpContainerValue::FEATURE, (array) ($source['engine_features'] ?? []), true);
+        $boundStrings = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
+            && in_array(KeyBoundStrings::FEATURE, (array) ($source['engine_features'] ?? []), true);
         foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
             foreach (($source[$section] ?? []) as $name => $rule) {
                 if (!is_array($rule) || array_is_list($rule)) {
@@ -46,7 +49,8 @@ final class ReferenceShapeGrammar {
                     $manifestFeatures && $section !== 'options' && ($source['spec_version'] ?? 0) >= 3
                         && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true),
                     $conditionalRefs,
-                    $containerOptions && $section === 'options'
+                    $containerOptions && $section === 'options',
+                    $boundStrings && $section === 'options'
                 );
             }
         }
@@ -63,13 +67,15 @@ final class ReferenceShapeGrammar {
                             && ($source['spec_version'] ?? 0) >= 3
                             && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true),
                         $conditionalRefs,
-                        $containerOptions && $section === 'option_patterns'
+                        $containerOptions && $section === 'option_patterns',
+                        $boundStrings && $section === 'option_patterns'
                     );
                 }
             }
         }
         foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
             PhpContainerValue::assert_rule($declaration, "$label.dynamic_options.$name", false);
+            KeyBoundStrings::assert_rule($declaration, "$label.dynamic_options.$name", false);
             if (array_key_exists(NativeValueValidation::FIELD, $declaration)) {
                 throw new \RuntimeException("wprism: $label.dynamic_options.$name cannot declare a native metadata predicate");
             }
@@ -119,7 +125,8 @@ final class ReferenceShapeGrammar {
         bool $allowIntersection = false,
         bool $allowNativeValidation = false,
         bool $conditionalRefs = false,
-        bool $phpContainers = false
+        bool $phpContainers = false,
+        bool $boundStrings = false
     ): void {
         PhpContainerValue::assert_rule($rule, $where, $phpContainers);
         if (array_key_exists(NativeValueValidation::FIELD, $rule) && !$allowNativeValidation) {
@@ -133,7 +140,7 @@ final class ReferenceShapeGrammar {
                     . ScalarReferenceIntersection::FEATURE
             );
         }
-        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers);
+        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers, $boundStrings);
         if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
             throw new \RuntimeException(
                 "wprism: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"

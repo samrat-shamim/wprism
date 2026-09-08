@@ -5,6 +5,7 @@ require_once __DIR__ . '/JsonRefs.php';
 require_once __DIR__ . '/ReferenceCondition.php';
 require_once __DIR__ . '/PhpContainerValue.php';
 require_once __DIR__ . '/IdentityTokenCodec.php';
+require_once __DIR__ . '/KeyBoundStrings.php';
 
 /**
  * Pure structural codec for manifest-declared json_refs and key_refs.
@@ -18,9 +19,9 @@ require_once __DIR__ . '/IdentityTokenCodec.php';
 final class StructuredReferenceCodec {
     /** A declared container codec changes only the selected map's framing. */
     public static function key_ref_map($value, array $rule, string $context) {
-        return ($rule['container'] ?? null) === 'php'
-            ? PhpContainerValue::map($value, $context)
-            : $value;
+        $map = ($rule['container'] ?? null) === 'php' ? PhpContainerValue::map($value, $context) : $value;
+        if (array_key_exists(KeyBoundStrings::FIELD, $rule)) KeyBoundStrings::assert_map($map, $rule, $context);
+        return $map;
     }
 
     /**
@@ -121,6 +122,7 @@ final class StructuredReferenceCodec {
             $keyRefs
         ): void {
             if (($keyRefs['container'] ?? null) === 'php') {
+                if (array_key_exists(KeyBoundStrings::FIELD, $keyRefs)) self::key_ref_map($container[$key], $keyRefs, $locator);
                 $container[$key] = PhpContainerValue::rewrite_keys(
                     $container[$key],
                     static function ($mapKey) use ($capture, $idToToken, $tokenToId, $warn, $kind, $locator) {
@@ -148,7 +150,10 @@ final class StructuredReferenceCodec {
                         }
                         return $id;
                     },
-                    "typed key_refs map $locator"
+                    "typed key_refs map $locator",
+                    array_key_exists(KeyBoundStrings::FIELD, $keyRefs)
+                        ? static fn($entry, $oldKey, $newKey) => KeyBoundStrings::rewrite_entry($entry, $oldKey, $newKey, $keyRefs, $locator)
+                        : null
                 );
                 return;
             }

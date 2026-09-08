@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/SerializedDataPreflight.php';
+require_once __DIR__ . '/KeyBoundStrings.php';
 
 /** Portable, ordered PHP arrays and stdClass values without executable classes. */
 final class PhpContainerValue {
@@ -26,7 +27,7 @@ final class PhpContainerValue {
 
     public static function uses(array $rule): bool {
         if (array_key_exists(self::FIELD, $rule)
-            || (is_array($rule['key_refs'] ?? null) && array_key_exists('container', $rule['key_refs']))) return true;
+            || (is_array($rule['key_refs'] ?? null) && (array_key_exists('container', $rule['key_refs']) || array_key_exists(KeyBoundStrings::FIELD, $rule['key_refs'])))) return true;
         foreach ((array) ($rule['sub_keys'] ?? []) as $child) {
             if (is_array($child) && self::uses($child)) return true;
         }
@@ -35,7 +36,7 @@ final class PhpContainerValue {
 
     public static function assert_rule(array $rule, string $context, bool $allowed): void {
         if (!array_key_exists(self::FIELD, $rule)
-            && !(is_array($rule['key_refs'] ?? null) && array_key_exists('container', $rule['key_refs']))) return;
+            && !(is_array($rule['key_refs'] ?? null) && (array_key_exists('container', $rule['key_refs']) || array_key_exists(KeyBoundStrings::FIELD, $rule['key_refs'])))) return;
         if (!$allowed) self::refuse($context, 'PHP containers belong only to whole authored options in a v3 adapter declaring ' . self::FEATURE);
         if (($rule[self::FIELD] ?? null) !== true || ($rule['class'] ?? null) !== 'authored') {
             self::refuse($context, 'must declare php_containers: true and class: authored');
@@ -114,8 +115,9 @@ final class PhpContainerValue {
     /**
      * @param callable(int|string):(int|string|null) $rewrite null drops the
      * complete entry, preserving key_refs' existing dangling-reference rule.
+     * @param ?callable(mixed,int|string,int|string):mixed $rewriteValue pure entry transform
      */
-    public static function rewrite_keys(mixed $node, callable $rewrite, string $context): array {
+    public static function rewrite_keys(mixed $node, callable $rewrite, string $context, ?callable $rewriteValue = null): array {
         $map = self::map($node, $context);
         $items = [];
         $order = [];
@@ -127,10 +129,12 @@ final class PhpContainerValue {
             $key = $node['kind'] === 'stdClass' ? (string) $key : $key;
             self::key($key, $node['kind'], $context, $state);
             if (array_key_exists($key, $items)) self::refuse($context, 'reference rewrite collided with another container key');
-            $items[$key] = $map[$oldKey];
+            $items[$key] = $rewriteValue === null ? $map[$oldKey] : $rewriteValue($map[$oldKey], $oldKey, $key);
             $order[] = ['key' => $key];
         }
-        return ['kind' => $node['kind'], 'order' => $order, 'items' => $items];
+        $result = ['kind' => $node['kind'], 'order' => $order, 'items' => $items];
+        if ($rewriteValue !== null) self::map($result, $context);
+        return $result;
     }
 
     private static function pack(mixed $value, string $context, int $depth, array &$state): mixed {

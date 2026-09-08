@@ -24,6 +24,7 @@ final class ShippedIdentityInventory
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'qi-blocks',
         'rank-math',
         'redirection',
         'the-events-calendar',

@@ -1,5 +1,5 @@
 {
-    "class_count": 503,
+    "class_count": 504,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -7699,6 +7699,21 @@
                 "FEATURE": {
                     "value_repr": "block-attribute-values/v1"
                 },
+                "GROUP_FEATURE": {
+                    "value_repr": "block-attribute-groups/v1"
+                },
+                "GROUP_FIELD": {
+                    "value_repr": "groups"
+                },
+                "MAX_GROUPS": {
+                    "value_repr": 256
+                },
+                "MAX_GROUP_MEMBERS": {
+                    "value_repr": 4096
+                },
+                "MAX_GROUP_VALUES": {
+                    "value_repr": 65536
+                },
                 "SECTION": {
                     "value_repr": "block_values"
                 }
@@ -7707,6 +7722,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "attribute_maps": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "group_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "project": {
                     "abstract": false,
                     "final": false,
@@ -22148,6 +22188,7 @@
                         "ninja-forms",
                         "paid-memberships-pro",
                         "polylang",
+                        "qi-blocks",
                         "rank-math",
                         "redirection",
                         "the-events-calendar",
@@ -24898,6 +24939,160 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\KeyBoundStrings": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "key-bound-strings/v1"
+                },
+                "FIELD": {
+                    "value_repr": "bound_strings"
+                },
+                "MAX_FRAME_BYTES": {
+                    "value_repr": 256
+                },
+                "MAX_OCCURRENCES": {
+                    "value_repr": 100000
+                },
+                "MAX_RULES": {
+                    "value_repr": 128
+                },
+                "MAX_STRING_BYTES": {
+                    "value_repr": 1048576
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_map": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "map",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "allowed",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rewrite_entry": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "entry",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "oldKey",
+                            "type": "string|int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "newKey",
+                            "type": "string|int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
                 }
@@ -53643,6 +53838,14 @@
                             "name": "context",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "rewriteValue",
+                            "type": "?callable",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -67860,6 +68063,14 @@
                             "name": "phpContainers",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "boundStrings",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
@@ -74926,6 +75137,7 @@
                         "ninja-forms",
                         "paid-memberships-pro",
                         "polylang",
+                        "qi-blocks",
                         "rank-math",
                         "redirection",
                         "the-events-calendar",

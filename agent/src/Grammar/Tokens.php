@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
+require_once __DIR__ . '/../Kernel/KeyBoundStrings.php';
 require_once __DIR__ . '/../Kernel/TextTokenizer.php';
 require_once __DIR__ . '/../Kernel/UrlQueryReferenceCodec.php';
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
@@ -602,6 +603,13 @@ final class Tokens {
      * was never a valid id to restore — see struct_capture()'s docblock).
      */
     public function struct_apply($value, array $jsonRefs, ?array $keyRefs) {
+        if ($keyRefs !== null && array_key_exists(KeyBoundStrings::FIELD, $keyRefs)) {
+            // A declared frame can itself be a URL query parameter. Bind its
+            // owner before the generic text codec consumes that same token.
+            $value = StructuredReferenceCodec::apply($value, $jsonRefs, $keyRefs, fn(string $token): int => $this->token_to_id($token));
+            $this->tokenize_leaves($value, false);
+            return $value;
+        }
         $this->tokenize_leaves($value, false);
         return StructuredReferenceCodec::apply(
             $value,

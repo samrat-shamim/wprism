@@ -16,6 +16,7 @@ require_once "$root/agent/src/Kernel/JsonRefs.php";
 require_once "$root/agent/src/Repository/Ledger.php";
 require_once "$root/agent/src/Review/Lint.php";
 require_once "$root/agent/src/Kernel/BlockAttributeReader.php";
+require_once "$root/agent/src/Kernel/BlockValueGrammar.php";
 wprism_test_define_agent_versions();
 
 use WPrism\BlockAttributeReader;
@@ -27,11 +28,14 @@ use WPrismTest\FakeWpdb;
 use WPrismTest\FrozenPolicy;
 
 $manifest = Canon::decode(Canon::read_file(dirname(__DIR__, 2) . '/package/manifest.json'));
+$blockValues = \WPrism\BlockValueGrammar::attribute_maps($manifest);
 $core = Canon::decode(Canon::read_file("$root/platform/adapter-library/core/manifest.json"));
 $site = FrozenPolicy::site([$core, $manifest], WPRISM_SPEC_VERSION);
 $site['policy']['post_types'] = ['post', 'page', 'attachment', 'product', 'wpcf7_contact_form'];
 $site['policy']['taxonomies'] = [];
 $policy = FrozenPolicy::policy([$core, $manifest], $site);
+wprism_check_same('5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27',
+    hash('sha256', Canon::encode($blockValues)), 'compact Qi declarations preserve every exact block/attribute rule of the reviewed native inventory');
 $inventory = Canon::decode(Canon::read_file($fixture . '/authoring-inventory.json'));
 $uuid = static fn(int $id): string => '11111111-1111-4111-8111-' . sprintf('%012d', $id);
 $database = static function (int $offset) use ($uuid): FakeWpdb {
@@ -53,7 +57,7 @@ $applied = Blocks::apply_rewrite($captured, $policy, $target);
 wprism_check_same($captured, Blocks::capture_rewrite($applied, $policy, $target), 'native Qi content has an exact canonical fixed point across different IDs and URLs');
 wprism_check(!str_contains($applied, '{{post:') && !str_contains($applied, '{{home}}') && !str_contains($applied, '{{uploads}}'),
     'target Qi body contains resolved native references and URLs');
-$names = array_keys($manifest['block_values']);
+$names = array_keys($blockValues);
 $sourceBlocks = BlockAttributeReader::read($native, $names);
 $canonicalBlocks = BlockAttributeReader::read($captured, $names);
 $targetBlocks = BlockAttributeReader::read($applied, $names);
@@ -67,7 +71,7 @@ $referenceCount = 0;
 foreach ($sourceBlocks as $i => $block) {
     $canonical = $canonicalBlocks[$i]['attrs'];
     $after = $targetBlocks[$i]['attrs'];
-    foreach ($manifest['block_values'][$block['blockName']] as $attribute => $rule) {
+    foreach ($blockValues[$block['blockName']] as $attribute => $rule) {
         if (!array_key_exists($attribute, $block['attrs'])) continue;
         $before = $block['attrs'][$attribute];
         if ($rule['class'] === 'derived') {

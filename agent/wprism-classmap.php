@@ -164,6 +164,7 @@ return [
     'WPrism\\InitialCaptureBoundary' => 'src/Capture/InitialCaptureBoundary.php',
     'WPrism\\Journal' => 'src/Repository/Journal.php',
     'WPrism\\JsonRefs' => 'src/Kernel/JsonRefs.php',
+    'WPrism\\KeyBoundStrings' => 'src/Kernel/KeyBoundStrings.php',
     'WPrism\\Ledger' => 'src/Repository/Ledger.php',
     'WPrism\\LedgerScopedApplySessionStorage' => 'src/Scope/ScopedApply.php',
     'WPrism\\LegacyRuntimeExecutionDebt' => 'src/Policy/LegacyRuntimeExecutionDebt.php',

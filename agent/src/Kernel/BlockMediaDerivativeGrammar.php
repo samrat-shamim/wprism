@@ -27,6 +27,7 @@ final class BlockMediaDerivativeGrammar {
     public static function validate(array $manifest): void {
         if (!array_key_exists(self::SECTION, $manifest)) return;
         $blocks = $manifest[self::SECTION];
+        $blockValues = BlockValueGrammar::attribute_maps($manifest);
         if (!is_array($blocks) || $blocks === [] || array_is_list($blocks) || count($blocks) > self::MAX_RULES) {
             throw new \RuntimeException('wprism: block_media_derivatives requires a bounded nonempty block map');
         }
@@ -57,7 +58,7 @@ final class BlockMediaDerivativeGrammar {
                 }
                 $referencePath = ($rule['path'] ?? '$') . substr($rule['attachment'], 1);
                 $owned = false;
-                foreach ($manifest[BlockValueGrammar::SECTION][$block] ?? [] as $attribute => $valueRule) {
+                foreach ($blockValues[$block] ?? [] as $attribute => $valueRule) {
                     if (($valueRule['ref'] ?? '') === 'post' && $referencePath === '$.' . $attribute) $owned = true;
                     foreach ($valueRule['json_refs'] ?? [] as $ref) {
                         if (($ref['kind'] ?? '') === 'post' && !isset($ref['when'])
@@ -76,7 +77,8 @@ final class BlockMediaDerivativeGrammar {
         $out = [];
         $owners = [];
         foreach ($manifests as $index => $manifest) {
-            foreach (['block_attrs', BlockValueGrammar::SECTION, self::SECTION] as $section) {
+            foreach (BlockValueGrammar::attribute_maps($manifest) as $block => $_) $owners[$block][$index] = true;
+            foreach (['block_attrs', self::SECTION] as $section) {
                 foreach ($manifest[$section] ?? [] as $block => $_) $owners[$block][$index] = true;
             }
             foreach ($manifest[self::SECTION] ?? [] as $block => $rules) {

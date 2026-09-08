@@ -504,6 +504,45 @@ reopen and fresh-process convergence; offline image doubles cannot qualify
 those outcomes. Qi Blocks motivated this mechanism, but its native adapter
 qualification remains pending.
 
+### Keep repeated block declarations reviewable
+
+A native block schema is authoring evidence, not a reason to copy an identical
+value rule thousands of times into a manifest. Qi's first draft expanded
+7,497 rules across 49 blocks into 31,397 lines; 7,269 rules were identical
+plain-data declarations. The field names remain useful evidence, but the
+repetition hides media and query references during review.
+
+Negotiate `block-attribute-groups/v1` alongside `block-attribute-values/v1` and
+use `block_values.groups` for exact fields sharing a value rule:
+
+```json
+{
+  "block_values": {
+    "groups": [
+      {
+        "blocks": ["example/card", "example/banner"],
+        "attributes": ["title", "description"],
+        "value": {"class": "authored", "plain_data": true}
+      }
+    ]
+  }
+}
+```
+
+Each group declares precisely the Cartesian product of its block and attribute
+lists. Keep reference and derived-value groups easy to identify. Exact maps
+for other fields can coexist beside `groups`; declaring a field twice refuses,
+even when both rules are equal. Wildcards, implicit defaults and precedence
+are absent. The existing block grammar normalizes this syntax for capture,
+compilation, lint, apply, reference-keyspace and derivative-ownership checks;
+manifest identity continues to bind the authored declaration.
+
+When compacting an existing declaration, pin the canonical expanded-map digest
+and verify it through `BlockValueGrammar::attribute_maps()`, then rerun the
+native fixture and hostile-reference tests. Store the compact capsule and the
+inventory digest. The Qi capsule reduces its declaration to 177 groups while
+preserving the exact original 7,497 field rules.
+
 ### Native PHP container types and insertion order
 
 Inspect raw option bytes after using the plugin's real writer. Qi Blocks 1.5.2
@@ -538,6 +577,39 @@ compilation, SQL apply and recapture. Include malformed native and canonical
 data, colliding keys, a late write failure, rollback and retry. The shared
 `regress-php-container-values` suite proves the engine mechanism; each adapter
 still needs native render and lifecycle evidence for its own settings.
+
+### Identity repeated inside a stored string
+
+Inspect native consumers as well as writers. Qi Blocks stores a page ID as a
+`qi_blocks_global_styles.posts` map key and repeats that ID in saved selectors
+such as `body[class*="-13"]`. The frontend emits the selector verbatim, so
+rebinding only the owning key leaves the target page unstyled.
+
+For this storage shape, additionally negotiate `key-bound-strings/v1` and add
+`bound_strings` to the existing typed `key_refs` declaration. Each entry has
+`path`, `prefix` and `suffix`; the path is relative to each owning map value,
+and the strings framing the identity are literal, stable native syntax. Qi's
+selector declaration is:
+
+```json
+{"path":"$.items.*.items.values.items.items.selector","prefix":"body[class*=\"-","suffix":"\"]"}
+```
+
+The shared codec requires every selected string to contain its owning key
+inside every matching frame. It handles repeated occurrences and refuses a
+missing frame, a different ID/token, a malformed string or overlapping
+reference ownership. Absent optional paths remain valid. Canonical frames
+contain the same `{{kind:uuid}}` token as their map key, so immutable compilation
+can check the relationship without a database. Typed key, order and value
+rewrites remain atomic, including dangling-entry removal. URL rewriting stays
+in the existing text codec; apply binds frames before that codec can consume
+an embedded query-reference token.
+
+Use `regress-key-bound-strings` for engine coverage and the capsule's real
+saved values for plugin coverage. Prove native rendering with different target
+IDs; exact recapture alone can miss a consistently preserved stale selector.
+This feature belongs to static whole PHP-container options and option patterns.
+Do not implement a plugin-specific CSS search/replace executable.
 
 ### Portable validation versus WordPress-native predicates
 

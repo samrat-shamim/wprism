@@ -414,7 +414,9 @@ final class RepositoryPortableShapeValidator {
                 $map = StructuredReferenceCodec::key_ref_map($map, $keyRefs, "$path $locator$mapLocator");
             } catch (\RuntimeException) {
                 $this->add('nonportable_reference', $path, $locator . $mapLocator,
-                    'key_refs path must resolve to a valid typed container');
+                    isset($keyRefs['bound_strings'])
+                        ? 'key_refs path requires a valid typed container with strings bound to their owning map key'
+                        : 'key_refs path must resolve to a valid typed container');
                 return;
             }
             if (!is_array($map) || ($map !== [] && array_is_list($map))) {

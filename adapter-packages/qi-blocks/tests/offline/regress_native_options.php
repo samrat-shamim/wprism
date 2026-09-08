@@ -91,6 +91,30 @@ wprism_check_same(['{{post:' . $uuid . '}}'], array_keys($values['qi_blocks_glob
     'native Qi style ownership uses the durable page identity');
 wprism_check(!isset($values['qi_blocks_cropped_images']) && !isset($values['qi_blocks_setup_wizard']),
     'crop cache and completed onboarding remain target-local runtime state');
+// A native style row can contradict its own owning page even when the row
+// remains valid PHP storage. Capture must refuse before publishing that state.
+foreach (['wrong-page', 'mixed-pages'] as $fault) {
+    $badRows = $sourceBefore;
+    foreach ($badRows as &$row) {
+        if ($row['option_name'] !== 'qi_blocks_global_styles') continue;
+        $styles = SerializedDataPreflight::decode($row['option_value'], 'native Qi fixture', true);
+        foreach ($styles['posts'][13] as $blockStyle) {
+            foreach ($blockStyle->values as $value) {
+                $value->selector = $fault === 'wrong-page'
+                    ? str_replace('body[class*="-13"]', 'body[class*="-14"]', $value->selector)
+                    : $value->selector . ',body[class*="-14"] .foreign';
+                break 2;
+            }
+        }
+        $row['option_value'] = serialize($styles);
+    }
+    unset($row);
+    $sourceDb->seedTable('wp_options', $badRows);
+    wprism_check_throws(static fn() => $capture('http://localhost:9164'), RuntimeException::class,
+        "native Qi capture refuses $fault selector ownership", 'owning map key');
+    wprism_check_same($badRows, $sourceDb->rows('wp_options'), 'refused Qi style capture preserves every native row');
+}
+$sourceDb->seedTable('wp_options', $sourceBefore);
 Canon::write_file($scratch . '/state/options/core.json', Canon::encode($document));
 $beforeCompile = $sourceDb->queries();
 $compiled = RepositoryCompiler::compile($scratch, $policy);
@@ -152,7 +176,7 @@ foreach ($expectedStyles['posts'][813] as $blockStyle) {
         $nativeSelectors += $replacements;
     }
 }
-wprism_check($nativeSelectors > 48, 'native Save stores page identity inside every block style selector as well as its map key');
+wprism_check_same(88, $nativeSelectors, 'native Save stores 88 page identity frames across its 86 block style selectors');
 $replaceUrls = static function (&$value) use (&$replaceUrls, $targetHome): void {
     if (is_string($value)) $value = str_replace('http://localhost:9164', $targetHome, $value);
     elseif (is_array($value) || $value instanceof stdClass) foreach ($value as &$child) $replaceUrls($child);

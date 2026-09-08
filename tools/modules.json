@@ -114,6 +114,7 @@
           "PrivateEvidenceException",
           "PrivateRefusalEvidence",
           "JsonRefs",
+        "KeyBoundStrings",
           "ReferenceKindGrammar",
           "ReferenceShapeGrammar",
           "ScalarReferenceIntersection",
@@ -160,7 +161,7 @@
             ]
           }
         ],
-        "file_count": 81,
+        "file_count": 82,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -190,6 +191,7 @@
           "HtmlMediaReferences.php",
     "IdentityTokenCodec.php",
     "JsonRefs.php",
+    "KeyBoundStrings.php",
     "LockedOptionRows.php",
     "ManifestExecutableLoader.php",
     "NativeDatabaseProfile.php",

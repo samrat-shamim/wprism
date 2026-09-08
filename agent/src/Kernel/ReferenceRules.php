@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/ReferencePath.php';
 require_once __DIR__ . '/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/ReferenceCondition.php';
+require_once __DIR__ . '/KeyBoundStrings.php';
 
 /**
  * Manifest-time normalization and validation for the shared structural-ref
@@ -71,7 +72,8 @@ final class ReferenceRules {
     }
 
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
-    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false): void {
+    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false): void {
+        KeyBoundStrings::assert_rule($rule, $where, $boundStrings);
         if (array_key_exists(ScalarReferenceIntersection::TAXONOMY_FIELD, $rule)
             && !array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
             throw new \RuntimeException("wprism: $where.ref_taxonomy requires the scalar reference intersection feature");
@@ -147,7 +149,7 @@ final class ReferenceRules {
                     "wprism: $where cannot combine json_refs/key_refs with plain_data; the ownership is ambiguous"
                 );
             }
-            self::validate_structured($rule, $where, true, false, $conditionalRefs, $phpContainers);
+            self::validate_structured($rule, $where, true, false, $conditionalRefs, $phpContainers, $boundStrings);
             if (array_key_exists('cast', $rule)) {
                 throw new \RuntimeException(
                     "wprism: $where.cast is ambiguous for a structured value; put cast on each json_refs entry"
@@ -223,7 +225,7 @@ final class ReferenceRules {
         self::validate_structured(['json_refs' => $refs], $where, true, $preserveTypes);
     }
 
-    private static function validate_structured(array $rule, string $where, bool $requireRef, bool $preserveTypes = false, bool $conditionalRefs = false, bool $phpContainers = false): void {
+    private static function validate_structured(array $rule, string $where, bool $requireRef, bool $preserveTypes = false, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false): void {
         $jsonRefs = $rule['json_refs'] ?? [];
         if (!is_array($jsonRefs) || !array_is_list($jsonRefs)) {
             throw new \RuntimeException("wprism: $where.json_refs must be a list");
@@ -285,7 +287,7 @@ final class ReferenceRules {
                 throw new \RuntimeException("wprism: $where.key_refs.container requires the negotiated PHP container option codec");
             }
             if (!is_array($keyRefs) || array_is_list($keyRefs)
-                || array_diff_key($keyRefs, ['path' => true, 'kind' => true] + ($phpContainers ? ['container' => true] : []))) {
+                || array_diff_key($keyRefs, ['path' => true, 'kind' => true] + ($phpContainers ? ['container' => true] : []) + ($boundStrings ? [KeyBoundStrings::FIELD => true] : []))) {
                 throw new \RuntimeException(
                     "wprism: $where.key_refs must be an object containing kind and optional path"
                 );
@@ -296,6 +298,22 @@ final class ReferenceRules {
                     throw new \RuntimeException("wprism: $where.key_refs.path must be a string");
                 }
                 $keySegments = ReferencePath::parse($keyRefs['path']);
+                $boundPaths = [];
+                foreach (($keyRefs[KeyBoundStrings::FIELD] ?? []) as $binding) {
+                    $relative = ReferencePath::parse($binding['path']);
+                    foreach ($boundPaths as $prior) {
+                        if (self::path_can_be_ancestor($prior, $relative) || self::path_can_be_ancestor($relative, $prior)) {
+                            throw new \RuntimeException("wprism: $where has overlapping key-bound string paths");
+                        }
+                    }
+                    $boundPaths[] = $relative;
+                    $absolute = array_merge($keySegments, ReferencePath::parse('$.items.*'), $relative);
+                    foreach (array_merge(array_column($paths, 'segments'), $conditions) as $other) {
+                        if (self::path_can_be_ancestor($other, $absolute) || self::path_can_be_ancestor($absolute, $other)) {
+                            throw new \RuntimeException("wprism: $where key-bound strings overlap another structural reference or discriminator");
+                        }
+                    }
+                }
                 foreach ($paths as $valuePath) {
                     if (self::path_can_be_ancestor($valuePath['segments'], $keySegments)) {
                         throw new \RuntimeException(

@@ -3136,6 +3136,70 @@ the existing attachment transaction; stale crops are not removed before the
 metadata commit is established. Native plugin qualification and fresh-process
 convergence evidence remain required before declaring a plugin capability.
 
+### v3.31 `key-bound-strings/v1` — strings bound to an owning map key
+
+A v3 adapter may add `bound_strings` to the `key_refs` of a static whole
+authored option or option pattern that also negotiates `php-container-values/v1`
+and declares `php_containers: true` and `container: "php"`. No new top-level
+section, reference kind, plugin executable, database authority or engine version
+is introduced. Existing declarations retain their codec and identity bytes.
+
+`bound_strings` is a list of one to 128 closed `{path, prefix, suffix}` objects.
+Paths use the existing structured-reference dialect relative to each selected
+map value, with at most 1,024 bytes and no surrounding whitespace. Prefix and
+suffix are nonempty UTF-8 literals of at most 256 bytes each, without control
+bytes or reserved token delimiters. They identify native syntax that is stable
+across environments. Bound paths cannot overlap one another or another
+structural reference/discriminator; the same position cannot have two owners.
+
+Every selected leaf must be a UTF-8 string of at most 1 MiB, both before and
+after rewriting. An absent path is allowed. A selected leaf must contain at
+least one complete `prefix + owning-key + suffix` frame; every occurrence of
+the prefix must begin that exact frame. A map entry permits at most 100,000
+occurrences across all its selected strings. The owning key must be a canonical
+positive native integer or its exact declared-kind token. Capture requires the
+native phase and apply the canonical phase. Complete-frame comparison cannot
+truncate a token at a suffix that also occurs inside its UUID.
+
+Capture substitutes the map key's ordinary `{{kind:uuid}}` in each frame;
+apply substitutes that same identity's target ID. Bytes outside those frames
+stay with the existing text codec. For this negotiated shape, apply binds the
+structural references before text detokenization, so a URL-query frame cannot
+lose its token before the owning-key check. Immutable compilation and reference
+scanning validate key/frame agreement through the same pure structural reader,
+without an identity lookup. Conflicting frames refuse even when the owning key
+would subsequently be dropped as dangling. The typed-container owner publishes
+key, order and rewritten value together and validates the resulting container;
+its existing collision and size guards remain in force.
+
+### v3.32 `block-attribute-groups/v1` — exact grouped value declarations
+
+A v3 manifest declaring both `block-attribute-values/v1` and
+`block-attribute-groups/v1` may include a `groups` list inside `block_values`.
+This is an alternate declaration syntax for the existing block-value surface;
+it creates no new capability surface or runtime executable. Ordinary exact
+block maps may coexist with groups. Without the feature, the historical exact
+block-name grammar remains in force.
+
+Each group is a closed `{blocks, attributes, value}` object. `blocks` and
+`attributes` are nonempty lists of distinct exact names using the existing
+block and attribute grammars. `value` uses the existing authored/reference or
+derived value-rule grammar. A group declares every pair in the Cartesian
+product of its two lists. A pair appearing twice, including across groups and
+exact maps or under equal rules, refuses; declaration order grants no override.
+There are at most 256 groups, 4,096 members in either list and 65,536 expanded
+group pairs, checked before expansion. No pattern, implicit default, inheritance
+or runtime plugin-schema discovery participates in this ownership decision.
+
+`BlockValueGrammar::attribute_maps()` is the sole normalization owner. It
+preserves raw manifest bytes and returns exact maps; grouped maps are sorted
+by block and attribute. Runtime projection, reference-keyspace validation and
+same-manifest media derivative ownership consume those maps. Existing
+cross-manifest ownership and legacy whole-block/attribute collision rules apply
+after normalization. Site policy cannot introduce this manifest-owned grammar.
+The public feature grammar describes the grouped form; canonical manifest
+identity binds the compact declaration, so changing syntax requires fresh pins.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

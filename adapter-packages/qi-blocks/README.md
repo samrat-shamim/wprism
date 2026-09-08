@@ -3,6 +3,9 @@
 Experimental authoring capsule for the exact free Qi Blocks 1.5.2 artifact.
 Production qualification is incomplete. The package contains declarations only;
 block values, PHP containers and media effects use shared engine machinery.
+Its 177 exact declaration groups expand to 7,497 field rules across 49 blocks.
+The native inventory pins the pre-compaction expansion digest, and the content
+regression proves that grouping changes no ownership or value rule.
 
 The native fixtures retain saved content and raw options from WordPress 7.1
 with Qi Blocks 1.5.2, Contact Form 7 6.1.7 and WooCommerce 11.0.0. The authoring
@@ -16,11 +19,12 @@ an array. The adapter must preserve native storage types and must not manufactur
 successful native writer evidence.
 
 The current draft is not ready to merge. Its native content regression passes
-474 assertions. Its native option regression intentionally remains failing:
-the shared reference codec changes the owning page map key from 13 to 813 but
-leaves `body[class*="-13"]` in saved CSS selectors. Qi emits those selectors
-verbatim. The fix belongs in the shared declaration-driven reference codec;
-this capsule does not add a plugin executable or suppress the regression.
+475 assertions. Its native option regression
+now uses the shared `key-bound-strings/v1` codec to rebind all 88 saved CSS page
+identity frames with their owning map key. Capture refuses selectors that name
+a different page, and the checked option transaction preserves native types,
+order, URLs, rollback and exact recapture. Native target rendering and complete
+qualification remain pending.
 
 Run the current portability probes directly:
 
@@ -29,8 +33,9 @@ php adapter-packages/qi-blocks/tests/offline/regress_native_content.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_options.php
 ```
 
-Manifest grammar validation passes. Complete package validation currently
-refuses because the artifact fragment is missing; artifact locking, native
-conformance and production-readiness evidence remain unfinished. See
+Manifest grammar and structural package validation pass. The artifact lock
+pins 1.5.2 as an exercise fixture and 1.5.1 as an unexecuted refusal fixture.
+The twelve-family readiness ledger is explicitly unready; conformance hooks,
+native qualification and the complete offline aggregate remain unfinished. See
 [evidence/authoring-progress.json](evidence/authoring-progress.json) for the
 observed results and qualification limits.

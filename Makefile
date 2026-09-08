@@ -25,7 +25,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-structured-reference-codec
 .PHONY: regress-conditional-json-refs
 .PHONY: regress-serialized-data-preflight
-.PHONY: regress-php-container-values
+.PHONY: regress-php-container-values regress-key-bound-strings regress-block-attribute-groups
 .PHONY: regress-block-attribute-values regress-html-media-references regress-media-derivative-recipes
 .PHONY: regress-url-query-reference-codec
 .PHONY: regress-rank-math-commerce-multilingual regress-rank-math-yoast-incompatibility
@@ -2246,6 +2246,12 @@ regress-structured-reference-codec:
 
 regress-serialized-data-preflight:
 	php sandbox/tests/offline/grammar/regress_serialized_data_preflight.php
+
+regress-block-attribute-groups:
+	php sandbox/tests/offline/grammar/regress_block_attribute_groups.php
+
+regress-key-bound-strings:
+	php sandbox/tests/offline/grammar/regress_key_bound_strings.php
 
 regress-php-container-values:
 	php sandbox/tests/offline/grammar/regress_php_container_values.php

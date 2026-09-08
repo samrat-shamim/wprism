@@ -262,6 +262,7 @@ wprism_check_same(
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'block-attribute-groups/v1',
         'block-attribute-values/v1',
         'block-media-derivatives/v1',
         'body-pii-paths/v1',
@@ -269,6 +270,7 @@ wprism_check_same(
         'body-url-rebinding/v1',
         'conditional-json-refs/v1',
         'invalidate-vocabulary/v1',
+        'key-bound-strings/v1',
         'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',

@@ -3,7 +3,6 @@
   "adapter": "qi-blocks",
   "plugin": "qi-blocks/class-qi-blocks.php",
   "version": "1.5.2",
-  "source_engine_commit": "021593718a8d24c24dd5da5cbbfcf88af62c19e5",
   "native_fixture_origin": {
     "pair": "qiauthor02",
     "source_commit": "1e675fd1",
@@ -20,17 +19,22 @@
     "content": {
       "script": "tests/offline/regress_native_content.php",
       "exit": 0,
-      "assertions": 474,
+      "assertions": 475,
       "native_block_types": 49,
       "native_instances": 52,
       "native_media_coordinates": 222
     },
     "options": {
       "script": "tests/offline/regress_native_options.php",
-      "exit": 1,
-      "passed_assertions": 15,
-      "failed_assertions": 1,
-      "failure": "Map key 13 becomes 813 but native CSS selectors still contain body[class*=\"-13\"]. The native frontend emits those saved selectors unchanged."
+      "exit": 0,
+      "assertions": 20,
+      "native_selector_strings": 86,
+      "native_identity_frames": 88,
+      "prior_failure": {
+        "engine_commit": "596d9b29",
+        "failure": "Map key 13 became 813 but 88 saved CSS page identity frames remained at source ID 13. The unchanged native round-trip assertion failed before the shared key-bound string codec."
+      },
+      "scope": "Read-only native option capture, immutable compilation, checked SQL transaction, injected rollback/retry and exact recapture. Native target rendering is not yet qualified."
     },
     "manifest_validation": {
       "command": "php cli/wprism manifest-validate . --manifest=qi-blocks --pins=core,qi-blocks",
@@ -39,15 +43,34 @@
     },
     "package_validation": {
       "command": "php tools/adapter-package-validate.php --adapter=qi-blocks",
-      "exit": 1,
-      "failure": "Adapter package 'qi-blocks' has no artifact fragment",
-      "scope": "The draft still lacks the artifact lock, conformance boundary and completed readiness evidence."
+      "exit": 0,
+      "checks": 15,
+      "scope": "Structure, grammar, artifact and evidence ownership checks; readiness is explicitly unready and native conformance is not yet qualified."
+    },
+    "shared_codec": {
+      "script": "sandbox/tests/offline/grammar/regress_key_bound_strings.php",
+      "exit": 0,
+      "assertions": 109,
+      "scope": "Negotiation, closed/overlapping ownership, source/target ID and URL divergence, compiler/scanner/apply refusals, dangling keys, collisions and size/occurrence bounds."
+    },
+    "declaration_groups": {
+      "script": "sandbox/tests/offline/grammar/regress_block_attribute_groups.php",
+      "exit": 0,
+      "assertions": 175,
+      "scope": "43 group grammar, ownership, certificate derivation and identity assertions plus the complete 132-assertion block capture, immutable compiler, checked SQL, rollback, repeat apply and widget suite using grouped declarations.",
+      "groups": 177,
+      "manifest_bytes": 122449,
+      "manifest_lines": 2129,
+      "expanded_rules": 7497,
+      "expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"
     }
   },
   "limitations": [
-    "This is a draft, not a production qualification or a passing complete package gate.",
+    "This is an experimental draft, not a production qualification or a passing full offline aggregate.",
     "No Qi capsule live round trip, version matrix, host conformance or hostile readiness claim yet.",
     "Signature, progress-bar images, empty galleries and responsive crop controls still need native Save/reopen evidence.",
     "The broad native engine media probe is separate from this capsule and does not qualify its editor behavior."
-  ]
+  ],
+  "source_engine_base_commit": "596d9b29",
+  "source_engine_state": "working-tree implementation of key-bound-strings/v1 and block-attribute-groups/v1"
 }

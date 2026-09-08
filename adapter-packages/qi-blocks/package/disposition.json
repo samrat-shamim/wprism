@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Authoring draft for exact Qi Blocks 1.5.2. Declarations follow native editor schemas, saved content and option writers. Package-local portability tests are in progress; no production, native editor convergence, lifecycle or host promotion claim is made.",
+  "reason": "Experimental exact Qi Blocks 1.5.2 declarations follow native schemas, saved content and option writers. Package-local offline portability and shared key-bound string checks pass; native editor convergence, lifecycle and host promotion remain unqualified.",
   "supported_versions": {
     "plugin": "qi-blocks/class-qi-blocks.php",
     "range": {
@@ -30,7 +30,8 @@
   "evidence": {
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
-      "regress-native-content"
+      "regress-native-content",
+      "regress-native-options"
     ]
   },
   "unsupported": [

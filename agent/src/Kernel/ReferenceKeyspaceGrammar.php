@@ -5,6 +5,7 @@ namespace WPrism;
 // reference-keyspace dependency explicit instead of relying on Policy's
 // bootstrap order.
 require_once __DIR__ . '/ReferenceRules.php';
+require_once __DIR__ . '/BlockValueGrammar.php';
 
 /**
  * Pure cross-source grammar for reference keyspaces and attached-meta
@@ -45,7 +46,7 @@ final class ReferenceKeyspaceGrammar {
         $allowed = array_values(array_unique($allowed));
 
         $checkSource = static function (array $source, string $label) use ($allowed): void {
-            foreach ($source['block_values'] ?? [] as $block => $attributes) {
+            foreach (BlockValueGrammar::attribute_maps($source) as $block => $attributes) {
                 foreach ($attributes as $attribute => $rule) {
                     self::assert_reference_rule_keyspaces($rule, $allowed, "$label.block_values.$block.$attribute");
                 }

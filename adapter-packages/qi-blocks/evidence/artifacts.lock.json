@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "qi-blocks": {
+      "1.5.1": {
+        "url": "https://downloads.wordpress.org/plugin/qi-blocks.1.5.1.zip",
+        "sha256": "9a9971ae6328cbcbdecb4beaabc90c61de6df5e7ba16bc523ee1dd20a1176ca2",
+        "role": "refusal-fixture"
+      },
+      "1.5.2": {
+        "url": "https://downloads.wordpress.org/plugin/qi-blocks.1.5.2.zip",
+        "sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}
