@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../Kernel/FilesystemTreeSnapshot.php';
 require_once __DIR__ . '/../Kernel/NativeDatabaseProfile.php';
 require_once __DIR__ . '/../Kernel/NativeOptionInputs.php';
+require_once __DIR__ . '/../Kernel/NativePostTypes.php';
 require_once __DIR__ . '/../Kernel/PhpLiteralData.php';
 require_once __DIR__ . '/../Kernel/PhysicalTableRows.php';
 require_once __DIR__ . '/../Kernel/TermRows.php';
@@ -57,6 +58,7 @@ final class ProviderSdk {
     public const PHYSICAL_TABLE_ROWS_FEATURE = 'provider-physical-table-rows/v1';
     public const TYPED_ROW_MUTATIONS_FEATURE = 'provider-typed-row-mutations/v1';
     public const NATIVE_OPTION_INPUTS_FEATURE = 'provider-native-option-inputs/v1';
+    public const NATIVE_POST_TYPES_FEATURE = 'provider-native-post-types/v1';
     public const DATABASE_POSTIMAGE_APPLIED = 'applied';
     public const DATABASE_POSTIMAGE_NOT_APPLIED = 'not_applied';
     public const DATABASE_POSTIMAGE_UNKNOWN = 'unknown';
@@ -129,6 +131,21 @@ final class ProviderSdk {
         self::load_database_session();
         Db::transaction_authority($context . ' native option input authority');
         return NativeOptionInputs::observe($inputs, $native, $context);
+    }
+
+    /** Exact current core post types, with safe cache and full native-row allocation admission. */
+    public static function checked_native_post_types(array $ids, string $context): array {
+        $profile = self::active_database_profile($context);
+        global $wpdb;
+        if (!is_object($wpdb) || !in_array($wpdb->posts, $profile->readable_tables(), true)) {
+            throw new \RuntimeException("wprism: $context requested native posts outside its active manifest-provider contract");
+        }
+        if (!DatabaseQueryIsolation::has_bound_profile() || DatabaseQueryIsolation::bound_profile_is_read_only()) {
+            throw new \RuntimeException("wprism: $context native post types require the authorized mutation callback");
+        }
+        self::load_database_session();
+        Db::transaction_authority($context . ' native post type authority');
+        return NativePostTypes::read($ids, $context);
     }
 
     public static function checked_get_var(string $sql, string $context, $wpdb = null): mixed {

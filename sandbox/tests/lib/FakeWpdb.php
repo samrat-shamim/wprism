@@ -2991,6 +2991,14 @@ class FakeWpdb {
                     $rows = [['CHARACTER_MAXIMUM_LENGTH' => preg_match('/\\((\\d+)\\)/', $type, $length) === 1 ? $length[1] : null]];
                 } elseif (str_contains($lower, 'information_schema.columns')) {
                     $rows = $this->informationSchemaRows($trimmed, 'generic');
+                    // Native SELECT * admission needs the complete ordered
+                    // column-name roster, not a payload selected by the fake.
+                    if (preg_match('/^SELECT COLUMN_NAME FROM information_schema\.COLUMNS '
+                        . "WHERE TABLE_SCHEMA = DATABASE\\(\\) AND BINARY TABLE_NAME = BINARY '[A-Za-z0-9_]{1,64}' "
+                        . 'ORDER BY ORDINAL_POSITION LIMIT ([1-9][0-9]{0,3})$/D', $trimmed, $roster) === 1) {
+                        $rows = array_map(static fn(array $row): array => ['COLUMN_NAME' => $row['COLUMN_NAME']],
+                            array_slice($rows, 0, (int) $roster[1]));
+                    }
                 } else {
                     throw $this->unsupported('unsupported opt-in information_schema shape');
                 }

@@ -122,5 +122,18 @@ actual provider path:
   explicit participant-owned plugin combinations.
 
 These are requirements, not a completed run or an assertion that the current
-capsule contains the provider. Promotion and package re-pinning happen only
-with the implemented, reviewed and exercised package bytes.
+package ships the provider. The executable candidate in
+`fixtures/location-provider/wpforms-form-locations.php` is deliberately not
+registered in the manifest or assembled onto sites. Its capsule-local offline
+suite checks target-ID normalization and complete stable-ID mutation planning;
+that is mechanism evidence, not native invocation or readiness evidence.
+Promotion and package re-pinning happen only with the implemented, reviewed
+and exercised package bytes.
+
+Implementation review exposed three source-semantic edges: widget target IDs
+may contain leading zeros while physical row identities stay canonical;
+public metadata writers recursively unslash values before serialization; and
+raw metadata DML must invalidate affected native `post_meta` caches through a
+bounded engine-owned effect boundary. The candidate implements the first two.
+Cache coherence remains unclosed, as does proving equivalence with Locator's
+init-time cached home URL; a fresh `home_url()` call cannot prove that history.

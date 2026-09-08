@@ -1012,6 +1012,32 @@ does not sandbox arbitrary native PHP, bound all its allocations, or prove
 unselected dependencies: the capsule must still declare and physically witness
 the complete native computation and its unchanged remainder.
 
+For a public native API whose integer-only dependency is `get_post_type()`,
+`ProviderSdk::checked_native_post_types($ids, $context)` admits and invokes that
+exact getter itself. Declare `provider-native-post-types/v1` with
+`spec-window/v1`. It accepts at most 128 unique positive native integer IDs and
+returns types (or exact absence `false`) in caller order. It requires the same
+authorized mutation callback and existing posts-table read authority. Zero is
+not an absence probe: core can substitute the global post.
+
+Cold core reads use `SELECT *`, so admission proves the standard 23-column
+posts schema and sizes every field before native allocation: 1 MiB per cell,
+8 MiB total. Added/missing columns refuse; the exact bounded column-name
+inventory grants no arbitrary schema access. Selected warm cache entries must
+be exact inert `stdClass`/final `WP_Post` objects with matching physical
+ID/type/raw filter, closed scalar properties and the same allocation limits.
+Other bounded cached fields need not equal physical values because the getter
+does not consume them. No cache clearing or replacement manufactures a
+premise. Standard core getter/sanitizer/cache provenance, current routing and
+post-call physical/cache state are checked. The call may warm request-local
+cache and a caught refusal poisons the transaction.
+
+This is a **type-only current read**, not a callback witness or full post,
+permalink, metadata, registry or historical-cache proof. If an audited native
+consumer repeats the getter immediately afterward, the capsule must prove no
+intervening callback can change its admitted premise; observers/classifiers
+remain physical-only.
+
 Keep plugin eligibility, subset/remainder selection, native reconstruction and
 postcondition meaning in the capsule. Do not copy a SQL pager into a provider
 or add a permissive SQL/visitor language merely to migrate a legacy helper.

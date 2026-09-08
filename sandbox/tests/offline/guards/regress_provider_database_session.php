@@ -3709,4 +3709,24 @@ wprism_check_throws(static fn() => ProviderSdkContractProbe::run(['table:options
     'authorized writer reaches native premise validation but cannot substitute host WordPress stubs', 'request-local core cache');
 wprism_check(!DatabaseQueryIsolation::is_active(), 'native SDK premise refusal is settled by the existing transaction owner');
 
+$nativePostRead = static fn() => ProviderSdk::checked_native_post_types([7], 'native post SDK fixture');
+$wpdb = $physicalFixture();
+wprism_check_throws($nativePostRead, RuntimeException::class, 'native post IDs cannot mint manifest-provider authority');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::runUnbound([], ['table:posts'], $nativePostRead),
+    RuntimeException::class, 'a directly constructed runtime cannot authorize native post inputs');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], ['table:posts'], $nativePostRead),
+    RuntimeException::class, 'native post inputs require the mutation callback, not just a bound runtime', 'authorized mutation callback');
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], ['table:options'], $nativePostRead),
+    RuntimeException::class, 'native post inputs cannot widen the table contract', 'outside its active manifest-provider contract');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], ['table:posts'],
+    static fn() => ProviderSdk::database_read_contract_snapshot('native post observer refusal', $nativePostRead)),
+    RuntimeException::class, 'physical observers and classifiers cannot borrow native post cache effects', 'authorized mutation callback');
+$wpdb = $physicalFixture();
+wprism_check_throws(static fn() => ProviderSdkContractProbe::run([], ['table:posts'],
+    static fn() => ProviderSdk::database_write_contract_transaction('native post SDK environment', $nativePostRead,
+        static fn() => ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN)), RuntimeException::class,
+    'the authorized native post writer reaches core provenance without accepting host stubs', 'request-local core cache');
+wprism_check(!DatabaseQueryIsolation::is_active(), 'native post refusal is settled by the existing transaction owner');
+
 wprism_check_summary('regress_provider_database_session');
