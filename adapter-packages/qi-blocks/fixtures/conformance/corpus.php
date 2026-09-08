@@ -55,6 +55,26 @@ final class QiConformanceCorpus {
         return $names;
     }
 
+    public static function applied_body(string $saved, array $ids, string $home, string $imageUrl): string {
+        $blocks = parse_blocks(self::body($saved, $ids, $home, $imageUrl));
+        $walk = static function (array &$blocks) use (&$walk): void {
+            foreach ($blocks as &$block) {
+                // Native query previews are derived; the saved CSV selection
+                // remains a string after Apply, unlike its canonical token list.
+                if ($block['blockName'] === 'qi-blocks/blog-list') unset($block['attrs']['maxNumPages'], $block['attrs']['queriedPostsData']);
+                $walk($block['innerBlocks']);
+            }
+        };
+        $walk($blocks);
+        return serialize_blocks($blocks);
+    }
+
+    public static function global_styles(object $styles, int $page): array {
+        // Qi 1.5.2 add_options() initializes these four ordered roots before its
+        // REST writer adds the page entry (global styles class:54–64,143–157).
+        return ['posts' => [$page => $styles], 'widgets' => [], 'templates' => [], 'undefined' => []];
+    }
+
     public static function styles(string $fixture, string $body, array $ids, string $home, string $imageUrl): object {
         $rows = json_decode($fixture, true, 512, JSON_THROW_ON_ERROR);
         $styles = null;

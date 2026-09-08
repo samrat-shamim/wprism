@@ -6,7 +6,9 @@ top-level fixture entries and leave with their CSS owners; their qualification
 belongs in a participant-declared integration scenario.
 
 WordPress media APIs create the original and native metadata. Qi's native crop
-helper creates the saved custom image. WordPress REST writes the two query
+helper creates an additional 333×211 image as an unselected source-only witness;
+the retained standalone body and CSS do not reference it. This source fixture
+does not qualify a selected custom crop. WordPress REST writes the two query
 posts and complete page; Qi's own REST callback writes its ordered PHP style
 objects. A fresh process checks exact saved values. The capture hook compares
 the complete canonical body and style entry against independently prepared
