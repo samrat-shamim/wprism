@@ -30,6 +30,55 @@ $slashed = [['type' => 'widget', 'title' => "a\\b \\\"quote\\\"", 'form_id' => '
 $stored = [['type' => 'widget', 'title' => 'ab "quote"', 'form_id' => '01', 'id' => 'text-7']];
 wprism_check_same(serialize($stored), $call('location_bytes', $slashed), 'location storage matches recursive core metadata unslashing and preserves native raw ID type');
 wprism_check($call('location_bytes', $slashed) !== serialize($slashed), 'literal serialization cannot masquerade as native metadata storage');
+
+foreach ([
+    ['https://target.example.test', 'https://target.example.test/a', '/a'],
+    ['https://target.example.test/base', 'https://target.example.test/base/a', '/a'],
+    ['https://target.example.test', 'https://target.example.test/?p=1', '/?p=1'],
+    ['https://target.example.test/base', 'https://target.example.test/base?q=1#here', '?q=1#here'],
+    ['https://target.example.test', 'https://target.example.test/#here', '/#here'],
+    ['https://target.example.test:8443', 'https://target.example.test:8443/a', '/a'],
+    ['http://[::1]:8080/base', 'http://[::1]:8080/base/a', '/a'],
+    ['https://target.example.test', 'https://target.example.test/%E6%9D%B1%E4%BA%AC', '/%E6%9D%B1%E4%BA%AC'],
+    ['https://target.example.test', 'https://target.example.test/a?next=https://target.example.test/b', '/a?next=https://target.example.test/b'],
+    ['https://target.example.test', 'https://target.example.test', ''],
+    ['https://target.example.test', '', ''],
+] as [$home, $url, $relative]) {
+    wprism_check_same($relative, $call('relative_location_url', $home, $url), 'canonical policy removes one exact leading current home and preserves suffix bytes');
+    if ($url !== '') wprism_check_same($url, $home . $relative, 'fresh Locator home-plus-suffix renders the exact admitted native permalink');
+}
+$historicalHome = 'https://old.example.test';
+$currentHome = 'https://new.example.test';
+$currentUrl = $currentHome . '/page';
+$nativeHistorical = str_replace($historicalHome, '', $currentUrl);
+$canonicalCurrent = $call('relative_location_url', $currentHome, $currentUrl);
+wprism_check($nativeHistorical !== $canonicalCurrent, 'historical private-home replay is an explicitly different policy');
+wprism_check_same($currentUrl, $currentHome . $canonicalCurrent, 'fresh consumer renders the canonical current-home policy correctly');
+wprism_check($historicalHome . $nativeHistorical !== $currentUrl, 'replaying the stale writer can produce the historical double-home bug');
+foreach ([
+    ['', 'https://target.example.test/a'], ['not-a-url', 'https://target.example.test/a'],
+    ['https://target.example.test/', 'https://target.example.test/a'],
+    ['https://target.example.test?x=1', 'https://target.example.test/a'],
+    ['https://target.example.test#fragment', 'https://target.example.test/a'],
+    ['https://user:pass@target.example.test', 'https://user:pass@target.example.test/a'],
+    ['https://target.example.test', 'https://outside.example.test/a'],
+    ['https://target.example.test', 'https://target.example.test.evil/a'],
+    ['https://target.example.test/base', 'https://target.example.test/baseball/a'],
+    ['https://target.example.test', 'https://target.example.test:443/a'],
+    ['https://target.example.test', '/a'],
+    ['https://target.example.test', 'https://target.example.test/a b'],
+    ['https://target.example.test', 'https://target.example.test/a\\outside'],
+    ['https://target.example.test', 'https://target.example.test/%zz'],
+    ['https://target.example.test/base', 'https://target.example.test/base/../outside'],
+    ['https://target.example.test/base', 'https://target.example.test/base/%2e%2e/outside'],
+    ['https://target.example.test/base', 'https://target.example.test/base/%2Foutside'],
+    ['https://target.example.test/base', 'https://target.example.test/base/%5coutside'],
+    ['https://target.example.test', "https://target.example.test/\n"],
+    ['https://target.example.test', 'https://target.example.test/%00'],
+] as [$home, $url]) {
+    wprism_check_throws(static fn() => $call('relative_location_url', $home, $url), RuntimeException::class,
+        'malformed, external, prefix-trapped or path-escaping native URLs refuse before mutation planning');
+}
 $owned = [
     ['meta_id' => '2', 'post_id' => '1', 'meta_value' => 'old'],
     ['meta_id' => '5', 'post_id' => '1', 'meta_value' => 'duplicate'],

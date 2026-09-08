@@ -73,6 +73,19 @@ pure factory. The intended provider will:
    obsolete owned rows, and insert only missing rows. No locations means no
    key. Preserve collational aliases and every nonowned row; never delete and
    reinsert the whole index to manufacture a fixed point.
+7. Store a single relative suffix under the **admitted current target home**.
+   This is an explicit WPrism derived-cache policy, not byte-identical replay
+   of the public writer's historical private home snapshot. Locator caches
+   home at `:177-186`, strips it at `:1108-1129`, and renders home plus the
+   stored URL at `:612-630`. A stale instance can therefore write an absolute
+   new-home URL which its renderer concatenates into a broken double-home
+   link. The provider targets a fresh consumer using current home semantics.
+   Strip one exact leading home only; retain identical text inside a query or
+   fragment. Refuse external URLs, authority/base-path prefix traps, malformed
+   homes and browser-resolved dot segments/encoded path separators. Core home
+   options are untrailed before filtering; a filtered trailing-slash home is
+   outside this canonical representation. Do not silently normalize different
+   authority spellings or default ports into equality.
 
 ## Boundaries that must close before a provider can succeed
 
@@ -109,6 +122,11 @@ actual provider path:
   reusable-block behavior;
 - date-token, front-page, category, author, hierarchical and private-post
   permalinks, including cold, stale, warm and hostile cache/filter premises;
+- ordinary and base-path homes, historical-home/current-home divergence with
+  an intentional byte difference and a correct fresh UI link, external URLs,
+  prefix traps, repeated-home query text, coherent domain mapping and volatile
+  filters. A later durable-home change must still render correctly in a fresh
+  consumer and recapture to a fixed point;
 - standalone string, boolean, integer and whitespace spellings, malformed
   bodies, template exclusion, precedence, mismatched IDs and missing/non-form
   references, with complete pre-write preservation on refusal;
@@ -125,7 +143,8 @@ These are requirements, not a completed run or an assertion that the current
 package ships the provider. The executable candidate in
 `fixtures/location-provider/wpforms-form-locations.php` is deliberately not
 registered in the manifest or assembled onto sites. Its capsule-local offline
-suite checks target-ID normalization and complete stable-ID mutation planning;
+suite checks target-ID normalization, current-home URL policy and complete
+stable-ID mutation planning;
 that is mechanism evidence, not native invocation or readiness evidence.
 Promotion and package re-pinning happen only with the implemented, reviewed
 and exercised package bytes.
@@ -133,7 +152,19 @@ and exercised package bytes.
 Implementation review exposed three source-semantic edges: widget target IDs
 may contain leading zeros while physical row identities stay canonical;
 public metadata writers recursively unslash values before serialization; and
-raw metadata DML must invalidate affected native `post_meta` caches through a
-bounded engine-owned effect boundary. The candidate implements the first two.
-Cache coherence remains unclosed, as does proving equivalence with Locator's
-init-time cached home URL; a fresh `home_url()` call cannot prove that history.
+raw metadata DML requires a correct cache-coherence boundary. The candidate
+implements target normalization and unslashing. Subsequent architecture review
+found that the existing fresh-process protocol already supplies the
+cross-process boundary: `ProviderOperationProcess::run_operation()` flushes
+before each mutation/observer boot, `child_main()` flushes before replay, and
+`RebuildActionDispatcher` flushes before and after its action loop. Its existing
+process regression verifies both launches against independently repopulated
+cache state. The eventual capability must use that protocol; no new
+WPForms-shaped cache effect is justified. Same-child native callback reads of
+post metadata after pass-one DML remain part of the native-input proof.
+
+The current-home policy above removes any need to prove equality with
+Locator's historical private home field. It does **not** remove the need to
+admit the actual current native home/permalink/filter inputs, or to prove the
+two-pass fixed point and fresh-consumer behavior. These remain open before
+the provider can be registered or advertised.
