@@ -377,6 +377,27 @@ Do not align all fixture ids or filter warnings to turn the unsupported domain
 into a positive case. See
 [the wire contract](../../spec/repo-format.md#v325-scalar-reference-intersectionv1--one-value-multiple-native-coordinates).
 
+### One native action, separate identity and label storage
+
+Trace every write made by a native authoring action, not only its primary
+table. WPForms Lite 2.0.1.1's Tags AJAX writer assigns core term relationships
+and separately saves submitted text labels in `settings.form_tags`
+(`src/Admin/Forms/Ajax/Tags.php:154-179,255-270`). Existing choices submit a
+term ID as `value`; a newly typed choice submits its label. The stored label
+is not an identity even when it is numeric-looking.
+
+Use both UTF-8 and numeric-looking labels, with source/target term and TT
+coordinates deliberately different and no native ID equal to the numeric
+label. Prove the complete body values, types and order separately from the
+relationship identity set and native term order. A successful AJAX response
+is insufficient when the native handler ignores its writers' return values:
+retain the actual request and check complete physical rows plus fresh native
+consumers. Test changed assignments and preserve unassigned local terms;
+do not drop their entire taxonomy from recapture to manufacture convergence.
+The WPForms capsule's `regress_form_tags.php` and
+`regress_native_tag_evidence.php` are deterministic mechanism/admission
+examples, not substitutes for executing its native producer.
+
 ### Portable validation versus WordPress-native predicates
 
 Run your real adapter through the standalone `RepositoryCompiler`, with no
