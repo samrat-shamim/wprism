@@ -524,3 +524,61 @@ choice that belongs to an owner, not to an adapter author.
 adapter deploys through, so it needs its own live evidence across a
 representative adapter subset, not the single capture-plan sweep this capsule
 runs. It is scoped, not started.
+
+## Speculative Loading (`speculation-rules`) — certified, and what made it cheap
+
+Authored and certified in one pass against WordPress 7.1 and the official
+1.7.0 artifact (sha256 `0006fda65ee5bd7c9f76f857af2ce4bcc1e82e47834bc8e3fca341af7c47b4c4`).
+Both live suites are bound to commit `4ffec6c8` by the exact-source gate.
+
+The plugin's whole persistent surface is one option, `plsr_speculation_rules`,
+holding three word-enum keys. There is nothing to withhold: no absolute URL, no
+credential, no entity id, no cache marker. That is why this capsule carries no
+`lint_ok`, no `ref`, no `plain_data` and no `allow_secret`, and why it reached
+`certified` without an experimental stage — the opposite end of the spectrum
+from Download Manager above, whose blocker is a plugin-side `exit`.
+
+Two decisions are worth recording because neither is obvious from the manifest.
+
+**`closed_sub_keys` is a claim the plugin itself backs.**
+`plsr_sanitize_setting()` seals the key set with
+`array_intersect_key(array_merge($default, $input), $default)` and clamps every
+value to a fixed label map. Measured through the native path: an undeclared
+sibling key was dropped and an out-of-enum `eagerness` fell back to `moderate`.
+So declaring the sub-key set closed is not an adapter-side bet — it restates
+what the plugin enforces, and a fourth key in a future release aborts capture
+loudly rather than riding along unclassified. `check.sh` writes such a key past
+the sanitizer with a direct `$wpdb->update()` and asserts the refusal, then
+asserts capture recovers byte-identically once the sealed set is restored.
+
+**Absence is a defaulted state, not a removed one — so this adapter cannot
+express option deletion.** A fresh install has no row at all until the first
+Settings → Reading save, and the plugin resolves that absence to
+prerender/moderate/logged_out twice over: `register_setting()`'s `default` and
+`plsr_sanitize_setting()`'s non-array fallback. Absence and a stored default row
+are therefore behaviourally identical *by the plugin's own doubled guarantee*.
+
+Left alone, the common case would silently diverge: an unsaved source captures
+nothing, and a target speculating differently keeps doing so while WPrism
+reports convergence. The capsule's interpreter closes that by completing the
+absent row from the plugin's own `plsr_get_setting_default()` — never a
+hardcoded triple, so a plugin-side default change moves with the plugin — under
+`absent_autoload`, the exact insertion storage the engine refuses to guess. It
+honours `$strictReadOnly`, because the lifecycle handoff snapshot deliberately
+observes a target whose plugin files may be installed but inactive.
+
+The consequence is recorded in `package/disposition.json` rather than left to
+inference: authored removal of `plsr_speculation_rules` is `unsupported`. A
+deleted source row converges the target to default *behaviour* instead of
+deleting its row. `check.sh` proves the symmetry that makes this sound — a
+source with NO row and a target WITH a defaulted row capture to the same
+document.
+
+**The version boundary is a pure range refusal.** 1.6.0
+(sha256 `55d508085e295534f7592f9603a0603f727cdb3225a3d64c47a0466847e61ad2`)
+carries a byte-identical option surface and identical defaults, so the negative
+control cannot lean on an incidental schema difference. Measured refusal:
+`speculation-rules/load.php 1.6.0 is active in this environment, outside the
+'speculation-rules' manifest's declared version_range (>=1.7.0 <1.7.1, pinned by
+site.wprism.json)`. Note the exclusive upper bound: the window admits only the
+observed 1.7.0 line.
