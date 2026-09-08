@@ -78,6 +78,52 @@ foreach ([[], ['wp_users', 'wp_options'], ['wp_users', 'wp_users'], ['wp_options
 foreach ([[], ['foreign'], ['wp_users', 'wp_users'], [[]], ['x' => 'wp_users']] as $badPremise) {
     wprism_check_throws(static fn() => SqlDumpEvidence::assertComplete($dump, $tables, $badPremise), RuntimeException::class, 'nonempty caller premises are required, bounded and within the native roster');
 }
+$structures = SqlDumpEvidence::structures($dump, $tables, $tables);
+wprism_check_same($tables, array_keys($structures), 'opaque schema sections cover the entire independently observed roster');
+foreach ($tables as $table) wprism_check_same("-- Table structure for table `$table`\nCREATE TABLE `$table` (\n  `id` int NOT NULL\n);\n",
+    $structures[$table], 'structure retention is byte-exact and excludes the data marker');
+foreach (['index' => ",\n  KEY `fixture_index` (`id`)", 'engine' => ' ENGINE=InnoDB',
+    'collation' => ' COLLATE=utf8mb4_bin', 'counter' => ' AUTO_INCREMENT=701', 'comment' => " COMMENT='preserve 701 Ω'"] as $kind => $change) {
+    $changed = str_replace("  `id` int NOT NULL\n);\n", "  `id` int NOT NULL" . ($kind === 'index' ? $change : '')
+        . "\n)" . ($kind !== 'index' ? $change : '') . ";\n", $dump);
+    $changedStructures = SqlDumpEvidence::structures($changed, $tables, $tables);
+    wprism_check($changedStructures !== $structures && $changed === str_replace($structures, $changedStructures, $dump),
+        'exact structure bytes expose ' . $kind . ' drift without a field-name normalizer');
+}
+foreach (['missing' => str_replace("-- Dumping data for table `wp_options`\n", '', $dump),
+    'duplicate' => str_replace("-- Table structure for table `wp_options`\n", "-- Table structure for table `wp_options`\n-- Table structure for table `wp_options`\n", $dump),
+    'foreign' => str_replace('`wp_options`', '`foreign`', $dump),
+    'mispaired' => strtr($dump, ['-- Dumping data for table `wp_options`' => '-- Dumping data for table `wp_users`',
+        '-- Dumping data for table `wp_users`' => '-- Dumping data for table `wp_options`']),
+    'wrong schema section' => strtr($dump, ['CREATE TABLE `wp_options`' => 'CREATE TABLE `wp_users`',
+        'CREATE TABLE `wp_users`' => 'CREATE TABLE `wp_options`']),
+    'oversized section' => str_replace("CREATE TABLE `wp_options` (\n", "CREATE TABLE `wp_options` (\n" . str_repeat(' ', 65536) . "\n", $dump)] as $kind => $bad) {
+    if (in_array($kind, ['mispaired', 'wrong schema section'], true)) {
+        SqlDumpEvidence::assertComplete($bad, $tables, $tables);
+        wprism_check(true, 'complete global rosters alone cannot reject ' . $kind);
+    }
+    wprism_check_throws(static fn() => SqlDumpEvidence::structures($bad, $tables, $tables), RuntimeException::class,
+        $kind . ' schema framing cannot produce a partial preservation witness');
+}
+$padding = '-- ' . str_repeat('x', 65536 - strlen($structures['wp_options']) - 4) . "\n";
+$boundedStructure = str_replace("CREATE TABLE `wp_options` (\n", $padding . "CREATE TABLE `wp_options` (\n", $dump);
+wprism_check_same(65536, strlen(SqlDumpEvidence::structures($boundedStructure, $tables, $tables)['wp_options']),
+    'opaque table structure admits its exact byte boundary');
+$column = static fn(string $name): string => $name . "\tbigint(20) unsigned\tNULL\tNO\tPRI\tNULL\tauto_increment\tselect,insert,update,references\t\n";
+$columnBytes = $column('id') . "body\tlongtext\tutf8mb4_unicode_ci\tYES\t\tNULL\t\tselect,insert,update,references\tUnicode Ω\n";
+wprism_check_same(['id', 'body'], SqlDumpEvidence::columnRoster($columnBytes), 'native full column metadata supplies every projection field in observed order');
+wprism_check_same(['id', 'body'], SqlDumpEvidence::columnRoster($columnBytes . "\n"), 'native terminal separator is retained as framing');
+$boundedColumns = substr($column('id'), 0, -1) . str_repeat('x', 65536 - strlen($column('id'))) . "\n";
+wprism_check_same(['id'], SqlDumpEvidence::columnRoster($boundedColumns), 'raw column metadata admits its exact byte boundary');
+wprism_check_same(128, count(SqlDumpEvidence::columnRoster(implode('', array_map($column, array_map(static fn(int $i): string => 'field_' . $i, range(1, 128)))))),
+    'full native column roster admits its exact bound');
+foreach (['', "\n", "\n\n", rtrim($columnBytes, "\n"), $columnBytes . "\n\n", $column('id') . $column('id'),
+    $column('unsafe`'), $column(''), str_replace("\tNO\t", "\tNO\textra\t", $column('id')), $column('id') . "\n" . $column('body'),
+    str_replace("\tNO\t", "\tN\rO\t", $column('id')), str_replace("\tNO\t", "\tN\0O\t", $column('id')),
+    str_repeat('x', 65537), implode('', array_map($column, array_map(static fn(int $i): string => 'field_' . $i, range(1, 129))))] as $bad) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::columnRoster($bad), RuntimeException::class,
+        'incomplete, duplicate, unsafe, misframed or oversized column metadata refuses');
+}
 $projectDump = static fn(string $rows): string => "-- MariaDB dump 10.19 Distrib 11.4\n"
     . "-- Table structure for table `fixture`\nCREATE TABLE `fixture` (\n `id` int NOT NULL\n);\n"
     . "-- Dumping data for table `fixture`\n" . $rows . "-- Dump completed\n";

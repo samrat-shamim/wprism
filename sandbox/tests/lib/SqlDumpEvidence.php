@@ -76,6 +76,64 @@ final class SqlDumpEvidence {
     }
 
     /**
+     * Exact opaque schema sections from the same independently admitted dump.
+     * SHOW FULL COLUMNS does not cover indexes, engine or table options. The
+     * owner compares these bytes and alone predicts any permitted counter
+     * change; this helper neither parses DDL nor normalizes AUTO_INCREMENT.
+     *
+     * @return array<string,string>
+     */
+    public static function structures(string $bytes, array $tables, array $nonemptyTables): array {
+        self::assertComplete($bytes, $tables, $nonemptyTables);
+        preg_match_all('/^-- (Table structure|Dumping data) for table `([A-Za-z0-9_]+)`$/m', $bytes, $markers, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        $sections = [];
+        for ($index = 0; $index < count($markers); $index += 2) {
+            $begin = $markers[$index];
+            $end = $markers[$index + 1] ?? null;
+            $table = $begin[2][0];
+            if ($begin[1][0] !== 'Table structure' || $end === null || $end[1][0] !== 'Dumping data'
+                || $end[2][0] !== $table || isset($sections[$table])) {
+                throw new \RuntimeException('database structure and data sections are not uniquely paired');
+            }
+            $length = $end[0][1] - $begin[0][1];
+            if ($length <= 0 || $length > 65536) throw new \RuntimeException('database structure section exceeds its bound');
+            $section = substr($bytes, $begin[0][1], $length);
+            preg_match_all('/^CREATE TABLE `([A-Za-z0-9_]+)` \($/m', $section, $creates);
+            if ($creates[1] !== [$table]) throw new \RuntimeException('database structure section lacks its exact unique native schema');
+            $sections[$table] = $section;
+        }
+        ksort($sections, SORT_STRING);
+        if (array_keys($sections) !== $tables) throw new \RuntimeException('database structures do not cover the complete native roster');
+        return $sections;
+    }
+
+    /**
+     * SHOW FULL COLUMNS, --batch --raw --skip-column-names, outside WordPress.
+     * Retain and compare the complete raw nine-field records independently;
+     * only their first field selects the existing scalar projection. Native
+     * metadata containing literal tabs/newlines refuses this bounded lane.
+     *
+     * @return list<string>
+     */
+    public static function columnRoster(string $bytes): array {
+        if ($bytes === '' || strlen($bytes) > 65536 || !str_ends_with($bytes, "\n") || str_contains($bytes, "\r") || str_contains($bytes, "\0")) {
+            throw new \RuntimeException('database column inventory is incomplete or oversized');
+        }
+        $terminator = str_ends_with($bytes, "\n\n") ? 2 : 1;
+        $columns = [];
+        foreach (explode("\n", substr($bytes, 0, -$terminator)) as $line) {
+            $fields = explode("\t", $line);
+            if (count($fields) !== 9 || preg_match('/\A[A-Za-z0-9_]{1,64}\z/', $fields[0]) !== 1) {
+                throw new \RuntimeException('database column inventory has an unsupported row');
+            }
+            $columns[] = $fields[0];
+            if (count($columns) > 128) throw new \RuntimeException('database column inventory exceeds its bound');
+        }
+        if (count(array_unique($columns)) !== count($columns)) throw new \RuntimeException('database column inventory repeats a field');
+        return $columns;
+    }
+
+    /**
      * Project text/binary, null and exact integer columns from complete-insert,
      * skip-extended-insert native rows. Callers separately bind assertComplete
      * to their independent native roster; this projection is not that proof.
