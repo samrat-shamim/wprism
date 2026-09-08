@@ -962,7 +962,7 @@ require __ENGINE_ROOT__ . '/agent/src/Kernel/Canon.php';
 require __ENGINE_ROOT__ . '/agent/src/Kernel/OptionState.php';
 require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
 require __ENGINE_ROOT__ . '/agent/src/Promotion/Deploy.php';
-require __ENGINE_ROOT__ . '/agent/src/Adapter/Providers.php';
+require_once __ENGINE_ROOT__ . '/agent/src/Adapter/Providers.php';
 require __PROVIDER_FILE__;
 $GLOBALS['lazy_providers'] = [new WPrismCertificationLazyApiProvider()];
 $GLOBALS['lazy_provider_invocations'] = 0;

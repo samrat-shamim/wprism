@@ -249,7 +249,7 @@ final class WP_CLI {
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/Secrets.php';
 require $root . '/agent/src/Policy/Policy.php';
-require $root . '/agent/src/Adapter/Providers.php';
+require_once $root . '/agent/src/Adapter/Providers.php';
 
 use WPrism\NativeActions;
 use WPrism\Providers;

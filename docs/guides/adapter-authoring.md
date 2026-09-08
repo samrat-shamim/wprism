@@ -1016,6 +1016,98 @@ nests a transaction or reuses a writable/narrower profile. Keep column and
 index expectations in the adapter—the engine owns topology consistency, not a
 third party's schema semantics.
 
+For complete physical input and preservation witnesses, use
+`ProviderSdk::physical_table_rows($descriptor, $context)` inside an already
+active contract snapshot or transaction. A consuming manifest must declare
+`provider-physical-table-rows/v1` alongside `spec-window/v1`; older v3 engines
+then refuse the named dependency before loading executable behavior. The
+provider-protocol feature alone does not version SDK methods.
+Its closed descriptor names `table`,
+ordered unique `columns`, an `identity` list of one to four distinct selected
+positive-integer columns (for example `['ID']` or
+`['object_id', 'term_taxonomy_id']`),
+`max_rows`, `max_raw_bytes`, and `mode` (`rows` or `digest`). It observes the
+**whole table** in ascending numeric lexicographic identity-tuple order. No SQL fragments, predicates,
+callbacks, native parsing or schema assumptions enter this API. Exact driver
+strings and SQL nulls remain distinct; `rows` adds bounded payloads to the same
+`row_count`, `raw_bytes` and versioned `rows_sha256` witness returned by `digest`.
+
+The hard frontiers are 16,384 rows, 32 columns, 262,144 observed cells, 32 MiB
+of aggregate raw bytes, 1 MiB per cell and 4 MiB per transferred batch. Caller
+budgets may only narrow them. The initial size query is limited by both the
+row and cell frontier, plus one overflow witness. Size admission precedes payload hashing; batches
+are tied to exact identities, lengths and hashes, and final readback rejects a
+changed roster. The active profile still grants table access and owns the
+transaction and statement budget. A descriptor cannot create or widen it.
+
+When a supported public native API reads options internally and accepts no
+input array, `ProviderSdk::native_option_inputs($inputs, $native, $context)`
+witnesses its actual selected **current transactional** inputs. Declare `provider-native-option-inputs/v1`
+with `spec-window/v1`. Each input names exactly `name`, `default`,
+`passed_default` and `reads`; the engine reads its own physical raw/plain
+expectation. At most 8 names / 32 total reads / 1 MiB per selected value are
+admitted; names are canonical ASCII option identities and defaults are bounded
+plain data. Special core-transformed/cache-reserved keys are outside this API.
+Use it only inside the authorized mutation callback. The capsule must prove
+that its initial reconstruction computation precedes its first write; this
+API does not certify that ordering or that its rows predate the transaction.
+Later fixed-point passes may witness current transactional inputs again.
+Fresh observers and uncertain-commit classifiers stay callback-free.
+
+A before/after getter equality cannot prove an intermediate native input.
+The scope refuses pre-existing selected/generic option and alloptions hooks,
+and checks the **saved pre-isolation** catch-all presence, not the database
+gate's masked empty view. It refuses installation/config mode and substituted
+or external caches. The standard core cache's public read view permits raw
+entry admission without calling a getter that may clone an object. Stale,
+decoded, object-shaped or presence-inconsistent selected entries refuse; no
+cache clearing or repopulation manufactures a passing premise. Exact terminal
+values, defaults, counts, topology and cleanup are verified. A bounded,
+argument-free call trace additionally proves the observer was reached directly
+from core `get_option()`: a synthetic matching filter pair cannot count as a
+native read. `passed_default` is observed on the absent-row path, where core
+actually exposes it. A caught refusal
+poisons the database boundary so the caller cannot continue to commit.
+Native request-local cache warming remains a non-rollback effect. This scope
+does not sandbox arbitrary native PHP, bound all its allocations, or prove
+unselected dependencies: the capsule must still declare and physically witness
+the complete native computation and its unchanged remainder.
+
+For a public native API whose integer-only dependency is `get_post_type()`,
+`ProviderSdk::checked_native_post_types($ids, $context)` admits and invokes that
+exact getter itself. Declare `provider-native-post-types/v1` with
+`spec-window/v1`. It accepts at most 128 unique positive native integer IDs and
+returns types (or exact absence `false`) in caller order. It requires the same
+authorized mutation callback and existing posts-table read authority. Zero is
+not an absence probe: core can substitute the global post.
+
+Cold core reads use `SELECT *`, so admission proves the standard 23-column
+posts schema and sizes every field before native allocation: 1 MiB per cell,
+8 MiB total. Added/missing columns refuse; the exact bounded column-name
+inventory grants no arbitrary schema access. Selected warm cache entries must
+be exact inert `stdClass`/final `WP_Post` objects with matching physical
+ID/type/raw filter, closed scalar properties and the same allocation limits.
+Other bounded cached fields need not equal physical values because the getter
+does not consume them. No cache clearing or replacement manufactures a
+premise. Standard core getter/sanitizer/cache provenance, current routing and
+post-call physical/cache state are checked. The call may warm request-local
+cache and a caught refusal poisons the transaction.
+
+This is a **type-only current read**, not a callback witness or full post,
+permalink, metadata, registry or historical-cache proof. If an audited native
+consumer repeats the getter immediately afterward, the capsule must prove no
+intervening callback can change its admitted premise; observers/classifiers
+remain physical-only.
+
+Keep plugin eligibility, subset/remainder selection, native reconstruction and
+postcondition meaning in the capsule. Do not copy a SQL pager into a provider
+or add a permissive SQL/visitor language merely to migrate a legacy helper.
+When extraction introduces a shared engine class, follow the
+[new-class ownership and generated-file checklist](../dev-setup.md#the-classmap-autoloader):
+explicit dependencies and the module assignment are required alongside the
+classmap and public API fixture. Package validation alone does not check that
+engine/tooling boundary.
+
 Do not spell an exact presence probe as raw `SHOW TABLES LIKE '$table'` (or
 `SHOW TABLE STATUS LIKE '$table'`): `_` and `%` are LIKE wildcards. Bind
 `$wpdb->esc_like($table)` through `%s`; the profile gate decodes only that
@@ -1038,11 +1130,25 @@ read-only snapshot only when the commit outcome needs physical proof. The
 classifier returns exactly `DATABASE_POSTIMAGE_APPLIED`,
 `DATABASE_POSTIMAGE_NOT_APPLIED`, or `DATABASE_POSTIMAGE_UNKNOWN`; partial or
 unreadable state is recovery debt. Inside `$write`, use only the SDK's typed
-mutation methods (`database_delete()` or `database_delete_all()` today), each
+mutation methods (`database_insert()`, `database_update()`, `database_delete()`
+or `database_delete_all()`), each
 of which rechecks active transaction authority and writable-table membership.
 If the plugin operation needs another mutation shape, add that generic typed
 operation to the SDK and its engine tests first. Never send raw DML, call
 `Db::start*()`, or author `START`/`COMMIT`/`ROLLBACK` in a package executable.
+`database_insert($table, $data, $context, $format = null)` and
+`database_update($table, $data, $where, $context, $format = null,
+$whereFormat = null)` reuse the engine's existing wpdb field codec and return
+affected-row counts. A manifest consuming either must declare
+`provider-typed-row-mutations/v1` alongside `spec-window/v1`. This requirement
+is independent of physical observation: declare only the APIs the capsule
+actually uses, before publishing its new digest. Neither feature grants a
+table, transaction, predicate or native hook effect.
+Update/delete predicates must be nonempty. The capsule
+still owns semantic row selection and before/after preservation proofs; these
+methods do not infer an upsert key, regenerate IDs, run native hooks or clear
+WordPress caches. Reconcile existing derived rows in place when physical
+identity must survive retries, then prove the resulting fixed point.
 
 #### Fresh-process capabilities
 
@@ -1615,6 +1721,15 @@ section is certifiable and an unknown feature, missing gate, or key with no arm
 refuses by name. Value-vocabulary features add no certificate surface of their
 own: `mixed-column-codecs/v1` leaves the surface owned by
 `typed-column-codecs/v1`, while `manifest-provider-runtime/v1` claims no state.
+
+When adding an engine feature, update the independent literal vocabulary
+expectations in `regress_spec_v3_document.php` and `regress_spec_v3_dry_run.php`
+alongside its owner and generated API/wire projections. Keep those expectations
+literal: deriving them from the new roster would stop checking its exact set.
+Run `make regress-spec-v3-document regress-spec-v3-dry-run regress-spec-window`
+and `make release-gate` before the full aggregate. New runtime APIs also need
+host-load admission/refusal controls; an existing provider-protocol feature
+does not automatically promise later SDK methods.
 
 `top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be

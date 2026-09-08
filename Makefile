@@ -1163,6 +1163,18 @@ regress-ledger-large-values:
 regress-provider-database-session:
 	php sandbox/tests/offline/guards/regress_provider_database_session.php
 
+.PHONY: regress-physical-table-rows
+regress-physical-table-rows:
+	php sandbox/tests/offline/guards/regress_physical_table_rows.php
+
+.PHONY: regress-native-option-inputs
+regress-native-option-inputs:
+	php sandbox/tests/offline/guards/regress_native_option_inputs.php
+
+.PHONY: regress-native-post-types
+regress-native-post-types:
+	php sandbox/tests/offline/guards/regress_native_post_types.php
+
 regress-provider-operation-process:
 	php sandbox/tests/offline/guards/regress_provider_operation_process.php
 

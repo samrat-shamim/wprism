@@ -10,6 +10,8 @@ not standalone suites.
 | --- | --- |
 | `check.php` | `wprism_check*()` assertions, the end-of-suite summary/exit code, and `wprism_code_without_comments()` for the suites that measure a reader set by grepping shipped source (rationale-dense prose names the same tokens, so comments are stripped first) |
 | `wp_stubs.php` | `\WPrismTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
+| `native_option_stubs.php` | Opt-in hook/cache-aware `get_option()` ordering over the same `WpStore` and `FakeWpdb`, with source-separated core-cache fixtures for provenance checks. Load instead of directly loading `wp_stubs.php`; the ordinary shared getter intentionally bypasses these native surfaces. This is deterministic mechanism evidence, not a substitute for execution against actual WordPress core. |
+| `native_post_stubs.php` | Opt-in `get_post_type()` / `WP_Post::get_instance()` cache-clone and cold `SELECT *` ordering over the same native-option store. These source-separated fixtures establish deterministic allocation and cache-admission failures; they do not stand in for real WordPress execution. |
 | `wp_serialization_stubs.php` | the exact `is_serialized()`, `maybe_serialize()`, and `maybe_unserialize()` semantics for a lightweight suite that must exercise WordPress wire bytes without loading the full stateful stub surface |
 | `FakeWpdb.php` | `\WPrismTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
 | `frozen_policy.php` | `\WPrismTest\FrozenPolicy` — the `wprism-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |

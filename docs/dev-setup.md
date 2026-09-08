@@ -261,8 +261,19 @@ check` rather than silently going wrong; `php tools/classmap-generate.php
 --check`, which `make release-gate` runs, is the same question from the command
 line.
 
-Adding a class to `agent/src` or `cli/src` therefore has one extra step: run
-`php tools/classmap-generate.php` and commit the regenerated map alongside it.
+Adding a class to `agent/src` or `cli/src` requires explicit dependency loads,
+its owning module's `files` entry and `file_count` in `tools/modules.json`,
+and `php tools/classmap-generate.php`. Refresh the public signature fixture
+with `php tools/api-surface.php --write` when that surface changes. Commit
+those generated projections alongside the class. `MoveModulesTest` requires
+the module map to cover every source file; a current classmap alone does not
+prove that ownership. `php tools/codemod/move-modules.php --plan` must remain
+a no-op; do not run the historical move with `--apply` for a new class.
+Keep test dependency loads explicit and idempotent (`require_once`) too.
+An engine-owned feature name can expand Policy's static load closure: bare
+provider loads after Policy caused class-redeclaration failures in six host
+and capsule harnesses when the SDK became a feature owner. Fix the harness
+load, never remove the production dependency to preserve an accidental order.
 
 ## `wprism assess` / `wprism contract` (round-3 MUP)
 

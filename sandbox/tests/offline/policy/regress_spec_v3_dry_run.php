@@ -822,25 +822,9 @@ wprism_check_same(
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
-// WP-6.4: two names, not one. The dry run's own posture — measure what is
-// there, do not assert what ought to be — makes the COUNT the interesting fact:
-// a vocabulary of one is a special case that happens to satisfy the channel's
-// requirement, and a vocabulary of two is a set the refusal enumerates, the
-// author declares from, and register row R-19 projects. WP-6.5 made it six;
-// manifest-provider-runtime/v1 made it seven, Redirection's measured mixed
-// column demand made it eight, and the bounded post-kind selector makes it
-// nine, schema-settlement/v1 makes it ten, plugin-incompatibility/v1 makes it
-// eleven while claiming the incompatibility section itself, and the fixed
-// manifest-provider child protocol makes it twelve, and scalar reference
-// intersection made thirteen, native value validation fourteen, and retained
-// JSON-body reference types fifteen, JSON-body URL rebinding sixteen, and
-// reviewed JSON-body scalar privacy paths seventeen, and closed sibling
-// reference discriminators eighteen, and ordered PHP option containers nineteen,
-// each without a new top-level section.
-// The count is now evidence for a different claim than the one it started
-// as: § v3.12 asks for "at least one grammar section shipped post-v3 through
-// engine_features with no version bump" before the window may ever close, and
-// eighteen of these nineteen shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// The admitted set includes all twenty-three implemented features. The explicit
+// roster proves declarations remain negotiated without a spec-version bump;
+// provider observation/input features and reference/container codecs coexist.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
@@ -856,6 +840,10 @@ wprism_check_same(
         'php-container-values/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
+        'provider-native-option-inputs/v1',
+        'provider-native-post-types/v1',
+        'provider-physical-table-rows/v1',
+        'provider-typed-row-mutations/v1',
         'scalar-reference-intersection/v1',
         'schema-settlement/v1',
         'spec-window/v1',
@@ -864,7 +852,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries nineteen names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries twenty-three names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented

@@ -23,6 +23,9 @@ require_once __DIR__ . '/StructuredEvidence.php';
 // one definition so a manifest cannot pass the feature gate under a spelling
 // the runtime itself would never recognize.
 require_once __DIR__ . '/ManifestProviderRuntime.php';
+// SDK availability is independent of the provider protocol. Read the SDK's
+// own names so a v3 engine predating a method refuses its consumer at load.
+require_once __DIR__ . '/ProviderSdk.php';
 // WP-6.2: IMPLEMENTED_FEATURES keys one row off
 // ManifestGrammar::INVALIDATE_VOCABULARY_FEATURE. Required directly rather than
 // leaned on Policy.php's own require below, because a constant expression that
@@ -295,6 +298,13 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [],
         ],
+        // Independent runtime API requirements, not new sections or grants.
+        // Their existing active contract/profile and Db session boundaries
+        // still own all read and write authority after compatibility admits.
+        ProviderSdk::PHYSICAL_TABLE_ROWS_FEATURE => ['since' => 3, 'keys' => []],
+        ProviderSdk::TYPED_ROW_MUTATIONS_FEATURE => ['since' => 3, 'keys' => []],
+        ProviderSdk::NATIVE_OPTION_INPUTS_FEATURE => ['since' => 3, 'keys' => []],
+        ProviderSdk::NATIVE_POST_TYPES_FEATURE => ['since' => 3, 'keys' => []],
         // A plugin incompatibility is a constraint on which adapter contracts
         // may share one policy, not a state surface. The exact-basename list is
         // therefore non-surface, while PolicyLoadFinalizer enforces it before

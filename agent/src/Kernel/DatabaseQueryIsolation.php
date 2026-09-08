@@ -657,6 +657,18 @@ final class DatabaseQueryIsolation {
         }
     }
 
+    /**
+     * Native-input scopes must prove the preimage, not the no-op gate that
+     * begin() installs at `all`. Even an empty pre-existing entry refuses:
+     * no mutable saved hook object or callback exception crosses this seam.
+     */
+    public static function assert_original_all_hook_absent(string $context): void {
+        self::assert_active($context);
+        if ((self::$hooks['all']['present'] ?? true) !== false) {
+            self::violation("wprism: $context found a pre-existing WordPress catch-all hook");
+        }
+    }
+
     /** Used by the transaction-local gate on every WordPress dispatch. */
     public static function assert_gate_use(DatabaseHookGate $gate, string $context): void {
         self::assert_active($context);
@@ -863,7 +875,18 @@ final class DatabaseQueryIsolation {
             }
             return;
         }
-        $access = self::profiled_query_tables($sql, $structure);
+        // A native SELECT * preflight needs column names in physical order,
+        // without transferring unbounded defaults/comments through SHOW FULL.
+        // This exact bounded projection borrows only the named table's read
+        // authority; arbitrary schema-qualified SQL remains outside grammar.
+        if (preg_match('/^SELECT COLUMN_NAME FROM information_schema\.COLUMNS '
+            . "WHERE TABLE_SCHEMA = DATABASE\\(\\) AND BINARY TABLE_NAME = BINARY '([A-Za-z0-9_]{1,64})' "
+            . 'ORDER BY ORDINAL_POSITION LIMIT ([1-9][0-9]{0,2})$/D', $sql, $columns) === 1
+            && (int) $columns[2] <= 128) {
+            $access = ['reads' => [$columns[1]], 'writes' => []];
+        } else {
+            $access = self::profiled_query_tables($sql, $structure);
+        }
         $readable = array_fill_keys($profile->readable_tables(), true);
         $writable = array_fill_keys($profile->write_tables(), true);
         foreach ($access['reads'] as $table) {
