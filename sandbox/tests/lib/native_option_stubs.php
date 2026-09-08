@@ -11,16 +11,13 @@ define('WPINC', 'wp-includes');
 require_once ABSPATH . WPINC . '/class-wp-object-cache.php';
 require_once ABSPATH . WPINC . '/cache.php';
 require_once ABSPATH . WPINC . '/option.php';
+require_once ABSPATH . WPINC . '/class-wp-hook.php';
+require_once ABSPATH . WPINC . '/load.php';
+if (defined('WPRISM_TEST_NATIVE_PERMALINKS')) {
+    foreach (['class-wp-post.php', 'post.php', 'class-wp-post-type.php', 'class-wp-rewrite.php',
+        'functions.php', 'plugin.php', 'formatting.php', 'link-template.php',
+        'class-wp-user.php', 'pluggable.php', 'user.php', 'capabilities.php'] as $file) {
+        require_once ABSPATH . WPINC . '/' . $file;
+    }
+}
 require_once __DIR__ . '/wp_stubs.php';
-
-final class WP_Hook {
-    public array $callbacks = [];
-}
-
-function wp_using_ext_object_cache(): mixed {
-    return $GLOBALS['native_option_external_cache'] ?? null;
-}
-
-function wp_installing(): bool {
-    return ($GLOBALS['native_option_installing'] ?? false) === true;
-}

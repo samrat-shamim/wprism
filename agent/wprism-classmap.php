@@ -188,6 +188,7 @@ return [
     'WPrism\\NativeCoreCache' => 'src/Kernel/NativeCoreCache.php',
     'WPrism\\NativeDatabaseProfile' => 'src/Kernel/NativeDatabaseProfile.php',
     'WPrism\\NativeOptionInputs' => 'src/Kernel/NativeOptionInputs.php',
+    'WPrism\\NativePermalinks' => 'src/Kernel/NativePermalinks.php',
     'WPrism\\NativePostTypes' => 'src/Kernel/NativePostTypes.php',
     'WPrism\\NativeRebuildExecutor' => 'src/Rebuild/NativeRebuildExecutor.php',
     'WPrism\\NativeRewriteEffects' => 'src/Rebuild/NativeRewriteEffects.php',

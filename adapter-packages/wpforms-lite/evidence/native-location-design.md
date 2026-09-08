@@ -46,13 +46,14 @@ pure factory. The intended provider will:
 
 1. Read complete bounded physical inputs through the SDK inside the existing
    contract profile. Use native eligibility and public parsing over physical
-   post content. For permalink generation, supply a full physical `WP_Post`
-   with raw filtering, matching normal authoring rather than the task's
-   partial-object optimization.
+   post content. Gather selected placement IDs, then use the engine-owned
+   `checked_native_permalinks()` batch for current native home and links.
+   The capsule supplies neither partial posts nor a native callback; integer
+   core reads exercise the admitted full-post and ancestor caches themselves.
 2. Use the public standalone builder over bounded decoded form data. Validate
    the actual form ID and `form_data.id` agree before invoking it. Its internal
-   cached `get_post_type()` dependency still requires an independently proven
-   premise; a constructed post cannot be supplied to that integer-only API.
+   cached `get_post_type()` dependency uses the independently admitted
+   `checked_native_post_types()` immediately before the audited public builder.
 3. Wrap the public widget scanner in `ProviderSdk::native_option_inputs()`
    using the three exact names, defaults, passed-default flags and read counts.
    The engine supplies the physical expectations; a capsule does not assert
@@ -102,10 +103,14 @@ pure factory. The intended provider will:
 ## Boundaries that must close before a provider can succeed
 
 The merged native-option witness proves the widget inputs, not an arbitrary
-native reconstruction. Permalink, home, registry, current-user and standalone
-post-type/cache dependencies still need source-backed admission and hostile
-tests. Passing a full physical post closes only the primary permalink input;
-it does not close parent-post, term, author, option or filter dependencies.
+native reconstruction. The candidate now uses the shared native permalink
+reader rather than calling `home_url()` and `get_permalink()` itself. Its
+engine mechanism tests cover post/page/registered-CPT routes, stock statuses
+under the anonymous private-link context, ancestors, options, rewrite state
+and reviewed stock hooks. Category/author dependencies and extension-specific
+permalink participants remain explicitly unclosed and refuse. Actual native
+SDK/provider execution and complete WPForms lifecycle evidence are still owed;
+the candidate is not registered, advertised or counted as ready.
 Do not warm or repopulate a cache to manufacture a premise, and do not reject
 all native permalink filters simply to avoid reviewing their semantics.
 

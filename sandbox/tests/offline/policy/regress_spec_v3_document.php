@@ -273,6 +273,7 @@ wprism_check_same(
         'post-kind-action-trigger/v1',
         'provider-native-option-inputs/v1',
         'provider-native-post-types/v1',
+        'provider-native-permalinks/v1',
         'provider-physical-table-rows/v1',
         'provider-typed-row-mutations/v1',
         'scalar-reference-intersection/v1',

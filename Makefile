@@ -1172,6 +1172,14 @@ regress-native-option-inputs:
 regress-native-post-types:
 	php sandbox/tests/offline/guards/regress_native_post_types.php
 
+.PHONY: regress-native-permalinks
+regress-native-permalinks:
+	php sandbox/tests/offline/guards/regress_native_permalinks.php
+
+.PHONY: regress-native-permalinks-live
+regress-native-permalinks-live:
+	bash sandbox/tests/live/regress_native_permalinks_live.sh
+
 regress-provider-operation-process:
 	php sandbox/tests/offline/guards/regress_provider_operation_process.php
 
@@ -2918,6 +2926,7 @@ regress-live-list:
 	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 x PHP 8.3/8.4 matrix, a below-range 6.8.3 refusal and a past-the-maximum PHP 8.5 refusal)"
 	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
 	@echo "  regress-database-boundary-live            own disposable pair (parameterized: DATABASE_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; MariaDB/MySQL LIMIT-0 metadata lock + no-definer-invocation view proof + MariaDB sequence refusal)"
+	@echo "  regress-native-permalinks-live            own disposable MariaDB pair (NATIVE_PERMALINK_PAIR/PORT1/PORT2; exact source; native SDK URL families, hostile cache/hook refusal and complete row preservation)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"

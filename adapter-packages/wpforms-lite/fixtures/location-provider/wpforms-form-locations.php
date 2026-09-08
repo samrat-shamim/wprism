@@ -176,8 +176,7 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
         if (count($forms) > self::MAX_FORMS) self::refuse('form population exceeds the bounded frontier');
         $locations = [];
         $total = 0;
-        $home = home_url();
-        self::native_string($home);
+        $placements = [];
         foreach ($posts as $post) {
             if (!in_array($post['post_type'], $types, true) || !in_array($post['post_status'], $statuses, true)) continue;
             $ids = $locator->get_form_ids($post['post_content']);
@@ -187,12 +186,19 @@ final class WpformsFormLocations extends ManifestProviderRuntime {
             $targets = [];
             foreach ($ids as $id) $targets[self::form_id($id, $forms)] = true;
             if ($targets === []) continue;
-            $nativePost = new \WP_Post((object) ($post + ['filter' => 'raw']));
-            $url = get_permalink($nativePost);
-            $url = $url === false || is_wp_error($url) ? '' : $url;
+            $placements[] = ['post' => $post, 'targets' => $targets];
+        }
+        $links = ProviderSdk::checked_native_permalinks(array_map(
+            static fn(array $placement): int => self::positive_id($placement['post']['ID']), $placements),
+            'WPForms complete native placement permalinks');
+        $home = $links['home'];
+        foreach ($placements as $index => $placement) {
+            $post = $placement['post'];
+            $url = $links['permalinks'][$index];
+            $url = $url === false ? '' : $url;
             self::native_string($url);
             $url = self::relative_location_url($home, $url);
-            foreach ($targets as $formId => $_present) {
+            foreach ($placement['targets'] as $formId => $_present) {
                 self::add_location($locations, $total, $formId, [
                     'type' => $post['post_type'], 'title' => $post['post_title'], 'form_id' => $formId,
                     'id' => self::positive_id($post['ID']), 'status' => $post['post_status'], 'url' => $url,

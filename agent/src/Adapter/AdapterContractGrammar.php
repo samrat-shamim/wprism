@@ -300,6 +300,7 @@ final class AdapterContractGrammar {
         ProviderSdk::TYPED_ROW_MUTATIONS_FEATURE => ['since' => 3, 'keys' => []],
         ProviderSdk::NATIVE_OPTION_INPUTS_FEATURE => ['since' => 3, 'keys' => []],
         ProviderSdk::NATIVE_POST_TYPES_FEATURE => ['since' => 3, 'keys' => []],
+        ProviderSdk::NATIVE_PERMALINKS_FEATURE => ['since' => 3, 'keys' => []],
         // A plugin incompatibility is a constraint on which adapter contracts
         // may share one policy, not a state surface. The exact-basename list is
         // therefore non-surface, while PolicyLoadFinalizer enforces it before
