@@ -110,8 +110,9 @@ under the anonymous private-link context, ancestors, options, rewrite state
 and reviewed stock hooks. Category/author dependencies and extension-specific
 permalink participants remain explicitly unclosed and refuse. The focused
 native provider lane below now exercises the admitted positive subset through
-the real SDK and process protocol. Hostile native failure paths and complete
-WPForms lifecycle evidence are still owed; the candidate is not registered in
+the real SDK and process protocol. Six native pre-write refusal cases are
+recorded below; recovery paths and complete WPForms lifecycle evidence are
+still owed. The candidate is not registered in
 the shipped package, advertised or counted as ready.
 Do not warm or repopulate a cache to manufacture a premise, and do not reject
 all native permalink filters simply to avoid reviewing their semantics.
@@ -255,12 +256,83 @@ The five original private records remain under
 - `stable`: `ac364b9414c5a01450382fcce2f004b6ac4a7308d78fc03bda5080b38c78bd51`
 
 These are private provenance pointers, not a sealed bundle or a portable
-certificate. The complete-record host verifier has 40 synthetic admission and
-privacy controls; those controls do not substitute for the native run. Earlier
+certificate. The original positive verifier's 40 synthetic admission and
+privacy controls now sit inside the combined 268-assertion host suite; those
+controls do not substitute for the native run. Earlier
 failed fixture runs were retained separately and were not edited or re-admitted.
 
 The repository compiled in this lane is deliberately empty: this proves a
 provider executing against existing target state, not authored Apply or
-deployment. Native hostile-input/refusal preservation, failure injection and
-uncertain commit, locale changes, target Apply/deploy/recapture, lifecycle,
-deletion, submissions and participant-declared combinations remain open.
+deployment. Broader hostile-input frontiers, failure injection and uncertain
+commit, locale changes, target Apply/deploy/recapture, lifecycle, deletion,
+submissions and participant-declared combinations remain open.
+
+## Focused native refusal preservation
+
+The same provider lane passed again on 2026-09-08 against clean source
+`a6f2a5024c89c699a63b6ea82b7db113362f3eae` with the locked 2.0.1.1 artifact.
+Owned MariaDB pair `wpfprov04` was destroyed before PASS. Both positive
+invocations and the complete five-record positive sequence passed, followed
+by six isolated dirty-input cases: missing, non-form and template embedded
+references; exact malformed form JSON `{`; a raw-null widget title; and an
+unsafe standalone URI slug `a%3Fb`.
+
+The host re-admits the complete positive baseline for every case and selects
+the intended physical cell independently of the mutation report. It requires
+one failed engine mutation child, no success observer, a null receipt, the
+complete seven-node outer transport graph and the exact complete private inner
+cause. Malformed JSON carries the actual `RuntimeException` then previous
+`JsonException("Syntax error")`; other cases have the exact single native
+refusal root. Child reports are 1,470–2,209 bytes, all untruncated. The reusable
+graph admission is test-only `PrivateRefusalReceipt::assertGraph()`; it produces
+no receipt and does not invent CLI-command or invocation provenance.
+
+All eight input tables and every owned/nonowned postmeta row match the exact
+independently reconstructed dirty state before and after invocation and in a
+fresh WordPress readback. Restoring only the deliberately mutated fixture cell
+then restores the complete positive physical baseline. These malformed bytes
+are not claimed to come from native public writers. Fixture restoration is not
+product rollback, uncertain-commit, Apply or lifecycle evidence.
+
+The 29 positive/refusal phase records remain privately retained under
+`sandbox/tmp/wpforms-provider-native.NvcQjt/`. The five positive stems are
+`seed`, `invoke`, `observe`, `repeat`, `stable`; each refusal case has
+`<case>-seed`, `<case>-invoke`, `<case>-observe`, `<case>-restore`. Luna and Terra
+independently re-admitted all seven sequences from exact-source detached
+checkouts with no findings. Capture commands exit zero because the fixture
+serializes observations; the host separately requires the real failed-child
+graph and null receipt. The sink is 0700 and streams/status files are 0600.
+
+Refusal invocation stdout SHA-256 retention pointers, not sealed certificates:
+
+| Case | SHA-256 |
+| --- | --- |
+| missing-embed | `0820714f0cc0c0ff67c26f647af952e789f219da72291e131bb18f48e58bbe5e` |
+| nonform-embed | `38eea6a61cc0186385e4505ea91cae0f3a4ffa888a68fac256f3a5d812be8ecf` |
+| template-embed | `d9ef672aae7f441d7c17eac93a57729e6e5f0abb38e4b89eaa69a8c9ea6d7bf5` |
+| malformed-body | `2a383c307d69329174c8cc577407a51ed5387b4f518402659124d0de833f105a` |
+| null-widget-title | `875836b3820ad5da45982ad283c5a5befdb31e61cb8e5ecacd7bb52286f68775` |
+| unsafe-standalone-uri | `9bbb3300846250c8e2ed977ce0f7c094ac0977bd428e5246f1698824f2223577` |
+
+## Candidate recovery mechanism coverage
+
+The SDK-model suite `tests/offline/regress_location_native_inputs.php` now has
+224 assertions. Three failure-recovery cases use the existing bound candidate
+runtime and shared `FakeWpdb` seams, not a new launcher or runtime fault hook:
+
+- fail a typed DELETE only after observing that the preceding typed UPDATE
+  actually changed the complete physical state; require the typed mutation
+  exception, complete preimage rollback and settled isolation;
+- lose the COMMIT acknowledgement after durable application; require the
+  candidate's complete physical classifier to admit it in one extra read-only
+  snapshot, then require explicit retries to preserve the same owned identity
+  and perform no DML;
+- lose the COMMIT acknowledgement without durable application; require the
+  retry-safe typed not-applied exception, complete preimage preservation and
+  an explicit retry that converges, followed by a mutation-free fixed point.
+
+Every case preserves all complete input tables, collational aliases and
+unrelated metadata. These are supplied-native-response/driver-model tests of
+the actual candidate's DML and classifier integration. They are not real-plugin,
+Policy-loaded, fresh-child or native server-fault evidence, and do not close a
+production-readiness scenario family by themselves.
