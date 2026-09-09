@@ -122,6 +122,12 @@ grep -q 'control_sets' <<<"$REF_CAP" \
   || fail "the control_sets refusal did not name the meta key: $REF_CAP"
 grep -q 'postID' <<<"$REF_CAP" \
   || fail "the control_sets refusal did not name the offending location rule field: $REF_CAP"
+# Cause, not just exit status: without this the block passes on ANY non-zero
+# capture that happens to echo the meta key and the field -- a generic bare_id
+# finding on the numeric string, or a serialization failure dumping the blob.
+# This sentence exists only in the capsule interpreter's reviewed refusal.
+grep -q 'whose value is an entity reference' <<<"$REF_CAP" \
+  || fail "the control_sets refusal is not the interpreter's reviewed entity-reference boundary: $REF_CAP"
 pass "a preset control set carrying an entity reference aborts capture, naming the meta key and the exact location rule field"
 
 # Restore the portable control set: the refusal above is the assertion, and

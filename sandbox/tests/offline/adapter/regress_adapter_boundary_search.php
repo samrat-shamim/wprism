@@ -174,12 +174,12 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
 wprism_check_same(
     17,
     count($bisectionShaped),
-    '17 of the 19 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '17 of the 21 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 wprism_check_same(
     ['block-visibility', 'download-manager', 'duplicate-post', 'wpforms-lite'],
     array_keys($exerciseOnly),
-    'both non-authorizing blocks lack a certified anchor, so the search never proposes either as a boundary'
+    'the blocks that are not bisection results are exercise-fixture only, so the search never proposes them as a boundary'
 );
 
 // The lock authors its rows oldest-first inside each block, which is the order

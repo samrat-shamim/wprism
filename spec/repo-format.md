@@ -1176,8 +1176,9 @@ promotion of `the-events-calendar` to `certified`, Polylang's reviewed productio
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
 review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
 virgin-target settlement correction, the experimental WPForms capsule and location-provider review,
-and withdrawal of Yoast Duplicate Post's unproved managed-clone certification,
-all without changing the split topology.)
+withdrawal of Yoast Duplicate Post's unproved managed-clone certification, and the four newest capsules —
+experimental Download Manager, certified Hustle, certified Speculative Loading and experimental
+Block Visibility — all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day

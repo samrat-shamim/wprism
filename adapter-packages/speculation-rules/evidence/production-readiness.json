@@ -22,11 +22,6 @@
       "adapter-packages/speculation-rules/tests/conformance/check.sh",
       "adapter-packages/speculation-rules/tests/certify/version-matrix.sh"
     ],
-    "deletion": [
-      "adapter-packages/speculation-rules/package/disposition.json",
-      "adapter-packages/speculation-rules/tests/conformance/check.sh",
-      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
-    ],
     "failure-recovery": [
       "adapter-packages/speculation-rules/tests/conformance/check.sh",
       "sandbox/tests/offline/apply/regress_fatal_mutations.php",
@@ -53,7 +48,8 @@
   "gaps": {},
   "blocked": {},
   "not_applicable": {
-    "identity-references": "The adapter's three authored values are word enums the plugin clamps to fixed label maps; it declares no ref, no id_kind and no local identity reference of any kind.",
-    "derived-state": "Speculative Loading recomputes its speculation rules per request from the one option and persists no cache, index or derived store."
+    "deletion": "Speculative Loading has no removed state for its one option: register_setting()'s default and plsr_sanitize_setting()'s non-array fallback both resolve an absent row to prerender/moderate/logged_out, so the capsule declares authored removal unsupported and never runs --with-deletes. Citing the shared delete-authorization suite here would claim an exercise this capsule deliberately does not perform; the absent-row block in check.sh proves the boundary that replaces it.",
+    "derived-state": "Speculative Loading recomputes its speculation rules per request from the one option and persists no cache, index or derived store.",
+    "identity-references": "The adapter's three authored values are word enums the plugin clamps to fixed label maps; it declares no ref, no id_kind and no local identity reference of any kind."
   }
 }
