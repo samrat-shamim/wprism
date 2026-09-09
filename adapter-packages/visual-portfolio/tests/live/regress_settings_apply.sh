@@ -24,15 +24,18 @@ COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
 wp_side() { local side="$1"; shift; "${COMPOSE[@]}" run --rm -T "cli$side" wp "$@"; }
 candidate() { local side="$1" verb="$2"; shift 2; conformance_private_command "cli$side" "$verb" wp_side "$side" wprism "$verb" "$@"; }
+host_apply() { conformance_private_command cli2 apply "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" apply target "$@"; }
 sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/vp-settings-native.XXXXXX")
 printf 'Retained native settings streams for %s: %s\n' "$EXPECTED_SHA" "$sink"
-capture() {
-  local name="$1" result=0 suffix verb=''; shift
+capture() { local name="$1"; shift; capture_expected "$name" 0 "$@"; }
+capture_expected() {
+  local name="$1" expected="$2" result=0 suffix verb=''; shift 2
   if [ "${1:-}" = candidate ]; then verb="$3"; fi
+  if [ "${1:-}" = host_apply ]; then verb=apply; fi
   for suffix in stdout stderr exit; do (umask 077; set -C; : > "$sink/$name.$suffix"); done
   wprism_private_capture_stage "$sink" "$name" "$@" || result=$?
-  [ "$result" -eq 0 ] || fail "$name exited $result; retained $sink/$name"
-  php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name" "$PAIR" "$verb"
+  [ "$result" -eq "$expected" ] || fail "$name exited $result (expected $expected); retained $sink/$name"
+  php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name" "$PAIR" "$verb" "$expected"
   printf 'ok: %s\n' "$name"
 }
 zip="${VP_SETTINGS_ZIP:?local locked Visual Portfolio 3.8.1 zip required}"
@@ -45,7 +48,9 @@ fixture=/var/www/html/wp-content/mu-plugins/adapter-packages/visual-portfolio/fi
 for side in 1 2; do
   capture "cron$side" wp_side "$side" config set DISABLE_WP_CRON true --raw
   capture "empty$side" wp_side "$side" site empty --yes
-  if [ "$side" = 2 ]; then capture padding wp_side 2 eval-file "$fixture" pad --use-include --user=admin; fi
+  if [ "$side" = 2 ]; then
+    capture padding wp_side 2 eval-file "$fixture" pad --use-include --user=admin
+  fi
   capture "install$side" "${COMPOSE[@]}" run --rm -T -v "$zip:/visual-portfolio.zip:ro" "cli$side" wp plugin install /visual-portfolio.zip --activate
   role=source; [ "$side" = 1 ] || role=target
   capture "setup$side" wp_side "$side" eval-file "$fixture" "setup-$role" --use-include --user=admin
@@ -76,10 +81,12 @@ for phase in move clear disable enable; do
   git -C "$R2" merge -q --ff-only FETCH_HEAD
   capture "$phase-scope" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" scope source --roots=option:vp_general --contract --format=json
   capture "$phase-plan" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" plan target --scope-contract="$sink/$phase-scope.stdout" --format=json
-  capture "$phase-apply" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" apply target --scope-contract="$sink/$phase-scope.stdout" --format=json
+  expected=0; [ "$phase" != enable ] || expected=1
+  capture_expected "$phase-apply" "$expected" host_apply --scope-contract="$sink/$phase-scope.stdout" --format=json
   capture "$phase-target" wp_side 2 eval-file "$fixture" observe --use-include --user=admin
-  capture "$phase-repeat" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" apply target --scope-contract="$sink/$phase-scope.stdout" --format=json
+  [ "$phase" != enable ] || continue
+  capture "$phase-repeat" host_apply --scope-contract="$sink/$phase-scope.stdout" --format=json
   capture "$phase-stable" wp_side 2 eval-file "$fixture" observe --use-include --user=admin
 done
-php "$PACKAGE_ROOT/fixtures/settings-evidence.php" "$sink"
+php "$PACKAGE_ROOT/fixtures/settings-evidence.php" "$sink" "$PAIR"
 pair_live_ownership_complete 'REGRESS_VISUAL_PORTFOLIO_SETTINGS_APPLY PASSED'

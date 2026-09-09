@@ -1,24 +1,29 @@
 {
   "status": "experimental",
-  "reason": "Visual Portfolio 3.8.1 source declarations and native settings/gallery/archive fixtures exercise deterministic capture and immutable compilation only. Archive repair, complete native Apply and production qualification remain open.",
+  "reason": "Visual Portfolio 3.8.1 declarations exercise capture, immutable compilation, a native adoption baseline and bounded scoped archive/settings repair. Historical-artifact direct scoped transitions, complete effect recovery and production qualification remain open.",
   "supported_versions": {"plugin": "visual-portfolio/class-visual-portfolio.php", "range": {"min": "3.8.1", "max": "3.8.2"}},
   "capabilities": {
     "entity_sections": ["post_types", "taxonomies"],
     "field_sections": ["options", "post_meta", "block_attrs", "block_values"],
-    "operations": ["capture", "compile", "recapture"],
+    "operations": ["capture", "compile", "plan", "apply", "recapture"],
     "lifecycle_phases": [],
     "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific entity deletion"]}
   },
   "default_authored_keyspaces": [],
   "evidence": {
     "bundle_schema": "wprism-subject-certification-bundle/v1",
-    "tests": ["regress-native-content", "regress-native-options"]
+    "tests": ["regress-native-content", "regress-native-options", "regress-settings-apply"]
   },
   "unsupported": [
     {
       "operation": "apply",
-      "surface": "archive-and-settings-effects",
-      "reason": "Archive marker reconciliation, role synchronization and deferred hard rewrite effects have no complete scoped recovery contract yet."
+      "surface": "server-file-and-native-hook-recovery",
+      "reason": "The settings provider verifies native database projections and observes server files; rewrite-file semantics and rollback of irreversible external effects remain unqualified."
+    },
+    {
+      "operation": "apply",
+      "surface": "direct-scoped-historical-artifact",
+      "reason": "Returning to an earlier artifact after another scoped Apply reuses historical terminal authority and refuses. A new direct request generation requires an engine change; no adapter workaround is supplied."
     },
     {
       "operation": "all",

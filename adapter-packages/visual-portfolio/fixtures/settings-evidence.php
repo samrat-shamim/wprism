@@ -8,25 +8,38 @@ final class VisualPortfolioSettingsEvidence {
         if (!$ok) throw new RuntimeException('Visual Portfolio settings admission: ' . $reason);
     }
 
-    public static function command(string $root, string $stem, string $pair, string $verb = ''): void {
+    public static function command(string $root, string $stem, string $pair, string $verb = '', int $expectedExit = 0): void {
         self::check(preg_match('/^[a-z][a-z0-9]*$/D', $pair) === 1, 'exact owned pair');
         $transport = ' ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-f0-9]{12} (Creating|Created) *';
         if ($verb === '') {
-            WPrismTest\PrivateCommandOutput::readBytes($stem, '/^' . $transport . '$/D');
+            WPrismTest\PrivateCommandOutput::readBytes($stem, '/^' . $transport . '$/D', expectedExit: $expectedExit);
             return;
         }
         self::check(in_array($verb, ['capture', 'apply'], true), 'known wrapped native command');
         $pointer = 'private command diagnostics (unverified): ';
         $prefix = $root . '/sandbox/tmp/wprism-conformance-' . $verb . '.' . $pair . '.';
         $pattern = '/^(?:' . $transport . '|' . preg_quote($pointer . $prefix, '/') . '[A-Za-z0-9]{6})$/D';
-        $stdout = WPrismTest\PrivateCommandOutput::readBytes($stem, $pattern);
+        $stdout = WPrismTest\PrivateCommandOutput::readBytes($stem, $pattern, expectedExit: $expectedExit);
         $stderr = (string) file_get_contents($stem . '.stderr');
         $notice = explode("\n", $stderr, 2)[0];
         self::check(str_starts_with($notice, $pointer . $prefix), 'one leading wrapper diagnostic pointer');
         $directory = substr($notice, strlen($pointer));
-        $original = WPrismTest\PrivateCommandOutput::readBytes($directory . '/command', '/^' . $transport . '$/D');
+        $original = WPrismTest\PrivateCommandOutput::readBytes($directory . '/command', '/^' . $transport . '$/D', expectedExit: $expectedExit);
         self::check($stdout === $original && $stderr === $notice . "\n" . file_get_contents($directory . '/command.stderr'),
             'wrapper streams exactly reproduce the admitted original command');
+    }
+
+    public static function revisit(array $priorContract, array $request, array $plan, array $refusal, array $before, array $after): void {
+        self::check(WPrism\Canon::encode($request) === WPrism\Canon::encode($priorContract), 'reenabling revisits the exact earlier immutable artifact');
+        self::check($plan['format'] === 'wprism-scoped-plan/v1' && count($plan['update']) === 1
+            && $plan['update'][0]['rebuild_option_names'] === ['vp_general'], 'reenabling requires an authored settings update');
+        self::check($refusal === [
+            'format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+            'error' => 'apply_refused', 'reason_code' => 'apply_refused',
+            'message' => 'terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted',
+            'remediation' => 'inspect the changed selected/protected target state and reconcile it before retrying this scoped authority',
+        ], 'exact engine refusal for a historical terminal authority');
+        self::check($before === $after && $after['enabled'] === false, 'refused revisit preserves all observed native and engine state');
     }
 
     public static function phase(string $phase, array $before, array $source, array $contract, array $plan,
@@ -104,17 +117,31 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     require_once "$root/sandbox/tests/lib/PrivateCommandOutput.php";
     require_once "$root/agent/src/Kernel/Canon.php";
     if (($argv[1] ?? '') === 'admit-command') {
-        VisualPortfolioSettingsEvidence::command($root, $argv[2], $argv[3], $argv[4] ?? '');
+        VisualPortfolioSettingsEvidence::command($root, $argv[2], $argv[3], $argv[4] ?? '', (int) ($argv[5] ?? 0));
         exit(0);
     }
     $sink = $argv[1] ?? '';
-    $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject("$sink/$name",
-        '/^ ?Container wprism-[a-z0-9]+-cli[12]-run-[a-z0-9]+ (Creating|Created) *$/D'), true, 64, JSON_THROW_ON_ERROR);
+    $pair = $argv[2] ?? '';
+    // command() already admits the exact wrapper/original stream pair. Read
+    // the original host Apply stream here rather than treating its pointer as evidence.
+    $read = static function (string $name, int $exit = 0) use ($sink, $pair, $root): array {
+        $stem = "$sink/$name";
+        $verb = preg_match('/-(apply|repeat)$/D', $name) === 1 ? 'apply' : '';
+        VisualPortfolioSettingsEvidence::command($root, $stem, $pair, $verb, $exit);
+        $stderr = (string) file_get_contents($stem . '.stderr');
+        if (str_starts_with($stderr, 'private command diagnostics (unverified): ')) {
+            $stem = substr(explode("\n", $stderr, 2)[0], strlen('private command diagnostics (unverified): ')) . '/command';
+        }
+        return json_decode(WPrismTest\PrivateCommandOutput::readObject($stem,
+            '/^ ?Container wprism-[a-z0-9]+-cli[12]-run-[a-z0-9]+ (Creating|Created) *$/D', expectedExit: $exit), true, 64, JSON_THROW_ON_ERROR);
+    };
     $before = $read('baseline-target');
-    foreach (['move', 'clear', 'disable', 'enable'] as $phase) {
+    foreach (['move', 'clear', 'disable'] as $phase) {
         VisualPortfolioSettingsEvidence::phase($phase, $before, $read("$phase-source"), $read("$phase-scope"),
             $read("$phase-plan"), $read("$phase-apply"), $read("$phase-target"), $read("$phase-repeat"), $read("$phase-stable"));
         $before = $read("$phase-stable");
     }
-    echo "PASS: native Visual Portfolio settings scope, repair, preservation and replay\n";
+    VisualPortfolioSettingsEvidence::revisit($read('clear-scope'), $read('enable-scope'), $read('enable-plan'),
+        $read('enable-apply', 1), $before, $read('enable-target'));
+    echo "PASS: native settings repair and replay; historical-artifact revisit explicitly refused\n";
 }

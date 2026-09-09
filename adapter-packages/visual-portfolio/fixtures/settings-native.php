@@ -79,6 +79,11 @@ $order = ['posts' => 'ID', 'postmeta' => 'meta_id', 'options' => 'option_id', 't
     'term_taxonomy' => 'term_taxonomy_id', 'term_relationships' => 'object_id,term_taxonomy_id',
     'termmeta' => 'meta_id', 'users' => 'ID', 'usermeta' => 'umeta_id'];
 foreach ($order as $property => $key) $tables[$property] = $rows($wpdb->$property, $key);
+$engine = [];
+$engineOrder = ['wprism_map' => 'uuid,id_kind', 'wprism_state' => 'uuid', 'wprism_kv' => 'k', 'wprism_journal' => 'id'];
+foreach ($engineOrder as $suffix => $key) {
+    $engine[$suffix] = $rows($wpdb->prefix . $suffix, $key);
+}
 $markers = array_values(array_filter($tables['postmeta'], static fn(array $row): bool => $row['meta_key'] === '_vp_post_type_mapped'));
 $options = get_option('vp_general');
 $archive = (int) ($options['portfolio_archive_page'] ?? 0);
@@ -98,8 +103,10 @@ $check(($roles['vp_fixture_other_role'] ?? null) === ['name' => 'Other plugin fi
 $files = [];
 foreach (['.htaccess', 'web.config'] as $path) $files[$path] = WPrism\ProviderSdk::filesystem_file_snapshot(ABSPATH, $path);
 foreach ($order as $property => $key) $check($tables[$property] === $rows($wpdb->$property, $key), 'native observation preserves every table');
+foreach ($engineOrder as $suffix => $key) $check($engine[$suffix] === $rows($wpdb->prefix . $suffix, $key), 'observation preserves engine rows');
 echo json_encode(['format' => 'wprism-visual-portfolio-settings-native/v1', 'wordpress' => get_bloginfo('version'),
-    'plugin' => VISUAL_PORTFOLIO_VERSION, 'php' => PHP_VERSION, 'home' => home_url(), 'tables' => $tables,
+    'plugin' => VISUAL_PORTFOLIO_VERSION, 'php' => PHP_VERSION, 'database' => $wpdb->db_server_info(),
+    'home' => home_url(), 'tables' => $tables, 'engine' => $engine,
     'files' => $files, 'archive' => $archive, 'enabled' => $enabled,
     'ids' => ['old' => $page('vp-old-archive'), 'new' => $page('vp-new-archive')],
     'uuids' => ['old' => get_post_meta($page('vp-old-archive'), '_wprism_uuid', true),

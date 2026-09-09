@@ -194,7 +194,9 @@ $observe = static function () use ($db, $uuid): array {
     foreach (['posts', 'postmeta', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta', 'users', 'usermeta'] as $property) {
         $tables[$property] = $db->rows($db->$property);
     }
-    return ['tables' => $tables, 'archive' => (int) (get_option('vp_general')['portfolio_archive_page'] ?? 0),
+    $engine = [];
+    foreach (['wprism_map', 'wprism_state', 'wprism_kv', 'wprism_journal'] as $suffix) $engine[$suffix] = $db->rows($db->prefix . $suffix);
+    return ['tables' => $tables, 'engine' => $engine, 'archive' => (int) (get_option('vp_general')['portfolio_archive_page'] ?? 0),
         'enabled' => get_option('vp_general')['register_portfolio_post_type'] === 'on',
         'ids' => ['old' => 801, 'new' => 810], 'uuids' => ['old' => $uuid(1), 'new' => $uuid(10)]];
 };
@@ -250,6 +252,43 @@ try {
             wprism_check($refused, 'native admission rejects ' . $fault);
         }
         if ($case === 'move') {
+            $originalBytes = file_get_contents($repo . '/state/options/core.json');
+            $changed = $desired;
+            $changed['register_portfolio_post_type'] = 'off';
+            $alternate = $records;
+            $alternate['vp_general'] = OptionState::present($changed, 'auto');
+            Canon::write_file($repo . '/state/options/core.json', Canon::encode(OptionState::document($alternate)));
+            $disabled = RepositoryCompiler::compile($repo, $policy);
+            $disabledPath = $scratch . '/disabled.json';
+            $disabled->write($disabledPath);
+            $disabledContract = ScopeContract::resolve($disabled, $policy, ['option:vp_general']);
+            $GLOBALS['vp_apply_context'] = [$repo, $policy, $disabled, $disabledContract];
+            $disabledResult = Apply::apply($repo, ['compiled' => $disabledPath, 'adapter_library' => $library, 'scope_request' => $disabledContract]);
+            wprism_check_same('complete', $disabledResult['scoped_receipt']['phase'], 'a distinct scoped authority can disable the native portfolio');
+            Canon::write_file($repo . '/state/options/core.json', $originalBytes);
+            $GLOBALS['vp_apply_context'] = [$repo, $policy, $compiled, $contract];
+            $returnPlan = Apply::plan($repo, ['compiled' => $artifact, 'adapter_library' => $library, 'scope_request' => $contract]);
+            $beforeReturn = $observe();
+            $returnRefusal = null;
+            try { Apply::apply($repo, ['compiled' => $artifact, 'adapter_library' => $library, 'scope_request' => $contract]); }
+            catch (WPrism\CommandRefusalException $error) {
+                $returnRefusal = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+                    'error' => $error->reasonCode, 'reason_code' => $error->reasonCode,
+                    'message' => $error->publicMessage, 'remediation' => $error->remediation];
+            }
+            wprism_check(is_array($returnRefusal), 'returning to an earlier artifact refuses at the actual public Apply boundary');
+            VisualPortfolioSettingsEvidence::revisit($contract, $contract, $returnPlan, $returnRefusal ?? [], $beforeReturn, $observe());
+            wprism_check(true, 'native revisit admission matches the engine refusal and exact unchanged target');
+            foreach (['different-refusal', 'changed-engine'] as $fault) {
+                $alteredRefusal = $returnRefusal;
+                $alteredTarget = $observe();
+                if ($fault === 'different-refusal') $alteredRefusal['message'] = 'unrelated failure';
+                else $alteredTarget['engine']['wprism_kv'][] = ['k' => 'unexpected', 'v' => 'mutation'];
+                $refused = false;
+                try { VisualPortfolioSettingsEvidence::revisit($contract, $contract, $returnPlan, $alteredRefusal, $beforeReturn, $alteredTarget); }
+                catch (RuntimeException $error) { $refused = true; }
+                wprism_check($refused, 'native revisit admission rejects ' . $fault);
+            }
             $inner = $root . '/sandbox/tmp/wprism-conformance-capture.vpfixture.' . bin2hex(random_bytes(3));
             $outer = $scratch . '/streams';
             mkdir($inner, 0700);

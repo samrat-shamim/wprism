@@ -5,18 +5,19 @@
   "covered": {},
   "gaps": {
     "contract-dependency": "Native source authoring used official 3.8.1. Fresh, adjacent, upgrade and out-of-range capsule conformance remain pending.",
-    "clean-target": "No complete native target Apply has been qualified for this capsule.",
-    "dirty-target": "Conflicts, unmanaged state, archive collisions and physical remainder preservation remain pending.",
+    "clean-target": "One content-only native adoption baseline is exercised; complete clean-target plugin authoring remains pending.",
+    "dirty-target": "Scoped settings preserve complete unrelated native rows in one lane; conflicts, unmanaged state and broader archive collisions remain pending.",
     "identity-references": "Native fixture transport exercises media and archive references offline. Manual, taxonomy, Saved Layout and custom-query native controls remain pending.",
-    "native-behavior": "Source settings Saves, gallery filtering/lightbox and legacy archive pagination were observed. Target Apply, native Save/reopen and broader controls remain pending.",
-    "derived-state": "Shared reading-time invalidation is available. Archive marker reconciliation, rewrite effects and complete capsule cache/media evidence remain pending.",
+    "native-behavior": "Source settings Saves, gallery filtering/lightbox and legacy archive pagination were observed. Target archive move/clear and portfolio disabling are exercised; target Save/reopen, rendering and broader controls remain pending.",
+    "derived-state": "Native archive markers, roles and durable rewrite rules are exercised through scoped Apply. Server-file semantics and complete capsule cache/media evidence remain pending.",
     "deletion": "Plugin-specific deletions are undeclared; consumer removal and preservation still need evidence.",
-    "failure-recovery": "Archive/settings effects need a bounded recovery contract and native injected failure/retry evidence.",
-    "concurrency-idempotence": "Offline fixture fixed points do not establish native concurrent edit, no-op or recovery behavior.",
-    "lifecycle": "Role synchronization, activation, retirement, reactivation and version transitions remain pending.",
+    "failure-recovery": "The SDK transaction path rolls back injected native doubles; actual native injected failures, irreversible file/hook recovery and retry remain pending.",
+    "lifecycle": "Settings-driven role projection is exercised; activation, retirement, reactivation and version transitions remain pending.",
     "data-boundary": "Runtime and premium settings are target-local; broader hostile metadata, credentials, query payloads and complete native residue remain pending.",
-    "scope-platform": "Outbound archive scope cannot reconcile the old marker. Scoped promotion, supported platform and participant-declared plugin combinations remain pending."
+    "scope-platform": "The provider repairs old out-of-scope archive markers without authored scope widening. Scoped promotion, the platform matrix and participant-declared plugin combinations remain pending."
   },
-  "blocked": {},
+  "blocked": {
+    "concurrency-idempotence": "Native settings fixed points and terminal replay are exercised. Direct scoped return to a historical artifact refuses; new request generations and concurrent edit evidence remain pending."
+  },
   "not_applicable": {}
 }
