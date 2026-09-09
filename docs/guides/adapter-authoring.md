@@ -469,6 +469,26 @@ paths are exact top-level attribute names; `image.id` does not traverse an
 `image` object. A query selector stored as CSV also needs its native string
 shape restored after identity rebinding.
 
+When an attribute has no safe declared transport, use an explicit boundary:
+
+```json
+"block_attrs": {
+  "example/gallery": [
+    {"path":"customQuery", "unsupported":"Custom query references have no declared transport."}
+  ]
+}
+```
+
+This refuses whenever the exact attribute is present, including `null`, an
+empty string, or an empty container. Only absence is admitted. Capture,
+offline compilation of post bodies and block widgets, lint, and Apply enforce
+the boundary. The compiler reports `repository_block_attr_unsupported` with
+the state file, comment offset, attribute, and reviewed reason; it does not
+echo the value. A repository edit cannot bypass the declaration. This rule
+does not inspect nested fields or make a custom query portable: do not label
+embedded reference syntax `plain_data` merely to admit it. Declare the codec
+when its transport is supported, with native and divergent-ID evidence.
+
 Declare `block-attribute-values/v1` and a `block_values` map keyed by block,
 then exact attribute name. Each authored attribute uses the existing value
 rules: `ref` with optional `cast`, `json_refs`/`key_refs`, or `plain_data:true`.
