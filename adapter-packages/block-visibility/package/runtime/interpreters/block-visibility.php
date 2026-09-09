@@ -56,7 +56,7 @@ final class BlockVisibility {
     }
 
     /**
-     * @param array<string,string> $allMeta First-value sibling context, raw.
+     * @param array<string,mixed> $allMeta First-value sibling context.
      * @return array<string,mixed>|null
      */
     public function post_meta_rule(string $key, array $allMeta): ?array {
@@ -69,7 +69,7 @@ final class BlockVisibility {
         if ($key !== self::CONTROL_SETS) {
             return null;
         }
-        $this->assert_control_sets_carry_no_reference($allMeta[$key] ?? '');
+        $this->assert_control_sets_carry_no_reference($allMeta[$key] ?? null);
         return ['class' => 'authored', 'plain_data' => true];
     }
 
@@ -87,17 +87,25 @@ final class BlockVisibility {
     /**
      * Refuse a control set that references an entity, naming the exact rule
      * field, because no declaration in this engine can rebind it.
+     *
+     * The sibling context arrives already decoded for a serialized row and as
+     * the raw string otherwise (measured live: capture handed this hook a PHP
+     * array, not the `array<string,string>` its own docblock promises), so both
+     * shapes are accepted rather than one being assumed.
      */
-    private function assert_control_sets_carry_no_reference(string $raw): void {
-        if ($raw === '') {
+    private function assert_control_sets_carry_no_reference(mixed $value): void {
+        if ($value === '' || $value === null) {
             return;
         }
-        $decoded = @unserialize($raw, ['allowed_classes' => false]);
-        if ($decoded === false && $raw !== serialize(false)) {
-            throw new \RuntimeException(
-                'wprism: Block Visibility preset meta control_sets is not decodable PHP serialization; '
-                . 'refusing to classify a value this adapter cannot inspect for entity references'
-            );
+        $decoded = $value;
+        if (is_string($value)) {
+            $decoded = @unserialize($value, ['allowed_classes' => false]);
+            if ($decoded === false && $value !== serialize(false)) {
+                throw new \RuntimeException(
+                    'wprism: Block Visibility preset meta control_sets is not decodable PHP serialization; '
+                    . 'refusing to classify a value this adapter cannot inspect for entity references'
+                );
+            }
         }
         $found = $this->reference_fields_in($decoded);
         if ($found === []) {
