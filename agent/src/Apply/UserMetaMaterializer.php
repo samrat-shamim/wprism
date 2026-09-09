@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
@@ -103,7 +105,10 @@ final class UserMetaMaterializer {
                     "wprism: user-meta '$key' for exact login '$login' is not authorized authored at apply"
                 );
             }
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+            if (array_key_exists(EncodedText::FIELD, $rule)) {
+                EncodedText::assert_canonical($value, $rule, "user '$login' meta $key");
+                $value = EncodedText::encode($this->tokens->detokenize_text($value), $rule, "user '$login' meta $key");
+            } elseif (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $value = $this->tokens->struct_apply(
                     $value,
                     $rule['json_refs'] ?? [],
@@ -161,6 +166,10 @@ final class UserMetaMaterializer {
         }
         foreach ($rows as $row) {
             $rule = $this->policy->meta_rule_for_user((string) $row['meta_key'], $flat) ?? [];
+            if (array_key_exists(EncodedText::FIELD, $rule)) {
+                $where = "user '$login' meta " . $row['meta_key'];
+                EncodedText::decode(PlainData::decode($row['meta_value'] ?? '', $where), $rule, $where);
+            }
             if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
                 $where = "user '$login' meta " . $row['meta_key'];
                 NativeValueValidation::assert_native(PlainData::decode($row['meta_value'] ?? '', $where), $rule, $where);

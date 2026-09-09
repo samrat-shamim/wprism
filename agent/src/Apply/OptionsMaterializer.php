@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 
@@ -186,6 +188,9 @@ final class OptionsMaterializer {
                         'authored option deletion'
                     );
                     if ($locked !== null) {
+                        if (array_key_exists(EncodedText::FIELD, $rule)) {
+                            EncodedText::decode(PlainData::decode($locked['option_value'], "option $realName"), $rule, "option $realName");
+                        }
                         Db::delete($wpdb->options, ['option_name' => $realName], null, 'apply delete authored option');
                     }
                     CacheInvalidationTransaction::queue_option($realName, 'authored option deletion');
@@ -231,6 +236,10 @@ final class OptionsMaterializer {
                     // docblock for the full rationale.
                     $this->apply_option_sub_keys($name, $v, $rule, $ruleSource, $autoload, $warnings);
                     return;
+                }
+                if (array_key_exists(EncodedText::FIELD, $rule)) {
+                    $locked = CacheInvalidationTransaction::lock_option_row($name, 'encoded option preimage');
+                    if ($locked !== null) EncodedText::decode(PlainData::decode($locked['option_value'], "option $name"), $rule, "option $name");
                 }
                 $this->fieldMaterializer->upsert_option(
                     $name,
@@ -372,6 +381,10 @@ final class OptionsMaterializer {
      * path.
      */
     private function apply_value(string $ctx, $v, array $rule) {
+        if (array_key_exists(EncodedText::FIELD, $rule)) {
+            EncodedText::assert_canonical($v, $rule, "option $ctx");
+            return EncodedText::encode($this->tokens->detokenize_text($v), $rule, "option $ctx");
+        }
         if (!empty($rule[PhpContainerValue::FIELD])) PhpContainerValue::assert_canonical($v, "option $ctx");
         if (array_key_exists(ScalarReferenceIntersection::FIELD, $rule)) {
             return ScalarReferenceIntersection::apply(
@@ -591,6 +604,11 @@ final class OptionsMaterializer {
             $live,
             'target'
         );
+        foreach ($subKeys as $subKey => $subRule) {
+            if (array_key_exists(EncodedText::FIELD, $subRule) && array_key_exists($subKey, $live)) {
+                EncodedText::decode($live[$subKey], $subRule, "option $name.$subKey");
+            }
+        }
         $materialized = [];
         foreach ($captured as $subKey => $subVal) {
             $subRule = $subKeys[$subKey] ?? null;

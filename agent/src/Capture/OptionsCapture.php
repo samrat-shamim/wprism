@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
@@ -122,6 +124,7 @@ final class OptionsCapture {
                     ? PhpContainerValue::capture_raw($row['option_value'], "option $name")
                     : PlainData::decode($row['option_value'], "option $name");
                 PlainData::assert($v, "option $name");
+                $v = EncodedText::decode_if_declared($v, $rule, "option $name");
                 ($this->guardSecret)('options', $name, $v, $rule);
                 $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs, false, $lifecycleHandoffProjection);
                 if (!$captured['included']) {
@@ -164,6 +167,7 @@ final class OptionsCapture {
                     ? PhpContainerValue::capture_raw($row['option_value'], "option $name")
                     : PlainData::decode($row['option_value'], "option $name");
                 PlainData::assert($v, "option $name");
+                $v = EncodedText::decode_if_declared($v, $rule, "option $name");
                 ($this->guardSecret)('options', $name, $v, $rule);
                 $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
                 if ($captured['included']) {
@@ -476,6 +480,7 @@ final class OptionsCapture {
         foreach ($rawAuthored as $subKey => $subVal) {
             $subRule = (array) (($rule['sub_keys'] ?? [])[$subKey] ?? []);
             $ctx = "$name.$subKey";
+            $subVal = EncodedText::decode_if_declared($subVal, $subRule, "option $ctx");
             ($this->guardSecret)('options', $ctx, $subVal, $subRule);
             $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs, true);
             if ($capturedValue['included']) {

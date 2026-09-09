@@ -5,6 +5,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/RecordFields.php';
+require_once __DIR__ . '/EncodedText.php';
 
 /** Exact block attributes reuse the option/meta value grammar without changing legacy path semantics. */
 final class BlockValueGrammar {
@@ -19,10 +20,10 @@ final class BlockValueGrammar {
     public static function section_grammar(): array {
         return [
             'keyed_by' => 'block name, then exact top-level attribute name',
-            'authored' => ['class' => 'authored', 'optional' => ['ref', 'cast', 'json_refs', 'key_refs', 'plain_data', RecordFields::FIELD]],
+            'authored' => ['class' => 'authored', 'optional' => ['ref', 'cast', 'json_refs', 'key_refs', 'plain_data', RecordFields::FIELD, EncodedText::FIELD]],
             'derived' => ['class' => 'derived'],
             'ownership' => 'one manifest per block when block_values is present; no overlapping block_attrs or whole-block codec',
-            'values' => 'exactly one of ref, json_refs/key_refs, or plain_data:true; CSV refs require an array ref',
+            'values' => 'exactly one of ref, json_refs/key_refs, plain_data:true, or negotiated text_encoding; CSV refs require an array ref',
             'validated_by' => 'WPrism\\BlockValueGrammar::validate()',
         ];
     }
@@ -51,10 +52,12 @@ final class BlockValueGrammar {
                     continue;
                 }
                 if (($rule['class'] ?? null) !== 'authored'
-                    || array_diff(array_keys($rule), ['class', 'ref', 'cast', 'json_refs', 'key_refs', 'plain_data', RecordFields::FIELD])) {
+                    || array_diff(array_keys($rule), ['class', 'ref', 'cast', 'json_refs', 'key_refs', 'plain_data', RecordFields::FIELD, EncodedText::FIELD])) {
                     throw new \RuntimeException("wprism: $where has an unsupported value disposition or field");
                 }
-                ReferenceRules::value_rule($rule, $where, blockRecords: true);
+                ReferenceRules::value_rule($rule, $where, blockRecords: true, encodedText: ($manifest['spec_version'] ?? 0) >= 3
+                    && in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
+                    && in_array(EncodedText::FEATURE, $manifest['engine_features'] ?? [], true));
                 if (array_key_exists(RecordFields::FIELD, $rule)) {
                     if (($manifest['spec_version'] ?? 0) < 3
                         || !in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
@@ -64,7 +67,7 @@ final class BlockValueGrammar {
                     RecordFields::validate($rule, $where);
                 }
                 $choices = (int) isset($rule['ref']) + (int) (isset($rule['json_refs']) || isset($rule['key_refs']))
-                    + (int) (($rule['plain_data'] ?? null) === true);
+                    + (int) (($rule['plain_data'] ?? null) === true) + (int) array_key_exists(EncodedText::FIELD, $rule);
                 if ($choices !== 1 || (isset($rule['cast']) && !isset($rule['ref']))
                     || (($rule['cast'] ?? null) === 'csv' && !str_ends_with($rule['ref'], '[]'))) {
                     throw new \RuntimeException("wprism: $where requires one reference or plain-data codec; CSV requires a list ref");

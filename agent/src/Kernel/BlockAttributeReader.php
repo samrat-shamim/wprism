@@ -5,8 +5,8 @@ namespace WPrism;
 
 /** Read declared opening-comment attributes without booting WordPress or rebuilding body bytes. */
 final class BlockAttributeReader {
-    /** @param list<string> $names @return list<array{blockName:string,attrs:array,offset:int}> */
-    public static function read(string $body, array $names): array {
+    /** @param ?list<string> $names null selects every block; [] selects none. @return list<array{blockName:string,attrs:array,offset:int}> */
+    public static function read(string $body, ?array $names): array {
         if ($names === [] || $body === '') return [];
         if (strlen($body) > 16777216) throw new \RuntimeException('wprism: block attribute document exceeds 16 MiB');
         $out = [];
@@ -24,7 +24,7 @@ final class BlockAttributeReader {
             $start = $match[0][1];
             $offset = $start + strlen($match[0][0]);
             $name = str_contains($match[2][0], '/') ? $match[2][0] : 'core/' . $match[2][0];
-            $selected = in_array($name, $names, true) && $match[1][0] !== '/';
+            $selected = ($names === null || in_array($name, $names, true)) && $match[1][0] !== '/';
             $json = null;
             if (($body[$offset] ?? '') === '{') {
                 if (preg_match('~}\s+/?-->~', $body, $end, PREG_OFFSET_CAPTURE, $offset) !== 1) {
@@ -53,5 +53,15 @@ final class BlockAttributeReader {
             $out[] = ['blockName' => $name, 'attrs' => $attrs, 'offset' => $start];
         }
         return $out;
+    }
+
+    /**
+     * Native block serialization escapes inner quotes as \u0022. Scanning
+     * only that framing misses a secret prefixed by the escape's final digit;
+     * scan decoded attribute values as well, without rewriting repository bytes.
+     */
+    public static function clearance_value(string $body): string|array {
+        $attributes = array_column(self::read($body, null), 'attrs');
+        return $attributes === [] ? $body : [$body, $attributes];
     }
 }

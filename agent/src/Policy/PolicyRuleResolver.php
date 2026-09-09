@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 
 require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
@@ -71,11 +73,13 @@ final class PolicyRuleResolver {
                 foreach ($this->manifests as $manifest) {
                     if (is_array($declared = $manifest[$section][$name] ?? null)) {
                         NativeValueValidation::assert_site_override($declared, $sitePolicy, "$section.$name");
+                        EncodedText::assert_site_override($declared, $sitePolicy, "$section.$name");
                     }
                     foreach (self::PATTERN_KEYS[$section] ?? [] as $patternKey) {
                         foreach ($manifest[$patternKey] ?? [] as $pattern) {
                             if (preg_match('/' . $pattern['match'] . '/', $name)) {
                                 NativeValueValidation::assert_site_override($pattern, $sitePolicy, "$section.$name");
+                                EncodedText::assert_site_override($pattern, $sitePolicy, "$section.$name");
                             }
                         }
                     }
@@ -87,10 +91,12 @@ final class PolicyRuleResolver {
                     if (is_array($declared)) {
                         ScalarReferenceIntersection::assert_site_override($declared, $sitePolicy, "options.$name");
                         PhpContainerValue::assert_site_override($declared, $sitePolicy, "options.$name");
+                        EncodedText::assert_site_override($declared, $sitePolicy, "options.$name");
                     }
                     foreach ($manifest['option_patterns'] ?? [] as $pattern) {
                         if (preg_match('/' . $pattern['match'] . '/', $name)) {
                             PhpContainerValue::assert_site_override($pattern, $sitePolicy, "options.$name");
+                            EncodedText::assert_site_override($pattern, $sitePolicy, "options.$name");
                         }
                     }
                 }
@@ -144,8 +150,9 @@ final class PolicyRuleResolver {
 
     /** A native predicate cannot be hidden by another adapter's pin order. */
     private function with_native_ownership(string $section, string $name, array $selected): array {
-        if (!in_array($section, ['post_meta', 'term_meta', 'user_meta'], true)) return $selected;
+        if (!in_array($section, ['options', 'post_meta', 'term_meta', 'user_meta'], true)) return $selected;
         $owners = [];
+        $encodedOwners = [];
         $claimants = [];
         foreach ($this->manifests as $manifest) {
             $rule = $manifest[$section][$name] ?? null;
@@ -162,12 +169,16 @@ final class PolicyRuleResolver {
             if (is_array($rule) && array_key_exists(NativeValueValidation::FIELD, $rule)) {
                 $owners[(string)($manifest['name'] ?? '?')] = true;
             }
+            if (is_array($rule) && EncodedText::uses($rule)) $encodedOwners[(string)($manifest['name'] ?? '?')] = true;
             if (is_array($rule) && ($manifest['name'] ?? null) !== 'core') {
                 $claimants[(string)($manifest['name'] ?? '?')] = true;
             }
         }
         if ($owners !== [] && (count($owners) !== 1 || count($claimants) > 1 || !isset($owners[$selected['source']]))) {
             throw new \RuntimeException("wprism: $section.$name native value validation has conflicting classification owners");
+        }
+        if ($encodedOwners !== [] && (count($encodedOwners) !== 1 || count($claimants) > 1 || !isset($encodedOwners[$selected['source']]))) {
+            throw new \RuntimeException("wprism: $section.$name text encoding has conflicting classification owners");
         }
         return $selected;
     }

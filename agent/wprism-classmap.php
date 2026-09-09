@@ -129,6 +129,7 @@ return [
     'WPrism\\DurableFilesystem' => 'src/Kernel/DurableFilesystem.php',
     'WPrism\\DynamicOptionResolver' => 'src/Grammar/DynamicOptionResolver.php',
     'WPrism\\EffectDeclarationCoverage' => 'src/Review/EffectDeclarationCoverage.php',
+    'WPrism\\EncodedText' => 'src/Kernel/EncodedText.php',
     'WPrism\\EntityAdopter' => 'src/Apply/EntityAdopter.php',
     'WPrism\\EntityMetaCapture' => 'src/Capture/EntityMetaCapture.php',
     'WPrism\\EnvironmentValues' => 'src/Apply/EnvironmentValues.php',

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/JsonRefs.php';
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
+require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/Tokens.php';
 
 /** Value framing belongs to the block grammar; identity and text rewriting stay in the shared codecs. */
@@ -14,6 +15,7 @@ final class BlockValueCodec {
     /** @param callable(int,string):void $unmapped */
     public static function capture(mixed $value, array $rule, Tokens $tokens, callable $unmapped, string $where): mixed {
         self::assert_value($value, $rule, false, $where);
+        $value = EncodedText::decode_if_declared($value, $rule, $where);
         if (isset($rule[RecordFields::FIELD])) $value = RecordFields::capture($value, $rule[RecordFields::FIELD]);
         $lookup = static function (int $id, string $kind) use ($tokens, $unmapped): ?string {
             $token = $kind === 'user' ? $tokens->user_id_to_token($id) : $tokens->id_to_token($id, $kind);
@@ -35,6 +37,9 @@ final class BlockValueCodec {
 
     public static function apply(mixed $value, array $rule, Tokens $tokens, string $where): mixed {
         self::assert_value($value, $rule, true, $where);
+        if (array_key_exists(EncodedText::FIELD, $rule)) {
+            return EncodedText::encode($tokens->detokenize_text($value), $rule, $where);
+        }
         if (isset($rule['ref'])) {
             if (!str_ends_with($rule['ref'], '[]') && self::unset_value($value)) return $value;
             return $tokens->meta_tokens_to_value($value, $rule);
@@ -51,6 +56,10 @@ final class BlockValueCodec {
         }
         $nodes = 0;
         self::assert_json($value, 0, $nodes, $where);
+        if (array_key_exists(EncodedText::FIELD, $rule)) {
+            if ($canonical) EncodedText::assert_canonical($value, $rule, $where);
+            else EncodedText::decode($value, $rule, $where);
+        }
         if (isset($rule[RecordFields::FIELD])) RecordFields::assert_value($value, $rule[RecordFields::FIELD], $canonical, $where);
         if (isset($rule['ref'])) {
             $list = str_ends_with($rule['ref'], '[]');

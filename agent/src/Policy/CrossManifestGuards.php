@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
@@ -237,12 +239,14 @@ final class CrossManifestGuards {
                 if (is_array($declared) && is_array($siteOptions[$name] ?? null)) {
                     ScalarReferenceIntersection::assert_site_override($declared, $siteOptions[$name], "options.$name");
                     PhpContainerValue::assert_site_override($declared, $siteOptions[$name], "options.$name");
+                    EncodedText::assert_site_override($declared, $siteOptions[$name], "options.$name");
                 }
             }
             foreach ($manifest['option_patterns'] ?? [] as $pattern) {
                 foreach ($siteOptions as $name => $override) {
                     if (is_array($override) && preg_match('/' . $pattern['match'] . '/', (string) $name)) {
                         PhpContainerValue::assert_site_override($pattern, $override, "options.$name");
+                        EncodedText::assert_site_override($pattern, $override, "options.$name");
                     }
                 }
             }

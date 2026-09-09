@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/EncodedText.php';
+
 require_once __DIR__ . '/ReferencePath.php';
 require_once __DIR__ . '/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/ReferenceCondition.php';
@@ -73,7 +75,8 @@ final class ReferenceRules {
     }
 
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
-    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false): void {
+    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false, bool $encodedText = false): void {
+        EncodedText::assert_rule($rule, $where, $encodedText);
         if (array_key_exists(RecordFields::FIELD, $rule) && !$blockRecords) {
             throw new \RuntimeException("wprism: $where.record_fields belongs only to negotiated block attribute values");
         }

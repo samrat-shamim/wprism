@@ -662,6 +662,53 @@ windows are formed. Keep named contact fields, neighboring private prose and
 secrets protected. Generated markup is not a reason to grant an entire CSS
 option or post body a privacy exception.
 
+### Encoded authored text
+
+Inspect the actual writer before choosing a text declaration. Visual
+Portfolio 3.8.1's editor uses JavaScript `encodeURIComponent` after a literal
+escape for `--`; its similarly named PHP helper uses form encoding, where
+spaces become `+`. Treating either stored string as ordinary text hides URLs
+from rebinding. A successful canonical round trip alone does not prove that
+the plugin will render target-local URLs.
+
+For a measured URI-component scalar, negotiate `encoded-text-values/v1` and
+declare its native framing:
+
+```json
+{
+  "class": "authored",
+  "text_encoding": {
+    "codec": "uri-component",
+    "escape": {"text": "--", "wire": "_u002d__u002d_"}
+  }
+}
+```
+
+Omit `escape` when the writer has no literal replacement. The shared codec
+decodes to canonical UTF-8 text before ordinary URL/query-reference rewriting
+and privacy checks, and encodes after target rebinding. It admits exact
+options, option patterns, one-level static option subkeys, ordinary
+post/term/user metadata and its existing pattern surfaces. Block attributes
+also require `block-attribute-values/v1`. Dynamic options, option-name
+references and custom-table values have no transport under this feature.
+
+Do not add executable decoding or a fake reference path. The declaration is
+closed and exclusive of other value codecs. Malformed percent spelling,
+form encoding, non-string values, unsafe controls, ambiguous escape markers
+and excess expansion refuse. Site policy may exclude the whole value but
+cannot replace its framing; an interpreter cannot introduce or override it.
+The exact limits and compatibility contract are in
+[the specification](../../spec/repo-format.md#v334-encoded-text-valuesv1--native-scalar-text-framing).
+
+Retain independent native writer vectors. Exercise decoded URLs, query IDs,
+Unicode, empty text, quotes, literal plus/percent and escape collisions through
+capture, pure compilation, checked SQL, rollback/retry and full recapture.
+Include secrets embedded inside quoted CSS strings: WordPress escapes inner
+quotes as `\u0022` in block comments. Shared publication clearance opens that
+JSON framing for ordinary and unknown blocks, and for block widgets, without
+changing saved bytes. `regress-encoded-text-values` exercises these boundaries;
+native editor Save/reopen and rendering still belong to the adapter's evidence.
+
 ### Native PHP container types and insertion order
 
 Inspect raw option bytes after using the plugin's real writer. Qi Blocks 1.5.2

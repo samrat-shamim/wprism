@@ -1,6 +1,9 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
@@ -679,7 +682,8 @@ final class RepositoryAuthorization {
                 } else {
                     self::authorize_sensitivity(
                         $out, $path, $stateKey, "widget[$i].settings", (string) $setting,
-                        $value, $rule, 'manifest widgets.' . $type
+                        ($rule['codec'] ?? '') === 'blocks' && is_string($value) ? BlockAttributeReader::clearance_value($value) : $value,
+                        $rule, 'manifest widgets.' . $type
                     );
                 }
             }
@@ -829,6 +833,7 @@ final class RepositoryAuthorization {
                     'user_meta', (string) $key, 'secret', $details['source']
                 );
             }
+            self::authorize_encoding($out, $path, $stateKey, 'user_meta', (string) $key, $value, $rule, $details['source']);
             if (empty($rule['allow_pii']) && PersonalData::match_deep((string) $key, $value) !== null) {
                 self::finding(
                     $out, 'repository_user_meta_pii_not_allowed', $path, $stateKey,
@@ -959,6 +964,7 @@ final class RepositoryAuthorization {
         string $body,
         string $path
     ): mixed {
+        if ($policy->body_mode($postType) === 'blocks') return BlockAttributeReader::clearance_value($body);
         try {
             return match ($policy->body_mode($postType)) {
                 'serialized' => PlainData::decode_serialized($body, "$path body"),
@@ -1000,6 +1006,7 @@ final class RepositoryAuthorization {
         ?string $source,
         array $reviewedScalarPaths = []
     ): void {
+        self::authorize_encoding($out, $path, $uuid, $surface, $field, $value, $rule, $source);
         if (empty($rule['allow_secret']) && Secrets::clearance_match_deep($field, $value) !== null) {
             self::finding(
                 $out, 'repository_secret_not_allowed', $path, $uuid,
@@ -1011,6 +1018,14 @@ final class RepositoryAuthorization {
                 $out, 'repository_pii_not_allowed', $path, $uuid,
                 $surface, $field, 'pii', $source
             );
+        }
+    }
+
+    private static function authorize_encoding(array &$out, string $path, string $uuid, string $surface, string $field, mixed $value, array $rule, ?string $source): void {
+        try {
+            EncodedText::assert_canonical($value, $rule, "$surface.$field");
+        } catch (\RuntimeException) {
+            self::finding($out, 'repository_text_encoding_invalid', $path, $uuid, $surface, $field, 'malformed', $source);
         }
     }
 

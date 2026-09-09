@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 
 require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
@@ -2871,6 +2873,9 @@ final class Policy {
             $rule = $i->{$hook}($key, $allValues);
             if ($rule === null) {
                 continue;
+            }
+            if (EncodedText::uses($rule) || EncodedText::uses($static['rule'] ?? [])) {
+                throw new \RuntimeException("wprism: interpreter '$name' cannot introduce or replace a static text encoding codec");
             }
             if (PhpContainerValue::uses($rule) || PhpContainerValue::uses($static['rule'] ?? [])) {
                 throw new \RuntimeException(

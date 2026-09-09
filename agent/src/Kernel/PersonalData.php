@@ -61,6 +61,13 @@ final class PersonalData {
         if (self::is_address_state_key($key, $ancestors)) {
             return 'postal address';
         }
+        // Native block attributes use backgroundImageMobile and
+        // itemImageWidthUnitMobile for responsive images and CSS units.
+        // Only these immediate subjects disambiguate terminal `mobile`;
+        // nested fields and scalar bytes still undergo the full value scan.
+        if (preg_match('/(?:^|_)(?:image|unit)_mobile$/D', $key)) {
+            return null;
+        }
         foreach (self::KEY_PATTERNS as $pattern => $label) {
             if (preg_match($pattern, $key)) {
                 return $label;

@@ -3234,6 +3234,65 @@ neither capability surfaces nor transaction, recovery or executable authority.
 Changing a package to use it intentionally changes its identity and requires
 recapture, compilation and explicit new pins.
 
+### v3.34 `encoded-text-values/v1` — native scalar text framing
+
+A v3 manifest declaring this feature may attach
+`text_encoding: {"codec":"uri-component"}` to an authored scalar text rule.
+The optional `escape` member is exactly `{"text":"…","wire":"…"}`: a
+single literal replacement performed before URI encoding. There is no
+arbitrary transform pipeline, implicit detection or executable codec.
+
+The feature applies to exact options, option patterns, one-level static
+option subkeys, post/term/user metadata, `post_meta_patterns` and shared
+`meta_patterns`. A `block_values` attribute additionally requires
+`block-attribute-values/v1`. Option-name references, dynamic options and their
+subkeys, attached metadata and table columns are not admitted. It claims no
+new top-level section or certificate arm.
+
+Native strings must have the exact JavaScript `encodeURIComponent` spelling:
+uppercase percent escapes, `%20` for spaces, and `!'()*` left unescaped along
+with the URI unreserved set. Canonical values are decoded UTF-8 scalar strings.
+Capture decodes before the existing text/reference and privacy machinery;
+Apply resolves ordinary canonical tokens before encoding. A source native
+value must equal the encoded result of its decoded value. Form encoding,
+invalid UTF-8, unsafe ASCII controls (other than tab, LF and CR), malformed or
+noncanonical percent escapes and non-string values refuse without including
+value bytes in the diagnostic.
+
+Decoded text is bounded to 1 MiB and native text to 8 MiB. Each escape literal
+is at most 128 bytes; `text` is nonempty UTF-8 without control bytes, and
+`wire` contains only ASCII letters, digits or underscore, is strictly longer,
+and does not contain `text`. Canonical text cannot contain the wire marker.
+Literal replacement must also reverse exactly at partial-marker boundaries.
+Both literal and URI expansion are checked before allocating their expanded
+outputs. Compilation proves the native bound for canonical text; Apply proves
+it again after substituting target-specific URLs.
+
+The field cannot combine with `ref`, `cast`, `json_refs`, `key_refs`,
+`json_encoded`, `plain_data`, `php_containers`, `record_fields`, `sub_keys`,
+`repeated_rows`, `order_preserving` or `native_value_validation`, including
+null/false instances of those fields. Ordinary field-level privacy review
+still applies where the owning surface permits it. Block values grant no
+privacy exception.
+
+Static manifest ownership is exclusive. Competing adapter classifications
+cannot hide a codec through pin order. Site policy may exclude a whole value
+as runtime, derived or environment-local, but cannot substitute an authored
+rule or change its subkeys. Interpreters cannot introduce or override this
+codec. Existing rules without `text_encoding` retain their native framing.
+Malformed locked metadata/option preimages refuse before reconciliation can
+overwrite or remove them. Transaction, recovery and identity ownership remain
+with the existing engine. Adopting the feature in a package changes its
+identity and canonical representation, requiring recapture, compilation and
+explicit new pins.
+
+`EncodedText` owns framing and bounds; it does not parse CSS or call WordPress.
+Separately, block publication clearance scans decoded opening-comment
+attributes alongside original body text. Native quote escaping cannot conceal
+credentials from Capture or immutable compilation. The same framing reader
+covers block widget content while retaining its existing reviewed privacy
+rules. No decoded inspection value is written back to canonical content.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

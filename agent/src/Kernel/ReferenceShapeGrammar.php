@@ -10,6 +10,7 @@ require_once __DIR__ . '/NativeValueValidation.php';
 require_once __DIR__ . '/ReferenceCondition.php';
 require_once __DIR__ . '/PhpContainerValue.php';
 require_once __DIR__ . '/KeyBoundStrings.php';
+require_once __DIR__ . '/EncodedText.php';
 
 /**
  * Pure loader-time grammar for reference-valued manifest declarations.
@@ -33,6 +34,8 @@ final class ReferenceShapeGrammar {
             && in_array(PhpContainerValue::FEATURE, (array) ($source['engine_features'] ?? []), true);
         $boundStrings = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
             && in_array(KeyBoundStrings::FEATURE, (array) ($source['engine_features'] ?? []), true);
+        $encodedText = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
+            && in_array(EncodedText::FEATURE, (array) ($source['engine_features'] ?? []), true);
         foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
             foreach (($source[$section] ?? []) as $name => $rule) {
                 if (!is_array($rule) || array_is_list($rule)) {
@@ -50,7 +53,8 @@ final class ReferenceShapeGrammar {
                         && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true),
                     $conditionalRefs,
                     $containerOptions && $section === 'options',
-                    $boundStrings && $section === 'options'
+                    $boundStrings && $section === 'options',
+                    $encodedText
                 );
             }
         }
@@ -68,7 +72,8 @@ final class ReferenceShapeGrammar {
                             && in_array(NativeValueValidation::FEATURE, (array)($source['engine_features'] ?? []), true),
                         $conditionalRefs,
                         $containerOptions && $section === 'option_patterns',
-                        $boundStrings && $section === 'option_patterns'
+                        $boundStrings && $section === 'option_patterns',
+                        $encodedText && $section !== 'option_name_refs'
                     );
                 }
             }
@@ -76,6 +81,7 @@ final class ReferenceShapeGrammar {
         foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
             PhpContainerValue::assert_rule($declaration, "$label.dynamic_options.$name", false);
             KeyBoundStrings::assert_rule($declaration, "$label.dynamic_options.$name", false);
+            EncodedText::assert_rule($declaration, "$label.dynamic_options.$name", false);
             if (array_key_exists(NativeValueValidation::FIELD, $declaration)) {
                 throw new \RuntimeException("wprism: $label.dynamic_options.$name cannot declare a native metadata predicate");
             }
@@ -126,7 +132,8 @@ final class ReferenceShapeGrammar {
         bool $allowNativeValidation = false,
         bool $conditionalRefs = false,
         bool $phpContainers = false,
-        bool $boundStrings = false
+        bool $boundStrings = false,
+        bool $encodedText = false
     ): void {
         PhpContainerValue::assert_rule($rule, $where, $phpContainers);
         if (array_key_exists(NativeValueValidation::FIELD, $rule) && !$allowNativeValidation) {
@@ -140,7 +147,7 @@ final class ReferenceShapeGrammar {
                     . ScalarReferenceIntersection::FEATURE
             );
         }
-        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers, $boundStrings);
+        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers, $boundStrings, encodedText: $encodedText);
         if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
             throw new \RuntimeException(
                 "wprism: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"
@@ -153,7 +160,7 @@ final class ReferenceShapeGrammar {
         }
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
             if (is_array($subRule) && !array_is_list($subRule)) {
-                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false, false, false, false, $conditionalRefs);
+                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false, false, false, false, $conditionalRefs, encodedText: $encodedText);
             }
         }
     }
