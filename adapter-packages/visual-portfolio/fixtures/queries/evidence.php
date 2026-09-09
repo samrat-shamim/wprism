@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/settings-evidence.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/FilesystemTreeEvidence.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/PrivateRefusalReceipt.php';
 
 final class VisualPortfolioQueryEvidence {
     public const CASES = ['default', 'manual', 'post-types', 'filters', 'reset', 'duplicates', 'taxonomy-exclusion'];
@@ -55,6 +56,47 @@ final class VisualPortfolioQueryEvidence {
         sort($counterIds, SORT_NUMERIC); sort($pageIds, SORT_NUMERIC);
         self::check($counterIds === $pageIds && array_unique(array_column($counters, 'meta_value')) === ['42'], 'all target runtime counters survive Apply');
     }
+
+    public static function outcomes(array $capture, array $apply, array $repeat, array $recapture, array $target): void {
+        self::check($capture['warnings'] === [] && $repeat['warnings'] === [] && $recapture['warnings'] === []
+            && $recapture['counts'] === $capture['counts'] && $apply['applied'] === array_sum($capture['counts'])
+            && $repeat['applied'] === 0 && $repeat['actions'] === [] && $apply['canary'] === 'clean'
+            && $repeat['canary'] === 'clean' && $apply['drift'] === [] && $repeat['drift'] === [], 'complete public command outcomes agree');
+        $posts = array_column($target['tables']['posts'], null, 'ID');
+        $terms = array_column($target['tables']['terms'], null, 'term_id');
+        $taxonomies = array_column($target['tables']['term_taxonomy'], 'taxonomy', 'term_id');
+        $expected = [];
+        foreach ($target['map'] as $row) {
+            $id = $row['local_id']; $uuid = $row['uuid']; $kind = $row['id_kind'];
+            // The term-taxonomy coordinate and widget identities are bound
+            // by their ordinary Apply paths, which emit no adoption notice.
+            if (in_array($kind, ['term_taxonomy', 'widget_block'], true)) continue;
+            self::check(in_array($kind, ['post', 'term'], true), 'known adoption identity kind');
+            $path = $kind === 'post' ? 'posts/' . $posts[$id]['post_type'] . '/' . $uuid . '--' . $posts[$id]['post_name'] . '.md'
+                : 'terms/' . $taxonomies[$id] . '/' . $uuid . '--' . $terms[$id]['slug'] . '.json';
+            $expected[] = "adopted env $kind $id as $uuid ($path)";
+        }
+        self::check(count($apply['actions']) === 1, 'one baseline settings action');
+        $action = $apply['actions'][0];
+        self::check($action['manifest'] === 'visual-portfolio' && $action['kind'] === 'provider'
+            && $action['source'] === 'provider:visual-portfolio-settings/reconcile_settings'
+            && $action['provider_version'] === '1.0.0' && $action['verified'] === true
+            && (is_int($action['duration_seconds']) || is_float($action['duration_seconds']))
+            && is_finite((float) $action['duration_seconds']) && $action['duration_seconds'] >= 0, 'verified native action notice');
+        $expected[] = 'provider capability fired: visual-portfolio-settings@1.0.0 reconcile_settings (' . $action['duration_seconds'] . 's, verified)';
+        $actual = $apply['warnings'];
+        sort($expected, SORT_STRING); sort($actual, SORT_STRING);
+        self::check($expected === $actual, 'only complete identity-bound adoption and verified-action notices');
+    }
+
+    public static function refusalProfile(string $case): array {
+        self::check(in_array($case, ['custom', 'hidden-custom', 'missing'], true), 'declared negative query case');
+        return ['command' => 'capture', 'reason_code' => 'capture_failed', 'nodes' => [[
+            'class' => RuntimeException::class, 'parent_index' => null, 'relation' => 'root',
+            'message' => "wprism: block 'visual-portfolio/loop' attribute 'postsQuery'." . ($case === 'missing'
+                ? 'ids refuses an unmapped post reference' : 'customQuery requires a declared literal value'),
+        ]]];
+    }
 }
 
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
@@ -80,9 +122,7 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         VisualPortfolioQueryEvidence::queries($source, $target, $read('seed2'));
         VisualPortfolioQueryEvidence::check($target === $read('stable'), 'repeated Apply preserves every native table and the complete identity map');
         $apply = $read('apply', 'apply'); $repeat = $read('repeat', 'apply');
-        VisualPortfolioQueryEvidence::check(($apply['applied'] ?? 0) >= count(VisualPortfolioQueryEvidence::CASES)
-            && ($repeat['applied'] ?? null) === 0 && ($apply['canary'] ?? null) === 'clean'
-            && ($repeat['canary'] ?? null) === 'clean', 'public Apply and no-op repetition succeed');
+        VisualPortfolioQueryEvidence::outcomes($read('capture', 'capture'), $apply, $repeat, $read('recapture', 'capture'), $target);
         $renders = [];
         foreach (VisualPortfolioQueryEvidence::CASES as $case) {
             foreach ([1 => $source, 2 => $target] as $side => $native) {
@@ -102,7 +142,16 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         $refusal = $read("$case-refusal", 'capture', 1);
         VisualPortfolioQueryEvidence::check(($refusal['format'] ?? null) === 'wprism-command-refusal/v1'
             && ($refusal['ok'] ?? null) === false && ($refusal['command'] ?? null) === 'capture'
-            && str_contains($refusal['message'] ?? '', $case === 'missing' ? 'refuses an unmapped post reference' : 'requires a declared literal value'), 'exact public query refusal: ' . $case);
+            && ($refusal['reason_code'] ?? null) === 'capture_failed' && ($refusal['details_redacted'] ?? null) === true
+            && ($refusal['message'] ?? null) === 'capture refused at an unclassified safety gate', 'existing public redaction boundary: ' . $case);
+        $pointer = explode("\n", (string) file_get_contents("$sink/$case-refusal.stderr"), 2)[0];
+        $private = substr($pointer, strlen('private command diagnostics (unverified): '));
+        $baseline = json_decode(WPrismTest\PrivateCommandOutput::readObject($private . '/baseline', $transport), true, 32, JSON_THROW_ON_ERROR);
+        VisualPortfolioQueryEvidence::check(array_keys($baseline) === ['command', 'baseline'] && $baseline['command'] === 'capture', 'exact command freshness baseline');
+        WPrismTest\PrivateRefusalReceipt::validateDiagnosticBaseline($baseline['baseline'], 'capture');
+        $diagnostic = json_decode(WPrismTest\PrivateCommandOutput::readObject($private . '/private', $transport), true, 32, JSON_THROW_ON_ERROR);
+        WPrismTest\PrivateRefusalReceipt::verifyDiagnostic($diagnostic, VisualPortfolioQueryEvidence::refusalProfile($case));
+        VisualPortfolioQueryEvidence::check(!in_array($diagnostic['records'][0]['name'], json_decode($baseline['baseline'], true, 32, JSON_THROW_ON_ERROR), true), 'exact refusal graph is new to this invocation');
         VisualPortfolioQueryEvidence::check($read("$case-before") === $read("$case-after"), 'refused Capture preserves all native tables and identities: ' . $case);
         $before = $read("$case-state-before"); $after = $read("$case-state-after");
         WPrismTest\FilesystemTreeEvidence::assertRecord($before, 'state', WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE);

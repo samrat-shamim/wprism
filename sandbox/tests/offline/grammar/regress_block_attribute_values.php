@@ -321,7 +321,9 @@ wprism_check_same('https://target.example.test/longer-prefix/image.png', $applie
 wprism_check_same($captured, Blocks::capture_rewrite($applied, $policy, $targetTokens), 'cross-environment recapture is an exact fixed point');
 wprism_check_same([], BlockReferenceScanner::scan(parse_blocks($captured), $policy->block_attr_rules(), 'fixture.md', 'https://source.test', static fn(int $id) => null),
     'lint accepts canonical structured block values without treating layout numbers as IDs');
-$structuredObject = $manifest;
+$variantManifest = $manifest;
+$variantManifest['block_values'] = BlockValueGrammar::attribute_maps($manifest);
+$structuredObject = $variantManifest;
 $structuredObject['block_values']['fixture/media']['query']['object_fields']['image'] = $values['image'];
 $structuredPolicy = $load($structuredObject);
 $undeclared = $block(['query' => ['image' => ['id' => $token4, 'otherId' => 9]]]);
@@ -331,7 +333,7 @@ wprism_check_same(['bare_id'], array_column($nestedFindings, 'class'), 'object n
 wprism_check_same(['blocks.fixture/media.attrs.query.image.otherId'], array_column($nestedFindings, 'locator'),
     'nested structured findings retain their full owning path');
 foreach ([null, true, false, 0, 1, '', '0', 'selected'] as $literal) {
-    $literalManifest = $manifest;
+    $literalManifest = $variantManifest;
     $literalManifest['block_values']['fixture/media']['query']['object_fields']['mode']['enum'] = [$literal];
     $literalPolicy = $load($literalManifest);
     $literalBody = $block(['query' => ['mode' => $literal]]);
@@ -361,7 +363,7 @@ foreach ([false, true] as $force) foreach ([
     ['class' => 'authored', 'key_refs' => ['kind' => 'post']],
     ['class' => 'authored', 'ref' => 'user', 'cast' => 'string'],
 ] as $index => $leaf) {
-    $strict = $manifest;
+    $strict = $variantManifest;
     $strict['block_values']['fixture/media']['query']['object_fields']['missing'] = $leaf + ['on_unmapped' => 'refuse'];
     $strictPolicy = $load($strict);
     $value = [['4', '404'], '404', ['id' => 404], [404 => ['url' => 'kept']], '404'][$index];

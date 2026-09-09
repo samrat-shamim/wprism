@@ -11,6 +11,7 @@ require_once "$root/agent/src/Grammar/Blocks.php";
 require_once "$root/agent/src/Repository/RepositoryCompiler.php";
 require_once "$root/agent/src/Repository/Ledger.php";
 require_once "$root/agent/src/Review/BlockReferenceScanner.php";
+require_once "$root/agent/src/Kernel/PrivateRefusalEvidence.php";
 wprism_test_define_agent_versions();
 
 use WPrism\BlockAttributeReader;
@@ -23,6 +24,7 @@ use WPrismTest\FrozenPolicy;
 
 $capsule = dirname(__DIR__, 2);
 $fixtures = $capsule . '/fixtures/queries';
+require_once $fixtures . '/evidence.php';
 $manifest = Canon::decode(Canon::read_file($capsule . '/package/manifest.json'));
 $core = Canon::decode(Canon::read_file("$root/platform/adapter-library/core/manifest.json"));
 $site = FrozenPolicy::site([$core, $manifest], WPRISM_SPEC_VERSION);
@@ -74,6 +76,15 @@ foreach ($provenance['cases'] as $case) {
         wprism_check_throws(static fn() => Blocks::capture_rewrite($body, $policy, $source), RuntimeException::class,
             "$name native Save cannot publish a lossy query", $expected);
         wprism_check_same($beforeMap, $db->rows('wp_wprism_map'), "$name refusal preserves the complete reference map");
+        try { Blocks::capture_rewrite($body, $policy, $source); }
+        catch (RuntimeException $failure) {
+            $graph = WPrism\PrivateRefusalEvidence::graph($failure);
+            WPrismTest\PrivateRefusalReceipt::assertGraph($graph, VisualPortfolioQueryEvidence::refusalProfile($name)['nodes']);
+            wprism_check(true, "$name private evidence profile matches the actual complete codec failure");
+            $other = $name === 'missing' ? 'custom' : 'missing';
+            wprism_check_throws(static fn() => WPrismTest\PrivateRefusalReceipt::assertGraph($graph,
+                VisualPortfolioQueryEvidence::refusalProfile($other)['nodes']), RuntimeException::class, 'a different private cause cannot satisfy the query refusal');
+        }
         continue;
     }
     $canonical[$name] = Blocks::capture_rewrite($body, $policy, $source);
@@ -135,7 +146,6 @@ foreach (['posts_ids', 'posts_excluded_ids', 'posts_taxonomies'] as $field) {
 }
 // Host evidence oracles must reject plausible mutations independently of the
 // live runner. These synthetic witnesses are not native qualification.
-require_once $fixtures . '/evidence.php';
 $sourceWitness = ['pages' => [], 'tables' => ['posts' => [], 'terms' => [['term_id' => '2', 'slug' => 'garden']]]];
 $targetWitness = ['pages' => [], 'tables' => ['posts' => [], 'terms' => [['term_id' => '802', 'slug' => 'garden']], 'postmeta' => []]];
 $beforeWitness = ['bodies' => []];
@@ -176,5 +186,29 @@ wprism_check_same([['title' => 'Example', 'path' => '/example/']], VisualPortfol
 foreach ([str_replace('item-title', 'unrelated', $html), str_replace('https://target.test/', 'https://source.test/', $html), ''] as $badHtml) {
     wprism_check_throws(static fn() => VisualPortfolioQueryEvidence::rendered($badHtml, 'https://target.test'), RuntimeException::class,
         'HTTP oracle refuses missing, foreign-host and empty render evidence');
+}
+$captureReceipt = ['warnings' => [], 'counts' => ['post' => 1, 'term' => 1]];
+$applyReceipt = ['applied' => 2, 'canary' => 'clean', 'drift' => [], 'warnings' => [
+    'adopted env post 806 as ' . $uuid(6) . ' (posts/portfolio/' . $uuid(6) . '--fixture-6.md)',
+    'adopted env term 802 as ' . $uuid(2) . ' (terms/category/' . $uuid(2) . '--garden.json)',
+    'provider capability fired: visual-portfolio-settings@1.0.0 reconcile_settings (1.25s, verified)',
+], 'actions' => [['manifest' => 'visual-portfolio', 'kind' => 'provider', 'source' => 'provider:visual-portfolio-settings/reconcile_settings',
+    'provider_version' => '1.0.0', 'verified' => true, 'duration_seconds' => 1.25]]];
+$repeatReceipt = ['applied' => 0, 'canary' => 'clean', 'drift' => [], 'warnings' => [], 'actions' => []];
+$outcomeTarget = ['tables' => ['posts' => [['ID' => '806', 'post_type' => 'portfolio', 'post_name' => 'fixture-6']],
+    'terms' => [['term_id' => '802', 'slug' => 'garden']], 'term_taxonomy' => [['term_id' => '802', 'taxonomy' => 'category']]],
+    'map' => [['local_id' => '806', 'uuid' => $uuid(6), 'id_kind' => 'post'], ['local_id' => '802', 'uuid' => $uuid(2), 'id_kind' => 'term']]];
+VisualPortfolioQueryEvidence::outcomes($captureReceipt, $applyReceipt, $repeatReceipt, $captureReceipt, $outcomeTarget);
+wprism_check(true, 'command oracle admits exact adoption and verified-action notices');
+foreach (['extra-warning', 'missing-notice', 'wrong-identity', 'unverified-action', 'missing-write', 'dirty-canary'] as $fault) {
+    $bad = $applyReceipt;
+    if ($fault === 'extra-warning') $bad['warnings'][] = 'unmapped reference dropped';
+    if ($fault === 'missing-notice') array_pop($bad['warnings']);
+    if ($fault === 'wrong-identity') $bad['warnings'][0] = str_replace('post 806', 'post 999', $bad['warnings'][0]);
+    if ($fault === 'unverified-action') $bad['actions'][0]['verified'] = false;
+    if ($fault === 'missing-write') $bad['applied'] = 1;
+    if ($fault === 'dirty-canary') $bad['canary'] = 'dirty';
+    wprism_check_throws(static fn() => VisualPortfolioQueryEvidence::outcomes($captureReceipt, $bad, $repeatReceipt, $captureReceipt, $outcomeTarget),
+        RuntimeException::class, "command oracle refuses $fault");
 }
 wprism_check_summary('Visual Portfolio native query contracts');
