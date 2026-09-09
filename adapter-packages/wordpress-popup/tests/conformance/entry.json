@@ -1,0 +1,24 @@
+{
+  "entry": {
+    "pin": [
+      "core",
+      "wordpress-popup"
+    ],
+    "plugins": [
+      {
+        "slug": "wordpress-popup",
+        "version": "7.8.14.2"
+      }
+    ],
+    "post_types": [
+      "post",
+      "page",
+      "attachment"
+    ],
+    "taxonomies": [
+      "category",
+      "post_tag"
+    ]
+  },
+  "manifest": "wordpress-popup"
+}

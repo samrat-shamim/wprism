@@ -1,0 +1,55 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "speculation-rules",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/speculation-rules/package/manifest.json",
+      "adapter-packages/speculation-rules/evidence/artifacts.lock.json",
+      "adapter-packages/speculation-rules/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/speculation-rules/tests/conformance/entry.json",
+      "adapter-packages/speculation-rules/tests/conformance/seed.sh",
+      "adapter-packages/speculation-rules/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/speculation-rules/tests/conformance/postdeploy.sh",
+      "adapter-packages/speculation-rules/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/speculation-rules/tests/conformance/seed.sh",
+      "adapter-packages/speculation-rules/tests/conformance/check.sh",
+      "adapter-packages/speculation-rules/tests/certify/version-matrix.sh"
+    ],
+    "failure-recovery": [
+      "adapter-packages/speculation-rules/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/speculation-rules/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/speculation-rules/tests/conformance/check.sh",
+      "adapter-packages/speculation-rules/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/speculation-rules/tests/conformance/seed.sh",
+      "adapter-packages/speculation-rules/tests/conformance/postdeploy.sh",
+      "adapter-packages/speculation-rules/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/speculation-rules/package/disposition.json",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "deletion": "Speculative Loading has no removed state for its one option: register_setting()'s default and plsr_sanitize_setting()'s non-array fallback both resolve an absent row to prerender/moderate/logged_out, so the capsule declares authored removal unsupported and never runs --with-deletes. Citing the shared delete-authorization suite here would claim an exercise this capsule deliberately does not perform; the absent-row block in check.sh proves the boundary that replaces it.",
+    "derived-state": "Speculative Loading recomputes its speculation rules per request from the one option and persists no cache, index or derived store.",
+    "identity-references": "The adapter's three authored values are word enums the plugin clamps to fixed label maps; it declares no ref, no id_kind and no local identity reference of any kind."
+  }
+}

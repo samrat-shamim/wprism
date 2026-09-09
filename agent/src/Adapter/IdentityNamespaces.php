@@ -87,8 +87,8 @@ final class IdentityNamespaces {
     public const GRANDFATHERED_ADAPTER_NAMES = ShippedIdentityInventory::ADAPTER_NAMES;
 
     /**
-     * The 21 shipped `tables.<t>.id_kind` values — the permanent floor R-17
-     * describes, recorded so that a twenty-second shipped kind is a reviewed edit
+     * The 22 shipped `tables.<t>.id_kind` values — the permanent floor R-17
+     * describes, recorded so that a twenty-third shipped kind is a reviewed edit
      * here rather than a value that appeared in a manifest. Every one is
      * underscore-separated, which is precisely why the hyphen form can never
      * be imposed on this space retroactively.
@@ -98,6 +98,7 @@ final class IdentityNamespaces {
     public const GRANDFATHERED_ID_KINDS = [
         'attr_taxonomy',
         'code_snippet',
+        'hustle_module',
         'nf3_action',
         'nf3_field',
         'nf3_form',

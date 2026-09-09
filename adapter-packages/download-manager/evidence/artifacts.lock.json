@@ -1,0 +1,12 @@
+{
+  "plugins": {
+    "download-manager": {
+      "3.3.68": {
+        "url": "https://downloads.wordpress.org/plugin/download-manager.3.3.68.zip",
+        "sha256": "99bc915035fb86ee8ff42314c786c9a55084b861f7c3e9405763b9bb20c1fbca",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}

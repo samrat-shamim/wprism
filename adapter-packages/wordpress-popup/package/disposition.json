@@ -1,0 +1,79 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "module and module-meta deletion"
+      ]
+    },
+    "entity_sections": [
+      "tables",
+      "widgets"
+    ],
+    "field_sections": [
+      "options",
+      "option_patterns",
+      "shortcode_attrs"
+    ],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
+    "operations": [
+      "capture",
+      "compile",
+      "plan",
+      "deploy",
+      "apply",
+      "recapture",
+      "render-api"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "conformance-wordpress-popup",
+      "exact-artifact-version-matrix",
+      "regress-module-boundary",
+      "regress-package-contract"
+    ]
+  },
+  "reason": "Reviewed against the exact official Hustle 7.8.14.2 artifact and exercised through the product path: the capsule round-trips deploy, apply and byte-identical recapture on a clean target, rebinds its custom-table module reference across diverging auto-increments, preserves target-only module, meta, counter and neighbour state through a converging apply, is idempotent on retry, survives deactivate/reactivate, and refuses unauthorized module deletion. The exact-artifact matrix admits 7.8.14.2 and refuses the adjacent official 7.8.14.1 by name without mutating an authored row.",
+  "status": "certified",
+  "supported_versions": {
+    "plugin": "wordpress-popup/popover.php",
+    "range": {
+      "min": "7.8.14.2",
+      "max": "7.8.14.3"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "delete",
+      "surface": "deletions.*",
+      "reason": "No deletion selector is declared until module, module-meta and embed references have capsule-owned proof of intent refusal and preservation."
+    },
+    {
+      "operation": "capture",
+      "surface": "shortcode_attrs.wd_hustle legacy string ids",
+      "reason": "hustle-model.php:891-917 resolves the shortcode attribute as a shortcode_id meta string first and only then as the numeric module_id. The declaration binds the numeric form; whether a legacy string id survives an entity-ref declaration unharmed is unproven and must be settled by live evidence before any apply claim."
+    },
+    {
+      "operation": "capture",
+      "surface": "widgets.hustle_module_widget.module_id",
+      "reason": "The setting holds a hustle_module id, but widget_setting_refs admits only term and post, so no custom-table reference can be declared. The value is carried verbatim and will not resolve on a target. This is an engine grammar gap, recorded rather than mis-declared as a post reference."
+    },
+    {
+      "operation": "capture",
+      "surface": "hustle_entries, hustle_entries_meta, hustle_tracking",
+      "reason": "Visitor submissions, submitted field values and view/conversion counters. Runtime by construction and never authored configuration."
+    },
+    {
+      "operation": "capture",
+      "surface": "integrations_settings; hustle_provider_*_settings; hustle_global_email_settings; hustle_unsubscribe_page",
+      "reason": "Third-party API credentials, list bindings and an absolute permalink. None becomes authored configuration."
+    }
+  ]
+}

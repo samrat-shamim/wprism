@@ -1,0 +1,243 @@
+{
+  "name": "wordpress-popup",
+  "spec_version": 3,
+  "plugin": "wordpress-popup/popover.php",
+  "version_range": {
+    "min": "7.8.14.2",
+    "max": "7.8.14.3"
+  },
+  "engine_features": [
+    "spec-window/v1"
+  ],
+  "option_autoload": "preserve",
+  "options": {
+    "hustle_settings": {
+      "class": "authored",
+      "plain_data": true,
+      "note": "The global settings blob: permissions, privacy, recaptcha display, dashboard analytics. Credentials live in the per-provider options held env below, not here."
+    },
+    "hustle_custom_palettes": {
+      "class": "authored",
+      "plain_data": true
+    },
+    "hustle_activated_flag": {
+      "class": "runtime"
+    },
+    "hustle_conversion_logs": {
+      "class": "runtime"
+    },
+    "hustle_database_version": {
+      "class": "runtime",
+      "note": "Hustle_Db::DB_VERSION_KEY. maybe_create_tables() compares it and runs dbDelta, so it is installation bookkeeping, never portable intent."
+    },
+    "hustle_migrations": {
+      "class": "runtime"
+    },
+    "hustle_notice_stop_support_m2": {
+      "class": "runtime"
+    },
+    "hustle_provider_sendinblue_version": {
+      "class": "runtime"
+    },
+    "hustle_version": {
+      "class": "runtime"
+    },
+    "hustle-hide_tutorials": {
+      "class": "runtime"
+    },
+    "hustle_30_migration_data": {
+      "class": "runtime"
+    },
+    "hustle_40_migration_offset": {
+      "class": "runtime"
+    },
+    "hustle_430_migration_offset": {
+      "class": "runtime"
+    },
+    "hustle_430_modules_to_migrate": {
+      "class": "runtime"
+    },
+    "hustle_441_migration_offset": {
+      "class": "runtime"
+    },
+    "hustle_unsubscribe_page": {
+      "class": "env",
+      "required": false,
+      "note": "hustle-module-front.php:1158-1160 stores get_permalink() output, an absolute URL. Nothing in this slice rebinds a scalar option URL to a target home, so carrying it would point a target's unsubscribe mail at the source site."
+    },
+    "hustle_global_email_settings": {
+      "class": "env",
+      "required": false
+    },
+    "hustle_global_unsubscription_settings": {
+      "class": "env",
+      "required": false
+    },
+    "hustle_provider_aweber_settings": {
+      "class": "env",
+      "required": false
+    },
+    "hustle_provider_infusionsoft_settings": {
+      "class": "env",
+      "required": false
+    },
+    "hustle_provider_sendinblue_settings": {
+      "class": "env",
+      "required": false
+    },
+    "hustle_opt-in-constant_contact-token": {
+      "class": "env",
+      "required": false
+    }
+  },
+  "option_patterns": [
+    {
+      "class": "env",
+      "match": "^hustle_provider_[a-z0-9_]{1,64}_settings$"
+    }
+  ],
+  "tables": {
+    "hustle_modules": {
+      "class": "authored_snapshot",
+      "pk": "module_id",
+      "id_kind": "hustle_module",
+      "slug_column": "module_name",
+      "refs": [],
+      "columns": {
+        "module_name": {
+          "class": "authored"
+        },
+        "module_type": {
+          "class": "authored"
+        },
+        "module_mode": {
+          "class": "authored"
+        },
+        "active": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "blog_id": {
+          "class": "env"
+        }
+      }
+    },
+    "hustle_modules_meta": {
+      "class": "authored_snapshot_meta",
+      "attached_to": {
+        "table": "hustle_modules",
+        "column": "module_id"
+      },
+      "id_column": "meta_id",
+      "key_column": "meta_key",
+      "value_column": "meta_value",
+      "default_class": "runtime",
+      "keys": {
+        "content": {
+          "class": "authored",
+          "plain_data": true
+        },
+        "design": {
+          "class": "authored",
+          "plain_data": true
+        },
+        "display": {
+          "class": "authored",
+          "plain_data": true
+        },
+        "settings": {
+          "class": "authored",
+          "plain_data": true
+        },
+        "visibility": {
+          "class": "authored",
+          "plain_data": true
+        },
+        "emails": {
+          "class": "authored",
+          "plain_data": true,
+          "allow_pii": true
+        },
+        "edit_roles": {
+          "class": "authored",
+          "plain_data": true
+        },
+        "shortcode_id": {
+          "class": "authored"
+        },
+        "integrations_settings": {
+          "class": "env"
+        },
+        "track_types": {
+          "class": "runtime"
+        },
+        "hustle_shares": {
+          "class": "runtime"
+        },
+        "hustle_timestamp": {
+          "class": "runtime"
+        },
+        "hustle_dismissed_notifications": {
+          "class": "runtime"
+        },
+        "hustle_unsubscribe_nonces": {
+          "class": "runtime"
+        },
+        "visibility_backup_40x": {
+          "class": "runtime"
+        }
+      }
+    },
+    "hustle_entries": {
+      "class": "runtime"
+    },
+    "hustle_entries_meta": {
+      "class": "runtime"
+    },
+    "hustle_tracking": {
+      "class": "runtime"
+    }
+  },
+  "shortcode_attrs": {
+    "wd_hustle": [
+      {
+        "kind": "hustle_module",
+        "path": "id"
+      }
+    ],
+    "wd_hustle_cc": [
+      {
+        "kind": "hustle_module",
+        "path": "id"
+      }
+    ],
+    "wd_hustle_ss": [
+      {
+        "kind": "hustle_module",
+        "path": "id"
+      }
+    ]
+  },
+  "widgets": {
+    "hustle_module_widget": {
+      "settings": {
+        "title": {
+          "class": "authored"
+        },
+        "module_id": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "A hustle_module id. widget_setting_refs admits only term and post, so a custom-table entity cannot be declared as a widget reference here; the value is carried verbatim and does not resolve on a target. Recorded as an engine-gap candidate rather than mis-declared as a post reference."
+        }
+      }
+    }
+  },
+  "notes": [
+    "Experimental authoring capsule measured against the exact official Hustle 7.8.14.2 artifact in this capsule's evidence lock. Every rule was read out of that artifact's source; none has a completed live conformance run behind it. No certification, deployment, apply, deletion, lifecycle or production-readiness claim.",
+    "Hustle registers NO post type and NO taxonomy. Its authored content lives entirely in two custom tables created by Hustle_Db::get_tables() (inc/class-hustle-db.php:225-267): hustle_modules holds one row per popup/slide-in/embed/social module, and hustle_modules_meta holds that module's content, design, display, settings, visibility and email configuration as longtext meta rows keyed by the Hustle_Model KEY_* constants (inc/hustle-model.php:18-38).",
+    "hustle_entries, hustle_entries_meta and hustle_tracking are visitor submissions, submission metadata and view/conversion counters. All three are runtime and deliberately excluded: entries_meta in particular holds submitted form values, which are visitor data and never authored configuration.",
+    "The shortcode id has two forms and only one of them is portable. hustle-model.php:891-917 first looks the attribute up as a shortcode_id meta string, then falls back to treating it as the numeric module_id ('Since 4.2.1, the modules are retrieved by their ID, not by a shortcode ID'). The numeric form is an auto-increment that must be rebound, which is why the three shortcodes declare kind hustle_module; whether the legacy string form survives that declaration is exactly what live evidence must decide, and the disposition records it as unproven.",
+    "integrations_settings and every hustle_provider_*_settings option hold third-party API credentials and list bindings, so they stay target-local. hustle_unsubscribe_page stores an absolute permalink rather than an id and is withheld on the same grounds as any unrebindable URL.",
+    "Not claimed: the newsletter_customfields option (an unprefixed name this plugin writes but does not own exclusively, so declaring it would risk one-owner-per-name conflict with another adapter), the legacy inc_opt_widget, Pro/WPMU DEV Dashboard surfaces, and every provider integration's own remote state."
+  ]
+}

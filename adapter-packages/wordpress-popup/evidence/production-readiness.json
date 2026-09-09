@@ -1,0 +1,63 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "wordpress-popup",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/wordpress-popup/package/manifest.json",
+      "adapter-packages/wordpress-popup/evidence/artifacts.lock.json",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/wordpress-popup/tests/conformance/entry.json",
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/wordpress-popup/tests/conformance/postdeploy.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/capture-check.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "adapter-packages/wordpress-popup/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/wordpress-popup/tests/conformance/seed.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/capture-check.sh",
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/wordpress-popup/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "derived-state": "Hustle declares no derived surface. hustle_tracking holds visitor view/conversion counters and is runtime, not a projection the engine must rebuild, so there is no derivation to prove bounded or idempotent."
+  }
+}

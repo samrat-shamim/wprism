@@ -1,0 +1,59 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [],
+            "unsupported": [
+                "plugin-specific entity deletes",
+                "authored removal of plsr_speculation_rules"
+            ]
+        },
+        "entity_sections": [],
+        "field_sections": [
+            "options"
+        ],
+        "lifecycle_phases": [
+            "retire",
+            "activate",
+            "verify"
+        ],
+        "operations": [
+            "capture",
+            "compile",
+            "plan",
+            "deploy",
+            "apply",
+            "recapture",
+            "render-api"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "evidence": {
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
+        "tests": [
+            "conformance-speculation-rules",
+            "exact-artifact-version-matrix",
+            "regress-package-contract"
+        ]
+    },
+    "reason": "Certified for exact Speculative Loading 1.7.0 on single-site WordPress. The plugin's entire persistent surface is one option whose key set its own sanitizer seals and whose values it clamps to word enums, so the capsule withholds nothing and closes the sub-key set. Evidence exercises both a stored non-default setting and the absent-row default completion, hostile target convergence, an undeclared neighbour left untouched, conflict refusal before mutation, forced convergence, idempotent retry, deactivate/reactivate lifecycle recovery, and refusal of the adjacent 1.6.0 artifact whose option surface is byte-identical.",
+    "status": "certified",
+    "supported_versions": {
+        "plugin": "speculation-rules/load.php",
+        "range": {
+            "max": "1.7.1",
+            "min": "1.7.0"
+        }
+    },
+    "unsupported": [
+        {
+            "operation": "all",
+            "reason": "WPrism v1 refuses multisite, so uninstall.php's get_sites()/switch_to_blog() network teardown is outside this adapter.",
+            "surface": "multisite"
+        },
+        {
+            "operation": "apply",
+            "reason": "Speculative Loading has no 'setting removed' state: register_setting()'s default and plsr_sanitize_setting()'s non-array fallback both resolve an absent row to prerender/moderate/logged_out. The interpreter therefore captures absence as those registered defaults, and a deleted source row converges the target to default behaviour instead of expressing an authored row removal.",
+            "surface": "option:plsr_speculation_rules deletion"
+        }
+    ]
+}

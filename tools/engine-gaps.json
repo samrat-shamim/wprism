@@ -5,7 +5,7 @@
     "structured_post_body_reference_paths": {
       "title": "structured post-body reference paths",
       "status": "shipped",
-      "definition": "Addressing a reference inside a post BODY by a declared path, so a source-local id embedded in structured post_content is rebound rather than carried over verbatim. Shipped as the `json` post-type body mode plus the top-level `body_refs` section, both gated on the engine feature `structured-body-refs/v1` (spec/repo-format.md § v3.20). The path dialect is the shipped `json_refs` one, unchanged; what the primitive adds beside it is the identity round-trip precondition over the whole document, the per-path declared JSON type, and the declared `sentinels` literal set that keeps a non-reference value at a reference path a refusal rather than a guess.",
+      "definition": "Addressing a reference inside a post BODY by a declared path, so a source-local id embedded in structured post_content is rebound rather than carried over verbatim. Shipped as the `json` post-type body mode plus the top-level `body_refs` section, both gated on the engine feature `structured-body-refs/v1` (spec/repo-format.md \u00a7 v3.20). The path dialect is the shipped `json_refs` one, unchanged; what the primitive adds beside it is the identity round-trip precondition over the whole document, the per-path declared JSON type, and the declared `sentinels` literal set that keeps a non-reference value at a reference path a refusal rather than a guess.",
       "evidence": [
         "agent/src/Grammar/BodyRefGrammar.php",
         "sandbox/tests/offline/grammar/regress_body_ref_grammar.php"
@@ -258,6 +258,11 @@
         "sandbox/tests/offline/grammar/regress_block_attribute_values.php",
         "adapter-packages/qi-blocks/tests/offline/regress_native_controls.php"
       ]
+    },
+    "any_block_structured_attribute_reference_paths": {
+      "title": "reference paths inside a block attribute the plugin injects into every block",
+      "status": "open",
+      "definition": "Addressing entity references that live INSIDE one block attribute's nested value, on blocks the declaring plugin does not enumerate because it injects the attribute into every registered block. `block_attrs` binds one TOP-LEVEL attribute key per EXACT block name, over a value vocabulary closed at {int,int[]} (`AttributeGrammar::ATTR_VALUE_TYPES`, whose own refusal says 'any other shape needs engine support before it can be declared'). Two independent things are missing: a rule that reaches any block rather than a named one, and a reference path INTO an attribute value whose kind depends on a sibling key \u2014 the `json_refs` dialect already shipped for options and meta, plus `kind_from`-style dispatch already shipped for whole attributes, but neither is available beneath a block attribute. Without both, such an id is carried into canonical state verbatim and lands on a target pointing at an unrelated entity, and lint does not catch it: `unregistered_block_attr` fires on attributes named id/ids/ref or ending in Id/Ids holding a NUMERIC value, and the carrier here is an object."
     }
   },
   "candidates": [
@@ -315,7 +320,7 @@
         },
         {
           "coordinate": "post_meta.wpforms_form_locations",
-          "cannot_represent": "Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored — `WPForms\\Forms\\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: \"derived\"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: WPrism writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.",
+          "cannot_represent": "Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored \u2014 `WPForms\\Forms\\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: \"derived\"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: WPrism writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.",
           "blocker_layer": "adapter",
           "primitive_required": "verified_provider_postcondition",
           "remedy_phrase": "a bounded postcondition over the plugin's scheduled form-locations derivation"
@@ -764,9 +769,13 @@
     {
       "id": "visual-portfolio-word-count-cache",
       "candidate": "Visual Portfolio",
-      "versions_probed": ["3.8.1"],
+      "versions_probed": [
+        "3.8.1"
+      ],
       "disposition": "closed",
-      "blocked_adapters": ["visual-portfolio"],
+      "blocked_adapters": [
+        "visual-portfolio"
+      ],
       "coordinates": [
         {
           "coordinate": "post_meta._vp_words_count",
@@ -786,9 +795,13 @@
     {
       "id": "visual-portfolio-encoded-style",
       "candidate": "Visual Portfolio",
-      "versions_probed": ["3.8.1"],
+      "versions_probed": [
+        "3.8.1"
+      ],
       "disposition": "closed",
-      "blocked_adapters": ["visual-portfolio"],
+      "blocked_adapters": [
+        "visual-portfolio"
+      ],
       "coordinates": [
         {
           "coordinate": "block_values.visual-portfolio/*.custom_css and post_meta.vp_custom_css",
@@ -816,6 +829,26 @@
       ],
       "probed_on": "2026-09-09",
       "closing": "Independent editor vectors and deterministic product tests prove scalar framing, URL/query-ID rebinding, decoded privacy checks, ownership refusal, bounded expansion, malformed preimage refusal, checked SQL rollback/retry, repeat Apply and full post/term/user/options recapture. Ordinary and unknown block framing and real block widget capture share the privacy fix. This closes these engine mechanisms only; Visual Portfolio has no capsule or native Save/reopen, rendering, lifecycle, host/version or combination qualification yet."
+    },
+    {
+      "id": "block-visibility",
+      "candidate": "Block Visibility",
+      "versions_probed": [
+        "3.7.1"
+      ],
+      "probed_on": "2026-09-08",
+      "disposition": "promotion_blocked",
+      "blocked_adapters": [
+        "block-visibility"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "block_attrs.*.blockVisibility",
+          "cannot_represent": "Block Visibility adds a `blockVisibility` object attribute to every registered block \u2014 measured 115 of 116 on WordPress 7.1, the exception being the deprecated core/post-comments alias. The object nests entity ids at conditionally-typed paths: `visibilityPresets.presets` is a list of `visibility_preset` post ids, and `controlSets[].controls.location.ruleSets[].rules[].value` is a post id list, a comma-separated post-id STRING, term ids or an author id depending on its sibling `field` (measured against includes/frontend/visibility-tests/location.php's own dispatch switch). `block_attrs` can express neither the any-block reach nor the conditional nesting, so the capsule declares the attribute a reviewed `unsupported` boundary on all 115 blocks that can carry it and refuses capture the moment authored content holds one. The same structure recurs in the `visibility_preset` meta key `control_sets`, which the capsule's interpreter admits only when it carries no entity reference.",
+          "primitive_required": "any_block_structured_attribute_reference_paths",
+          "remedy_phrase": "reference paths inside a block attribute injected into every block"
+        }
+      ]
     }
   ]
 }

@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "speculation-rules": {
+      "1.6.0": {
+        "url": "https://downloads.wordpress.org/plugin/speculation-rules.1.6.0.zip",
+        "sha256": "55d508085e295534f7592f9603a0603f727cdb3225a3d64c47a0466847e61ad2",
+        "role": "refusal-fixture"
+      },
+      "1.7.0": {
+        "url": "https://downloads.wordpress.org/plugin/speculation-rules.1.7.0.zip",
+        "sha256": "0006fda65ee5bd7c9f76f857af2ce4bcc1e82e47834bc8e3fca341af7c47b4c4",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}
