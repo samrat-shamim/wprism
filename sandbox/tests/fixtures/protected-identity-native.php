@@ -215,7 +215,10 @@ final class ProtectedIdentityNativeEvidence {
 
         // The generic collector preserves raw diagnostics but cannot select the
         // expected cause. This fixture binds one env-set invocation and profile.
-        $prefix = dirname(__DIR__, 2) . '/tmp/wprism-conformance-env-set.' . $pair . '.';
+        // Replaying the same retained sink from an independent checkout must
+        // not redirect its private cause to that reviewer's working tree.
+        // Both native sinks were allocated beside each other by the driver.
+        $prefix = dirname($sink) . '/wprism-conformance-env-set.' . $pair . '.';
         $pointer = 'private command diagnostics (unverified): ';
         $stderrPattern = '/^(?: Container wprism-' . $pair . '-cli1-run-[a-f0-9]{12} (Creating|Created) '
             . '|' . preg_quote($pointer . $prefix, '/') . '[A-Za-z0-9]{6})$/D';

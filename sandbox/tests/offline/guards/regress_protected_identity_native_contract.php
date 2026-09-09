@@ -5,16 +5,16 @@ declare(strict_types=1);
 // the actual host verdict is falsifiable; only the separate native run proves
 // WordPress/MariaDB execution of Capture -> env-set.
 require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../fixtures/protected-identity-native.php';
+// Optional old fixture is solely a red replay of this same admission contract.
+require_once $argv[1] ?? __DIR__ . '/../../fixtures/protected-identity-native.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PrivateRefusalEvidence.php';
 
 use WPrism\PrivateRefusalEvidence;
 
-$repo = dirname(__DIR__, 4);
 $pair = 'pwprobe01';
 $sourceSha = str_repeat('c', 40);
 $sink = sys_get_temp_dir() . '/wprism-protected-native-contract-' . bin2hex(random_bytes(8));
-$diagnostics = $repo . '/sandbox/tmp/wprism-conformance-env-set.' . $pair . '.' . bin2hex(random_bytes(3));
+$diagnostics = dirname($sink) . '/wprism-conformance-env-set.' . $pair . '.' . bin2hex(random_bytes(3));
 foreach ([$sink, $diagnostics] as $directory) {
     if (!mkdir($directory, 0700)) throw new RuntimeException('could not allocate owned contract evidence');
 }
@@ -89,7 +89,7 @@ $write = static function (array $contents): void {
 };
 $write($streams);
 ProtectedIdentityNativeEvidence::admit($sink, $pair, $sourceSha);
-wprism_check(true, 'actual host admission accepts complete synthetic positive/orphan/refusal transport');
+wprism_check(true, 'actual host admission accepts complete synthetic transport outside its source checkout');
 $reject = static function (array $changes, string $label, string $exception = RuntimeException::class) use ($write, $streams, $sink, $pair, $sourceSha): void {
     $write(array_replace($streams, $changes));
     wprism_check_throws(static fn() => ProtectedIdentityNativeEvidence::admit($sink, $pair, $sourceSha), $exception, $label);
