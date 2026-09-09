@@ -744,6 +744,7 @@ $report('engine features this engine implements: '
 
 wprism_check_same(
     [
+        'block-visibility',
         'code-snippets',
         'download-manager',
         'elementor',

@@ -292,7 +292,7 @@ This is the outcome the loop is built to make visible, so here it is rendered:
 ```
 rebaseline: 3 -> 3 labelled site(s) (same-estate)
 comparability: both censuses fold the same 3 labelled site(s), so every delta below is a delta of one estate over time
-library: 16 -> 22 adapter(s), 16 -> 22 reviewed, coverage oracle MOVED
+library: 16 -> 23 adapter(s), 16 -> 23 reviewed, coverage oracle MOVED
 coverage: 45.0% -> 45.0% (delta +0 ppm / +0.0pp) over 2000 -> 2000 surface(s)
 funnel: no_adapter=2->0(-2) adapter_unreviewed=0->0(+0) adapter_unpinned=0->2(+2) adapter_pinned=0->0(+0)
 moved synth-beta: adapter=none->synth-beta (adapter_added) claimed=0 regressed=0 appeared=0 resolved=0 pins=+0 [no_adapter->adapter_unpinned]

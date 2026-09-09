@@ -2,6 +2,7 @@
     "adapter_digests": {
         "acf": "c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d",
         "advanced-editor-tools": "cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d",
+        "block-visibility": "a6f463f2186764ec5cd39356d62b32308d4e26d52f5ea49fb51f40adc0b6f6e3",
         "classic-editor": "908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea",
         "code-snippets": "f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e",
         "contact-form-7": "fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5",
@@ -27,6 +28,7 @@
     "manifest_bytes_sha256": {
         "acf": "8776e7e64922c0aa70b348832a193869554b5faee4a4741a911daedf3080faca",
         "advanced-editor-tools": "047d6d21b86301a52c8681d9623a0588f1f6e458a58a01b0b8b1735e84942f03",
+        "block-visibility": "250cfd26aacba6618019b914646de9542c901e03d4baae730083a59e72511f67",
         "classic-editor": "ffad6256c34fd74538c4beba7f29299cd7fe3312d4b551795668bfeab8bb475b",
         "code-snippets": "8011eeffb6e4e246dac3ceb5128677be7debca08102101a9a39d336b9c62fd46",
         "contact-form-7": "bfdd6f48b2b9e8658fe5f0e355edb232648294fabe70dcca080283481537f7be",
@@ -50,10 +52,11 @@
     },
     "pin_sets": {
         "rank-world": {
-            "manifest_hash": "37fb63ff449c34d5640c8784cfa137ffac026e6caca0a709d5f72af573ec51d3",
+            "manifest_hash": "2f2dd3bfe74fe44571278dfe9b5199a90aaaa4b59e0fff95291126049375e2e2",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
+                "block-visibility",
                 "classic-editor",
                 "code-snippets",
                 "contact-form-7",
@@ -74,37 +77,59 @@
                 "wps-hide-login",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "454e99aed56b98e0b09e0f09d0902d21933cf8bce584d80d2261bc00d6860e34"
+            "snapshot_sha256": "5d8fbf27613e6c95282dd4b7fd943e015c5b40d45d877b67799890705dfa8d78"
         },
         "core+elementor+yoast+contact-form-7": {
             "manifest_hash": "0447fed067e86aaa6bf8593a1a83cbea94e9b011d0f2a5820db723152cb72caa",
-            "pins": ["contact-form-7", "core", "elementor", "yoast"]
+            "pins": [
+                "contact-form-7",
+                "core",
+                "elementor",
+                "yoast"
+            ]
         },
         "core+paid-memberships-pro+code-snippets": {
             "manifest_hash": "d00e9a468515d7458b2a4a654fcb931a0ddf35afd194cea4e243dda90f0a390a",
-            "pins": ["code-snippets", "core", "paid-memberships-pro"]
+            "pins": [
+                "code-snippets",
+                "core",
+                "paid-memberships-pro"
+            ]
         },
         "core+polylang+the-events-calendar": {
             "manifest_hash": "038ef448789057f69317a6eeddf2ddea63570a7057e8bd079a4746186cb7aa35",
-            "pins": ["core", "polylang", "the-events-calendar"]
+            "pins": [
+                "core",
+                "polylang",
+                "the-events-calendar"
+            ]
         },
         "core+woocommerce+acf": {
             "manifest_hash": "a382ee3a44059f1e9f888958202946ad2250e84005de5a910be5f13ee4b408be",
-            "pins": ["acf", "core", "woocommerce"]
+            "pins": [
+                "acf",
+                "core",
+                "woocommerce"
+            ]
         },
         "core-only": {
             "manifest_hash": "14bf83b00f73f2210c7f9dc329fd3bdda5e576eb5a7a2d4415cda6d375f8f64c",
-            "pins": ["core"]
+            "pins": [
+                "core"
+            ]
         },
         "wprism-agency-cpt-only": {
             "manifest_hash": "b2fc37062cf77e4725ca4b2cb723636cfe53563cad9040d62b490835ccb3d1bf",
-            "pins": ["wprism-agency-cpt"]
+            "pins": [
+                "wprism-agency-cpt"
+            ]
         },
         "yoast-world": {
-            "manifest_hash": "9a82f4109840f1664159fea9e24fd4ead969f9f601bcc21cbf62fc8d03a42a24",
+            "manifest_hash": "bfbfcc343b4bb980a347a44789d3d1768da641e9b15597ce64b11f40b276c54a",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
+                "block-visibility",
                 "classic-editor",
                 "code-snippets",
                 "contact-form-7",
@@ -125,8 +150,8 @@
                 "yoast",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "bc6ce45921fb339252902621cb0e4a6725286b8a5c8b7058fdb19241d088a673"
+            "snapshot_sha256": "d62fda8961cfe409ec92a47b7b14aa8a6bbf6244038fd5e158c8c309f559a445"
         }
     },
-    "registry_sha256": "8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc"
+    "registry_sha256": "5444c60f2f8178f064bb25a5b30eaa947ad39b0df514f2cb8ec6216aed67f914"
 }

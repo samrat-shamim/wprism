@@ -365,6 +365,7 @@ const PRE_MANAGED_CLONE_YDP_REASON = 'Certified for exact Yoast Duplicate Post 4
 const WPRISM_CURRENT_DIGESTS = [
     'acf' => 'c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d',
     'advanced-editor-tools' => 'cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d',
+    'block-visibility' => 'a6f463f2186764ec5cd39356d62b32308d4e26d52f5ea49fb51f40adc0b6f6e3',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
@@ -386,20 +387,20 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
-// The registry as each capsule joined it, so the transitions below prove that
-// a new capsule changed no pre-existing disposition byte. The first address is
-// main's own reviewed registry, which is what makes the ladder a statement
-// about THIS branch rather than a restatement of its own numbers.
-const PRE_SPECULATION_RULES_REGISTRY_SHA = '0efc7cf53360dc26e42ca40d8ed97b9c489f0ac6c48883649801af4a17e0e6bd';
-// The registry as each preview joined it, so the transitions below prove that
-// a new capsule changed no pre-existing disposition byte.
-const PRE_DOWNLOAD_MANAGER_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda467fb57e45066fca7f04f96078ebe7d1f66c95';
-const PRE_WORDPRESS_POPUP_REGISTRY_SHA = 'e5921a18d722993112d1195e7c4752127288ff0bd71c90f6ebad1823a7cd2887';
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '37fb63ff449c34d5640c8784cfa137ffac026e6caca0a709d5f72af573ec51d3';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '9a82f4109840f1664159fea9e24fd4ead969f9f601bcc21cbf62fc8d03a42a24';
-const WPRISM_CURRENT_REGISTRY_SHA = '8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '454e99aed56b98e0b09e0f09d0902d21933cf8bce584d80d2261bc00d6860e34';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'bc6ce45921fb339252902621cb0e4a6725286b8a5c8b7058fdb19241d088a673';
+// The registry as each of this branch's capsules joined it. Each rung removes
+// the capsules added AFTER it, so every one keeps asking its original question
+// rather than being re-pinned past; PRE_DOWNLOAD_MANAGER is main's own reviewed
+// registry address, which is what makes the ladder a statement about THIS
+// branch instead of a restatement of its own numbers.
+const PRE_SPECULATION_RULES_REGISTRY_SHA = '17aa32057274a90d935c5541cef27a27a7ce257741d011b1feea204cd07eff64';
+const PRE_BLOCK_VISIBILITY_REGISTRY_SHA = '0537326b3184246108857160ee71570abd12b4a964390eecd2ece229239d3c92';
+const PRE_DOWNLOAD_MANAGER_REGISTRY_SHA = '8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc';
+const PRE_WORDPRESS_POPUP_REGISTRY_SHA = '37cad701fd0ad3c14cede7fea1c8086d357e126299580bcf9b027fe7105dae60';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '2f2dd3bfe74fe44571278dfe9b5199a90aaaa4b59e0fff95291126049375e2e2';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'bfbfcc343b4bb980a347a44789d3d1768da641e9b15597ce64b11f40b276c54a';
+const WPRISM_CURRENT_REGISTRY_SHA = '5444c60f2f8178f064bb25a5b30eaa947ad39b0df514f2cb8ec6216aed67f914';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '5d8fbf27613e6c95282dd4b7fd943e015c5b40d45d877b67799890705dfa8d78';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'd62fda8961cfe409ec92a47b7b14aa8a6bbf6244038fd5e158c8c309f559a445';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -725,7 +726,22 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
+// This branch's four capsules are removed before every historical comparison
+// below, so each one keeps asking its original question — "did restoring that
+// one claim reconstruct the registry as it was?" — rather than being re-pinned
+// past. That they hold at main's own recorded addresses is the measurement
+// proving these capsules add rows beside the reviewed library without moving a
+// byte of it.
+const BRANCH_ADDED_CAPSULES = [
+    'block-visibility',
+    'download-manager',
+    'speculation-rules',
+    'wordpress-popup',
+];
 $preManagedCloneRegistry = $shippedRegistry->data();
+foreach (BRANCH_ADDED_CAPSULES as $branchAdded) {
+    unset($preManagedCloneRegistry['manifests'][$branchAdded]);
+}
 $priorYdp = &$preManagedCloneRegistry['manifests']['yoast-duplicate-post'];
 wprism_check_same('native-managed-duplication', $priorYdp['unsupported'][0]['surface'] ?? null,
     'the withdrawn native workflow is the one explicit new unsupported boundary');
@@ -750,6 +766,7 @@ wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($p
     'all 18 reviewed dispositions that predate all three capture previews remain byte-identical');
 $priorRegistry = $shippedRegistry->data();
 unset(
+    $priorRegistry['manifests']['block-visibility'],
     $priorRegistry['manifests']['download-manager'],
     $priorRegistry['manifests']['speculation-rules'],
     $priorRegistry['manifests']['wordpress-popup']
@@ -757,13 +774,21 @@ unset(
 wprism_check_same(PRE_DOWNLOAD_MANAGER_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
     'all 19 pre-existing reviewed dispositions remain byte-identical after adding the Download Manager preview');
 $priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['speculation-rules'], $priorRegistry['manifests']['wordpress-popup']);
+unset(
+    $priorRegistry['manifests']['block-visibility'],
+    $priorRegistry['manifests']['speculation-rules'],
+    $priorRegistry['manifests']['wordpress-popup']
+);
 wprism_check_same(PRE_WORDPRESS_POPUP_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
     'all 20 pre-existing reviewed dispositions remain byte-identical after adding the Hustle preview');
 $priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['speculation-rules']);
+unset($priorRegistry['manifests']['block-visibility'], $priorRegistry['manifests']['speculation-rules']);
 wprism_check_same(PRE_SPECULATION_RULES_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
     'all 21 pre-existing reviewed dispositions remain byte-identical after adding the Speculative Loading capsule');
+$priorRegistry = $shippedRegistry->data();
+unset($priorRegistry['manifests']['block-visibility']);
+wprism_check_same(PRE_BLOCK_VISIBILITY_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
+    'all 22 pre-existing reviewed dispositions remain byte-identical after adding the Block Visibility capsule');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
     'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
@@ -885,7 +910,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(23, $documentCount, 'the reviewed source is 23 documents: 22 subjects and the profiles map');
+wprism_check_same(24, $documentCount, 'the reviewed source is 24 documents: 23 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

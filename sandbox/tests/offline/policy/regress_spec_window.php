@@ -359,6 +359,7 @@ wprism_check_same(
 $declarers = array_keys(array_filter($library, static fn(array $m): bool => array_key_exists('engine_features', $m)));
 wprism_check_same(
     [
+        'block-visibility',
         'code-snippets',
         'download-manager',
         'elementor',

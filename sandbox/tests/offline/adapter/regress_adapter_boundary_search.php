@@ -172,12 +172,12 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
 // other certified block. Duplicate Post's withdrawn claim now joins WPForms
 // outside this certified-anchor set; its adjacent refusal does not restore it.
 wprism_check_same(
-    15,
+    17,
     count($bisectionShaped),
-    '15 of the 17 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '17 of the 19 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 wprism_check_same(
-    ['duplicate-post', 'wpforms-lite'],
+    ['block-visibility', 'download-manager', 'duplicate-post', 'wpforms-lite'],
     array_keys($exerciseOnly),
     'both non-authorizing blocks lack a certified anchor, so the search never proposes either as a boundary'
 );

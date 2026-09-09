@@ -380,6 +380,7 @@ wprism_check_same(
 );
 wprism_check_same(
     [
+        'block-visibility',
         'code-snippets',
         'download-manager',
         'elementor',

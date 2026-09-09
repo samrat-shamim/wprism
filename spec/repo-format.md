@@ -1170,7 +1170,7 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-20 documents, 1,430 lines, 64,159 bytes — the same entries, the same profile, addressed as 20 roots
+24 documents, 1,733 lines, 78,638 bytes — the same entries, the same profile, addressed as 24 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
@@ -1681,13 +1681,13 @@ adapter, which is the case the list exists to keep loading.
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 22 adapter names, 22 `id_kind`s, 17 provider ids = 61 identities, all of which already pass the one
+- 23 adapter names, 22 `id_kind`s, 17 provider ids = 62 identities, all of which already pass the one
   shared grammar;
 - a bare `<vendor>-<name>` refusal would break **29** of them — the 7 adapter names carrying no hyphen at
   all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 22 `id_kind`s, every one of
   which is underscore-separated;
-- the other 15 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 22
+- the other 16 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
+  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 23
   names; all 22 `id_kind`s remain governed by R-17 rather than that name list;
 - all 17 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
   convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired

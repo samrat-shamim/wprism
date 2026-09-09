@@ -15,6 +15,7 @@ final class ShippedIdentityInventory
     public const ADAPTER_NAMES = [
         'acf',
         'advanced-editor-tools',
+        'block-visibility',
         'classic-editor',
         'code-snippets',
         'contact-form-7',

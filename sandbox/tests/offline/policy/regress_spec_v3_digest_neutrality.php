@@ -46,12 +46,12 @@ use WPrism\Policy;
 // only WPForms and its two containing worlds move, not the reviewed registry.
 // Withdrawing Yoast Duplicate Post's unproved managed-clone certification
 // moves its disposition, both containing worlds and the whole-registry snapshots.
-const BASELINE_FIXTURE_SHA256 = '73074ba723c71e030598b9d7e50c10cf13ced600ac33e023c02d3c7baf1d1fb8';
-const RANK_WORLD_MANIFEST_HASH = '37fb63ff449c34d5640c8784cfa137ffac026e6caca0a709d5f72af573ec51d3';
-const YOAST_WORLD_MANIFEST_HASH = '9a82f4109840f1664159fea9e24fd4ead969f9f601bcc21cbf62fc8d03a42a24';
-const REGISTRY_SHA256 = '8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc';
-const RANK_WORLD_SNAPSHOT_SHA256 = '454e99aed56b98e0b09e0f09d0902d21933cf8bce584d80d2261bc00d6860e34';
-const YOAST_WORLD_SNAPSHOT_SHA256 = 'bc6ce45921fb339252902621cb0e4a6725286b8a5c8b7058fdb19241d088a673';
+const BASELINE_FIXTURE_SHA256 = '9a893e3ddac1a9455b860f6fb59c0f7afb0095858e90b3df98fd70fe15e77f81';
+const RANK_WORLD_MANIFEST_HASH = '2f2dd3bfe74fe44571278dfe9b5199a90aaaa4b59e0fff95291126049375e2e2';
+const YOAST_WORLD_MANIFEST_HASH = 'bfbfcc343b4bb980a347a44789d3d1768da641e9b15597ce64b11f40b276c54a';
+const REGISTRY_SHA256 = '5444c60f2f8178f064bb25a5b30eaa947ad39b0df514f2cb8ec6216aed67f914';
+const RANK_WORLD_SNAPSHOT_SHA256 = '5d8fbf27613e6c95282dd4b7fd943e015c5b40d45d877b67799890705dfa8d78';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'd62fda8961cfe409ec92a47b7b14aa8a6bbf6244038fd5e158c8c309f559a445';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
@@ -86,8 +86,8 @@ sort($actualNames, SORT_STRING);
 wprism_check_same($actualNames, $baselineNames, 'the literal identity baseline covers the actual library, including newly added capsules');
 wprism_check_same(array_values(array_diff($baselineNames, ['yoast'])), $rankPins, 'the Rank-compatible world is exactly all shipped adapters except Yoast');
 wprism_check_same(array_values(array_diff($baselineNames, ['rank-math'])), $yoastPins, 'the Yoast-compatible world is exactly all shipped adapters except Rank Math');
-wprism_check_same(21, count($rankPins), 'the Rank-compatible maximal world contains 21 adapters');
-wprism_check_same(21, count($yoastPins), 'the Yoast-compatible maximal world contains 21 adapters');
+wprism_check_same(22, count($rankPins), 'the Rank-compatible maximal world contains 22 adapters');
+wprism_check_same(22, count($yoastPins), 'the Yoast-compatible maximal world contains 22 adapters');
 $worldUnion = array_values(array_unique(array_merge($rankPins, $yoastPins)));
 sort($worldUnion, SORT_STRING);
 wprism_check_same($baselineNames, $worldUnion, 'the two compatible worlds jointly cover all shipped adapters');
