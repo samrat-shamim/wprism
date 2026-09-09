@@ -323,6 +323,38 @@ wprism_check_same([], BlockReferenceScanner::scan(parse_blocks($captured), $poli
     'lint accepts canonical structured block values without treating layout numbers as IDs');
 $variantManifest = $manifest;
 $variantManifest['block_values'] = BlockValueGrammar::attribute_maps($manifest);
+$unsupportedStructuredUsers = [
+    [['class' => 'authored', 'json_refs' => [['path' => '$.author', 'kind' => 'user']]],
+        ['author' => 1], ['author' => 'user:admin']],
+    [['class' => 'authored', 'key_refs' => ['kind' => 'user']],
+        [1 => 'kept'], ['user:admin' => 'kept']],
+    [['class' => 'authored', 'key_refs' => ['path' => '$.owners', 'kind' => 'user']],
+        ['owners' => [1 => 'kept']], ['owners' => ['user:admin' => 'kept']]],
+];
+foreach ($unsupportedStructuredUsers as [$leaf, $nativeUser, $canonicalUser]) foreach ([false, true] as $strict) {
+    if ($strict) $leaf['on_unmapped'] = 'refuse';
+    $badUser = $variantManifest;
+    $badUser['block_values']['fixture/media']['query']['object_fields']['owner'] = $leaf;
+    wprism_check_throws(static fn() => $load($badUser), RuntimeException::class,
+        'the frozen product loader refuses structured user-login references', 'user references require ref:user or ref:user[]');
+    $rootUser = $badUser;
+    $rootUser['block_values']['fixture/media']['query'] = $leaf;
+    wprism_check_throws(static fn() => $load($rootUser), RuntimeException::class,
+        'the same structured user boundary applies at the root attribute', 'user references require ref:user or ref:user[]');
+    $rawRule = ['class' => 'authored', 'object_fields' => ['owner' => $leaf]];
+    foreach ([false, true] as $canonical) {
+        $rawValue = ['owner' => $canonical ? $canonicalUser : $nativeUser];
+        wprism_check_throws(static fn() => BlockValueCodec::assert_value($rawValue, $rawRule, $canonical, 'query'),
+            RuntimeException::class, 'raw block assertions refuse the unsupported protocol before traversing user values',
+            'user references require ref:user or ref:user[]');
+    }
+    wprism_check_throws(static fn() => BlockValueCodec::capture(['owner' => $nativeUser], $rawRule, $sourceTokens,
+        static function (): void {}, 'query'), RuntimeException::class,
+        'raw capture cannot publish a structured user token', 'user references require ref:user or ref:user[]');
+    wprism_check_throws(static fn() => BlockValueCodec::apply(['owner' => $canonicalUser], $rawRule, $targetTokens, 'query'),
+        RuntimeException::class, 'raw Apply cannot coerce a structured user token to zero',
+        'user references require ref:user or ref:user[]');
+}
 $structuredObject = $variantManifest;
 $structuredObject['block_values']['fixture/media']['query']['object_fields']['image'] = $values['image'];
 $structuredPolicy = $load($structuredObject);
@@ -362,11 +394,12 @@ foreach ([false, true] as $force) foreach ([
     ['class' => 'authored', 'json_refs' => [['path' => '$.id', 'kind' => 'post']]],
     ['class' => 'authored', 'key_refs' => ['kind' => 'post']],
     ['class' => 'authored', 'ref' => 'user', 'cast' => 'string'],
+    ['class' => 'authored', 'ref' => 'user[]', 'cast' => 'string'],
 ] as $index => $leaf) {
     $strict = $variantManifest;
     $strict['block_values']['fixture/media']['query']['object_fields']['missing'] = $leaf + ['on_unmapped' => 'refuse'];
     $strictPolicy = $load($strict);
-    $value = [['4', '404'], '404', ['id' => 404], [404 => ['url' => 'kept']], '404'][$index];
+    $value = [['4', '404'], '404', ['id' => 404], [404 => ['url' => 'kept']], '404', ['1', '404']][$index];
     $strictTokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
     wprism_check_throws(static fn() => Blocks::capture_rewrite($block(['query' => ['missing' => $value]]),
         $strictPolicy, $strictTokens, $force), RuntimeException::class,
@@ -382,7 +415,21 @@ $GLOBALS['wpdb']->seedTable('wp_users', [['ID' => 990, 'user_login' => 'unrelate
 $strictTarget = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
 wprism_check_throws(static fn() => Blocks::apply_rewrite($block(['query' => ['extra' => ['owner' => 'user:admin']]]),
     $policy, $strictTarget), RuntimeException::class, 'strict target user references cannot fall back to the default author');
+$userListManifest = $variantManifest;
+$userListManifest['block_values']['fixture/media']['query']['object_fields']['editors'] =
+    ['class' => 'authored', 'ref' => 'user[]', 'cast' => 'string', 'on_unmapped' => 'refuse'];
+$userListPolicy = $load($userListManifest);
+$userListCanonical = $block(['query' => ['editors' => ['user:admin', 'user:admin']]]);
+wprism_check_throws(static fn() => Blocks::apply_rewrite($userListCanonical, $userListPolicy, $strictTarget),
+    RuntimeException::class, 'strict nested user lists cannot fall back to the default author');
+$database(0);
+wprism_check_same($userListCanonical, Blocks::capture_rewrite($block(['query' => ['editors' => ['1', '1']]]),
+    $userListPolicy, new Tokens('https://source.test', 'https://source.test/wp-content/uploads')),
+    'nested user lists publish login identities and preserve duplicates');
 $database(800);
+wprism_check_same($block(['query' => ['editors' => ['801', '801']]]), Blocks::apply_rewrite($userListCanonical,
+    $userListPolicy, new Tokens('https://target.test', 'https://target.test/wp-content/uploads')),
+    'nested user lists use the login resolver and preserve target native scalar types');
 foreach (['raw', 'wrong-kind', 'trailing-token', 'csv-string', 'derived', 'array-ref', 'excluded-record', 'raw-object', 'hidden-query', 'new-object-field'] as $fault) {
     $bad = $a;
     if ($fault === 'raw') $bad['image']['id'] = 4;
@@ -467,6 +514,17 @@ wprism_check_same(['entities' => 2, 'wordpress' => false, 'database' => false], 
     'complete immutable compiler needs neither WordPress parsing nor a database object');
 wprism_check_same($databaseBefore, $GLOBALS['wpdb']->queries(), 'immutable compiler validates block references without database contact');
 wprism_check($artifact->tree() !== [], 'real immutable compiler admits the complete canonical post graph');
+foreach ($unsupportedStructuredUsers as [$leaf, $nativeUser, $canonicalUser]) {
+    // The public mutable Policy constructor can bypass manifest loading. The
+    // immutable value boundary must still refuse the incompatible token lane.
+    $rawPolicy = clone $policy;
+    $rawPolicy->manifests = [$variantManifest];
+    $rawPolicy->manifests[0]['block_values']['fixture/media']['query']['object_fields']['owner'] = $leaf;
+    Canon::write_file($scratch . '/state/posts/page/' . $uuid4 . '--first.md',
+        Canon::post_file($firstFront, $block(['query' => ['owner' => $canonicalUser]])));
+    wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $rawPolicy), RuntimeException::class,
+        'the immutable compiler refuses structured user tokens even when the manifest loader was bypassed');
+}
 foreach (['raw', 'derived', 'malformed-json', 'raw-html', 'encoded-html', 'excluded-record', 'raw-object', 'hidden-query', 'new-object-field'] as $fault) {
     $bad = $a;
     if ($fault === 'raw') $bad['image']['id'] = 804;

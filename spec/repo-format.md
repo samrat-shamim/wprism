@@ -3352,6 +3352,11 @@ lane is introduced; the existing block-values certificate arm applies.
   target user references must resolve without the default-author fallback.
   Native unset scalar sentinels and empty lists retain existing semantics.
 
+Structured `json_refs` and `key_refs` use durable identity keyspaces. User login
+identities require `ref: user` or `ref: user[]` leaves, which may be nested under
+`object_fields`; `kind: user` structured declarations refuse during manifest
+validation and raw native/canonical value assertion.
+
 Compilation, lint, capture and materialization enforce the same recursive
 value contract. Nested structured leaves retain the existing suspicious-ID
 linter and all published content retains privacy clearance. These fields are

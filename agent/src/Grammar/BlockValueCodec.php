@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 require_once __DIR__ . '/Tokens.php';
 
 /** Value framing belongs to the block grammar; identity and text rewriting stay in the shared codecs. */
@@ -70,6 +71,7 @@ final class BlockValueCodec {
 
     /** Pure, value-free refusals shared by capture, immutable compilation, lint and apply. */
     public static function assert_value(mixed $value, array $rule, bool $canonical, string $where): void {
+        BlockValueGrammar::assert_structured_keyspaces($rule, $where);
         if (($rule['class'] ?? '') === 'derived') {
             throw new \RuntimeException("wprism: $where is derived and must be absent from canonical block attributes");
         }

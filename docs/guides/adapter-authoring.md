@@ -560,6 +560,11 @@ integers, booleans, nulls or ASCII codes `[A-Za-z0-9_-]` of at most 128 bytes.
 Types are strict; literals do not undergo text rewriting. URLs, prose and token
 envelopes require their ordinary codecs.
 
+Structured `json_refs` and `key_refs` resolve durable identity tokens. User
+login identities use `ref: user` or `ref: user[]`, including on nested
+`object_fields` leaves. A structured rule with `kind: user` refuses at both
+manifest validation and the immutable value boundary.
+
 Use `on_unmapped: refuse` on reference leaves when losing one identity changes
 meaning. It refuses instead of dropping a missing source identity and forbids
 target user fallback; `--force-unresolved-refs` does not waive this contract.

@@ -120,6 +120,7 @@ final class BlockValueGrammar {
         ReferenceRules::value_rule($rule, $where, blockRecords: true, encodedText: ($manifest['spec_version'] ?? 0) >= 3
             && in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
             && in_array(EncodedText::FEATURE, $manifest['engine_features'] ?? [], true), blockContracts: $negotiated);
+        self::assert_structured_keyspaces($rule, $where);
         if (array_key_exists(RecordFields::FIELD, $rule)) {
             if (($manifest['spec_version'] ?? 0) < 3
                 || !in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
@@ -136,12 +137,25 @@ final class BlockValueGrammar {
         }
     }
 
+    /** StructuredReferenceCodec resolves durable tokens; user:login belongs to the scalar/list user codec. */
+    public static function assert_structured_keyspaces(array $rule, string $where): void {
+        foreach ($rule['json_refs'] ?? [] as $ref) {
+            if (($ref['kind'] ?? null) === 'user') {
+                throw new \RuntimeException("wprism: $where user references require ref:user or ref:user[]");
+            }
+        }
+        if (($rule['key_refs']['kind'] ?? null) === 'user') {
+            throw new \RuntimeException("wprism: $where user references require ref:user or ref:user[]");
+        }
+    }
+
     public static function contract_grammar(): array {
         return [
             'field' => 'block_values.<block>.<attribute>',
             'object_fields' => 'nonempty exact-name map of authored value rules; present fields only; unknown fields and empty/non-object containers refuse',
             'enum' => 'one to 64 distinct strict literals: integers, booleans, null, or ASCII codes [A-Za-z0-9_-] of zero to 128 bytes; preserved without text rewriting',
             'on_unmapped' => 'refuse; reference codecs only; missing capture identities and target user bindings refuse instead of dropping references or using a default author',
+            'reference_keyspaces' => 'json_refs/key_refs resolve durable identities; user login identities require ref:user or ref:user[] leaves, including within object_fields',
             'composition' => 'object_fields and enum each own their complete value and cannot combine with another codec; nested members cannot be derived',
             'max_fields_per_object' => self::MAX_OBJECT_FIELDS, 'max_object_depth' => self::MAX_OBJECT_DEPTH,
             'max_expanded_contract_rules' => self::MAX_CONTRACT_RULES,
