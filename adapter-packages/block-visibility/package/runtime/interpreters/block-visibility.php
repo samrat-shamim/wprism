@@ -51,19 +51,38 @@ final class BlockVisibility {
     ];
 
     /**
-     * `location` rule fields whose `value` is an entity reference. Measured
-     * against 3.7.1 `includes/frontend/visibility-tests/location.php`'s own
-     * dispatch switch (`:150-220`), not guessed from key names.
+     * Controls reviewed as carrying NO entity reference in ANY mode, measured
+     * against 3.7.1's own test files under includes/frontend/visibility-tests/.
+     *
+     * THIS IS AN ALLOWLIST ON PURPOSE. The first version of this class listed
+     * the `location` rule FIELDS that are references and admitted everything
+     * else, and that was unsound twice over: WooCommerce keeps its product id
+     * in `subField`, not `value` (woocommerce/helper-functions.php:376-383,
+     * `(int) $rule['subField']`), so no field-name list would ever match it;
+     * and its category rules put term identifiers in `value` under field names
+     * a location-derived list does not contain. A denylist has to stay
+     * complete against a plugin that keeps adding controls. This one refuses
+     * anything it has not reviewed, so a control added in a later release is a
+     * loud refusal rather than a silently captured id.
      */
-    private const REFERENCE_FIELDS = [
-        'post',
-        'postID',
-        'postTaxonomy',
-        'archive',
-        'taxonomyTermHierarchy',
-        'taxonomyTermRelativeHierarchy',
-        'attributesAuthor',
+    private const REFERENCE_FREE_CONTROLS = [
+        'browserDevice',
+        'cookie',
+        'dateTime',
+        'queryString',
+        'referralSource',
+        'screenSize',
+        'urlPath',
     ];
+
+    /**
+     * `userRole` is reference-free ONLY in its role modes. With
+     * `visibilityByRole` set to 'users' it carries `restrictedUsers`, an array
+     * of USER IDS compared against get_current_user_id()
+     * (user-role.php:125-156, :291, :368-372), so the mode is what decides.
+     */
+    private const ROLE_CONTROL = 'userRole';
+    private const ROLE_USER_LIST = 'restrictedUsers';
 
     public function __construct(Policy $policy) {
         // The whole decision is fixed by the pinned 3.7.1 storage contract; no
@@ -126,36 +145,58 @@ final class BlockVisibility {
                 );
             }
         }
-        $found = $this->reference_fields_in($decoded);
+        $found = $this->unreviewed_controls_in($decoded);
         if ($found === []) {
             return;
         }
         sort($found, SORT_STRING);
         throw new \RuntimeException(
-            'wprism: Block Visibility preset control_sets carries location rule field(s) '
-            . implode(', ', $found) . ' whose value is an entity reference. The engine has no reference '
-            . 'path conditioned on a sibling field, so this id cannot be rebound on a target; refusing '
-            . 'rather than carrying a source-local id (see this capsule manifest note 4)'
+            'wprism: Block Visibility preset control_sets uses control(s) ' . implode(', ', $found)
+            . ' that this capsule has not reviewed as reference-free, so their values may be entity '
+            . 'references the engine cannot rebind on a target; refusing rather than carrying a '
+            . 'source-local id (see this capsule manifest note 4)'
         );
     }
 
-    /** @return list<string> */
-    private function reference_fields_in(mixed $value): array {
+    /**
+     * Every control a set declares must be one this capsule has reviewed as
+     * reference-free. Returns the control names that are not.
+     *
+     * @return list<string>
+     */
+    private function unreviewed_controls_in(mixed $value): array {
         if (!is_array($value)) {
             return [];
         }
         $found = [];
-        $field = $value['field'] ?? null;
-        if (is_string($field)
-            && in_array($field, self::REFERENCE_FIELDS, true)
-            && array_key_exists('value', $value)) {
-            $found[] = $field;
+        $controls = $value['controls'] ?? null;
+        if (is_array($controls)) {
+            foreach ($controls as $name => $control) {
+                $name = (string) $name;
+                if ($name === self::ROLE_CONTROL) {
+                    if ($this->role_control_carries_user_ids($control)) {
+                        $found[] = $name . '.' . self::ROLE_USER_LIST;
+                    }
+                    continue;
+                }
+                if (!in_array($name, self::REFERENCE_FREE_CONTROLS, true)) {
+                    $found[] = $name;
+                }
+            }
         }
         foreach ($value as $child) {
-            foreach ($this->reference_fields_in($child) as $nested) {
+            foreach ($this->unreviewed_controls_in($child) as $nested) {
                 $found[] = $nested;
             }
         }
         return array_values(array_unique($found));
+    }
+
+    private function role_control_carries_user_ids(mixed $control): bool {
+        if (!is_array($control)) {
+            return false;
+        }
+        $users = $control[self::ROLE_USER_LIST] ?? null;
+        return is_array($users) && $users !== [];
     }
 }

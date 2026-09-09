@@ -120,15 +120,15 @@ rm -rf "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-ref"
   || fail "a preset control set referencing a post id was captured without refusal: $REF_CAP"
 grep -q 'control_sets' <<<"$REF_CAP" \
   || fail "the control_sets refusal did not name the meta key: $REF_CAP"
-grep -q 'postID' <<<"$REF_CAP" \
-  || fail "the control_sets refusal did not name the offending location rule field: $REF_CAP"
+grep -q 'location' <<<"$REF_CAP" \
+  || fail "the control_sets refusal did not name the offending control: $REF_CAP"
 # Cause, not just exit status: without this the block passes on ANY non-zero
-# capture that happens to echo the meta key and the field -- a generic bare_id
-# finding on the numeric string, or a serialization failure dumping the blob.
-# This sentence exists only in the capsule interpreter's reviewed refusal.
-grep -q 'whose value is an entity reference' <<<"$REF_CAP" \
-  || fail "the control_sets refusal is not the interpreter's reviewed entity-reference boundary: $REF_CAP"
-pass "a preset control set carrying an entity reference aborts capture, naming the meta key and the exact location rule field"
+# capture that happens to echo the meta key -- a generic bare_id finding on the
+# numeric string, or a serialization failure dumping the blob. This sentence
+# exists only in the capsule interpreter's reviewed refusal.
+grep -q 'has not reviewed as reference-free' <<<"$REF_CAP" \
+  || fail "the control_sets refusal is not the interpreter's reviewed allowlist boundary: $REF_CAP"
+pass "a preset control set using a control outside the reviewed reference-free allowlist aborts capture, naming the meta key and the exact control"
 
 # Restore the portable control set: the refusal above is the assertion, and
 # leaving the source refusing would make every later harness step fail for a

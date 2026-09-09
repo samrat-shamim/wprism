@@ -49,8 +49,8 @@
         },
         {
             "operation": "capture",
-            "reason": "The visibility_preset meta key control_sets repeats the same conditionally-typed reference structure. The interpreter admits a control set that references no entity and refuses one that does, naming the exact location rule field.",
-            "surface": "post_meta.control_sets entity references"
+            "reason": "The visibility_preset meta key control_sets repeats the same conditionally-typed reference structure. The interpreter admits a control set only when every control in it is on a reviewed reference-free allowlist and refuses anything else by name. The allowlist direction is required, not stylistic: WooCommerce keeps its product id in a rule's subField rather than its value, and userRole carries restrictedUsers user ids in one of its modes, so a field-name denylist could never match either.",
+            "surface": "post_meta.control_sets controls outside the reviewed allowlist"
         },
         {
             "operation": "capture",

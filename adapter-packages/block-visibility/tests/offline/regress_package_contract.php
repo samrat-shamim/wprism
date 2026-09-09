@@ -130,9 +130,26 @@ wprism_check(
     str_contains($interpreter, "'enable' => true") && str_contains($interpreter, "'layout' => false"),
     'and exempts only the two booleans register-presets.php declares as boolean from the bare_id heuristic, never the string enum beside them'
 );
-foreach (['postID', 'postTaxonomy', 'attributesAuthor'] as $field) {
-    wprism_check(str_contains($interpreter, "'" . $field . "'"), "and enumerates the measured reference field $field from the plugin's own dispatch switch");
+// The scan is an ALLOWLIST, and that is the whole point: a field-name denylist
+// could never match WooCommerce, which keeps its product id in `subField`
+// rather than `value`, nor `userRole`'s restrictedUsers user ids.
+wprism_check(
+    str_contains($interpreter, 'REFERENCE_FREE_CONTROLS'),
+    'the control scan is an allowlist of reviewed reference-free controls, so an unreviewed or newly added control refuses instead of being captured'
+);
+foreach (['browserDevice', 'cookie', 'dateTime', 'queryString', 'referralSource', 'screenSize', 'urlPath'] as $control) {
+    wprism_check(str_contains($interpreter, "'" . $control . "'"), "and $control is on it, reviewed against the plugin's own test file");
 }
+foreach (['location', 'woocommerce', 'acf', 'edd', 'wpFusion', 'metadata'] as $control) {
+    wprism_check(
+        !str_contains($interpreter, "'" . $control . "'"),
+        "$control is NOT on the allowlist, so a control set using it refuses"
+    );
+}
+wprism_check(
+    str_contains($interpreter, 'restrictedUsers'),
+    'and userRole is admitted only in its role modes, because restrictedUsers carries user ids'
+);
 
 wprism_check_same(
     ['3.7.1'],
@@ -150,7 +167,7 @@ wprism_check_same('block-visibility/block-visibility.php', $manifest['plugin'], 
 $surfaces = array_column($disposition['unsupported'], 'surface');
 foreach ([
     'block_attrs.*.blockVisibility',
-    'post_meta.control_sets entity references',
+    'post_meta.control_sets controls outside the reviewed allowlist',
     'option:block_visibility_settings absent-row default completion',
     'deploy/apply',
     'multisite',
