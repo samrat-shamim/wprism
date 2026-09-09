@@ -14,10 +14,110 @@ final class FilesystemTreeSnapshot {
     public const MAX_TREE_ENTRIES = 100000;
     public const MAX_TREE_DEPTH = 128;
     public const MAX_TREE_BYTES = 1073741824;
+    public const MAX_FILE_BYTES = 16777216;
 
     // No production setter: the offline regression reaches this through
     // Reflection to place mutations at exact directory observation boundaries.
     private static ?\Closure $testDirectoryObservationHook = null;
+
+    /**
+     * An optional file needs a witnessed parent roster: lstat=false also means
+     * an unreadable path. Reuse the tree observer's directory and byte checks,
+     * but do not hash a site's unrelated siblings to establish one absence.
+     * This observes state, never grants filesystem mutation or rollback rights.
+     *
+     * @return array{path:string,state:string,file:?array{bytes:int,mtime:int,mode:int,sha256:string}}
+     */
+    public static function observe_file(
+        string $contentRoot,
+        string $canonicalPath,
+        string $subject,
+        string $containmentLabel
+    ): array {
+        if (strlen($canonicalPath) > 4096) {
+            throw new \RuntimeException("wprism: $subject path exceeds its bound");
+        }
+        self::assert_canonical_root($canonicalPath, $subject);
+        $components = explode('/', $canonicalPath);
+        if (count($components) > self::MAX_TREE_DEPTH) {
+            throw new \RuntimeException("wprism: $subject path exceeds its bound");
+        }
+        $name = array_pop($components);
+        $root = self::normalized_existing_path($contentRoot, $containmentLabel);
+        $parent = $root['path'];
+        $parents = [$parent => $root['stat']];
+        $ancestorRosters = [];
+        $entries = 0;
+        foreach ($components as $component) {
+            $snapshot = self::directory_snapshot($parent, '', $entries, true, $subject);
+            $ancestorRosters[$parent] = $snapshot;
+            $parent .= '/' . $component;
+            clearstatcache(true, $parent);
+            $stat = $snapshot['roster'][$component] ?? null;
+            if ($stat === null && @lstat($parent) !== false) {
+                throw new \RuntimeException("wprism: $subject parent does not match its exact canonical path");
+            }
+            if (!is_array($stat) || (((int) $stat['mode']) & 0170000) !== 0040000) {
+                throw new \RuntimeException("wprism: $subject parent is absent, symlinked, or nonregular");
+            }
+            $parents[$parent] = $stat;
+        }
+        foreach ($parents as $path => $stat) {
+            if ((((int) $stat['mode']) & 0170000) !== 0040000) {
+                throw new \RuntimeException("wprism: $subject containment root is not a directory");
+            }
+            self::assert_path_identity($path, $stat, $containmentLabel, $subject);
+        }
+
+        $before = self::directory_snapshot($parent, '', $entries, true, $subject);
+        self::directory_observation_checkpoint('after-file-parent-snapshot', $parent, $canonicalPath);
+        $absolute = $parent . '/' . $name;
+        $stat = $before['roster'][$name] ?? null;
+        $first = self::file_entry($absolute, $canonicalPath, $stat, $subject);
+        self::directory_observation_checkpoint('after-file-hash', $parent, $canonicalPath);
+        $second = self::file_entry($absolute, $canonicalPath, $stat, $subject);
+        if ($second !== $first) {
+            throw new \RuntimeException("wprism: $subject file changed while being inspected");
+        }
+        self::directory_observation_checkpoint('before-file-parent-revalidation', $parent, $canonicalPath);
+        $after = self::directory_snapshot($parent, '', $entries, false, $subject);
+        self::assert_same_directory_roster($before['roster'], $after['roster'], '', $subject);
+        self::assert_directory_version($parent, $before['stat'], '', $subject);
+        foreach ($parents as $path => $expected) {
+            if (isset($ancestorRosters[$path])) {
+                $initial = $ancestorRosters[$path];
+                $final = self::directory_snapshot($path, '', $entries, false, $subject);
+                self::assert_same_directory_roster($initial['roster'], $final['roster'], '', $subject);
+                self::assert_directory_version($path, $initial['stat'], '', $subject);
+            }
+            self::assert_path_identity($path, $expected, $containmentLabel, $subject);
+        }
+        return ['path' => $canonicalPath, 'state' => $second === null ? 'absent' : 'present', 'file' => $second];
+    }
+
+    /** @return ?array{bytes:int,mtime:int,mode:int,sha256:string} */
+    private static function file_entry(string $absolute, string $canonical, ?array $expected, string $subject): ?array {
+        clearstatcache(true, $absolute);
+        $current = @lstat($absolute);
+        if ($expected === null) {
+            if ($current !== false) {
+                throw new \RuntimeException("wprism: $subject file presence disagrees with its exact parent entry");
+            }
+            return null;
+        }
+        if (!is_array($current) || !self::same_file_version($expected, $current)) {
+            throw new \RuntimeException("wprism: $subject file is nonregular or changed while being inspected");
+        }
+        if ($current['size'] > self::MAX_FILE_BYTES) {
+            throw new \RuntimeException("wprism: $subject file exceeds its byte bound");
+        }
+        $rows = [];
+        $bytes = 0;
+        self::append_file_identity($absolute, $canonical, $rows, $bytes, $current, $subject);
+        $file = $rows[0];
+        return ['bytes' => $file['bytes'], 'mtime' => $file['mtime'],
+            'mode' => ((int) $current['mode']) & 07777, 'sha256' => $file['sha256']];
+    }
 
     /**
      * @return array{

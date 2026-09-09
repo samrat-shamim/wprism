@@ -1759,6 +1759,27 @@ promise. A future generic filesystem mutation API needs declarative path
 authority and engine-discoverable durable recovery, not just an opaque
 `provider_resource` token.
 
+For one optional regular file, use
+`ProviderSdk::filesystem_file_snapshot($containmentRoot, $canonicalPath)` and
+declare `provider-filesystem-file-snapshot/v1` with `spec-window/v1`. The path
+is relative to an existing directory root; every parent must exist without
+symlinks below that root. The result contains `path`, `state` (`present` or
+`absent`), and `file` (null when absent; otherwise `bytes`, `mtime`, permission
+`mode`, and `sha256`). An empty file is present. The engine reads the parent
+roster twice, checks exact spelling and path identities, and reuses the tree
+reader's two byte passes. Missing or unreadable parents, aliases, nonregular
+leaves, symlinks, observed races, and files over 16 MiB refuse. Paths are bounded
+to 4,096 bytes and 128 components; parent rosters retain the existing
+100,000-entry limit. Sibling file contents are not read. Observation grants no
+file write, lock, restoration or native-callback authority.
+
+Visual Portfolio 3.8.1 exposed this distinction: its deferred rewrite method
+calls WordPress's default hard flush, which may create an absent `.htaccess`.
+The existing tree reader can witness a present file but refuses an absent
+root. Do not catch that refusal and invent an empty hash. An optional file
+witness is evidence for the adapter's separately declared filesystem effect;
+it does not make that effect reversible or qualify archive/settings Apply.
+
 A fresh-process package test must cover more than the happy child exit. Exercise
 distinct mutation and observer process identities, idempotent replay, exact
 postimage mismatch, a poisoned parent cache before each boot, and cache-flush
