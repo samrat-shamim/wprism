@@ -86,7 +86,10 @@ namespace {
     // An actual disabled PHP function, not a test stub claiming it is absent.
     if (($argv[1] ?? '') === '--feature-probe') {
         try {
-            if ($argv[2] === 'create') PrivateFileBytes::create($argv[3], 'disabled.bin', 'bytes');
+            if ($argv[2] === 'bootstrap') {
+                define('ABSPATH', $argv[3] . '/unused-wordpress/');
+                require __DIR__ . '/../../../../agent/wprism.php';
+            } elseif ($argv[2] === 'create') PrivateFileBytes::create($argv[3], 'disabled.bin', 'bytes');
             else PrivateFileBytes::read($argv[3], 'binary.bin', 128);
             echo json_encode(['ok' => true], JSON_THROW_ON_ERROR);
         } catch (RuntimeException $failure) {
@@ -261,7 +264,7 @@ namespace {
     wprism_check_same([], $events('before-read'), 'UID continuity precedes the first byte read');
     Fault::reset();
 
-    foreach ([['posix_geteuid', 'create', 'requires posix_geteuid'], ['posix_geteuid', 'read', 'requires posix_geteuid'], ['fsync', 'create', 'requires fsync'], ['fsync', 'read', null]] as [$disabled, $operation, $reason]) {
+    foreach ([['posix_geteuid', 'create', 'requires posix_geteuid'], ['posix_geteuid', 'read', 'requires posix_geteuid'], ['fsync', 'create', 'requires fsync'], ['fsync', 'read', null], ['posix_geteuid,fsync', 'bootstrap', null]] as [$disabled, $operation, $reason]) {
         $pipes = [];
         $process = proc_open([PHP_BINARY, '-d', "disable_functions=$disabled", __FILE__, '--feature-probe', $operation, $scratch],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
