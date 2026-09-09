@@ -2478,6 +2478,8 @@ final class Cli {
      * [--scope-contract=<path>] : Consume one canonical wprism-scope-contract/v1 file. The direct
      *   agent accepts the local evidence; host transports replace it with a compact request.
      * [--default-author=<login>]
+     * [--request-id=<id>] : Stable identity for one direct scoped apply. Reuse for retries;
+     *   a separate intended apply requires a new ID, including returning to an earlier artifact.
      * [--revision=<rev>]
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
@@ -2524,6 +2526,9 @@ final class Cli {
             $scopeRequest = self::scope_request($assoc, 'apply');
             if ($scopeRequest !== null) {
                 $opts['scope_request'] = $scopeRequest;
+            }
+            if (array_key_exists('request-id', $assoc)) {
+                $opts['request_id'] = $assoc['request-id'];
             }
             $summary = Apply::apply(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('apply', '--repo'),

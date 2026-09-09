@@ -306,6 +306,7 @@ return [
     'WPrism\\ScopeGrammar' => 'src/Policy/ScopeGrammar.php',
     'WPrism\\ScopedApply' => 'src/Scope/ScopedApply.php',
     'WPrism\\ScopedApplyCoordinator' => 'src/Scope/ScopedApplyCoordinator.php',
+    'WPrism\\ScopedApplyRequest' => 'src/Scope/ScopedApplyRequest.php',
     'WPrism\\ScopedApplySession' => 'src/Scope/ScopedApplySession.php',
     'WPrism\\ScopedApplySessionStorage' => 'src/Scope/ScopedApplySession.php',
     'WPrism\\ScopedApplyWorkProjector' => 'src/Scope/ScopedApplyWorkProjector.php',

@@ -15,6 +15,7 @@ final class ScopedApplyWorkflow {
     public ?array $observation = null;
     public ?ScopedApplySession $session = null;
     public ?array $promotionWitness = null;
+    public ?array $requestBinding = null;
     public ?ScopedApplySession $terminalSessionToArchive = null;
 
     public function authority(
@@ -43,7 +44,8 @@ final class ScopedApplyWorkflow {
             $selectedActions,
             $promotionOwner,
             $promotionArtifact,
-            $this->promotionWitness
+            $this->promotionWitness,
+            $this->requestBinding
         );
     }
 

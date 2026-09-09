@@ -245,6 +245,38 @@ check_wire(
     'apply remains the ordinary apply transport operation while forwarding exact scope evidence'
 );
 
+$explicitRequest = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'apply', [
+    "--scope-contract=$contractPath", '--request-id=apply-return-0001', '--format=json',
+]);
+$explicitObservation = scope_wire_observation($explicitRequest, $contract);
+check_wire($explicitRequest['exit'] === 0 && $explicitRequest['stderr'] === ''
+    && $explicitObservation['request'] === $applyObservation['request']
+    && in_array('--request-id=apply-return-0001', $explicitObservation['args'], true),
+    'public apply forwards one stable request ID separately from byte-identical immutable scope evidence');
+foreach ([
+    ['apply', ['--request-id=apply-return-0001']],
+    ['plan', ["--scope-contract=$contractPath", '--request-id=apply-return-0001']],
+    ['capture', ["--scope-contract=$contractPath", '--request-id=apply-return-0001']],
+    ['promote', ["--scope-contract=$contractPath", '--request-id=apply-return-0001']],
+    ['apply', ["--scope-contract=$contractPath", '--request-id=apply-return-0001', '--request-id=apply-return-0001']],
+    ['apply', ["--scope-contract=$contractPath", '--request-id']],
+    ['apply', ["--scope-contract=$contractPath", '--request-id=']],
+    ['apply', ["--scope-contract=$contractPath", '--request-id=short']],
+    ['apply', ["--scope-contract=$contractPath", "--request-id=request-id\n"]],
+    ['apply', ["--scope-contract=$contractPath", '--request-id=' . str_repeat('a', 129)]],
+    ['apply', ["--scope-contract=$contractPath", '--request-id=apply-return-0001', '--promotion-owner=owner-fixture']],
+    ['apply', ["--scope-contract=$contractPath", '--request-id=apply-return-0001', '--scoped-promotion-receipt=' . $hash]],
+    ['apply', ["--scope-contract=$contractPath", '--request-id=apply-return-0001', '--verified-promotion-receipt=' . $hash]],
+] as [$verb, $arguments]) {
+    $badRequest = invoke_wire($root, $envsPath, $fakeBin, $argsPath, $verb, [...$arguments, '--format=json']);
+    $refusal = json_decode(trim($badRequest['stdout']), true);
+    check_wire($badRequest['exit'] === 1 && $badRequest['stderr'] === '' && $badRequest['args'] === null
+        && ($refusal['reason_code'] ?? null) === 'invalid_arguments'
+        && !str_contains($badRequest['stdout'], $contractPath)
+        && !str_contains($badRequest['stdout'], 'apply-return-0001'),
+        'invalid, duplicated, unsupported, or promotion-bound request ID refuses before target contact');
+}
+
 $unscoped = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'plan', ['--format=json']);
 $unscopedArgs = array_values(array_filter(
     (array) ($unscoped['args'] ?? []),

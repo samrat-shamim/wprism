@@ -3577,6 +3577,28 @@ The raw external identifiers never enter the ledger. A legacy/v1 authority is
 valid only for ordinary scoped apply and is never a wildcard for checkpointed
 promotion replay.
 
+Direct scoped apply optionally accepts `--request-id=<id>` (8..128 ASCII
+letters, digits, dots, underscores, colons, or hyphens). The caller retains the
+same case-sensitive ID for retries and supplies a different ID for a separate
+intended apply, including returning to an earlier artifact after intervening
+work. This selects `wprism-scoped-mutation-authority/v3`: the v1 evidence plus
+a closed `request` binding with format `wprism-scoped-apply-request-binding/v1`,
+`request_id_hash`, `allow_deletes`, and a canonical `binding_hash`. The request
+ID hash is SHA-256 of the canonical object containing format
+`wprism-scoped-apply-request-id/v1` and `request_id`; the binding hash excludes
+itself. Raw IDs never enter durable authority. The immutable scope evidence and
+its compact handoff remain unchanged. A request identity grants no target
+mutation capability: all ordinary plan, guard, lease, source, selected/protected
+target, and effect gates still apply. Full apply and external promotion reject
+this option; externally signed generation binding remains v2.
+
+An explicit ID binds exactly one scope, artifact, and deletion capability on a
+target. An active nonterminal request requires that exact identity before lease
+recovery and again under the lease. Omitting or replacing its ID cannot adopt
+the interrupted work. Terminal retries still independently re-prove the bounded
+target; choosing a new ID never converts a stale receipt into current evidence.
+Without the option, existing v1 request and authority bytes remain unchanged.
+
 Execution is journaled in one append-only `wprism-scoped-apply-session/v1` with
 the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,
 `verifying`, `complete`, and `recovery_required`. Every mutation intent binds
@@ -3653,7 +3675,13 @@ the sealed external-generation digest. A new signed generation for the same
 scope/artifact cannot discover or replay an older terminal. Exact committed
 response-loss recovery may recreate the short target `ps-*` handoff, but only
 the same signed external tuple and delete capability can reopen the archived
-terminal. Ordinary promotion, code materialization, lifecycle, user-invoked
+terminal. Explicit direct requests use a v3 terminal index keyed only by format
+and `request_id_hash`, with the immutable scope/artifact and `request_binding_hash`
+in its value. Reusing one ID with changed content, scope, or delete permission
+therefore collides and refuses instead of discovering a different request.
+The index still binds one immutable authority archive and terminal hash; a
+missing or mismatched archive refuses. Active and archived explicit requests
+cannot be replayed through an implicit v1 request. Ordinary promotion, code materialization, lifecycle, user-invoked
 rollback, attachment derivative generation, and legacy `regen_dependency`
 remain explicitly outside this version. Triggerless native actions and
 providers without negotiated scoped reconciliation remain outside; the

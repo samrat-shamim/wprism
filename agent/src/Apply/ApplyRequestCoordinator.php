@@ -23,6 +23,7 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Scope/ScopedApplyRequest.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/ApplyPlanner.php';
@@ -778,6 +779,54 @@ final class ApplyRequestCoordinator {
         return ['name' => $name, 'previously_set' => $result['previously_nonempty']];
     }
 
+    /** @return array<string,mixed>|null */
+    private static function direct_scoped_request(array $opts, bool $scoped, bool $allowDeletes): ?array {
+        if (!array_key_exists('request_id', $opts)) {
+            return null;
+        }
+        if (!$scoped || ($opts['promotion_owner'] ?? '') !== ''
+            || ($opts['scoped_promotion_receipt'] ?? '') !== ''
+            || ($opts['verified_promotion_receipt'] ?? '') !== '') {
+            throw CommandRefusalException::applyRefused(
+                'a request ID requires direct scoped apply and cannot be combined with a promotion handoff',
+                'supply --request-id only with direct apply and one scope contract',
+                'wprism: request ID is outside direct scoped apply'
+            );
+        }
+        try {
+            return ScopedApplyRequest::binding($opts['request_id'], $allowDeletes);
+        } catch (\InvalidArgumentException $failure) {
+            throw CommandRefusalException::applyRefused(
+                'the scoped apply request ID is malformed',
+                'use 8..128 ASCII letters, digits, dots, underscores, colons, or hyphens; retain the same ID for retries',
+                'wprism: scoped apply request ID is malformed',
+                $failure
+            );
+        }
+    }
+
+    private static function assert_scoped_request_authority(
+        array $authority,
+        ?array $request,
+        array $contract,
+        string $artifactHash
+    ): void {
+        try {
+            ScopedApplySession::assert_request($authority, $request);
+            if (!hash_equals($authority['scope_hash'], $contract['scope_hash'])
+                || !hash_equals($authority['source']['artifact_hash'], $artifactHash)) {
+                throw new \RuntimeException('wprism: scoped request source identity changed');
+            }
+        } catch (\Throwable $failure) {
+            throw CommandRefusalException::applyRefused(
+                'the scoped request does not match its retained request ID, scope, source artifact, and deletion capability',
+                'recover or retry the original request unchanged before starting another apply',
+                'wprism: scoped apply request authority mismatch',
+                $failure
+            );
+        }
+    }
+
     // ----------------------------------------------------------------- apply
 
     public static function apply(string $repo, array $opts = []): array {
@@ -789,6 +838,7 @@ final class ApplyRequestCoordinator {
         $scopedPromotionWitness = self::assert_scoped_promotion_request($opts, $scoped);
         $verifiedPromotionWitness = self::assert_verified_promotion_request($opts, $scoped);
         $allowDeletes = !empty($opts['with_deletes']);
+        $requestBinding = self::direct_scoped_request($opts, $scoped, $allowDeletes);
         if ($scoped) {
             Ledger::assert_read_only_schema();
             // Recompute before target mutation so malformed/stale evidence
@@ -812,6 +862,12 @@ final class ApplyRequestCoordinator {
         }
         $sessionStorage = new LedgerScopedApplySessionStorage();
         $existingScopedSession = ScopedApplySession::open($sessionStorage);
+        if ($scoped && $existingScopedSession !== null && !$existingScopedSession->is_terminal()
+            && ($requestBinding !== null || isset($existingScopedSession->authority()['request']))) {
+            self::assert_scoped_request_authority(
+                $existingScopedSession->authority(), $requestBinding, $preflightContract, $compiled->artifact_hash()
+            );
+        }
         $terminalScopedSessionToArchive = null;
         if (!$scoped && $existingScopedSession !== null && !$existingScopedSession->is_terminal()) {
             throw new \RuntimeException(
@@ -822,10 +878,20 @@ final class ApplyRequestCoordinator {
         if ($scoped && ($existingScopedSession === null || $existingScopedSession->is_terminal())) {
             if ($existingScopedSession !== null) {
                 $authority = $existingScopedSession->authority();
+                $sameExplicitRequest = $requestBinding !== null && isset($authority['request'])
+                    && hash_equals($requestBinding['request_id_hash'], $authority['request']['request_id_hash']);
+                if ($sameExplicitRequest) {
+                    self::assert_scoped_request_authority($authority, $requestBinding, $preflightContract, $compiled->artifact_hash());
+                }
                 if (hash_equals((string) ($authority['scope_hash'] ?? ''), (string) $preflightContract['scope_hash'])
                     && hash_equals((string) ($authority['source']['artifact_hash'] ?? ''), $compiled->artifact_hash())) {
                     if ($scopedPromotionWitness === null) {
-                        $terminalReplaySession = $existingScopedSession;
+                        if ($requestBinding === null) {
+                            self::assert_scoped_request_authority($authority, null, $preflightContract, $compiled->artifact_hash());
+                            $terminalReplaySession = $existingScopedSession;
+                        } elseif ($sameExplicitRequest) {
+                            $terminalReplaySession = $existingScopedSession;
+                        }
                     } else {
                         try {
                             ScopedApplySession::assert_external_promotion(
@@ -882,12 +948,25 @@ final class ApplyRequestCoordinator {
                         $scopedPromotionWitness,
                         $allowDeletes
                     );
-                $terminalReplaySession = ScopedApplySession::open_terminal_for_request(
-                    $sessionStorage,
-                    (string) $preflightContract['scope_hash'],
-                    $compiled->artifact_hash(),
-                    $promotionBindingHash
-                );
+                try {
+                    $terminalReplaySession = ScopedApplySession::open_terminal_for_request(
+                        $sessionStorage,
+                        (string) $preflightContract['scope_hash'],
+                        $compiled->artifact_hash(),
+                        $promotionBindingHash,
+                        $requestBinding
+                    );
+                } catch (\Throwable $failure) {
+                    if ($requestBinding === null) {
+                        throw $failure;
+                    }
+                    throw CommandRefusalException::applyRefused(
+                        'the scoped request ID does not bind an intact terminal receipt for this scope, artifact, and deletion capability',
+                        'retry the original request unchanged; use a new request ID only for a separate intended apply',
+                        'wprism: scoped apply request archive mismatch',
+                        $failure
+                    );
+                }
             }
             if ($terminalReplaySession !== null) {
                 $authority = $terminalReplaySession->authority();
@@ -1052,6 +1131,7 @@ final class ApplyRequestCoordinator {
             }
             $a->scopedWorkflow->session = $recoveringScopedSession ? $existingScopedSession : null;
             $a->scopedWorkflow->promotionWitness = $scopedPromotionWitness ?? $verifiedPromotionWitness;
+            $a->scopedWorkflow->requestBinding = $requestBinding;
             $a->scopedWorkflow->terminalSessionToArchive = $terminalScopedSessionToArchive;
             if ($scoped) {
                 $a->scopedWorkflow->scopeContract = ScopedApply::resolve_contract(
@@ -1397,6 +1477,12 @@ final class ApplyRequestCoordinator {
                     $authority,
                     $this->scopedWorkflow->promotionWitness,
                     !empty($opts['with_deletes'])
+                );
+            }
+            if ($this->scopedWorkflow->requestBinding !== null || isset($authority['request'])) {
+                self::assert_scoped_request_authority(
+                    $authority, $this->scopedWorkflow->requestBinding,
+                    $this->scopedWorkflow->scopeContract, $compiled->artifact_hash()
                 );
             }
             if (!hash_equals(

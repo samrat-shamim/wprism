@@ -1,5 +1,5 @@
 {
-    "class_count": 510,
+    "class_count": 511,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -43922,6 +43922,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "requestIdRefusal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "verb",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?int",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "run": {
                     "abstract": false,
                     "final": false,
@@ -73237,6 +73262,14 @@
                             "name": "promotionWitness",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "requestBinding",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -73545,11 +73578,89 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\ScopedApplyRequest": {
+            "abstract": false,
+            "constants": {
+                "BINDING_FORMAT": {
+                    "value_repr": "wprism-scoped-apply-request-binding/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "binding": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "allowDeletes",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_binding": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "binding",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_id": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\ScopedApplySession": {
             "abstract": false,
             "constants": {
                 "AUTHORITY_FORMAT": {
                     "value_repr": "wprism-scoped-mutation-authority/v1"
+                },
+                "EXPLICIT_TERMINAL_REQUEST_FORMAT": {
+                    "value_repr": "wprism-scoped-terminal-request/v3"
                 },
                 "EXTERNAL_AUTHORITY_FORMAT": {
                     "value_repr": "wprism-scoped-mutation-authority/v2"
@@ -73591,6 +73702,9 @@
                 },
                 "PROMOTION_BINDING_FORMAT": {
                     "value_repr": "wprism-scoped-promotion-binding/v1"
+                },
+                "REQUEST_AUTHORITY_FORMAT": {
+                    "value_repr": "wprism-scoped-mutation-authority/v3"
                 },
                 "SESSION_FORMAT": {
                     "value_repr": "wprism-scoped-apply-session/v1"
@@ -73796,6 +73910,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assert_request": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "request",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "authority": {
                     "abstract": false,
                     "final": false,
@@ -73919,6 +74058,14 @@
                             "default": null,
                             "has_default": true,
                             "name": "promotion",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "request",
                             "type": "?array",
                             "variadic": false
                         }
@@ -74244,6 +74391,14 @@
                             "name": "promotion",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "request",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -74301,6 +74456,14 @@
                             "has_default": true,
                             "name": "promotionBindingHash",
                             "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "request",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -74624,6 +74787,14 @@
                             "has_default": true,
                             "name": "promotionBindingHash",
                             "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "request",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -75214,6 +75385,12 @@
                     "visibility": "public"
                 },
                 "promotionWitness": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "?array",
+                    "visibility": "public"
+                },
+                "requestBinding": {
                     "readonly": false,
                     "static": false,
                     "type": "?array",

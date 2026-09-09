@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/ScopedApplyRequest.php';
 
 /**
  * Durable single-slot storage for a scoped apply session.
@@ -31,10 +32,12 @@ interface ScopedApplySessionStorage {
 final class ScopedApplySession {
     public const AUTHORITY_FORMAT = 'wprism-scoped-mutation-authority/v1';
     public const EXTERNAL_AUTHORITY_FORMAT = 'wprism-scoped-mutation-authority/v2';
+    public const REQUEST_AUTHORITY_FORMAT = 'wprism-scoped-mutation-authority/v3';
     public const PROMOTION_BINDING_FORMAT = 'wprism-scoped-promotion-binding/v1';
     public const SESSION_FORMAT = 'wprism-scoped-apply-session/v1';
     public const TERMINAL_REQUEST_FORMAT = 'wprism-scoped-terminal-request/v1';
     public const EXTERNAL_TERMINAL_REQUEST_FORMAT = 'wprism-scoped-terminal-request/v2';
+    public const EXPLICIT_TERMINAL_REQUEST_FORMAT = 'wprism-scoped-terminal-request/v3';
     public const STORAGE_KEY = 'scoped_apply_session';
     public const TERMINAL_KEY_PREFIX = 'scoped_apply_terminal:';
     public const TERMINAL_REQUEST_KEY_PREFIX = 'scoped_apply_terminal_request:';
@@ -100,10 +103,15 @@ final class ScopedApplySession {
         array $plan,
         array $selection,
         string $codeWitnessHash,
-        ?array $promotion = null
+        ?array $promotion = null,
+        ?array $request = null
     ): array {
+        if ($promotion !== null && $request !== null) {
+            throw new \RuntimeException('wprism: direct scoped request identity cannot bind an external promotion');
+        }
         $authority = [
-            'format' => $promotion === null ? self::AUTHORITY_FORMAT : self::EXTERNAL_AUTHORITY_FORMAT,
+            'format' => $request !== null ? self::REQUEST_AUTHORITY_FORMAT
+                : ($promotion === null ? self::AUTHORITY_FORMAT : self::EXTERNAL_AUTHORITY_FORMAT),
             'scope_hash' => $scopeHash,
             'source' => $source,
             'lease' => $lease,
@@ -114,6 +122,9 @@ final class ScopedApplySession {
         ];
         if ($promotion !== null) {
             $authority['promotion'] = $promotion;
+        }
+        if ($request !== null) {
+            $authority['request'] = $request;
         }
         return self::seal_authority($authority);
     }
@@ -127,7 +138,8 @@ final class ScopedApplySession {
         array $plan,
         array $selection,
         string $codeWitnessHash,
-        ?array $promotion = null
+        ?array $promotion = null,
+        ?array $request = null
     ): array {
         return self::make_authority(
             $scopeHash,
@@ -137,8 +149,22 @@ final class ScopedApplySession {
             $plan,
             $selection,
             $codeWitnessHash,
-            $promotion
+            $promotion,
+            $request
         );
+    }
+
+    /** Missing identity must not downgrade an explicit request during recovery. */
+    public static function assert_request(array $authority, ?array $request): void {
+        $validated = self::validate_authority($authority);
+        if ($request !== null) {
+            ScopedApplyRequest::validate_binding($request);
+        }
+        $recorded = $validated['request'] ?? null;
+        if (($request !== null && ($validated['format'] ?? null) !== self::REQUEST_AUTHORITY_FORMAT)
+            || Canon::encode($recorded) !== Canon::encode($request)) {
+            throw new \RuntimeException('wprism: scoped apply request identity or deletion capability does not match its retained authority');
+        }
     }
 
     /**
@@ -246,10 +272,14 @@ final class ScopedApplySession {
         if (($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
             $expected[] = 'promotion';
         }
+        if (($authority['format'] ?? null) === self::REQUEST_AUTHORITY_FORMAT) {
+            $expected[] = 'request';
+        }
         self::assert_keys($authority, $expected, 'scoped mutation authority');
         if (!in_array(($authority['format'] ?? null), [
             self::AUTHORITY_FORMAT,
             self::EXTERNAL_AUTHORITY_FORMAT,
+            self::REQUEST_AUTHORITY_FORMAT,
         ], true)) {
             throw new \RuntimeException('wprism: scoped mutation authority has an unsupported format');
         }
@@ -262,6 +292,9 @@ final class ScopedApplySession {
         self::assert_selection($authority['selection'] ?? null);
         if (($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
             self::assert_promotion_binding($authority['promotion'] ?? null);
+        }
+        if (($authority['format'] ?? null) === self::REQUEST_AUTHORITY_FORMAT) {
+            ScopedApplyRequest::validate_binding($authority['request'] ?? null);
         }
         self::assert_hash($authority['authority_hash'] ?? null, 'authority_hash');
         $withoutHash = $authority;
@@ -369,15 +402,24 @@ final class ScopedApplySession {
     public static function terminal_request_storage_key(
         string $scopeHash,
         string $artifactHash,
-        ?string $promotionBindingHash = null
+        ?string $promotionBindingHash = null,
+        ?array $request = null
     ): string {
         self::assert_hash($scopeHash, 'terminal request scope_hash');
         self::assert_hash($artifactHash, 'terminal request artifact_hash');
+        $format = self::terminal_request_format($promotionBindingHash, $request);
+        if ($request !== null) {
+            // Reusing one caller ID with another scope, artifact, or delete
+            // capability must collide and refuse. Those are index values,
+            // never another component of this target-local storage key.
+            return self::TERMINAL_REQUEST_KEY_PREFIX . self::digest([
+                'format' => $format,
+                'request_id_hash' => $request['request_id_hash'],
+            ]);
+        }
         $identity = [
             'artifact_hash' => $artifactHash,
-            'format' => $promotionBindingHash === null
-                ? self::TERMINAL_REQUEST_FORMAT
-                : self::EXTERNAL_TERMINAL_REQUEST_FORMAT,
+            'format' => $format,
             'scope_hash' => $scopeHash,
         ];
         if ($promotionBindingHash !== null) {
@@ -396,9 +438,10 @@ final class ScopedApplySession {
         ScopedApplySessionStorage $storage,
         string $scopeHash,
         string $artifactHash,
-        ?string $promotionBindingHash = null
+        ?string $promotionBindingHash = null,
+        ?array $request = null
     ): ?self {
-        $key = self::terminal_request_storage_key($scopeHash, $artifactHash, $promotionBindingHash);
+        $key = self::terminal_request_storage_key($scopeHash, $artifactHash, $promotionBindingHash, $request);
         $rawIndex = $storage->read($key);
         if ($rawIndex === null) {
             return null;
@@ -408,7 +451,7 @@ final class ScopedApplySession {
         } catch (\Throwable $_failure) {
             throw new \RuntimeException('wprism: scoped apply terminal request index is not valid canonical JSON');
         }
-        self::assert_terminal_request_index($index, $scopeHash, $artifactHash, $promotionBindingHash);
+        self::assert_terminal_request_index($index, $scopeHash, $artifactHash, $promotionBindingHash, $request);
         if (Canon::encode($index) !== $rawIndex) {
             throw new \RuntimeException('wprism: scoped apply terminal request index is not canonical');
         }
@@ -419,6 +462,9 @@ final class ScopedApplySession {
             throw new \RuntimeException('wprism: scoped apply terminal request archive is missing');
         }
         $record = self::decode_record($archived);
+        if ($request !== null || $record['authority']['format'] === self::REQUEST_AUTHORITY_FORMAT) {
+            self::assert_request($record['authority'], $request);
+        }
         if ($record['phase'] !== self::PHASE_COMPLETE
             || !hash_equals($authorityHash, (string) $record['authority_hash'])
             || !hash_equals($scopeHash, (string) $record['authority']['scope_hash'])
@@ -1129,21 +1175,23 @@ final class ScopedApplySession {
         $promotionBindingHash = ($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT
             ? (string) ($authority['promotion']['binding_hash'] ?? '')
             : null;
+        $request = $authority['request'] ?? null;
         $index = [
             'artifact_hash' => $artifactHash,
             'authority_hash' => (string) $record['authority_hash'],
-            'format' => $promotionBindingHash === null
-                ? self::TERMINAL_REQUEST_FORMAT
-                : self::EXTERNAL_TERMINAL_REQUEST_FORMAT,
+            'format' => self::terminal_request_format($promotionBindingHash, $request),
             'scope_hash' => $scopeHash,
             'terminal_hash' => (string) $record['terminal_receipt']['terminal_hash'],
         ];
         if ($promotionBindingHash !== null) {
             $index['promotion_binding_hash'] = $promotionBindingHash;
         }
-        self::assert_terminal_request_index($index, $scopeHash, $artifactHash, $promotionBindingHash);
+        if ($request !== null) {
+            $index['request_binding_hash'] = $request['binding_hash'];
+        }
+        self::assert_terminal_request_index($index, $scopeHash, $artifactHash, $promotionBindingHash, $request);
         $encoded = Canon::encode($index);
-        $key = self::terminal_request_storage_key($scopeHash, $artifactHash, $promotionBindingHash);
+        $key = self::terminal_request_storage_key($scopeHash, $artifactHash, $promotionBindingHash, $request);
         $stored = $this->storage->read($key);
         if ($stored === null) {
             if (!$this->storage->compare_and_swap($key, null, $encoded)) {
@@ -1161,7 +1209,8 @@ final class ScopedApplySession {
         mixed $index,
         string $scopeHash,
         string $artifactHash,
-        ?string $promotionBindingHash = null
+        ?string $promotionBindingHash = null,
+        ?array $request = null
     ): void {
         $expected = [
             'artifact_hash', 'authority_hash', 'format', 'scope_hash', 'terminal_hash',
@@ -1169,10 +1218,11 @@ final class ScopedApplySession {
         if ($promotionBindingHash !== null) {
             $expected[] = 'promotion_binding_hash';
         }
+        if ($request !== null) {
+            $expected[] = 'request_binding_hash';
+        }
         self::assert_keys($index, $expected, 'scoped apply terminal request index');
-        $expectedFormat = $promotionBindingHash === null
-            ? self::TERMINAL_REQUEST_FORMAT
-            : self::EXTERNAL_TERMINAL_REQUEST_FORMAT;
+        $expectedFormat = self::terminal_request_format($promotionBindingHash, $request);
         if (($index['format'] ?? null) !== $expectedFormat) {
             throw new \RuntimeException('wprism: scoped apply terminal request index has an unsupported format');
         }
@@ -1182,12 +1232,29 @@ final class ScopedApplySession {
         if ($promotionBindingHash !== null) {
             self::assert_hash($index['promotion_binding_hash'] ?? null, 'terminal request index promotion_binding_hash');
         }
+        if ($request !== null) {
+            self::assert_hash($index['request_binding_hash'], 'terminal request index request_binding_hash');
+            if (!hash_equals($request['binding_hash'], $index['request_binding_hash'])) {
+                throw new \RuntimeException('wprism: scoped apply terminal request index identity mismatch');
+            }
+        }
         if (!hash_equals($scopeHash, (string) $index['scope_hash'])
             || !hash_equals($artifactHash, (string) $index['artifact_hash'])
             || ($promotionBindingHash !== null
                 && !hash_equals($promotionBindingHash, (string) $index['promotion_binding_hash']))) {
             throw new \RuntimeException('wprism: scoped apply terminal request index identity mismatch');
         }
+    }
+
+    private static function terminal_request_format(?string $promotionBindingHash, ?array $request): string {
+        if ($request !== null) {
+            ScopedApplyRequest::validate_binding($request);
+            if ($promotionBindingHash !== null) {
+                throw new \RuntimeException('wprism: direct scoped request identity cannot bind an external promotion');
+            }
+            return self::EXPLICIT_TERMINAL_REQUEST_FORMAT;
+        }
+        return $promotionBindingHash === null ? self::TERMINAL_REQUEST_FORMAT : self::EXTERNAL_TERMINAL_REQUEST_FORMAT;
     }
 
     /**
@@ -1708,10 +1775,14 @@ final class ScopedApplySession {
         if (is_array($authority) && ($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
             $expected[] = 'promotion';
         }
+        if (is_array($authority) && ($authority['format'] ?? null) === self::REQUEST_AUTHORITY_FORMAT) {
+            $expected[] = 'request';
+        }
         self::assert_keys($authority, $expected, 'scoped mutation authority');
         if (!in_array(($authority['format'] ?? null), [
             self::AUTHORITY_FORMAT,
             self::EXTERNAL_AUTHORITY_FORMAT,
+            self::REQUEST_AUTHORITY_FORMAT,
         ], true)) {
             throw new \RuntimeException('wprism: scoped mutation authority has an unsupported format');
         }
@@ -1724,6 +1795,9 @@ final class ScopedApplySession {
         self::assert_selection($authority['selection']);
         if (($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
             self::assert_promotion_binding($authority['promotion'] ?? null);
+        }
+        if (($authority['format'] ?? null) === self::REQUEST_AUTHORITY_FORMAT) {
+            ScopedApplyRequest::validate_binding($authority['request'] ?? null);
         }
         if (!hash_equals((string) $authority['source']['artifact_hash'], (string) $authority['lease']['artifact_hash'])) {
             throw new \RuntimeException('wprism: scoped mutation authority lease artifact does not match source artifact');

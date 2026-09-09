@@ -251,7 +251,7 @@ try {
             catch (RuntimeException $error) { $refused = str_starts_with($error->getMessage(), 'Visual Portfolio settings admission:'); }
             wprism_check($refused, 'native admission rejects ' . $fault);
         }
-        if ($case === 'move') {
+        if (in_array($case, ['move', 'clear'], true)) {
             $originalBytes = file_get_contents($repo . '/state/options/core.json');
             $changed = $desired;
             $changed['register_portfolio_post_type'] = 'off';
@@ -288,6 +288,28 @@ try {
                 try { VisualPortfolioSettingsEvidence::revisit($contract, $contract, $returnPlan, $alteredRefusal, $beforeReturn, $alteredTarget); }
                 catch (RuntimeException $error) { $refused = true; }
                 wprism_check($refused, 'native revisit admission rejects ' . $fault);
+            }
+            $returnOptions = ['compiled' => $artifact, 'adapter_library' => $library,
+                'scope_request' => $contract, 'request_id' => VisualPortfolioSettingsEvidence::RETURN_REQUEST_ID];
+            $returned = Apply::apply($repo, $returnOptions);
+            wprism_check_same('complete', $returned['scoped_receipt']['phase'], 'a new explicit request returns to the earlier authored artifact');
+            wprism_check_same(true, $observe()['enabled'], 'the new request restores native portfolio enablement');
+            $returnedTarget = $observe();
+            $returnedReplay = Apply::apply($repo, $returnOptions);
+            wprism_check_same($returned['scoped_receipt'], $returnedReplay['scoped_receipt'], 'the explicit request replays its own exact terminal receipt');
+            wprism_check_same($returnedTarget, $observe(), 'explicit request replay preserves every native and engine row');
+            if ($case === 'clear') {
+                $returnAdmission = ['enable', $beforeReturn, array_replace($returnedTarget, ['ids' => ['old' => 1, 'new' => 10]]),
+                    $contract, $returnPlan, $returned, $returnedTarget, $returnedReplay, $observe()];
+                VisualPortfolioSettingsEvidence::phase(...$returnAdmission);
+                wprism_check(true, 'native reenabling admission proves the actual explicit engine request and exact receipt');
+                $withoutSession = $returnAdmission;
+                $withoutSession[6]['engine']['wprism_kv'] = array_values(array_filter($withoutSession[6]['engine']['wprism_kv'],
+                    static fn(array $row): bool => $row['k'] !== WPrism\ScopedApplySession::STORAGE_KEY));
+                $withoutSession[8] = $withoutSession[6];
+                $refused = false;
+                try { VisualPortfolioSettingsEvidence::phase(...$withoutSession); } catch (RuntimeException $error) { $refused = true; }
+                wprism_check($refused, 'reenabling evidence without its explicit request authority refuses');
             }
             $inner = $root . '/sandbox/tmp/wprism-conformance-capture.vpfixture.' . bin2hex(random_bytes(3));
             $outer = $scratch . '/streams';

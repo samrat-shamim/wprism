@@ -2,8 +2,11 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/PrivateCommandOutput.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Scope/ScopedApplySession.php';
 
 final class VisualPortfolioSettingsEvidence {
+    public const RETURN_REQUEST_ID = 'vp-settings-return-001';
+
     public static function check(bool $ok, string $reason): void {
         if (!$ok) throw new RuntimeException('Visual Portfolio settings admission: ' . $reason);
     }
@@ -67,6 +70,16 @@ final class VisualPortfolioSettingsEvidence {
         self::check($repeat['replayed'] === true && $repeat['applied'] === 0 && $repeat['actions'] === []
             && $repeat['verification'] === null && $repeat['scoped_receipt'] === $apply['scoped_receipt'], 'terminal replay executes no native mutation');
         self::check($after === $stable, 'terminal replay preserves every native observation byte');
+        if ($phase === 'enable') {
+            $sessions = array_values(array_filter($after['engine']['wprism_kv'],
+                static fn(array $row): bool => $row['k'] === WPrism\ScopedApplySession::STORAGE_KEY));
+            self::check(count($sessions) === 1, 'reenabling retains one explicit engine request authority');
+            $session = WPrism\ScopedApplySession::validate_session(WPrism\Canon::decode($sessions[0]['v']));
+            WPrism\ScopedApplySession::assert_request($session['authority'],
+                WPrism\ScopedApplyRequest::binding(self::RETURN_REQUEST_ID, false));
+            self::check($session['authority_hash'] === $apply['scoped_receipt']['authority_hash'],
+                'explicit reenabling request binds the public terminal receipt');
+        }
         self::check($after['ids'] === $before['ids'] && $after['uuids'] === $before['uuids'], 'all native page identities survive');
         self::check($source['enabled'] === $after['enabled'], 'native portfolio enabled state agrees');
         self::check($after['archive'] === ($phase === 'move' ? $after['ids']['new'] : 0), 'archive is rebound or cleared as authored');
@@ -143,5 +156,8 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     }
     VisualPortfolioSettingsEvidence::revisit($read('clear-scope'), $read('enable-scope'), $read('enable-plan'),
         $read('enable-apply', 1), $before, $read('enable-target'));
-    echo "PASS: native settings repair and replay; historical-artifact revisit explicitly refused\n";
+    VisualPortfolioSettingsEvidence::phase('enable', $before, $read('enable-source'), $read('enable-scope'),
+        $read('enable-plan'), $read('enable-request-apply'), $read('enable-request-target'),
+        $read('enable-request-repeat'), $read('enable-request-stable'));
+    echo "PASS: native settings repair, explicit historical-artifact return, and exact request replay\n";
 }

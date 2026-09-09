@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 4) . '/agent/src/Scope/ScopedApplySession.php';
 
 use WPrism\Canon;
+use WPrism\ScopedApplyRequest;
 use WPrism\ScopedApplySession;
 use WPrism\ScopedApplySessionStorage;
 
@@ -409,6 +410,92 @@ $check(
     ) === null,
     'a fresh external generation cannot discover a prior scoped terminal archive'
 );
+
+$requestStore = new ScopedApplySessionMemoryStore();
+$requestA1 = ScopedApplyRequest::binding('request-A-0001', true);
+$requestA2 = ScopedApplyRequest::binding('request-A-0002', true);
+$requestB = ScopedApplyRequest::binding('request-B-0001', true);
+$finishRequest = static function (array $request, string $scope, string $artifactHash) use (
+    $requestStore, $authority, $intent, $terminalTarget, $h
+): ScopedApplySession {
+    $prior = ScopedApplySession::open($requestStore);
+    if ($prior !== null) $prior->archive_terminal();
+    $input = $authority;
+    unset($input['authority_hash']);
+    $input['format'] = ScopedApplySession::REQUEST_AUTHORITY_FORMAT;
+    $input['request'] = $request;
+    $input['scope_hash'] = $scope;
+    $input['source']['artifact_hash'] = $artifactHash;
+    $input['lease']['artifact_hash'] = $artifactHash;
+    $input['lease']['session_id'] = 'lease-' . substr($request['request_id_hash'], 0, 24);
+    $sealed = ScopedApplySession::seal_authority($input);
+    $session = ScopedApplySession::begin($requestStore, $sealed);
+    $session->transition(ScopedApplySession::PHASE_AUTHORING);
+    $operation = $intent;
+    $operation['authority_hash'] = $sealed['authority_hash'];
+    $operation['lease_hash'] = ScopedApplySession::lease_hash($sealed['lease']);
+    $session->append_intent($operation);
+    $session->commit_authored_receipt($operation + ['after_hash' => $h('request-authored')]);
+    $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+    $session->transition(ScopedApplySession::PHASE_VERIFYING);
+    $session->complete($h('request-converged'), $terminalTarget);
+    return $session;
+};
+$requestSessionA1 = $finishRequest($requestA1, $h('scope'), $artifact);
+$requestSessionB = $finishRequest($requestB, $h('scope-b'), $h('artifact-b'));
+$requestSessionA2 = $finishRequest($requestA2, $h('scope'), $artifact);
+$requestSessionA2->archive_terminal();
+$check($requestSessionA1->authority_hash_value() !== $requestSessionA2->authority_hash_value(),
+    'A-B-A carries distinct request authority while source A remains byte-identical');
+foreach ([$requestSessionA1, $requestSessionB, $requestSessionA2] as $completedRequest) {
+    $sealed = $completedRequest->authority();
+    $readback = ScopedApplySession::open_terminal_for_request(
+        $requestStore, $sealed['scope_hash'], $sealed['source']['artifact_hash'], null, $sealed['request']
+    );
+    $check($readback !== null && $readback->terminal_receipt_bytes() === $completedRequest->terminal_receipt_bytes(),
+        'every explicit request retains its own byte-stable archived receipt');
+}
+$check(ScopedApplySession::open_terminal_for_request($requestStore, $h('scope'), $artifact) === null,
+    'an implicit request cannot discover an explicit request archive');
+$check(!str_contains(Canon::encode($requestStore->values), 'request-A-0001'),
+    'the durable request protocol retains no caller-supplied request token');
+$requestKey = ScopedApplySession::terminal_request_storage_key($h('scope'), $artifact, null, $requestA1);
+$changedCapability = ScopedApplyRequest::binding('request-A-0001', false);
+$check($requestKey === ScopedApplySession::terminal_request_storage_key($h('other-scope'), $h('other-artifact'), null, $changedCapability),
+    'request reuse collides at one target-local key regardless of scope, artifact, or delete capability');
+$requestBefore = $requestStore->values;
+foreach ([[$h('other-scope'), $artifact, $requestA1], [$h('scope'), $h('other-artifact'), $requestA1],
+    [$h('scope'), $artifact, $changedCapability]] as [$scope, $source, $binding]) {
+    $expectThrow(static fn() => ScopedApplySession::open_terminal_for_request($requestStore, $scope, $source, null, $binding),
+        'identity mismatch', 'reusing a request ID for changed intent refuses its original archive');
+}
+foreach ([null, $requestA2, $changedCapability] as $wrongBinding) {
+    $expectThrow(static fn() => ScopedApplySession::assert_request($requestSessionA1->authority(), $wrongBinding),
+        'does not match', 'missing or changed request identity cannot resume retained authority');
+}
+ScopedApplySession::assert_request($requestSessionA1->authority(), $requestA1);
+$expectThrow(static fn() => ScopedApplySession::assert_request($authority, $requestA1), 'does not match',
+    'a legacy authority cannot acquire an explicit request identity during recovery');
+$expectThrow(static fn() => ScopedApplySession::assert_request($externalAuthority, $requestA1), 'does not match',
+    'an external promotion authority cannot acquire a direct request identity');
+$expectThrow(static fn() => ScopedApplySession::terminal_request_storage_key($h('scope'), $artifact, $externalBindingHash, $requestA1),
+    'cannot bind an external promotion', 'direct request and external generation cannot share one index identity');
+$check($requestBefore === $requestStore->values, 'request mismatch and replay reads leave all durable rows exact');
+foreach (['', 'short', str_repeat('a', 129), "request-id\n", 'request/id', 'réquest-id', null, true, 123, []] as $badId) {
+    $expectThrow(static fn() => ScopedApplyRequest::binding($badId, false), 'request ID must be',
+        'the request token grammar rejects malformed or unbounded input');
+}
+foreach (['extra-key', 'wrong-format', 'bad-hash', 'bad-capability'] as $fault) {
+    $badBinding = $requestA1;
+    match ($fault) {
+        'extra-key' => $badBinding['raw_request_id'] = 'request-A-0001',
+        'wrong-format' => $badBinding['format'] = 'unknown/v1',
+        'bad-hash' => $badBinding['binding_hash'] = $h('tampered'),
+        'bad-capability' => $badBinding['allow_deletes'] = 'true',
+    };
+    $expectThrow(static fn() => ScopedApplyRequest::validate_binding($badBinding), 'request binding',
+        'closed request binding refuses ' . $fault);
+}
 
 $archivedReopen = ScopedApplySession::begin($store, $authority);
 $check(

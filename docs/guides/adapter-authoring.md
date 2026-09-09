@@ -3379,6 +3379,14 @@ library.
    existing wire field also carries adoption and verified action receipts.
    Actual `env_missing:` diagnostics must not be accepted as green evidence.
 
+   For a deliberate return to earlier settings (A → B → A), give the new direct
+   scoped Apply an explicit `--request-id` and retain that ID for its retries.
+   The engine binds it to one scope, artifact and deletion capability; the scope
+   contract remains immutable read-only evidence. Prove both the new transition
+   and its exact terminal replay. Retrying the old request against changed target
+   state must still refuse. Do not invent an unrelated canonical setting change
+   or delete engine receipts to manufacture a different content identity.
+
    Apply the same full-stream rule to native JSON observations, seed receipts,
    route probes and successful host deploy/settlement. Validate diagnostics and
    exit status before selecting JSON or trusting phase/native-state comparisons.

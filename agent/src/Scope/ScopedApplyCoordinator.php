@@ -39,7 +39,8 @@ final class ScopedApplyCoordinator {
         array $selectedActions,
         string $promotionOwner,
         string $promotionArtifact,
-        ?array $promotionWitness
+        ?array $promotionWitness,
+        ?array $requestBinding = null
     ): array {
         $sessionId = PromotionLock::scoped_session_id($promotionOwner, $promotionArtifact);
         $workRows = [];
@@ -147,7 +148,8 @@ final class ScopedApplyCoordinator {
             ScopedApply::code_witness_hash($plan, $compiled),
             $promotionWitness === null
                 ? null
-                : ScopedApplySession::external_promotion_binding($promotionWitness, $allowDeletes)
+                : ScopedApplySession::external_promotion_binding($promotionWitness, $allowDeletes),
+            $requestBinding
         );
     }
 
