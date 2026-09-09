@@ -336,17 +336,15 @@ foreach ($report['manifests'] as $row) {
     $statuses[(string) $row['name']] = (string) $row['status'];
 }
 ksort($statuses, SORT_STRING);
-// WPForms and Qi are non-authorizing previews; Yoast Duplicate Post's
-// managed-clone claim was withdrawn. None count beside the 17 certified subjects.
-wprism_check_same(
-    ['certified' => 17, 'excluded' => 1, 'experimental' => 3],
-    (static function (array $words): array {
-        $counts = array_count_values($words);
-        ksort($counts, SORT_STRING);
-        return $counts;
-    })(array_values($statuses)),
-    'ManifestDispositions::report() projects the reviewed word verbatim over 21 subjects, including all three non-authorizing capsules'
-);
+// Read each owner's raw decision independently of the report projection.
+// Exact names and words catch a changed status without fixing catalog totals.
+$sourceStatuses = [];
+foreach ($adapterLibrary->packages() as $package) {
+    $sourceStatuses[$package->name()] = (string) $readJson($package->dispositionPath())['status'];
+}
+ksort($sourceStatuses, SORT_STRING);
+wprism_check_same(count($sourceStatuses), count($report['manifests']), 'the reviewed report contains exactly one row per discovered subject');
+wprism_check_same($sourceStatuses, $statuses, 'ManifestDispositions::report() projects every reviewed status verbatim, including non-authorizing capsules');
 wprism_check(
     str_contains(
         (string) file_get_contents($wprismRoot . '/agent/src/Policy/ManifestDispositions.php'),

@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "visual-portfolio": {
+      "3.8.0": {
+        "url": "https://downloads.wordpress.org/plugin/visual-portfolio.3.8.0.zip",
+        "sha256": "62975ef4af433bcf6ee1c7f0f775c84dc2d02dd14e205837bda31b8f397703a6",
+        "role": "refusal-fixture"
+      },
+      "3.8.1": {
+        "url": "https://downloads.wordpress.org/plugin/visual-portfolio.3.8.1.zip",
+        "sha256": "5b4eb1dd8f1f9ec35e60db58239e48534a82e8957ebe89a0f889399cb7bdabe4",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}

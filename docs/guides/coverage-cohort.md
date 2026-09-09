@@ -353,11 +353,13 @@ php <tmp>/cli/wprism census --dir=sandbox/tests/fixtures/census/core-estate --fo
   | diff - sandbox/tests/fixtures/census/g0-baseline.census.json
 ```
 
-**The result**, measured against the library this checkout ships:
+**The result** for the fixed estate below. `N` and `R` are the current adapter
+and reviewed-subject counts printed by the command; they grow with package
+discovery and do not change this estate's coverage delta.
 
 ```
 rebaseline: 3 -> 3 labelled site(s) (same-estate)
-library: 16 -> 21 adapter(s), 16 -> 21 reviewed, coverage oracle MOVED
+library: 16 -> N adapter(s), 16 -> R reviewed, coverage oracle MOVED
 coverage: 24.5% -> 24.5% (delta +0 ppm / +0.0pp) over 1075 -> 1075 surface(s)
 funnel: no_adapter=1->1(+0) adapter_unreviewed=0->0(+0) adapter_unpinned=2->2(+0) adapter_pinned=2->2(+0)
 attribution: 0 slug row(s) moved, 5 unchanged

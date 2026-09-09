@@ -1173,23 +1173,19 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-22 documents, 1,552 lines, 68,179 bytes — the current entries and profile, addressed as 22 roots
-instead of one. (The split itself moved no byte of content; the size has since grown with #561's
-promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
-the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
-review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
-virgin-target settlement correction, the experimental WPForms capsule and location-provider review,
-withdrawal of Yoast Duplicate Post's unproved managed-clone certification, and the
-AIO Login and Qi Blocks capsules, all without changing the split topology.)
+The reviewed source has one disposition per adapter, plus the profiles document.
+Package discovery determines the subject set. Adding a capsule adds its own root;
+source line and byte counts are not a second adapter inventory.
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
 rests on: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own disposition into that
 adapter's row (`:82`) and the row hashed is its `digest` (`:162`), so a canonical-encoding difference of
 one byte in one document would move that adapter's digest and every `site.wprism.json` pin naming it. It is
-proved rather than argued: `regress_disposition_split.php` pins all 21 shipped digests through three
+proved rather than argued: `regress_disposition_split.php` retains a historical 21-subject fixture through three
 compatible worlds, their `manifest_hash` and snapshot, and `registry_sha256` as
-explicit current greenfield literals. Separate frozen constants preserve the pre-move capture, and the
+explicit greenfield literals. New capsules do not expand that historical fixture;
+their package-local evidence validates their identities. Separate frozen constants preserve the pre-move capture, and the
 suite carries one case per enumerated Canon-encoding hazard, in three verdicts rather than one. A nested LIST re-ordered and a UTF-8 prose
 `reason` re-composed each MOVE a digest, so the equality above is a measurement and not a tautology. Map
 KEY order at every nesting level moves nothing — that is precisely what makes lifting an entry out of a
@@ -1681,21 +1677,18 @@ nineteenth unprefixed adapter name cannot be added without regenerating the revi
 grandfathered name is reachable only as the reviewed `{name, source: "site"}` override of a shipped
 adapter, which is the case the list exists to keep loading.
 
-The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
-rule V3-NS, against the shipped library):
+The list ENUMERATES rather than tests shape. The current identity census is
+printed by `regress_spec_v3_dry_run.php`; the generated wire register records the
+shipped reservation inventory and R-17's permanent `id_kind` floor.
 
-- 21 adapter names, 21 `id_kind`s, 17 provider ids = 59 identities, all of which already pass the one
-  shared grammar;
-- a bare `<vendor>-<name>` refusal would break **28** of them — the 7 adapter names carrying no hyphen at
-  all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 21 `id_kind`s, every one of
-  which is underscore-separated;
-- the other 12 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 19
-  names; all 21 `id_kind`s remain governed by R-17 rather than that name list;
-- all 17 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
-  convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
-  `paid-memberships-pro-cache` when generic invalidation absorbed it; Redirection and experimental WPForms
-  each add one manifest provider.)
+- A bare `<vendor>-<name>` refusal would reject unprefixed adapter names such as
+  `acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce` and `yoast`,
+  as well as the underscore-separated `id_kind`s.
+- Hyphen-shaped adapter names can also lack a vendor prefix: `the-events-calendar`
+  is not vendor `the`. Shape cannot determine membership in the shipped list.
+- Provider ids use a plugin-slug first segment, the space where this convention
+  is enforced. Package discovery and the generated register carry the evolving
+  inventory; this specification does not maintain another adapter count.
 
 **`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
 rules on this at R-17: captured state and `wprism_map` rows embed the BARE kind, so a prefix rule introduced

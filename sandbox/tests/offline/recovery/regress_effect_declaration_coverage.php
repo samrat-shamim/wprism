@@ -16,13 +16,15 @@
  *
  * WHAT THIS SUITE PINS
  * --------------------
- *  1. THE MEASURED BASELINE. Every shipped adapter scores clean over a fixture
+ *  1. THE MEASURED BASELINE. Every adapter in the fixed baseline scores clean over a fixture
  *     DERIVED from the tree — every surface they declare as an effect selector,
  *     as an `option:`/`table:` action trigger, as an exact option, or as a
  *     declared table. Not a hand-written journal: a hand-written one would only
  *     prove what its author already believed. The rate this produces is the
  *     published false-positive rate's seed, and the numbers are asserted
  *     exactly so a manifest edit that moves them has to move them here too.
+ *     New capsules are scored in separate core-plus-adapter policies; discovery
+ *     must not silently add subjects to an already measured fixture cohort.
  *  2. Under-declaration is NAMED, with its table and item, against observed
  *     journal rows.
  *  3. Over-declaration is NAMED as `unexercised` — and `unexercised` is
@@ -95,6 +97,7 @@ require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Repository/Journal.php';
 require_once $root . '/agent/src/Review/EffectDeclarationCoverage.php';
 
+use WPrism\Canon;
 use WPrism\CommandRefusalException;
 use WPrism\EffectDeclarationCoverage;
 use WPrism\Journal;
@@ -111,13 +114,16 @@ $shipped = array_map(
     $adapterLibrary->packages()
 );
 sort($shipped, SORT_STRING);
-// The generated runtime inventory is the exact library roster. The measured
-// behavior below stays numeric so effect changes remain reviewed, while adding
-// an adapter no longer requires copying a second name/count into this suite.
+// Discovery still covers the entire live catalog; the explicit historical
+// cohort below owns only the measured numeric baseline, never catalog membership.
 wprism_check_same(ShippedIdentityInventory::ADAPTER_NAMES, $shipped, 'the measured library exactly matches the generated shipped inventory');
 
-$rankWorldPins = array_values(array_diff($shipped, ['change-wp-admin-login', 'yoast']));
-$yoastWorldPins = array_values(array_diff($shipped, ['change-wp-admin-login', 'rank-math']));
+$identityFixture = Canon::decode(Canon::read_file($root . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json'));
+$baselinePins = array_keys($identityFixture['adapter_digests']);
+wprism_check_same(21, count($baselinePins), 'the effects baseline uses the recorded 21-subject identity cohort');
+wprism_check_same([], array_values(array_diff($baselinePins, $shipped)), 'every historical effects fixture subject still exists');
+$rankWorldPins = array_values(array_diff($baselinePins, ['change-wp-admin-login', 'yoast']));
+$yoastWorldPins = array_values(array_diff($baselinePins, ['change-wp-admin-login', 'rank-math']));
 $rankWorldPolicy = Policy::load(null, $rankWorldPins, true, null, $adapterLibrary);
 $yoastWorldPolicy = Policy::load(null, $yoastWorldPins, true, null, $adapterLibrary);
 $aioPins = ['core', 'change-wp-admin-login'];
@@ -126,7 +132,7 @@ $worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldP
 sort($worldUnion, SORT_STRING);
 wprism_check_same(19, count($rankWorldPins), 'the established Rank Math world excludes Yoast and the separate AIO Login candidate');
 wprism_check_same(19, count($yoastWorldPins), 'the established Yoast world excludes Rank Math and the separate AIO Login candidate');
-wprism_check_same($shipped, $worldUnion, 'the three executable worlds cover every shipped adapter');
+wprism_check_same($baselinePins, $worldUnion, 'the three executable worlds cover the complete historical effects cohort');
 
 // The behavioral probes below need WooCommerce and Rank Math but not Yoast.
 // Keep them attached to one valid site policy rather than manufacturing the
@@ -216,7 +222,7 @@ function edc_adapter(array $report, string $name): array {
     return [];
 }
 
-echo "\n== the measured baseline: every shipped adapter across three compatible worlds ==\n";
+echo "\n== the measured baseline: the fixed cohort across three compatible worlds ==\n";
 
 $rankWorldFixture = edc_derived_fixture($rankWorldPolicy);
 $yoastWorldFixture = edc_derived_fixture($yoastWorldPolicy);
@@ -250,6 +256,18 @@ $coveredAdapters = array_values(array_unique(array_merge(
     array_column($yoastWorldBaseline['adapters'], 'adapter'),
     array_column($aioBaseline['adapters'], 'adapter')
 )));
+foreach (array_diff($shipped, $baselinePins) as $name) {
+    $newPins = ['core', $name];
+    sort($newPins, SORT_STRING);
+    $newPolicy = Policy::load(null, $newPins, true, null, $adapterLibrary);
+    $newFixture = edc_derived_fixture($newPolicy);
+    wprism_check($newFixture !== [], "$name has a nonempty derived effects fixture");
+    $newReport = EffectDeclarationCoverage::from_facts($newPolicy, ['rows' => $newFixture]);
+    wprism_check_same($newPins, array_column($newReport['adapters'], 'adapter'), "$name reports exactly its coherent core-plus-adapter policy");
+    wprism_check_same(0, $newReport['totals']['outside_declaration'], "$name has no derived write outside declared authority");
+    wprism_check_same([], $newReport['unattributed'], "$name attributes every derived fixture surface");
+    $coveredAdapters = array_values(array_unique(array_merge($coveredAdapters, array_column($newReport['adapters'], 'adapter'))));
+}
 sort($coveredAdapters, SORT_STRING);
 wprism_check_same($shipped, $coveredAdapters, 'the coherent reports cover every shipped adapter without inventing an all-adapter policy');
 

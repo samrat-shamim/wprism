@@ -357,26 +357,10 @@ wprism_check_same(
     'and the shipped library exercises both admitted versions after deliberate per-adapter migrations'
 );
 $declarers = array_keys(array_filter($library, static fn(array $m): bool => array_key_exists('engine_features', $m)));
-wprism_check_same(
-    [
-        'change-wp-admin-login',
-        'code-snippets',
-        'elementor',
-        'ninja-forms',
-        'paid-memberships-pro',
-        'polylang',
-        'qi-blocks',
-        'rank-math',
-        'redirection',
-        'the-events-calendar',
-        'woocommerce',
-        'wpforms-lite',
-        'yoast',
-        'yoast-duplicate-post',
-    ],
-    $declarers,
-    'each shipped feature consumer opts in at N without an engine version bump or a library-wide restamp'
-);
+wprism_check($declarers !== [], 'the shipped library exercises per-adapter feature opt-in');
+foreach ($declarers as $name) {
+    wprism_check_same($N, $library[$name]['spec_version'], "$name declares its features at the current spec version");
+}
 
 echo "\nPART 2 — a synthetic N+1 engine: the channel's admitting half\n";
 

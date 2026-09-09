@@ -37,8 +37,7 @@
  * are the two blocks where that is a real constraint rather than an accident of
  * three-element lists.
  *
- * WPForms and Qi Blocks are experimental; Duplicate Post lost its native
- * managed-clone certification. These three blocks lack a certified anchor.
+ * Experimental capsules and withdrawn claims lack a certified anchor.
  * An exercise fixture records intent, and an adjacent refusal cannot make
  * an unqualified block a bisection result to reproduce.
  *
@@ -166,21 +165,22 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
         $exerciseOnly[$slug] = $roles;
     }
 }
-// #561 moved the-events-calendar out of the exercise-only column: its block now
-// carries certified-boundary roles on 6.17.2/6.17.3 and a refusal-fixture on
-// 6.17.1, so it is a bisection RESULT and the loops below reproduce it like any
-// other certified block. Duplicate Post's withdrawn claim now joins WPForms
-// outside this certified-anchor set; its adjacent refusal does not restore it.
-wprism_check_same(
-    16,
-    count($bisectionShaped),
-    '16 of the 19 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
-);
-wprism_check_same(
-    ['duplicate-post', 'qi-blocks', 'wpforms-lite'],
-    array_keys($exerciseOnly),
-    'all three non-authorizing blocks lack a certified anchor, so the search never proposes them as boundaries'
-);
+// Dispositions are the independent authority for these roles. A second slug
+// list made an ordinary experimental capsule addition fail this shared gate.
+$expectedCertified = [];
+$expectedExercise = [];
+foreach (AdapterLibrary::fromSourceTree($repoRoot)->packages() as $package) {
+    $manifest = Canon::decode(Canon::read_file($package->manifestPath()));
+    if (!isset($manifest['plugin'])) continue;
+    $subject = explode('/', $manifest['plugin'], 2)[0];
+    $disposition = Canon::decode(Canon::read_file($package->dispositionPath()));
+    if ($disposition['status'] === 'certified') $expectedCertified[] = $subject;
+    else $expectedExercise[] = $subject;
+}
+sort($expectedCertified, SORT_STRING);
+sort($expectedExercise, SORT_STRING);
+wprism_check_same($expectedCertified, array_keys($bisectionShaped), 'only reviewed certified plugin subjects carry certified boundary anchors');
+wprism_check_same($expectedExercise, array_keys($exerciseOnly), 'every non-authorizing plugin subject remains outside boundary search');
 
 // The lock authors its rows oldest-first inside each block, which is the order
 // a bisection walks. Asserting it here means the derivation below is reading a

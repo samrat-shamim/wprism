@@ -1,0 +1,62 @@
+[
+  {
+    "option_name": "portfolio_permalinks",
+    "option_value": "a:4:{s:14:\"portfolio_base\";s:21:\"%portfolio_page_slug%\";s:13:\"category_base\";s:18:\"portfolio-category\";s:8:\"tag_base\";s:13:\"portfolio-tag\";s:14:\"attribute_base\";s:0:\"\";}",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "_vp_trying_to_add_archive_page",
+    "option_value": "1",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vp_general",
+    "option_value": "a:5:{s:28:\"register_portfolio_post_type\";s:2:\"on\";s:22:\"portfolio_archive_page\";s:2:\"10\";s:27:\"archive_page_items_per_page\";s:1:\"3\";s:17:\"filter_taxonomies\";s:0:\"\";s:8:\"no_image\";s:1:\"3\";}",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "_vp_add_archive_page",
+    "option_value": "1",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "visual_portfolio_updated_caps",
+    "option_value": "Plugin: 3.8.1 WP: 7.1 Portfolio: 1",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vpf_db_version",
+    "option_value": "3.8.1",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vp_images",
+    "option_value": "a:9:{s:12:\"lazy_loading\";s:4:\"full\";s:21:\"lazy_loading_excludes\";s:75:\"http://localhost:9186/wp-content/uploads/2026/09/garden.png\r\nnative-gallery\";s:2:\"sm\";s:3:\"480\";s:2:\"md\";s:3:\"720\";s:2:\"lg\";s:4:\"1280\";s:2:\"xl\";s:4:\"1920\";s:8:\"sm_popup\";s:3:\"500\";s:8:\"md_popup\";s:3:\"800\";s:8:\"xl_popup\";s:4:\"1920\";}",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vp_popup_gallery",
+    "option_value": "a:17:{s:6:\"vendor\";s:10:\"photoswipe\";s:26:\"enable_on_wordpress_images\";s:2:\"on\";s:13:\"click_to_zoom\";s:2:\"on\";s:13:\"restore_focus\";s:2:\"on\";s:11:\"show_arrows\";s:2:\"on\";s:12:\"show_counter\";s:3:\"off\";s:16:\"show_zoom_button\";s:2:\"on\";s:22:\"show_fullscreen_button\";s:2:\"on\";s:17:\"show_share_button\";s:2:\"on\";s:20:\"show_download_button\";s:3:\"off\";s:17:\"show_close_button\";s:2:\"on\";s:11:\"show_thumbs\";s:2:\"on\";s:15:\"thumbs_position\";s:8:\"vertical\";s:14:\"show_slideshow\";s:3:\"off\";s:38:\"popup_quick_view_internal_links_target\";s:6:\"_blank\";s:38:\"popup_quick_view_external_links_target\";s:6:\"_blank\";s:16:\"background_color\";s:7:\"#102a43\";}",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vp_watermarks",
+    "option_value": "",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vp_social_integrations",
+    "option_value": "",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vp_white_label",
+    "option_value": "",
+    "autoload": "auto"
+  },
+  {
+    "option_name": "vpf_ask_review_notice_time",
+    "option_value": "1788931170",
+    "autoload": "off"
+  }
+]

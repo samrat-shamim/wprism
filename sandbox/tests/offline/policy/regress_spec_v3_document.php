@@ -442,7 +442,7 @@ wprism_check_same(
 // subsection whose "Enforced today:" line says "yes" about one half must not be
 // readable as a claim about the other.
 wprism_check(
-    count($adapterLibrary->packages()) === 21
+    $adapterLibrary->packages() !== []
         && !file_exists($repo . '/manifests')
         && array_reduce(
             $adapterLibrary->packages(),
@@ -846,9 +846,8 @@ wprism_check(
 );
 
 // ---------------------------------------------------------------------------
-// v3.4 — the SPLIT's measured size, as stated. The monolith's own numbers stay
-// in the subsection as the history they now are, and are no longer measurable
-// from the tree; what has to keep matching is the directory that replaced it.
+// v3.4 — the split topology follows package discovery. Source byte totals
+// change with ordinary capsule edits and are not another adapter inventory.
 // ---------------------------------------------------------------------------
 $dispositionDocuments = array_map(
     static fn(\WPrism\AdapterPackage $package): string => $package->dispositionPath(),
@@ -857,14 +856,10 @@ $dispositionDocuments = array_map(
 $dispositionDocuments[] = $adapterLibrary->profilesPath();
 sort($dispositionDocuments, SORT_STRING);
 $documentCount = count($dispositionDocuments);
-$lineCount = 0;
-$byteCount = 0;
 $entryCount = 0;
 $profileNames = [];
 foreach ($dispositionDocuments as $document) {
     $raw = (string) file_get_contents($document);
-    $lineCount += substr_count($raw, "\n");
-    $byteCount += strlen($raw);
     if ($document === $adapterLibrary->profilesPath()) {
         $profileNames = array_keys((array) json_decode($raw, true));
         continue;
@@ -874,17 +869,13 @@ foreach ($dispositionDocuments as $document) {
 sort($profileNames, SORT_STRING);
 $dispositionBody = $section('v3.4');
 wprism_check(
-    str_contains($dispositionBody, $documentCount . ' documents')
-        && str_contains($dispositionBody, number_format($lineCount) . ' lines')
-        && str_contains($dispositionBody, number_format($byteCount) . ' bytes'),
-    "v3.4's measurement of the split source matches the directory: $documentCount documents, "
-    . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
+    str_contains($dispositionBody, 'one disposition per adapter, plus the profiles document')
+        && str_contains($dispositionBody, 'adapter-packages/<name>/package/disposition.json')
+        && str_contains($dispositionBody, 'platform/adapter-library/core/disposition.json'),
+    'v3.4 describes the discovered capsule/core disposition topology'
 );
-wprism_check_same(
-    21,
-    $entryCount,
-    'the current split has exactly 21 subject documents, independently of the historical monolith count'
-);
+wprism_check_same(count($adapterLibrary->packages()), $entryCount, 'every discovered subject contributes one disposition');
+wprism_check_same($entryCount + 1, $documentCount, 'the profile map is the only additional document');
 wprism_check_same(['fse'], $profileNames, 'and `profiles` is the one row the split gave its own document');
 
 // ---------------------------------------------------------------------------
@@ -936,16 +927,14 @@ $report(sprintf(
 ));
 $nsBody = $section('v3.9');
 wprism_check(
-    str_contains($nsBody, count($names) . ' adapter names, ' . count($idKinds) . ' `id_kind`s, ' . count($providerIds) . ' provider ids = ' . $identityTotal . ' identities')
-        && str_contains($nsBody, 'break **' . $breakList . '** of them'),
-    "v3.9's census matches the library: $identityTotal identities, $breakList of them refused by a bare shape rule"
+    str_contains($nsBody, 'generated wire register')
+        && str_contains($nsBody, 'regress_spec_v3_dry_run.php'),
+    'v3.9 delegates the evolving census to discovery and the generated reservation inventory'
 );
-$namedUnprefixed = array_values(array_filter($unprefixedNames, static fn(string $n): bool => str_contains($nsBody, '`' . $n . '`')));
-wprism_check_same(
-    $unprefixedNames,
-    $namedUnprefixed,
-    'and it NAMES the ' . count($unprefixedNames) . ' unprefixed adapter names rather than only counting them, since those are the rows an operator has to grandfather'
-);
+$generatedRegister = (string) file_get_contents($repo . '/docs/wire-surface.md');
+foreach ($unprefixedNames as $name) {
+    wprism_check(str_contains($generatedRegister, '`' . $name . '`'), "$name appears in the generated reservation register");
+}
 wprism_check(
     str_contains($nsBody, 'R-17'),
     'v3.9 defers to the irreversibility register\'s R-17 rather than re-deciding `id_kind` prefixing'

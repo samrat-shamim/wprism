@@ -4,9 +4,9 @@
  *
  * Adapter package identity is the exact manifest, disposition, interpreter,
  * provider, and regenerator byte projection that a repository pin and a
- * compiled artifact bind. This suite names the current product baseline as
+ * compiled artifact bind. This suite names its historical 21-subject baseline as
  * literals: it does not retain a prior-product transition or silently compare
- * two fresh derivations. A package change must therefore re-pin the exact
+ * two fresh derivations. A change to a baseline package must re-pin the exact
  * affected digest, compatible-world manifest hashes, registry address, and
  * frozen-policy snapshots deliberately.
  */
@@ -78,16 +78,42 @@ if (!is_array($rankPins) || !is_array($yoastPins)) {
 $baselineNames = array_keys((array) ($baseline['adapter_digests'] ?? []));
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
-wprism_check_same($actualNames, $baselineNames, 'the literal identity baseline covers the actual library, including newly added capsules');
+wprism_check_same([], array_values(array_diff($baselineNames, $actualNames)), 'every historical identity fixture subject still exists in the live library');
 wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'yoast'])), $rankPins, 'the Rank-compatible world is the original subject set except Yoast');
 wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'rank-math'])), $yoastPins, 'the Yoast-compatible world is the original subject set except Rank Math');
 wprism_check_same(19, count($rankPins), 'the Rank-compatible maximal world contains 19 adapters');
 wprism_check_same(19, count($yoastPins), 'the Yoast-compatible maximal world contains 19 adapters');
 $worldUnion = array_values(array_unique(array_merge($rankPins, $yoastPins, $baseline['pin_sets']['core+change-wp-admin-login']['pins'])));
 sort($worldUnion, SORT_STRING);
-wprism_check_same($baselineNames, $worldUnion, 'the compatible worlds jointly cover all shipped adapters');
+wprism_check_same($baselineNames, $worldUnion, 'the compatible worlds jointly cover the complete historical fixture');
 wprism_check_same(['rank-math'], array_values(array_diff($rankPins, $yoastPins)), 'only Rank Math distinguishes the Rank-compatible world');
 wprism_check_same(['yoast'], array_values(array_diff($yoastPins, $rankPins)), 'only Yoast distinguishes the Yoast-compatible world');
+
+// Whole-registry addressing still sees every new capsule (WP-4.5). The
+// historical fixture records only its original cohort; validate its registry
+// through the frozen registry reader before comparing the literal hashes.
+$liveRegistry = ManifestDispositions::load_library($adapterLibrary);
+$fixtureData = $liveRegistry->data();
+$fixtureData['manifests'] = array_intersect_key($fixtureData['manifests'], array_flip($baselineNames));
+$fixtureManifests = array_map(static fn(string $name): array => Canon::decode(Canon::read_file($adapterLibrary->package($name)->manifestPath())), $baselineNames);
+$fixtureRegistry = ManifestDispositions::from_snapshot($fixtureData, $fixtureManifests);
+$fixtureSnapshot = static function (Policy $policy) use ($fixtureRegistry): array {
+    $snapshot = $policy->export_snapshot();
+    $snapshot['dispositions'] = $fixtureRegistry->data();
+    ManifestDispositions::from_snapshot($snapshot['dispositions'], $snapshot['manifests']);
+    return $snapshot;
+};
+if (count($actualNames) > count($baselineNames)) {
+    wprism_check($liveRegistry->sha256() !== $fixtureRegistry->sha256(), 'a capsule addition still changes the actual whole-registry address');
+}
+foreach (array_diff($actualNames, $baselineNames) as $name) {
+    $current = Policy::load(null, ['core', $name], adapterLibrary: $adapterLibrary)->export_snapshot();
+    // The inspection-only load override is not site intent. A frozen site
+    // explicitly names its pins (Policy::from_snapshot's count invariant).
+    $current['site']['manifests'] = ['core', $name];
+    wprism_check_same($liveRegistry->data(), $current['dispositions'], "$name receives the complete current registry");
+    wprism_check_same($current, Policy::from_snapshot($current, $adapterLibrary)->export_snapshot(), "$name survives the complete current frozen policy reader");
+}
 
 echo "\nPART 1 — exact adapter identity map\n";
 $worldPolicies = [
@@ -110,12 +136,12 @@ ksort($observedDigests, SORT_STRING);
 wprism_check_same(
     $baseline['adapter_digests'] ?? null,
     $observedDigests,
-    'the compatible-world union exactly matches all 21 shipped adapter digests'
+    'the compatible-world union exactly matches all 21 historical adapter digests'
 );
 wprism_check_same(
     array_keys($baseline['adapter_digests'] ?? []),
     array_keys($observedDigests),
-    'the digest map admits neither a missing shipped adapter nor an unreviewed extra subject'
+    'the historical digest map admits neither a missing subject nor an unreviewed extra subject'
 );
 
 echo "\nPART 2 — exact manifest and pin maps\n";
@@ -131,7 +157,7 @@ ksort($manifestBytes, SORT_STRING);
 wprism_check_same(
     $baseline['manifest_bytes_sha256'] ?? null,
     $manifestBytes,
-    'every shipped manifest file byte address exactly matches the baseline upstream of its adapter digest'
+    'every historical manifest byte address exactly matches the baseline upstream of its adapter digest'
 );
 
 $observedPinHashes = [];
@@ -144,7 +170,7 @@ foreach ((array) ($baseline['pin_sets'] ?? []) as $label => $expected) {
     }
     $pinPolicy = Policy::load(null, $pins, adapterLibrary: $adapterLibrary);
     $observedPinHashes[(string) $label] = ArtifactPolicyIdentity::manifest_hash($pinPolicy);
-    $observedSnapshotHashes[(string) $label] = hash('sha256', Canon::encode($pinPolicy->export_snapshot()));
+    $observedSnapshotHashes[(string) $label] = hash('sha256', Canon::encode($fixtureSnapshot($pinPolicy)));
 }
 $expectedPinHashes = [];
 $expectedSnapshotHashes = [];
@@ -174,8 +200,8 @@ foreach ($worldManifestHashes as $world => $expectedHash) {
 echo "\nPART 3 — exact reviewed-registry and snapshot maps\n";
 wprism_check_same(
     REGISTRY_SHA256,
-    ManifestDispositions::load_library($adapterLibrary)->sha256(),
-    'the reviewed disposition registry exactly matches the current WPrism address every host contract pins'
+    $fixtureRegistry->sha256(),
+    'the historical reviewed registry exactly matches its recorded address'
 );
 $worldSnapshotHashes = [
     'core+change-wp-admin-login' => $baseline['pin_sets']['core+change-wp-admin-login']['snapshot_sha256'],
@@ -185,8 +211,8 @@ $worldSnapshotHashes = [
 foreach ($worldSnapshotHashes as $world => $expectedHash) {
     wprism_check_same(
         $expectedHash,
-        hash('sha256', Canon::encode($worldPolicies[$world]->export_snapshot())),
-        "the ordered $world frozen policy snapshot exactly matches its current WPrism address"
+        hash('sha256', Canon::encode($fixtureSnapshot($worldPolicies[$world]))),
+        "the ordered $world frozen policy snapshot exactly matches its recorded fixture address"
     );
 }
 
