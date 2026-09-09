@@ -6,13 +6,19 @@ namespace WPrism;
 require_once __DIR__ . '/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/DatabaseTableIdentifier.php';
 require_once __DIR__ . '/MetaRows.php';
+require_once __DIR__ . '/DatabaseLockBoundary.php';
+require_once __DIR__ . '/TransactionAuthority.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/Db.php';
+}
 
 /**
  * Complete physical rows from an already-authorized database snapshot.
  *
  * Native reconstruction needs source bytes and an unchanged-remainder witness,
- * not another package-owned SQL pager. This first contract deliberately observes
- * one whole table in one positive-integer identity-tuple order: no predicates, joins,
+ * not another package-owned SQL pager. observe() retains its whole-table,
+ * consistent-read contract. observe_locked_selected() admits only exact positive
+ * identity tuples through current reads on a proven unique index: no predicates, joins,
  * schema inference, native callbacks or caller-authored SQL. A bounded size
  * roster precedes hashing and payload allocation; every batch must meet its
  * exact identities, null shapes, lengths and hashes. The enclosing engine scope
@@ -25,6 +31,7 @@ final class PhysicalTableRows {
     public const MAX_CELLS = 262144;
     public const MAX_RAW_BYTES = 33554432;
     public const MAX_CELL_BYTES = 1048576;
+    public const MAX_SELECTED_ROWS = 64;
     private const BATCH_ROWS = 64;
     private const BATCH_BYTES = 4194304;
 
@@ -33,10 +40,62 @@ final class PhysicalTableRows {
      * @return array{row_count:int,raw_bytes:int,rows_sha256:string,rows?:list<array<string,?string>>}
      */
     public static function observe(array $descriptor, string $context): array {
+        return self::observe_rows($descriptor, $context, null, null);
+    }
+
+    /**
+     * Exact selected rows under the caller's original controlled transaction.
+     * Every roster/hash/value read is FOR UPDATE: a prior lock cannot make an
+     * ordinary RR read forget an older consistent-read snapshot. Caller owns
+     * semantic lock order, transaction settlement and any ownership/CAS policy.
+     * This method proves requested existence, never unrelated-row absence.
+     *
+     * @param array{table:string,columns:list<string>,identity:list<string>,max_rows:int,max_raw_bytes:int,mode:string} $descriptor
+     * @param list<list<int>> $identityTuples
+     * @return array{row_count:int,raw_bytes:int,rows_sha256:string,rows?:list<array<string,?string>>}
+     */
+    public static function observe_locked_selected(
+        array $descriptor,
+        array $identityTuples,
+        TransactionAuthority $authority,
+        string $context
+    ): array {
+        return self::observe_rows($descriptor, $context, $identityTuples, $authority);
+    }
+
+    /** @param ?list<list<int>> $selection */
+    private static function observe_rows(
+        array $descriptor,
+        string $context,
+        ?array $selection,
+        ?TransactionAuthority $authority
+    ): array {
         self::assert_descriptor($descriptor);
         $table = $descriptor['table'];
         $columns = $descriptor['columns'];
         $identity = $descriptor['identity'];
+        $lockIndex = null;
+        $sizeArgs = [];
+        $selectionSql = '';
+        if ($selection !== null) {
+            self::assert_selection($selection, count($identity), $descriptor['max_rows']);
+            $continuity = static fn() => self::assert_current($authority, $table, $context);
+            $continuity();
+            DatabaseLockBoundary::assert_innodb_tables([$table], $context, $continuity);
+            $lockIndex = count($identity) === 1
+                ? DatabaseLockBoundary::full_width_lock_index($table, $identity[0], $context, true, $continuity)
+                : DatabaseLockBoundary::full_width_composite_unique_lock_index($table, $identity, $context, $continuity);
+            $predicates = [];
+            foreach ($selection as $tuple) {
+                $parts = [];
+                foreach ($identity as $position => $column) {
+                    $parts[] = "`$column` = %d";
+                    $sizeArgs[] = $tuple[$position];
+                }
+                $predicates[] = '(' . implode(' AND ', $parts) . ')';
+            }
+            $selectionSql = " FORCE INDEX (`$lockIndex`) WHERE (" . implode(' OR ', $predicates) . ')';
+        }
         DatabaseQueryIsolation::assert_profile_contains([$table], false, $context);
 
         $identityColumns = $identityKeys = [];
@@ -49,10 +108,16 @@ final class PhysicalTableRows {
         foreach ($columns as $position => $column) {
             $sizeColumns[] = "OCTET_LENGTH(`$column`) AS _wprism_size_$position";
         }
-        $rowLimit = min($descriptor['max_rows'], intdiv(self::MAX_CELLS, count($columns)));
+        $rowLimit = $selection === null
+            ? min($descriptor['max_rows'], intdiv(self::MAX_CELLS, count($columns)))
+            : count($selection);
         $sizeSql = 'SELECT ' . implode(', ', $sizeColumns) . " FROM `$table`"
-            . " ORDER BY $order LIMIT " . ($rowLimit + 1);
-        $roster = self::read($sizeSql, [], $context);
+            . $selectionSql . " ORDER BY $order LIMIT " . ($rowLimit + 1)
+            . ($selection === null ? '' : ' FOR UPDATE');
+        $roster = self::read($sizeSql, $sizeArgs, $context, $authority, $table);
+        if ($selection !== null && count($roster) !== count($selection)) {
+            self::fail($context, 'selected identity roster is incomplete or excessive');
+        }
         if (count($roster) > $descriptor['max_rows']
             || count($roster) > intdiv(self::MAX_CELLS, count($columns))) {
             self::fail($context, 'row or cell-count budget exceeded');
@@ -61,7 +126,7 @@ final class PhysicalTableRows {
         foreach (array_keys($columns) as $position) $sizeKeys[] = '_wprism_size_' . $position;
         $rawBytes = 0;
         $previousIds = null;
-        foreach ($roster as $row) {
+        foreach ($roster as $offset => $row) {
             if (!is_array($row) || array_keys($row) !== $sizeKeys) {
                 self::fail($context, 'size roster has malformed, duplicate or unordered identities');
             }
@@ -73,6 +138,9 @@ final class PhysicalTableRows {
             }
             if ($previousIds !== null && $ids <= $previousIds) {
                 self::fail($context, 'size roster has malformed, duplicate or unordered identities');
+            }
+            if ($selection !== null && $ids !== $selection[$offset]) {
+                self::fail($context, 'selected identity roster differs from the requested tuples');
             }
             $previousIds = $ids;
             $rowBytes = 0;
@@ -93,12 +161,17 @@ final class PhysicalTableRows {
         }
 
         $digest = hash_init('sha256');
-        hash_update($digest, "wprism-physical-table-rows/v1\0");
+        hash_update($digest, $selection === null
+            ? "wprism-physical-table-rows/v1\0" : "wprism-physical-table-selected-rows/v1\0");
         self::hash_string($digest, $table);
         hash_update($digest, pack('N', count($identity)));
         foreach ($identity as $column) self::hash_string($digest, $column);
         hash_update($digest, pack('N', count($columns)));
         foreach ($columns as $column) self::hash_string($digest, $column);
+        if ($selection !== null) {
+            hash_update($digest, 'S' . pack('N', count($selection)));
+            foreach ($selection as $tuple) foreach ($tuple as $id) self::hash_string($digest, (string) $id);
+        }
         $resultRows = [];
         $batch = [];
         $batchBytes = 0;
@@ -106,21 +179,44 @@ final class PhysicalTableRows {
             $rowBytes = 0;
             foreach (array_keys($columns) as $position) $rowBytes += (int) $row['_wprism_size_' . $position];
             if ($batch !== [] && (count($batch) >= self::BATCH_ROWS || $rowBytes > self::BATCH_BYTES - $batchBytes)) {
-                self::consume_batch($descriptor, $batch, $digest, $resultRows, $context);
+                self::consume_batch($descriptor, $batch, $digest, $resultRows, $context, $authority, $lockIndex);
                 $batch = [];
                 $batchBytes = 0;
             }
             $batch[] = $row;
             $batchBytes += $rowBytes;
         }
-        if ($batch !== []) self::consume_batch($descriptor, $batch, $digest, $resultRows, $context);
-        if (self::read($sizeSql, [], $context) !== $roster) {
+        if ($batch !== []) self::consume_batch($descriptor, $batch, $digest, $resultRows, $context, $authority, $lockIndex);
+        if (self::read($sizeSql, $sizeArgs, $context, $authority, $table) !== $roster) {
             self::fail($context, 'complete size roster changed during observation');
         }
         hash_update($digest, 'E' . pack('N', count($roster)));
         $result = ['row_count' => count($roster), 'raw_bytes' => $rawBytes, 'rows_sha256' => hash_final($digest)];
         if ($descriptor['mode'] === 'rows') $result['rows'] = $resultRows;
         return $result;
+    }
+
+    /** @param list<list<int>> $selection */
+    private static function assert_selection(array $selection, int $width, int $maxRows): void {
+        if (!array_is_list($selection) || $selection === []
+            || count($selection) > min(self::MAX_SELECTED_ROWS, $maxRows)) {
+            throw new \InvalidArgumentException('wprism: locked physical selection requires a bounded nonempty tuple list');
+        }
+        $previous = null;
+        foreach ($selection as $tuple) {
+            if (!is_array($tuple) || !array_is_list($tuple) || count($tuple) !== $width) {
+                throw new \InvalidArgumentException('wprism: locked physical selection has malformed identity tuple width');
+            }
+            foreach ($tuple as $id) {
+                if (!is_int($id) || $id < 1) {
+                    throw new \InvalidArgumentException('wprism: locked physical selection requires positive integer coordinates');
+                }
+            }
+            if ($previous !== null && $tuple <= $previous) {
+                throw new \InvalidArgumentException('wprism: locked physical selection requires sorted distinct identity tuples');
+            }
+            $previous = $tuple;
+        }
     }
 
     private static function assert_descriptor(array $descriptor): void {
@@ -157,7 +253,15 @@ final class PhysicalTableRows {
     }
 
     /** @param list<array<string,mixed>> $batch @param list<array<string,?string>> $resultRows */
-    private static function consume_batch(array $descriptor, array $batch, \HashContext $digest, array &$resultRows, string $context): void {
+    private static function consume_batch(
+        array $descriptor,
+        array $batch,
+        \HashContext $digest,
+        array &$resultRows,
+        string $context,
+        ?TransactionAuthority $authority,
+        ?string $lockIndex
+    ): void {
         $table = $descriptor['table'];
         $columns = $descriptor['columns'];
         $identity = $descriptor['identity'];
@@ -180,8 +284,9 @@ final class PhysicalTableRows {
             $predicates[] = '(' . implode(' AND ', $parts) . ')';
         }
         $order = implode(', ', array_map(static fn(string $column): string => "`$column` ASC", $identity));
-        $tail = " FROM `$table` WHERE (" . implode(' OR ', $predicates) . ')'
-            . " ORDER BY $order LIMIT " . (count($batch) + 1);
+        $tail = " FROM `$table`" . ($lockIndex === null ? '' : " FORCE INDEX (`$lockIndex`)")
+            . ' WHERE (' . implode(' OR ', $predicates) . ')'
+            . " ORDER BY $order LIMIT " . (count($batch) + 1) . ($lockIndex === null ? '' : ' FOR UPDATE');
         $hashColumns = $hashKeys = [];
         foreach ($identity as $position => $column) {
             $hashColumns[] = "LEFT(BINARY `$column`, 21) AS _wprism_identity_$position";
@@ -192,7 +297,7 @@ final class PhysicalTableRows {
             $hashKeys[] = '_wprism_hash_' . $position;
         }
         $hashSql = 'SELECT ' . implode(', ', $hashColumns) . $tail;
-        $hashes = self::read($hashSql, $args, $context);
+        $hashes = self::read($hashSql, $args, $context, $authority, $table);
         if (count($hashes) !== count($batch)) self::fail($context, 'hash roster changed after size admission');
         foreach ($hashes as $offset => $row) {
             if (!is_array($row) || array_keys($row) !== $hashKeys) {
@@ -211,7 +316,7 @@ final class PhysicalTableRows {
             }
         }
         $select = implode(', ', array_map(static fn(string $column): string => "`$column`", $columns));
-        $rows = self::read('SELECT ' . $select . $tail, $args, $context);
+        $rows = self::read('SELECT ' . $select . $tail, $args, $context, $authority, $table);
         if (count($rows) !== count($batch)) self::fail($context, 'value roster changed after size admission');
         foreach ($rows as $offset => $row) {
             if (!is_array($row) || array_keys($row) !== $columns) {
@@ -240,7 +345,7 @@ final class PhysicalTableRows {
             }
             if ($descriptor['mode'] === 'rows') $resultRows[] = $row;
         }
-        if (self::read($hashSql, $args, $context) !== $hashes) {
+        if (self::read($hashSql, $args, $context, $authority, $table) !== $hashes) {
             self::fail($context, 'field hashes changed during payload observation');
         }
     }
@@ -254,7 +359,14 @@ final class PhysicalTableRows {
         hash_update($digest, pack('N', strlen($value)) . $value);
     }
 
-    private static function read(string $sql, array $args, string $context): array {
+    private static function read(
+        string $sql,
+        array $args,
+        string $context,
+        ?TransactionAuthority $authority,
+        string $table
+    ): array {
+        if ($authority !== null) self::assert_current($authority, $table, $context);
         global $wpdb;
         $previous = $wpdb->suppress_errors(true);
         $wpdb->last_error = '';
@@ -271,10 +383,18 @@ final class PhysicalTableRows {
             if (!is_array($rows) || !array_is_list($rows) || (string) ($wpdb->last_error ?? '') !== '') {
                 self::fail($context, 'checked database read failed');
             }
+            if ($authority !== null) self::assert_current($authority, $table, $context);
             return $rows;
         } finally {
             $wpdb->suppress_errors($previous);
         }
+    }
+
+    private static function assert_current(?TransactionAuthority $authority, string $table, string $context): void {
+        if ($authority === null || !Db::repeatable_read_authority($context)->equals($authority)) {
+            throw new \RuntimeException('wprism: locked physical observation lost its original transaction authority');
+        }
+        DatabaseQueryIsolation::assert_profile_contains([$table], false, $context);
     }
 
     private static function fail(string $context, string $reason): never {

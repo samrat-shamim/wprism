@@ -824,7 +824,7 @@ wprism_check_same(
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
-// The admitted set includes all twenty-four implemented features. The explicit
+// The admitted set includes the implemented features. The explicit
 // roster proves declarations remain negotiated without a spec-version bump;
 // provider observation/input features and reference/container codecs coexist.
 wprism_check_same(
@@ -838,6 +838,7 @@ wprism_check_same(
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
         'conditional-json-refs/v1',
+        'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
         'key-bound-strings/v1',
         'manifest-provider-fresh-process/v1',

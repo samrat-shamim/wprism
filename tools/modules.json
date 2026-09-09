@@ -89,6 +89,7 @@
     "ExecutableTreeIdentity",
     "FilesystemTreeSnapshot",
     "PhpLiteralData",
+    "PhysicalTableRows",
     "WordPressOptionValueCodec",
     "ManifestExecutableLoader",
     "NativeDatabaseProfile",
@@ -114,6 +115,7 @@
           "PersonalData",
           "PostPasswordBinding",
           "PrivateEvidenceException",
+          "PrivateFileBytes",
           "PrivateRefusalEvidence",
           "JsonRefs",
         "KeyBoundStrings",
@@ -163,7 +165,7 @@
             ]
           }
         ],
-        "file_count": 84,
+        "file_count": 85,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -219,6 +221,7 @@
           "PostPasswordBinding.php",
           "PrivateEvidenceCarrierException.php",
           "PrivateEvidenceException.php",
+          "PrivateFileBytes.php",
           "PrivateRefusalEvidence.php",
           "ProcessFence.php",
           "ProviderSettlementIntent.php",
@@ -500,6 +503,7 @@
           "Identity",
           "StateTreeWalker",
           "IdentityBackup",
+          "IdentityForkRequest",
           "IdentityNotes",
           "RepositoryAuthorization",
           "Journal",
@@ -550,7 +554,7 @@
             ]
           }
         ],
-        "file_count": 31,
+        "file_count": 32,
         "files": [
           "RepositoryMediaDerivatives.php",
           "CanonicalLedgerMapGuard.php",
@@ -560,6 +564,7 @@
           "CompiledArtifactReader.php",
           "Identity.php",
           "IdentityBackup.php",
+          "IdentityForkRequest.php",
           "IdentityNotes.php",
           "Journal.php",
           "Ledger.php",

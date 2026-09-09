@@ -1184,6 +1184,14 @@ regress-provider-database-session:
 regress-physical-table-rows:
 	php sandbox/tests/offline/guards/regress_physical_table_rows.php
 
+.PHONY: regress-locked-physical-rows
+regress-locked-physical-rows:
+	php sandbox/tests/offline/repository/regress_locked_physical_rows.php
+
+.PHONY: regress-identity-fork-request
+regress-identity-fork-request:
+	php sandbox/tests/offline/repository/regress_identity_fork_request.php
+
 .PHONY: regress-native-option-inputs
 regress-native-option-inputs:
 	php sandbox/tests/offline/guards/regress_native_option_inputs.php
@@ -1763,6 +1771,10 @@ regress-private-command-capture:
 .PHONY: regress-private-tree-evidence
 regress-private-tree-evidence:
 	php sandbox/tests/offline/guards/regress_private_tree_evidence.php
+
+.PHONY: regress-private-file-bytes
+regress-private-file-bytes:
+	php sandbox/tests/offline/guards/regress_private_file_bytes.php
 
 .PHONY: regress-sql-dump-evidence
 regress-sql-dump-evidence:
