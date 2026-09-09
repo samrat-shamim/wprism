@@ -1,0 +1,66 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [],
+            "unsupported": [
+                "plugin-specific entity deletes"
+            ]
+        },
+        "entity_sections": [
+            "post_types"
+        ],
+        "field_sections": [
+            "options"
+        ],
+        "lifecycle_phases": [],
+        "operations": [
+            "capture",
+            "compile",
+            "plan"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "evidence": {
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
+        "tests": [
+            "conformance-block-visibility",
+            "regress-package-contract"
+        ]
+    },
+    "reason": "Experimental, capture-plan only, for exact Block Visibility 3.7.1 on single-site WordPress. The settings option and the visibility_preset post type are captured faithfully. The plugin's PRIMARY surface is not: blockVisibility is injected into every registered block (measured 115 of 116 on WP 7.1) and carries entity ids at conditionally-typed nested paths that block_attrs \u2014 one top-level key per exact block name, values closed at {int,int[]} \u2014 cannot address. Rather than carry a source-local id that lint would not catch (unregistered_block_attr fires only on id/ids/ref-named or *Id-suffixed NUMERIC attributes, and blockVisibility is an object), every block that can hold the attribute declares it a reviewed unsupported boundary, which fires only when a block actually holds it. No deploy/apply evidence exists and none is claimed.",
+    "status": "experimental",
+    "supported_versions": {
+        "plugin": "block-visibility/block-visibility.php",
+        "range": {
+            "max": "3.7.2",
+            "min": "3.7.1"
+        }
+    },
+    "unsupported": [
+        {
+            "operation": "all",
+            "reason": "WPrism v1 refuses multisite before policy load, so this single-site adapter makes no network claim.",
+            "surface": "multisite"
+        },
+        {
+            "operation": "capture",
+            "reason": "blockVisibility reaches every registered block and nests entity ids at paths whose kind depends on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} value vocabulary, so no declaration can rebind them. Declared unsupported on all 115 blocks that can carry it; capture refuses the moment authored content actually holds one. tools/engine-gaps.json records the demand as any_block_structured_attribute_reference_paths.",
+            "surface": "block_attrs.*.blockVisibility"
+        },
+        {
+            "operation": "capture",
+            "reason": "The visibility_preset meta key control_sets repeats the same conditionally-typed reference structure. The interpreter admits a control set that references no entity and refuses one that does, naming the exact location rule field.",
+            "surface": "post_meta.control_sets entity references"
+        },
+        {
+            "operation": "capture",
+            "reason": "block_visibility_settings is absent until the first save, and the plugin publishes its defaults only through register_setting() on rest_api_init/admin_init, which a capture process does not fire. There is no in-process way to read them from the plugin, so an absent row captures as absence rather than as a hardcoded copy of its defaults.",
+            "surface": "option:block_visibility_settings absent-row default completion"
+        },
+        {
+            "operation": "deploy",
+            "reason": "No target round-trip evidence exists for this capsule. capture-plan is the only admitted conformance mode, and tests/conformance/check.sh refuses so a future mode edit cannot turn a source-only proof into target acceptance.",
+            "surface": "deploy/apply"
+        }
+    ]
+}

@@ -12,6 +12,7 @@ Every coordinate names its `primitive_required` from a closed generic vocabulary
 
 | Primitive | Candidates | Blocked adapters |
 |---|---|---|
+| reference paths inside a block attribute the plugin injects into every block | 1 (Block Visibility) | block-visibility |
 | a generic dynamic derived option-name reference rule | 1 (Custom Post Type UI) | custom-post-type-ui |
 | a verified post-apply type-registration/process boundary | 1 (Custom Post Type UI) | custom-post-type-ui |
 
@@ -37,6 +38,12 @@ Required adapter work: a bounded postcondition over the plugin's scheduled form-
 - A taxonomy `default_term` produces `default_term_<taxonomy>` with a local term id. The option name is dynamic and the value is derived/reference-shaped; treating it as ordinary authored data would leak a local id.
 
 Required platform work: a verified post-apply type-registration/process boundary and a generic dynamic derived option-name reference rule. Required adapter work: an explicit structured-leaf text codec independent of fake reference paths. Until those exist, no CPT UI manifest is shipped.
+
+## Shipped experimental adapters with open apply work
+
+- Block Visibility 3.7.1: Block Visibility adds a `blockVisibility` object attribute to every registered block — measured 115 of 116 on WordPress 7.1, the exception being the deprecated core/post-comments alias. The object nests entity ids at conditionally-typed paths: `visibilityPresets.presets` is a list of `visibility_preset` post ids, and `controlSets[].controls.location.ruleSets[].rules[].value` is a post id list, a comma-separated post-id STRING, term ids or an author id depending on its sibling `field` (measured against includes/frontend/visibility-tests/location.php's own dispatch switch). `block_attrs` can express neither the any-block reach nor the conditional nesting, so the capsule declares the attribute a reviewed `unsupported` boundary on all 115 blocks that can carry it and refuses capture the moment authored content holds one. The same structure recurs in the `visibility_preset` meta key `control_sets`, which the capsule's interpreter admits only when it carries no entity reference.
+
+These are explicit promotion blockers in adapter package dispositions, not silent caveats. `conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target mutation, so none of these entries claims apply.
 
 ## Closed authoring gaps
 
