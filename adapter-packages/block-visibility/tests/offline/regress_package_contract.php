@@ -146,10 +146,20 @@ foreach (['location', 'woocommerce', 'acf', 'edd', 'wpFusion', 'metadata'] as $c
         "$control is NOT on the allowlist, so a control set using it refuses"
     );
 }
+// userRole gets a KEY allowlist rather than two excluded keys, because it
+// carries user ids in two unrelated shapes: restrictedUsers, and a ruleSets
+// rule whose `field` is 'users' -- a second field namespace. Excluding those
+// by name would be a denylist nested inside the allowlist.
 wprism_check(
-    str_contains($interpreter, 'restrictedUsers'),
-    'and userRole is admitted only in its role modes, because restrictedUsers carries user ids'
+    str_contains($interpreter, 'ROLE_SAFE_KEYS'),
+    'userRole is admitted by a reviewed KEY allowlist, so an id-bearing shape it does not name refuses'
 );
+foreach (['restrictedUsers', 'hideOnRestrictedUsers', 'ruleSets', 'hideOnRuleSets'] as $unsafe) {
+    wprism_check(
+        !preg_match("/ROLE_SAFE_KEYS = \[[^\]]*'" . $unsafe . "'/s", $interpreter),
+        "and $unsafe is not on it, because that shape reaches user ids"
+    );
+}
 
 wprism_check_same(
     ['3.7.1'],

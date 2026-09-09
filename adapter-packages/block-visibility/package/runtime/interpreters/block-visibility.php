@@ -76,13 +76,21 @@ final class BlockVisibility {
     ];
 
     /**
-     * `userRole` is reference-free ONLY in its role modes. With
-     * `visibilityByRole` set to 'users' it carries `restrictedUsers`, an array
-     * of USER IDS compared against get_current_user_id()
-     * (user-role.php:125-156, :291, :368-372), so the mode is what decides.
+     * `userRole` is reference-free ONLY in its role shapes, so its own KEY SET
+     * is allowlisted rather than a couple of bad keys being excluded. Two
+     * distinct shapes carry USER IDS: `restrictedUsers` under
+     * visibilityByRole='users' (user-role.php:125-156, :368-372), and a
+     * `ruleSets` rule whose `field` is 'users' (:291-293), a SECOND field
+     * namespace unrelated to location's. Excluding those two by name would be
+     * a denylist nested inside the allowlist and would fail open on the third
+     * shape; admitting only the reviewed role keys fails closed instead.
      */
     private const ROLE_CONTROL = 'userRole';
-    private const ROLE_USER_LIST = 'restrictedUsers';
+    private const ROLE_SAFE_KEYS = [
+        'visibilityByRole',
+        'restrictedRoles',
+        'hideOnRestrictedRoles',
+    ];
 
     public function __construct(Policy $policy) {
         // The whole decision is fixed by the pinned 3.7.1 storage contract; no
@@ -174,8 +182,8 @@ final class BlockVisibility {
             foreach ($controls as $name => $control) {
                 $name = (string) $name;
                 if ($name === self::ROLE_CONTROL) {
-                    if ($this->role_control_carries_user_ids($control)) {
-                        $found[] = $name . '.' . self::ROLE_USER_LIST;
+                    foreach ($this->role_control_unreviewed_keys($control) as $key) {
+                        $found[] = $name . '.' . $key;
                     }
                     continue;
                 }
@@ -192,11 +200,20 @@ final class BlockVisibility {
         return array_values(array_unique($found));
     }
 
-    private function role_control_carries_user_ids(mixed $control): bool {
+    /**
+     * @return list<string> the userRole keys this capsule has not reviewed
+     */
+    private function role_control_unreviewed_keys(mixed $control): array {
         if (!is_array($control)) {
-            return false;
+            return [];
         }
-        $users = $control[self::ROLE_USER_LIST] ?? null;
-        return is_array($users) && $users !== [];
+        $unreviewed = [];
+        foreach (array_keys($control) as $key) {
+            if (!in_array((string) $key, self::ROLE_SAFE_KEYS, true)) {
+                $unreviewed[] = (string) $key;
+            }
+        }
+        sort($unreviewed, SORT_STRING);
+        return $unreviewed;
     }
 }
