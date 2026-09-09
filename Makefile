@@ -1150,6 +1150,22 @@ regress-agent-src-requires:
 regress-db-transaction-authority:
 	php sandbox/tests/offline/guards/regress_db_transaction_authority.php
 
+.PHONY: regress-db-repeatable-read-authority
+regress-db-repeatable-read-authority:
+	php sandbox/tests/offline/guards/regress_db_repeatable_read_authority.php
+
+.PHONY: regress-locked-embedded-uuid-owners
+regress-locked-embedded-uuid-owners:
+	php sandbox/tests/offline/repository/regress_locked_embedded_uuid_owners.php
+
+.PHONY: regress-protected-identity-native-contract
+regress-protected-identity-native-contract:
+	php sandbox/tests/offline/guards/regress_protected_identity_native_contract.php
+
+.PHONY: regress-protected-identity-native
+regress-protected-identity-native:
+	bash sandbox/tests/live/regress_protected_identity_native.sh
+
 .PHONY: regress-ledger-large-values
 regress-ledger-large-values:
 	php sandbox/tests/offline/repository/regress_ledger_large_values.php
@@ -2927,6 +2943,7 @@ regress-live-list:
 	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
 	@echo "  regress-database-boundary-live            own disposable pair (parameterized: DATABASE_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; MariaDB/MySQL LIMIT-0 metadata lock + no-definer-invocation view proof + MariaDB sequence refusal)"
 	@echo "  regress-native-permalinks-live            own disposable MariaDB pair (NATIVE_PERMALINK_PAIR/PORT1/PORT2; exact source; native SDK URL families, hostile cache/hook refusal and complete row preservation)"
+	@echo "  regress-protected-identity-native         own disposable MariaDB pair (PROTECTED_IDENTITY_PAIR/PORT1/PORT2; exact source; Capture/env-set protected password, orphan tolerance, live-duplicate refusal)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"

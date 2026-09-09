@@ -31,6 +31,7 @@ final class Db {
     private const WITNESS_INACTIVE = 'inactive';
 
     private static ?TransactionAuthority $transactionAuthority = null;
+    private static ?TransactionAuthority $repeatableReadAuthority = null;
     private static ?string $transactionSavepoint = null;
     private static ?string $transactionWitnessState = null;
     private static bool $transactionCleanupOnly = false;
@@ -44,6 +45,7 @@ final class Db {
 
     private static function clear_transaction_tracking_state(): void {
         self::$transactionAuthority = null;
+        self::$repeatableReadAuthority = null;
         self::$transactionSavepoint = null;
         self::$transactionWitnessState = null;
         self::$transactionCleanupOnly = false;
@@ -907,6 +909,7 @@ final class Db {
             $authority = self::prepare_transaction_start($context);
             self::set_next_transaction_repeatable_read($context, $authority);
             self::start_after_repeatable_read('START TRANSACTION', $context, $authority);
+            self::$repeatableReadAuthority = $authority;
             return self::establish_profile($profile, $context);
         } catch (\Throwable $failure) {
             self::finish_query_isolation_if_settled();
@@ -931,6 +934,7 @@ final class Db {
                 $context,
                 $authority
             );
+            self::$repeatableReadAuthority = $authority;
             return self::establish_profile($profile, $context);
         } catch (\Throwable $failure) {
             self::finish_query_isolation_if_settled();
@@ -960,6 +964,7 @@ final class Db {
                 $context,
                 $authority
             );
+            self::$repeatableReadAuthority = $authority;
             return self::establish_profile($profile, $context);
         } catch (\Throwable $failure) {
             self::finish_query_isolation_if_settled();
@@ -1195,6 +1200,31 @@ final class Db {
             throw new DatabaseTransactionOutcomeException($context . ' transaction is not active');
         }
         return $expected;
+    }
+
+    /**
+     * Prove the controlled isolation needed by indexed absence/range locks.
+     *
+     * CONNECTION_ID + the session nonce prove transaction continuity, not
+     * isolation: start() intentionally inherits an unknown session default.
+     * Only an accepted one-shot SET + witnessed START grants this witness;
+     * data-free cleanup transactions never do. An uncertain terminal control
+     * retains tracking, but transaction_authority() makes it unusable here.
+     * Accepted SET means the supported server's acknowledgement, not an
+     * independently readable isolation postimage. DatabaseTransportBoundary
+     * pins stock wpdb/mysqli and rejects custom wpdb/database drop-ins; a
+     * server or proxy fabricating successful SQL execution is outside this
+     * contract, not a condition this witness claims to detect.
+     */
+    public static function repeatable_read_authority(string $context): TransactionAuthority {
+        $active = self::transaction_authority($context);
+        if (self::$repeatableReadAuthority === null
+            || !$active->equals(self::$repeatableReadAuthority)) {
+            throw new DatabaseTransactionOutcomeException(
+                $context . ' has no controlled repeatable-read transaction authority'
+            );
+        }
+        return $active;
     }
 
     /** Forget tracking only after an inactive original or idle replacement proof. */

@@ -162,6 +162,9 @@ $check(
 $protectedIdentitySource = (string) file_get_contents(
     __DIR__ . '/../../../../agent/src/Apply/ProtectedPostIdentity.php'
 );
+$lockedOwnersSource = (string) file_get_contents(
+    __DIR__ . '/../../../../agent/src/Repository/LockedEmbeddedUuidOwners.php'
+);
 $requestCoordinatorSource = (string) file_get_contents(
     __DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php'
 );
@@ -179,15 +182,20 @@ $check(
         && str_contains($requestCoordinatorSource, '$wpdb->termmeta,')
         && str_contains($requestCoordinatorSource, '], [$wpdb->posts])')
         && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_composite_unique_lock_index(') === 1
-        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_lock_index(') === 2
-        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::bounded_prefix_lock_index(') === 2
-        && str_contains($protectedIdentitySource, '$wpdb->terms,')
+        && str_contains($protectedIdentitySource, 'LockedEmbeddedUuidOwners::prepare(')
+        && str_contains($protectedIdentitySource, '$inventory = $owners->lock([$uuid]);')
+        && str_contains($lockedOwnersSource, 'DatabaseLockBoundary::assert_innodb_tables(')
+        && substr_count($lockedOwnersSource, 'DatabaseLockBoundary::full_width_lock_index(') === 2
+        && substr_count($lockedOwnersSource, 'DatabaseLockBoundary::bounded_prefix_lock_index(') === 2
+        && str_contains($lockedOwnersSource, 'Db::repeatable_read_authority(')
+        && !str_contains($lockedOwnersSource, 'DeleteGuardEvaluator')
         && str_contains($protectedIdentitySource, 'SELECT uuid, id_kind, local_id, entity_type')
         && str_contains($protectedIdentitySource, 'SELECT ID, post_type, post_password FROM {$wpdb->posts} FORCE INDEX')
-        && substr_count($protectedIdentitySource, 'FOR UPDATE') >= 4
-        && str_contains($protectedIdentitySource, 'self::locked_meta_rows($wpdb->postmeta')
-        && str_contains($protectedIdentitySource, 'self::locked_meta_rows($wpdb->termmeta')
-        && str_contains($protectedIdentitySource, 'self::locked_live_owner_ids(')
+        && substr_count($protectedIdentitySource, 'FOR UPDATE') >= 3
+        && substr_count($lockedOwnersSource, 'FOR UPDATE') === 2
+        && str_contains($lockedOwnersSource, '$this->locked_meta_rows($this->tables[\'postmeta\']')
+        && str_contains($lockedOwnersSource, '$this->locked_meta_rows($this->tables[\'termmeta\']')
+        && str_contains($lockedOwnersSource, '$this->locked_live_owner_ids(')
         && str_contains($protectedIdentitySource, 'EXISTS (SELECT 1 FROM {$wpdb->posts} gpo')
         && str_contains($protectedIdentitySource, 'EXISTS (SELECT 1 FROM {$wpdb->terms} gto')
         && str_contains($protectedIdentitySource, 'CONNECTION_ID() = %s')
