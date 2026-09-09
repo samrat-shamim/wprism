@@ -8,8 +8,8 @@ set -euo pipefail
 STATE="${CONF_REPO1:-siterepo/conf1}/state"
 
 # ---- 1. what the capsule DOES own reached canonical state -------------------
-OPTION_DOC=$(find "$STATE" -name '*.json' -path '*option*' | head -1)
-[ -n "$OPTION_DOC" ] || fail "Block Visibility capture produced no options document under $STATE"
+OPTION_DOC="$STATE/options/core.json"
+[ -f "$OPTION_DOC" ] || fail "Block Visibility capture produced no options document at $OPTION_DOC"
 jq -e '
   (.records["block_visibility_settings"].value.plugin_settings.block_opacity == 45) and
   (.records["block_visibility_settings"].value.disabled_blocks == ["core/separator","core/spacer"]) and
@@ -18,14 +18,17 @@ jq -e '
   || fail "Block Visibility settings did not reach canonical state as three authored sub-keys: $(jq -c '.records["block_visibility_settings"]' "$OPTION_DOC")"
 pass "Block Visibility settings captured as three authored sub-keys, block names and all"
 
-PRESET_COUNT=$(grep -rl '"type": *"post"' "$STATE" 2>/dev/null | xargs -r grep -l 'visibility_preset' | wc -l | tr -d ' ')
-[ "$PRESET_COUNT" -ge 1 ] \
-  || fail "Block Visibility captured no visibility_preset entity into canonical state"
-grep -rq 'Logged In Only' "$STATE" \
-  || fail "the authored preset title is missing from canonical state"
-grep -rq 'restrictedRoles' "$STATE" \
-  || fail "the preset's entity-free control set did not reach canonical state"
-pass "the visibility_preset entity and its entity-free control set captured, proving the interpreter admits a portable control set"
+PRESET_DIR="$STATE/posts/visibility_preset"
+[ -d "$PRESET_DIR" ] || fail "Block Visibility captured no visibility_preset entity directory at $PRESET_DIR"
+PRESET_DOC=$(find "$PRESET_DIR" -name '*.md' | head -1)
+[ -n "$PRESET_DOC" ] || fail "Block Visibility captured no visibility_preset document under $PRESET_DIR"
+grep -q 'Logged In Only' "$PRESET_DOC" \
+  || fail "the authored preset title is missing from $PRESET_DOC"
+grep -q 'restrictedRoles' "$PRESET_DOC" \
+  || fail "the preset's entity-free control set did not reach canonical state: $PRESET_DOC"
+grep -q '"layout": "columns"' "$PRESET_DOC" \
+  || fail "the preset's scalar meta did not reach canonical state: $PRESET_DOC"
+pass "the visibility_preset entity, its scalars and its entity-free control set captured, proving the interpreter admits a portable control set"
 
 # ---- 2. an annotated block REFUSES, naming the block and the reason ---------
 # update_post_meta/wp_update_post cannot stage this: the attribute lives in
