@@ -356,6 +356,13 @@ final class Blocks {
                     : BlockValueCodec::apply($block['attrs'][$path], $valueRule, $tokens, $where);
                 continue;
             }
+            // Unsupported means presence, including JSON null. Unlike an
+            // unset reference, it has no declared native interpretation.
+            if (array_key_exists('unsupported', $rule) && array_key_exists($path, (array) ($block['attrs'] ?? []))) {
+                throw new \RuntimeException(
+                    "wprism: block '$name' attribute '$path' is explicitly unsupported: " . $rule['unsupported']
+                );
+            }
             if (!isset($block['attrs'][$path])) {
                 continue;
             }
@@ -366,12 +373,6 @@ final class Blocks {
                 // index, not an entity id): exempts it from `wp wprism lint`'s
                 // *Id-name heuristic, and there is nothing to rewrite here
                 continue;
-            }
-
-            if (array_key_exists('unsupported', $rule)) {
-                throw new \RuntimeException(
-                    "wprism: block '$name' attribute '$path' is explicitly unsupported: " . $rule['unsupported']
-                );
             }
 
             if (($rule['tokenize'] ?? null) === 'text') {

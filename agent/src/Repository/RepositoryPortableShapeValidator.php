@@ -562,7 +562,9 @@ final class RepositoryPortableShapeValidator {
         $rules = [];
         foreach ($this->policy->block_attr_rules() as $block => $attributes) {
             foreach ($attributes as $rule) {
-                if (isset($rule['value'])) $rules[$block][$rule['path']] = $rule['value'];
+                // Repository edits bypass Capture. An explicit native
+                // refusal must also prevent a target-free compiled artifact.
+                if (isset($rule['value']) || array_key_exists('unsupported', $rule)) $rules[$block][$rule['path']] = $rule;
             }
         }
         try {
@@ -575,8 +577,13 @@ final class RepositoryPortableShapeValidator {
             foreach ($rules[$block['blockName']] as $attribute => $rule) {
                 if (!array_key_exists($attribute, $block['attrs'])) continue;
                 $locator = $rootLocator . '@' . $block['offset'] . '.attrs.' . $attribute;
+                if (array_key_exists('unsupported', $rule)) {
+                    $this->add('repository_block_attr_unsupported', $path, $locator,
+                        "wprism: block '{$block['blockName']}' attribute '$attribute' is explicitly unsupported: " . $rule['unsupported']);
+                    continue;
+                }
                 try {
-                    BlockValueCodec::assert_value($block['attrs'][$attribute], $rule, true, $locator);
+                    BlockValueCodec::assert_value($block['attrs'][$attribute], $rule['value'], true, $locator);
                 } catch (\RuntimeException $e) {
                     $this->add('repository_block_value_invalid', $path, $locator, $e->getMessage());
                 }
