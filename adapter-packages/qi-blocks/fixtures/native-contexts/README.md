@@ -46,5 +46,39 @@ Two upstream outcomes must remain visible in later native qualification:
   authored style storage and does not justify treating a rejected compound
   target as a portable numeric post reference.
 
-The native pair and browser obligations remain open. No capability status,
-package declaration or adapter identity changes on this evidence alone.
+A separate native widget run on `0d7efbd9` now exercises actual source and
+target controls with WordPress 7.1, Qi 1.5.2 and Twenty Twenty-One 2.9. Native
+Capture/Apply moves page 1 to 9 and widgets 2–7 to 21–26. Eight local trash rows
+and twenty stored widget instances remain intact. The target editor recognizes
+the saved Qi block; real font-control edits and Save work on both sites.
+Complete widget and style responses match native storage. The initial sidebar
+ordering request has HTTP 200 evidence, but its complete body was not retained.
+
+The fresh run reproduces the upstream guard failure before any engine transfer:
+the widget stores 29px, while its frontend renders 18px with no Qi stylesheet.
+After both editors save the widget at 30px and a native page save adds a 31px
+page style, both sites render those exact sizes. Complete emitted CSS matches
+after the page-ID binding. No storage coercion or rendering workaround is used.
+
+The independent widget/page edits correctly conflict on the shared style
+option. The refusal preserves every observed native field. Source state already
+contains the complete target widget edit; an explicit conflict decision then
+applies two entities and verifies all four. Repeat Apply writes zero. Eight
+complete repositories from the two transfer phases converge within their
+respective phase; two further captures converge after frontend rendering.
+
+Native boundaries remain explicit: the widget editor parks nineteen local
+instances without changing any of their twenty stored settings; later target
+receipts report the exact inactive-widget exclusion. The conflict decision and
+removal of the theme's empty `custom_css_post_id=-1` lookup cache are reported.
+Frontend access regenerates that cache, and the source editor heartbeat updates
+its existing runtime lock. These exact native changes are admitted separately;
+complete database equality is not claimed. Widget editors and frontends have
+zero JavaScript errors or warnings; the page editor has the known WordPress
+iframe stylesheet warning. The owned browser, pair and lease were removed.
+
+Native FSE template discovery/rendering and broader widget media controls remain
+open. No capability status, package declaration or adapter identity changes on
+this evidence alone. Exact source, stream hashes, admission scope and initial
+probe corrections are recorded in
+[`authoring-progress.json`](../../evidence/authoring-progress.json).

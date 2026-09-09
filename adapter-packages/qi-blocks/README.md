@@ -84,11 +84,15 @@ The [native context fixture](fixtures/native-contexts/README.md) additionally
 exercises six saved widgets and all three observed widget/page/template style
 combinations through Capture, compilation and a checked transaction. It proves
 divergent widget allocation, rollback, preservation of native object storage
-and exact recapture. Native template discovery, rendering and corrected target
-editor evidence remain separate obligations.
+and exact recapture. A fresh native widget run on `0d7efbd9` also passes actual
+control Save/reopen, divergent-ID Apply, explicit concurrent-edit refusal and
+reconciliation, zero-write repeat and complete CSS/recapture comparisons.
+It reproduces Qi's widget-only rendering failure and its successful rendering
+when a page style exists. Native template discovery/rendering and broader widget
+media controls remain separate obligations.
 
 The promotion conformance target hook still refuses; broader editor,
-widget/template, crop failure/removal, lifecycle, host, version and combination qualification remain
+template, broader widget/media, crop failure/removal, lifecycle, host, version and combination qualification remain
 unfinished. See
 [evidence/authoring-progress.json](evidence/authoring-progress.json) for the
 observed results and qualification limits.
