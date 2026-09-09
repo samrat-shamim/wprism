@@ -1140,6 +1140,11 @@ Verbs:
                           Extra flags (e.g. --adopt-by-slug=terms
                           --default-author=admin, --with-deletes) are forwarded
                           verbatim. Output streams live; exit code is the agent's.
+    --request-id=<id>     Give a direct scoped apply a stable request identity
+                          (8..128 ASCII letters, digits, . _ : -). Reuse it for
+                          retries; choose a new ID to intentionally apply an
+                          earlier artifact again. The target still proves the
+                          complete plan, lease, and preservation boundary.
   deploy <env> [...]      Compile once into the target's operational .wprism/
                           directory. Target preflight verifies whether that
                           exact revision is already complete; only a changed
@@ -1814,6 +1819,10 @@ function main(array $argv): int {
     $scopeVerbRefusal = reject_unsupported_scope_contract($verb, $extra);
     if ($scopeVerbRefusal !== null) {
         return $scopeVerbRefusal;
+    }
+    $requestIdRefusal = PassthroughCommand::requestIdRefusal($verb, $extra);
+    if ($requestIdRefusal !== null) {
+        return $requestIdRefusal;
     }
     $jsonRefusal = wants_agent_refusal_json($verb, $extra);
 

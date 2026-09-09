@@ -852,7 +852,7 @@
           {
             "module": "Scope",
             "kind": "intra-layer",
-            "count": 14,
+            "count": 15,
             "edges": [
               "ApplyLedgerFinalizer.php -> ScopedApply.php",
               "ApplyLedgerFinalizer.php -> ScopedApplySession.php",
@@ -862,6 +862,7 @@
               "ApplyPreparationCoordinator.php -> ScopedApplyWorkProjector.php",
               "ApplyPreparationCoordinator.php -> ScopedApplyWorkflow.php",
               "ApplyRequestCoordinator.php -> ScopedApply.php",
+              "ApplyRequestCoordinator.php -> ScopedApplyRequest.php",
               "ApplyRequestCoordinator.php -> ScopedApplySession.php",
               "ApplyRequestCoordinator.php -> ScopedApplyWorkflow.php",
               "ApplyRequestCoordinator.php -> ScopedStateOverlay.php",
@@ -917,6 +918,7 @@
         "status": "populated",
         "entry_points": [
           "ScopedApply",
+          "ScopedApplyRequest",
           "ScopedApplySession",
           "ScopedStateOverlay",
           "ScopedApplyWorkflow",
@@ -960,10 +962,11 @@
             ]
           }
         ],
-        "file_count": 7,
+        "file_count": 8,
         "files": [
           "ScopedApply.php",
           "ScopedApplyCoordinator.php",
+          "ScopedApplyRequest.php",
           "ScopedApplySession.php",
           "ScopedApplyWorkProjector.php",
           "ScopedApplyWorkflow.php",

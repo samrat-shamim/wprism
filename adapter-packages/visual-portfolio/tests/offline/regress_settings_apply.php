@@ -60,7 +60,12 @@ use WPrismTest\FakeWpdb;
 use WPrismTest\WpStore;
 
 function get_taxonomies(array $args = [], string $output = 'names'): array { return []; }
-function get_taxonomy(string $name): object { return (object) ['name' => $name, 'object_type' => [], 'hierarchical' => false]; }
+function get_taxonomy(string $name): object|false {
+    $portfolio = in_array($name, ['portfolio_category', 'portfolio_tag'], true);
+    if ($portfolio && !($GLOBALS['vp_fixture_taxonomies_registered'] ?? true)) return false;
+    return (object) ['name' => $name, 'object_type' => $portfolio ? ['portfolio'] : [],
+        'hierarchical' => $name === 'portfolio_category'];
+}
 function validate_plugin(string $plugin): bool { return true; }
 function get_plugins(): array { return ['visual-portfolio/class-visual-portfolio.php' => ['Name' => 'Visual Portfolio', 'Version' => '3.8.1']]; }
 $GLOBALS['wp_filter'] = [];
@@ -80,7 +85,8 @@ file_put_contents(WP_CONTENT_DIR . '/themes/fixture/style.css', "/*\nTheme Name:
 file_put_contents(WP_PLUGIN_DIR . '/visual-portfolio/class-visual-portfolio.php', "<?php\n/* Plugin Name: Visual Portfolio\nVersion: 3.8.1\n*/\n");
 $plugin = 'visual-portfolio/class-visual-portfolio.php';
 Canon::write_file($repo . '/site.wprism.json', Canon::encode(['spec_version' => WPRISM_SPEC_VERSION,
-    'manifests' => ['core', 'visual-portfolio'], 'policy' => ['post_types' => ['page', 'portfolio'], 'taxonomies' => [],
+    'manifests' => ['core', 'visual-portfolio'], 'policy' => ['post_types' => ['page', 'portfolio'],
+        'taxonomies' => ['portfolio_category', 'portfolio_tag'],
         'post_meta' => ['_VP_POST_TYPE_MAPPED' => ['class' => 'runtime']]]]));
 $library = AdapterLibrary::fromSourceTree($root);
 $policy = Policy::load($repo, adapterLibrary: $library);
@@ -251,7 +257,7 @@ try {
             catch (RuntimeException $error) { $refused = str_starts_with($error->getMessage(), 'Visual Portfolio settings admission:'); }
             wprism_check($refused, 'native admission rejects ' . $fault);
         }
-        if ($case === 'move') {
+        if (in_array($case, ['move', 'clear'], true)) {
             $originalBytes = file_get_contents($repo . '/state/options/core.json');
             $changed = $desired;
             $changed['register_portfolio_post_type'] = 'off';
@@ -265,6 +271,12 @@ try {
             $GLOBALS['vp_apply_context'] = [$repo, $policy, $disabled, $disabledContract];
             $disabledResult = Apply::apply($repo, ['compiled' => $disabledPath, 'adapter_library' => $library, 'scope_request' => $disabledContract]);
             wprism_check_same('complete', $disabledResult['scoped_receipt']['phase'], 'a distinct scoped authority can disable the native portfolio');
+            // Native 3.8.1 class-custom-post-type.php registers neither
+            // registrations when disabled. The next Apply boot therefore
+            // needs the manifest hierarchy while re-enabling the option.
+            $GLOBALS['vp_fixture_taxonomies_registered'] = false;
+            wprism_check(get_taxonomy('portfolio_category') === false && get_taxonomy('portfolio_tag') === false,
+                'reenabling starts with both native portfolio taxonomies unregistered');
             Canon::write_file($repo . '/state/options/core.json', $originalBytes);
             $GLOBALS['vp_apply_context'] = [$repo, $policy, $compiled, $contract];
             $returnPlan = Apply::plan($repo, ['compiled' => $artifact, 'adapter_library' => $library, 'scope_request' => $contract]);
@@ -288,6 +300,29 @@ try {
                 try { VisualPortfolioSettingsEvidence::revisit($contract, $contract, $returnPlan, $alteredRefusal, $beforeReturn, $alteredTarget); }
                 catch (RuntimeException $error) { $refused = true; }
                 wprism_check($refused, 'native revisit admission rejects ' . $fault);
+            }
+            $returnOptions = ['compiled' => $artifact, 'adapter_library' => $library,
+                'scope_request' => $contract, 'request_id' => VisualPortfolioSettingsEvidence::RETURN_REQUEST_ID];
+            $returned = Apply::apply($repo, $returnOptions);
+            wprism_check_same('complete', $returned['scoped_receipt']['phase'], 'a new explicit request returns to the earlier authored artifact');
+            wprism_check_same(true, $observe()['enabled'], 'the new request restores native portfolio enablement');
+            $returnedTarget = $observe();
+            $GLOBALS['vp_fixture_taxonomies_registered'] = true;
+            $returnedReplay = Apply::apply($repo, $returnOptions);
+            wprism_check_same($returned['scoped_receipt'], $returnedReplay['scoped_receipt'], 'the explicit request replays its own exact terminal receipt');
+            wprism_check_same($returnedTarget, $observe(), 'explicit request replay preserves every native and engine row');
+            if ($case === 'clear') {
+                $returnAdmission = ['enable', $beforeReturn, array_replace($returnedTarget, ['ids' => ['old' => 1, 'new' => 10]]),
+                    $contract, $returnPlan, $returned, $returnedTarget, $returnedReplay, $observe()];
+                VisualPortfolioSettingsEvidence::phase(...$returnAdmission);
+                wprism_check(true, 'native reenabling admission proves the actual explicit engine request and exact receipt');
+                $withoutSession = $returnAdmission;
+                $withoutSession[6]['engine']['wprism_kv'] = array_values(array_filter($withoutSession[6]['engine']['wprism_kv'],
+                    static fn(array $row): bool => $row['k'] !== WPrism\ScopedApplySession::STORAGE_KEY));
+                $withoutSession[8] = $withoutSession[6];
+                $refused = false;
+                try { VisualPortfolioSettingsEvidence::phase(...$withoutSession); } catch (RuntimeException $error) { $refused = true; }
+                wprism_check($refused, 'reenabling evidence without its explicit request authority refuses');
             }
             $inner = $root . '/sandbox/tmp/wprism-conformance-capture.vpfixture.' . bin2hex(random_bytes(3));
             $outer = $scratch . '/streams';

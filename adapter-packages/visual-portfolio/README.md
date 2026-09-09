@@ -29,18 +29,17 @@ Reading-time metadata uses the
 shared `on_post_write: delete` mechanism; view counters remain runtime state.
 
 The settings lane uses a new content-only repository and already installed plugins:
-an adoption baseline, scoped archive move/clear, disabling portfolio content, and
-terminal replay. It checks divergent native IDs, the old archive outside authored
+an adoption baseline, scoped archive move/clear, disabling and re-enabling portfolio
+content, and terminal replay. It checks divergent native IDs, the old archive outside authored
 scope, all nine native dependency tables and retained engine state. Its semantic
 offline doubles cover native no-ops, deferred rewrites, unrelated writes and aliases;
 they do not establish native injected-failure recovery.
 
-Returning to an earlier artifact after an intervening Apply currently refuses:
-the direct scoped request is identified by scope/content, so its historical terminal
-receipt describes the earlier target. Re-enabling after clear → disable reproduces
-this engine boundary. The live suite requires that exact refusal and unchanged
-observed state. A new direct request generation belongs in the engine follow-up;
-changing an unrelated setting or deleting receipts is not a recovery procedure.
+Returning to an earlier artifact uses a new explicit `--request-id` on the direct
+scoped Apply. Keep that ID for retries. The settings lane first proves the existing
+implicit historical receipt refuses the changed target, then re-enables through a
+new explicit request and verifies its exact terminal replay. The engine owns that
+request identity; the adapter uses its ordinary provider operation machinery.
 
 This first lane requires one WordPress document root and bounds each dependency
 table at 8,192 rows / 16 MiB. Server-file snapshots bind bytes or absence; they do

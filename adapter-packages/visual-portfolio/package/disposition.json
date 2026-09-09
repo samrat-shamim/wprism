@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Visual Portfolio 3.8.1 declarations exercise capture, immutable compilation, a native adoption baseline and bounded scoped archive/settings repair. Historical-artifact direct scoped transitions, complete effect recovery and production qualification remain open.",
+  "reason": "Visual Portfolio 3.8.1 declarations exercise capture, immutable compilation, a native adoption baseline and bounded scoped archive/settings repair, including explicit requests returning to earlier artifacts. Complete effect recovery and production qualification remain open.",
   "supported_versions": {"plugin": "visual-portfolio/class-visual-portfolio.php", "range": {"min": "3.8.1", "max": "3.8.2"}},
   "capabilities": {
     "entity_sections": ["post_types", "taxonomies"],
@@ -19,11 +19,6 @@
       "operation": "apply",
       "surface": "server-file-and-native-hook-recovery",
       "reason": "The settings provider verifies native database projections and observes server files; rewrite-file semantics and rollback of irreversible external effects remain unqualified."
-    },
-    {
-      "operation": "apply",
-      "surface": "direct-scoped-historical-artifact",
-      "reason": "Returning to an earlier artifact after another scoped Apply reuses historical terminal authority and refuses. A new direct request generation requires an engine change; no adapter workaround is supplied."
     },
     {
       "operation": "all",

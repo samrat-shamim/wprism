@@ -7,6 +7,7 @@ require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/ScopeContract.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Scope/ScopedApplyRequest.php';
 
 /**
  * Host forwarding boundary for the ordinary and scoped agent commands.
@@ -588,6 +589,10 @@ final class PassthroughCommand {
         array $extra,
         ?callable $beforeTarget = null
     ): int {
+        $requestRefusal = self::requestIdRefusal($verb, $extra);
+        if ($requestRefusal !== null) {
+            return $requestRefusal;
+        }
         $forward = [];
         $contractPath = null;
         $hasPlanView = false;
@@ -684,6 +689,45 @@ final class PassthroughCommand {
             return $refusal;
         }
         return $driver->streamWp(array_merge(['wprism', $verb, '--repo=' . $driver->repoPath()], $forward));
+    }
+
+    /** Reject unsupported request identities before resolving or contacting a target. */
+    public static function requestIdRefusal(string $verb, array $extra): ?int {
+        $ids = [];
+        $hasScope = false;
+        $hasPromotion = false;
+        foreach ($extra as $arg) {
+            if (!is_string($arg)) {
+                continue;
+            }
+            if (str_starts_with($arg, '--scope-contract=') && $arg !== '--scope-contract=') {
+                $hasScope = true;
+            }
+            foreach (['--promotion-owner', '--scoped-promotion-receipt', '--verified-promotion-receipt'] as $flag) {
+                $hasPromotion = $hasPromotion || str_starts_with($arg, $flag);
+            }
+            if (str_starts_with($arg, '--request-id')) {
+                $ids[] = str_starts_with($arg, '--request-id=') ? substr($arg, strlen('--request-id=')) : null;
+            }
+        }
+        if ($ids === []) {
+            return null;
+        }
+        try {
+            if (count($ids) !== 1 || $verb !== 'apply' || !$hasScope || $hasPromotion) {
+                throw new \InvalidArgumentException('request ID is outside direct scoped apply');
+            }
+            \WPrism\ScopedApplyRequest::validate_id($ids[0]);
+        } catch (\InvalidArgumentException $_failure) {
+            return self::scopeWireRefusal(
+                $verb,
+                $extra,
+                'invalid_arguments',
+                'the request ID is malformed, repeated, or outside direct scoped apply',
+                'use one --request-id=<8..128 ASCII letters, digits, dots, underscores, colons, or hyphens> with apply and one --scope-contract; retain it for retries'
+            );
+        }
+        return null;
     }
 
     public static function hasJsonFlag(array $extra): bool {

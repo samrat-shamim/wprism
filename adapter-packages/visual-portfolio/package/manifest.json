@@ -135,8 +135,8 @@
     "_vp_words_count": {"class": "derived", "on_post_write": "delete"}
   },
   "taxonomies": {
-    "portfolio_category": {"class": "authored", "object_type": ["portfolio"]},
-    "portfolio_tag": {"class": "authored", "object_type": ["portfolio"]}
+    "portfolio_category": {"class": "authored", "object_type": ["portfolio"], "hierarchical": true},
+    "portfolio_tag": {"class": "authored", "object_type": ["portfolio"], "hierarchical": false}
   },
   "block_attrs": {
     "visual-portfolio/block": [
@@ -499,7 +499,8 @@
     ]
   },
   "notes": [
-    "Experimental source capture and immutable compilation only; archive mapping, role synchronization and rewrite effects do not yet have an Apply contract.",
+    "Experimental source capture, immutable compilation and bounded native settings Apply; archive mapping, role synchronization and deferred hard rewrite effects use the settings provider.",
+    "Native 3.8.1 classes/class-custom-post-type.php:200,223 declares hierarchical categories and flat tags. Both are unregistered while portfolio content is disabled; these exact declarations let the engine bound its taxonomy cache roster when re-enabling settings.",
     "The archive page and placeholder are post references. _vp_post_type_mapped is derived from the archive option; treating each marker as authored leaves the old target marker outside outbound scope closure.",
     "The native archive page-size and seven image-width settings are numeric controls (classes/class-settings.php:287, 434-485), not post identities. Their narrow lint_ok reviews preserve string values even when they coincide with real post IDs.",
     "Legacy custom CSS replaces double hyphens with _u002d__u002d_ before encodeURIComponent (gutenberg/utils/encode-decode/index.js:34); single hyphens remain literal.",

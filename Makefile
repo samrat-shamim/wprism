@@ -2825,6 +2825,11 @@ regress-scope-contract:
 regress-scoped-apply-session:
 	php sandbox/tests/offline/reference-scope/regress_scoped_apply_session.php
 
+# Core-only public Apply proves request identity through actual lease, author,
+# verifier, archive and replay paths over the shared SQL/getter harness.
+regress-scoped-apply-requests:
+	php sandbox/tests/offline/reference-scope/regress_scoped_apply_requests.php
+
 # issue #3344: offline source contract for the scoped live harness itself. It
 # proves a failed pair teardown retains its exact evidence rather than
 # deleting roots and printing a pre-cleanup green verdict.

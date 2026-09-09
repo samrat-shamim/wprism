@@ -88,5 +88,9 @@ for phase in move clear disable enable; do
   capture "$phase-repeat" host_apply --scope-contract="$sink/$phase-scope.stdout" --format=json
   capture "$phase-stable" wp_side 2 eval-file "$fixture" observe --use-include --user=admin
 done
+capture enable-request-apply host_apply --scope-contract="$sink/enable-scope.stdout" --request-id=vp-settings-return-001 --format=json
+capture enable-request-target wp_side 2 eval-file "$fixture" observe --use-include --user=admin
+capture enable-request-repeat host_apply --scope-contract="$sink/enable-scope.stdout" --request-id=vp-settings-return-001 --format=json
+capture enable-request-stable wp_side 2 eval-file "$fixture" observe --use-include --user=admin
 php "$PACKAGE_ROOT/fixtures/settings-evidence.php" "$sink" "$PAIR"
 pair_live_ownership_complete 'REGRESS_VISUAL_PORTFOLIO_SETTINGS_APPLY PASSED'
