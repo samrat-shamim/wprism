@@ -249,6 +249,34 @@ try {
             catch (RuntimeException $error) { $refused = str_starts_with($error->getMessage(), 'Visual Portfolio settings admission:'); }
             wprism_check($refused, 'native admission rejects ' . $fault);
         }
+        if ($case === 'move') {
+            $inner = $root . '/sandbox/tmp/wprism-conformance-capture.vpfixture.' . bin2hex(random_bytes(3));
+            $outer = $scratch . '/streams';
+            mkdir($inner, 0700);
+            mkdir($outer, 0700);
+            register_shutdown_function(static fn() => $remove($inner));
+            $notice = 'private command diagnostics (unverified): ' . $inner . "\n";
+            $transport = " Container wprism-vpfixture-cli1-run-123456abcdef Created \n";
+            foreach (['valid', 'warning', 'different-stdout', 'duplicate-pointer', 'child-exit'] as $fault) {
+                $original = ['stdout' => "{\"ok\":true}\n", 'stderr' => $transport, 'exit' => "0\n"];
+                if ($fault === 'warning') $original['stderr'] .= "PHP Warning: hostile diagnostic\n";
+                if ($fault === 'child-exit') $original['exit'] = "1\n";
+                $wrapped = ['stdout' => $original['stdout'], 'stderr' => $notice . $original['stderr'], 'exit' => "0\n"];
+                if ($fault === 'different-stdout') $wrapped['stdout'] = "{\"ok\":false}\n";
+                if ($fault === 'duplicate-pointer') $wrapped['stderr'] = $notice . $wrapped['stderr'];
+                foreach ([$inner => $original, $outer => $wrapped] as $dir => $streams) {
+                    foreach ($streams as $suffix => $bytes) {
+                        file_put_contents("$dir/command.$suffix", $bytes);
+                        chmod("$dir/command.$suffix", 0600);
+                    }
+                }
+                clearstatcache();
+                $refused = false;
+                try { VisualPortfolioSettingsEvidence::command($root, $outer . '/command', 'vpfixture', 'capture'); }
+                catch (RuntimeException $error) { $refused = true; }
+                wprism_check($refused === ($fault !== 'valid'), 'nested native stream admission: ' . $fault);
+            }
+        }
     }
 } catch (Throwable $failure) {
     $queue = [$failure];

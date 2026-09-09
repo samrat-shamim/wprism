@@ -27,12 +27,12 @@ candidate() { local side="$1" verb="$2"; shift 2; conformance_private_command "c
 sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/vp-settings-native.XXXXXX")
 printf 'Retained native settings streams for %s: %s\n' "$EXPECTED_SHA" "$sink"
 capture() {
-  local name="$1" result=0 suffix; shift
+  local name="$1" result=0 suffix verb=''; shift
+  if [ "${1:-}" = candidate ]; then verb="$3"; fi
   for suffix in stdout stderr exit; do (umask 077; set -C; : > "$sink/$name.$suffix"); done
   wprism_private_capture_stage "$sink" "$name" "$@" || result=$?
   [ "$result" -eq 0 ] || fail "$name exited $result; retained $sink/$name"
-  php -r 'require $argv[1]; WPrismTest\PrivateCommandOutput::readBytes($argv[2], "/^ ?Container wprism-[a-z0-9]+-cli[12]-run-[a-z0-9]+ (Creating|Created) *$/D");' \
-    "$REPO_ROOT/sandbox/tests/lib/PrivateCommandOutput.php" "$sink/$name"
+  php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name" "$PAIR" "$verb"
   printf 'ok: %s\n' "$name"
 }
 zip="${VP_SETTINGS_ZIP:?local locked Visual Portfolio 3.8.1 zip required}"

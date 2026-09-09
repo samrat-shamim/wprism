@@ -1,9 +1,32 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/PrivateCommandOutput.php';
+
 final class VisualPortfolioSettingsEvidence {
     public static function check(bool $ok, string $reason): void {
         if (!$ok) throw new RuntimeException('Visual Portfolio settings admission: ' . $reason);
+    }
+
+    public static function command(string $root, string $stem, string $pair, string $verb = ''): void {
+        self::check(preg_match('/^[a-z][a-z0-9]*$/D', $pair) === 1, 'exact owned pair');
+        $transport = ' ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-f0-9]{12} (Creating|Created) *';
+        if ($verb === '') {
+            WPrismTest\PrivateCommandOutput::readBytes($stem, '/^' . $transport . '$/D');
+            return;
+        }
+        self::check(in_array($verb, ['capture', 'apply'], true), 'known wrapped native command');
+        $pointer = 'private command diagnostics (unverified): ';
+        $prefix = $root . '/sandbox/tmp/wprism-conformance-' . $verb . '.' . $pair . '.';
+        $pattern = '/^(?:' . $transport . '|' . preg_quote($pointer . $prefix, '/') . '[A-Za-z0-9]{6})$/D';
+        $stdout = WPrismTest\PrivateCommandOutput::readBytes($stem, $pattern);
+        $stderr = (string) file_get_contents($stem . '.stderr');
+        $notice = explode("\n", $stderr, 2)[0];
+        self::check(str_starts_with($notice, $pointer . $prefix), 'one leading wrapper diagnostic pointer');
+        $directory = substr($notice, strlen($pointer));
+        $original = WPrismTest\PrivateCommandOutput::readBytes($directory . '/command', '/^' . $transport . '$/D');
+        self::check($stdout === $original && $stderr === $notice . "\n" . file_get_contents($directory . '/command.stderr'),
+            'wrapper streams exactly reproduce the admitted original command');
     }
 
     public static function phase(string $phase, array $before, array $source, array $contract, array $plan,
@@ -80,6 +103,10 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     $root = dirname(__DIR__, 3);
     require_once "$root/sandbox/tests/lib/PrivateCommandOutput.php";
     require_once "$root/agent/src/Kernel/Canon.php";
+    if (($argv[1] ?? '') === 'admit-command') {
+        VisualPortfolioSettingsEvidence::command($root, $argv[2], $argv[3], $argv[4] ?? '');
+        exit(0);
+    }
     $sink = $argv[1] ?? '';
     $read = static fn(string $name): array => json_decode(WPrismTest\PrivateCommandOutput::readObject("$sink/$name",
         '/^ ?Container wprism-[a-z0-9]+-cli[12]-run-[a-z0-9]+ (Creating|Created) *$/D'), true, 64, JSON_THROW_ON_ERROR);
