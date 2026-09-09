@@ -46,12 +46,12 @@ use WPrism\Policy;
 // only WPForms and its two containing worlds move, not the reviewed registry.
 // Withdrawing Yoast Duplicate Post's unproved managed-clone certification
 // moves its disposition, both containing worlds and the whole-registry snapshots.
-const BASELINE_FIXTURE_SHA256 = '4068d6a62d358d21d4cd7d78cc4d250afe1bb24b918321169655b081ce37d626';
-const RANK_WORLD_MANIFEST_HASH = '97b69e03d7fa0f168361330796c5506d1a19bb115e1463289895a01ace340de4';
-const YOAST_WORLD_MANIFEST_HASH = '91a96808d3a5fbb75506074c447cbf16c7896734bea5f2578cf34bc3b9218a02';
-const REGISTRY_SHA256 = '5444c60f2f8178f064bb25a5b30eaa947ad39b0df514f2cb8ec6216aed67f914';
-const RANK_WORLD_SNAPSHOT_SHA256 = '070322b0ae5a2e7a13f70b1034651bb98c9625e1edb4483ac81f1fce531ac169';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '663a7f20249bec2ed98a991486778e4001c5230cb979af1e895bb7146adf1aec';
+const BASELINE_FIXTURE_SHA256 = '4e05a1a46ca2e6962df5579ba73d8c44e9e9e5263ca7b0a85b0c109a076ae04f';
+const RANK_WORLD_MANIFEST_HASH = '45618dd93dd364e361ad3d0845f037e166ae907e13c77bbc880d42b7f95cf696';
+const YOAST_WORLD_MANIFEST_HASH = '0cfc60ac8e30f9e3ce10fd1ef4c4668daaf45472a9c0b4b188cce9bacff60b63';
+const REGISTRY_SHA256 = 'e9e2a6e16563d1ef37dd86c9ae7b9be13331c04e805a236e2a0d400886619f78';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'b221c44bebba6ec495910c24bcb9b2a77d871d2c42ebd801fef2c108a81a9957';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '52d6f4587e5668c80878367a30caf656e19abb16a32af52a317ac160aae7797b';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
