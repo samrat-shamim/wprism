@@ -1760,6 +1760,10 @@ regress-private-command-capture:
 regress-private-tree-evidence:
 	php sandbox/tests/offline/guards/regress_private_tree_evidence.php
 
+.PHONY: regress-private-file-bytes
+regress-private-file-bytes:
+	php sandbox/tests/offline/guards/regress_private_file_bytes.php
+
 .PHONY: regress-sql-dump-evidence
 regress-sql-dump-evidence:
 	php sandbox/tests/offline/guards/regress_sql_dump_evidence.php

@@ -227,6 +227,7 @@ return [
     'WPrism\\PreparedApply' => 'src/Apply/PreparedApply.php',
     'WPrism\\PrivateEvidenceCarrierException' => 'src/Kernel/PrivateEvidenceCarrierException.php',
     'WPrism\\PrivateEvidenceException' => 'src/Kernel/PrivateEvidenceException.php',
+    'WPrism\\PrivateFileBytes' => 'src/Kernel/PrivateFileBytes.php',
     'WPrism\\PrivateRefusalEvidence' => 'src/Kernel/PrivateRefusalEvidence.php',
     'WPrism\\ProcessFence' => 'src/Kernel/ProcessFence.php',
     'WPrism\\PromotionLease' => 'src/Promotion/PromotionLease.php',
