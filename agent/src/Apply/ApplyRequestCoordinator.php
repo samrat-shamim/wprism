@@ -827,39 +827,24 @@ final class ApplyRequestCoordinator {
         }
     }
 
-    // ----------------------------------------------------------------- apply
-
-    public static function apply(string $repo, array $opts = []): array {
-        $policy = self::policy($repo, $opts);
-        $compiled = self::compiled($repo, $policy, $opts);
-        Canary::suppress_cron_spawn();
-        $scopeRequest = $opts['scope_request'] ?? null;
-        $scoped = is_array($scopeRequest);
-        $scopedPromotionWitness = self::assert_scoped_promotion_request($opts, $scoped);
-        $verifiedPromotionWitness = self::assert_verified_promotion_request($opts, $scoped);
-        $allowDeletes = !empty($opts['with_deletes']);
-        $requestBinding = self::direct_scoped_request($opts, $scoped, $allowDeletes);
-        if ($scoped) {
-            Ledger::assert_read_only_schema();
-            // Recompute before target mutation so malformed/stale evidence
-            // cannot create a lease or durable scoped session.
-            try {
-                $preflightContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
-                if ($scopedPromotionWitness !== null) {
-                    ScopeContract::assert_mutation_supported($preflightContract, 'scoped promote');
-                }
-            } catch (\Throwable $failure) {
-                throw CommandRefusalException::applyRefused(
-                    'scoped apply refused because its scope evidence is stale or invalid for the current source artifact',
-                    'rebuild the scope contract and scoped plan from the current source artifact, then retry apply',
-                    'wprism: scoped apply source evidence is stale or invalid; rebuild the scope contract and plan before retrying',
-                    $failure
-                );
-            }
-        } else {
-            Ledger::ensure();
-            $preflightContract = null;
-        }
+    /**
+     * Read the request protocol at both preflight and the acquired lease.
+     * The first read preserves mutation-free replay/refusal; only the fenced
+     * read may select the session to resume or archive for new mutation.
+     *
+     * @return array{?ScopedApplySession,?ScopedApplySession,?array}
+     */
+    private static function scoped_request_state(
+        string $repo,
+        array $opts,
+        Policy $policy,
+        CompiledRepository $compiled,
+        ?array $preflightContract,
+        ?array $requestBinding,
+        ?array $scopedPromotionWitness,
+        bool $allowDeletes
+    ): array {
+        $scoped = $preflightContract !== null;
         $sessionStorage = new LedgerScopedApplySessionStorage();
         $existingScopedSession = ScopedApplySession::open($sessionStorage);
         if ($scoped && $existingScopedSession !== null && !$existingScopedSession->is_terminal()
@@ -1025,7 +1010,7 @@ final class ApplyRequestCoordinator {
                         'wprism: terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
                     );
                 }
-                return self::scoped_terminal_summary($terminalReplaySession);
+                return [null, null, self::scoped_terminal_summary($terminalReplaySession)];
             }
         }
         if (($scopedPromotionWitness['state'] ?? null) === 'committed') {
@@ -1046,6 +1031,48 @@ final class ApplyRequestCoordinator {
             }
             $terminalScopedSessionToArchive = $existingScopedSession;
             $existingScopedSession = null;
+        }
+        return [$existingScopedSession, $terminalScopedSessionToArchive, null];
+    }
+
+    // ----------------------------------------------------------------- apply
+
+    public static function apply(string $repo, array $opts = []): array {
+        $policy = self::policy($repo, $opts);
+        $compiled = self::compiled($repo, $policy, $opts);
+        Canary::suppress_cron_spawn();
+        $scopeRequest = $opts['scope_request'] ?? null;
+        $scoped = is_array($scopeRequest);
+        $scopedPromotionWitness = self::assert_scoped_promotion_request($opts, $scoped);
+        $verifiedPromotionWitness = self::assert_verified_promotion_request($opts, $scoped);
+        $allowDeletes = !empty($opts['with_deletes']);
+        $requestBinding = self::direct_scoped_request($opts, $scoped, $allowDeletes);
+        if ($scoped) {
+            Ledger::assert_read_only_schema();
+            // Recompute before target mutation so malformed/stale evidence
+            // cannot create a lease or durable scoped session.
+            try {
+                $preflightContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+                if ($scopedPromotionWitness !== null) {
+                    ScopeContract::assert_mutation_supported($preflightContract, 'scoped promote');
+                }
+            } catch (\Throwable $failure) {
+                throw CommandRefusalException::applyRefused(
+                    'scoped apply refused because its scope evidence is stale or invalid for the current source artifact',
+                    'rebuild the scope contract and scoped plan from the current source artifact, then retry apply',
+                    'wprism: scoped apply source evidence is stale or invalid; rebuild the scope contract and plan before retrying',
+                    $failure
+                );
+            }
+        } else {
+            Ledger::ensure();
+            $preflightContract = null;
+        }
+        [$existingScopedSession, $terminalScopedSessionToArchive, $terminalSummary] = self::scoped_request_state(
+            $repo, $opts, $policy, $compiled, $preflightContract, $requestBinding, $scopedPromotionWitness, $allowDeletes
+        );
+        if ($terminalSummary !== null) {
+            return $terminalSummary;
         }
         $recoveringScopedSession = $scoped
             && $existingScopedSession !== null
@@ -1102,6 +1129,30 @@ final class ApplyRequestCoordinator {
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('wprism: compiled artifact changed before locked apply');
             }
+            // GET_LOCK is nonblocking, but another Apply can finish between
+            // the preflight read and acquisition. Reopen the protocol before
+            // publishing a generation, archiving a terminal, or planning work.
+            [$lockedScopedSession, $lockedTerminalToArchive, $terminalSummary] = self::scoped_request_state(
+                $repo, $opts, $lockedPolicy, $lockedCompiled, $preflightContract,
+                $requestBinding, $scopedPromotionWitness, $allowDeletes
+            );
+            if ($terminalSummary !== null) {
+                PromotionLock::release($promotionOwner, $promotionArtifact);
+                return $terminalSummary;
+            }
+            if ($scoped && (($lockedScopedSession !== null) !== $recoveringScopedSession
+                || ($recoveringScopedSession && !hash_equals(
+                    $existingScopedSession->authority_hash_value(),
+                    $lockedScopedSession->authority_hash_value()
+                )))) {
+                throw CommandRefusalException::applyRefused(
+                    'the scoped session changed before this command acquired its lease; no scoped work was started',
+                    'retry the original scoped request unchanged so its retained recovery authority can be reopened',
+                    'wprism: scoped apply session changed before lease acquisition'
+                );
+            }
+            $existingScopedSession = $lockedScopedSession;
+            $terminalScopedSessionToArchive = $lockedTerminalToArchive;
             if ($continuation) {
                 PromotionLock::assert_no_lifecycle_attempt(
                     $promotionOwner,

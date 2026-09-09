@@ -31,6 +31,7 @@ use WPrism\Policy;
 use WPrism\RepositoryCompiler;
 use WPrism\ScopeContract;
 use WPrism\ScopedApplySession;
+use WPrism\ScopedApplyRequest;
 use WPrism\TableSchema;
 use WPrismTest\FakeWpdb;
 use WPrismTest\WpStore;
@@ -150,8 +151,36 @@ $complete = static function (array $opts, string $value) use ($repo): array {
     return $result;
 };
 
+// GET_LOCK has a zero wait budget, but another process can finish between
+// the earlier session read and this acquisition. Execute real public Apply
+// at that shared SQL seam; never manufacture session or terminal-index rows.
+$interleave = static function (array $opts, callable $concurrent) use ($db, $repo, $observe): array {
+    $completed = $target = $result = $failure = null;
+    $hit = false;
+    $db->onQuery(static function (string $sql) use ($db, $concurrent, $observe, &$hit, &$completed, &$target): null {
+        if (str_contains($sql, 'GET_LOCK(')) {
+            $db->onQuery(null);
+            $hit = true;
+            $completed = $concurrent();
+            $target = $observe();
+        }
+        return null;
+    });
+    try { $result = Apply::apply($repo, $opts); } catch (Throwable $error) { $failure = $error; }
+    finally { $db->onQuery(null); }
+    wprism_check($hit && $target !== null, 'the concurrent public request reaches its outcome before fence acquisition');
+    return [$completed, $result, $failure, $target];
+};
+
 try {
-    $a1 = $complete($source('A', 'core-request-A1'), 'A');
+    $racingOptions = $source('A', 'core-request-A1');
+    [$concurrentResult, $a1, $raceFailure, $concurrentTarget] = $interleave(
+        $racingOptions, static fn() => $complete($racingOptions, 'A')
+    );
+    wprism_check($raceFailure === null, 'a concurrent exact retry succeeds after acquiring its fence');
+    wprism_check_same($concurrentResult['scoped_receipt'], $a1['scoped_receipt'] ?? null,
+        'a concurrent exact retry returns the completed authority receipt');
+    wprism_check_same($concurrentTarget, $observe(), 'a concurrent exact retry preserves every completed physical row');
     $b = $complete($source('B', 'core-request-B1'), 'B');
     $oldA = $source('A', 'core-request-A1');
     $refuses($oldA, 'retrying stale A cannot reverse B', 'terminal scoped receipt no longer describes');
@@ -178,6 +207,76 @@ try {
     $archived = Apply::apply($repo, $oldA);
     wprism_check_same($a1['scoped_receipt'], $archived['scoped_receipt'], 'archived request replays only after its exact target witnesses hold again');
     wprism_check_same($stable, $observe(), 'archived replay mutates no table');
+
+    foreach (['delete capability', 'source', 'scope'] as $changed) {
+        $id = 'core-race-' . str_replace(' ', '-', $changed);
+        $racingOptions = $source('Race ' . $changed, $id);
+        $concurrent = static fn() => $complete($racingOptions, 'Race ' . $changed);
+        if ($changed === 'delete capability') {
+            $racingOptions['with_deletes'] = true;
+        } elseif ($changed === 'source') {
+            $concurrent = static function () use ($source, $complete, $id): array {
+                $first = $complete($source('Race earlier source', $id), 'Race earlier source');
+                $source('Race source', $id);
+                return $first;
+            };
+        } else {
+            $racingOptions['scope_request'] = ScopeContract::resolve(
+                $GLOBALS['scoped_request_context'][2], $policy, ['option:blogdescription']
+            );
+        }
+        [, $result, $failure, $completedTarget] = $interleave($racingOptions, $concurrent);
+        wprism_check($result === null && $failure instanceof CommandRefusalException
+            && str_contains($failure->publicMessage, 'retained request ID'),
+            'concurrent reuse with changed ' . $changed . ' returns the exact request collision refusal');
+        wprism_check_same($completedTarget, $observe(), 'concurrent ' . $changed . ' collision preserves the completed target and evidence');
+    }
+
+    $racingOptions = $source('Race latest', 'core-race-latest');
+    $middleContext = null;
+    [$middle, $latest, $failure] = $interleave($racingOptions, static function () use ($source, $complete, &$middleContext): array {
+        $first = $complete($source('Race middle', 'core-race-middle'), 'Race middle');
+        $middleContext = $GLOBALS['scoped_request_context'];
+        $source('Race latest', 'core-race-latest');
+        return $first;
+    });
+    wprism_check($failure === null && ($latest['verification']['result'] ?? null) === 'pass'
+        && get_option('blogname') === 'Race latest', 'a different new request completes after the intervening terminal');
+    $middleArchive = ScopedApplySession::open_terminal_for_request(
+        new LedgerScopedApplySessionStorage(), $middleContext[3]['scope_hash'], $middleContext[2]->artifact_hash(),
+        null, ScopedApplyRequest::binding('core-race-middle', false)
+    );
+    wprism_check_same($middle['scoped_receipt'], $middleArchive?->terminal_receipt(),
+        'rotation archives the newly observed terminal with its exact receipt');
+
+    $racingOptions = $source('Race archived', 'core-race-archived');
+    [, $result, $failure, $completedTarget] = $interleave($racingOptions + ['with_deletes' => true],
+        static function () use ($repo, $source, $complete, $racingOptions): array {
+            $first = $complete($racingOptions, 'Race archived');
+            Apply::apply($repo, $source('Race archived', 'core-race-archive-next'));
+            return $first;
+        }
+    );
+    wprism_check($result === null && $failure instanceof CommandRefusalException
+        && str_contains($failure->publicMessage, 'does not bind an intact terminal receipt'),
+        'the locked lookup also catches request collisions archived by an intervening generation');
+    wprism_check_same($completedTarget, $observe(), 'an intervening archived collision preserves all completed target evidence');
+
+    $racingOptions = $source('Race pending', 'core-race-pending');
+    [, $result, $failure, $pendingTarget] = $interleave($racingOptions, static function () use ($repo, $racingOptions): ?Throwable {
+        $GLOBALS['scoped_request_verifier_failure'] = true;
+        try { Apply::apply($repo, $racingOptions); } catch (Throwable $error) { return $error; }
+        finally { $GLOBALS['scoped_request_verifier_failure'] = false; }
+        return null;
+    });
+    wprism_check($result === null && $failure instanceof CommandRefusalException
+        && str_contains($failure->publicMessage, 'session changed before'),
+        'a request that becomes pending before acquisition requires its exact recovery lease');
+    wprism_check_same($pendingTarget, $observe(), 'newly pending authority is not stolen or republished under the contender lease');
+    $pendingRace = ScopedApplySession::open(new LedgerScopedApplySessionStorage());
+    $recoveredRace = $complete($racingOptions, 'Race pending');
+    wprism_check_same($pendingRace->authority_hash_value(), $recoveredRace['scoped_receipt']['authority_hash'],
+        'retry after the pending-session race recovers the original authority');
 
     $interrupted = $source('C', 'core-request-C1');
     $GLOBALS['scoped_request_verifier_failure'] = true;

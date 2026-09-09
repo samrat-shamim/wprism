@@ -3597,6 +3597,12 @@ target. An active nonterminal request requires that exact identity before lease
 recovery and again under the lease. Omitting or replacing its ID cannot adopt
 the interrupted work. Terminal retries still independently re-prove the bounded
 target; choosing a new ID never converts a stale receipt into current evidence.
+The active session and terminal request index are reopened after acquiring the
+lease, before a new generation is published or a prior terminal is archived.
+A request completed since preflight returns its exact receipt after target
+verification; reused intent refuses without replacing its evidence. If a
+nonterminal session first appears at that boundary, the caller retries unchanged
+to acquire that session's original recovery lease.
 Without the option, existing v1 request and authority bytes remain unchanged.
 
 Execution is journaled in one append-only `wprism-scoped-apply-session/v1` with
