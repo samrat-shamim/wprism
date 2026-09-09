@@ -1180,6 +1180,10 @@ regress-provider-database-session:
 regress-physical-table-rows:
 	php sandbox/tests/offline/guards/regress_physical_table_rows.php
 
+.PHONY: regress-locked-physical-rows
+regress-locked-physical-rows:
+	php sandbox/tests/offline/repository/regress_locked_physical_rows.php
+
 .PHONY: regress-native-option-inputs
 regress-native-option-inputs:
 	php sandbox/tests/offline/guards/regress_native_option_inputs.php

@@ -83,6 +83,7 @@
     "ExecutableTreeIdentity",
     "FilesystemTreeSnapshot",
     "PhpLiteralData",
+    "PhysicalTableRows",
     "WordPressOptionValueCodec",
     "ManifestExecutableLoader",
     "NativeDatabaseProfile",

@@ -52447,6 +52447,9 @@
                 },
                 "MAX_ROWS": {
                     "value_repr": 16384
+                },
+                "MAX_SELECTED_ROWS": {
+                    "value_repr": 64
                 }
             },
             "final": true,
@@ -52463,6 +52466,47 @@
                             "has_default": false,
                             "name": "descriptor",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observe_locked_selected": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "descriptor",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "identityTuples",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "WPrism\\TransactionAuthority",
                             "variadic": false
                         },
                         {
