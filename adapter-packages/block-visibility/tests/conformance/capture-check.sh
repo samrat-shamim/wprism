@@ -74,10 +74,20 @@ wp_update_post(["ID" => $p->ID, "post_content" => "<!-- wp:paragraph -->\n<p>No 
 ' >/dev/null
 wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-bv-clean >/dev/null \
   || fail "capture did not recover after the blockVisibility annotation was removed"
-diff -r "$STATE" "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-clean" \
-  || fail "capture after removing the annotation is not byte-identical to the admitted capture"
+# Two wp_update_post() calls moved this post's modified stamps, so the ONLY
+# admissible difference is those two lines. Asserting that rather than plain
+# byte-identity is the stronger statement: every other captured byte, the block
+# content included, came back unchanged.
+RECOVERED_DIFF=$(diff -r "$STATE" "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-clean" || true)
+UNEXPECTED=$(printf '%s\n' "$RECOVERED_DIFF" \
+  | grep -E '^[<>]' \
+  | grep -vE '^[<>][[:space:]]+"modified(_gmt)?": ' || true)
+[ -z "$UNEXPECTED" ] \
+  || fail "capture after removing the annotation differs by more than the modified stamps: $UNEXPECTED"
+grep -rq 'blockVisibility' "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-clean" \
+  && fail "the recovered capture still carries a blockVisibility attribute" || true
 rm -rf "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-clean"
-pass "removing the visibility rule restores a byte-identical capture, so the boundary is the rule and not the content"
+pass "removing the visibility rule restores capture with no difference but the modified stamps and no blockVisibility left behind, so the boundary is the rule and not the content"
 
 # ---- 3. an entity-referencing preset control set REFUSES by field name ------
 REF_FILE="${CONF_REPO1:-siterepo/conf1}/.tmp-block-visibility-ref.php"
