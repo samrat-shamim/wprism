@@ -118,3 +118,22 @@ grep -q 'control_sets' <<<"$REF_CAP" \
 grep -q 'postID' <<<"$REF_CAP" \
   || fail "the control_sets refusal did not name the offending location rule field: $REF_CAP"
 pass "a preset control set carrying an entity reference aborts capture, naming the meta key and the exact location rule field"
+
+# Restore the portable control set: the refusal above is the assertion, and
+# leaving the source refusing would make every later harness step fail for a
+# reason this hook already proved. Capture must answer again afterwards, which
+# is what makes the refusal a boundary rather than a latent broken state.
+wp_conf1 eval '
+$preset = get_posts(["post_type" => "visibility_preset", "numberposts" => 1, "fields" => "ids"])[0];
+$sets = get_post_meta($preset, "control_sets", true);
+unset($sets[0]["controls"]["location"]);
+update_post_meta($preset, "control_sets", $sets);
+' >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-bv-restored >/dev/null \
+  || fail "capture did not recover after the entity-referencing location rule was removed"
+grep -rq 'restrictedRoles' "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-restored" \
+  || fail "the restored capture lost the preset's remaining entity-free control set"
+grep -rq '"field": "postID"' "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-restored" \
+  && fail "the restored capture still carries the entity-referencing location rule" || true
+rm -rf "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-restored"
+pass "removing the entity-referencing rule restores capture with the portable control set intact, so the interpreter refuses the reference and not the preset"
