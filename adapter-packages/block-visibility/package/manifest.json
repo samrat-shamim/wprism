@@ -16,7 +16,8 @@
     "Adapter-authoring probe 2026-09-08: official WordPress.org Block Visibility 3.7.1 (SHA-256 1b889bb9f5c650fd89bc968f26a4acf01355cc58736eabc8da63cab213710a9a), measured live on WordPress 7.1. Persistent surface: one option (block_visibility_settings), one post type (visibility_preset) with four registered meta keys, and the blockVisibility block attribute. No taxonomy, custom table, transient, cron event, user meta, shortcode or widget.",
     "The option is fully portable and withholds nothing: visibility_controls is sixteen boolean toggles, disabled_blocks is a list of BLOCK NAMES rather than ids, and plugin_settings holds scalars plus role slugs. It is measured ABSENT on a fresh install until the first save, and this capsule deliberately does NOT complete that absence from the plugin's registered defaults: unlike Speculative Loading, Block Visibility builds its defaults inside register_settings() and publishes them only through register_setting() on rest_api_init/admin_init, neither of which a capture process fires, so there is no in-process way to read them from the plugin itself. An absent row therefore captures as absence and the disposition records it as an unsupported surface rather than substituting a hardcoded copy.",
     "WHY THIS CAPSULE IS EXPERIMENTAL. The plugin's primary surface is a block attribute injected into EVERY registered block, carrying entity ids at conditionally-typed nested paths. block_attrs binds one top-level attribute key per EXACT block name over a value vocabulary the engine closes at {int,int[]} ('any other shape needs engine support before it can be declared', AttributeGrammar). Neither the any-block reach nor the nested conditional paths are expressible today.",
-    "WHY IT REFUSES RATHER THAN CAPTURING. Undeclared, those ids reach canonical state verbatim and land on a target pointing at unrelated entities, and lint does NOT catch it: unregistered_block_attr fires on attributes named id/ids/ref or ending in Id/Ids holding a NUMERIC value, while blockVisibility is an object. Every block that can carry it therefore declares it `unsupported`, a reviewed blocking boundary that fires only when a block actually holds the attribute \u2014 ordinary content capture is untouched. The same structure recurs in the visibility_preset meta key control_sets, which the interpreter admits only when it carries no entity reference. tools/engine-gaps.json records the demand as any_block_structured_attribute_reference_paths."
+    "WHY IT REFUSES RATHER THAN CAPTURING. Undeclared, those ids reach canonical state verbatim and land on a target pointing at unrelated entities, and lint does NOT catch it: unregistered_block_attr fires on attributes named id/ids/ref or ending in Id/Ids holding a NUMERIC value, while blockVisibility is an object. Every block that can carry it therefore declares it `unsupported`, a reviewed blocking boundary that fires only when a block actually holds the attribute -- ordinary content capture is untouched. The same structure recurs in the visibility_preset meta key control_sets, which the interpreter admits only when it carries no entity reference. tools/engine-gaps.json records the demand as any_block_structured_attribute_reference_paths.",
+    "WHY THE CORE RULES ARE RESTATED HERE. ContentAttributeRuleResolver::block_attr_rules() replaces a block's whole rule LIST per block name, last pin wins (agent/src/Grammar/ContentAttributeRuleResolver.php:16-23) -- it is not a per-path merge. Declaring only `blockVisibility` on a block the platform core manifest also declares would therefore DELETE core's rules for it, and core declares 21 of these blocks: core/image's post ref, core/gallery's ids, core/block's reusable-block ref, core/avatar's user ref, the navigation refs, and eighteen URL tokenizers. That would turn this capsule into a cause of exactly the silent id leakage it exists to prevent. Each overlapping entry therefore restates core's rules verbatim and appends its own, the complete-superset shape The Events Calendar's core/legacy-widget codec already uses; tests/offline/regress_package_contract.php asserts the superset per block, so a core rule added later fails this capsule's gate instead of being silently dropped. core/legacy-widget is deliberately NOT declared at all: The Events Calendar owns it with a whole-block codec, and any declaration here would clobber that codec whenever this capsule sorts later in the pin list."
   ],
   "options": {
     "block_visibility_settings": {
@@ -77,17 +78,36 @@
     ],
     "core/audio": [
       {
+        "kind": "post",
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "src",
+        "tokenize": "text"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
     ],
     "core/avatar": [
       {
+        "kind": "user",
+        "path": "userId",
+        "type": "int"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
     ],
     "core/block": [
+      {
+        "kind": "post",
+        "path": "ref",
+        "type": "int"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -100,6 +120,10 @@
       }
     ],
     "core/button": [
+      {
+        "path": "url",
+        "tokenize": "text"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -215,6 +239,19 @@
     ],
     "core/cover": [
       {
+        "kind": "post",
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "poster",
+        "tokenize": "text"
+      },
+      {
+        "path": "url",
+        "tokenize": "text"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
@@ -227,11 +264,32 @@
     ],
     "core/embed": [
       {
+        "path": "url",
+        "tokenize": "text"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
     ],
     "core/file": [
+      {
+        "path": "fileId",
+        "lint_ok": true
+      },
+      {
+        "path": "href",
+        "tokenize": "text"
+      },
+      {
+        "kind": "post",
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "textLinkHref",
+        "tokenize": "text"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -250,6 +308,11 @@
       }
     ],
     "core/gallery": [
+      {
+        "kind": "post",
+        "path": "ids",
+        "type": "int[]"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -287,6 +350,19 @@
     ],
     "core/image": [
       {
+        "path": "href",
+        "tokenize": "text"
+      },
+      {
+        "kind": "post",
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "url",
+        "tokenize": "text"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
@@ -298,12 +374,6 @@
       }
     ],
     "core/latest-posts": [
-      {
-        "path": "blockVisibility",
-        "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
-      }
-    ],
-    "core/legacy-widget": [
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -335,6 +405,19 @@
     ],
     "core/media-text": [
       {
+        "path": "href",
+        "tokenize": "text"
+      },
+      {
+        "kind": "post",
+        "path": "mediaId",
+        "type": "int"
+      },
+      {
+        "path": "mediaUrl",
+        "tokenize": "text"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
@@ -353,11 +436,32 @@
     ],
     "core/navigation": [
       {
+        "kind": "post",
+        "path": "ref",
+        "type": "int"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
     ],
     "core/navigation-link": [
+      {
+        "kind_from": {
+          "attr": "kind",
+          "default": "post",
+          "map": {
+            "post-type": "post",
+            "taxonomy": "term"
+          }
+        },
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "url",
+        "tokenize": "text"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -371,6 +475,22 @@
     ],
     "core/navigation-submenu": [
       {
+        "kind_from": {
+          "attr": "kind",
+          "default": "post",
+          "map": {
+            "post-type": "post",
+            "taxonomy": "term"
+          }
+        },
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "url",
+        "tokenize": "text"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
@@ -383,11 +503,25 @@
     ],
     "core/page-list": [
       {
+        "kind": "post",
+        "path": "parentPageID",
+        "type": "int"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
     ],
     "core/page-list-item": [
+      {
+        "kind": "post",
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "link",
+        "tokenize": "text"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -412,6 +546,19 @@
       }
     ],
     "core/playlist-track": [
+      {
+        "kind": "post",
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "image",
+        "tokenize": "text"
+      },
+      {
+        "path": "src",
+        "tokenize": "text"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -521,6 +668,10 @@
     ],
     "core/query": [
       {
+        "lint_ok": true,
+        "path": "queryId"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
@@ -581,6 +732,10 @@
     ],
     "core/rss": [
       {
+        "path": "feedURL",
+        "tokenize": "text"
+      },
+      {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
       }
@@ -622,6 +777,10 @@
       }
     ],
     "core/social-link": [
+      {
+        "path": "url",
+        "tokenize": "text"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."
@@ -724,6 +883,23 @@
       }
     ],
     "core/video": [
+      {
+        "kind": "post",
+        "path": "id",
+        "type": "int"
+      },
+      {
+        "path": "poster",
+        "tokenize": "text"
+      },
+      {
+        "path": "src",
+        "tokenize": "text"
+      },
+      {
+        "path": "tracks",
+        "tokenize": "text"
+      },
       {
         "path": "blockVisibility",
         "unsupported": "blockVisibility is injected into every registered block (measured 115 of 116, WP 7.1) and carries entity ids at conditionally-typed nested paths: visibilityPresets.presets holds visibility_preset ids, and location rules hold post ids, a comma-separated post-id string, term ids or an author id depending on a sibling field. block_attrs binds one top-level key per exact block name over a closed {int,int[]} vocabulary, so no declaration can rebind them. Refusing beats carrying a source-local id onto a target."

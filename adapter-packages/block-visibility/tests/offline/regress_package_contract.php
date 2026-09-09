@@ -43,23 +43,71 @@ wprism_check(
 
 // The withheld surface, stated as data rather than as a promise in prose.
 $blocks = array_keys($manifest['block_attrs']);
-wprism_check_same(115, count($blocks), 'every block measured to carry the attribute on WP 7.1 declares it — 115 of the 116 registered');
-wprism_check(!in_array('core/post-comments', $blocks, true), 'and the one block that does NOT carry it is absent, so the list is measured rather than copied');
+wprism_check_same(114, count($blocks), 'every block measured to carry the attribute declares it, less the one another adapter owns — 114 of the 115');
+wprism_check(!in_array('core/post-comments', $blocks, true), 'and the one block that does NOT carry the attribute is absent, so the list is measured rather than copied');
+wprism_check(
+    !array_key_exists('core/legacy-widget', $manifest['block_attrs']),
+    'core/legacy-widget is deliberately undeclared: The Events Calendar owns it with a whole-block codec, and a rule list here would clobber that codec whenever this capsule sorts later'
+);
+
+// THE LOAD-BEARING GUARD. block_attr_rules() replaces a block's whole rule
+// LIST per block name, last pin wins (ContentAttributeRuleResolver.php:16-23) —
+// it is NOT a per-path merge. So declaring only `blockVisibility` on a block
+// the platform core manifest also declares would DELETE core's rules for it:
+// core/image's post ref, core/gallery's ids, core/block's reusable-block ref,
+// eighteen URL tokenizers. This capsule would then cause exactly the silent id
+// leakage it exists to prevent. Every overlapping entry must therefore be a
+// complete superset of core's, and a core rule added later must fail HERE
+// rather than be dropped in silence.
+$coreBlockAttrs = json_decode(
+    (string) file_get_contents($root . '/platform/adapter-library/core/manifest.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+)['block_attrs'];
+$shadowed = [];
+$missingRules = [];
+foreach ($coreBlockAttrs as $block => $coreRules) {
+    if (!array_key_exists($block, $manifest['block_attrs'])) {
+        continue;
+    }
+    $declared = $manifest['block_attrs'][$block];
+    foreach ($coreRules as $coreRule) {
+        if (!in_array($coreRule, $declared, true)) {
+            $shadowed[] = $block;
+            $missingRules[] = $block . ':' . (string) ($coreRule['path'] ?? '?');
+        }
+    }
+}
+wprism_check_same([], $missingRules, 'every core block rule this capsule overlaps is restated verbatim, so declaring the attribute deletes none of core\'s own refs, tokenizers or boundaries');
+wprism_check_same(
+    20,
+    count(array_intersect(array_keys($coreBlockAttrs), $blocks)),
+    'and the overlap it must keep whole is exactly the twenty core blocks that carry the attribute'
+);
+
 foreach ($blocks as $block) {
     $rules = $manifest['block_attrs'][$block];
-    if (count($rules) !== 1
-        || ($rules[0]['path'] ?? null) !== 'blockVisibility'
-        || !is_string($rules[0]['unsupported'] ?? null)) {
+    $own = array_values(array_filter(
+        $rules,
+        static fn(array $rule): bool => ($rule['path'] ?? null) === 'blockVisibility'
+    ));
+    if (count($own) !== 1 || !is_string($own[0]['unsupported'] ?? null)) {
         wprism_check(false, "block_attrs.$block declares exactly one unsupported blockVisibility rule");
         break;
     }
 }
-wprism_check(true, 'each declares exactly one rule: the blockVisibility path, as a reviewed unsupported boundary');
-$reasons = array_values(array_unique(array_map(
-    static fn(array $rules): string => (string) $rules[0]['unsupported'],
-    $manifest['block_attrs']
-)));
-wprism_check_same(1, count($reasons), 'all 115 carry the SAME reviewed reason, so the boundary is one decision rather than 115');
+wprism_check(true, 'each block carries exactly one blockVisibility rule, as a reviewed unsupported boundary, beside whatever core already declared');
+$reasons = [];
+foreach ($manifest['block_attrs'] as $rules) {
+    foreach ($rules as $rule) {
+        if (($rule['path'] ?? null) === 'blockVisibility') {
+            $reasons[] = (string) $rule['unsupported'];
+        }
+    }
+}
+$reasons = array_values(array_unique($reasons));
+wprism_check_same(1, count($reasons), 'all 114 carry the SAME reviewed reason, so the boundary is one decision rather than 114');
 wprism_check(strlen($reasons[0]) <= 512, 'and it fits the reviewed-reason budget the grammar enforces');
 foreach (['blockVisibility', 'visibilityPresets', 'int[]'] as $needle) {
     wprism_check(str_contains($reasons[0], $needle), "the reason names $needle, so a reader learns the exact shape that cannot be declared");
