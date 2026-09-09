@@ -147,17 +147,24 @@ require_wprism_answered "Speculative Loading absent-source apply" json "$ABSENT_
 [ "$(jq -r '.canary' <<<"$ABSENT_APPLY")" = "clean" ] \
   || fail "Speculative Loading absent-source apply did not keep the canary clean: $ABSENT_APPLY"
 DEFAULTED=$(observe_speculation_rules conf2)
+# row_present/autoload are the load-bearing half of this claim, not decoration:
+# plsr_get_stored_setting_value() resolves to the registered default whether or
+# not a row exists, so `.stored == .default` alone would hold identically if
+# apply had DELETED the row, and the recapture below cannot separate the two
+# either (the interpreter completes absence on both sides by construction).
+# Asserting the materialized row is what makes this about absent_autoload.
 printf '%s\n' "$DEFAULTED" | jq -e '
   .stored == .default and
   .stored.mode == "prerender" and .stored.eagerness == "moderate" and
   .stored.authentication == "logged_out" and
+  .row_present == true and .autoload == "auto" and
   .neighbor == "target-only-neighbor"
-' >/dev/null || fail "an absent source row did not converge the target onto the plugin's own registered defaults: $DEFAULTED"
+' >/dev/null || fail "an absent source row did not converge the target onto the plugin's own registered defaults as a materialized row: $DEFAULTED"
 wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-speculation-rules-absent >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-speculation-rules-absent" \
   || fail "Speculative Loading absent-source completion did not recapture byte-identically"
 rm -rf "$CONF_REPO2/.tmp-speculation-rules-absent"
-pass "a source with no option row and a target with a defaulted row capture to the same document: absence is completed from the plugin's own plsr_get_setting_default(), converging behaviour without inventing a setting"
+pass "a source with no option row converges the target onto a materialized default row (autoload auto, the declared absent_autoload) and both sides capture to the same document"
 
 # ------------------------------------------------ closed_sub_keys refusal
 # Write past the sanitizer the way a future release or a third-party writer

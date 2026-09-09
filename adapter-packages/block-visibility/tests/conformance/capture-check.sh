@@ -79,8 +79,13 @@ wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-bv-clean >/dev/nul
 # byte-identity is the stronger statement: every other captured byte, the block
 # content included, came back unchanged.
 RECOVERED_DIFF=$(diff -r "$STATE" "${CONF_REPO1:-siterepo/conf1}/.tmp-bv-clean" || true)
+# `diff -r` reports a whole file present on only one side as "Only in <dir>",
+# and an unreadable/binary pair as "Files ... differ" -- neither starts with
+# < or >, so filtering on those alone would wave structural loss through: a
+# recovery that dropped state/options/core.json entirely would read as "no
+# difference but the modified stamps". Both shapes stay in UNEXPECTED.
 UNEXPECTED=$(printf '%s\n' "$RECOVERED_DIFF" \
-  | grep -E '^[<>]' \
+  | grep -E '^([<>]|Only in |Files .* differ)' \
   | grep -vE '^[<>][[:space:]]+"modified(_gmt)?": ' || true)
 [ -z "$UNEXPECTED" ] \
   || fail "capture after removing the annotation differs by more than the modified stamps: $UNEXPECTED"
