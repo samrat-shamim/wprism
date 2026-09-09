@@ -44,7 +44,6 @@ for side in 1 2; do
   capture "cron$side" wp_side "$side" config set DISABLE_WP_CRON true --raw
   capture "empty$side" wp_side "$side" site empty --yes
   capture "install$side" "${COMPOSE[@]}" run --rm -T -v "$zip:/visual-portfolio.zip:ro" "cli$side" wp plugin install /visual-portfolio.zip --activate
-  capture "theme$side" wp_side "$side" theme activate twentytwentyone
   role=source; [ "$side" = 1 ] || role=target
   capture "seed$side" wp_side "$side" eval-file "$fixture" "seed-$role" --use-include --user=admin
 done

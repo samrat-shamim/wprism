@@ -8,6 +8,7 @@ $check = static function (bool $ok, string $reason): void {
     if (!$ok) throw new RuntimeException('Visual Portfolio query evidence: ' . $reason);
 };
 $check(current_user_can('manage_options') && defined('VISUAL_PORTFOLIO_VERSION') && VISUAL_PORTFOLIO_VERSION === '3.8.1', 'exact native subject');
+$check(get_stylesheet() === 'twentytwentyone' && wp_get_theme()->get('Version') === '2.9', 'exact pair theme');
 $subjects = [6 => ['portfolio', 'Harbor Light'], 7 => ['portfolio', 'Paper Garden'],
     8 => ['portfolio', 'Quiet Shapes'], 9 => ['portfolio', 'Open Horizon'], 12 => ['post', 'Ocean Letter'],
     13 => ['post', 'Garden Letter'], 14 => ['post', 'Twin Letter'], 15 => ['post', 'Twin Letter']];
@@ -109,5 +110,6 @@ foreach ($cases as $case) {
 foreach ($orders as $name => $order) $check($tables[$name] === $rows($wpdb->$name, $order), 'observer preserves complete native tables');
 $check($map === $rows($wpdb->prefix . 'wprism_map', 'uuid,id_kind'), 'observer preserves the complete identity map');
 echo json_encode(['format' => 'wprism-vp-native-queries/v1', 'wordpress' => get_bloginfo('version'), 'plugin' => VISUAL_PORTFOLIO_VERSION,
+    'theme' => ['stylesheet' => get_stylesheet(), 'version' => wp_get_theme()->get('Version')],
     'php' => PHP_VERSION, 'database' => $wpdb->db_server_info(), 'home' => home_url(), 'pages' => $pages,
     'tables' => $tables, 'map' => $map], JSON_THROW_ON_ERROR), "\n";
