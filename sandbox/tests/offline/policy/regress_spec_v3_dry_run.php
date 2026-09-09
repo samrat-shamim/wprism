@@ -838,6 +838,7 @@ wprism_check_same(
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
         'post-meta-invalidation/v1',
+        'provider-filesystem-file-snapshot/v1',
         'provider-native-option-inputs/v1',
         'provider-native-permalinks/v1',
         'provider-native-post-types/v1',
