@@ -113,6 +113,85 @@ final class HarnessLibTest extends TestCase
         $db->query('ROLLBACK');
     }
 
+    public function testJsonMemberPredicatesPreserveEveryPromotionLockFence(): void
+    {
+        $db = FakeWpdb::install();
+        $nonce = str_repeat('a', 64);
+        $owner = 'direct-quote"-slash\\-雪';
+        $payload = json_encode(['owner' => $owner, 'artifact_hash' => 'artifact'], JSON_THROW_ON_ERROR);
+        $db->seedTable('wp_wprism_kv', [
+            ['k' => 'promotion_lock', 'v' => $payload],
+            ['k' => 'unrelated', 'v' => $payload],
+        ]);
+        $db->query("SET @wprism_tx_session = '$nonce'");
+        $sql = $db->prepare(
+            'DELETE FROM wp_wprism_kv WHERE CONNECTION_ID() = %s AND BINARY @wprism_tx_session = BINARY %s'
+            . " AND (k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s"
+            . " AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s)",
+            '1', $nonce, $owner, 'artifact'
+        );
+        $before = $db->rows('wp_wprism_kv');
+        foreach ([
+            str_replace("CONNECTION_ID() = '1'", "CONNECTION_ID() = '2'", $sql),
+            str_replace($nonce, str_repeat('b', 64), $sql),
+            str_replace('direct-', 'other-', $sql),
+            str_replace("= 'artifact'", "= 'other-artifact'", $sql),
+        ] as $wrongFence) {
+            self::assertSame(0, $db->query($wrongFence));
+            self::assertSame($before, $db->rows('wp_wprism_kv'));
+        }
+        self::assertSame(1, $db->query($sql));
+        self::assertSame([$before[1]], $db->rows('wp_wprism_kv'));
+    }
+
+    public function testJsonMembersDistinguishMissingSqlNullAndJsonNull(): void
+    {
+        $db = FakeWpdb::install();
+        $db->seedTable('wp_json_fixture', [
+            ['id' => 1, 'v' => null],
+            ['id' => 2, 'v' => '{}'],
+            ['id' => 3, 'v' => '{"owner":null}'],
+            ['id' => 4, 'v' => '{"owner":"null"}'],
+            ['id' => 5, 'v' => '{"owner":false}'],
+            ['id' => 6, 'v' => '{"owner":42}'],
+        ]);
+        self::assertSame(['1', '2'], $db->get_col(
+            "SELECT id FROM wp_json_fixture WHERE JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) IS NULL ORDER BY id"
+        ));
+        self::assertSame(['3', '4'], $db->get_col(
+            "SELECT id FROM wp_json_fixture WHERE JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = 'null' ORDER BY id"
+        ));
+        self::assertSame([null, null, 'null', '"null"', 'false', '42'], $db->get_col(
+            "SELECT JSON_EXTRACT(v, '$.owner') FROM wp_json_fixture ORDER BY id"
+        ));
+    }
+
+    #[DataProvider('unsupportedJsonExpressions')]
+    public function testJsonFunctionsRefuseOutsideTheirBoundedGrammar(string $expression): void
+    {
+        $db = FakeWpdb::install()->seedTable('wp_json_fixture', [['v' => '{"owner":"ok"}']]);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('FakeWpdb: unsupported SQL');
+        $db->get_var("SELECT $expression FROM wp_json_fixture");
+    }
+
+    public static function unsupportedJsonExpressions(): array
+    {
+        return [
+            ['JSON_EXTRACT()'],
+            ["JSON_EXTRACT(v, '$.owner', '$.owner')"],
+            ["JSON_EXTRACT(v, '$.*')"],
+            ["JSON_EXTRACT(v, '$.owner.nested')"],
+            ["JSON_EXTRACT('invalid', '$.owner')"],
+            ["JSON_EXTRACT('[]', '$.owner')"],
+            ["JSON_EXTRACT('{\"owner\":[]}', '$.owner')"],
+            ["JSON_EXTRACT('{\"owner\":1.25}', '$.owner')"],
+            ['JSON_UNQUOTE()'],
+            ['JSON_UNQUOTE(v, v)'],
+            ["JSON_UNQUOTE('\"unterminated string literal\n\"')"],
+        ];
+    }
+
     public function testBoundedLockReadsCannotInventAnUndeclaredLeadingIndex(): void
     {
         $db = $this->seededDb();
@@ -1159,7 +1238,7 @@ final class HarnessLibTest extends TestCase
                 'write' => true,
             ],
             'promotion update' => [
-                'sql' => "UPDATE `wp_wprism_kv` SET v = '{}' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = 'owner' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = 'artifact' AND 1=1",
+                'sql' => "UPDATE `wp_wprism_kv` SET v = '{}' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = 'owner' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = 'artifact' AND 1=",
                 'write' => true,
             ],
             'prune delete' => [
