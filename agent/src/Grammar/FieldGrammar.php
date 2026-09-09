@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
+
 /**
  * Pure load-time grammar for post-field and menu-field declarations.
  *
@@ -46,6 +48,7 @@ final class FieldGrammar {
                         . 'declaring authored is a no-op and any other class has no defined apply semantics)'
                     );
                 }
+                PostMetaInvalidation::assert_rule($rule, "manifest '$name'.post_types.$postType.fields.$field");
             }
         }
     }
@@ -80,6 +83,7 @@ final class FieldGrammar {
                     . ' is supported for menu fields in v2'
                 );
             }
+            PostMetaInvalidation::assert_rule($rule, "manifest '$name'.menu_fields.$field");
         }
     }
 }

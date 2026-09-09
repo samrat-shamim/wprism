@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
 
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 
@@ -120,8 +121,8 @@ final class ApplyFieldMaterializer {
      * upserted; any row ALREADY on the target that policy classifies
      * `authored` but is no longer in $frontMeta is deleted (removed from
      * policy, or from this owner's captured state, since the last apply);
-     * everything else on the target — non-authored, or a key this owner's
-     * own structural fields already handle bespoke — is left byte-untouched.
+     * exact derived keys granting on_post_write=delete are invalidated in
+     * this same owner transaction. Other non-authored rows stay untouched.
      */
     public function reconcile_authored_meta(int $id, array $frontMeta, string $ownerLabel): void {
         global $wpdb;
@@ -235,6 +236,16 @@ final class ApplyFieldMaterializer {
             }
             $envByKey[$row['meta_key']][] = $row;
         }
+        $invalidations = [];
+        if (!$termMeta) {
+            foreach (PostMetaInvalidation::keys($this->policy->manifests) as $key) {
+                $rule = $this->policy->meta_rule_for_post($key, $envFlat) ?? [];
+                if (!PostMetaInvalidation::deletes($rule, "$ownerLabel meta $key")) {
+                    throw new \RuntimeException("wprism: $ownerLabel meta '$key' lost its static post-meta invalidation contract");
+                }
+                $invalidations[$key] = true;
+            }
+        }
         // The locked target context is the map this reconciliation ESTABLISHES
         // — the witnessed rows with this roster's own first value per key laid
         // over them — not the pre-write rows alone. Interpreter classification
@@ -301,6 +312,10 @@ final class ApplyFieldMaterializer {
             }
         }
         foreach ($envMeta as $row) {
+            if (isset($invalidations[$row['meta_key']])) {
+                Db::delete($table, ['meta_id' => $row['meta_id']], null, "apply invalidate derived $ownerLabel meta");
+                continue;
+            }
             $rule = $termMeta
                 ? $this->policy->meta_rule_for_term($row['meta_key'], $envFlat)
                 : $this->policy->meta_rule_for_post($row['meta_key'], $envFlat);
@@ -367,7 +382,7 @@ final class ApplyFieldMaterializer {
                 "apply reconcile authored $ownerLabel meta"
             );
         }
-        if ($expectedRepeated !== []) {
+        if ($expectedRepeated !== [] || $invalidations !== []) {
             $finalByKey = [];
             $finalRows = $ownerRange->read($ownerId);
             $finalFlat = [];
@@ -378,6 +393,9 @@ final class ApplyFieldMaterializer {
             }
             foreach ($finalRows as $row) {
                 $key = (string) $row['meta_key'];
+                if (isset($invalidations[$key])) {
+                    throw new \RuntimeException("wprism: invalidated $ownerLabel meta '$key' survived exact locked readback");
+                }
                 $rule = $termMeta
                     ? $this->policy->meta_rule_for_term($key, $finalFlat)
                     : $this->policy->meta_rule_for_post($key, $finalFlat);

@@ -66,6 +66,7 @@
           "BlockValueGrammar",
           "RecordFields",
           "EncodedText",
+          "PostMetaInvalidation",
           "Canon",
     "Db",
     "DatabaseLockBoundary",
@@ -165,7 +166,7 @@
             ]
           }
         ],
-        "file_count": 85,
+        "file_count": 86,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -174,6 +175,7 @@
           "BlockValueGrammar.php",
           "RecordFields.php",
           "EncodedText.php",
+          "PostMetaInvalidation.php",
           "BoundedChildProcess.php",
           "Canary.php",
           "Canon.php",

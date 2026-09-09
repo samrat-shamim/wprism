@@ -1,5 +1,5 @@
 {
-    "class_count": 509,
+    "class_count": 510,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -58343,6 +58343,150 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\PostMetaInvalidation": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "post-meta-invalidation/v1"
+                },
+                "FIELD": {
+                    "value_repr": "on_post_write"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowed",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_site_override": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declared",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "deletes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "keys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "uses": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\PostPasswordBinding": {
             "abstract": false,
             "constants": {
@@ -68825,6 +68969,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "encodedText",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "postMetaInvalidation",
                             "type": "bool",
                             "variadic": false
                         }
