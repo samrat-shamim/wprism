@@ -2,6 +2,7 @@
 # Native full baseline followed by public host scope/plan/Apply and terminal replay.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 REPO_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 cd "$REPO_ROOT/sandbox"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -12,7 +13,7 @@ EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:?exact candidate SHA required}"
 [ "$(git rev-parse HEAD)" = "$EXPECTED_SHA" ] && [ -z "$(git status --porcelain=v1 --untracked-files=all)" ] || fail 'native evidence requires the clean exact candidate'
 export WPRISM_SOURCE_ROOT="$REPO_ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"
 export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CODEBIND_PLUGIN=''
-export WPRISM_ARTIFACT_PACKAGE=visual-portfolio WPRISM_ARTIFACT_LIBRARY_ROOT="$REPO_ROOT" CONF_PAIR="$PAIR"
+export WPRISM_ARTIFACT_LIBRARY_ROOT="$REPO_ROOT" CONF_PAIR="$PAIR"
 export COMPOSE_PROJECT_NAME="wprism-$PAIR"
 . tests/lib/pair_live_ownership.sh
 . tests/lib/private_command_capture.sh

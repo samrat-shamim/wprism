@@ -135,6 +135,7 @@ final class HarnessLibTest extends TestCase
             str_replace("CONNECTION_ID() = '1'", "CONNECTION_ID() = '2'", $sql),
             str_replace($nonce, str_repeat('b', 64), $sql),
             str_replace('direct-', 'other-', $sql),
+            str_replace('direct-', 'DIRECT-', $sql),
             str_replace("= 'artifact'", "= 'other-artifact'", $sql),
         ] as $wrongFence) {
             self::assertSame(0, $db->query($wrongFence));

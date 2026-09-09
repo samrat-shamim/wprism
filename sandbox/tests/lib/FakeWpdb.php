@@ -4197,7 +4197,10 @@ class FakeWpdb {
     }
 
     private static function isBinary(array $node): bool {
-        return $node['k'] === 'binary';
+        // JSON_UNQUOTE returns utf8mb4_bin on the supported MySQL/MariaDB
+        // generations; a case-folded owner must not satisfy a lock fence.
+        return $node['k'] === 'binary'
+            || ($node['k'] === 'fn' && $node['name'] === 'JSON_UNQUOTE');
     }
 
     /** @param array{table:string,alias:?string,columns:?list<string>}|null $ctx */
