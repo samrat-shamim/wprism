@@ -38,6 +38,7 @@ require_once __DIR__ . '/src/Adapter/ProviderOperationProcess.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/src/Kernel/PrivateEvidenceException.php';
+require_once __DIR__ . '/src/Kernel/PrivateFileBytes.php';
 require_once __DIR__ . '/src/Kernel/PrivateRefusalEvidence.php';
 // Beside CommandRefusal because that is its one dependency, and ahead of every
 // verb: the topology gate has to be loaded for the Policy-free doors
@@ -72,6 +73,7 @@ require_once __DIR__ . '/src/Promotion/StateTransitionJournal.php';
 require_once __DIR__ . '/src/Kernel/ProcessFence.php';
 require_once __DIR__ . '/src/Repository/Identity.php';
 require_once __DIR__ . '/src/Repository/IdentityBackup.php';
+require_once __DIR__ . '/src/Repository/IdentityForkRequest.php';
 require_once __DIR__ . '/src/Delete/Deletion.php';
 require_once __DIR__ . '/src/Delete/DeletionWriterExclusion.php';
 require_once __DIR__ . '/src/Kernel/JsonRefs.php';

@@ -83,6 +83,7 @@
     "ExecutableTreeIdentity",
     "FilesystemTreeSnapshot",
     "PhpLiteralData",
+    "PhysicalTableRows",
     "WordPressOptionValueCodec",
     "ManifestExecutableLoader",
     "NativeDatabaseProfile",
@@ -105,6 +106,7 @@
           "PersonalData",
           "PostPasswordBinding",
           "PrivateEvidenceException",
+          "PrivateFileBytes",
           "PrivateRefusalEvidence",
           "JsonRefs",
           "ReferenceKindGrammar",
@@ -152,7 +154,7 @@
             ]
           }
         ],
-  "file_count": 72,
+  "file_count": 73,
         "files": [
           "ActionTriggerMatcher.php",
           "BoundedChildProcess.php",
@@ -197,6 +199,7 @@
           "PostPasswordBinding.php",
           "PrivateEvidenceCarrierException.php",
           "PrivateEvidenceException.php",
+          "PrivateFileBytes.php",
           "PrivateRefusalEvidence.php",
           "ProcessFence.php",
           "ProviderSettlementIntent.php",
@@ -474,6 +477,7 @@
           "Identity",
           "StateTreeWalker",
           "IdentityBackup",
+          "IdentityForkRequest",
           "IdentityNotes",
           "RepositoryAuthorization",
           "Journal",
@@ -524,7 +528,7 @@
             ]
           }
         ],
-        "file_count": 30,
+        "file_count": 31,
         "files": [
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
@@ -533,6 +537,7 @@
           "CompiledArtifactReader.php",
           "Identity.php",
           "IdentityBackup.php",
+          "IdentityForkRequest.php",
           "IdentityNotes.php",
           "Journal.php",
           "Ledger.php",
