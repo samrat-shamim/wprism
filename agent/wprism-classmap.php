@@ -178,6 +178,7 @@ return [
     'WPrism\\LintEnvironment' => 'src/Review/LintEnvironment.php',
     'WPrism\\LintFinding' => 'src/Review/LintFinding.php',
     'WPrism\\LintTrustGate' => 'src/Review/LintTrustGate.php',
+    'WPrism\\LockedEmbeddedUuidOwners' => 'src/Repository/LockedEmbeddedUuidOwners.php',
     'WPrism\\LockedOptionRows' => 'src/Kernel/LockedOptionRows.php',
     'WPrism\\ManifestDispositions' => 'src/Policy/ManifestDispositions.php',
     'WPrism\\ManifestExecutableLoader' => 'src/Kernel/ManifestExecutableLoader.php',

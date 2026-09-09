@@ -1,5 +1,5 @@
 {
-    "class_count": 505,
+    "class_count": 506,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -18098,6 +18098,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "repeatable_read_authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\TransactionAuthority",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "rollback": {
                     "abstract": false,
                     "final": false,
@@ -27583,6 +27600,68 @@
             "parent": null,
             "properties": [],
             "readonly": false
+        },
+        "WPrism\\LockedEmbeddedUuidOwners": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "lock": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "uuids",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "post_index": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "prepare": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "WPrism\\TransactionAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\LockedEmbeddedUuidOwners",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": true
         },
         "WPrism\\LockedOptionRows": {
             "abstract": false,

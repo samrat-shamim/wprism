@@ -485,6 +485,7 @@
         "entry_points": [
           "RepositoryMediaDerivatives",
           "Ledger",
+          "LockedEmbeddedUuidOwners",
           "CompiledArtifact",
           "Snapshot",
           "RepositoryCompiler",
@@ -547,7 +548,7 @@
             ]
           }
         ],
-        "file_count": 30,
+        "file_count": 31,
         "files": [
           "RepositoryMediaDerivatives.php",
           "CanonicalLedgerMapGuard.php",
@@ -560,6 +561,7 @@
           "IdentityNotes.php",
           "Journal.php",
           "Ledger.php",
+          "LockedEmbeddedUuidOwners.php",
           "ReferenceGraph.php",
           "RepositoryAuthorization.php",
           "RepositoryCompiler.php",
