@@ -291,7 +291,7 @@ try {
             }
             $inner = $root . '/sandbox/tmp/wprism-conformance-capture.vpfixture.' . bin2hex(random_bytes(3));
             $outer = $scratch . '/streams';
-            mkdir($inner, 0700);
+            if (!mkdir($inner, 0700, true)) throw new RuntimeException('native stream fixture directory could not be created');
             mkdir($outer, 0700);
             register_shutdown_function(static fn() => $remove($inner));
             $notice = 'private command diagnostics (unverified): ' . $inner . "\n";
