@@ -88,11 +88,19 @@ and exact recapture. A fresh native widget run on `0d7efbd9` also passes actual
 control Save/reopen, divergent-ID Apply, explicit concurrent-edit refusal and
 reconciliation, zero-write repeat and complete CSS/recapture comparisons.
 It reproduces Qi's widget-only rendering failure and its successful rendering
-when a page style exists. Native template discovery/rendering and broader widget
-media controls remain separate obligations.
+when a page style exists. A fresh FSE run on `585e7ede` additionally uses the
+existing core profile to transfer the plugin-created template, its theme term,
+page selection and native navigation across different IDs. All seven entities
+verify, repeat Apply writes zero, and the target editor reopens 37 valid blocks.
+The initial template renders at 32px with complete matching CSS. Later native
+33px template edits save and reopen correctly, but page-specific preview rules
+keep the frontend at 32px on both the source and target. This upstream behavior
+remains a qualification limit; no plugin executable or storage workaround was
+added. Broader widget/template media controls remain separate obligations.
 
 The promotion conformance target hook still refuses; broader editor,
-template, broader widget/media, crop failure/removal, lifecycle, host, version and combination qualification remain
+inline template, broader widget/template media, crop failure/removal, lifecycle,
+host, version and combination qualification remain
 unfinished. See
 [evidence/authoring-progress.json](evidence/authoring-progress.json) for the
 observed results and qualification limits.

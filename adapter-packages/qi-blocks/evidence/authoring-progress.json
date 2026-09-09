@@ -132,7 +132,7 @@
     "The crop fixture has uniform PNG pixels. Native multi-format/asymmetric crop, removal, collision, recovery, scope and co-install cases remain outside this capsule result."
   ],
   "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
-  "source_engine_state": "Native source capture-plan, content-only target Apply, four native crop consumers and all three native gallery editor round trips pass on their named commits. Qi remains experimental; complete production qualification is pending.",
+  "source_engine_state": "Native source capture-plan, content-only target Apply, four native crop consumers, three native gallery editor round trips, widget contexts and scoped core-profile FSE template transfer pass on their named commits. Qi remains experimental; complete production qualification is pending.",
   "native_source_conformance": {
     "status": "source-capture-plan-passed",
     "first_attempt": {
@@ -469,5 +469,93 @@
       "target-widget-page-frontend": "e39ee5ff9b4b39e06dd802d8f46530b757aafb5f47817da999ee1c2025e40fe6"
     },
     "scope": "One Qi Advanced Text widget alongside five core widgets, native font controls, two style-root combinations, divergent identities, explicit concurrency refusal/reconciliation and complete recapture. No native FSE template, widget media, multi-image, lifecycle, host, version or participant-combination qualification."
+  },
+  "native_fse_contexts": {
+    "source_engine_commit": "585e7ede68f174f4721149a845b7add2d6490aff",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2",
+      "twentytwentyfive": "1.5"
+    },
+    "pair": "qif01",
+    "driver_exit": 0,
+    "teardown": "Owned browser, pair, lease and both site repositories removed; foreign pair untouched.",
+    "adapter_digest": "aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550",
+    "execution_scope": "Private source-bound setup and transfer drivers use shared pair ownership, private command streams, Capture, Apply, immutable compilation and strict repository convergence. Existing InitPlanner::fse_profile_scope selects the certified core profile. Actual Site Editor and page-template controls provide native writer evidence. This is scoped authoring evidence, not the production conformance hook.",
+    "source_ids": {
+      "page": 1,
+      "wp_template": 2,
+      "wp_navigation": 4,
+      "wp_theme": 2
+    },
+    "target_ids": {
+      "page": 10,
+      "wp_template": 9,
+      "wp_navigation": 11,
+      "wp_theme": 10
+    },
+    "checks": [
+      "Both actual setup wizards complete with the same 48 submitted free-block controls, telemetry declined and the native completed flag. The plugin creates its own full-width template during admin_init on both sites and attaches the active wp_theme term.",
+      "Actual source Site Editor controls insert Advanced Text at 32px. Both the complete WordPress template Save and Qi literal-template style Save return HTTP 200; their complete request/response bodies match native storage. Header, post-content, Qi text and footer remain valid root blocks.",
+      "The source page template chooser selects Qi Blocks Full Width and saves the exact template slug and unchanged page body. Its native previews also populate two page-specific style records; the page style writer and full raw option readback agree.",
+      "Capture uses the existing core FSE post-type and taxonomy profile. Explicit native template/category/theme adoption applies seven entities; the actual seven-entity verifier passes and repeat Apply writes zero with no warnings. Four complete retained policy/state/media repositories compile and converge.",
+      "Complete managed post rows agree after their three independent ID/GUID bindings. Native template discovery differs only by wp_id 2 to 9. The active theme term moves from 2 to 10, while the target existing relationship remains exact. The selected page template and durable post/term metadata agree.",
+      "All eight target-local trash rows and their category relationships remain exact. The five inherited core widgets preserve complete settings under their allocated target IDs. Complete raw Qi style bytes, PHP types, root order and all selectors match after page 1 to 10 rebinding. Other Qi runtime options remain exact.",
+      "Both frontends render the selected template text at 32px with header and footer. The complete Qi stylesheet matches after the exact page-selector binding. The target native Site Editor reopens all 37 blocks as valid and retains the 32px control value.",
+      "Actual source and target Site Editor control edits to 33px each complete both native Save writers; complete request/response values match stored templates and styles. Fresh editors reopen all 37 blocks as valid at 33px. Four further complete repositories compile and converge within each site; independent native Saves differ across sites only in the template modified/modified_gmt timestamps."
+    ],
+    "native_boundaries": [
+      "Before the page chooser runs, the populated template stdClass section alone leaves has_configured_global_styles false. The chooser creates native page style records and its Save enables rendering. No adapter type coercion or fabricated page style is used.",
+      "After the 33px template edits, both native frontends still render 32px: the chooser-created page-specific 32px rule overrides the template 33px rule. The source reproduces this without any Apply writing to it. Complete source/target CSS agrees after page rebinding. This does not qualify successful frontend rendering of the later 33px edit.",
+      "Initial Apply reports exactly the template, default-category and active-theme-term adoptions. It also synchronizes the site name, normalizes the empty widget_text marker, sorts the unordered disabled-block membership map and invalidates the empty category_children cache. Complete native options comparisons name these changes; blanket option-byte preservation is not claimed.",
+      "Native editor use creates revisions on both sites and a target wp_global_styles row with its native theme relationship, and refreshes theme/style/pattern caches. All pre-existing post rows remain exact outside the actual template Save fields; all other Qi options and existing post/term metadata remain exact. Complete native observations are stable across repeat Capture.",
+      "Fresh direct Site Editor visits have zero JavaScript errors and the known WordPress iframe stylesheet warning. Frontend observations have no JavaScript errors. Native observations cover complete posts, postmeta, terms, termmeta, term_taxonomy, term_relationships and options plus uploads, not every database table.",
+      "Strict cross-site repository convergence correctly refuses the two separate authored Save timestamps (source 2026-09-09 00:52:13, target 2026-09-09 00:49:36). Exact file comparison proves these are the only cross-site canonical differences; no generic timestamp normalization is used."
+    ],
+    "probe_corrections": "The initial onboarding reader expected a nonexistent switcher field; the native form serializes its 48 block controls directly. Transfer was invoked before that assertion was corrected; retained complete requests and native flags later pass the corrected comparison. Host readers subsequently corrected their expected trash-category relationships and metadata allocation order, admitted the exact empty taxonomy cache invalidation, and stopped expecting modified_gmt from the template REST response, which exposes only modified. Exact retained native timestamps supply that separate check. A raw-byte comparison replaces an invalid decode/re-encode comparison that changed an empty metadata object into an array. Initial reader failures are not reported as passes; the corrected complete native and writer admissions pass.",
+    "native_stream_sha256": {
+      "template-source-first-save": "db6c857171724e942e484cff34e4e49955706d36d62cec058c59a8a2a87827f6",
+      "template-source-selected": "1c2a0f0ff1ad87219aa21003b6b12e168167981693b8cdd5ea8f1acb7ea38494",
+      "template-target-created": "0783200f68af886e576c09187e4f1c764f9038e47941b70e9586ce3a64d47e47",
+      "template-selected-source-native": "939a608ee07a6f3697c9d0568294f9b301e458d79d7a34ba39fa5e511d613427",
+      "template-selected-target-before": "fecdd260e59a63c25bf75a5b39f3bb6dac072654c7a35aac578a16502f6b275e",
+      "template-selected-target-native": "4463d5016d9026fe4f564bbfdfde24f9aabf37c16104863e448d3b4b1be57ee1",
+      "template-selected-target-plan": "d85f348d7633157fe99ec90e579f18dcdcb6aeb54c1cebaaa42ed87d2af090a7",
+      "template-selected-target-apply": "7f112f1c0824f6e840e23ad783ce02b370c9130e34c2a36f72dd2c384b4dbb18",
+      "template-selected-target-repeat": "e4f1776c458e2f16a0750a029ec22434513fe926eb8ba82f59a998aa90513163",
+      "template-selected-target-stable": "4463d5016d9026fe4f564bbfdfde24f9aabf37c16104863e448d3b4b1be57ee1",
+      "template-target-saved33": "0668101ad53c252e96d89a11481dcaa96db009ffeb15ffa68d95c3f38caef4ef",
+      "template-edited-source-native": "2f2d0d6e8b748b9e69c7ede371a46ba0a6c37250d4074d240b8a3ed651949dbe",
+      "template-edited-target-native": "0668101ad53c252e96d89a11481dcaa96db009ffeb15ffa68d95c3f38caef4ef",
+      "template-edited-repeat-source-native": "2f2d0d6e8b748b9e69c7ede371a46ba0a6c37250d4074d240b8a3ed651949dbe",
+      "template-edited-repeat-target-native": "0668101ad53c252e96d89a11481dcaa96db009ffeb15ffa68d95c3f38caef4ef"
+    },
+    "browser_stream_sha256": {
+      "source-onboarding-finish": "b2b42f1e886776c34efea324e0c49b3a1827876acb1743b20e5e809e2a2f54d2",
+      "target-onboarding-finish": "eba3efa61bda22df9e1ae61a4626787ee871c578ed40520d59f86dc37493b9d1",
+      "source-template-controls32": "d5a3ba2480cde87d2728e5d393e984d6bc686275e658506971c99e3b4adfbedb",
+      "source-page-template-save": "f16db254f1427682807188b459acdd002b491a92a4f267040a623211a82eb362",
+      "target-template-reopen32": "335d31790d73f290ce84a786fe252883fbf554974400a52c2f153157bee03c5b",
+      "source-template-save33": "7ecada26f374950b9234015233ae40fe200fbf62207706d97119ae4d8bd281bd",
+      "target-template-save33": "f9b96c2b83d72ed2d397ff5401ff033b37d0090664044b599b8d58f972f55393",
+      "source-template-reopen33": "52cc5469adfbceaf42b8e6fc10a276a740831ce785393683408c47b672babe37",
+      "target-template-reopen33": "2e477937a34baa9285cfc32291dd72ad30caa40e1f75d7d22e07ec7b90ecb358",
+      "source-template-only-frontend": "89f750962f6a2576cd36dae01e2f43cede9d31d5b7563bf5aac5421636b5524c",
+      "target-template-selected-frontend": "237ad2b715554c13d1c3f2f0788a3ee32886b1e6f6b2633ce8b581cfadb64c3d",
+      "source-template33-frontend": "9fd3b55703de2aa4f5ba6641d42bbf091474759cb4b5993080d52b3aa98aec10",
+      "target-template33-frontend": "f326aef6e673118b5e7a517ef68f8977fd02e62130a319b6ffc956feaae88454"
+    },
+    "initial_template_writer_sha256": {
+      "source-template-save-request": "4efaa05668b7d38abdf61e75f47f35c200c8e9ee0f6cf7e49f0cdd34fc83a3db",
+      "source-template-save-response": "02b37a5597c8084564537e7b5f997c83e61fe7790276ca15a3649a0bbaa47bda",
+      "source-template-style-request": "f65c997ce7d8d543bdf6eb210a4110e0e20c0f36f3c09615aea1fddc9816cfd6",
+      "source-template-style-response": "0e84df26fe3aeaef143fe887156689e66e3afb87e0ed4fde179c89ca54fbe6b7"
+    },
+    "admission_sha256": {
+      "admission-04": "2bf1dcf202ebad56a80b16c3590c600db5df9b2a51b4ba45b1620edbef52d6c8",
+      "writer-admission-03": "7f81c26c2998366f348777e4efbd93bbc8f58019a2df51e29f84345d044b5d0e",
+      "onboarding-admission": "7d5793ddadb855c26d13ef9ed8e9834e0ba3fd4e97051af63aa219d1e6dcde02"
+    },
+    "scope": "One Qi Advanced Text template and native page selection with the existing core FSE profile and the same exact active block theme. No inline-template writer requalification, theme-file editing, template media, lifecycle, host, adjacent-version or participant-combination qualification. The historical source-template-only-frontend filename records the already-selected page after its chooser Save, not a template-only CSS failure."
   }
 }

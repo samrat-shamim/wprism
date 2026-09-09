@@ -77,8 +77,49 @@ complete database equality is not claimed. Widget editors and frontends have
 zero JavaScript errors or warnings; the page editor has the known WordPress
 iframe stylesheet warning. The owned browser, pair and lease were removed.
 
-Native FSE template discovery/rendering and broader widget media controls remain
-open. No capability status, package declaration or adapter identity changes on
-this evidence alone. Exact source, stream hashes, admission scope and initial
-probe corrections are recorded in
+A further native FSE run on `585e7ede` uses Twenty Twenty-Five 1.5 on both
+sites. The existing certified core profile supplies `wp_template`, navigation
+and theme-taxonomy scope. Qi itself creates its full-width template through
+`admin_init`; actual Site Editor controls then save an Advanced Text block at
+32px, and the native page chooser selects that template. Both sites complete
+the public setup wizard with the same 48 free-block controls and telemetry
+declined.
+
+Content Apply adopts the target's native template and active-theme term:
+source template 2 becomes target 9, theme term 2 becomes 10, page 1 becomes 10,
+and navigation 4 becomes 11. The actual verifier passes all seven canonical
+entities and repeat writes zero. Four complete retained repositories compile
+and converge. Complete native post columns, active-theme relationships, page
+selection, PHP style types and CSS bindings pass independent comparison. All
+eight local trash posts and their category relationships remain exact; native
+Qi registration and setup flags remain local. Core widget normalization,
+unordered disabled-block membership sorting and empty taxonomy-cache
+invalidation are recorded explicitly.
+
+The selected template renders at 32px with its header and footer on both
+sites. Native target reopen recognizes all 37 blocks. Both editors then save
+a real font-control change to 33px and fresh reopens retain that value. All
+three template Saves and the page selection Save have complete successful
+WordPress and Qi writer responses matching native storage.
+
+The native page chooser adds two page-specific style records while rendering
+its previews. Those records enable Qi's frontend style guard, but their 32px
+rule also overrides the later 33px template rule. The source reproduces this
+without Apply writing to it. Complete CSS agrees across sites after the page
+binding, so this evidence does not claim successful 33px frontend rendering.
+It does not justify modifying native storage or adding a Qi runtime executable.
+
+Four post-edit repositories converge within their respective site; across the
+two independent Saves only the template's two modified timestamps differ.
+Strict full convergence refuses those differences. Complete repeated native
+observations remain exact after Capture. Editor-created revisions, the target
+WordPress global-style row and its theme relationship, and refreshed native
+caches are recorded separately; complete database equality after UI use is not
+claimed. Fresh direct editor visits have the known WordPress iframe stylesheet
+warning and no JavaScript errors. The owned browser, pair and lease were removed.
+
+Broader widget/template media, inline template behavior and complete production
+qualification remain open. No capability status, package declaration or adapter
+identity changes on this evidence alone. Exact source, stream hashes, admission
+scope and initial probe corrections are recorded in
 [`authoring-progress.json`](../../evidence/authoring-progress.json).
