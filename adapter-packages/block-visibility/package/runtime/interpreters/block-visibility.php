@@ -33,7 +33,22 @@ use WPrism\Policy;
 final class BlockVisibility {
     private const PRESET_POST_TYPE = 'visibility_preset';
     private const CONTROL_SETS = 'control_sets';
-    private const SCALAR_KEYS = ['enable', 'hide_block', 'layout'];
+    /**
+     * The three portable preset scalars, and whether each needs `lint_ok`.
+     *
+     * `enable` and `hide_block` are booleans WordPress stores as 1/0, so on a
+     * young site the value collides with a real post id and lint reports a
+     * bare_id — measured on the first conformance run, where `meta.enable` = 1
+     * matched the preset itself (post 1). register-presets.php declares both
+     * `type => boolean`, so neither is ever an entity reference and the
+     * exemption is a statement about the plugin's own schema. `layout` is a
+     * string enum and needs no exemption.
+     */
+    private const SCALAR_KEYS = [
+        'enable' => true,
+        'hide_block' => true,
+        'layout' => false,
+    ];
 
     /**
      * `location` rule fields whose `value` is an entity reference. Measured
@@ -63,8 +78,12 @@ final class BlockVisibility {
         if (!$this->is_preset_meta($allMeta)) {
             return null;
         }
-        if (in_array($key, self::SCALAR_KEYS, true)) {
-            return ['class' => 'authored'];
+        if (array_key_exists($key, self::SCALAR_KEYS)) {
+            $rule = ['class' => 'authored'];
+            if (self::SCALAR_KEYS[$key]) {
+                $rule['lint_ok'] = true;
+            }
+            return $rule;
         }
         if ($key !== self::CONTROL_SETS) {
             return null;

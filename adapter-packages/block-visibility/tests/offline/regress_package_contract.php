@@ -78,6 +78,10 @@ wprism_check(!array_key_exists('post_meta', $manifest), 'and NO static post_meta
 wprism_check_same('block-visibility', $manifest['interpreter'], 'the capsule names its interpreter');
 $interpreter = (string) file_get_contents($package . '/package/runtime/interpreters/block-visibility.php');
 wprism_check(str_contains($interpreter, 'is_preset_meta'), 'which scopes the bare keys by a distinctive sibling rather than by name alone');
+wprism_check(
+    str_contains($interpreter, "'enable' => true") && str_contains($interpreter, "'layout' => false"),
+    'and exempts only the two booleans register-presets.php declares as boolean from the bare_id heuristic, never the string enum beside them'
+);
 foreach (['postID', 'postTaxonomy', 'attributesAuthor'] as $field) {
     wprism_check(str_contains($interpreter, "'" . $field . "'"), "and enumerates the measured reference field $field from the plugin's own dispatch switch");
 }
