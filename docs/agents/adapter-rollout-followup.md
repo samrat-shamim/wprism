@@ -582,3 +582,65 @@ control cannot lean on an incidental schema difference. Measured refusal:
 'speculation-rules' manifest's declared version_range (>=1.7.0 <1.7.1, pinned by
 site.wprism.json)`. Note the exclusive upper bound: the window admits only the
 observed 1.7.0 line.
+
+## Block Visibility (`block-visibility`) — the boundary is the deliverable
+
+Authored against WordPress 7.1 and the official 3.7.1 artifact (sha256
+`1b889bb9f5c650fd89bc968f26a4acf01355cc58736eabc8da63cab213710a9a`). Shipped
+**experimental, capture-plan only**, and the reason is worth recording because
+it is not the Download Manager reason: nothing here is blocked by a plugin bug.
+This plugin's primary surface simply cannot be declared in the current grammar.
+
+**What the engine can express, and what this plugin needs.** `block_attrs`
+binds ONE top-level attribute key per EXACT block name, over a value vocabulary
+the engine closes at `{int, int[]}` — `AttributeGrammar`'s own refusal says "any
+other shape needs engine support before it can be declared". Block Visibility
+needs the opposite on both axes. Measured live: it injects `blockVisibility`
+into **115 of the 116** registered blocks (the exception is the deprecated
+`core/post-comments` alias), and the attribute is an object nesting entity ids
+at conditionally-typed paths — `visibilityPresets.presets` is a
+`visibility_preset` id list, while
+`controlSets[].controls.location.ruleSets[].rules[].value` is a post id list, a
+comma-separated post-id *string*, term ids, or an author id depending on its
+sibling `field` (read off the plugin's own dispatch switch,
+`includes/frontend/visibility-tests/location.php:150-220`).
+
+**The part that made this urgent.** Undeclared, those ids reach canonical state
+verbatim and land on a target pointing at unrelated entities — and lint does
+**not** catch it. `unregistered_block_attr` fires on attributes named
+`id`/`ids`/`ref` or ending in `Id`/`Ids` holding a **numeric** value; the
+carrier here is an object called `blockVisibility`. So a site running this
+plugin is silently mis-portable *today*, with or without this capsule. The
+capsule's contribution is to convert that silence into a refusal.
+
+**How the refusal is scoped.** Every block that can carry the attribute declares
+it `unsupported` — a reviewed blocking boundary, and the first shipped use of
+that field. It is precise rather than blanket, because the engine evaluates a
+rule only when the attribute is actually present
+(`Blocks.php`: `if (!isset($block['attrs'][$path])) { continue; }`). Ordinary
+content capture is untouched; capture aborts only when authored content really
+holds a visibility rule. Conformance proves both halves: an annotated block
+aborts naming the block, the attribute and the boundary, and removing the
+annotation restores capture with no difference but the `modified` stamps.
+
+**Two decisions the static grammar could not make.** The preset meta keys are
+unprefixed — `enable`, `layout`, `hide_block` — so a manifest `post_meta` entry
+would classify another plugin's rows on an ordinary post. They are claimed only
+when the distinctive sibling `control_sets` proves the owner, the shape Contact
+Form 7's interpreter already uses. And `control_sets` repeats the refused
+structure, so the interpreter admits a control set that references no entity and
+refuses one that does, naming the exact `location` rule field.
+
+**Two things the suites caught that reading did not.** `EntityMetaCapture` hands
+`post_meta_rule()` an already-decoded PHP array, not the `array<string,string>`
+its own docblock promises. And `enable` is a boolean WordPress stores as `1`,
+which collided with post id 1 and produced a `bare_id` finding — both booleans
+now carry a reviewed `lint_ok`, the string enum beside them does not.
+
+`tools/engine-gaps.json` records the demand as
+`any_block_structured_attribute_reference_paths`, so it is countable beside the
+other open primitives rather than a note in prose. Closing it needs two things
+that already exist elsewhere in the engine but not beneath a block attribute: a
+rule that reaches any block rather than a named one, and `json_refs`-style
+reference paths with `kind_from`-style sibling dispatch inside the attribute
+value.
