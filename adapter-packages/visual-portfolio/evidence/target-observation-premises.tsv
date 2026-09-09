@@ -1,0 +1,10 @@
+# format wprism-target-observation-premises/v1
+# expected observations=8 fixtures=0
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_VERIFY1 'Visual Portfolio complete canonical source readback' wp_conf1 eval-file /siterepo/.tmp-vp-capture/verify.php --use-include --user=admin
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_OBSERVED1 'Visual Portfolio complete native source observation' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php observe --use-include --user=admin
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_RECAPTURE 'Visual Portfolio public repeated Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_VERIFY2 'Visual Portfolio complete repeated canonical readback' wp_conf1 eval-file /siterepo/.tmp-vp-capture/verify.php --use-include --user=admin
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_OBSERVED2 'Visual Portfolio complete repeated native observation' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php observe --use-include --user=admin
+observation	tests/conformance/seed.sh	capture_wprism_json_success VP_PADDING 'Visual Portfolio native identity divergence' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php pad-target --use-include --user=admin
+observation	tests/conformance/seed.sh	capture_wprism_json_success VP_SEED 'Visual Portfolio native media and projects' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php seed-source --use-include --user=admin
+observation	tests/conformance/seed.sh	capture_wprism_json_success VP_SAVED 'Visual Portfolio native block and settings writers' wp_conf1 eval-file /siterepo/.tmp-vp-capture/save.php --use-include --user=admin

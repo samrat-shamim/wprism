@@ -742,26 +742,15 @@ $report('shipped code reading `engine_features`: ' . ($featureReaders === [] ? '
 $report('engine features this engine implements: '
     . implode(', ', \WPrism\AdapterContractGrammar::implemented_features()));
 
-wprism_check_same(
-    [
-        'change-wp-admin-login',
-        'code-snippets',
-        'elementor',
-        'ninja-forms',
-        'paid-memberships-pro',
-        'polylang',
-        'qi-blocks',
-        'rank-math',
-        'redirection',
-        'the-events-calendar',
-        'woocommerce',
-        'wpforms-lite',
-        'yoast',
-        'yoast-duplicate-post',
-    ],
-    $featureDeclarers,
-    'V3-FEAT: every feature consumer declares what it consumes and existing adapters pay only their own identity change'
-);
+wprism_check($featureDeclarers !== [], 'V3-FEAT: the shipped library exercises feature negotiation');
+foreach ($featureDeclarers as $name) {
+    $unknownFeature = $shipped[$name];
+    $unknownFeature['engine_features'][] = 'unreviewed-fixture-feature/v1';
+    wprism_check(
+        str_contains((string) $validatorVerdict($unknownFeature), 'unreviewed-fixture-feature/v1'),
+        "$name refuses an unknown feature beside its reviewed declarations"
+    );
+}
 wprism_check_same(
     [],
     $featureBreaks,

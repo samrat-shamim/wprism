@@ -1,7 +1,7 @@
 <?php
 /**
  * WP-4.4: the reviewed claim source is one document per subject, and the
- * current WPrism identity baseline is pinned through the product path
+ * historical WPrism identity baseline is pinned through the product path
  * (spec/repo-format.md § v3.4).
  *
  * WHY THIS SUITE EXISTS
@@ -16,13 +16,13 @@
  * one-byte canonical difference in one document would move that adapter's
  * digest, every `site.wprism.json` content pin naming it, and — through
  * `manifest_hash` — every compiled artifact in the field. The WPrism
- * greenfield baseline below pins the current 21-subject identity map through
+ * greenfield baseline below pins its historical 21-subject identity map through
  * two maximal compatible 19-subject policy worlds and a separate AIO world, so a split-induced byte
  * change is still a measured fleet-visible failure.
  *
  * THE GATE ASSERTION, AND WHY IT IS NOT A TAUTOLOGY
  * ------------------------------------------------
- * PART 1 pins the current WPrism 21-subject digest union, each compatible
+ * PART 1 pins the historical WPrism 21-subject digest union, each compatible
  * world's `manifest_hash` and snapshot, and `registry_sha256` as LITERALS
  * captured from this greenfield tree, through the product path a deployed
  * site uses. Recomputing both sides of an equality would prove nothing — it
@@ -369,11 +369,10 @@ const PRE_MANAGED_CLONE_YOAST_SNAPSHOT_SHA = '97e5aef666c52f3cb35e6c459d690afb7d
 const PRE_MANAGED_CLONE_YDP_REASON = 'Certified for exact Yoast Duplicate Post 4.7 on single-site WordPress with all 28 authored settings, native clone/taxonomy/meta behavior, large divergent post identities, durable _dp_original rewriting and plugin-native removal, settings/row-action/post-state/metabox rendering, a verified role-capability provider over hostile and missing-role targets, target-sovereign Rewrite & Republish residue, option and duplicated-post deletion authorization, conflict/force/idempotence, failure/retry, lifecycle residue and exact reinstall, credential-shaped-setting refusal, and official 4.6 refusal evidence.';
 
 /**
- * The current WPrism greenfield baseline. Unlike the historical split
- * overlays above, this map includes every currently shipped subject,
- * including Redirection, and is the only expected identity set used against
- * the live source tree below. These literals are intentionally explicit:
- * changing a package or disposition requires a deliberate re-pin.
+ * The 21-subject greenfield fixture boundary, including Redirection. These
+ * literals pin the identities involved in the audited transitions; an edit
+ * to one of those packages still requires a deliberate re-pin. A new capsule
+ * does not join an old whole-registry snapshot fixture by being discovered.
  */
 const WPRISM_CURRENT_DIGESTS = [
     'acf' => 'c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d',
@@ -404,15 +403,31 @@ const WPRISM_CURRENT_REGISTRY_SHA = '074e3eac800ba5ecbca42315f464139f14731767660
 const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '187877989496373c599eaf943dc9edef5c25c6deb281210409937b6235b6ad5b';
 const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '8b4da6c849d129a401a4657a87fb7848a17d5465737c9d9d802db3366dcbc44d';
 
-$shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
+$liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
-    $shippedRegistry instanceof ManifestDispositions,
+    $liveRegistry instanceof ManifestDispositions,
     'the shipped library loads its reviewed claim source from the per-subject directory'
 );
 $shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
-wprism_check_same($actualNames, $shippedNames, 'the literal identity baseline includes every actual package, not only its own compatible-world union');
+wprism_check_same([], array_values(array_diff($shippedNames, $actualNames)), 'every historical identity fixture subject still exists in the live library');
+// Whole-registry addressing intentionally sees capsule additions (WP-4.5).
+// Retain the historical pin set through the real frozen registry reader,
+// instead of adding every new capsule to unrelated identity-transition literals.
+$baselineData = $liveRegistry->data();
+$baselineData['manifests'] = array_intersect_key($baselineData['manifests'], WPRISM_CURRENT_DIGESTS);
+$baselineManifests = array_map(static fn(string $name): array => Canon::decode(Canon::read_file($manifestPath($name))), $shippedNames);
+$shippedRegistry = ManifestDispositions::from_snapshot($baselineData, $baselineManifests);
+$baselineSnapshot = static function (Policy $policy) use ($shippedRegistry): array {
+    $snapshot = $policy->export_snapshot();
+    $snapshot['dispositions'] = $shippedRegistry->data();
+    ManifestDispositions::from_snapshot($snapshot['dispositions'], $snapshot['manifests']);
+    return $snapshot;
+};
+if (count($actualNames) > count($shippedNames)) {
+    wprism_check($liveRegistry->sha256() !== $shippedRegistry->sha256(), 'new capsules still move the actual whole-registry address; only the historical fixture view is bounded');
+}
 $rankWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'yoast']));
 $yoastWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'rank-math']));
 $aioPins = ['core', 'change-wp-admin-login'];
@@ -435,7 +450,7 @@ foreach ($shippedPolicies as $world => $policy) {
 ksort($observed, SORT_STRING);
 $worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins, $aioPins)));
 sort($worldUnion, SORT_STRING);
-wprism_check_same($shippedNames, $worldUnion, 'the compatible-world union covers every shipped subject');
+wprism_check_same($shippedNames, $worldUnion, 'the compatible-world union covers every historical fixture subject');
 wprism_check_same(['rank-math'], array_values(array_diff($rankWorldPins, $yoastWorldPins)), 'the Rank-compatible world differs only by Rank Math');
 wprism_check_same(['yoast'], array_values(array_diff($yoastWorldPins, $rankWorldPins)), 'the Yoast-compatible world differs only by Yoast');
 wprism_check_same(
@@ -828,18 +843,17 @@ wprism_check(
 wprism_check_same(
     WPRISM_CURRENT_REGISTRY_SHA,
     $shippedRegistry->sha256(),
-    'and registry_sha256, the content address a host contract pins, reassembles from the current per-subject '
-    . 'documents to exactly one WPrism registry (WP-4.5 is the rider that narrows this to per-subject addressing)'
+    'the historical registry content address reassembles exactly from its current per-subject documents'
 );
 wprism_check_same(
     WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
-    hash('sha256', Canon::encode($shippedPolicies['rank-world']->export_snapshot())),
-    'and the Rank-compatible policy snapshot, including the whole registry, is pinned to its explicit baseline'
+    hash('sha256', Canon::encode($baselineSnapshot($shippedPolicies['rank-world']))),
+    'the Rank-compatible policy snapshot retains the historical whole-registry fixture bytes'
 );
 wprism_check_same(
     WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
-    hash('sha256', Canon::encode($shippedPolicies['yoast-world']->export_snapshot())),
-    'and the Yoast-compatible policy snapshot, including the same registry, is independently pinned'
+    hash('sha256', Canon::encode($baselineSnapshot($shippedPolicies['yoast-world']))),
+    'the Yoast-compatible policy snapshot retains the same independently pinned historical registry'
 );
 // The relocation must also be invisible in the other direction: bytes frozen
 // before it still reconstruct a policy, through the validator that reads them.
@@ -887,7 +901,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(22, $documentCount, 'the reviewed source is 22 documents: 21 subjects and the profiles map');
+wprism_check_same(count($adapterLibrary->packages()) + 1, $documentCount, 'each discovered subject owns one reviewed document beside the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

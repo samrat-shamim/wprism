@@ -28,6 +28,7 @@ final class ShippedIdentityInventory
         'rank-math',
         'redirection',
         'the-events-calendar',
+        'visual-portfolio',
         'woocommerce',
         'wpforms-lite',
         'wprism-agency-cpt',

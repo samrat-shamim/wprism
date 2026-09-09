@@ -1,0 +1,10 @@
+{
+  "manifest": "visual-portfolio",
+  "entry": {
+    "mode": "capture-plan",
+    "pin": ["core", "visual-portfolio"],
+    "plugins": [{"slug": "visual-portfolio", "version": "3.8.1"}],
+    "post_types": ["post", "page", "attachment", "portfolio"],
+    "taxonomies": ["category", "post_tag", "portfolio_category", "portfolio_tag"]
+  }
+}

@@ -1,0 +1,140 @@
+{
+  "visual-portfolio/block": [
+    "align", "anchor", "block_id", "className", "content_source", "custom_css", "filter", "filter_show_count",
+    "filter_text_all", "grid_columns", "grid_images_aspect_ratio", "images", "images_descriptions_source",
+    "images_order_by", "images_order_direction", "images_titles_source", "items_click_action",
+    "items_click_action_popup_description_source", "items_click_action_popup_title_source",
+    "items_click_action_url_rel", "items_click_action_url_target", "items_count", "items_gap",
+    "items_gap_vertical", "items_style", "items_style_default__caption_links_color",
+    "items_style_default__caption_links_hover_color", "items_style_default__caption_text_align",
+    "items_style_default__caption_text_color", "items_style_default__categories_count",
+    "items_style_default__date_format", "items_style_default__excerpt_words_count",
+    "items_style_default__images_rounded_corners", "items_style_default__overlay_bg_color",
+    "items_style_default__overlay_text_color", "items_style_default__read_more_label",
+    "items_style_default__show_author", "items_style_default__show_categories",
+    "items_style_default__show_comments_count", "items_style_default__show_date",
+    "items_style_default__show_excerpt", "items_style_default__show_icon", "items_style_default__show_overlay",
+    "items_style_default__show_read_more", "items_style_default__show_reading_time",
+    "items_style_default__show_title", "items_style_default__show_views_count", "items_style_default__title_tag",
+    "items_style_emerge__caption_bg_color", "items_style_emerge__caption_links_color",
+    "items_style_emerge__caption_links_hover_color", "items_style_emerge__caption_text_align",
+    "items_style_emerge__caption_text_color", "items_style_emerge__categories_count",
+    "items_style_emerge__date_format", "items_style_emerge__excerpt_words_count",
+    "items_style_emerge__images_rounded_corners", "items_style_emerge__overlay_bg_color",
+    "items_style_emerge__show_author", "items_style_emerge__show_caption", "items_style_emerge__show_categories",
+    "items_style_emerge__show_comments_count", "items_style_emerge__show_date", "items_style_emerge__show_excerpt",
+    "items_style_emerge__show_overlay", "items_style_emerge__show_reading_time", "items_style_emerge__show_title",
+    "items_style_emerge__show_views_count", "items_style_emerge__title_tag", "items_style_fade__categories_count",
+    "items_style_fade__date_format", "items_style_fade__excerpt_words_count",
+    "items_style_fade__images_rounded_corners", "items_style_fade__overlay_bg_color",
+    "items_style_fade__overlay_text_align", "items_style_fade__overlay_text_color",
+    "items_style_fade__show_author", "items_style_fade__show_categories", "items_style_fade__show_comments_count",
+    "items_style_fade__show_date", "items_style_fade__show_excerpt", "items_style_fade__show_icon",
+    "items_style_fade__show_overlay", "items_style_fade__show_reading_time", "items_style_fade__show_title",
+    "items_style_fade__show_views_count", "items_style_fade__title_tag", "items_style_fly__categories_count",
+    "items_style_fly__date_format", "items_style_fly__excerpt_words_count",
+    "items_style_fly__images_rounded_corners", "items_style_fly__overlay_bg_color",
+    "items_style_fly__overlay_text_align", "items_style_fly__overlay_text_color", "items_style_fly__show_author",
+    "items_style_fly__show_categories", "items_style_fly__show_comments_count", "items_style_fly__show_date",
+    "items_style_fly__show_excerpt", "items_style_fly__show_icon", "items_style_fly__show_overlay",
+    "items_style_fly__show_reading_time", "items_style_fly__show_title", "items_style_fly__show_views_count",
+    "items_style_fly__title_tag", "justified_last_row", "justified_max_rows_count", "justified_row_height",
+    "justified_row_height_tolerance", "layout", "layout_elements", "lock", "masonry_columns",
+    "masonry_horizontal_order", "masonry_images_aspect_ratio", "metadata", "no_items_action", "no_items_notice",
+    "pagination", "pagination_hide_on_end", "pagination_infinite_text_end_list", "pagination_infinite_text_load",
+    "pagination_infinite_text_loading", "pagination_load_more_text_end_list", "pagination_load_more_text_load",
+    "pagination_load_more_text_loading", "pagination_paged__scroll_top", "pagination_paged__scroll_top_offset",
+    "pagination_paged__show_arrows", "pagination_paged__show_numbers", "pagination_style", "post_types_set",
+    "posts_avoid_duplicate_posts", "posts_custom_query", "posts_excluded_ids", "posts_ids", "posts_offset",
+    "posts_order_by", "posts_order_direction", "posts_source", "posts_taxonomies", "posts_taxonomies_relation",
+    "preview_image_example", "setup_wizard", "slider_arrows", "slider_autoplay", "slider_autoplay_hover_pause",
+    "slider_bullets", "slider_bullets_dynamic", "slider_centered_slides", "slider_effect", "slider_free_mode",
+    "slider_free_mode_sticky", "slider_items_height_dynamic", "slider_items_height_static",
+    "slider_items_height_type", "slider_items_min_height", "slider_loop", "slider_mousewheel",
+    "slider_slides_per_view_custom", "slider_slides_per_view_type", "slider_speed", "slider_thumbnails",
+    "slider_thumbnails_gap", "slider_thumbnails_height_dynamic", "slider_thumbnails_height_static",
+    "slider_thumbnails_height_type", "slider_thumbnails_per_view_custom", "slider_thumbnails_per_view_type",
+    "sort", "stretch", "style", "tiles_type"
+  ],
+  "visual-portfolio/item-author": [
+    "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "isLink", "linkTarget", "lock",
+    "metadata", "prefix", "rel", "style", "textColor"
+  ],
+  "visual-portfolio/item-categories": [
+    "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "lock", "metadata", "separator", "style",
+    "textColor"
+  ],
+  "visual-portfolio/item-cover": [
+    "anchor", "aspectRatio", "backgroundSize", "borderColor", "className", "clickAction", "contentPosition",
+    "customGradient", "customHoverGradient", "customHoverOverlayColor", "customOverlayColor", "dimRatio", "effect",
+    "focalPoint", "fontFamily", "fontSize", "gradient", "hoverDimRatio", "hoverGradient", "hoverOverlayColor",
+    "linkTarget", "lock", "metadata", "minHeight", "overlayColor", "rel", "showContent", "sizeSlug", "style",
+    "textColor"
+  ],
+  "visual-portfolio/item-date": [
+    "backgroundColor", "className", "fontFamily", "fontSize", "format", "gradient", "isLink", "lock", "metadata",
+    "style", "textColor"
+  ],
+  "visual-portfolio/item-description": [
+    "backgroundColor", "className", "excerptLength", "fontFamily", "fontSize", "gradient", "lock", "metadata",
+    "source", "style", "textColor"
+  ],
+  "visual-portfolio/item-image": [
+    "anchor", "aspectRatio", "borderColor", "className", "clickAction", "customGradient", "customOverlayColor",
+    "dimRatio", "gradient", "height", "linkTarget", "lock", "metadata", "overlayColor", "rel", "scale", "sizeSlug",
+    "style", "width"
+  ],
+  "visual-portfolio/item-meta": [
+    "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "isLink", "lock", "metaType", "metadata",
+    "prefix", "showIcon", "showZero", "style", "suffix", "textColor"
+  ],
+  "visual-portfolio/item-read-more": [
+    "backgroundColor", "className", "clickAction", "fontFamily", "fontSize", "gradient", "linkTarget", "lock",
+    "metadata", "rel", "showArrow", "style", "text", "textColor"
+  ],
+  "visual-portfolio/item-template": [
+    "anchor", "backgroundColor", "borderColor", "carouselAutoWidth", "carouselAutoplay", "carouselAutoplayDelay",
+    "carouselEdgeFade", "carouselEffect", "carouselFreeScroll", "carouselIndicator", "carouselPeek",
+    "carouselRepeat", "carouselShowArrows", "carouselSnapAlign", "className", "fontFamily", "fontSize", "gradient",
+    "justifiedLastRow", "justifiedMaxRowsCount", "justifiedRowHeight", "justifiedRowHeightTolerance",
+    "layoutAutoFit", "layoutColumnCount", "layoutColumnsMode", "layoutMinimumColumnWidth", "layoutTiles",
+    "layoutType", "lock", "metadata", "style", "textColor"
+  ],
+  "visual-portfolio/item-title": [
+    "backgroundColor", "className", "clickAction", "fontFamily", "fontSize", "gradient", "isLink", "level",
+    "levelOptions", "linkTarget", "lock", "metadata", "rel", "style", "textColor"
+  ],
+  "visual-portfolio/loop": [
+    "align", "anchor", "baseQuery", "block_id", "borderColor", "className", "customCss", "fontFamily", "fontSize",
+    "imagesQuery", "layout", "lock", "metadata", "postsQuery", "previewLayout", "preview_image_example", "queryId",
+    "queryType", "sourceQuery", "style"
+  ],
+  "visual-portfolio/loop-filter": [
+    "align", "anchor", "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "layout", "lock",
+    "metadata", "showAllItem", "showCount", "style", "textColor"
+  ],
+  "visual-portfolio/loop-filter-item": [
+    "anchor", "backgroundColor", "borderColor", "className", "count", "filter", "fontFamily", "fontSize",
+    "gradient", "lock", "metadata", "style", "taxonomyId", "text", "textColor"
+  ],
+  "visual-portfolio/loop-no-results": [
+    "align", "anchor", "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "lock", "metadata",
+    "style", "textColor"
+  ],
+  "visual-portfolio/loop-pagination": [
+    "align", "anchor", "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "layout", "lock",
+    "metadata", "showArrow", "showLabel", "style", "textColor"
+  ],
+  "visual-portfolio/loop-pagination-next": ["backgroundColor", "className", "fontFamily", "fontSize", "gradient", "label", "lock", "metadata", "style"],
+  "visual-portfolio/loop-pagination-numbers": ["backgroundColor", "className", "fontFamily", "fontSize", "gradient", "lock", "metadata", "midSize", "style"],
+  "visual-portfolio/loop-pagination-previous": ["backgroundColor", "className", "fontFamily", "fontSize", "gradient", "label", "lock", "metadata", "style"],
+  "visual-portfolio/loop-pagination-trigger": [
+    "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "label", "loadingLabel", "lock",
+    "metadata", "style", "triggerType"
+  ],
+  "visual-portfolio/loop-sort": [
+    "anchor", "backgroundColor", "className", "fontFamily", "fontSize", "gradient", "labels", "lock", "metadata",
+    "options", "style", "textColor"
+  ],
+  "visual-portfolio/saved": ["align", "anchor", "className", "id", "lock", "metadata", "style"]
+}
