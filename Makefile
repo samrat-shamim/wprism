@@ -1196,6 +1196,10 @@ regress-identity-fork-request:
 regress-native-option-inputs:
 	php sandbox/tests/offline/guards/regress_native_option_inputs.php
 
+.PHONY: regress-filesystem-file-snapshot
+regress-filesystem-file-snapshot:
+	php sandbox/tests/offline/guards/regress_filesystem_file_snapshot.php
+
 .PHONY: regress-native-post-types
 regress-native-post-types:
 	php sandbox/tests/offline/guards/regress_native_post_types.php

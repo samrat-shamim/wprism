@@ -22170,6 +22170,9 @@
         "WPrism\\FilesystemTreeSnapshot": {
             "abstract": false,
             "constants": {
+                "MAX_FILE_BYTES": {
+                    "value_repr": 16777216
+                },
                 "MAX_TREE_BYTES": {
                     "value_repr": 1073741824
                 },
@@ -22209,6 +22212,47 @@
                             "default": null,
                             "has_default": false,
                             "name": "canonicalRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "containmentLabel",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observe_file": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contentRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonicalPath",
                             "type": "string",
                             "variadic": false
                         },
@@ -61738,6 +61782,9 @@
                 "DATABASE_POSTIMAGE_UNKNOWN": {
                     "value_repr": "unknown"
                 },
+                "FILESYSTEM_FILE_SNAPSHOT_FEATURE": {
+                    "value_repr": "provider-filesystem-file-snapshot/v1"
+                },
                 "NATIVE_OPTION_INPUTS_FEATURE": {
                     "value_repr": "provider-native-option-inputs/v1"
                 },
@@ -62274,6 +62321,31 @@
                         }
                     ],
                     "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "filesystem_file_snapshot": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "containmentRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonicalPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },

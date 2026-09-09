@@ -61,6 +61,7 @@ final class ProviderSdk {
     public const NATIVE_OPTION_INPUTS_FEATURE = 'provider-native-option-inputs/v1';
     public const NATIVE_POST_TYPES_FEATURE = 'provider-native-post-types/v1';
     public const NATIVE_PERMALINKS_FEATURE = 'provider-native-permalinks/v1';
+    public const FILESYSTEM_FILE_SNAPSHOT_FEATURE = 'provider-filesystem-file-snapshot/v1';
     public const DATABASE_POSTIMAGE_APPLIED = 'applied';
     public const DATABASE_POSTIMAGE_NOT_APPLIED = 'not_applied';
     public const DATABASE_POSTIMAGE_UNKNOWN = 'unknown';
@@ -84,6 +85,22 @@ final class ProviderSdk {
             $containmentRoot,
             $absoluteRoot,
             $canonicalRoot,
+            'provider filesystem',
+            'provider filesystem containment root'
+        );
+    }
+
+    /**
+     * Witness one confined regular file or its verified absence. Its parent
+     * must exist; no read failure is interpreted as absence. This read grants
+     * neither mutation authority nor a filesystem recovery contract.
+     *
+     * @return array{path:string,state:string,file:?array{bytes:int,mtime:int,mode:int,sha256:string}}
+     */
+    public static function filesystem_file_snapshot(string $containmentRoot, string $canonicalPath): array {
+        return FilesystemTreeSnapshot::observe_file(
+            $containmentRoot,
+            $canonicalPath,
             'provider filesystem',
             'provider filesystem containment root'
         );

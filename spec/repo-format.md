@@ -986,6 +986,12 @@ reverse) is precisely the silent mis-read the channel exists to remove.
 The implemented feature roster is emitted by `wprism manifest-validate --emit-schema`;
 the following features use its `spec-window/v1` channel:
 
+- **`provider-filesystem-file-snapshot/v1`** adds no manifest section or mutation
+  authority. It negotiates `ProviderSdk::filesystem_file_snapshot(root, canonicalPath)`:
+  a bounded observation of one present regular file or verified absence under
+  existing, confined parents. Its result and refusal boundaries are described in
+  the [adapter authoring guide](../docs/guides/adapter-authoring.md#fresh-process-capabilities).
+
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
   requirement is that one feature the engine IMPLEMENTS exists on the day it ships, so that "declared and
