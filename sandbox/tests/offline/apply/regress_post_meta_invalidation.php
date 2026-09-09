@@ -76,7 +76,7 @@ foreach (['options', 'dynamic_options'] as $section) {
 }
 wprism_check_throws(static fn() => ReferenceRules::value_rule($rule, 'attached or block value'), RuntimeException::class,
     'other value-rule consumers refuse the effect by default', 'on_post_write');
-foreach (['post_types', 'taxonomies', 'post_fields', 'table', 'column', 'attached-meta'] as $surface) {
+foreach (['post_types', 'taxonomies', 'table', 'column', 'attached-meta'] as $surface) {
     $bad = ['spec_version' => 3, 'engine_features' => [Invalidation::FEATURE]];
     if ($surface === 'table') $bad['tables']['fixture'] = $rule;
     elseif ($surface === 'column') $bad['tables']['fixture'] = ['class' => 'authored_snapshot', 'columns' => ['cache' => $rule]];
@@ -128,6 +128,29 @@ $remove = static function (string $path) use (&$remove): void {
     rmdir($path);
 };
 register_shutdown_function(static fn() => $remove($scratch));
+$fieldLibrary = $scratch . '/field-library';
+mkdir($fieldLibrary, 0700);
+foreach (['post_types.page.fields.title', 'menu_fields.locations'] as $surface) {
+    foreach ([false, true] as $misplaced) {
+        $fields = $manifest;
+        $fieldRule = $misplaced ? $rule : ['class' => 'derived'];
+        if ($surface === 'menu_fields.locations') $fields['menu_fields']['locations'] = $fieldRule;
+        else $fields['post_types']['page']['fields']['title'] = $fieldRule;
+        $envelope = FrozenPolicy::envelope([$fields], $site, $fieldLibrary);
+        $library = FrozenPolicy::adapterLibrary($fieldLibrary);
+        foreach ([
+            'frozen' => static fn() => Policy::from_snapshot($envelope, $library),
+            'live' => static fn() => Policy::load(null, [$fields['name']], adapterLibrary: $library),
+        ] as $loader => $load) {
+            if ($misplaced) {
+                wprism_check_throws($load, RuntimeException::class,
+                    "$loader policy refuses a misplaced repair declaration on $surface", "$surface.on_post_write");
+            } else {
+                wprism_check($load() instanceof Policy, "$loader policy preserves ordinary derived $surface declarations");
+            }
+        }
+    }
+}
 $uuid = '11111111-1111-4111-8111-111111111111';
 $front = ['uuid' => $uuid, 'type' => 'page', 'slug' => 'cache', 'title' => 'Cache',
     'author' => 'user:admin', 'menu_order' => 0, 'parent' => null,

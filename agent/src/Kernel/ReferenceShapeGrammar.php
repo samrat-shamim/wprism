@@ -31,7 +31,7 @@ final class ReferenceShapeGrammar {
     public static function validate_reference_shapes(array $source, string $label, bool $manifestFeatures = false): void {
         // These classification rules do not use ReferenceRules::value_rule().
         // A misplaced write grant must refuse rather than load as inert data.
-        foreach (['post_types', 'taxonomies', 'post_fields'] as $section) {
+        foreach (['post_types', 'taxonomies'] as $section) {
             foreach ($source[$section] ?? [] as $name => $rule) {
                 if (is_array($rule)) PostMetaInvalidation::assert_rule($rule, "$label.$section.$name");
             }
