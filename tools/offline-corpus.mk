@@ -17,7 +17,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 373 offline suites green"
+	@echo "regress-offline-all: 385 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-action-provider-grammar \
@@ -59,6 +59,8 @@ regress-offline-corpus: code-half-unit \
 	regress-authority-delegation \
 	regress-authority-record-v2 \
 	regress-authorization-plan \
+	regress-block-attribute-groups \
+	regress-block-attribute-values \
 	regress-block-reference-scanner \
 	regress-block-refs \
 	regress-body-ref-grammar \
@@ -109,6 +111,7 @@ regress-offline-corpus: code-half-unit \
 	regress-compiled-artifact \
 	regress-compiled-artifact-reader \
 	regress-composite-ref \
+	regress-conditional-json-refs \
 	regress-conflict-view \
 	regress-conformance-asserts \
 	regress-conformance-vector-replay \
@@ -151,6 +154,7 @@ regress-offline-corpus: code-half-unit \
 	regress-effect-bundle \
 	regress-effect-declaration-coverage \
 	regress-elementor-matrix-reset \
+	regress-encoded-text-values \
 	regress-entity-meta-capture \
 	regress-env-options-policy \
 	regress-env-provider-conformance \
@@ -170,6 +174,7 @@ regress-offline-corpus: code-half-unit \
 	regress-export-manifest-roundtrip \
 	regress-fatal-mutations-unit \
 	regress-fetch-artifact \
+	regress-filesystem-file-snapshot \
 	regress-fixture-makers \
 	regress-fleet-census \
 	regress-frozen-materialization-promotion \
@@ -177,6 +182,7 @@ regress-offline-corpus: code-half-unit \
 	regress-graded-claim \
 	regress-graduated-version-range \
 	regress-grind-r1c-manifest-preserve \
+	regress-html-media-references \
 	regress-ideal-onboarding \
 	regress-identity-fork-request \
 	regress-identity-namespaces \
@@ -188,6 +194,7 @@ regress-offline-corpus: code-half-unit \
 	regress-interpreter-policy \
 	regress-invalidate-vocabulary \
 	regress-journal-bootstrap \
+	regress-key-bound-strings \
 	regress-ledger-large-values \
 	regress-ledger-read-only-schema \
 	regress-lifecycle-executor \
@@ -212,6 +219,7 @@ regress-offline-corpus: code-half-unit \
 	regress-manifest-validate \
 	regress-manifest-validator \
 	regress-media-capture \
+	regress-media-derivative-recipes \
 	regress-menu-capture \
 	regress-menu-field-reclassification-policy \
 	regress-menu-materializer \
@@ -243,6 +251,7 @@ regress-offline-corpus: code-half-unit \
 	regress-path-safety \
 	regress-pending-command \
 	regress-pending-queue-ownership \
+	regress-php-container-values \
 	regress-php-literal-data \
 	regress-physical-table-rows \
 	regress-pin-resolver \
@@ -267,6 +276,7 @@ regress-offline-corpus: code-half-unit \
 	regress-polylang-live-fixtures \
 	regress-post-field-classification \
 	regress-post-materializer \
+	regress-post-meta-invalidation \
 	regress-post-type-grammar \
 	regress-post-type-relation-resolver \
 	regress-private-command-capture \
@@ -335,6 +345,7 @@ regress-offline-corpus: code-half-unit \
 	regress-scoped-effect-reconciliation \
 	regress-scoped-promote-unit \
 	regress-scoped-promotion-target \
+	regress-serialized-data-preflight \
 	regress-serialized-term-description-scanner \
 	regress-shipped-option-declarations \
 	regress-shortcode-reference-scanner \
@@ -379,6 +390,7 @@ regress-offline-corpus: code-half-unit \
 	regress-typed-table-capture \
 	regress-typed-table-materializer \
 	regress-unadopt \
+	regress-unsupported-block-attributes \
 	regress-upload-bundle \
 	regress-url-query-reference-codec \
 	regress-url-query-refs \
@@ -393,4 +405,4 @@ regress-offline-corpus: code-half-unit \
 	regress-wp-cli-child-process \
 	regress-wpforms-lite-adapter \
 	regress-wpforms-lite-term-deletion
-	@echo "regress-offline-corpus: 373 offline suites green"
+	@echo "regress-offline-corpus: 385 offline suites green"

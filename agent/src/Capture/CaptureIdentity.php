@@ -16,6 +16,16 @@ final class CaptureIdentity {
         );
     }
 
+    /** Optional observation does not mint or repair; existing identity must still be durable. */
+    public function observePost(int $id, string $entityType): ?string {
+        global $wpdb;
+        $uuid = $this->readIdentity($wpdb->postmeta, 'post_id', $id, "post $id");
+        if ($uuid !== null) {
+            Ledger::require_read_only_mapping($uuid, $entityType, Ledger::KIND_POST, $id, "post $id");
+        }
+        return $uuid;
+    }
+
     public function ensurePost(
         int $id,
         string $entityType,

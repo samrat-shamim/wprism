@@ -2,22 +2,20 @@
     "adapter_digests": {
         "acf": "c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d",
         "advanced-editor-tools": "cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d",
-        "block-visibility": "00351e8d931ba669cc43ac59064275ec2d52604fdf558f6b25f4c9be015e1051",
+        "change-wp-admin-login": "d40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415",
         "classic-editor": "908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea",
         "code-snippets": "f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e",
         "contact-form-7": "fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5",
         "core": "9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63",
-        "download-manager": "f95ce694b1b3c55ee67eda17077bcc56394680ac2ca19108239e0c179afbb499",
         "elementor": "5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64",
         "ninja-forms": "35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011",
         "paid-memberships-pro": "e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253",
         "polylang": "933ff6b878ef3545597b9111aeade9aa13d54389a168f9a44ddee89984991e17",
+        "qi-blocks": "aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550",
         "rank-math": "f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116",
         "redirection": "7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16",
-        "speculation-rules": "170301093e21115a50380bd3aca55f8fea38ccaee5b8b33a9c0f49813f76350f",
         "the-events-calendar": "cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee",
         "woocommerce": "9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0",
-        "wordpress-popup": "e1208792f2dfdad05b76c3f5cb3d98899b441aeb616224df04955a52abd5097c",
         "wpforms-lite": "e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f",
         "wprism-agency-cpt": "174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab",
         "wps-hide-login": "4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050",
@@ -28,22 +26,20 @@
     "manifest_bytes_sha256": {
         "acf": "8776e7e64922c0aa70b348832a193869554b5faee4a4741a911daedf3080faca",
         "advanced-editor-tools": "047d6d21b86301a52c8681d9623a0588f1f6e458a58a01b0b8b1735e84942f03",
-        "block-visibility": "9c6b0253b67f6b987db7dc62eb53fa48ff42e6d42c04dc4defa21a20f829c700",
+        "change-wp-admin-login": "dc1bea5571e1783f4957f9d7558014a1d3a52b5b37a100b5e54f51221925abd5",
         "classic-editor": "ffad6256c34fd74538c4beba7f29299cd7fe3312d4b551795668bfeab8bb475b",
         "code-snippets": "8011eeffb6e4e246dac3ceb5128677be7debca08102101a9a39d336b9c62fd46",
         "contact-form-7": "bfdd6f48b2b9e8658fe5f0e355edb232648294fabe70dcca080283481537f7be",
         "core": "76dc95aa88bc7861301c28b5647607ea6c3722475f5ae76d3993b330b105baa4",
-        "download-manager": "7acd1374b2fda07605b28aa19fa5fa5d2c4aa20f86c8d3099555f8c89d0dfcc0",
         "elementor": "e8968ca8c55f41cbabd6a5672ab6084d45631312bb8a44605cfe169b086c258c",
         "ninja-forms": "7127febed3e8b907cd05d30b62ba5788a5c9157c8163e766d4453557c7e3d017",
         "paid-memberships-pro": "b5674ba2258dfc6e764608d06305fdad785f8b3812bc6e5894ef5954cc84f717",
         "polylang": "820509591d81ed0cd5798a470037e01a5acbca33ec8c4deaaf6ce398d1eff5e0",
+        "qi-blocks": "b821d7900ac5fb2629bde60bc412f5ea961a50f2db1cfeadbf3adb4cf55f3c13",
         "rank-math": "4b867607269aa09cb9e1e7cbe3aeef793d6eccf5b86a999a4c4fb2764e4a3b82",
         "redirection": "e1979af988710e99decbcf9efb8c778352deedcb7cd59f488056d07a7733bf50",
-        "speculation-rules": "9478712c050bd4c3f7843c2f36629f0c56e4df3ad1c50827e936c878e3d4f1bb",
         "the-events-calendar": "c76dcf086a1b7e7d4027435b267bb440103147f17ad2841ab1179c15057196d6",
         "woocommerce": "03e14b06b1cd939badc819297f137e02d3eadd2c8c0bb175e0f1c7858c24112c",
-        "wordpress-popup": "8cc0d485e30fb146f73889abfe4ea566f06a969fe31dfbe728ad4772fa85a9c3",
         "wpforms-lite": "ba1021b90fdde0dd8748e556899a7c7d07cf6e3948ff21fb007ced31b4e9e665",
         "wprism-agency-cpt": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf",
         "wps-hide-login": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5",
@@ -51,33 +47,13 @@
         "yoast-duplicate-post": "4378d9ab7627bc0732cb61ce1266427231d44ddacae3db4c49402be2b99992fe"
     },
     "pin_sets": {
-        "rank-world": {
-            "manifest_hash": "45618dd93dd364e361ad3d0845f037e166ae907e13c77bbc880d42b7f95cf696",
+        "core+change-wp-admin-login": {
+            "manifest_hash": "390ec46621b5a9be96976c991d19ef29e0dd66978881f4f962f2f9d2fea708e5",
             "pins": [
-                "acf",
-                "advanced-editor-tools",
-                "block-visibility",
-                "classic-editor",
-                "code-snippets",
-                "contact-form-7",
                 "core",
-                "download-manager",
-                "elementor",
-                "ninja-forms",
-                "paid-memberships-pro",
-                "polylang",
-                "rank-math",
-                "redirection",
-                "speculation-rules",
-                "the-events-calendar",
-                "woocommerce",
-                "wordpress-popup",
-                "wpforms-lite",
-                "wprism-agency-cpt",
-                "wps-hide-login",
-                "yoast-duplicate-post"
+                "change-wp-admin-login"
             ],
-            "snapshot_sha256": "b221c44bebba6ec495910c24bcb9b2a77d871d2c42ebd801fef2c108a81a9957"
+            "snapshot_sha256": "f3bc84dc72931defba4083226a50d3a6919fb82427ab0d93043a15075f92b23d"
         },
         "core+elementor+yoast+contact-form-7": {
             "manifest_hash": "0447fed067e86aaa6bf8593a1a83cbea94e9b011d0f2a5820db723152cb72caa",
@@ -86,7 +62,8 @@
                 "core",
                 "elementor",
                 "yoast"
-            ]
+            ],
+            "snapshot_sha256": "a54a778c449cd9f333154d68e1d532ce664904f764ca09a55e63d63dc1044348"
         },
         "core+paid-memberships-pro+code-snippets": {
             "manifest_hash": "d00e9a468515d7458b2a4a654fcb931a0ddf35afd194cea4e243dda90f0a390a",
@@ -94,7 +71,8 @@
                 "code-snippets",
                 "core",
                 "paid-memberships-pro"
-            ]
+            ],
+            "snapshot_sha256": "83ed02c24ec28963e1135efddb1fa3086a986303a8d9d8aaacfd637ec0994431"
         },
         "core+polylang+the-events-calendar": {
             "manifest_hash": "038ef448789057f69317a6eeddf2ddea63570a7057e8bd079a4746186cb7aa35",
@@ -102,7 +80,16 @@
                 "core",
                 "polylang",
                 "the-events-calendar"
-            ]
+            ],
+            "snapshot_sha256": "507d3ec08e0dd08e7385b7e7f3e37c7e00fef3dd09ce302467442667fd7848e9"
+        },
+        "core+qi-blocks": {
+            "manifest_hash": "ec075af3c972f3fa52f9cd896cd689d7335b4cab882f4a6ca4922889e764a325",
+            "pins": [
+                "core",
+                "qi-blocks"
+            ],
+            "snapshot_sha256": "af4e8034a8327c95f9136bb75a902b842132ac13ebac9e9af7da8c329cb9f783"
         },
         "core+woocommerce+acf": {
             "manifest_hash": "a382ee3a44059f1e9f888958202946ad2250e84005de5a910be5f13ee4b408be",
@@ -110,48 +97,73 @@
                 "acf",
                 "core",
                 "woocommerce"
-            ]
+            ],
+            "snapshot_sha256": "c81d01d2b55f704ce5453adde41570225b2153bb7de24912a94197749ebc0391"
         },
         "core-only": {
             "manifest_hash": "14bf83b00f73f2210c7f9dc329fd3bdda5e576eb5a7a2d4415cda6d375f8f64c",
             "pins": [
                 "core"
-            ]
+            ],
+            "snapshot_sha256": "b7fc0b526c8e0002022156db6839268c571d8654b1549036daf7b294748d3b0b"
+        },
+        "rank-world": {
+            "manifest_hash": "16e71494c59307634541b725aef83618b54fcc7638384c2804953e51d57b9e4b",
+            "pins": [
+                "acf",
+                "advanced-editor-tools",
+                "classic-editor",
+                "code-snippets",
+                "contact-form-7",
+                "core",
+                "elementor",
+                "ninja-forms",
+                "paid-memberships-pro",
+                "polylang",
+                "qi-blocks",
+                "rank-math",
+                "redirection",
+                "the-events-calendar",
+                "woocommerce",
+                "wpforms-lite",
+                "wprism-agency-cpt",
+                "wps-hide-login",
+                "yoast-duplicate-post"
+            ],
+            "snapshot_sha256": "187877989496373c599eaf943dc9edef5c25c6deb281210409937b6235b6ad5b"
         },
         "wprism-agency-cpt-only": {
             "manifest_hash": "b2fc37062cf77e4725ca4b2cb723636cfe53563cad9040d62b490835ccb3d1bf",
             "pins": [
                 "wprism-agency-cpt"
-            ]
+            ],
+            "snapshot_sha256": "4f6eafae4b7c7f53cfda6e3e2fd997a7da5da126a96eef1070a42880e5ca263b"
         },
         "yoast-world": {
-            "manifest_hash": "0cfc60ac8e30f9e3ce10fd1ef4c4668daaf45472a9c0b4b188cce9bacff60b63",
+            "manifest_hash": "c1e83e5223987c126595854ae8d8dc99f1a1b020c41ab5749e66bf8abbd93dbc",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
-                "block-visibility",
                 "classic-editor",
                 "code-snippets",
                 "contact-form-7",
                 "core",
-                "download-manager",
                 "elementor",
                 "ninja-forms",
                 "paid-memberships-pro",
                 "polylang",
+                "qi-blocks",
                 "redirection",
-                "speculation-rules",
                 "the-events-calendar",
                 "woocommerce",
-                "wordpress-popup",
                 "wpforms-lite",
                 "wprism-agency-cpt",
                 "wps-hide-login",
                 "yoast",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "52d6f4587e5668c80878367a30caf656e19abb16a32af52a317ac160aae7797b"
+            "snapshot_sha256": "8b4da6c849d129a401a4657a87fb7848a17d5465737c9d9d802db3366dcbc44d"
         }
     },
-    "registry_sha256": "e9e2a6e16563d1ef37dd86c9ae7b9be13331c04e805a236e2a0d400886619f78"
+    "registry_sha256": "074e3eac800ba5ecbca42315f464139f14731767660ecc7ca432173bfc8c81a7"
 }

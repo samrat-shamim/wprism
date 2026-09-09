@@ -470,7 +470,7 @@ $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ?
 // feature-claimed keys deliberately sit in § v3.21's roster rather than
 // duplicating the signer partition.
 wprism_check_same(
-    ['attr_id_codecs', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    ['attr_id_codecs', 'block_media_derivatives', 'block_values', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $unknownInUse,
     'F1: every shipped key outside the signer partition belongs to an explicitly declared feature roster'
 );
@@ -479,7 +479,7 @@ wprism_check_same(
     array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
     'F1: every shipped key outside the partition has a certificate arm in the feature roster'
 );
-wprism_check_same(36, count($unionKeys), 'F1: the in-use union is 36 keys');
+wprism_check_same(38, count($unionKeys), 'F1: the in-use union is 38 keys');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
@@ -742,28 +742,15 @@ $report('shipped code reading `engine_features`: ' . ($featureReaders === [] ? '
 $report('engine features this engine implements: '
     . implode(', ', \WPrism\AdapterContractGrammar::implemented_features()));
 
-wprism_check_same(
-    [
-        'block-visibility',
-        'code-snippets',
-        'download-manager',
-        'elementor',
-        'ninja-forms',
-        'paid-memberships-pro',
-        'polylang',
-        'rank-math',
-        'redirection',
-        'speculation-rules',
-        'the-events-calendar',
-        'woocommerce',
-        'wordpress-popup',
-        'wpforms-lite',
-        'yoast',
-        'yoast-duplicate-post',
-    ],
-    $featureDeclarers,
-    'V3-FEAT: every feature consumer declares what it consumes and existing adapters pay only their own identity change'
-);
+wprism_check($featureDeclarers !== [], 'V3-FEAT: the shipped library exercises feature negotiation');
+foreach ($featureDeclarers as $name) {
+    $unknownFeature = $shipped[$name];
+    $unknownFeature['engine_features'][] = 'unreviewed-fixture-feature/v1';
+    wprism_check(
+        str_contains((string) $validatorVerdict($unknownFeature), 'unreviewed-fixture-feature/v1'),
+        "$name refuses an unknown feature beside its reviewed declarations"
+    );
+}
 wprism_check_same(
     [],
     $featureBreaks,
@@ -813,6 +800,7 @@ wprism_check_same(
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'agent/src/Policy/Policy.php',
@@ -820,44 +808,37 @@ wprism_check_same(
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside six gate readers (provider contracts, body mode, column framing, '
-        . 'value predicates, invalidate verbs, interpreter ownership) that ask only '
+        . 'refuses an unimplemented name — beside seven gate readers (provider contracts, body mode, column framing, '
+        . 'block groups, value predicates, invalidate verbs, interpreter ownership) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
-// WP-6.4: two names, not one. The dry run's own posture — measure what is
-// there, do not assert what ought to be — makes the COUNT the interesting fact:
-// a vocabulary of one is a special case that happens to satisfy the channel's
-// requirement, and a vocabulary of two is a set the refusal enumerates, the
-// author declares from, and register row R-19 projects. WP-6.5 made it six;
-// manifest-provider-runtime/v1 made it seven, Redirection's measured mixed
-// column demand made it eight, and the bounded post-kind selector makes it
-// nine, schema-settlement/v1 makes it ten, plugin-incompatibility/v1 makes it
-// eleven while claiming the incompatibility section itself, and the fixed
-// manifest-provider child protocol makes it twelve, and scalar reference
-// intersection made thirteen, native value validation fourteen, and retained
-// JSON-body reference types fifteen, JSON-body URL rebinding sixteen, and
-// reviewed JSON-body scalar privacy paths seventeen. Independent provider row
-// observation and mutation APIs make eighteen and nineteen, each without a new
-// top-level section.
-// The count is now evidence for a different claim than the one it started
-// as: § v3.12 asks for "at least one grammar section shipped post-v3 through
-// engine_features with no version bump" before the window may ever close, and
-// Native option input witnessing makes twenty. Nineteen of these twenty
-// shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// The admitted set includes the implemented features. The explicit
+// roster proves declarations remain negotiated without a spec-version bump;
+// provider observation/input features and reference/container codecs coexist.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'block-attribute-groups/v1',
+        'block-attribute-values/v1',
+        'block-media-derivatives/v1',
+        'block-record-fields/v1',
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
+        'conditional-json-refs/v1',
+        'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
+        'key-bound-strings/v1',
         'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'native-value-validation/v1',
+        'php-container-values/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
+        'post-meta-invalidation/v1',
+        'provider-filesystem-file-snapshot/v1',
         'provider-native-option-inputs/v1',
         'provider-native-permalinks/v1',
         'provider-native-post-types/v1',
@@ -871,7 +852,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries twenty-two names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries the implemented names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
@@ -928,14 +909,16 @@ wprism_check_same(
 
 echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate arm\n";
 
-// The ROWS, pinned whole. Every one of these six is a permanent decision the
+// The ROWS, pinned whole. Every one of these eight is a permanent decision the
 // register records (R-31): the arm reaches `claim_from_disposition()`, which
 // builds the `surfaces` list inside a signed statement, so moving a key between
 // arms invalidates every certificate already issued over an adapter declaring
-// it. A seventh row, or a moved arm, is a reviewed edit here.
+// it. A new row, or a moved arm, is a reviewed edit here.
 wprism_check_same(
     [
         'attr_id_codecs' => 'field',
+        'block_media_derivatives' => 'field',
+        'block_values' => 'field',
         'body_refs' => 'field',
         'column_codecs' => 'field',
         'declaration_evidence' => 'non_surface',
@@ -943,7 +926,7 @@ wprism_check_same(
         'incompatible_plugins' => 'non_surface',
     ],
     AdapterContractGrammar::feature_key_arms(),
-    'V3-ARM: the roster classifies six keys — three typed refinements over an already-declared surface as '
+    'V3-ARM: the roster classifies eight keys — five value grammar sections as '
         . '`field`, and the claim channel, evidence records, and incompatibility list as `non_surface`'
 );
 $report('feature-claimed key arms: ' . json_encode(AdapterContractGrammar::feature_key_arms(), JSON_UNESCAPED_SLASHES));

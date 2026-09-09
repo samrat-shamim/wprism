@@ -16,6 +16,7 @@ namespace WPrism;
 // caller that needs Canon or Code (like this file's own test) must require
 // them explicitly itself.
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
+require_once __DIR__ . '/../Kernel/MediaDerivativeRecipe.php';
 
 /**
  * One immutable, typed result of compiling a repository revision. The
@@ -69,6 +70,7 @@ final class CompiledRepository {
             || !array_is_list($payload['effects_inventory'])) {
             throw new \RuntimeException('wprism: compiled repository payload has no effects inventory');
         }
+        MediaDerivativeRecipe::assert_inventory($payload['media_derivatives'] ?? [], $payload['tree']);
         $payload['uploads_inventory'] = self::derive_uploads_inventory($payload['tree']);
         MediaPayloadAuthority::assertArtifactMedia($payload['media'], $payload['tree'], $mediaDirectory);
         $payload['format'] = self::FORMAT;
@@ -95,6 +97,7 @@ final class CompiledRepository {
         if (($artifact['uploads_inventory'] ?? null) !== self::derive_uploads_inventory($artifact['tree'])) {
             throw new \RuntimeException('wprism: compiled artifact upload inventory does not match its typed tree');
         }
+        MediaDerivativeRecipe::assert_inventory($artifact['media_derivatives'] ?? [], $artifact['tree']);
         if (array_key_exists('code', $artifact)) {
             if (!is_array($artifact['code'])) {
                 throw new \RuntimeException('wprism: compiled artifact code descriptor is malformed');
@@ -265,6 +268,11 @@ final class CompiledRepository {
      */
     public function uploads_inventory(): array {
         return (array) ($this->artifact['uploads_inventory'] ?? []);
+    }
+
+    /** Exact content-selected derivative recipes; absent for legacy artifacts. */
+    public function media_derivatives(): array {
+        return $this->artifact['media_derivatives'] ?? [];
     }
 
     /** Complete manifest-bound lifecycle/rebuild effect declaration. */

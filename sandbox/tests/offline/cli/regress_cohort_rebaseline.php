@@ -1036,7 +1036,8 @@ foreach (['woocommerce', 'elementor', 'polylang', 'ninja-forms'] as $slug) {
 // nothing re-derives is a number that goes stale in silence — and the specific
 // number at risk here is the one whose whole value is that it was not invented.
 // So the guide's core-estate block is compared against the run above, line for
-// line, and the guide is the side that has to move.
+// line, with only the explicitly variable library counts rendered as N/R.
+// A new capsule outside this estate changes those counts, not its coverage.
 
 $guide = $repoRoot . '/docs/guides/coverage-cohort.md';
 wprism_check(is_file($guide), 'the cohort runbook exists at docs/guides/coverage-cohort.md');
@@ -1052,9 +1053,17 @@ foreach (explode("\n", trim($realHuman['stdout'])) as $line) {
     if (!in_array($prefix, ['rebaseline', 'library', 'coverage', 'funnel', 'attribution', 'cohort'], true)) {
         continue;
     }
+    if ($prefix === 'library') {
+        $line = (string) preg_replace(
+            '/^library: ([0-9]+) -> [0-9]+ adapter\(s\), ([0-9]+) -> [0-9]+ reviewed, /',
+            'library: $1 -> N adapter(s), $2 -> R reviewed, ',
+            $line
+        );
+        wprism_check(str_contains($runbook, '`N` and `R` are the current adapter'), 'the runbook labels its two library-count placeholders');
+    }
     wprism_check(
         str_contains($runbook, $line),
-        "the runbook publishes the measured '$prefix' line verbatim: " . $line
+        "the runbook publishes the measured '$prefix' line with its declared placeholders: " . $line
     );
 }
 wprism_check(

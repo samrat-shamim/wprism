@@ -1,14 +1,14 @@
 <?php
 /**
  * WP-4.4: the reviewed claim source is one document per subject, and the
- * current WPrism identity baseline is pinned through the product path
+ * historical WPrism identity baseline is pinned through the product path
  * (spec/repo-format.md § v3.4).
  *
  * WHY THIS SUITE EXISTS
  * ---------------------
  * `manifests/dispositions.json` was 302 lines, 37,707 bytes and 16 entries in
  * one file; the current library has one package-local disposition per adapter
- * plus `platform/adapter-library/core/disposition.json` — 21 subjects in all.
+ * plus `platform/adapter-library/core/disposition.json` — 19 subjects in all.
  * That is a
  * relocation of bytes AGENTS.md rule 2 calls adapter identity:
  * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
@@ -16,13 +16,13 @@
  * one-byte canonical difference in one document would move that adapter's
  * digest, every `site.wprism.json` content pin naming it, and — through
  * `manifest_hash` — every compiled artifact in the field. The WPrism
- * greenfield baseline below pins the current 19-subject identity map through
- * two maximal compatible 18-subject policy worlds, so a split-induced byte
+ * greenfield baseline below pins its historical 21-subject identity map through
+ * two maximal compatible 19-subject policy worlds and a separate AIO world, so a split-induced byte
  * change is still a measured fleet-visible failure.
  *
  * THE GATE ASSERTION, AND WHY IT IS NOT A TAUTOLOGY
  * ------------------------------------------------
- * PART 1 pins the current WPrism 19-subject digest union, each compatible
+ * PART 1 pins the historical WPrism 21-subject digest union, each compatible
  * world's `manifest_hash` and snapshot, and `registry_sha256` as LITERALS
  * captured from this greenfield tree, through the product path a deployed
  * site uses. Recomputing both sides of an equality would prove nothing — it
@@ -162,7 +162,7 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * Rule 2 makes each of those historical transitions fleet-visible BY DESIGN.
  *
  * The frozen map and these overlays remain historical evidence only. The
- * current WPrism gate is the explicit 18-subject map below, observed as the
+ * current WPrism gate is the explicit 21-subject map below, observed as the
  * union of two valid maximal policy worlds; it does not infer an unmoved or
  * moved count from the pre-split capture.
  */
@@ -345,6 +345,19 @@ const PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda46
 const PRE_WPFORMS_LOCATION_PROVIDER_RANK_SNAPSHOT_SHA = 'c54d19c1c4722335f9f2e3a586baed2ff47c8cd8aff962d4b24cd6c9f5cbd4a3';
 const PRE_WPFORMS_LOCATION_PROVIDER_YOAST_SNAPSHOT_SHA = 'c6e85f18d1da81585d333c29deffcfed673c91df7ff5aecc054d7bbcd36fa9c3';
 
+// Native Qi Save exposed an omitted Parallax item and six unused responsive
+// placeholders. Only its declaration changes; keep the prior addresses so
+// this intentional re-pin cannot silently move a neighbouring adapter.
+const PRE_QI_CROP_SELECTION_DIGEST = '5c71f2e2babd8aa9be205587ca492482f9913b3117cf512831f481cf76cb6dcc';
+const PRE_QI_CROP_RANK_MANIFEST_HASH = 'bfaf45ed2f985742dd6a4174d9b22a86e7e9412e1425e9b78d8bd6c1142c0bbe';
+const PRE_QI_CROP_YOAST_MANIFEST_HASH = '00d8e80efdfc11fdf1c7ed92c2bf766f8775b1e0f51cf0aaa4750f5a1fdc97a1';
+const PRE_QI_CROP_RANK_SNAPSHOT_SHA = 'ed4ee62440064dc04b4e3dea2c0e6561df41d19ad920bf45ea8fd9c6da81422a';
+const PRE_QI_CROP_YOAST_SNAPSHOT_SHA = '45fd42af992fa865417d0a8edb5e2e6351728cdcc00e6ebf7273cfce91a1460a';
+
+// Actual native gallery responses require an intentional three-rule projection.
+// Preserve the preceding crop-qualified Qi identity as its own transition.
+const PRE_QI_RECORD_FIELDS_DIGEST = '590ffbb979b8a049674c0813aa04216e159340ff7dec31a22e8664115e6753f9';
+
 // Withdrawing an overbroad native-clone claim moves only its disposition.
 // Preserve the exact preceding claim to check the other 18 entries unchanged.
 const PRE_MANAGED_CLONE_YDP_DIGEST = '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456';
@@ -356,64 +369,70 @@ const PRE_MANAGED_CLONE_YOAST_SNAPSHOT_SHA = '97e5aef666c52f3cb35e6c459d690afb7d
 const PRE_MANAGED_CLONE_YDP_REASON = 'Certified for exact Yoast Duplicate Post 4.7 on single-site WordPress with all 28 authored settings, native clone/taxonomy/meta behavior, large divergent post identities, durable _dp_original rewriting and plugin-native removal, settings/row-action/post-state/metabox rendering, a verified role-capability provider over hostile and missing-role targets, target-sovereign Rewrite & Republish residue, option and duplicated-post deletion authorization, conflict/force/idempotence, failure/retry, lifecycle residue and exact reinstall, credential-shaped-setting refusal, and official 4.6 refusal evidence.';
 
 /**
- * The current WPrism greenfield baseline. Unlike the historical split
- * overlays above, this map includes every currently shipped subject,
- * including Redirection, and is the only expected identity set used against
- * the live source tree below. These literals are intentionally explicit:
- * changing a package or disposition requires a deliberate re-pin.
+ * The 21-subject greenfield fixture boundary, including Redirection. These
+ * literals pin the identities involved in the audited transitions; an edit
+ * to one of those packages still requires a deliberate re-pin. A new capsule
+ * does not join an old whole-registry snapshot fixture by being discovered.
  */
 const WPRISM_CURRENT_DIGESTS = [
     'acf' => 'c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d',
     'advanced-editor-tools' => 'cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d',
-    'block-visibility' => '00351e8d931ba669cc43ac59064275ec2d52604fdf558f6b25f4c9be015e1051',
+    'change-wp-admin-login' => 'd40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
-    'download-manager' => 'f95ce694b1b3c55ee67eda17077bcc56394680ac2ca19108239e0c179afbb499',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '933ff6b878ef3545597b9111aeade9aa13d54389a168f9a44ddee89984991e17',
+    'qi-blocks' => 'aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
-    'speculation-rules' => '170301093e21115a50380bd3aca55f8fea38ccaee5b8b33a9c0f49813f76350f',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
-    'wordpress-popup' => 'e1208792f2dfdad05b76c3f5cb3d98899b441aeb616224df04955a52abd5097c',
     'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
-// The registry as each of this branch's capsules joined it. Each rung removes
-// the capsules added AFTER it, so every one keeps asking its original question
-// rather than being re-pinned past; PRE_DOWNLOAD_MANAGER is main's own reviewed
-// registry address, which is what makes the ladder a statement about THIS
-// branch instead of a restatement of its own numbers.
-const PRE_SPECULATION_RULES_REGISTRY_SHA = '17aa32057274a90d935c5541cef27a27a7ce257741d011b1feea204cd07eff64';
-const PRE_BLOCK_VISIBILITY_REGISTRY_SHA = '0537326b3184246108857160ee71570abd12b4a964390eecd2ece229239d3c92';
-const PRE_DOWNLOAD_MANAGER_REGISTRY_SHA = '8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc';
-const PRE_WORDPRESS_POPUP_REGISTRY_SHA = '37cad701fd0ad3c14cede7fea1c8086d357e126299580bcf9b027fe7105dae60';
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '45618dd93dd364e361ad3d0845f037e166ae907e13c77bbc880d42b7f95cf696';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '0cfc60ac8e30f9e3ce10fd1ef4c4668daaf45472a9c0b4b188cce9bacff60b63';
-const WPRISM_CURRENT_REGISTRY_SHA = 'e9e2a6e16563d1ef37dd86c9ae7b9be13331c04e805a236e2a0d400886619f78';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'b221c44bebba6ec495910c24bcb9b2a77d871d2c42ebd801fef2c108a81a9957';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '52d6f4587e5668c80878367a30caf656e19abb16a32af52a317ac160aae7797b';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '16e71494c59307634541b725aef83618b54fcc7638384c2804953e51d57b9e4b';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'c1e83e5223987c126595854ae8d8dc99f1a1b020c41ab5749e66bf8abbd93dbc';
+const WPRISM_CURRENT_REGISTRY_SHA = '074e3eac800ba5ecbca42315f464139f14731767660ecc7ca432173bfc8c81a7';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '187877989496373c599eaf943dc9edef5c25c6deb281210409937b6235b6ad5b';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '8b4da6c849d129a401a4657a87fb7848a17d5465737c9d9d802db3366dcbc44d';
 
-$shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
+$liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
-    $shippedRegistry instanceof ManifestDispositions,
+    $liveRegistry instanceof ManifestDispositions,
     'the shipped library loads its reviewed claim source from the per-subject directory'
 );
 $shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
-wprism_check_same($actualNames, $shippedNames, 'the literal identity baseline includes every actual package, not only its own two-world union');
-$rankWorldPins = array_values(array_diff($shippedNames, ['yoast']));
-$yoastWorldPins = array_values(array_diff($shippedNames, ['rank-math']));
+wprism_check_same([], array_values(array_diff($shippedNames, $actualNames)), 'every historical identity fixture subject still exists in the live library');
+// Whole-registry addressing intentionally sees capsule additions (WP-4.5).
+// Retain the historical pin set through the real frozen registry reader,
+// instead of adding every new capsule to unrelated identity-transition literals.
+$baselineData = $liveRegistry->data();
+$baselineData['manifests'] = array_intersect_key($baselineData['manifests'], WPRISM_CURRENT_DIGESTS);
+$baselineManifests = array_map(static fn(string $name): array => Canon::decode(Canon::read_file($manifestPath($name))), $shippedNames);
+$shippedRegistry = ManifestDispositions::from_snapshot($baselineData, $baselineManifests);
+$baselineSnapshot = static function (Policy $policy) use ($shippedRegistry): array {
+    $snapshot = $policy->export_snapshot();
+    $snapshot['dispositions'] = $shippedRegistry->data();
+    ManifestDispositions::from_snapshot($snapshot['dispositions'], $snapshot['manifests']);
+    return $snapshot;
+};
+if (count($actualNames) > count($shippedNames)) {
+    wprism_check($liveRegistry->sha256() !== $shippedRegistry->sha256(), 'new capsules still move the actual whole-registry address; only the historical fixture view is bounded');
+}
+$rankWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'yoast']));
+$yoastWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'rank-math']));
+$aioPins = ['core', 'change-wp-admin-login'];
 $shippedPolicies = [
+    'aio-world' => Policy::load(null, $aioPins, adapterLibrary: $adapterLibrary),
     'rank-world' => Policy::load(null, $rankWorldPins, adapterLibrary: $adapterLibrary),
     'yoast-world' => Policy::load(null, $yoastWorldPins, adapterLibrary: $adapterLibrary),
 ];
@@ -429,9 +448,9 @@ foreach ($shippedPolicies as $world => $policy) {
     }
 }
 ksort($observed, SORT_STRING);
-$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins)));
+$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins, $aioPins)));
 sort($worldUnion, SORT_STRING);
-wprism_check_same($shippedNames, $worldUnion, 'the two maximal compatible worlds jointly cover every shipped subject');
+wprism_check_same($shippedNames, $worldUnion, 'the compatible-world union covers every historical fixture subject');
 wprism_check_same(['rank-math'], array_values(array_diff($rankWorldPins, $yoastWorldPins)), 'the Rank-compatible world differs only by Rank Math');
 wprism_check_same(['yoast'], array_values(array_diff($yoastWorldPins, $rankWorldPins)), 'the Yoast-compatible world differs only by Yoast');
 wprism_check_same(
@@ -712,6 +731,17 @@ wprism_check_same(
 wprism_check_same(['wpforms-lite'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'wpforms-lite' => PRE_WPFORMS_LOCATION_PROVIDER_DIGEST,
 ]))), 'the experimental location provider moves only WPForms package identity, not its engine consumers or neighbours');
+wprism_check_same(['qi-blocks'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'qi-blocks' => PRE_QI_CROP_SELECTION_DIGEST,
+]))), 'native crop selection changes only Qi declaration identity; shared engine owners and neighbouring adapters stay pinned');
+wprism_check(PRE_QI_CROP_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+    && PRE_QI_CROP_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
+    && PRE_QI_CROP_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
+    && PRE_QI_CROP_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    'both compatible Qi policy worlds require explicit recompile and re-pin after correcting the crop consumers');
+wprism_check_same(['qi-blocks'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'qi-blocks' => PRE_QI_RECORD_FIELDS_DIGEST,
+]))), 'native gallery projection changes only Qi identity from the four-crop declaration; all neighbouring adapters stay pinned');
 wprism_check(PRE_WPFORMS_LOCATION_PROVIDER_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
     && PRE_WPFORMS_LOCATION_PROVIDER_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
     && PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA
@@ -726,22 +756,9 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
-// This branch's four capsules are removed before every historical comparison
-// below, so each one keeps asking its original question — "did restoring that
-// one claim reconstruct the registry as it was?" — rather than being re-pinned
-// past. That they hold at main's own recorded addresses is the measurement
-// proving these capsules add rows beside the reviewed library without moving a
-// byte of it.
-const BRANCH_ADDED_CAPSULES = [
-    'block-visibility',
-    'download-manager',
-    'speculation-rules',
-    'wordpress-popup',
-];
 $preManagedCloneRegistry = $shippedRegistry->data();
-foreach (BRANCH_ADDED_CAPSULES as $branchAdded) {
-    unset($preManagedCloneRegistry['manifests'][$branchAdded]);
-}
+// The upstream historical address predates the two capsules added here.
+unset($preManagedCloneRegistry['manifests']['change-wp-admin-login'], $preManagedCloneRegistry['manifests']['qi-blocks']);
 $priorYdp = &$preManagedCloneRegistry['manifests']['yoast-duplicate-post'];
 wprism_check_same('native-managed-duplication', $priorYdp['unsupported'][0]['surface'] ?? null,
     'the withdrawn native workflow is the one explicit new unsupported boundary');
@@ -750,7 +767,7 @@ $priorYdp['reason'] = PRE_MANAGED_CLONE_YDP_REASON;
 array_shift($priorYdp['unsupported']);
 unset($priorYdp);
 wprism_check_same(PRE_MANAGED_CLONE_REGISTRY_SHA, hash('sha256', Canon::encode($preManagedCloneRegistry)),
-    'restoring only the withdrawn claim reconstructs the exact preceding registry; all other dispositions are unchanged');
+    'restoring the withdrawn claim in the original subject set reconstructs the exact preceding registry; all other original dispositions are unchanged');
 wprism_check_same(['yoast-duplicate-post'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'yoast-duplicate-post' => PRE_MANAGED_CLONE_YDP_DIGEST,
 ]))), 'the managed-clone readiness withdrawal moves only Yoast Duplicate Post identity');
@@ -763,32 +780,7 @@ wprism_check(PRE_MANAGED_CLONE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_
 $priorRegistry = $preManagedCloneRegistry;
 unset($priorRegistry['manifests']['wpforms-lite']);
 wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 18 reviewed dispositions that predate all three capture previews remain byte-identical');
-$priorRegistry = $shippedRegistry->data();
-unset(
-    $priorRegistry['manifests']['block-visibility'],
-    $priorRegistry['manifests']['download-manager'],
-    $priorRegistry['manifests']['speculation-rules'],
-    $priorRegistry['manifests']['wordpress-popup']
-);
-wprism_check_same(PRE_DOWNLOAD_MANAGER_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 19 pre-existing reviewed dispositions remain byte-identical after adding the Download Manager preview');
-$priorRegistry = $shippedRegistry->data();
-unset(
-    $priorRegistry['manifests']['block-visibility'],
-    $priorRegistry['manifests']['speculation-rules'],
-    $priorRegistry['manifests']['wordpress-popup']
-);
-wprism_check_same(PRE_WORDPRESS_POPUP_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 20 pre-existing reviewed dispositions remain byte-identical after adding the Hustle preview');
-$priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['block-visibility'], $priorRegistry['manifests']['speculation-rules']);
-wprism_check_same(PRE_SPECULATION_RULES_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 21 pre-existing reviewed dispositions remain byte-identical after adding the Speculative Loading capsule');
-$priorRegistry = $shippedRegistry->data();
-unset($priorRegistry['manifests']['block-visibility']);
-wprism_check_same(PRE_BLOCK_VISIBILITY_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 22 pre-existing reviewed dispositions remain byte-identical after adding the Block Visibility capsule');
+    'all 18 pre-existing reviewed dispositions remain byte-identical after adding WPForms, AIO Login and Qi Blocks');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
     'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
@@ -851,18 +843,17 @@ wprism_check(
 wprism_check_same(
     WPRISM_CURRENT_REGISTRY_SHA,
     $shippedRegistry->sha256(),
-    'and registry_sha256, the content address a host contract pins, reassembles from the current per-subject '
-    . 'documents to exactly one WPrism registry (WP-4.5 is the rider that narrows this to per-subject addressing)'
+    'the historical registry content address reassembles exactly from its current per-subject documents'
 );
 wprism_check_same(
     WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA,
-    hash('sha256', Canon::encode($shippedPolicies['rank-world']->export_snapshot())),
-    'and the Rank-compatible policy snapshot, including the whole registry, is pinned to its explicit baseline'
+    hash('sha256', Canon::encode($baselineSnapshot($shippedPolicies['rank-world']))),
+    'the Rank-compatible policy snapshot retains the historical whole-registry fixture bytes'
 );
 wprism_check_same(
     WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
-    hash('sha256', Canon::encode($shippedPolicies['yoast-world']->export_snapshot())),
-    'and the Yoast-compatible policy snapshot, including the same registry, is independently pinned'
+    hash('sha256', Canon::encode($baselineSnapshot($shippedPolicies['yoast-world']))),
+    'the Yoast-compatible policy snapshot retains the same independently pinned historical registry'
 );
 // The relocation must also be invisible in the other direction: bytes frozen
 // before it still reconstruct a policy, through the validator that reads them.
@@ -910,7 +901,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(24, $documentCount, 'the reviewed source is 24 documents: 23 subjects and the profiles map');
+wprism_check_same(count($adapterLibrary->packages()) + 1, $documentCount, 'each discovered subject owns one reviewed document beside the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

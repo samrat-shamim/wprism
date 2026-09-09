@@ -2851,6 +2851,20 @@ class FakeWpdb {
                         throw new \RuntimeException('FakeWpdb: simulated InnoDB login-range lock wait timeout');
                     }
                     $this->rowLocks[$key] = $this->connectionId;
+                } elseif ($this->fullApplySqlExtensionsEnabled && $table === $this->posts && preg_match(
+                    '/^SELECT ID, post_type FROM `?[A-Za-z0-9_]{1,64}`? FORCE INDEX \(`[^`]+`\) '
+                    . "WHERE post_type = '([a-z0-9_-]+)' AND ID > [0-9]+ ORDER BY ID ASC LIMIT 512 FOR UPDATE$/D",
+                    $trimmed,
+                    $postType
+                ) === 1) {
+                    // Consumer observation eventually covers each complete type
+                    // range, including its empty gap. Row projection still runs
+                    // through the ordinary interpreter below.
+                    $key = $table . "\0post_type\0" . $postType[1];
+                    if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                        throw new \RuntimeException('FakeWpdb: simulated InnoDB post-type range lock wait timeout');
+                    }
+                    $this->rowLocks[$key] = $this->connectionId;
                 } elseif (str_ends_with($table, 'actionscheduler_groups')
                     && preg_match("/\\bWHERE\\s+slug\\s*=\\s*'((?:[^'\\\\]|\\\\.)*)'/is", $trimmed, $group) === 1) {
                     $key = $table . "\0slug\0" . stripslashes($group[1]);
@@ -5170,6 +5184,16 @@ class FakeWpdb {
 
     /** @param array<string,mixed> $data @param array<string,mixed> $where */
     private function writeConflictsWithLocks(string $table, array $data, array $where): bool {
+        if ($table === $this->posts) {
+            $types = isset($data['post_type']) ? [(string) $data['post_type']] : [];
+            foreach ($this->store[$table] ?? [] as $row) {
+                if ($where !== [] && $this->matchesEquality($row, $where)) $types[] = (string) ($row['post_type'] ?? '');
+            }
+            foreach ($types as $type) {
+                $key = $table . "\0post_type\0" . strtolower($type);
+                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) return true;
+            }
+        }
         $optionName = null;
         if (array_key_exists('option_name', $where)) {
             $optionName = (string) $where['option_name'];

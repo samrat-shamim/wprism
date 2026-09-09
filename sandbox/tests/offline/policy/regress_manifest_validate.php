@@ -592,10 +592,10 @@ check(
 );
 
 // Bare/default and --all deliberately ask whether every shipped adapter can
-// coexist. Rank Math and Yoast cannot: both own one SEO plugin slot, so that
+// coexist. The first sorted conflict is AIO Login plus WPS Hide Login; that
 // broad composition must refuse while every isolated row above stays green.
-$rankMathYoastIncompatibility = "wprism: manifest 'rank-math' for plugin 'seo-by-rank-math/rank-math.php' "
-    . "declares plugin 'wordpress-seo/wp-seo.php' incompatible, and pinned manifest(s) {'yoast'} claim that plugin "
+$firstShippedIncompatibility = "wprism: manifest 'change-wp-admin-login' for plugin 'change-wp-admin-login/change-wp-admin-login.php' "
+    . "declares plugin 'wps-hide-login/wps-hide-login.php' incompatible, and pinned manifest(s) {'wps-hide-login'} claim that plugin "
     . '— incompatible plugin adapters cannot share one policy; pin only one';
 foreach ([
     'the bare default' => [$repo, '--format=json'],
@@ -610,9 +610,9 @@ foreach ([
     check(
         $allAdapters['exit'] === 1
             && ($allAdaptersReport['status'] ?? null) === 'error'
-            && ($allAdaptersReport['pinned_set']['message'] ?? null) === $rankMathYoastIncompatibility
+            && ($allAdaptersReport['pinned_set']['message'] ?? null) === $firstShippedIncompatibility
             && $allRowsGreen,
-        "$label validates every manifest alone, then refuses only the unsupported Rank Math plus Yoast composition"
+        "$label validates every manifest alone, then refuses only the unsupported AIO Login plus WPS Hide Login composition"
     );
 }
 
@@ -1572,6 +1572,8 @@ ksort($emittedArms, SORT_STRING);
 check(
     $emittedArms === [
         'attr_id_codecs' => 'field',
+        'block_media_derivatives' => 'field',
+        'block_values' => 'field',
         'body_refs' => 'field',
         'column_codecs' => 'field',
         'declaration_evidence' => 'non_surface',
@@ -2627,13 +2629,14 @@ check(
 // The pure reference-valued declaration shape grammar belongs to
 // ReferenceShapeGrammar; Policy retains the later keyspace/sidecar pass
 // because that pass needs the full declared-table set. Keep every site and
-// manifest loader path wired directly to the extracted collaborator.
+// manifest loader path wired directly to the extracted collaborator. Runtime
+// interpreter answers also delegate there with their owner's negotiated features.
 $referenceShapeGrammar = new ReflectionClass('WPrism\\ReferenceShapeGrammar');
 check(
     $referenceShapeGrammar->hasMethod('validate_reference_shapes')
         && $referenceShapeGrammar->getMethod('validate_reference_shapes')->isPublic()
         && !$policyReflection->hasMethod('validate_reference_shapes')
-        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 0
+        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1
         && substr_count($manifestValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1
         && substr_count($sitePolicyValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1,
     'reference-valued declaration shape grammar lives in ReferenceShapeGrammar while the site validator owns site loading'

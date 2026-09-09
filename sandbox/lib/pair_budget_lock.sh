@@ -30,15 +30,17 @@ budget_lock_acquire() { # budget_lock_acquire <canonical-root>
     || fail "could not create the shared pair-budget lock directory: ${root}/sandbox/siterepo"
   if command -v flock >/dev/null 2>&1; then
     local helper_dir ready_path cancel_path parent_pid parent_start helper_ready=0
-    helper_dir="$(mktemp -d "${root}/sandbox/siterepo/.pair-budget-helper.XXXXXX")" \
+    # TERM is deferred across an external command. Publish allocation directly
+    # into the cleanup owner before another command can deliver that signal;
+    # the controlled startup cases otherwise leave a directory with no helper.
+    PAIR_BUDGET_LOCK_MODE=flock PAIR_BUDGET_LOCK_FD="" PAIR_BUDGET_LOCK_HELPER_DIR=""
+    PAIR_BUDGET_LOCK_HELPER_DIR="$(mktemp -d "${root}/sandbox/siterepo/.pair-budget-helper.XXXXXX")" \
       || fail "could not create the flock pair-budget helper directory"
+    helper_dir="$PAIR_BUDGET_LOCK_HELPER_DIR"
     ready_path="$helper_dir/ready"
     cancel_path="$helper_dir/cancel"
     parent_pid="$$"
     parent_start="$(awk '{print $22}' "/proc/$parent_pid/stat" 2>/dev/null || true)"
-    PAIR_BUDGET_LOCK_MODE=flock
-    PAIR_BUDGET_LOCK_FD=""
-    PAIR_BUDGET_LOCK_HELPER_DIR="$helper_dir"
     # The helper retries nonblocking probes. Once one succeeds, the command
     # passed to flock owns the descriptor and waits on the unique cancel
     # marker while checking this shell's PID and Linux start time. A recycled
@@ -100,26 +102,21 @@ done
     # direct parent's identity so it cannot leave a stale lock behind while
     # waiting for a writer.
     local helper_dir control_path ready_path helper_ready=0
-    helper_dir="$(mktemp -d "${root}/sandbox/siterepo/.pair-budget-helper.XXXXXX")" \
+    PAIR_BUDGET_LOCK_MODE=python PAIR_BUDGET_LOCK_HELPER_DIR="" PAIR_BUDGET_LOCK_HELPER_WRITE_FD=""
+    PAIR_BUDGET_LOCK_HELPER_DIR="$(mktemp -d "${root}/sandbox/siterepo/.pair-budget-helper.XXXXXX")" \
       || fail "could not create the Python pair-budget helper directory"
+    helper_dir="$PAIR_BUDGET_LOCK_HELPER_DIR"
     control_path="$helper_dir/control"
     ready_path="$helper_dir/ready"
     if ! mkfifo "$control_path"; then
-      rmdir "$helper_dir" 2>/dev/null || true
       fail "could not create the Python pair-budget control FIFO"
     fi
-    PAIR_BUDGET_LOCK_MODE=python
-    PAIR_BUDGET_LOCK_HELPER_DIR="$helper_dir"
-    PAIR_BUDGET_LOCK_HELPER_WRITE_FD=8
     # Open both ends before the helper starts. A parent-held RDWR descriptor
     # prevents an O_NONBLOCK reader from seeing EOF during the handshake.
     if ! exec 8<>"$control_path"; then
-      rmdir "$helper_dir" 2>/dev/null || true
-      PAIR_BUDGET_LOCK_MODE=""
-      PAIR_BUDGET_LOCK_HELPER_DIR=""
-      PAIR_BUDGET_LOCK_HELPER_WRITE_FD=""
       fail "could not open the Python pair-budget control FIFO"
     fi
+    PAIR_BUDGET_LOCK_HELPER_WRITE_FD=8
     python3 -c '
 import fcntl, os, select, sys
 lock_path, control_path, ready_path, parent_pid = sys.argv[1:]

@@ -1,0 +1,566 @@
+{
+  "status": "authoring-in-progress",
+  "plugin": "qi-blocks/class-qi-blocks.php",
+  "version": "1.5.2",
+  "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+  "native_versions": {
+    "qi": "1.5.2",
+    "cf7": "6.1.7",
+    "woocommerce": "11.0.0"
+  },
+  "native_ids": {
+    "first": 9,
+    "second": 10,
+    "product": 11,
+    "form": 12,
+    "image": 8,
+    "page": 13
+  },
+  "registry_blocks": 49,
+  "declared_attribute_values": 7497,
+  "media_paths": {
+    "qi-blocks/accordion": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/advanced-text": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/author-info": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "image.id",
+      "imageMobile.id",
+      "imageTablet.id",
+      "signature.id"
+    ],
+    "qi-blocks/banner": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/blog-list": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/button": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/call-to-action": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "backgroundImage.id",
+      "backgroundImageMobile.id",
+      "backgroundImageTablet.id"
+    ],
+    "qi-blocks/cards-gallery": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "cardsGalleryRepeater.itemImage.id"
+    ],
+    "qi-blocks/categories": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/clients-list": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "clientItemsRepeater.clientHoverImage.id",
+      "clientItemsRepeater.clientIcon.id",
+      "clientItemsRepeater.clientImage.id"
+    ],
+    "qi-blocks/column": [
+      "backgroundImage.id",
+      "backgroundImageMobile.id",
+      "backgroundImageTablet.id"
+    ],
+    "qi-blocks/columns": [
+      "backgroundImage.id",
+      "backgroundImageMobile.id",
+      "backgroundImageTablet.id",
+      "backgroundVideoFallbackImage.id",
+      "backgroundVideoLink.id",
+      "overlayBackgroundImage.id",
+      "overlayBackgroundImageMobile.id",
+      "overlayBackgroundImageTablet.id"
+    ],
+    "qi-blocks/comments-template": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/contact-form-7": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "responseBackgroundImage.id",
+      "responseBackgroundImageMobile.id",
+      "responseBackgroundImageTablet.id"
+    ],
+    "qi-blocks/countdown": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "backgroundImage.id",
+      "backgroundImageMobile.id",
+      "backgroundImageTablet.id"
+    ],
+    "qi-blocks/counter": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/divider": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/faq": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/how-to": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "howToItemsRepeater.stepImage.id"
+    ],
+    "qi-blocks/icon-with-text": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "separatorBorderImage.id"
+    ],
+    "qi-blocks/image-gallery": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "gallery.id"
+    ],
+    "qi-blocks/image-gallery-masonry": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "gallery.itemImage.id"
+    ],
+    "qi-blocks/image-gallery-pinterest": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "gallery.id"
+    ],
+    "qi-blocks/image-slider": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "gallery.id"
+    ],
+    "qi-blocks/info-box": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "backgroundImage.id",
+      "backgroundImageMobile.id",
+      "backgroundImageTablet.id"
+    ],
+    "qi-blocks/message-box": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "backgroundImage.id",
+      "backgroundImageMobile.id",
+      "backgroundImageTablet.id"
+    ],
+    "qi-blocks/parallax-images": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "items.itemImage.image.id",
+      "mainImage.id",
+      "mainImageMobile.id",
+      "mainImageTablet.id"
+    ],
+    "qi-blocks/post-author": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/post-date": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/post-terms": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/post-title": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/pricing-table": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "separatorBorderImage.id",
+      "titleWrapperBackgroundImage.id",
+      "titleWrapperBackgroundImageMobile.id",
+      "titleWrapperBackgroundImageTablet.id",
+      "verticalImage.id"
+    ],
+    "qi-blocks/process": [
+      "additionalHolderBackgroundImage.id",
+      "additionalHolderBackgroundImageMobile.id",
+      "additionalHolderBackgroundImageTablet.id",
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "itemBackgroundImage.id",
+      "itemBackgroundImageMobile.id",
+      "itemBackgroundImageTablet.id"
+    ],
+    "qi-blocks/product-list": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/progress-bar-circle": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/progress-bar-horizontal": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "patternImage.id"
+    ],
+    "qi-blocks/progress-bar-vertical": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "patternImage.id"
+    ],
+    "qi-blocks/search": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/section-title": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/single-image": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "image.id",
+      "imageMobile.id",
+      "imageTablet.id"
+    ],
+    "qi-blocks/spacer": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/table-of-contents": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/tabs-horizontal": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "titleBackgroundImage.id",
+      "titleBackgroundImageMobile.id",
+      "titleBackgroundImageTablet.id",
+      "titleHoverBackgroundImage.id",
+      "titleHoverBackgroundImageMobile.id",
+      "titleHoverBackgroundImageTablet.id"
+    ],
+    "qi-blocks/tabs-vertical": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "titleBackgroundImage.id",
+      "titleBackgroundImageMobile.id",
+      "titleBackgroundImageTablet.id",
+      "titleHoverBackgroundImage.id",
+      "titleHoverBackgroundImageMobile.id",
+      "titleHoverBackgroundImageTablet.id"
+    ],
+    "qi-blocks/tag-cloud": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/team-member": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/testimonials-list": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "itemBackgroundImage.id",
+      "itemBackgroundImageMobile.id",
+      "itemBackgroundImageTablet.id",
+      "testimonialsListItemsRepeater.itemAuthorImage.id"
+    ],
+    "qi-blocks/text-marquee": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id"
+    ],
+    "qi-blocks/timeline": [
+      "advancedBackgroundImage.id",
+      "advancedBackgroundImageMobile.id",
+      "advancedBackgroundImageTablet.id",
+      "timelineRepeater.itemImage.id"
+    ]
+  },
+  "source_attributes": {
+    "qi-blocks/accordion": {},
+    "qi-blocks/column": {},
+    "qi-blocks/columns": {},
+    "qi-blocks/advanced-text": {
+      "text": {
+        "type": "string",
+        "source": "html",
+        "selector": "p",
+        "default": ""
+      }
+    },
+    "qi-blocks/author-info": {
+      "text": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-text",
+        "default": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent et eros eu felis."
+      },
+      "email": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-email",
+        "default": ""
+      },
+      "signature": {
+        "type": "object",
+        "default": {}
+      }
+    },
+    "qi-blocks/banner": {},
+    "qi-blocks/blog-list": {},
+    "qi-blocks/button": {
+      "buttonText": {
+        "type": "string",
+        "default": "Click Here",
+        "source": "html",
+        "selector": ".qodef-m-text"
+      }
+    },
+    "qi-blocks/call-to-action": {
+      "title": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-title",
+        "default": "Example Title Text"
+      },
+      "text": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-text",
+        "default": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent et eros eu felis."
+      }
+    },
+    "qi-blocks/cards-gallery": {},
+    "qi-blocks/categories": {},
+    "qi-blocks/clients-list": {},
+    "qi-blocks/comments-template": {},
+    "qi-blocks/contact-form-7": {},
+    "qi-blocks/countdown": {},
+    "qi-blocks/counter": {},
+    "qi-blocks/divider": {},
+    "qi-blocks/faq": {},
+    "qi-blocks/how-to": {},
+    "qi-blocks/icon-with-text": {
+      "text": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-text",
+        "default": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent et eros eu felis."
+      }
+    },
+    "qi-blocks/image-gallery-masonry": {
+      "gallery": {
+        "type": "array",
+        "default": [
+          {
+            "itemImage": {
+              "id": null,
+              "url": "http://localhost:9164/wp-content/plugins/qi-blocks/assets/img/placeholder-150x150.png",
+              "alt": "Placeholder Image",
+              "caption": ""
+            },
+            "itemLink": {}
+          },
+          {
+            "itemImage": {
+              "id": null,
+              "url": "http://localhost:9164/wp-content/plugins/qi-blocks/assets/img/placeholder-150x150.png",
+              "alt": "Placeholder Image",
+              "caption": ""
+            },
+            "itemLink": {}
+          },
+          {
+            "itemImage": {
+              "id": null,
+              "url": "http://localhost:9164/wp-content/plugins/qi-blocks/assets/img/placeholder-150x150.png",
+              "alt": "Placeholder Image",
+              "caption": ""
+            },
+            "itemLink": {}
+          }
+        ]
+      }
+    },
+    "qi-blocks/image-gallery-pinterest": {
+      "gallery": {
+        "type": "array",
+        "default": []
+      }
+    },
+    "qi-blocks/image-gallery": {
+      "gallery": {
+        "type": "array",
+        "default": []
+      }
+    },
+    "qi-blocks/image-slider": {
+      "gallery": {
+        "type": "array",
+        "default": [
+          {
+            "id": null,
+            "url": "http://localhost:9164/wp-content/plugins/qi-blocks/assets/img/placeholder.png",
+            "alt": "Placeholder Image",
+            "caption": "",
+            "custom_image_size": ""
+          },
+          {
+            "id": null,
+            "url": "http://localhost:9164/wp-content/plugins/qi-blocks/assets/img/placeholder.png",
+            "alt": "Placeholder Image",
+            "caption": "",
+            "custom_image_size": ""
+          },
+          {
+            "id": null,
+            "url": "http://localhost:9164/wp-content/plugins/qi-blocks/assets/img/placeholder.png",
+            "alt": "Placeholder Image",
+            "caption": "",
+            "custom_image_size": ""
+          }
+        ]
+      }
+    },
+    "qi-blocks/info-box": {},
+    "qi-blocks/message-box": {
+      "title": {
+        "type": "string",
+        "default": "Example Title Text",
+        "source": "html",
+        "selector": ".qodef-m-title"
+      },
+      "text": {
+        "type": "string",
+        "default": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Mauris tempus nisl vitae magna pulvinar laoreet. Nullam erat ipsum, mattis nec mollis ac, accumsan a enim. Nunc at euismod arcu. Aliquam ullamcorper eros justo, vel mollis neque facilisis vel. Proin augue tortor, condimentum id sapien a, tempus venenatis massa. Aliquam egestas eget diam sed sagittis. Vivamus consectetur purus vel felis molestie sollicitudin. Vivamus sit amet enim nisl. Cras vitae varius metus, a hendrerit ex. Sed in mi dolor. Proin pretium nibh non volutpat efficitur.",
+        "source": "html",
+        "selector": ".qodef-m-text"
+      }
+    },
+    "qi-blocks/parallax-images": {},
+    "qi-blocks/post-author": {},
+    "qi-blocks/post-date": {},
+    "qi-blocks/post-terms": {},
+    "qi-blocks/post-title": {},
+    "qi-blocks/pricing-table": {},
+    "qi-blocks/process": {},
+    "qi-blocks/product-list": {},
+    "qi-blocks/progress-bar-circle": {},
+    "qi-blocks/progress-bar-horizontal": {
+      "patternImage": {
+        "type": "object",
+        "default": {}
+      }
+    },
+    "qi-blocks/progress-bar-vertical": {
+      "patternImage": {
+        "type": "object",
+        "default": {}
+      }
+    },
+    "qi-blocks/search": {},
+    "qi-blocks/section-title": {
+      "title": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-title",
+        "default": ""
+      },
+      "subtitle": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-subtitle > span",
+        "default": "Example Subtitle Text"
+      },
+      "text": {
+        "type": "string",
+        "source": "html",
+        "selector": ".qodef-m-text",
+        "default": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent et eros eu felis."
+      }
+    },
+    "qi-blocks/single-image": {},
+    "qi-blocks/spacer": {},
+    "qi-blocks/table-of-contents": {},
+    "qi-blocks/tabs-horizontal": {},
+    "qi-blocks/tabs-vertical": {},
+    "qi-blocks/tag-cloud": {},
+    "qi-blocks/team-member": {},
+    "qi-blocks/testimonials-list": {},
+    "qi-blocks/text-marquee": {},
+    "qi-blocks/timeline": {}
+  },
+  "notes": [
+    "Native body and option fixtures come from the real Save button on qiauthor02.",
+    "Empty gallery/signature/pattern-image controls and responsive crops still require native Save/reopen coverage.",
+    "All string/container attributes use shared text rewriting; numeric style controls remain native numbers.",
+    "This inventory is not production qualification."
+  ],
+  "declaration_groups": {
+    "groups": 177,
+    "expanded_attributes": 7497,
+    "expanded_blocks": 49,
+    "expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27",
+    "source": "Canonical block_values map before lossless grouping; reference/media ownership must remain identical."
+  }
+}

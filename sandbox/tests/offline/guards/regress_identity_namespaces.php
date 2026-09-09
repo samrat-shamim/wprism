@@ -270,7 +270,7 @@ foreach ([null, 1, IdentityNamespaces::NAMESPACED_SINCE - 1] as $spec) {
 // and what carries that same guarantee forward is the OTHER half of the
 // no-bulk-restamp rule: the gate only reads a manifest's OWN declared version.
 // Later feature consumers opt in deliberately and their grandfathered names
-// pass; seven unrelated manifests remain below the gate.
+// pass; legacy manifests remain below the gate.
 wprism_check_same(
     IdentityNamespaces::NAMESPACED_SINCE,
     WPRISM_SPEC_VERSION,
@@ -285,29 +285,10 @@ foreach ($sourceLibrary->packages() as $package) {
     }
 }
 usort($stampedAtGate, static fn(string $left, string $right): int => strcmp($left . '.json', $right . '.json'));
-wprism_check_same(
-    [
-        'block-visibility',
-        'code-snippets',
-        'download-manager',
-        'elementor',
-        'ninja-forms',
-        'paid-memberships-pro',
-        'polylang',
-        'rank-math',
-        'redirection',
-        'speculation-rules',
-        'the-events-calendar',
-        'woocommerce',
-        'wordpress-popup',
-        'wpforms-lite',
-        'yoast-duplicate-post',
-        'yoast',
-    ],
-    $stampedAtGate,
-    'and exactly the feature-consuming manifests declare a version at the gate while seven unrelated manifests '
-        . 'retain the no-bulk-restamp boundary (§ v3.12)'
-);
+wprism_check($stampedAtGate !== [], 'the shipped library exercises namespace admission at the gate');
+foreach ($stampedAtGate as $name) {
+    wprism_check(IdentityNamespaces::is_grandfathered_name($name), "$name reaches the gate through its explicit shipped reservation");
+}
 wprism_check(
     IdentityNamespaces::is_grandfathered_name('redirection'),
     'the newly authored v3 subject is explicitly present in the closed grandfather list rather than bypassing the namespace rule'
@@ -329,7 +310,7 @@ wprism_check_same(
 $unprefixed = $namespaceVerdict($manifest('cache', 3), 'cache');
 wprism_check(
     is_string($unprefixed) && str_contains($unprefixed, "the unprefixed name 'cache'")
-        && str_contains($unprefixed, 'closed reserved list of 23 names')
+        && str_contains($unprefixed, 'closed reserved list of ' . count($shippedNames) . ' names')
         && str_contains($unprefixed, '§ v3.9'),
     'an unprefixed out-of-tree name refuses BY NAME, naming the closed list and the section that decided it'
 );

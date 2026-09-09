@@ -2,6 +2,8 @@
 namespace WPrism;
 
 require_once __DIR__ . '/ApplyPlanner.php';
+require_once __DIR__ . '/MediaDerivativeWorkset.php';
+require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/../Repository/RepositoryValueValidation.php';
@@ -504,6 +506,13 @@ final class ApplyPlanBuilder {
         // turn a clean plan red while a selected missing capability stays
         // visible in adapter_dispositions.
         $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
+        $effectWork = $rebuildWork['work'];
+        if (BlockMediaDerivativeGrammar::project($this->policy->manifests) !== []) {
+            $mediaWork = MediaDerivativeWorkset::select(
+                $compiled, $this->policy, $env, $rebuildWork['work'], array_column($rebuildWork['delete_work'], 'uuid')
+            );
+            foreach ($mediaWork->attachments as $uuid) $effectWork[] = ['uuid' => $uuid];
+        }
         $canonicalSurfaces = $this->rebuild_surfaces(
             $rebuildWork['work'],
             $tree,
@@ -521,7 +530,7 @@ final class ApplyPlanBuilder {
         $plan['effects_inventory'] = $this->policy->execution_effects_inventory(
             $this->selectedActions,
             self::engine_effect_sources(
-                $rebuildWork['work'],
+                $effectWork,
                 $tree
             ),
             self::regenerator_post_types($rebuildWork['work'], $tree, $this->policy)
@@ -564,6 +573,7 @@ final class ApplyPlanBuilder {
             'selected_actions' => $this->selectedActions,
             'affected_surfaces' => $this->affectedSurfaces,
             'category_summary_context' => $this->categorySummaryContext,
+            'media_target' => $env,
         ];
     }
 

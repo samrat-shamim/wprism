@@ -1,5 +1,5 @@
 {
-    "class_count": 493,
+    "class_count": 510,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -5134,6 +5134,14 @@
                             "name": "repositoryRoot",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "mediaObservation",
+                            "type": "?WPrism\\MediaDerivativeObservation",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -5802,6 +5810,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assert_consumer_recipes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "actual",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "assert_metadata_commit_files": {
                     "abstract": false,
                     "final": false,
@@ -5881,6 +5906,31 @@
                     "abstract": false,
                     "final": false,
                     "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "generation_recipes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "attachmentId",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stageOriginal",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"
@@ -5993,6 +6043,14 @@
                             "has_default": false,
                             "name": "metadataGenerator",
                             "type": "WPrism\\AttachmentNativeMetadataGenerator",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "derivatives",
+                            "type": "?WPrism\\MediaDerivativeWorkset",
                             "variadic": false
                         }
                     ],
@@ -6155,6 +6213,14 @@
                             "name": "repositoryRoot",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "mediaObservation",
+                            "type": "?WPrism\\MediaDerivativeObservation",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -6183,6 +6249,14 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "consumer_database_profile": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?WPrism\\NativeDatabaseProfile",
                     "static": false,
                     "visibility": "public"
                 },
@@ -6245,6 +6319,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "lock_derivative_inputs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "pending_attachment_ids": {
                     "abstract": false,
                     "final": false,
@@ -6297,6 +6388,14 @@
                             "name": "tree",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "derivatives",
+                            "type": "?WPrism\\MediaDerivativeWorkset",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
@@ -6308,6 +6407,39 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "register_derivative_attachments": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tree",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "work",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -6368,6 +6500,31 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "derivative_recipes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "attachmentId",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stageFile",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -7063,6 +7220,14 @@
                             "name": "rollbackScopedAuthoring",
                             "type": "?Closure",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "mediaDerivatives",
+                            "type": "?WPrism\\MediaDerivativeWorkset",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -7088,6 +7253,12 @@
                     "readonly": true,
                     "static": false,
                     "type": "WPrism\\DeletionAuthority",
+                    "visibility": "public"
+                },
+                "mediaDerivatives": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "?WPrism\\MediaDerivativeWorkset",
                     "visibility": "public"
                 },
                 "performTransaction": {
@@ -7200,6 +7371,141 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\BlockAttributeReader": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "clearance_value": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "body",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array|string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "body",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "names",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\BlockMediaDerivativeGrammar": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "block-media-derivatives/v1"
+                },
+                "MAX_RULES": {
+                    "value_repr": 128
+                },
+                "SECTION": {
+                    "value_repr": "block_media_derivatives"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "field_path": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\BlockReferenceScanner": {
             "abstract": false,
             "constants": [],
@@ -7253,6 +7559,250 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\BlockValueCodec": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "apply": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tokens",
+                            "type": "WPrism\\Tokens",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_value": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonical",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tokens",
+                            "type": "WPrism\\Tokens",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "unmapped",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\BlockValueGrammar": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "block-attribute-values/v1"
+                },
+                "GROUP_FEATURE": {
+                    "value_repr": "block-attribute-groups/v1"
+                },
+                "GROUP_FIELD": {
+                    "value_repr": "groups"
+                },
+                "MAX_GROUPS": {
+                    "value_repr": 256
+                },
+                "MAX_GROUP_MEMBERS": {
+                    "value_repr": 4096
+                },
+                "MAX_GROUP_VALUES": {
+                    "value_repr": 65536
+                },
+                "SECTION": {
+                    "value_repr": "block_values"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "attribute_maps": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "group_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 }
@@ -8877,6 +9427,55 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "block_inputs_in_transaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "WPrism\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "workAuthority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "blockNames",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "build_read_only_export": {
                     "abstract": false,
                     "final": false,
@@ -9478,6 +10077,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "buildBlockInputs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "blockNames",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "workAuthority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "buildOptionsOnly": {
                     "abstract": false,
                     "final": false,
@@ -9741,6 +10365,31 @@
                             "has_default": true,
                             "name": "strictReadOnly",
                             "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "observePost": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "id",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "entityType",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
@@ -10314,6 +10963,55 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "blockInputsInTransaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "WPrism\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "workAuthority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "blockNames",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -14792,6 +15490,14 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "media_derivatives": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -20322,6 +21028,257 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\EncodedText": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "encoded-text-values/v1"
+                },
+                "FIELD": {
+                    "value_repr": "text_encoding"
+                },
+                "MAX_BYTES": {
+                    "value_repr": 1048576
+                },
+                "MAX_LITERAL_BYTES": {
+                    "value_repr": 128
+                },
+                "MAX_WIRE_BYTES": {
+                    "value_repr": 8388608
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_canonical": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "allowed",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_site_override": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declared",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "override",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "decode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "decode_if_declared": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "uses": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\EntityAdopter": {
             "abstract": false,
             "constants": [],
@@ -21213,6 +22170,9 @@
         "WPrism\\FilesystemTreeSnapshot": {
             "abstract": false,
             "constants": {
+                "MAX_FILE_BYTES": {
+                    "value_repr": 16777216
+                },
                 "MAX_TREE_BYTES": {
                     "value_repr": 1073741824
                 },
@@ -21273,6 +22233,171 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observe_file": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contentRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonicalPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "containmentLabel",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\HtmlAttributeReader": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "rewrite": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "html",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "names",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "attribute",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "comment",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\HtmlMediaReferences": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_canonical": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "html",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "references": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "html",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rewrite": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "html",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "replace",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -21530,6 +22655,7 @@
                         "acf",
                         "advanced-editor-tools",
                         "block-visibility",
+                        "change-wp-admin-login",
                         "classic-editor",
                         "code-snippets",
                         "contact-form-7",
@@ -21539,10 +22665,12 @@
                         "ninja-forms",
                         "paid-memberships-pro",
                         "polylang",
+                        "qi-blocks",
                         "rank-math",
                         "redirection",
                         "speculation-rules",
                         "the-events-calendar",
+                        "visual-portfolio",
                         "woocommerce",
                         "wordpress-popup",
                         "wpforms-lite",
@@ -24292,6 +25420,160 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\KeyBoundStrings": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "key-bound-strings/v1"
+                },
+                "FIELD": {
+                    "value_repr": "bound_strings"
+                },
+                "MAX_FRAME_BYTES": {
+                    "value_repr": 256
+                },
+                "MAX_OCCURRENCES": {
+                    "value_repr": 100000
+                },
+                "MAX_RULES": {
+                    "value_repr": 128
+                },
+                "MAX_STRING_BYTES": {
+                    "value_repr": 1048576
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_map": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "map",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "allowed",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rewrite_entry": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "entry",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "oldKey",
+                            "type": "string|int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "newKey",
+                            "type": "string|int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
                 }
@@ -27912,6 +29194,337 @@
             },
             "parent": null,
             "properties": [],
+            "readonly": false
+        },
+        "WPrism\\MediaDerivativeObservation": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "snapshot",
+                            "type": "Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "databaseProfile",
+                            "type": "Closure",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "profile": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "WPrism\\NativeDatabaseProfile",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "read_locked": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "WPrism\\DatabaseWorkAuthority",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\MediaDerivativeRecipe": {
+            "abstract": false,
+            "constants": {
+                "MAX_CONSUMERS": {
+                    "value_repr": 4096
+                },
+                "MAX_DIMENSION": {
+                    "value_repr": 16384
+                },
+                "MAX_PER_ATTACHMENT": {
+                    "value_repr": 128
+                },
+                "MAX_PIXELS": {
+                    "value_repr": 67108864
+                },
+                "MAX_RECIPES": {
+                    "value_repr": 4096
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_inventory": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rows",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tree",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "dimension": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cast",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "identity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "row",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "target_path": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "original",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "width",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "height",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\MediaDerivativeWorkset": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_artifact": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "WPrism\\CompiledRepository",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_target": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetTree",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "prior_ownership": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "attachmentUuid",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "select": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compiled",
+                            "type": "WPrism\\CompiledRepository",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetTree",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "work",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "deleted",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\MediaDerivativeWorkset",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": {
+                "attachments": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "array",
+                    "visibility": "public"
+                },
+                "recipes": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "array",
+                    "visibility": "public"
+                }
+            },
             "readonly": false
         },
         "WPrism\\MediaPayloadAuthority": {
@@ -52541,6 +54154,269 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\PhpContainerValue": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "php-container-values/v1"
+                },
+                "FIELD": {
+                    "value_repr": "php_containers"
+                },
+                "FORMAT": {
+                    "value_repr": "wprism-php-containers/v1"
+                },
+                "MAX_BYTES": {
+                    "value_repr": 16777216
+                },
+                "MAX_DEPTH": {
+                    "value_repr": 64
+                },
+                "MAX_NODES": {
+                    "value_repr": 100000
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_canonical": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "allowed",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_site_override": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declared",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "override",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture_raw": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "raw",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "map": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "node",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "restore": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "stdClass|array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rewrite_keys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "node",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rewrite",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "rewriteValue",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "uses": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\PhpLiteralData": {
             "abstract": false,
             "constants": [],
@@ -53539,6 +55415,23 @@
                     "abstract": false,
                     "final": false,
                     "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "active_plugin_conflicts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "activePlugins",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"
@@ -56317,6 +58210,31 @@
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"
+                },
+                "captureBlockInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "post",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "uuid",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -56468,6 +58386,150 @@
                     ],
                     "return_type": "?int",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\PostMetaInvalidation": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "post-meta-invalidation/v1"
+                },
+                "FIELD": {
+                    "value_repr": "on_post_write"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowed",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_site_override": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declared",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "deletes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "keys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "uses": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -59725,6 +61787,9 @@
                 "DATABASE_POSTIMAGE_UNKNOWN": {
                     "value_repr": "unknown"
                 },
+                "FILESYSTEM_FILE_SNAPSHOT_FEATURE": {
+                    "value_repr": "provider-filesystem-file-snapshot/v1"
+                },
                 "NATIVE_OPTION_INPUTS_FEATURE": {
                     "value_repr": "provider-native-option-inputs/v1"
                 },
@@ -60261,6 +62326,31 @@
                         }
                     ],
                     "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "filesystem_file_snapshot": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "containmentRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonicalPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -63684,6 +65774,127 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\RecordFields": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "block-record-fields/v1"
+                },
+                "FIELD": {
+                    "value_repr": "record_fields"
+                },
+                "MAX_FIELDS": {
+                    "value_repr": 256
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_value": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declaration",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonical",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declaration",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\Recovery\\AtomicStore": {
             "abstract": false,
             "constants": [],
@@ -66230,6 +68441,171 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\ReferenceCondition": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "conditional-json-refs/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_canonical": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ref",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_native": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ref",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ref",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "matches": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "container",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ref",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "uses": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\ReferenceGraph": {
             "abstract": false,
             "constants": {
@@ -66632,6 +69008,54 @@
                             "has_default": false,
                             "name": "where",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "conditionalRefs",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "phpContainers",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "boundStrings",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "blockRecords",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "encodedText",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "postMetaInvalidation",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],
@@ -67965,6 +70389,68 @@
                     ],
                     "return_type": "void",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\RepositoryMediaDerivatives": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "derive": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tree",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "snapshot": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tree",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -73519,6 +76005,55 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\SerializedDataPreflight": {
+            "abstract": false,
+            "constants": {
+                "MAX_DEPTH": {
+                    "value_repr": 256
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "decode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "bytes",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowStdClass",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\SerializedTermDescriptionScanner": {
             "abstract": false,
             "constants": [],
@@ -73580,6 +76115,7 @@
                         "acf",
                         "advanced-editor-tools",
                         "block-visibility",
+                        "change-wp-admin-login",
                         "classic-editor",
                         "code-snippets",
                         "contact-form-7",
@@ -73589,10 +76125,12 @@
                         "ninja-forms",
                         "paid-memberships-pro",
                         "polylang",
+                        "qi-blocks",
                         "rank-math",
                         "redirection",
                         "speculation-rules",
                         "the-events-calendar",
+                        "visual-portfolio",
                         "woocommerce",
                         "wordpress-popup",
                         "wpforms-lite",
@@ -76710,6 +79248,39 @@
                             "has_default": false,
                             "name": "warn",
                             "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": true,
+                    "visibility": "public"
+                },
+                "key_ref_map": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "string",
                             "variadic": false
                         }
                     ],

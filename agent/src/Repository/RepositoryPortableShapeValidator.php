@@ -1,7 +1,10 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
+
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
+require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
 
 // This is a pure canonical-tree portability pass. Normal direct loads close
 // every named collaborator; focused fixtures may preload narrow doubles, so
@@ -37,6 +40,9 @@ if (!class_exists(Secrets::class, false)) {
     require_once __DIR__ . '/../Kernel/Secrets.php';
 }
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/BlockValueCodec.php';
+require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
 
 final class RepositoryPortableShapeValidator {
     private const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -87,6 +93,10 @@ final class RepositoryPortableShapeValidator {
             $path = $entity['path'];
             $d = $entity['data'];
             if ($entity['type'] === 'post') {
+                if (method_exists($this->policy, 'body_mode')
+                    && $this->policy->body_mode((string) ($d['type'] ?? '')) === 'blocks') {
+                    $this->validate_block_values((string) ($entity['body'] ?? ''), $path);
+                }
                 if (($d['author'] ?? null) !== null
                     && (!is_string($d['author']) || !str_starts_with($d['author'], 'user:')
                         || strlen($d['author']) === 5)) {
@@ -226,6 +236,8 @@ final class RepositoryPortableShapeValidator {
                                 'schema_content_mismatch', $path, "widgets[$i].settings.$setting",
                                 'block-content widget setting must be a string'
                             );
+                        } elseif (($rule['codec'] ?? '') === 'blocks') {
+                            $this->validate_block_values($value, $path, "widgets[$i].settings.$setting");
                         }
                     }
                 }
@@ -376,7 +388,9 @@ final class RepositoryPortableShapeValidator {
                 $copy,
                 JsonRefs::parse_path((string) $ref['path']),
                 function (&$container, $key, string $matchedLocator) use ($ref, $path, $locator): void {
+                    if (!ReferenceCondition::matches($container, $ref, $locator . $matchedLocator)) return;
                     $leaf = $container[$key];
+                    ReferenceCondition::assert_canonical($leaf, $ref, $locator . $matchedLocator);
                     if ($leaf === null || $leaf === '' || $leaf === 0 || $leaf === '0' || $leaf === false
                         || is_array($leaf)) {
                         return; // declared unset/container conventions
@@ -396,6 +410,15 @@ final class RepositoryPortableShapeValidator {
             return;
         }
         $validateMap = function ($map, string $mapLocator) use ($keyRefs, $path, $locator): void {
+            try {
+                $map = StructuredReferenceCodec::key_ref_map($map, $keyRefs, "$path $locator$mapLocator");
+            } catch (\RuntimeException) {
+                $this->add('nonportable_reference', $path, $locator . $mapLocator,
+                    isset($keyRefs['bound_strings'])
+                        ? 'key_refs path requires a valid typed container with strings bound to their owning map key'
+                        : 'key_refs path must resolve to a valid typed container');
+                return;
+            }
             if (!is_array($map) || ($map !== [] && array_is_list($map))) {
                 $this->add(
                     'nonportable_reference',
@@ -527,6 +550,44 @@ final class RepositoryPortableShapeValidator {
                 'body',
                 "serialized authored configuration contains $pii"
             );
+        }
+    }
+
+    private function validate_block_values(string $body, string $path, string $rootLocator = 'body'): void {
+        try {
+            HtmlMediaReferences::assert_canonical($body);
+        } catch (\RuntimeException $e) {
+            $this->add('repository_html_media_invalid', $path, $rootLocator, $e->getMessage());
+        }
+        $rules = [];
+        foreach ($this->policy->block_attr_rules() as $block => $attributes) {
+            foreach ($attributes as $rule) {
+                // Repository edits bypass Capture. An explicit native
+                // refusal must also prevent a target-free compiled artifact.
+                if (isset($rule['value']) || array_key_exists('unsupported', $rule)) $rules[$block][$rule['path']] = $rule;
+            }
+        }
+        try {
+            $blocks = BlockAttributeReader::read($body, array_keys($rules));
+        } catch (\RuntimeException $e) {
+            $this->add('repository_block_value_invalid', $path, $rootLocator, $e->getMessage());
+            return;
+        }
+        foreach ($blocks as $block) {
+            foreach ($rules[$block['blockName']] as $attribute => $rule) {
+                if (!array_key_exists($attribute, $block['attrs'])) continue;
+                $locator = $rootLocator . '@' . $block['offset'] . '.attrs.' . $attribute;
+                if (array_key_exists('unsupported', $rule)) {
+                    $this->add('repository_block_attr_unsupported', $path, $locator,
+                        "wprism: block '{$block['blockName']}' attribute '$attribute' is explicitly unsupported: " . $rule['unsupported']);
+                    continue;
+                }
+                try {
+                    BlockValueCodec::assert_value($block['attrs'][$attribute], $rule['value'], true, $locator);
+                } catch (\RuntimeException $e) {
+                    $this->add('repository_block_value_invalid', $path, $locator, $e->getMessage());
+                }
+            }
         }
     }
 

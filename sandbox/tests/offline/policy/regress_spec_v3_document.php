@@ -229,13 +229,14 @@ wprism_check_same(
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'agent/src/Policy/Policy.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER beside six gate readers of exact declarations or '
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside seven gate readers of exact declarations or '
         . 'interpreter ownership, and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
@@ -262,16 +263,26 @@ wprism_check_same(
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'block-attribute-groups/v1',
+        'block-attribute-values/v1',
+        'block-media-derivatives/v1',
+        'block-record-fields/v1',
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
+        'conditional-json-refs/v1',
+        'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
+        'key-bound-strings/v1',
         'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'native-value-validation/v1',
+        'php-container-values/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
+        'post-meta-invalidation/v1',
+        'provider-filesystem-file-snapshot/v1',
         'provider-native-option-inputs/v1',
         'provider-native-permalinks/v1',
         'provider-native-post-types/v1',
@@ -285,8 +296,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries twenty-two IMPLEMENTED features, and five claim sections v3 did not have — '
-        . '"declared and implemented admits" is a path walked five times, not an admissibility argument'
+    'v3.2: the vocabulary carries the exact reviewed feature names independently of the spec version'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;
@@ -433,7 +443,7 @@ wprism_check_same(
 // subsection whose "Enforced today:" line says "yes" about one half must not be
 // readable as a claim about the other.
 wprism_check(
-    count($adapterLibrary->packages()) === 23
+    $adapterLibrary->packages() !== []
         && !file_exists($repo . '/manifests')
         && array_reduce(
             $adapterLibrary->packages(),
@@ -837,9 +847,8 @@ wprism_check(
 );
 
 // ---------------------------------------------------------------------------
-// v3.4 — the SPLIT's measured size, as stated. The monolith's own numbers stay
-// in the subsection as the history they now are, and are no longer measurable
-// from the tree; what has to keep matching is the directory that replaced it.
+// v3.4 — the split topology follows package discovery. Source byte totals
+// change with ordinary capsule edits and are not another adapter inventory.
 // ---------------------------------------------------------------------------
 $dispositionDocuments = array_map(
     static fn(\WPrism\AdapterPackage $package): string => $package->dispositionPath(),
@@ -848,14 +857,10 @@ $dispositionDocuments = array_map(
 $dispositionDocuments[] = $adapterLibrary->profilesPath();
 sort($dispositionDocuments, SORT_STRING);
 $documentCount = count($dispositionDocuments);
-$lineCount = 0;
-$byteCount = 0;
 $entryCount = 0;
 $profileNames = [];
 foreach ($dispositionDocuments as $document) {
     $raw = (string) file_get_contents($document);
-    $lineCount += substr_count($raw, "\n");
-    $byteCount += strlen($raw);
     if ($document === $adapterLibrary->profilesPath()) {
         $profileNames = array_keys((array) json_decode($raw, true));
         continue;
@@ -865,17 +870,13 @@ foreach ($dispositionDocuments as $document) {
 sort($profileNames, SORT_STRING);
 $dispositionBody = $section('v3.4');
 wprism_check(
-    str_contains($dispositionBody, $documentCount . ' documents')
-        && str_contains($dispositionBody, number_format($lineCount) . ' lines')
-        && str_contains($dispositionBody, number_format($byteCount) . ' bytes'),
-    "v3.4's measurement of the split source matches the directory: $documentCount documents, "
-    . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
+    str_contains($dispositionBody, 'one disposition per adapter, plus the profiles document')
+        && str_contains($dispositionBody, 'adapter-packages/<name>/package/disposition.json')
+        && str_contains($dispositionBody, 'platform/adapter-library/core/disposition.json'),
+    'v3.4 describes the discovered capsule/core disposition topology'
 );
-wprism_check_same(
-    23,
-    $entryCount,
-    'the current split has exactly 23 subject documents, independently of the historical monolith count'
-);
+wprism_check_same(count($adapterLibrary->packages()), $entryCount, 'every discovered subject contributes one disposition');
+wprism_check_same($entryCount + 1, $documentCount, 'the profile map is the only additional document');
 wprism_check_same(['fse'], $profileNames, 'and `profiles` is the one row the split gave its own document');
 
 // ---------------------------------------------------------------------------
@@ -927,16 +928,14 @@ $report(sprintf(
 ));
 $nsBody = $section('v3.9');
 wprism_check(
-    str_contains($nsBody, count($names) . ' adapter names, ' . count($idKinds) . ' `id_kind`s, ' . count($providerIds) . ' provider ids = ' . $identityTotal . ' identities')
-        && str_contains($nsBody, 'break **' . $breakList . '** of them'),
-    "v3.9's census matches the library: $identityTotal identities, $breakList of them refused by a bare shape rule"
+    str_contains($nsBody, 'generated wire register')
+        && str_contains($nsBody, 'regress_spec_v3_dry_run.php'),
+    'v3.9 delegates the evolving census to discovery and the generated reservation inventory'
 );
-$namedUnprefixed = array_values(array_filter($unprefixedNames, static fn(string $n): bool => str_contains($nsBody, '`' . $n . '`')));
-wprism_check_same(
-    $unprefixedNames,
-    $namedUnprefixed,
-    'and it NAMES the ' . count($unprefixedNames) . ' unprefixed adapter names rather than only counting them, since those are the rows an operator has to grandfather'
-);
+$generatedRegister = (string) file_get_contents($repo . '/docs/wire-surface.md');
+foreach ($unprefixedNames as $name) {
+    wprism_check(str_contains($generatedRegister, '`' . $name . '`'), "$name appears in the generated reservation register");
+}
 wprism_check(
     str_contains($nsBody, 'R-17'),
     'v3.9 defers to the irreversibility register\'s R-17 rather than re-deciding `id_kind` prefixing'

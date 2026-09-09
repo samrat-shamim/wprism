@@ -1,0 +1,10 @@
+{
+  "manifest": "qi-blocks",
+  "entry": {
+    "mode": "capture-plan",
+    "pin": ["core", "qi-blocks"],
+    "plugins": [{"slug": "qi-blocks", "version": "1.5.2"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  }
+}

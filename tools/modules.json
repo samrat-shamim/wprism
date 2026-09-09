@@ -59,7 +59,14 @@
         "purpose": "Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.",
         "status": "populated",
         "entry_points": [
+          "BlockMediaDerivativeGrammar",
+          "MediaDerivativeRecipe",
           "ActionTriggerMatcher",
+          "BlockAttributeReader",
+          "BlockValueGrammar",
+          "RecordFields",
+          "EncodedText",
+          "PostMetaInvalidation",
           "Canon",
     "Db",
     "DatabaseLockBoundary",
@@ -95,9 +102,12 @@
           "SiteTopology",
           "Secrets",
           "PlainData",
+          "SerializedDataPreflight",
+          "PhpContainerValue",
           "StructuredValue",
           "Uuid",
           "ReferenceRules",
+          "ReferenceCondition",
           "DurableFilesystem",
           "ReferenceScopeClassifier",
           "PathSafety",
@@ -109,6 +119,7 @@
           "PrivateFileBytes",
           "PrivateRefusalEvidence",
           "JsonRefs",
+        "KeyBoundStrings",
           "ReferenceKindGrammar",
           "ReferenceShapeGrammar",
           "ScalarReferenceIntersection",
@@ -116,6 +127,7 @@
           "TermRows",
           "TableGraph",
           "TableSchema",
+          "HtmlMediaReferences",
           "IdentityTokenCodec",
           "ProcessFence",
           "ReferenceKeyspaceGrammar",
@@ -154,9 +166,16 @@
             ]
           }
         ],
-  "file_count": 73,
+        "file_count": 86,
         "files": [
+          "BlockMediaDerivativeGrammar.php",
+          "MediaDerivativeRecipe.php",
           "ActionTriggerMatcher.php",
+          "BlockAttributeReader.php",
+          "BlockValueGrammar.php",
+          "RecordFields.php",
+          "EncodedText.php",
+          "PostMetaInvalidation.php",
           "BoundedChildProcess.php",
           "Canary.php",
           "Canon.php",
@@ -176,8 +195,11 @@
     "ExactOptionWriter.php",
     "ExecutableTreeIdentity.php",
     "FilesystemTreeSnapshot.php",
+          "HtmlAttributeReader.php",
+          "HtmlMediaReferences.php",
     "IdentityTokenCodec.php",
     "JsonRefs.php",
+    "KeyBoundStrings.php",
     "LockedOptionRows.php",
     "ManifestExecutableLoader.php",
     "NativeDatabaseProfile.php",
@@ -196,6 +218,8 @@
           "PhpLiteralData.php",
           "PhysicalTableRows.php",
           "PlainData.php",
+          "SerializedDataPreflight.php",
+          "PhpContainerValue.php",
           "PostPasswordBinding.php",
           "PrivateEvidenceCarrierException.php",
           "PrivateEvidenceException.php",
@@ -207,6 +231,7 @@
           "ReferenceKindGrammar.php",
           "ReferencePath.php",
           "ReferenceRules.php",
+          "ReferenceCondition.php",
           "ReferenceScopeClassifier.php",
           "ReferenceShapeGrammar.php",
           "ScalarReferenceIntersection.php",
@@ -372,6 +397,7 @@
         "status": "populated",
         "entry_points": [
           "Tokens",
+          "BlockValueCodec",
           "Blocks",
           "OptionGrammar",
           "SubKeyGrammar",
@@ -427,10 +453,11 @@
             ]
           }
         ],
-        "file_count": 27,
+        "file_count": 28,
         "files": [
           "AttrIdCodecGrammar.php",
           "AttributeGrammar.php",
+          "BlockValueCodec.php",
           "Blocks.php",
           "BodyRefGrammar.php",
           "ColumnCodecGrammar.php",
@@ -463,6 +490,7 @@
         "purpose": "The durable repository of owned state: compiled artifacts, identity registry, ledger, provenance journal, reference graph, snapshots and their validators.",
         "status": "populated",
         "entry_points": [
+          "RepositoryMediaDerivatives",
           "Ledger",
           "LockedEmbeddedUuidOwners",
           "CompiledArtifact",
@@ -528,8 +556,9 @@
             ]
           }
         ],
-        "file_count": 31,
+        "file_count": 32,
         "files": [
+          "RepositoryMediaDerivatives.php",
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
           "CanonicalSurfaces.php",
@@ -842,8 +871,10 @@
             ]
           }
         ],
-        "file_count": 34,
+        "file_count": 36,
         "files": [
+          "MediaDerivativeObservation.php",
+          "MediaDerivativeWorkset.php",
           "Apply.php",
           "ApplyFieldMaterializer.php",
           "ApplyLedgerFinalizer.php",

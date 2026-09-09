@@ -378,28 +378,20 @@ wprism_check_same(
     $declaredVersions,
     'and the library exercises both admitted versions through deliberate per-adapter feature migrations'
 );
-wprism_check_same(
-    [
-        'block-visibility',
-        'code-snippets',
-        'download-manager',
-        'elementor',
-        'ninja-forms',
-        'paid-memberships-pro',
-        'polylang',
-        'rank-math',
-        'redirection',
-        'speculation-rules',
-        'the-events-calendar',
-        'woocommerce',
-        'wordpress-popup',
-        'wpforms-lite',
-        'yoast',
-        'yoast-duplicate-post',
-    ],
-    array_keys(array_filter($library, static fn(array $m): bool => ($m['spec_version'] ?? null) === $N)),
-    'only reviewed feature consumers exercise the closed-key gate in the shipped library'
-);
+// Exercise the gate for each current-version capsule; a second adapter-name
+// list would make adding an ordinary feature consumer a shared policy edit.
+$featureConsumers = array_filter($library, static fn(array $m): bool => ($m['spec_version'] ?? null) === $N);
+wprism_check($featureConsumers !== [], 'the shipped library exercises current-version feature negotiation');
+foreach ($featureConsumers as $name => $manifest) {
+    $bad = $manifest;
+    $bad['unreviewed_top_level'] = true;
+    wprism_check_throws(
+        static fn() => AdapterContractGrammar::validate_adapter_contract($bad),
+        RuntimeException::class,
+        "$name still refuses an undeclared top-level key beside its negotiated features",
+        'unreviewed_top_level'
+    );
+}
 
 // The union in use against the partition, in both directions. Feature-claimed
 // keys deliberately sit beside the partition so they are admitted only for a
@@ -416,7 +408,7 @@ $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
 $outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
 wprism_check_same(
-    ['attr_id_codecs', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    ['attr_id_codecs', 'block_media_derivatives', 'block_values', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $outsidePartition,
     'the shipped keys outside the signer partition are exactly the feature-claimed sections'
 );

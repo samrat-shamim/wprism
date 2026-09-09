@@ -23,6 +23,10 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-live-pair-ownership regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-proof-legacy-pair
 .PHONY: regress-text-tokenizer
 .PHONY: regress-structured-reference-codec
+.PHONY: regress-conditional-json-refs
+.PHONY: regress-serialized-data-preflight
+.PHONY: regress-php-container-values regress-key-bound-strings regress-block-attribute-groups regress-encoded-text-values
+.PHONY: regress-block-attribute-values regress-unsupported-block-attributes regress-html-media-references regress-media-derivative-recipes
 .PHONY: regress-url-query-reference-codec
 .PHONY: regress-rank-math-commerce-multilingual regress-rank-math-yoast-incompatibility
 .PHONY: regress-lint-primitives
@@ -1192,6 +1196,10 @@ regress-identity-fork-request:
 regress-native-option-inputs:
 	php sandbox/tests/offline/guards/regress_native_option_inputs.php
 
+.PHONY: regress-filesystem-file-snapshot
+regress-filesystem-file-snapshot:
+	php sandbox/tests/offline/guards/regress_filesystem_file_snapshot.php
+
 .PHONY: regress-native-post-types
 regress-native-post-types:
 	php sandbox/tests/offline/guards/regress_native_post_types.php
@@ -1784,6 +1792,10 @@ regress-repository-convergence:
 regress-native-value-validation:
 	php sandbox/tests/offline/apply/regress_native_value_validation.php
 
+.PHONY: regress-post-meta-invalidation
+regress-post-meta-invalidation:
+	php sandbox/tests/offline/apply/regress_post_meta_invalidation.php
+
 # One scalar must satisfy every declared local-id consumer without guessing.
 .PHONY: regress-scalar-reference-intersection
 regress-scalar-reference-intersection:
@@ -2267,6 +2279,36 @@ regress-text-tokenizer:
 
 regress-structured-reference-codec:
 	php sandbox/tests/offline/grammar/regress_structured_reference_codec.php
+
+regress-serialized-data-preflight:
+	php sandbox/tests/offline/grammar/regress_serialized_data_preflight.php
+
+regress-block-attribute-groups:
+	php sandbox/tests/offline/grammar/regress_block_attribute_groups.php
+
+regress-key-bound-strings:
+	php sandbox/tests/offline/grammar/regress_key_bound_strings.php
+
+regress-php-container-values:
+	php sandbox/tests/offline/grammar/regress_php_container_values.php
+
+regress-encoded-text-values:
+	php sandbox/tests/offline/grammar/regress_encoded_text_values.php
+
+regress-html-media-references:
+	php sandbox/tests/offline/grammar/regress_html_media_references.php
+
+regress-block-attribute-values:
+	php sandbox/tests/offline/grammar/regress_block_attribute_values.php
+
+regress-unsupported-block-attributes:
+	php sandbox/tests/offline/grammar/regress_unsupported_block_attributes.php
+
+regress-media-derivative-recipes:
+	php sandbox/tests/offline/grammar/regress_media_derivative_recipes.php
+
+regress-conditional-json-refs:
+	php sandbox/tests/offline/grammar/regress_conditional_json_refs.php
 
 regress-url-query-reference-codec:
 	php sandbox/tests/offline/grammar/regress_url_query_reference_codec.php

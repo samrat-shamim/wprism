@@ -1,0 +1,411 @@
+{
+  "format": "wprism-aio-login-native-fixture/v1",
+  "version": "2.4.1",
+  "artifact_sha256": "f025beff401cabc7c4d7c8ee3d549a26197d698e17b5e018ddbabd471b46722b",
+  "source_home": "http://localhost:9160",
+  "pages": {
+    "login": 4,
+    "logout": 5
+  },
+  "media": 6,
+  "native_cases": {
+    "page-first": [
+      {
+        "id": "aio-main",
+        "condition_type": "all_users",
+        "condition_value": "",
+        "login_target_type": "page",
+        "login_target_value": "4",
+        "logout_target_type": "custom",
+        "logout_target_value": "http://localhost:9160/aio-url-logout/",
+        "order": 0,
+        "created_at": 1788815060
+      }
+    ],
+    "url-first": [
+      {
+        "id": "aio-main",
+        "condition_type": "all_users",
+        "condition_value": "",
+        "login_target_type": "custom",
+        "login_target_value": "http://localhost:9160/aio-url-login/",
+        "logout_target_type": "page",
+        "logout_target_value": "5",
+        "order": 0,
+        "created_at": 1788815060
+      }
+    ]
+  },
+  "raw_authored_options": [
+    {
+      "option_name": "aio_login__customization_templates",
+      "option_value": "template-8",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login__cwpal_enable",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_background_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_background_image",
+      "option_value": "6",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_background_image_mobile",
+      "option_value": "6",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_custom-css",
+      "option_value": ".login #login { outline: 2px solid #123456; }",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_el_background_position",
+      "option_value": "left top",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_background_repeat",
+      "option_value": "no-repeat",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_background_size",
+      "option_value": "contain",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_bg_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_border_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_border_radius",
+      "option_value": "0",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_hover_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_padding",
+      "option_value": "12px 24px",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_padding_tb",
+      "option_value": "12",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_shadow",
+      "option_value": "",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_shadow_opacity",
+      "option_value": "0.2",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_size",
+      "option_value": "0",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_text_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_btn_text_size",
+      "option_value": "18",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_form_border",
+      "option_value": "1px solid #123456",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_form_border_radius",
+      "option_value": "17",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_form_min_height",
+      "option_value": "320",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_form_padding",
+      "option_value": "24px",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_form_shadow",
+      "option_value": "",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_form_shadow_opacity",
+      "option_value": "0.15",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_form_width",
+      "option_value": "410",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_input_bg_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_input_margin",
+      "option_value": "",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_input_text_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_input_width",
+      "option_value": "",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_label_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_label_font_size",
+      "option_value": "0",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_link_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_remember_font_size",
+      "option_value": "0",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_remember_label_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_el_text_font_family",
+      "option_value": "Inherit",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_elements_settings",
+      "option_value": "a:31:{s:16:\"text_font_family\";s:7:\"Inherit\";s:17:\"background_repeat\";s:9:\"no-repeat\";s:19:\"background_position\";s:8:\"left top\";s:15:\"background_size\";s:7:\"contain\";s:10:\"form_width\";i:410;s:15:\"form_min_height\";i:320;s:18:\"form_border_radius\";i:17;s:11:\"form_shadow\";s:0:\"\";s:19:\"form_shadow_opacity\";s:4:\"0.15\";s:12:\"form_padding\";s:4:\"24px\";s:11:\"form_border\";s:17:\"1px solid #123456\";s:12:\"btn_bg_color\";s:7:\"#345678\";s:15:\"btn_hover_color\";s:7:\"#345678\";s:14:\"btn_text_color\";s:7:\"#345678\";s:16:\"btn_border_color\";s:7:\"#345678\";s:8:\"btn_size\";i:0;s:11:\"btn_padding\";s:9:\"12px 24px\";s:14:\"btn_padding_tb\";i:12;s:17:\"btn_border_radius\";i:0;s:10:\"btn_shadow\";s:0:\"\";s:18:\"btn_shadow_opacity\";s:3:\"0.2\";s:13:\"btn_text_size\";i:18;s:11:\"label_color\";s:7:\"#345678\";s:20:\"remember_label_color\";s:7:\"#345678\";s:15:\"label_font_size\";i:0;s:18:\"remember_font_size\";i:0;s:12:\"input_margin\";s:0:\"\";s:14:\"input_bg_color\";s:7:\"#345678\";s:16:\"input_text_color\";s:7:\"#345678\";s:11:\"input_width\";s:0:\"\";s:10:\"link_color\";s:7:\"#345678\";}",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_favicon",
+      "option_value": "6",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_forgot_background_color",
+      "option_value": "#345678",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_forgot_background_image",
+      "option_value": "6",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_limit_attempts_enable",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_limit_attempts_lockout_message",
+      "option_value": "AIO test lockout বাংলা",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_limit_attempts_maximum_attempts",
+      "option_value": "3",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_limit_attempts_timeout",
+      "option_value": "7",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_login_page_title",
+      "option_value": "AIO secure entrance",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_logo",
+      "option_value": "6",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_logo_height",
+      "option_value": "72",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_logo_title",
+      "option_value": "AIO বাংলা brand",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_logo_url",
+      "option_value": "http://localhost:9160/aio-login-destination/",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_logo_width",
+      "option_value": "114",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_margin_bottom",
+      "option_value": "19",
+      "autoload": "on"
+    },
+    {
+      "option_name": "aio_login_otp_email_block_duration",
+      "option_value": "21",
+      "autoload": "off"
+    },
+    {
+      "option_name": "aio_login_otp_email_enable",
+      "option_value": "on",
+      "autoload": "off"
+    },
+    {
+      "option_name": "aio_login_otp_email_expiration",
+      "option_value": "13",
+      "autoload": "off"
+    },
+    {
+      "option_name": "aio_login_otp_email_length",
+      "option_value": "8",
+      "autoload": "off"
+    },
+    {
+      "option_name": "aio_login_otp_email_max_retries",
+      "option_value": "4",
+      "autoload": "off"
+    },
+    {
+      "option_name": "aio_login_otp_email_resend_timer",
+      "option_value": "90",
+      "autoload": "off"
+    },
+    {
+      "option_name": "aio_login_otp_email_skip_2fa",
+      "option_value": "off",
+      "autoload": "off"
+    },
+    {
+      "option_name": "aio_login_pro_login_redirection_enabled",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_pro_login_redirection_fallback_custom_url",
+      "option_value": "http://localhost:9160/aio-fallback/",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_pro_login_redirection_fallback_enabled",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_pro_login_redirection_fallback_type",
+      "option_value": "custom",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_pro_login_redirection_rules",
+      "option_value": "a:1:{i:0;a:9:{s:2:\"id\";s:8:\"aio-main\";s:14:\"condition_type\";s:9:\"all_users\";s:15:\"condition_value\";s:0:\"\";s:17:\"login_target_type\";s:4:\"page\";s:18:\"login_target_value\";s:1:\"4\";s:18:\"logout_target_type\";s:6:\"custom\";s:19:\"logout_target_value\";s:45:\"http://localhost:9160/aio-logout-destination/\";s:5:\"order\";i:0;s:10:\"created_at\";i:1788815060;}}",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_comments",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_duration",
+      "option_value": "19",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_enable",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_log",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_login_registration",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_oembed",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_rest_api",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "aio_login_user_enumeration_sitemaps",
+      "option_value": "on",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "rwl_page",
+      "option_value": "aio-wprism-login",
+      "autoload": "auto"
+    },
+    {
+      "option_name": "rwl_redirect_field",
+      "option_value": "aio-wprism-missing",
+      "autoload": "auto"
+    }
+  ]
+}

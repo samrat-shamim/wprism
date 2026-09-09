@@ -1,0 +1,111 @@
+{
+  "format": "wprism-adapter-native-hostile-evidence/v1",
+  "adapter": "change-wp-admin-login",
+  "source_commit": "12b28a46",
+  "pair": "aiocapsule02",
+  "plugin_version": "2.4.1",
+  "refusal_version": "2.4.0",
+  "status": "passed",
+  "execution": "Committed capsule-owned direct WordPress deploy/apply qualification; does not authorize host release.",
+  "coverage": [
+    "native source/target update conflict and explicit resolution",
+    "both conditional reference branches consumed by native redirects",
+    "UTF-8 and native wp_unslash storage contract",
+    "target runtime table preservation",
+    "malformed Pro residue capture atomicity and retry",
+    "authored option deletion requires explicit authority and native empty fallback",
+    "deactivate/reactivate preserve owned state",
+    "native uninstall cleanup and enumeration-log residue",
+    "missing code and official below-range version refuse before mutation",
+    "exact reinstall, explicit local credential provisioning and conflict recovery",
+    "complete byte-identical recapture after each accepted revision",
+    "native three-wrong-password lockout rejects a correct password with authored Bengali message"
+  ],
+  "native_uninstall_residue": {
+    "table": "{prefix}aio_login_enumeration_logs",
+    "reason": "The 2.4.1 uninstall hook passes aio_login_enumeration_logs to Helper::drop_table, which prefixes aio_login_ again. Existing runtime residue remains local; the adapter does not claim native uninstall cleans this table."
+  },
+  "private_refusal_checks": [
+    {
+      "command": "apply",
+      "format": "wprism-private-refusal-check/v1",
+      "new_records": 1,
+      "node_message_sha256": [
+        "b65c0f3ccff1f219553f64521ab4d550e01ca2c14f3a2fd371a4d8a044ddef64"
+      ],
+      "verified": true
+    },
+    {
+      "command": "apply",
+      "format": "wprism-private-refusal-check/v1",
+      "new_records": 1,
+      "node_message_sha256": [
+        "b65c0f3ccff1f219553f64521ab4d550e01ca2c14f3a2fd371a4d8a044ddef64"
+      ],
+      "verified": true
+    },
+    {
+      "command": "apply",
+      "format": "wprism-private-refusal-check/v1",
+      "new_records": 1,
+      "node_message_sha256": [
+        "c9f6829aa6ae4dfbeb19246de7ae1b2a1eb61b5ea754e6d30365d09a9c1e17fb"
+      ],
+      "verified": true
+    },
+    {
+      "command": "deploy",
+      "format": "wprism-private-refusal-check/v1",
+      "new_records": 1,
+      "node_message_sha256": [
+        "00819560e1ea98c362f7ef244e1d8e766e9c8f4da21056c8fa23921ddb9d7e18"
+      ],
+      "verified": true
+    },
+    {
+      "command": "deploy",
+      "format": "wprism-private-refusal-check/v1",
+      "new_records": 1,
+      "node_message_sha256": [
+        "28520a63c3f4e820717bfadd61fe303c2cf43775c05b408e763fa80dede3fb06"
+      ],
+      "verified": true
+    },
+    {
+      "command": "capture",
+      "format": "wprism-private-refusal-check/v1",
+      "new_records": 1,
+      "node_message_sha256": [
+        "4b32d871ebae2419212624b3fa0345c6bede1e52d7d5d10bf8eed0b479fb34ce"
+      ],
+      "verified": true
+    }
+  ],
+  "retained_sha256": {
+    "conflict-refusal.json": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+    "conflict-resolved.json": "8bff6081e063d3230d62b40a921f8cd44d43d2f870e716786a661a159337f9b0",
+    "reversed-native-branches.json": "81d9f8e0e4045791aaf0ec0f88d9d96530aed0f87ea93ce159c04d1d31e2e603",
+    "malformed-refusal.json": "d32f9061a41f993811e31583dbf56f65c77fd0647a3ae872f002f96012df4ac9",
+    "malformed-publication.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "recovered-capture.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "delete-refusal.json": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+    "delete-applied.json": "c5f3f53251f25c406ea4e36bf65d84efca3ee6b031ae15d91685a81c38dd177d",
+    "delete-native.json": "5f76525f6421662c7d14766d8d59e9bc80797ea4e2f6255a9a1d246e938b097c",
+    "deleted.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reactivate.json": "cb0aefd33b3265f1294adfc1ec316f23c3ec795e985be27b5e16decca1131186",
+    "uninstall-after.json": "61f83382a934a2985c6d83942dd92d2e6f908f0dc4c1270bb8973e9eae2100d2",
+    "missing-code-refusal.json": "c588ce24afb3f3275c112fccd8df7bd6c6d7e0ca54a05da46b6697df085e093b",
+    "old-version-refusal.json": "c588ce24afb3f3275c112fccd8df7bd6c6d7e0ca54a05da46b6697df085e093b",
+    "reinstall-deploy.json": "fbb5c6f78831c161c505c826d5419ef57844803bd8be490c0cc41de00aa31ec4",
+    "reinstall-conflict-refusal.json": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+    "reinstall-apply.json": "3e0544662253f658fb1ae3ae873397da2d33a6570e01116831a0c3b4edcee190",
+    "reinstall-native.json": "d1dc27a5d613236f5548d217a7249df2788588ce78ebb3d75cb57b6aa9130f35",
+    "reinstalled.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reinstall-repeated-apply.json": "0ed54a42c2f58ae8ffc87a9f4cb65108dd876c5383c6d7a6d13fc59492eeb1a1",
+    "security.json": "33748effce37ed1f10dc22727b68d314acaae6be54e3bf0588a7dcf5ce7dd34f"
+  },
+  "limits": [
+    "No external CAPTCHA, geolocation, email or notification delivery claim.",
+    "Standard host conformance and exact version-matrix runner are separate qualification gates."
+  ]
+}

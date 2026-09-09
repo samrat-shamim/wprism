@@ -1,0 +1,480 @@
+{
+  "name": "visual-portfolio",
+  "spec_version": 3,
+  "plugin": "visual-portfolio/class-visual-portfolio.php",
+  "version_range": {"min": "3.8.1", "max": "3.8.2"},
+  "engine_features": [
+    "block-attribute-groups/v1", "block-attribute-values/v1", "encoded-text-values/v1",
+    "post-meta-invalidation/v1", "spec-window/v1"
+  ],
+  "option_autoload": "preserve",
+  "option_namespaces": [{"match": "^(?:_?vp_|vpf_|visual_portfolio_)"}],
+  "options": {
+    "_vp_add_archive_page": {"class": "runtime"},
+    "_vp_trying_to_add_archive_page": {"class": "runtime"},
+    "portfolio_permalinks": {
+      "class": "env",
+      "required": false,
+      "closed_sub_keys": true,
+      "sub_keys": {
+        "portfolio_base": {"class": "authored"},
+        "category_base": {"class": "authored"},
+        "tag_base": {"class": "authored"},
+        "attribute_base": {"class": "authored"}
+      }
+    },
+    "visual_portfolio_items_count_notice_state": {"class": "runtime"},
+    "visual_portfolio_updated_caps": {"class": "runtime"},
+    "vp_general": {
+      "class": "env",
+      "required": false,
+      "closed_sub_keys": true,
+      "sub_keys": {
+        "register_portfolio_post_type": {"class": "authored"},
+        "portfolio_archive_page": {"class": "authored", "ref": "post", "cast": "string"},
+        "archive_page_items_per_page": {"class": "authored", "lint_ok": true},
+        "filter_taxonomies": {"class": "authored"},
+        "no_image": {"class": "authored", "ref": "post", "cast": "string"},
+        "ajax_caching": {"class": "env"},
+        "breakpoint_xl": {"class": "env"},
+        "breakpoint_lg": {"class": "env"},
+        "breakpoint_md": {"class": "env"},
+        "breakpoint_sm": {"class": "env"},
+        "breakpoint_xs": {"class": "env"}
+      }
+    },
+    "vp_images": {
+      "class": "env",
+      "required": false,
+      "closed_sub_keys": true,
+      "sub_keys": {
+        "lazy_loading": {"class": "authored"},
+        "lazy_loading_excludes": {"class": "authored"},
+        "sm": {"class": "authored", "lint_ok": true},
+        "md": {"class": "authored", "lint_ok": true},
+        "lg": {"class": "authored", "lint_ok": true},
+        "xl": {"class": "authored", "lint_ok": true},
+        "sm_popup": {"class": "authored", "lint_ok": true},
+        "md_popup": {"class": "authored", "lint_ok": true},
+        "xl_popup": {"class": "authored", "lint_ok": true}
+      }
+    },
+    "vp_popup_gallery": {
+      "class": "env",
+      "required": false,
+      "closed_sub_keys": true,
+      "sub_keys": {
+        "vendor": {"class": "authored"},
+        "enable_on_wordpress_images": {"class": "authored"},
+        "click_to_zoom": {"class": "authored"},
+        "restore_focus": {"class": "authored"},
+        "show_arrows": {"class": "authored"},
+        "show_counter": {"class": "authored"},
+        "show_zoom_button": {"class": "authored"},
+        "show_fullscreen_button": {"class": "authored"},
+        "show_share_button": {"class": "authored"},
+        "show_download_button": {"class": "authored"},
+        "show_close_button": {"class": "authored"},
+        "show_thumbs": {"class": "authored"},
+        "show_slideshow": {"class": "authored"},
+        "background_color": {"class": "authored"},
+        "deep_linking": {"class": "env"},
+        "deep_linking_url_to_share_images": {"class": "env"},
+        "loop": {"class": "env"},
+        "load_next_pages": {"class": "env"},
+        "thumbs_auto_start": {"class": "env"},
+        "thumbs_position": {"class": "env"},
+        "album_isolated_popup": {"class": "env"},
+        "album_lazy_load_threshold": {"class": "env"},
+        "popup_quick_view_show_url_button": {"class": "env"},
+        "popup_quick_view_internal_links_target": {"class": "env"},
+        "popup_quick_view_external_links_target": {"class": "env"},
+        "pages_iframe_custom_css": {"class": "env"}
+      }
+    },
+    "vp_social_integrations": {"class": "env", "required": false},
+    "vp_watermarks": {"class": "env", "required": false},
+    "vp_white_label": {"class": "env", "required": false},
+    "vpf_ask_review_notice_time": {"class": "runtime"},
+    "vpf_db_version": {"class": "runtime"}
+  },
+  "post_types": {"portfolio": {"class": "authored"}},
+  "post_meta": {
+    "_vp_format_video_url": {"class": "authored"},
+    "_vp_image_focal_point": {"class": "authored", "plain_data": true},
+    "_vp_post_type_mapped": {"class": "derived"},
+    "_vp_views_count": {"class": "runtime"},
+    "_vp_words_count": {"class": "derived", "on_post_write": "delete"}
+  },
+  "taxonomies": {
+    "portfolio_category": {"class": "authored", "object_type": ["portfolio"]},
+    "portfolio_tag": {"class": "authored", "object_type": ["portfolio"]}
+  },
+  "block_attrs": {
+    "visual-portfolio/block": [
+      {
+        "path": "posts_custom_query",
+        "unsupported": "Custom WP_Query strings contain undeclared post and term references."
+      }
+    ],
+    "visual-portfolio/loop": [
+      {"path": "postsQuery", "unsupported": "Nested customQuery and query reference shapes are not yet qualified."},
+      {"path": "sourceQuery", "unsupported": "Extension query sources and their identities are not declared."},
+      {"path": "customCss", "unsupported": "The modern CSS writer has not yet been observed."}
+    ],
+    "visual-portfolio/saved": [{"path": "id", "unsupported": "Saved Layout content and legacy metadata are not yet declared."}]
+  },
+  "block_values": {
+    "groups": [
+      {
+        "blocks": ["visual-portfolio/block"],
+        "attributes": [
+          "content_source", "filter_show_count", "filter_text_all", "grid_columns", "grid_images_aspect_ratio",
+          "images_descriptions_source", "images_order_by", "images_order_direction", "images_titles_source",
+          "items_click_action", "items_click_action_popup_description_source",
+          "items_click_action_popup_title_source", "items_click_action_url_rel", "items_click_action_url_target",
+          "items_count", "items_gap", "items_gap_vertical", "items_style",
+          "items_style_default__caption_links_color", "items_style_default__caption_links_hover_color",
+          "items_style_default__caption_text_align", "items_style_default__caption_text_color",
+          "items_style_default__categories_count", "items_style_default__date_format",
+          "items_style_default__excerpt_words_count", "items_style_default__images_rounded_corners",
+          "items_style_default__overlay_bg_color", "items_style_default__overlay_text_color",
+          "items_style_default__read_more_label", "items_style_default__show_author",
+          "items_style_default__show_categories", "items_style_default__show_comments_count",
+          "items_style_default__show_date", "items_style_default__show_excerpt", "items_style_default__show_icon",
+          "items_style_default__show_overlay", "items_style_default__show_read_more",
+          "items_style_default__show_reading_time", "items_style_default__show_title",
+          "items_style_default__show_views_count", "items_style_default__title_tag",
+          "items_style_emerge__caption_bg_color", "items_style_emerge__caption_links_color",
+          "items_style_emerge__caption_links_hover_color", "items_style_emerge__caption_text_align",
+          "items_style_emerge__caption_text_color", "items_style_emerge__categories_count",
+          "items_style_emerge__date_format", "items_style_emerge__excerpt_words_count",
+          "items_style_emerge__images_rounded_corners", "items_style_emerge__overlay_bg_color",
+          "items_style_emerge__show_author", "items_style_emerge__show_caption",
+          "items_style_emerge__show_categories", "items_style_emerge__show_comments_count",
+          "items_style_emerge__show_date", "items_style_emerge__show_excerpt", "items_style_emerge__show_overlay",
+          "items_style_emerge__show_reading_time", "items_style_emerge__show_title",
+          "items_style_emerge__show_views_count", "items_style_emerge__title_tag",
+          "items_style_fade__categories_count", "items_style_fade__date_format",
+          "items_style_fade__excerpt_words_count", "items_style_fade__images_rounded_corners",
+          "items_style_fade__overlay_bg_color", "items_style_fade__overlay_text_align",
+          "items_style_fade__overlay_text_color", "items_style_fade__show_author",
+          "items_style_fade__show_categories", "items_style_fade__show_comments_count",
+          "items_style_fade__show_date", "items_style_fade__show_excerpt", "items_style_fade__show_icon",
+          "items_style_fade__show_overlay", "items_style_fade__show_reading_time", "items_style_fade__show_title",
+          "items_style_fade__show_views_count", "items_style_fade__title_tag", "items_style_fly__categories_count",
+          "items_style_fly__date_format", "items_style_fly__excerpt_words_count",
+          "items_style_fly__images_rounded_corners", "items_style_fly__overlay_bg_color",
+          "items_style_fly__overlay_text_align", "items_style_fly__overlay_text_color",
+          "items_style_fly__show_author", "items_style_fly__show_categories",
+          "items_style_fly__show_comments_count", "items_style_fly__show_date", "items_style_fly__show_excerpt",
+          "items_style_fly__show_icon", "items_style_fly__show_overlay", "items_style_fly__show_reading_time",
+          "items_style_fly__show_title", "items_style_fly__show_views_count", "items_style_fly__title_tag",
+          "justified_last_row", "justified_max_rows_count", "justified_row_height",
+          "justified_row_height_tolerance", "layout_elements", "masonry_columns", "masonry_horizontal_order",
+          "masonry_images_aspect_ratio", "no_items_action", "no_items_notice", "pagination",
+          "pagination_hide_on_end", "pagination_infinite_text_end_list", "pagination_infinite_text_load",
+          "pagination_infinite_text_loading", "pagination_load_more_text_end_list",
+          "pagination_load_more_text_load", "pagination_load_more_text_loading", "pagination_paged__scroll_top",
+          "pagination_paged__scroll_top_offset", "pagination_paged__show_arrows", "pagination_paged__show_numbers",
+          "pagination_style", "post_types_set", "posts_avoid_duplicate_posts", "posts_offset", "posts_order_by",
+          "posts_order_direction", "posts_source", "posts_taxonomies_relation", "setup_wizard", "slider_arrows",
+          "slider_autoplay", "slider_autoplay_hover_pause", "slider_bullets", "slider_bullets_dynamic",
+          "slider_centered_slides", "slider_effect", "slider_free_mode", "slider_free_mode_sticky",
+          "slider_items_height_dynamic", "slider_items_height_static", "slider_items_height_type",
+          "slider_items_min_height", "slider_loop", "slider_mousewheel", "slider_slides_per_view_custom",
+          "slider_slides_per_view_type", "slider_speed", "slider_thumbnails", "slider_thumbnails_gap",
+          "slider_thumbnails_height_dynamic", "slider_thumbnails_height_static", "slider_thumbnails_height_type",
+          "slider_thumbnails_per_view_custom", "slider_thumbnails_per_view_type", "sort", "stretch", "tiles_type"
+        ],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/block"],
+        "attributes": ["custom_css"],
+        "value": {
+          "class": "authored",
+          "text_encoding": {"codec": "uri-component", "escape": {"text": "--", "wire": "_u002d__u002d_"}}
+        }
+      },
+      {
+        "blocks": ["visual-portfolio/block"],
+        "attributes": ["images"],
+        "value": {"class": "authored", "json_refs": [{"kind": "post", "path": "$.id"}]}
+      },
+      {
+        "blocks": ["visual-portfolio/block"],
+        "attributes": ["posts_excluded_ids", "posts_ids"],
+        "value": {"cast": "string", "class": "authored", "ref": "post[]"}
+      },
+      {
+        "blocks": ["visual-portfolio/block"],
+        "attributes": ["posts_taxonomies"],
+        "value": {"cast": "string", "class": "authored", "ref": "term[]"}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/block", "visual-portfolio/item-author", "visual-portfolio/item-categories",
+          "visual-portfolio/item-cover", "visual-portfolio/item-date", "visual-portfolio/item-description",
+          "visual-portfolio/item-image", "visual-portfolio/item-meta", "visual-portfolio/item-read-more",
+          "visual-portfolio/item-template", "visual-portfolio/item-title", "visual-portfolio/loop",
+          "visual-portfolio/loop-filter", "visual-portfolio/loop-filter-item", "visual-portfolio/loop-no-results",
+          "visual-portfolio/loop-pagination", "visual-portfolio/loop-pagination-next",
+          "visual-portfolio/loop-pagination-numbers", "visual-portfolio/loop-pagination-previous",
+          "visual-portfolio/loop-pagination-trigger", "visual-portfolio/loop-sort", "visual-portfolio/saved"
+        ],
+        "attributes": ["className", "lock", "metadata", "style"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/block", "visual-portfolio/item-cover", "visual-portfolio/item-image",
+          "visual-portfolio/item-template", "visual-portfolio/loop", "visual-portfolio/loop-filter",
+          "visual-portfolio/loop-filter-item", "visual-portfolio/loop-no-results",
+          "visual-portfolio/loop-pagination", "visual-portfolio/loop-sort", "visual-portfolio/saved"
+        ],
+        "attributes": ["anchor"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/block", "visual-portfolio/loop"],
+        "attributes": ["block_id", "preview_image_example"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/block", "visual-portfolio/loop", "visual-portfolio/loop-filter",
+          "visual-portfolio/loop-no-results", "visual-portfolio/loop-pagination", "visual-portfolio/saved"
+        ],
+        "attributes": ["align"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/block", "visual-portfolio/loop", "visual-portfolio/loop-filter",
+          "visual-portfolio/loop-pagination"
+        ],
+        "attributes": ["layout"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/block", "visual-portfolio/loop-filter-item"],
+        "attributes": ["filter"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-author", "visual-portfolio/item-categories", "visual-portfolio/item-cover",
+          "visual-portfolio/item-date", "visual-portfolio/item-description", "visual-portfolio/item-image",
+          "visual-portfolio/item-meta", "visual-portfolio/item-read-more", "visual-portfolio/item-template",
+          "visual-portfolio/item-title", "visual-portfolio/loop-filter", "visual-portfolio/loop-filter-item",
+          "visual-portfolio/loop-no-results", "visual-portfolio/loop-pagination",
+          "visual-portfolio/loop-pagination-next", "visual-portfolio/loop-pagination-numbers",
+          "visual-portfolio/loop-pagination-previous", "visual-portfolio/loop-pagination-trigger",
+          "visual-portfolio/loop-sort"
+        ],
+        "attributes": ["gradient"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-author", "visual-portfolio/item-categories", "visual-portfolio/item-cover",
+          "visual-portfolio/item-date", "visual-portfolio/item-description", "visual-portfolio/item-meta",
+          "visual-portfolio/item-read-more", "visual-portfolio/item-template", "visual-portfolio/item-title",
+          "visual-portfolio/loop", "visual-portfolio/loop-filter", "visual-portfolio/loop-filter-item",
+          "visual-portfolio/loop-no-results", "visual-portfolio/loop-pagination",
+          "visual-portfolio/loop-pagination-next", "visual-portfolio/loop-pagination-numbers",
+          "visual-portfolio/loop-pagination-previous", "visual-portfolio/loop-pagination-trigger",
+          "visual-portfolio/loop-sort"
+        ],
+        "attributes": ["fontFamily", "fontSize"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-author", "visual-portfolio/item-categories", "visual-portfolio/item-cover",
+          "visual-portfolio/item-date", "visual-portfolio/item-description", "visual-portfolio/item-meta",
+          "visual-portfolio/item-read-more", "visual-portfolio/item-template", "visual-portfolio/item-title",
+          "visual-portfolio/loop-filter", "visual-portfolio/loop-filter-item", "visual-portfolio/loop-no-results",
+          "visual-portfolio/loop-pagination", "visual-portfolio/loop-sort"
+        ],
+        "attributes": ["textColor"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-author", "visual-portfolio/item-categories", "visual-portfolio/item-date",
+          "visual-portfolio/item-description", "visual-portfolio/item-meta", "visual-portfolio/item-read-more",
+          "visual-portfolio/item-template", "visual-portfolio/item-title", "visual-portfolio/loop-filter",
+          "visual-portfolio/loop-filter-item", "visual-portfolio/loop-no-results",
+          "visual-portfolio/loop-pagination", "visual-portfolio/loop-pagination-next",
+          "visual-portfolio/loop-pagination-numbers", "visual-portfolio/loop-pagination-previous",
+          "visual-portfolio/loop-pagination-trigger", "visual-portfolio/loop-sort"
+        ],
+        "attributes": ["backgroundColor"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-author", "visual-portfolio/item-cover", "visual-portfolio/item-image",
+          "visual-portfolio/item-read-more", "visual-portfolio/item-title"
+        ],
+        "attributes": ["linkTarget", "rel"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-author", "visual-portfolio/item-date", "visual-portfolio/item-meta",
+          "visual-portfolio/item-title"
+        ],
+        "attributes": ["isLink"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-author", "visual-portfolio/item-meta"],
+        "attributes": ["prefix"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-categories"],
+        "attributes": ["separator"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-cover"],
+        "attributes": [
+          "backgroundSize", "contentPosition", "customHoverGradient", "customHoverOverlayColor", "effect",
+          "focalPoint", "hoverDimRatio", "hoverGradient", "hoverOverlayColor", "minHeight", "showContent"
+        ],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-cover", "visual-portfolio/item-image"],
+        "attributes": ["aspectRatio", "customGradient", "customOverlayColor", "dimRatio", "overlayColor", "sizeSlug"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-cover", "visual-portfolio/item-image", "visual-portfolio/item-read-more",
+          "visual-portfolio/item-title"
+        ],
+        "attributes": ["clickAction"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/item-cover", "visual-portfolio/item-image", "visual-portfolio/item-template",
+          "visual-portfolio/loop", "visual-portfolio/loop-filter-item"
+        ],
+        "attributes": ["borderColor"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-date"],
+        "attributes": ["format"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-description"],
+        "attributes": ["excerptLength", "source"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-image"],
+        "attributes": ["height", "scale", "width"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-meta"],
+        "attributes": ["metaType", "showIcon", "showZero", "suffix"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-read-more", "visual-portfolio/loop-filter-item"],
+        "attributes": ["text"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-read-more", "visual-portfolio/loop-pagination"],
+        "attributes": ["showArrow"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-template"],
+        "attributes": [
+          "carouselAutoWidth", "carouselAutoplay", "carouselAutoplayDelay", "carouselEdgeFade", "carouselEffect",
+          "carouselFreeScroll", "carouselIndicator", "carouselPeek", "carouselRepeat", "carouselShowArrows",
+          "carouselSnapAlign", "justifiedLastRow", "justifiedMaxRowsCount", "justifiedRowHeight",
+          "justifiedRowHeightTolerance", "layoutAutoFit", "layoutColumnCount", "layoutColumnsMode",
+          "layoutMinimumColumnWidth", "layoutTiles", "layoutType"
+        ],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/item-title"],
+        "attributes": ["level", "levelOptions"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/loop"],
+        "attributes": ["baseQuery", "previewLayout", "queryId", "queryType"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/loop"],
+        "attributes": ["imagesQuery"],
+        "value": {"class": "authored", "json_refs": [{"kind": "post", "path": "$.images.id"}]}
+      },
+      {
+        "blocks": ["visual-portfolio/loop-filter"],
+        "attributes": ["showAllItem", "showCount"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/loop-filter-item"],
+        "attributes": ["count"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/loop-filter-item"],
+        "attributes": ["taxonomyId"],
+        "value": {"class": "authored", "ref": "term"}
+      },
+      {
+        "blocks": ["visual-portfolio/loop-pagination"],
+        "attributes": ["showLabel"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": [
+          "visual-portfolio/loop-pagination-next", "visual-portfolio/loop-pagination-previous",
+          "visual-portfolio/loop-pagination-trigger"
+        ],
+        "attributes": ["label"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/loop-pagination-numbers"],
+        "attributes": ["midSize"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/loop-pagination-trigger"],
+        "attributes": ["loadingLabel", "triggerType"],
+        "value": {"class": "authored", "plain_data": true}
+      },
+      {
+        "blocks": ["visual-portfolio/loop-sort"],
+        "attributes": ["labels", "options"],
+        "value": {"class": "authored", "plain_data": true}
+      }
+    ]
+  },
+  "notes": [
+    "Experimental source capture and immutable compilation only; archive mapping, role synchronization and rewrite effects do not yet have an Apply contract.",
+    "The archive page and placeholder are post references. _vp_post_type_mapped is derived from the archive option; treating each marker as authored leaves the old target marker outside outbound scope closure.",
+    "The native archive page-size and seven image-width settings are numeric controls (classes/class-settings.php:287, 434-485), not post identities. Their narrow lint_ok reviews preserve string values even when they coincide with real post IDs.",
+    "Legacy custom CSS replaces double hyphens with _u002d__u002d_ before encodeURIComponent (gutenberg/utils/encode-decode/index.js:34); single hyphens remain literal.",
+    "The exact native registry supplies attribute names. Instance block_id/queryId, filter slugs and saved count are data; taxonomyId is a term reference. Free settings do not acquire premium behavior merely because a native form also submits hidden premium fields."
+  ]
+}

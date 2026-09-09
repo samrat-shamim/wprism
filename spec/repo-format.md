@@ -56,6 +56,8 @@ Environment-bound values are tokenized at capture and re-bound at apply. Tokens 
 
 Numeric-typed positions (block attrs like `"id":123`, option values like `page_on_front`) are written as the quoted token string in canonical form; the applier restores the declared numeric type. A `block_attrs` rule may also declare `kind:user`: capture writes the existing `user:<login>` form and apply resolves it against the target user table, which is how `core/avatar.userId` stays portable even though users remain environment-local. Rewriting is **structure-aware only**: block attributes via the block parser and a per-block attribute-path registry; `tokenize:text` rewrites every string leaf of the named attribute (including nested arrays such as `core/video.tracks`); HTML-level forms are limited to declared patterns (`wp-image-<id>` class, `src`/`href` URL prefixes). No blind regex over content.
 
+The reserved `wp-image-<id>` form is an exact ASCII-whitespace-delimited token in a `class` attribute, including plugin blocks, block widgets and classic HTML. It is not an arbitrary occurrence in prose, another attribute, a comment or raw script/style text. Capture and apply use one bounded whole-body HTML pass so Gutenberg child boundaries cannot reset text context. Capture preserves surrounding bytes and uses the existing dangling/unscoped reference rules; immutable compilation refuses numeric, entity-encoded or malformed canonical media classes before target access. The same pure reader supplies lint findings without WordPress. Character references are decoded for recognition while only the selected class token's byte span is replaced. SVG/MathML integration points and `noscript` fallback content share this grammar; fallback content remains portable with scripting disabled while its outer document remains portable with scripting enabled.
+
 Current heuristic for internal links: permalink hrefs tokenize as `{{home}}/<path>` (correct while slugs match across branches). uuid-precise link tokens (`{{link:<uuid>}}`) remain reserved for a future format revision. Query-string-style internal links (`?p=`/`?page_id=`/`?attachment_id=`, WordPress's own older URL scheme — verified against `redirect_canonical()` directly, not `?page=`, which is pagination) get the uuid-precise treatment already: `{{home}}/?p={{post:<uuid>}}` (spec v0.20, issue #3260) — see "Unscoped references" below for the full triage.
 
 ## Entity files
@@ -981,7 +983,14 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements eleven features, and the first one is what the other ten ride:
+The implemented feature roster is emitted by `wprism manifest-validate --emit-schema`;
+the following features use its `spec-window/v1` channel:
+
+- **`provider-filesystem-file-snapshot/v1`** adds no manifest section or mutation
+  authority. It negotiates `ProviderSdk::filesystem_file_snapshot(root, canonicalPath)`:
+  a bounded observation of one present regular file or verified absence under
+  existing, confined parents. Its result and refusal boundaries are described in
+  the [adapter authoring guide](../docs/guides/adapter-authoring.md#fresh-process-capabilities).
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -1170,24 +1179,19 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-24 documents, 1,733 lines, 78,923 bytes — the same entries, the same profile, addressed as 24 roots
-instead of one. (The split itself moved no byte of content; the size has since grown with #561's
-promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
-the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
-review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
-virgin-target settlement correction, the experimental WPForms capsule and location-provider review,
-withdrawal of Yoast Duplicate Post's unproved managed-clone certification, and the four newest capsules —
-experimental Download Manager, certified Hustle, certified Speculative Loading and experimental
-Block Visibility — all without changing the split topology.)
+The reviewed source has one disposition per adapter, plus the profiles document.
+Package discovery determines the subject set. Adding a capsule adds its own root;
+source line and byte counts are not a second adapter inventory.
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
 rests on: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own disposition into that
 adapter's row (`:82`) and the row hashed is its `digest` (`:162`), so a canonical-encoding difference of
 one byte in one document would move that adapter's digest and every `site.wprism.json` pin naming it. It is
-proved rather than argued: `regress_disposition_split.php` pins all 19 shipped digests through two
-maximal compatible worlds, both worlds' `manifest_hash` and snapshot, and `registry_sha256` as
-explicit current greenfield literals. Separate frozen constants preserve the pre-move capture, and the
+proved rather than argued: `regress_disposition_split.php` retains a historical 21-subject fixture through three
+compatible worlds, their `manifest_hash` and snapshot, and `registry_sha256` as
+explicit greenfield literals. New capsules do not expand that historical fixture;
+their package-local evidence validates their identities. Separate frozen constants preserve the pre-move capture, and the
 suite carries one case per enumerated Canon-encoding hazard, in three verdicts rather than one. A nested LIST re-ordered and a UTF-8 prose
 `reason` re-composed each MOVE a digest, so the equality above is a measurement and not a tautology. Map
 KEY order at every nesting level moves nothing — that is precisely what makes lifting an entry out of a
@@ -1679,21 +1683,18 @@ nineteenth unprefixed adapter name cannot be added without regenerating the revi
 grandfathered name is reachable only as the reviewed `{name, source: "site"}` override of a shipped
 adapter, which is the case the list exists to keep loading.
 
-The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
-rule V3-NS, against the shipped library):
+The list ENUMERATES rather than tests shape. The current identity census is
+printed by `regress_spec_v3_dry_run.php`; the generated wire register records the
+shipped reservation inventory and R-17's permanent `id_kind` floor.
 
-- 23 adapter names, 22 `id_kind`s, 17 provider ids = 62 identities, all of which already pass the one
-  shared grammar;
-- a bare `<vendor>-<name>` refusal would break **29** of them — the 7 adapter names carrying no hyphen at
-  all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 22 `id_kind`s, every one of
-  which is underscore-separated;
-- the other 16 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 23
-  names; all 22 `id_kind`s remain governed by R-17 rather than that name list;
-- all 17 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
-  convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
-  `paid-memberships-pro-cache` when generic invalidation absorbed it; Redirection and experimental WPForms
-  each add one manifest provider.)
+- A bare `<vendor>-<name>` refusal would reject unprefixed adapter names such as
+  `acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce` and `yoast`,
+  as well as the underscore-separated `id_kind`s.
+- Hyphen-shaped adapter names can also lack a vendor prefix: `the-events-calendar`
+  is not vendor `the`. Shape cannot determine membership in the shipped list.
+- Provider ids use a plugin-slug first segment, the space where this convention
+  is enforced. Package discovery and the generated register carry the evolving
+  inventory; this specification does not maintain another adapter count.
 
 **`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
 rules on this at R-17: captured state and `wprism_map` rows embed the BARE kind, so a prefix rule introduced
@@ -2818,7 +2819,7 @@ and recovery. No Rank Math branch enters `agent/src`.
 ### v3.24 `plugin-incompatibility/v1` — competing plugin contracts refuse before composition
 
 **Rider: the Rank Math and Yoast composition-boundary work package.**
-**Enforced today: yes, at shared policy finalization.** `WPRISM_SPEC_VERSION`
+**Enforced today: yes, at shared policy finalization and repository authorization.** `WPRISM_SPEC_VERSION`
 remains 3. The feature claims the top-level `incompatible_plugins` key with the
 certificate's non-surface arm. Its value is a non-empty, lexically sorted,
 duplicate-free list of exact WordPress plugin basenames in
@@ -2843,6 +2844,16 @@ provider receives the policy. Rank Math's declaration against Yoast is the
 first consumer; the participant-owned scenario executes capture and host
 deploy with both manifest and active-plugin orders and proves the same refusal
 with no repository publication or durable mutation debt.
+
+The same declaration also binds canonical `active_plugins` during repository
+authorization. A competing plugin does not need an adapter pin to load its native
+hooks: omitting that pin cannot bypass the constraint. A present incompatible
+basename emits `repository_active_plugin_incompatible` with the declaring
+manifest and exact competing basename before capture publication or target
+lifecycle work. This applies to state-only and code-enabled repositories alike;
+code-mismatch overrides cannot bypass repository authorization. The guard uses
+desired state, allowing deploy to remove a competitor from the live target when
+the canonical graph is compatible. An absent or inactive competitor is allowed.
 
 ### v3.25 `scalar-reference-intersection/v1` — one value, multiple native coordinates
 
@@ -2920,6 +2931,399 @@ entire static owned value as runtime/derived/env, but cannot substitute a weaker
 authored rule. Existing dynamic cross-owner refusals remain in force. Package
 identity includes these declarations and hooks, so adoption requires normal
 recompilation and explicit re-pinning after an edit.
+
+### v3.27 `conditional-json-refs/v1` — sibling-discriminated structural references
+
+A v3 adapter declaring this feature may add `when` to an ordinary `json_refs`
+entry on an option, option subkey, metadata rule, metadata pattern, dynamic
+option subkey, or attached table metadata key. It adds no top-level section or
+token kind. Site-authored conditions, taxonomy descriptions and `body_refs`
+are not admitted by this feature. An interpreter answer requires exactly one
+v3 owner declaring the same feature and passes the same value-rule grammar.
+
+```json
+{
+  "path": "$.login_target_value",
+  "kind": "post",
+  "cast": "string",
+  "when": {"key": "login_target_type", "equals": "page", "otherwise": ["custom"]}
+}
+```
+
+`when` has exactly these three keys. `key` is an exact sibling key of at most
+128 bytes in the existing reference-path key alphabet. `equals` is a nonempty
+UTF-8 string of at most 128 bytes without control bytes; `otherwise` lists one
+to sixteen distinct strings under the same constraints, excluding `equals`.
+The reference path must end at an exact key, distinct from the discriminator.
+No declared reference path may also rewrite a discriminator. Existing
+overlapping-reference refusals remain unchanged.
+
+Each matched record must contain either the exact `equals` value or an exact
+listed alternative. Missing, non-string and unknown discriminators refuse;
+an unknown variant is never treated as portable text. Only the selected branch
+uses the typed identity codec. Selected source values must be positive native
+integers or canonical decimal strings within the PHP integer range, or the
+existing null/empty/zero/false unset conventions. Selected canonical values
+must instead be tokens in the declared keyspace or unset values. The ordinary
+`cast` controls the restored representation. Explicitly unselected branches
+retain their value and still pass through ordinary URL rewriting and the
+secret/PII gates; the discriminator grants no clearance exception.
+
+Capture, immutable repository validation, lint and SQL materialization use
+the same sibling selection. The negotiated feature leaves unconditional
+reference behavior unchanged. AIO Login 2.4.1's native redirect rule is the
+measured demand: `page` stores a decimal string while `custom` stores a URL;
+unconditional reference apply changed the latter to `"0"`.
+
+### v3.28 `php-container-values/v1` — ordered native PHP option containers
+
+A v3 adapter declaring this feature may set `php_containers: true` on a whole
+authored `options` or `option_patterns` rule. The rule must also declare
+`plain_data` or structured references. It cannot combine with `ref`, `cast`,
+`json_encoded`, `sub_keys`, `repeated_rows` or `order_preserving`. The normal
+namespace declaration remains necessary for pattern discovery. This feature
+does not admit metadata, attached table metadata, dynamic option resolvers,
+option-name references or site-authored codecs. A site may exclude the whole
+option as runtime, derived or environment data; it cannot replace the authored
+storage contract. An interpreter cannot introduce or override the codec.
+
+The canonical option value is a closed document with exactly `format` equal
+to `wprism-php-containers/v1` and `root`. Every native array or builtin
+`stdClass` becomes a closed node with `kind` (`array` or `stdClass`), `order`
+(a list of closed `{"key":...}` records), and `items` (the keyed encoded
+values). `order` names every item exactly once in original insertion order.
+PHP arrays retain integer/string key types; `stdClass` retains string property
+names, including numeric properties. All containers are wrapped, so authored
+keys resembling codec fields are unambiguous. Empty arrays and empty objects
+remain distinct through canonical JSON sorting.
+
+Null, booleans, integers and UTF-8 strings are ordinary leaves. A finite PHP
+float becomes `{"kind":"float","value":"..."}`, using the decimal
+spelling between `d:` and `;` in its canonical PHP serialization. This preserves
+`2.0` versus `2` and negative zero without changing ordinary canonical JSON.
+The root must be a container. The codec bounds native serialized input and
+decoded text to 16 MiB, nesting depth to 64 and decoded nodes to 100,000.
+Arbitrary/incomplete classes, enums, references, recursive or shared objects,
+mangled properties, malformed/trailing/noncanonical serialization, binary text,
+nonfinite floats and malformed portable nodes refuse. Enum screening happens
+before PHP can invoke an autoloader; deserialization permits only builtin
+`stdClass` and reconstruction instantiates only that class.
+
+Existing `json_refs` paths address encoded scalar coordinates. An ID-keyed
+node instead requires `key_refs.container: "php"`; its path addresses the
+whole typed node, for example `$.root.items.posts`. Capture accepts only
+positive native integer or canonical decimal-string IDs within PHP's integer
+range. Apply requires an exact identity token in the declared keyspace and a
+positive resolved integer. The generic codec rewrites `items` and `order` in
+one operation. An unresolved capture key drops its complete entry with the
+existing warning; duplicate resolved keys refuse. This introduces no new path
+dialect or identity kind. Ordinary string leaves retain URL rebinding and
+secret/PII checks. Capture, immutable compilation, lint and checked option
+materialization share the representation; materialization restores native
+containers and serializes them with target-local string lengths.
+
+### v3.29 `block-attribute-values/v1` — declarative block value transport
+
+A v3 adapter declaring this feature may declare `block_values`, a nonempty
+object keyed by WordPress block name and then exact top-level attribute name.
+The section uses the certificate's field arm. A block with this section has
+one manifest owner across all block declarations; disjoint `block_attrs`
+rules in that same manifest can coexist. Whole-block codecs and overlapping
+attributes refuse. Site policy cannot supply this section. Legacy
+`block_attrs` cannot carry the effective registry's internal `value` field.
+
+An attribute declares exactly `{"class":"derived"}`, or `class:authored`
+plus one of the ordinary scalar `ref` codec, `json_refs`/`key_refs`, or
+`plain_data:true`. Scalar refs accept `cast:string`; list refs additionally
+accept `cast:csv`. The shared structural reference dialect is unchanged;
+conditional references, PHP container wrapping, custom executable codecs,
+sub-key ownership, and metadata-only options are not admitted here.
+
+Native scalar references require positive integers in their declared native
+JSON type. Optional scalar references retain null, empty string and the typed
+zero sentinel. Lists contain references only. Native CSV is empty or a
+comma-separated sequence of positive canonical decimal integers, without
+whitespace or empty members. Capture emits a token list; apply restores the
+CSV string, preserving selection order and duplicates. Structured values
+require arrays/objects decoded into ordinary JSON data; selected reference
+leaves must have their declared scalar shape. Whole-value and nested text
+leaves use the existing environment URL codec. No new identity kind exists.
+
+Derived attributes are removed during capture. Their presence in canonical
+content is an error, including a null value. Authored attributes preserve
+ordinary JSON fields outside declared reference paths. Missing identity
+mappings use the existing warning/drop and blocking scope gates. Canonical
+references must be exact tokens in the declared keyspace; malformed shapes,
+foreign tokens, raw IDs and unsupported native coercions refuse.
+
+The same value validator runs at capture, immutable compilation, lint and
+apply. Compilation reads opening block-comment attributes without WordPress
+or database contact, for post bodies in blocks mode and declared block-content
+widget settings. The reader preserves body bytes and limits documents to
+16 MiB and 100,000 delimiters. Value validation limits nesting to 64 and nodes
+to 100,000; non-finite numbers, objects outside decoded JSON and invalid UTF-8
+refuse. Checked post SQL and its transaction owner retain responsibility for
+atomic writes, rollback, retry and canonical recapture.
+
+### v3.30 `block-media-derivatives/v1` — content-selected image recipes
+
+A v3 adapter can declare `block_media_derivatives`, keyed by block name,
+with lists of closed recipes. Each recipe requires `attachment`, `url`,
+`width` and `height` as exact child JSON paths, a boolean `crop`,
+`filename:"requested-dimensions"` and `dimension_cast:"integer"` or
+`"truncate"`. Optional `path` uses the shared JSON reference walker to select
+an object or list of objects; absent means the block attributes. Optional
+`when:{key,equals}` requires an exact nonempty string discriminator in each
+selected object. An absent or unequal discriminator selects no recipe.
+There are at most 128 declarations per manifest. The same manifest must own
+the attachment's `post` reference in `block_values`; the section uses the
+certificate's field arm and cannot be introduced by site policy.
+
+Capture, immutable compilation and artifact admission use the same reader
+for post bodies and declared block-content widget settings. A selected
+attachment must resolve to an image original of MIME JPEG, PNG, GIF or WebP.
+The selected URL must identify the exact original basename plus requested
+`-<width>x<height>` dimensions in the same uploads-relative directory.
+Integer dimensions must already be integers; truncate additionally admits
+finite numeric fractions. Negative values and dimensions above 16,384 refuse,
+as do requested areas above 67,108,864 pixels. A recipe inventory has at most
+4,096 transforms, 128 per attachment and 4,096 sorted consumers per transform.
+Conflicting transforms for one destination and destinations colliding with
+originals refuse. Existing aggregate filesystem and media bounds still apply.
+
+`media_derivatives` in the compiled artifact binds each transform to its
+attachment UUID, original path and content-addressed media blob, exact target
+path and consumers. Artifact admission derives the inventory again from
+immutable content and pinned declarations. The recipe identity hashes the
+transform and original binding; consumer changes do not change output identity.
+Artifacts without this selected feature retain their historical shape.
+
+Apply selects effects from its actual authored work and combines desired
+consumers with preserved target consumers. An edit to content can therefore
+regenerate an unchanged attachment without rewriting its post row or authored
+sidecars. The target observation is rechecked under native consumer locks
+before authored mutation. Publication and cleanup recheck current consumers
+against the committed generation work; a new unplanned transform refuses.
+Scoped consumer preservation does not import those consumers into the authored
+write set. Path changes that strand a preserved consumer refuse.
+
+The locked reader borrows Capture's block, attachment-original and widget
+codecs as an input projection, not as a full export. Unrelated uncaptured
+terms, authors and options impose no export prerequisites on this reader.
+Existing post identities require exact durable mappings without repair.
+Unmanaged posts receive private comparison identities so a selected crop
+cannot disappear from the consumer guard; those identities never enter the
+ledger or authored write set. A stock page or a block selecting the original
+has no custom recipe. Strict full export retains its identity requirements.
+
+An existing crop outside native attachment metadata may acquire prior-file
+ownership only from a manifest-declared selection observed in target content.
+A desired new selection, filename prefix, runtime crop cache or equal bytes
+does not grant that authority. The selection's original must independently
+belong to the exact native attachment; its frozen before-image must match the
+observed original blob, including when authored work replaces that original.
+The global attached-file collision guard also covers selected prior crop paths.
+The existing filesystem owner freezes every exact prior path, rechecks aliases,
+absence or byte/identity witnesses, and seals the ownership decision in its
+transaction-bound journal. Unselected neighbors retain their prior bytes.
+
+The existing isolated native metadata generator consumes bounded journal
+recipes in private staging. Requested filename dimensions are distinct from
+actual output dimensions; a valid no-resize result re-encodes the original.
+Generated file path, MIME, dimensions and size must agree with native output.
+A native size at the same destination coalesces only if both projection and
+bytes agree. New crops receive genuine generated attachment size metadata.
+Publication, metadata COMMIT, stale-file removal and recovery remain phases of
+the existing attachment transaction; stale crops are not removed before the
+metadata commit is established. Native plugin qualification and fresh-process
+convergence evidence remain required before declaring a plugin capability.
+
+### v3.31 `key-bound-strings/v1` — strings bound to an owning map key
+
+A v3 adapter may add `bound_strings` to the `key_refs` of a static whole
+authored option or option pattern that also negotiates `php-container-values/v1`
+and declares `php_containers: true` and `container: "php"`. No new top-level
+section, reference kind, plugin executable, database authority or engine version
+is introduced. Existing declarations retain their codec and identity bytes.
+
+`bound_strings` is a list of one to 128 closed `{path, prefix, suffix}` objects.
+Paths use the existing structured-reference dialect relative to each selected
+map value, with at most 1,024 bytes and no surrounding whitespace. Prefix and
+suffix are nonempty UTF-8 literals of at most 256 bytes each, without control
+bytes or reserved token delimiters. They identify native syntax that is stable
+across environments. Bound paths cannot overlap one another or another
+structural reference/discriminator; the same position cannot have two owners.
+
+Every selected leaf must be a UTF-8 string of at most 1 MiB, both before and
+after rewriting. An absent path is allowed. A selected leaf must contain at
+least one complete `prefix + owning-key + suffix` frame; every occurrence of
+the prefix must begin that exact frame. A map entry permits at most 100,000
+occurrences across all its selected strings. The owning key must be a canonical
+positive native integer or its exact declared-kind token. Capture requires the
+native phase and apply the canonical phase. Complete-frame comparison cannot
+truncate a token at a suffix that also occurs inside its UUID.
+
+Capture substitutes the map key's ordinary `{{kind:uuid}}` in each frame;
+apply substitutes that same identity's target ID. Bytes outside those frames
+stay with the existing text codec. For this negotiated shape, apply binds the
+structural references before text detokenization, so a URL-query frame cannot
+lose its token before the owning-key check. Immutable compilation and reference
+scanning validate key/frame agreement through the same pure structural reader,
+without an identity lookup. Conflicting frames refuse even when the owning key
+would subsequently be dropped as dangling. The typed-container owner publishes
+key, order and rewritten value together and validates the resulting container;
+its existing collision and size guards remain in force.
+
+### v3.32 `block-attribute-groups/v1` — exact grouped value declarations
+
+A v3 manifest declaring both `block-attribute-values/v1` and
+`block-attribute-groups/v1` may include a `groups` list inside `block_values`.
+This is an alternate declaration syntax for the existing block-value surface;
+it creates no new capability surface or runtime executable. Ordinary exact
+block maps may coexist with groups. Without the feature, the historical exact
+block-name grammar remains in force.
+
+Each group is a closed `{blocks, attributes, value}` object. `blocks` and
+`attributes` are nonempty lists of distinct exact names using the existing
+block and attribute grammars. `value` uses the existing authored/reference or
+derived value-rule grammar. A group declares every pair in the Cartesian
+product of its two lists. A pair appearing twice, including across groups and
+exact maps or under equal rules, refuses; declaration order grants no override.
+There are at most 256 groups, 4,096 members in either list and 65,536 expanded
+group pairs, checked before expansion. No pattern, implicit default, inheritance
+or runtime plugin-schema discovery participates in this ownership decision.
+
+`BlockValueGrammar::attribute_maps()` is the sole normalization owner. It
+preserves raw manifest bytes and returns exact maps; grouped maps are sorted
+by block and attribute. Runtime projection, reference-keyspace validation and
+same-manifest media derivative ownership consume those maps. Existing
+cross-manifest ownership and legacy whole-block/attribute collision rules apply
+after normalization. Site policy cannot introduce this manifest-owned grammar.
+The public feature grammar describes the grouped form; canonical manifest
+identity binds the compact declaration, so changing syntax requires fresh pins.
+
+### v3.33 `block-record-fields/v1` — authored fields within native records
+
+A v3 manifest declaring this feature and `block-attribute-values/v1` may add
+`record_fields` to an authored block value rule. It is a closed object with
+`container` (`object` or `list`) and `fields` (1–256 distinct exact field names,
+each matching `[A-Za-z_][A-Za-z0-9_-]{0,127}`). The existing attribute boundary
+selects one record or a list of records; there is no nested projection path.
+
+Capture checks the ordinary bounded JSON contract before discarding unlisted
+immediate record fields. Retained fields preserve native key order, absence,
+types and nested values; lists preserve order and duplicates. Each record must
+be associative and retain at least one field. Empty lists are valid; empty
+records refuse because associative JSON decoding cannot preserve their object
+type. No required-field defaults, list deduplication or runtime schema lookup
+is implied by this declaration.
+
+The existing `json_refs`/`key_refs` or `plain_data` codec remains mandatory.
+Scalar `ref` is incompatible. Every reference path must start with an exact
+retained field; root key references and wildcard/recursive first segments
+refuse rather than claiming an identity the projection could discard. Later
+segments use the unchanged shared path dialect inside the retained value.
+
+`RecordFields` owns the pure declaration and record constraints;
+`BlockValueCodec` composes them with reference and text transport. Immutable
+post/widget compilation, lint and Apply reject excluded canonical fields
+through that same validator. Canonical inputs are never silently projected.
+Retained data crosses all existing privacy and scope gates. The feature changes
+neither capability surfaces nor transaction, recovery or executable authority.
+Changing a package to use it intentionally changes its identity and requires
+recapture, compilation and explicit new pins.
+
+### v3.34 `encoded-text-values/v1` — native scalar text framing
+
+A v3 manifest declaring this feature may attach
+`text_encoding: {"codec":"uri-component"}` to an authored scalar text rule.
+The optional `escape` member is exactly `{"text":"…","wire":"…"}`: a
+single literal replacement performed before URI encoding. There is no
+arbitrary transform pipeline, implicit detection or executable codec.
+
+The feature applies to exact options, option patterns, one-level static
+option subkeys, post/term/user metadata, `post_meta_patterns` and shared
+`meta_patterns`. A `block_values` attribute additionally requires
+`block-attribute-values/v1`. Option-name references, dynamic options and their
+subkeys, attached metadata and table columns are not admitted. It claims no
+new top-level section or certificate arm.
+
+Native strings must have the exact JavaScript `encodeURIComponent` spelling:
+uppercase percent escapes, `%20` for spaces, and `!'()*` left unescaped along
+with the URI unreserved set. Canonical values are decoded UTF-8 scalar strings.
+Capture decodes before the existing text/reference and privacy machinery;
+Apply resolves ordinary canonical tokens before encoding. A source native
+value must equal the encoded result of its decoded value. Form encoding,
+invalid UTF-8, unsafe ASCII controls (other than tab, LF and CR), malformed or
+noncanonical percent escapes and non-string values refuse without including
+value bytes in the diagnostic.
+
+Decoded text is bounded to 1 MiB and native text to 8 MiB. Each escape literal
+is at most 128 bytes; `text` is nonempty UTF-8 without control bytes, and
+`wire` contains only ASCII letters, digits or underscore, is strictly longer,
+and does not contain `text`. Canonical text cannot contain the wire marker.
+Literal replacement must also reverse exactly at partial-marker boundaries.
+Both literal and URI expansion are checked before allocating their expanded
+outputs. Compilation proves the native bound for canonical text; Apply proves
+it again after substituting target-specific URLs.
+
+The field cannot combine with `ref`, `cast`, `json_refs`, `key_refs`,
+`json_encoded`, `plain_data`, `php_containers`, `record_fields`, `sub_keys`,
+`repeated_rows`, `order_preserving` or `native_value_validation`, including
+null/false instances of those fields. Ordinary field-level privacy review
+still applies where the owning surface permits it. Block values grant no
+privacy exception.
+
+Static manifest ownership is exclusive. Competing adapter classifications
+cannot hide a codec through pin order. Site policy may exclude a whole value
+as runtime, derived or environment-local, but cannot substitute an authored
+rule or change its subkeys. Interpreters cannot introduce or override this
+codec. Existing rules without `text_encoding` retain their native framing.
+Malformed locked metadata/option preimages refuse before reconciliation can
+overwrite or remove them. Transaction, recovery and identity ownership remain
+with the existing engine. Adopting the feature in a package changes its
+identity and canonical representation, requiring recapture, compilation and
+explicit new pins.
+
+`EncodedText` owns framing and bounds; it does not parse CSS or call WordPress.
+Separately, block publication clearance scans decoded opening-comment
+attributes alongside original body text. Native quote escaping cannot conceal
+credentials from Capture or immutable compilation. The same framing reader
+covers block widget content while retaining its existing reviewed privacy
+rules. No decoded inspection value is written back to canonical content.
+
+### v3.35 `post-meta-invalidation/v1` — exact derived post-cache repair
+
+A v3 manifest declaring this feature may add `on_post_write: "delete"` to
+an exact `post_meta.<name>` rule with `class: "derived"`. Only these two fields
+and an optional string `note` are admitted. Other operations, patterns,
+option subkeys, attached metadata, block attributes and term/user metadata
+cannot carry the field. The feature claims the existing post-meta field arm,
+not a new executable or top-level section.
+
+The effect is part of the selected owner's authored post/menu-item write.
+Under the existing bounded metadata owner lock, the engine deletes all rows
+whose key bytes exactly match the declaration, addressing observed physical
+`meta_id` values. It reads back exact absence before returning and uses the
+existing post-meta object-cache invalidation queue. All SQL participates in
+the authored transaction's commit/rollback and recovery boundary. Missing
+rows remain absent. Other owners and collation aliases remain untouched.
+
+The declaration grants no owner discovery or standalone repair operation.
+An unchanged or unselected post that is not materialized receives no repair.
+Ordinary `class: "derived"` retains its preservation semantics. Native plugin
+hooks are not invoked and no cache value is promoted into canonical intent.
+The adapter must prove that absence makes its native reader correct.
+
+One static manifest owns each grant. Competing exact or pattern claims,
+including core, refuse during pure policy load. Site policy cannot replace
+the contract; interpreter answers cannot introduce, echo or override it.
+The existing compiled manifest identity and scope contract source hash bind
+the declaration. A package adopting it requires recompilation and new pins.
+
+`PostMetaInvalidation` owns the closed grammar; policy resolution owns static
+authority; `ApplyFieldMaterializer` owns its bounded transactional effect.
+
 
 ## Ledger tables (per environment, never in the repo)
 

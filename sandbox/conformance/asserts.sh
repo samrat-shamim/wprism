@@ -263,6 +263,43 @@ capture_wprism_json_success() { # <OUT_VAR> <what> <command> [args...]
   capture_wprism_json_checked "$1" "$2" '' "${@:3}"
 }
 
+# adapter-probe publishes Canon::encode(), a multiline document. Its stdout
+# contains exactly one JSON document; transport belongs to stderr. Keep that
+# stricter contract separate from the compact-envelope/receipt stream above.
+capture_wprism_json_document() { # <OUT_VAR> <what> <command> [args...]
+  local __wprism_capture_out_var="$1" __wprism_capture_what="$2"
+  local __wprism_capture_dir='' __wprism_capture_rc=0 __wprism_capture_document='' __wprism_capture_stderr=''
+  shift 2
+  [[ "$__wprism_capture_out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+    || fail 'capture_wprism_json_document: malformed output variable'
+  [[ "$__wprism_capture_out_var" != __wprism_capture_* ]] \
+    || fail 'capture_wprism_json_document: reserved output variable prefix __wprism_capture_'
+  __wprism_capture_dir=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/wprism-json-document.XXXXXX") \
+    || fail 'capture_wprism_json_document: private capture directory unavailable'
+  "$@" >"$__wprism_capture_dir/stdout" 2>"$__wprism_capture_dir/stderr" || __wprism_capture_rc=$?
+  __wprism_capture_document=$(cat "$__wprism_capture_dir/stdout")
+  __wprism_capture_stderr=$(cat "$__wprism_capture_dir/stderr")
+  cat "$__wprism_capture_dir/stderr" >&2
+  if [ "$__wprism_capture_rc" -ne 0 ]; then
+    cat "$__wprism_capture_dir/stdout" >&2
+    rm -rf "$__wprism_capture_dir"
+    fail "$__wprism_capture_what failed with exit $__wprism_capture_rc"
+  fi
+  if has_php_runtime_diagnostics "$__wprism_capture_document" || has_php_runtime_diagnostics "$__wprism_capture_stderr"; then
+    cat "$__wprism_capture_dir/stdout" >&2
+    rm -rf "$__wprism_capture_dir"
+    fail "$__wprism_capture_what emitted a PHP runtime diagnostic; inspect its captured output"
+  fi
+  if ! jq -e -s 'length == 1 and (.[0] | type == "object" or type == "array")' \
+    "$__wprism_capture_dir/stdout" >/dev/null 2>&1; then
+    cat "$__wprism_capture_dir/stdout" >&2
+    rm -rf "$__wprism_capture_dir"
+    fail "$__wprism_capture_what did not publish exactly one JSON object or array on stdout"
+  fi
+  rm -rf "$__wprism_capture_dir"
+  printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_document"
+}
+
 # A positive Apply must validate its complete stream before JSON publication:
 # stderr-only env_missing diagnostics disappear from a last-line-only check.
 # The caller supplies a shared assertion (<what> <capture>), never an adapter

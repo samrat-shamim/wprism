@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
+
 /**
  * Fail-closed codecs for manifest-declared deletion guards.
  *
@@ -130,7 +132,11 @@ final class DeleteGuardValueCodec {
      * serialization value and its safely-decoded value.
      */
     private static function strict_unserialize(string $raw): array {
-        $decoded = @unserialize($raw, ['allowed_classes' => false]);
+        try {
+            $decoded = SerializedDataPreflight::decode($raw, 'deletion reference guard');
+        } catch (\RuntimeException $failure) {
+            return [false, null];
+        }
         // `false` is a valid serialized value only when its exact canonical
         // spelling is present; every other false result is malformed input.
         if ($decoded === false && $raw !== 'b:0;') {

@@ -10,6 +10,7 @@ require_once __DIR__ . '/LintFinding.php';
 require_once __DIR__ . '/LintEnvironment.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Repository/StateTreeWalker.php';
+require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
 
 /**
  * The generalized suspicious-ref linter (task #11's linter half). The FSE,
@@ -322,6 +323,7 @@ final class Lint {
                 $rule = (array) (($declared[$type]['settings'] ?? [])[$key] ?? []);
                 $locator = "widgets[$i].settings.$key";
                 if (($rule['codec'] ?? '') === 'blocks' && is_string($value)) {
+                    self::scan_html_media($value, $rel, $locator, $env, $findings);
                     self::scan_widget_blocks($value, $blockRules, $rel, $home, $env, $findings);
                 } elseif (($rule['ref'] ?? '') === 'term') {
                     foreach (Pending::numeric_candidates($value) as [$id, $suffix]) {
@@ -434,6 +436,7 @@ final class Lint {
         // skips Blocks::capture_rewrite() for them, so nothing would ever
         // have rewritten a shortcode ref there either; same gate both scans share).
         if ($body !== '' && $policy->body_mode($postType) === 'blocks') {
+            self::scan_html_media($body, $rel, 'body', $env, $findings);
             if ($env->parses_blocks()) {
                 self::scan_blocks(parse_blocks($body), $blockRules, $rel, $home, $env, $findings);
             } else {
@@ -561,6 +564,27 @@ final class Lint {
         $resolve = $env === null ? null : $env->resolver();
         foreach (StructuredReferenceScanner::scan($node, $rel, $locator, $jsonRefs, $keyRefs, $resolve) as $finding) {
             $findings[] = $finding;
+        }
+    }
+
+    /** The reserved HTML class grammar is available even without WordPress parsing. */
+    private static function scan_html_media(string $body, string $rel, string $locator, LintEnvironment $env, array &$findings): void {
+        try {
+            $references = HtmlMediaReferences::references($body);
+        } catch (\RuntimeException $e) {
+            $findings[] = LintFinding::make('invalid_html_media_reference', $rel, $locator, '<html>', null, $e->getMessage());
+            return;
+        }
+        foreach ($references as $reference) {
+            if (is_string($reference['reference']) && !$reference['literal']) {
+                $findings[] = LintFinding::make('invalid_html_media_reference', $rel,
+                    $locator . '@' . $reference['offset'] . '.class', '<encoded-token>', null,
+                    'canonical HTML media identities must be literal post tokens so the repository reference graph can see them');
+            }
+            if (!is_int($reference['reference'])) continue;
+            $findings[] = LintFinding::make('unrewritten_registered_ref', $rel,
+                $locator . '@' . $reference['offset'] . '.class', $reference['reference'], $env->resolve_id($reference['reference']),
+                'reserved wp-image class remains numeric in captured HTML; its attachment identity must be a canonical post token');
         }
     }
 

@@ -1,6 +1,11 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
@@ -677,7 +682,8 @@ final class RepositoryAuthorization {
                 } else {
                     self::authorize_sensitivity(
                         $out, $path, $stateKey, "widget[$i].settings", (string) $setting,
-                        $value, $rule, 'manifest widgets.' . $type
+                        ($rule['codec'] ?? '') === 'blocks' && is_string($value) ? BlockAttributeReader::clearance_value($value) : $value,
+                        $rule, 'manifest widgets.' . $type
                     );
                 }
             }
@@ -694,6 +700,18 @@ final class RepositoryAuthorization {
         // own present values plus hash-bound v2 deletion witnesses, never a
         // live target or capture-process history.
         $allOptions = OptionState::classification_values($document);
+        // A competitor need not have an adapter pin or a code payload. This
+        // common capture/compiler boundary rejects its desired activation
+        // before publication, lifecycle reconciliation, or materialization.
+        $activePlugins = OptionState::values($document)['active_plugins'] ?? [];
+        foreach ($policy->active_plugin_conflicts(is_array($activePlugins) ? $activePlugins : []) as $conflict) {
+            self::finding(
+                $out, 'repository_active_plugin_incompatible', $entity['path'], $uuid,
+                'managed_option', $conflict['incompatible_plugin'], 'incompatible', $conflict['manifest'],
+                "Remove '{$conflict['incompatible_plugin']}' from canonical active_plugins or unpin "
+                    . "'{$conflict['manifest']}', whose '{$conflict['plugin']}' contract forbids it."
+            );
+        }
         foreach (OptionState::records($document) as $name => $record) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)
@@ -741,6 +759,14 @@ final class RepositoryAuthorization {
                 continue;
             }
             $value = $record['value'];
+            if (!empty($rule[PhpContainerValue::FIELD])) {
+                try {
+                    PhpContainerValue::assert_canonical($value, "repository option '$name'");
+                } catch (\RuntimeException $failure) {
+                    self::finding($out, 'repository_option_container_invalid', $entity['path'], $uuid,
+                        'option', (string) $name, 'malformed', $details['source']);
+                }
+            }
             try {
                 OptionState::assert_rule_autoload($rule, (string) $record['autoload'], "repository option '$name'");
             } catch (\Throwable $t) {
@@ -807,6 +833,7 @@ final class RepositoryAuthorization {
                     'user_meta', (string) $key, 'secret', $details['source']
                 );
             }
+            self::authorize_encoding($out, $path, $stateKey, 'user_meta', (string) $key, $value, $rule, $details['source']);
             if (empty($rule['allow_pii']) && PersonalData::match_deep((string) $key, $value) !== null) {
                 self::finding(
                     $out, 'repository_user_meta_pii_not_allowed', $path, $stateKey,
@@ -937,6 +964,7 @@ final class RepositoryAuthorization {
         string $body,
         string $path
     ): mixed {
+        if ($policy->body_mode($postType) === 'blocks') return BlockAttributeReader::clearance_value($body);
         try {
             return match ($policy->body_mode($postType)) {
                 'serialized' => PlainData::decode_serialized($body, "$path body"),
@@ -978,6 +1006,7 @@ final class RepositoryAuthorization {
         ?string $source,
         array $reviewedScalarPaths = []
     ): void {
+        self::authorize_encoding($out, $path, $uuid, $surface, $field, $value, $rule, $source);
         if (empty($rule['allow_secret']) && Secrets::clearance_match_deep($field, $value) !== null) {
             self::finding(
                 $out, 'repository_secret_not_allowed', $path, $uuid,
@@ -989,6 +1018,14 @@ final class RepositoryAuthorization {
                 $out, 'repository_pii_not_allowed', $path, $uuid,
                 $surface, $field, 'pii', $source
             );
+        }
+    }
+
+    private static function authorize_encoding(array &$out, string $path, string $uuid, string $surface, string $field, mixed $value, array $rule, ?string $source): void {
+        try {
+            EncodedText::assert_canonical($value, $rule, "$surface.$field");
+        } catch (\RuntimeException) {
+            self::finding($out, 'repository_text_encoding_invalid', $path, $uuid, $surface, $field, 'malformed', $source);
         }
     }
 

@@ -1,0 +1,123 @@
+{
+  "format": "wprism-visual-portfolio-native-fixture/v1",
+  "qualification": false,
+  "source_sha": "a332e922f62f9049e651cf76ff00720b36eafbb9",
+  "plugin": "3.8.1",
+  "wordpress": "7.1",
+  "php": "8.3.33",
+  "home": "http://localhost:9186",
+  "theme": {"name": "twentytwentyone", "version": "2.9"},
+  "observation": {"bytes": 1613048, "sha256": "a2dec95bddc5981ffdbf4be9aa6c3622d6391acca3bdd9f6749a7a1a2281b522"},
+  "writer_receipt": {
+    "format": "wprism-visual-portfolio-native-writer-receipt/v1",
+    "source_sha": "a332e922f62f9049e651cf76ff00720b36eafbb9",
+    "qualification": false,
+    "network": {
+      "file": "trace-1788931124124.network",
+      "bytes": 4445868,
+      "sha256": "4b139a188a0a6f163e91fc0af5f9b58ec9f42dd678f07a8f8f036bd82b30f499"
+    },
+    "writers": [
+      {
+        "url": "http://localhost:9186/wp-admin/options.php",
+        "time": "2026-09-09T05:28:38.535Z",
+        "request": {
+          "file": "resources/ef955c36abc9343d08bbc6ddb48c279e8d613917.dat",
+          "bytes": 422,
+          "sha256": "7eebe48067d399106e1267032ff10f616757057131baba57e8e6a11c8f39270b"
+        },
+        "status": 302,
+        "form": "vp_general",
+        "response": {
+          "bytes": 0,
+          "proof": "HTTP Content-Length: 0",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      {
+        "url": "http://localhost:9186/wp-admin/options.php",
+        "time": "2026-09-09T05:32:12.634Z",
+        "request": {
+          "file": "resources/1e900d145e0c8cab9e298c6bf5b9a56aa337e1b9.dat",
+          "bytes": 543,
+          "sha256": "3a3027cd1081cab297302b8daa25561746ac7b4631fee2de2f459c612b91c2ab"
+        },
+        "status": 302,
+        "form": "vp_images",
+        "response": {
+          "bytes": 0,
+          "proof": "HTTP Content-Length: 0",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      {
+        "url": "http://localhost:9186/wp-admin/options.php",
+        "time": "2026-09-09T05:44:13.256Z",
+        "request": {
+          "file": "resources/3672def31eeabbb449219a8d3b1ce79ef11312c7.dat",
+          "bytes": 1375,
+          "sha256": "accfcbb06a7cef58296cd38abc0b6d4d19c0d5af777a68486bc88a552466526d"
+        },
+        "status": 302,
+        "form": "vp_popup_gallery",
+        "response": {
+          "bytes": 0,
+          "proof": "HTTP Content-Length: 0",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      {
+        "url": "http://localhost:9186/wp-json/wp/v2/pages/9?_locale=user",
+        "time": "2026-09-09T05:54:09.144Z",
+        "request": {
+          "file": "resources/25793853752843712fbe0dc4cbbda25c3fcd3b8a.json",
+          "bytes": 2121,
+          "sha256": "45602bd960088d7e935daf25828f03b753f1a77b26f18011189a634a80d7d538"
+        },
+        "status": 200,
+        "response": {
+          "file": "resources/509ab04d220a17be6ad7047d78471e012ebdb514.json",
+          "bytes": 10512,
+          "sha256": "360193f61c549dcb594ae07d9b58d340b573a8c79bb99d1d882aab4f66652fec"
+        },
+        "observation": {
+          "stage": "source-gallery-after-save",
+          "bytes": 1589753,
+          "sha256": "cdd8cbc5b49a72f4930c1673f23efb08c65701845a3e56e54235df3db01ecfce"
+        },
+        "page": 9,
+        "content_bytes": 1932,
+        "content_sha256": "6e4fb1791452c90f84c99c31a073c0e7f0de4df74296a3d4b9604a76c78c8e9b"
+      },
+      {
+        "url": "http://localhost:9186/wp-json/wp/v2/pages/10?_locale=user",
+        "time": "2026-09-09T06:08:55.317Z",
+        "request": {
+          "file": "resources/0084a63c2575005279815136576678663503e139.json",
+          "bytes": 594,
+          "sha256": "a62f9f1b840fd17cc5ffd4020a7c1a7ffe914436cb70aabf23273a5dfba04a4f"
+        },
+        "status": 200,
+        "response": {
+          "file": "resources/12c107c312747fcb2bf4fbc57037eaf3c1a17cd2.json",
+          "bytes": 11042,
+          "sha256": "39b576a6c81370f2a08d3ba24a7e8acb9c36cb8e6d53b98dd813cbf90fda4060"
+        },
+        "observation": {
+          "stage": "source-archive-after-save",
+          "bytes": 1594502,
+          "sha256": "a0e5d82515d7cbd92051e6cec96d5b9ba9b888f224668fa5222e40c7931db608"
+        },
+        "page": 10,
+        "content_bytes": 518,
+        "content_sha256": "2da14ed787daaf43148a1891fe8669e47e80d2cf9014c9433bba00a414293b5f"
+      }
+    ]
+  },
+  "files": {
+    "archive.html": {"bytes": 518, "sha256": "2da14ed787daaf43148a1891fe8669e47e80d2cf9014c9433bba00a414293b5f"},
+    "gallery.html": {"bytes": 1932, "sha256": "6e4fb1791452c90f84c99c31a073c0e7f0de4df74296a3d4b9604a76c78c8e9b"},
+    "options.json": {"bytes": 2657, "sha256": "e04cddbd7a98daec03c02e58eab03b061c90595d010f2d4c963216f2fea9d4a1"},
+    "attribute-names.json": {"bytes": 10433, "sha256": "487ee3d9ccf5c6909f4d08605e0892a08f6496ff720d30fa1b4128419b2460f2"}
+  }
+}

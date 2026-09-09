@@ -358,6 +358,36 @@ $certificate = AdapterCertification::sign_site(
     $reason
 );
 $certificatePath = AdapterCertify::writeCertificate($signRepo, 'acme-catalog', $certificate);
+
+// A negotiated value constraint claims no new certificate arm. Exercise the
+// real signer and verifier so a grammar-only addition cannot be unsignable.
+$encoded = $rich;
+$encoded['engine_features'] = ['block-attribute-values/v1', 'encoded-text-values/v1', 'spec-window/v1'];
+$encodedRule = ['class' => 'authored', 'text_encoding' => ['codec' => 'uri-component']];
+$encoded['options'] = ['acme_catalog_css' => $encodedRule, 'acme_catalog_settings' => [
+    'class' => 'env', 'required' => false, 'sub_keys' => ['css' => $encodedRule]]];
+$encoded['option_patterns'] = [$encodedRule + ['match' => '^acme_catalog_css_[0-9]+$']];
+$encoded['post_meta'] = $encoded['term_meta'] = ['_acme_catalog_css' => $encodedRule];
+$encoded['user_meta'] = ['_acme_catalog_css' => $encodedRule + ['missing_user' => 'block']];
+$encoded['block_values'] = ['acme/catalog' => ['css' => $encodedRule]];
+$encodedRepo = cert_site($root, 'encodedtextsite', $encoded);
+cert_private('registerAuthority', [$encodedRepo, $signKeyId, $signPublic, 'acme-catalog', AdapterSources::TIER_DECLARATIVE]);
+$encodedCertificate = AdapterCertification::sign_site(Policy::shipped_adapter_library(), $encodedRepo, 'acme-catalog',
+    $signKeyId, base64_encode($signSecret), 'Fixture reviewed encoded scalar storage.');
+$encodedCertificatePath = AdapterCertify::writeCertificate($encodedRepo, 'acme-catalog', $encodedCertificate);
+$encodedVerified = AdapterCertification::verifyFile(Policy::shipped_adapter_library(), $encodedRepo,
+    'acme-catalog', $encoded, $encodedCertificatePath);
+wprism_check_same('experimental', $encodedVerified['claim']['status'] ?? null,
+    'the signer and live verifier admit encoded options, subkeys, metadata and blocks without overstating exercise');
+wprism_check_same(AdapterSources::TIER_DECLARATIVE, AdapterSources::trust_tier($encoded),
+    'the negotiated text codec grants no executable adapter authority');
+unset($encoded['engine_features'][1]);
+$encoded['engine_features'] = array_values($encoded['engine_features']);
+Canon::write_file($encodedRepo . '/adapters/acme-catalog.json', Canon::encode($encoded));
+wprism_check_throws(static fn() => AdapterCertification::sign_site(Policy::shipped_adapter_library(), $encodedRepo,
+    'acme-catalog', $signKeyId, base64_encode($signSecret), 'Fixture with missing negotiation.'), RuntimeException::class,
+    'the signer refuses encoded storage when its feature is removed');
+
 wprism_check_same(
     // realpath: writeCertificate() resolves the repository root, and macOS
     // resolves /var to /private/var. The assertion is about the DERIVED

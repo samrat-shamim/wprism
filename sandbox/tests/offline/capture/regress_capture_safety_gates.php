@@ -588,6 +588,68 @@ foreach ([
 }
 check(true, 'dated links, timestamps, identifiers, versions, and grouped counts do not false-positive as phone numbers');
 
+foreach (['block-65138488', 'array_index_2-99999999', 'other_namespace-block-82128164', '.block-65138488 { opacity: 1; }'] as $integerState) {
+    $gates->guardPersonalData('options', 'technical_state', $integerState, []);
+    check(true, 'complete alphabetic identifier with one numeric suffix is ordinary state: ' . $integerState);
+}
+foreach (['-65138488', '+14155552671', '-415-555-2671', 'block-415-555-2671', 'billing-phone-14155552671',
+    'telephone-14155552671', 'passport-123456789', 'block-65138488 Call +1 (415) 555-2671'] as $adjacentPhone) {
+    $phoneFailure = refusal(static fn() => $gates->guardPersonalData('options', 'support_copy', $adjacentPhone, []));
+    check(($phoneFailure->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+        'numeric identity handling preserves actual telephone punctuation: ' . $adjacentPhone);
+}
+$signedPhoneField = refusal(static fn() => $gates->guardPersonalData('options', 'phone_number', 'block-65138488', []));
+check(($signedPhoneField->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+    'an identifier in a named phone field still requires reviewed privacy authority');
+
+$svgEntity = static fn(string $body): array => ['type' => 'post', 'path' => 'posts/page/viewport.md',
+    'content' => WPrism\Canon::post_file(['type' => 'page', 'title' => 'Vector drawing'], $body)];
+foreach ([
+    '<svg viewBox="0 0 16.2 15.2"></svg>',
+    "<SVG VIEWBOX='-1, -2, 190.5, 148'></SVG>",
+    '<svg viewBox="0 0 1.905e2 1.48e2"></svg>',
+    '<svg viewBox="0 0 0 0"><svg viewBox="0 0 34.2 32.3"></svg></svg>',
+    str_repeat('ordinary text ', 6000) . '<svg viewBox="0 0 34.2 32.3"></svg>',
+] as $svg) {
+    $gates->assertCanonicalContent([$svgEntity($svg)], $contentPolicy);
+    check(true, 'final publication clearance recognizes only native SVG viewport coordinates as numeric state');
+}
+foreach ([
+    'comment' => '<!-- <svg viewBox="0 0 16.2 15.2"> -->',
+    'script text' => '<script>const example = `<svg viewBox="0 0 16.2 15.2">`;</script>',
+    'textarea text' => '<textarea><svg viewBox="0 0 16.2 15.2"></textarea>',
+    'other tag' => '<div viewBox="0 0 16.2 15.2"></div>',
+    'MathML namespace' => '<math><mrow><svg viewBox="0 0 16.2 15.2"></svg></mrow></math>',
+    'duplicate attribute' => '<svg viewBox="0 0 1 1" viewBox="0 0 16.2 15.2"></svg>',
+    'incomplete tag' => '<svg viewBox="0 0 16.2 15.2"',
+    'invalid width' => '<svg viewBox="0 0 -16.2 15.2"></svg>',
+    'invalid coordinates' => '<svg viewBox="0 0 16.2 15.2 +14155552671"></svg>',
+    'sibling attribute' => '<svg viewBox="0 0 16.2 15.2" data-contact="+14155552671"></svg>',
+    'child prose' => '<svg viewBox="0 0 16.2 15.2"><text>Call +1 (415) 555-2671</text></svg>',
+    'child email' => '<svg viewBox="0 0 16.2 15.2"><desc>private@example.test</desc></svg>',
+] as $label => $svg) {
+    $svgFailure = refusal(static fn() => $gates->assertCanonicalContent([$svgEntity($svg)], $contentPolicy));
+    check($svgFailure->reasonCode === 'personal_data_refused', "$label gains no SVG numeric authority");
+}
+$svgSecret = refusal(static fn() => $gates->assertCanonicalContent([
+    $svgEntity('<svg viewBox="0 0 16.2 15.2">api_key=MixedCredential-2026-Value</svg>'),
+], $contentPolicy));
+check($svgSecret->reasonCode === 'secret_state_refused', 'viewport recognition never bypasses the independent secret guard');
+
+$boundaryUuid = '11111111-1111-4111-8111-000000000108';
+foreach ([32750, 65510, 98300] as $boundaryOffset) {
+    $boundaryBody = str_repeat('x', $boundaryOffset) . ' {{post:' . $boundaryUuid . '}}';
+    $gates->assertCanonicalContent([$svgEntity($boundaryBody)], $contentPolicy);
+    check(true, "a complete canonical identity stays numeric-safe across privacy window boundary $boundaryOffset");
+}
+$boundaryPhone = refusal(static fn() => $gates->assertCanonicalContent([
+    $svgEntity($boundaryBody . ' Call +1 (415) 555-2671'),
+], $contentPolicy));
+check($boundaryPhone->reasonCode === 'personal_data_refused', 'window-spanning identity normalization never clears adjacent phone prose');
+$uuidEmail = refusal(static fn() => $gates->guardPersonalData('options', 'public_copy', $boundaryUuid . '@example.test', []));
+check(($uuidEmail->diagnostics[0]['personal_data_shape'] ?? null) === 'email address',
+    'a UUID-shaped mailbox remains an email before technical phone normalization');
+
 $actualPhone = refusal(static fn() => $gates->guardPersonalData(
     'options',
     'support_copy',

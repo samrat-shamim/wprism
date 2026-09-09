@@ -8,9 +8,9 @@ Neither class loads adapter executables or chooses transaction policy.
 
 **Purpose.** Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.
 
-**Directory** `agent/src/Kernel/` &middot; **layer** `kernel` &middot; **files** 35 &middot; **status** populated
+**Directory** `agent/src/Kernel/` &middot; **layer** `kernel` &middot; **files** 85 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Canon`, `Db`, `OptionState`, `CommandRefusal`, `SiteTopology`, `Secrets`, `PlainData`, `StructuredValue`, `Uuid`, `ReferenceRules`, `DurableFilesystem`, `ReferenceScopeClassifier`, `PathSafety`, `UserMetaState`, `OrderPreserved`, `PersonalData`, `PostPasswordBinding`, `JsonRefs`, `ReferenceKindGrammar`, `ReferenceShapeGrammar`, `TableGraph`, `TableSchema`, `IdentityTokenCodec`, `ProcessFence`, `ReferenceKeyspaceGrammar`, `StructuredReferenceCodec`, `TextTokenizer`, `TransientDbException`, `UrlQueryReferenceCodec`, `MetaRows`, `MediaPayloadAuthority`, `WpCliChildProcess`, `Canary`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Canon`, `Db`, `OptionState`, `CommandRefusal`, `SiteTopology`, `Secrets`, `PlainData`, `StructuredValue`, `Uuid`, `ReferenceRules`, `DurableFilesystem`, `ReferenceScopeClassifier`, `PathSafety`, `UserMetaState`, `OrderPreserved`, `PersonalData`, `PostPasswordBinding`, `JsonRefs`, `KeyBoundStrings`, `ReferenceKindGrammar`, `ReferenceShapeGrammar`, `TableGraph`, `TableSchema`, `IdentityTokenCodec`, `ProcessFence`, `ReferenceKeyspaceGrammar`, `StructuredReferenceCodec`, `TextTokenizer`, `TransientDbException`, `UrlQueryReferenceCodec`, `MetaRows`, `MediaPayloadAuthority`, `WpCliChildProcess`, `Canary`.
 
 **May depend on:** `Kernel`.
 
@@ -29,3 +29,21 @@ Neither class loads adapter executables or chooses transaction policy.
 - DurableFilesystem requires Publish/PublicationJournal, dragging an engine module under the kernel.
 
 **Sub-namespace plan.** Target `WPrism\Kernel\`. Not in this round: the move keeps `namespace WPrism;` flat so that manifest interpreters/providers can keep naming `\WPrism\Policy`, `\WPrism\ProviderSdk`, `\WPrism\Providers` and `\WPrism\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.
+
+`HtmlAttributeReader` and `HtmlMediaReferences` own the bounded, byte-preserving
+HTML class grammar. Grammar supplies identity lookup and capture scope handling;
+Repository validates canonical classes without WordPress or database access;
+Review uses the same recognition for lint. A block name or adapter executable
+never grants authority to rewrite arbitrary text containing `wp-image-`.
+
+`KeyBoundStrings` validates literal strings that duplicate a typed map key.
+It reuses `JsonRefs` paths and `IdentityTokenCodec`; `PhpContainerValue` owns
+atomic key/order/value rebuilding. Capture, immutable reference validation and
+apply share this pure boundary, with no plugin, policy or database lookup.
+
+`EncodedText` is the pure scalar framing entry point for negotiated
+URI-component persistence. It proves UTF-8, spelling, literal reversibility
+and expansion bounds; existing text/reference and privacy owners consume its
+decoded strings. `BlockAttributeReader::clearance_value()` exposes native
+JSON-escaped attributes alongside original body bytes to those same privacy
+owners, without depending on WordPress or a database.

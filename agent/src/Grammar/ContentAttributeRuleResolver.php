@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+
 /**
  * Pure manifest projection for block and shortcode attribute registries.
  *
@@ -14,13 +16,7 @@ final class ContentAttributeRuleResolver {
 
     /** @return array<string,array> block name => declared rule list */
     public function block_attr_rules(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['block_attrs'] ?? [] as $block => $rules) {
-                $out[$block] = $rules;
-            }
-        }
-        return $out;
+        return BlockValueGrammar::project($this->manifests);
     }
 
     /** @return array{rule:?array,source:?string} */

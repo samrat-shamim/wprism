@@ -163,6 +163,24 @@ final class CaptureSnapshotService {
         );
     }
 
+    /** Borrowed block inputs carry no full-entity export or publication claim. */
+    public static function blockInputsInTransaction(
+        string $repo,
+        Policy $policy,
+        CompiledRepository $compiled,
+        DatabaseWorkAuthority $workAuthority,
+        array $blockNames
+    ): array {
+        $capture = new CaptureCandidateBuilder($repo, $policy, null, $compiled->tree());
+        $entities = $capture->buildBlockInputs($blockNames, $workAuthority);
+        self::assertReadOnlyIdentityPrecondition(static function () use ($entities): void {
+            Identity::assert_entities_unique($entities);
+        });
+        $inputs = [];
+        foreach ($entities as $entity) $inputs[$entity['uuid']] = $entity;
+        return $inputs;
+    }
+
     /** Read-only preflight shared by RefreshExport's snapshot boundary. */
     public static function assertReadOnlyExportEngineSupport(Policy $policy): void {
         CaptureTransaction::assert_engine_support($policy);
