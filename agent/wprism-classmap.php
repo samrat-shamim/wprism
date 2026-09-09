@@ -234,6 +234,7 @@ return [
     'WPrism\\PolicyWriter' => 'src/Policy/PolicyWriter.php',
     'WPrism\\PostCapture' => 'src/Capture/PostCapture.php',
     'WPrism\\PostMaterializer' => 'src/Apply/PostMaterializer.php',
+    'WPrism\\PostMetaInvalidation' => 'src/Kernel/PostMetaInvalidation.php',
     'WPrism\\PostPasswordBinding' => 'src/Kernel/PostPasswordBinding.php',
     'WPrism\\PostTypeGrammar' => 'src/Grammar/PostTypeGrammar.php',
     'WPrism\\PostTypeRelationResolver' => 'src/Grammar/PostTypeRelationResolver.php',

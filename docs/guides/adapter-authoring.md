@@ -831,6 +831,43 @@ policy and native owner/neighbor rows before and after each refusal; compare
 them before undoing the fixture's own edit. Polylang's biography fixture follows
 this split with source Capture and target Plan/Apply controls.
 
+### Repairing a derived post cache
+
+`class: derived` excludes a value from Git and preserves existing target rows.
+It does not refresh a cache maintained by a native `save_post` hook: Apply writes
+posts directly without invoking arbitrary plugin callbacks. Prove the native
+reader after an actual body change; canonical convergence alone can miss a
+stale target cache.
+
+If the native reader computes a correct value when an exact post-meta key is
+absent, a v3 manifest can declare `post-meta-invalidation/v1` and:
+
+```json
+"post_meta": {
+  "_vp_words_count": {"class": "derived", "on_post_write": "delete"}
+}
+```
+
+The shared writer deletes every physical row with this exact key only on the
+post or menu item it already materializes. It uses the existing bounded owner
+lock, checked SQL, cache invalidation queue and authored transaction, and proves
+absence before returning. Other owners, case/space aliases and unrelated
+derived/runtime/environment metadata retain their bytes. A post outside the
+selected work receives no repair; this declaration is not a stale-cache sweep.
+
+Only an exact static rule may grant this operation. Patterns, site overrides,
+interpreter answers, other storage surfaces, callbacks and cache population
+refuse. Another adapter or core claim to the same key also refuses, including
+matching patterns. The rule permits only `class`, `on_post_write` and an optional
+string `note`. Adopting it changes package identity and requires recompilation
+and new pins.
+
+Before using it, prove the upstream invalidation semantics, duplicate and absent
+rows, rollback/retry, unrelated target preservation, scoped and repeated Apply,
+and native reader correctness after complete canonical recapture. Visual
+Portfolio 3.8.1's word-count reader motivated the primitive; this declaration
+example does not qualify that plugin's other state or lifecycle.
+
 ### Deleting what you author
 
 Authoring a post type does not make its rows deletable through WPrism. A capture

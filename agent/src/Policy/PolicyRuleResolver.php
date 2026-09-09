@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 
 require_once __DIR__ . '/../Kernel/ScalarReferenceIntersection.php';
 require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
+require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
 
 /**
  * Pure selection of one exact or pattern-backed Policy classification rule.
@@ -74,6 +75,7 @@ final class PolicyRuleResolver {
                     if (is_array($declared = $manifest[$section][$name] ?? null)) {
                         NativeValueValidation::assert_site_override($declared, $sitePolicy, "$section.$name");
                         EncodedText::assert_site_override($declared, $sitePolicy, "$section.$name");
+                        PostMetaInvalidation::assert_site_override($declared, "$section.$name");
                     }
                     foreach (self::PATTERN_KEYS[$section] ?? [] as $patternKey) {
                         foreach ($manifest[$patternKey] ?? [] as $pattern) {
@@ -153,6 +155,8 @@ final class PolicyRuleResolver {
         if (!in_array($section, ['options', 'post_meta', 'term_meta', 'user_meta'], true)) return $selected;
         $owners = [];
         $encodedOwners = [];
+        $invalidationOwners = [];
+        $allClaimants = [];
         $claimants = [];
         foreach ($this->manifests as $manifest) {
             $rule = $manifest[$section][$name] ?? null;
@@ -170,6 +174,8 @@ final class PolicyRuleResolver {
                 $owners[(string)($manifest['name'] ?? '?')] = true;
             }
             if (is_array($rule) && EncodedText::uses($rule)) $encodedOwners[(string)($manifest['name'] ?? '?')] = true;
+            if (is_array($rule) && PostMetaInvalidation::uses($rule)) $invalidationOwners[(string)($manifest['name'] ?? '?')] = true;
+            if (is_array($rule)) $allClaimants[(string)($manifest['name'] ?? '?')] = true;
             if (is_array($rule) && ($manifest['name'] ?? null) !== 'core') {
                 $claimants[(string)($manifest['name'] ?? '?')] = true;
             }
@@ -179,6 +185,11 @@ final class PolicyRuleResolver {
         }
         if ($encodedOwners !== [] && (count($encodedOwners) !== 1 || count($claimants) > 1 || !isset($encodedOwners[$selected['source']]))) {
             throw new \RuntimeException("wprism: $section.$name text encoding has conflicting classification owners");
+        }
+        // Unlike ordinary plugin refinements, a deletion grant cannot acquire
+        // core's structural/derived keys. Count core in this effect's owners.
+        if ($invalidationOwners !== [] && (count($invalidationOwners) !== 1 || count($allClaimants) !== 1 || !isset($invalidationOwners[$selected['source']]))) {
+            throw new \RuntimeException("wprism: $section.$name post-meta invalidation has conflicting classification owners");
         }
         return $selected;
     }

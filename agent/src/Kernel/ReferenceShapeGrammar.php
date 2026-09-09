@@ -11,6 +11,7 @@ require_once __DIR__ . '/ReferenceCondition.php';
 require_once __DIR__ . '/PhpContainerValue.php';
 require_once __DIR__ . '/KeyBoundStrings.php';
 require_once __DIR__ . '/EncodedText.php';
+require_once __DIR__ . '/PostMetaInvalidation.php';
 
 /**
  * Pure loader-time grammar for reference-valued manifest declarations.
@@ -28,6 +29,13 @@ final class ReferenceShapeGrammar {
      * byte-for-byte identical to Policy's former implementation.
      */
     public static function validate_reference_shapes(array $source, string $label, bool $manifestFeatures = false): void {
+        // These classification rules do not use ReferenceRules::value_rule().
+        // A misplaced write grant must refuse rather than load as inert data.
+        foreach (['post_types', 'taxonomies', 'post_fields'] as $section) {
+            foreach ($source[$section] ?? [] as $name => $rule) {
+                if (is_array($rule)) PostMetaInvalidation::assert_rule($rule, "$label.$section.$name");
+            }
+        }
         $conditionalRefs = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
             && in_array(ReferenceCondition::FEATURE, (array) ($source['engine_features'] ?? []), true);
         $containerOptions = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
@@ -36,6 +44,8 @@ final class ReferenceShapeGrammar {
             && in_array(KeyBoundStrings::FEATURE, (array) ($source['engine_features'] ?? []), true);
         $encodedText = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
             && in_array(EncodedText::FEATURE, (array) ($source['engine_features'] ?? []), true);
+        $postMetaInvalidation = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
+            && in_array(PostMetaInvalidation::FEATURE, (array) ($source['engine_features'] ?? []), true);
         foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
             foreach (($source[$section] ?? []) as $name => $rule) {
                 if (!is_array($rule) || array_is_list($rule)) {
@@ -54,7 +64,8 @@ final class ReferenceShapeGrammar {
                     $conditionalRefs,
                     $containerOptions && $section === 'options',
                     $boundStrings && $section === 'options',
-                    $encodedText
+                    $encodedText,
+                    $postMetaInvalidation && $section === 'post_meta'
                 );
             }
         }
@@ -79,6 +90,7 @@ final class ReferenceShapeGrammar {
             }
         }
         foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
+            PostMetaInvalidation::assert_rule($declaration, "$label.dynamic_options.$name");
             PhpContainerValue::assert_rule($declaration, "$label.dynamic_options.$name", false);
             KeyBoundStrings::assert_rule($declaration, "$label.dynamic_options.$name", false);
             EncodedText::assert_rule($declaration, "$label.dynamic_options.$name", false);
@@ -109,6 +121,10 @@ final class ReferenceShapeGrammar {
             }
         }
         foreach (($source['tables'] ?? []) as $table => $declaration) {
+            PostMetaInvalidation::assert_rule($declaration, "$label.tables.$table");
+            foreach ($declaration['columns'] ?? [] as $column => $rule) {
+                if (is_array($rule)) PostMetaInvalidation::assert_rule($rule, "$label.tables.$table.columns.$column");
+            }
             if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
                 continue;
             }
@@ -133,7 +149,8 @@ final class ReferenceShapeGrammar {
         bool $conditionalRefs = false,
         bool $phpContainers = false,
         bool $boundStrings = false,
-        bool $encodedText = false
+        bool $encodedText = false,
+        bool $postMetaInvalidation = false
     ): void {
         PhpContainerValue::assert_rule($rule, $where, $phpContainers);
         if (array_key_exists(NativeValueValidation::FIELD, $rule) && !$allowNativeValidation) {
@@ -147,7 +164,7 @@ final class ReferenceShapeGrammar {
                     . ScalarReferenceIntersection::FEATURE
             );
         }
-        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers, $boundStrings, encodedText: $encodedText);
+        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers, $boundStrings, encodedText: $encodedText, postMetaInvalidation: $postMetaInvalidation);
         if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
             throw new \RuntimeException(
                 "wprism: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"

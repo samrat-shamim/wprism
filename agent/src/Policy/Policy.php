@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
 
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 
@@ -2874,6 +2875,9 @@ final class Policy {
             if ($rule === null) {
                 continue;
             }
+            if (PostMetaInvalidation::uses($rule) || PostMetaInvalidation::uses($static['rule'] ?? [])) {
+                throw new \RuntimeException("wprism: interpreter '$name' cannot introduce or replace a static post-meta invalidation contract");
+            }
             if (EncodedText::uses($rule) || EncodedText::uses($static['rule'] ?? [])) {
                 throw new \RuntimeException("wprism: interpreter '$name' cannot introduce or replace a static text encoding codec");
             }
@@ -4312,6 +4316,7 @@ final class Policy {
         if ($key === '') {
             throw new \RuntimeException('wprism: policy key must not be empty');
         }
+        PostMetaInvalidation::assert_rule($rule, "$section.$key");
         if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
             throw new \RuntimeException('wprism: native value validation requires an adapter-owned declaration, not a site policy override');
         }

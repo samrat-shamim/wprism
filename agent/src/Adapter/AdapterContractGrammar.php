@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Kernel/KeyBoundStrings.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 
 require_once __DIR__ . '/AdapterSources.php';
@@ -188,6 +189,7 @@ final class AdapterContractGrammar {
         BlockValueGrammar::GROUP_FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::FEATURE => ['since' => 3, 'keys' => []],
         EncodedText::FEATURE => ['since' => 3, 'keys' => []],
+        PostMetaInvalidation::FEATURE => ['since' => 3, 'keys' => []],
         PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
         KeyBoundStrings::FEATURE => ['since' => 3, 'keys' => []],
         ReferenceCondition::FEATURE => ['since' => 3, 'keys' => []],
@@ -541,6 +543,9 @@ final class AdapterContractGrammar {
             }
             if ($name === NativeValueValidation::FEATURE) {
                 $rows[$name]['value_constraint'] = NativeValueValidation::declaration_grammar();
+            }
+            if ($name === PostMetaInvalidation::FEATURE) {
+                $rows[$name]['value_constraint'] = PostMetaInvalidation::declaration_grammar();
             }
             if ($name === BlockValueGrammar::GROUP_FEATURE) {
                 $rows[$name]['value_constraint'] = BlockValueGrammar::group_grammar();

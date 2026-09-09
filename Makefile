@@ -1788,6 +1788,10 @@ regress-repository-convergence:
 regress-native-value-validation:
 	php sandbox/tests/offline/apply/regress_native_value_validation.php
 
+.PHONY: regress-post-meta-invalidation
+regress-post-meta-invalidation:
+	php sandbox/tests/offline/apply/regress_post_meta_invalidation.php
+
 # One scalar must satisfy every declared local-id consumer without guessing.
 .PHONY: regress-scalar-reference-intersection
 regress-scalar-reference-intersection:

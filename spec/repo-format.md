@@ -3293,6 +3293,39 @@ credentials from Capture or immutable compilation. The same framing reader
 covers block widget content while retaining its existing reviewed privacy
 rules. No decoded inspection value is written back to canonical content.
 
+### v3.35 `post-meta-invalidation/v1` — exact derived post-cache repair
+
+A v3 manifest declaring this feature may add `on_post_write: "delete"` to
+an exact `post_meta.<name>` rule with `class: "derived"`. Only these two fields
+and an optional string `note` are admitted. Other operations, patterns,
+option subkeys, attached metadata, block attributes and term/user metadata
+cannot carry the field. The feature claims the existing post-meta field arm,
+not a new executable or top-level section.
+
+The effect is part of the selected owner's authored post/menu-item write.
+Under the existing bounded metadata owner lock, the engine deletes all rows
+whose key bytes exactly match the declaration, addressing observed physical
+`meta_id` values. It reads back exact absence before returning and uses the
+existing post-meta object-cache invalidation queue. All SQL participates in
+the authored transaction's commit/rollback and recovery boundary. Missing
+rows remain absent. Other owners and collation aliases remain untouched.
+
+The declaration grants no owner discovery or standalone repair operation.
+An unchanged or unselected post that is not materialized receives no repair.
+Ordinary `class: "derived"` retains its preservation semantics. Native plugin
+hooks are not invoked and no cache value is promoted into canonical intent.
+The adapter must prove that absence makes its native reader correct.
+
+One static manifest owns each grant. Competing exact or pattern claims,
+including core, refuse during pure policy load. Site policy cannot replace
+the contract; interpreter answers cannot introduce, echo or override it.
+The existing compiled manifest identity and scope contract source hash bind
+the declaration. A package adopting it requires recompilation and new pins.
+
+`PostMetaInvalidation` owns the closed grammar; policy resolution owns static
+authority; `ApplyFieldMaterializer` owns its bounded transactional effect.
+
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

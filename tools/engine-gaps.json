@@ -217,6 +217,16 @@
         "adapter-packages/qi-blocks/fixtures/native-media/README.md"
       ]
     },
+    "exact_post_meta_invalidation": {
+      "title": "exact derived post-cache invalidation on authored writes",
+      "status": "shipped",
+      "definition": "The negotiated post-meta-invalidation/v1 rule deletes an exact derived metadata key only on a post or menu item already being materialized. The shared bounded owner lock, checked SQL, absence readback, cache invalidation queue and authored transaction own the effect; no native hook, wildcard sweep or plugin executable is added.",
+      "evidence": [
+        "agent/src/Kernel/PostMetaInvalidation.php",
+        "agent/src/Apply/ApplyFieldMaterializer.php",
+        "sandbox/tests/offline/apply/regress_post_meta_invalidation.php"
+      ]
+    },
     "native_encoded_text_values": {
       "title": "explicit native scalar text framing",
       "status": "shipped",
@@ -750,6 +760,28 @@
       ],
       "closing": "The negotiated block-record-fields/v1 constraint retains id,url,alt,caption for the three full-response gallery writers, composing shared identity, text and privacy codecs. Four real-fixture capture assertions failed before the fix. Complete engine post/widget compilation and transactional materialization tests cover the constraint. Source native saver HTML equality and picker rehydration justify this representation; corrected target native qualification remains separate.",
       "probed_on": "2026-09-08"
+    },
+    {
+      "id": "visual-portfolio-word-count-cache",
+      "candidate": "Visual Portfolio",
+      "versions_probed": ["3.8.1"],
+      "disposition": "closed",
+      "blocked_adapters": ["visual-portfolio"],
+      "coordinates": [
+        {
+          "coordinate": "post_meta._vp_words_count",
+          "cannot_represent": "The plugin populates word count on save_post and its reading-time getter trusts that cache until absent. A public native Capture/Apply/repeat/complete recapture converged canonically after changing 265 words to 795, yet the target still reported one minute. Deleting the one exact cache row made the unchanged native reader report three minutes while preserving every other observed post and metadata row.",
+          "primitive_required": "exact_post_meta_invalidation",
+          "closed_by": [
+            "agent/src/Kernel/PostMetaInvalidation.php",
+            "agent/src/Policy/PolicyRuleResolver.php",
+            "agent/src/Apply/ApplyFieldMaterializer.php",
+            "sandbox/tests/offline/apply/regress_post_meta_invalidation.php"
+          ]
+        }
+      ],
+      "probed_on": "2026-09-09",
+      "closing": "Exact static deletion intent now composes with existing post/menu-item materialization, owner locking, checked SQL, readback and rollback. Pure policy/compiler tests close negotiation, ownership and canonical exclusion; transaction tests cover duplicate/absent rows, local and foreign preservation, hostile rows, failure and retry. This engine mechanism does not qualify a Visual Portfolio adapter or its remaining state, editor, rendering, lifecycle, host/version and combination behavior."
     },
     {
       "id": "visual-portfolio-encoded-style",
