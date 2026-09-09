@@ -1184,6 +1184,10 @@ regress-physical-table-rows:
 regress-locked-physical-rows:
 	php sandbox/tests/offline/repository/regress_locked_physical_rows.php
 
+.PHONY: regress-identity-fork-request
+regress-identity-fork-request:
+	php sandbox/tests/offline/repository/regress_identity_fork_request.php
+
 .PHONY: regress-native-option-inputs
 regress-native-option-inputs:
 	php sandbox/tests/offline/guards/regress_native_option_inputs.php

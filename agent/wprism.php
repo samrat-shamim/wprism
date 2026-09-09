@@ -73,6 +73,7 @@ require_once __DIR__ . '/src/Promotion/StateTransitionJournal.php';
 require_once __DIR__ . '/src/Kernel/ProcessFence.php';
 require_once __DIR__ . '/src/Repository/Identity.php';
 require_once __DIR__ . '/src/Repository/IdentityBackup.php';
+require_once __DIR__ . '/src/Repository/IdentityForkRequest.php';
 require_once __DIR__ . '/src/Delete/Deletion.php';
 require_once __DIR__ . '/src/Delete/DeletionWriterExclusion.php';
 require_once __DIR__ . '/src/Kernel/JsonRefs.php';

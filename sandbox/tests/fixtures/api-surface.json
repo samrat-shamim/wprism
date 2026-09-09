@@ -1,5 +1,5 @@
 {
-    "class_count": 492,
+    "class_count": 493,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -21375,6 +21375,152 @@
             "parent": null,
             "properties": [],
             "readonly": false
+        },
+        "WPrism\\IdentityForkRequest": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-identity-fork-request/v1"
+                },
+                "MAX_BYTES": {
+                    "value_repr": 16384
+                },
+                "MAX_LIFETIME_SECONDS": {
+                    "value_repr": 900
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_confirmable_at": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "now",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_database_target": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "currentSha256",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "create": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "parent",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\IdentityForkRequest",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "parent",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedSha256",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\IdentityForkRequest",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "receipt_key": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "sha256": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": true
         },
         "WPrism\\IdentityNamespaces": {
             "abstract": false,

@@ -477,6 +477,7 @@
           "Identity",
           "StateTreeWalker",
           "IdentityBackup",
+          "IdentityForkRequest",
           "IdentityNotes",
           "RepositoryAuthorization",
           "Journal",
@@ -527,7 +528,7 @@
             ]
           }
         ],
-        "file_count": 30,
+        "file_count": 31,
         "files": [
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
@@ -536,6 +537,7 @@
           "CompiledArtifactReader.php",
           "Identity.php",
           "IdentityBackup.php",
+          "IdentityForkRequest.php",
           "IdentityNotes.php",
           "Journal.php",
           "Ledger.php",

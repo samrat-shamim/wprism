@@ -137,6 +137,7 @@ return [
     'WPrism\\FilesystemTreeSnapshot' => 'src/Kernel/FilesystemTreeSnapshot.php',
     'WPrism\\Identity' => 'src/Repository/Identity.php',
     'WPrism\\IdentityBackup' => 'src/Repository/IdentityBackup.php',
+    'WPrism\\IdentityForkRequest' => 'src/Repository/IdentityForkRequest.php',
     'WPrism\\IdentityNamespaces' => 'src/Adapter/IdentityNamespaces.php',
     'WPrism\\IdentityNotes' => 'src/Repository/IdentityNotes.php',
     'WPrism\\IdentityTokenCodec' => 'src/Kernel/IdentityTokenCodec.php',
