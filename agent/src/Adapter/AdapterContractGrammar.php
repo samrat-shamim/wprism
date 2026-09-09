@@ -187,6 +187,7 @@ final class AdapterContractGrammar {
         // Exact groups normalize inside block_values, so they retain that
         // section's certificate arm and cannot create a second state surface.
         BlockValueGrammar::GROUP_FEATURE => ['since' => 3, 'keys' => []],
+        BlockValueGrammar::CONTRACT_FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::FEATURE => ['since' => 3, 'keys' => []],
         EncodedText::FEATURE => ['since' => 3, 'keys' => []],
         PostMetaInvalidation::FEATURE => ['since' => 3, 'keys' => []],
@@ -550,6 +551,9 @@ final class AdapterContractGrammar {
             }
             if ($name === BlockValueGrammar::GROUP_FEATURE) {
                 $rows[$name]['value_constraint'] = BlockValueGrammar::group_grammar();
+            }
+            if ($name === BlockValueGrammar::CONTRACT_FEATURE) {
+                $rows[$name]['value_constraint'] = BlockValueGrammar::contract_grammar();
             }
             if ($name === RecordFields::FEATURE) {
                 $rows[$name]['value_constraint'] = RecordFields::declaration_grammar();

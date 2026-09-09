@@ -2,10 +2,10 @@
 
 Experimental declarations for the official free **3.8.1** artifact. This capsule
 exercises source capture, immutable compilation, codec fixed points and a bounded
-native settings Apply lane. It does not authorize production release.
+native settings and post-query Apply lanes. It does not authorize production release.
 
-The manifest uses 41 exact block groups for 469 value declarations, plus five
-explicit unsupported attributes. One manifest provider repairs native settings;
+The manifest uses 41 exact block groups and one composed query object for 470
+value declarations, plus four explicit unsupported attributes. One manifest provider repairs native settings;
 there is no interpreter or regenerator.
 The native source registry accounts for all 22 block types in its observed context;
 registry coverage is not evidence that every control was edited and saved.
@@ -15,8 +15,13 @@ legacy masonry archive. Source browser evidence includes gallery filtering and
 lightbox behavior and ordered archive pagination. The offline tests exercise the
 saved bytes, source URL removal, cross-ID codecs, exact recapture, complete compiler
 reference graphs, closed settings inventories, privacy refusals and unsupported
-attribute presence. Manual selections and positive filter term IDs have separate
-synthetic codec cases; their native picker qualification remains open.
+attribute presence. Nine additional UI Saves retain default, manual, duplicate-title,
+filter/reset and visible/hidden custom-query states, including a deleted selection.
+The query object declares exact fields and reuses ordinary reference codecs;
+missing modern and legacy selector IDs refuse because dropping the last ID can
+broaden the query. Nonempty custom-query text refuses even when its source is hidden.
+The exact 3.8.1/WordPress 7.1 editor did not expose its optional Settings menu;
+positive exclusion and taxonomy values use explicit REST replay, not picker evidence.
 
 `vp_general.portfolio_archive_page` and `no_image` are post references.
 `_vp_post_type_mapped` is derived: independently authored markers leave an old
@@ -46,7 +51,7 @@ table at 8,192 rows / 16 MiB. Server-file snapshots bind bytes or absence; they 
 not prove rewrite-file semantics or provide file rollback. Server files and native
 external hooks remain explicitly irreversible effects, blocking automatic promotion.
 
-Saved Layouts, modern post queries, extension queries and modern custom CSS refuse
+Saved Layouts, nonempty custom queries, extension sources and modern custom CSS refuse
 where declared. Premium settings, including hidden premium fields submitted by the
 free popup form, remain target-local. The exact artifact lock retains 3.8.0 as an
 unexecuted refusal fixture. Native version transitions, lifecycle, combinations
@@ -95,3 +100,20 @@ The source fixture hashes and native writer receipt are in
 [fixtures/native/provenance.json](fixtures/native/provenance.json). HTTP request
 and complete database evidence are retained privately; source discovery is
 explicitly marked as separate from adapter qualification.
+
+The bounded query lane uses the same pair ownership and private-command helpers:
+
+```sh
+VP_QUERY_PAIR=vpquery02 VP_QUERY_PORT1=9196 VP_QUERY_PORT2=9197 \
+  VP_QUERY_ZIP=/absolute/path/to/visual-portfolio.3.8.1.zip \
+  WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
+  bash adapter-packages/visual-portfolio/tests/live/regress_native_queries.sh
+```
+
+It replays retained native bodies through REST, applies onto empty target query
+pages with divergent post/term IDs, checks no-op repetition and complete canonical
+recapture, and compares seven ordered frontend results. Three public Capture
+refusals cover visible and hidden custom text and deletion of the last selected
+post, retaining complete native table, identity-map and repository-state witnesses.
+This does not qualify target editor Save/reopen, unavailable optional controls,
+multi-gallery exclusion, current/page queries or the broader lifecycle matrix.

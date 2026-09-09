@@ -3325,6 +3325,39 @@ the declaration. A package adopting it requires recompilation and new pins.
 authority; `ApplyFieldMaterializer` owns its bounded transactional effect.
 
 
+### v3.36 `block-value-contracts/v1` — composed object values and reference integrity
+
+A v3 manifest declaring both `block-attribute-values/v1` and
+`block-value-contracts/v1` may use these constraints inside `block_values`,
+including exact grouped declarations. No new top-level section or executable
+lane is introduced; the existing block-values certificate arm applies.
+
+- `object_fields` is a nonempty map of exact field names to authored value
+  rules. Its rule contains only `class` and `object_fields`. Present members
+  recurse through their own existing codecs; missing members remain absent.
+  Unknown members, empty objects, list/scalar containers and nested `derived`
+  rules refuse. The bounds are 256 fields per object, four nested member levels
+  and 65,536 expanded contract rules per manifest after group expansion.
+  Field names match `[A-Za-z_][A-Za-z0-9_-]{0,127}`. Existing JSON bounds apply
+  to the complete native or canonical value before traversal.
+- `enum` is a distinct literal codec. Its rule contains only `class` and
+  `enum`, a list of 1–64 distinct integers, booleans, nulls or strings matching
+  `[A-Za-z0-9_-]{0,128}`. Equality includes the JSON type. Admitted values are
+  preserved exactly without text rewriting; URLs, prose and token envelopes
+  cannot use this lane.
+- `on_unmapped` admits only `refuse` and requires a `ref`, `json_refs` or
+  `key_refs` leaf. Any unresolved source identity aborts capture instead of
+  dropping a selector; forcing unresolved references cannot waive this rule.
+  Target durable references retain their existing strict resolution, and
+  target user references must resolve without the default-author fallback.
+  Native unset scalar sentinels and empty lists retain existing semantics.
+
+Compilation, lint, capture and materialization enforce the same recursive
+value contract. Nested structured leaves retain the existing suspicious-ID
+linter and all published content retains privacy clearance. These fields are
+rejected in options, metadata and site policy. Manifests without the feature
+and leaves without `on_unmapped` retain their previous transport behavior.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

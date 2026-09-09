@@ -83,10 +83,7 @@ final class BlockReferenceScanner {
                             $findings[] = LintFinding::make('invalid_block_value', $rel, $locator,
                                 '<declared-value>', null, $e->getMessage());
                         }
-                        if (isset($rule['value']['json_refs']) || isset($rule['value']['key_refs'])) {
-                            array_push($findings, ...StructuredReferenceScanner::scan($attrVal, $rel, $locator,
-                                $rule['value']['json_refs'] ?? [], $rule['value']['key_refs'] ?? null, $resolveId));
-                        }
+                        array_push($findings, ...self::scanValueReferences($attrVal, $rule['value'], $rel, $locator, $resolveId));
                     } elseif (array_key_exists('unsupported', $rule)) {
                         $findings[] = LintFinding::make(
                             'unsupported_block_attr', $rel,
@@ -163,6 +160,21 @@ final class BlockReferenceScanner {
                 self::scanBlocks($block['innerBlocks'], $blockRules, $rel, $home, $resolveId, $findings);
             }
         }
+    }
+
+    /** Nesting changes ownership paths, not a leaf codec's existing lint contract. */
+    private static function scanValueReferences($value, array $rule, string $rel, string $locator, callable $resolveId): array {
+        if (isset($rule['object_fields'])) {
+            $findings = [];
+            if (is_array($value)) foreach ($value as $field => $child) {
+                if (isset($rule['object_fields'][$field])) {
+                    array_push($findings, ...self::scanValueReferences($child, $rule['object_fields'][$field], $rel, "$locator.$field", $resolveId));
+                }
+            }
+            return $findings;
+        }
+        return isset($rule['json_refs']) || isset($rule['key_refs'])
+            ? StructuredReferenceScanner::scan($value, $rel, $locator, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null, $resolveId) : [];
     }
 
     /**

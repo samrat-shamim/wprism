@@ -65,9 +65,18 @@ $values = [
         'record_fields' => ['container' => 'list', 'fields' => ['id', 'url', 'alt', 'caption']]],
     'card' => ['class' => 'authored', 'plain_data' => true,
         'record_fields' => ['container' => 'object', 'fields' => ['label', 'payload']]],
+    'query' => ['class' => 'authored', 'object_fields' => [
+        'ids' => ['class' => 'authored', 'ref' => 'post[]', 'cast' => 'string', 'on_unmapped' => 'refuse'],
+        'custom' => ['class' => 'authored', 'enum' => ['']],
+        'mode' => ['class' => 'authored', 'enum' => ['selected', 'all']],
+        'extra' => ['class' => 'authored', 'object_fields' => [
+            'url' => ['class' => 'authored', 'plain_data' => true],
+            'owner' => ['class' => 'authored', 'ref' => 'user', 'cast' => 'string', 'on_unmapped' => 'refuse'],
+        ]],
+    ]],
 ];
 $manifest = ['name' => 'block-value-fixture', 'spec_version' => 3,
-    'engine_features' => [BlockValueGrammar::FEATURE, RecordFields::FEATURE, 'spec-window/v1'], 'option_autoload' => 'preserve',
+    'engine_features' => [BlockValueGrammar::FEATURE, RecordFields::FEATURE, 'block-value-contracts/v1', 'spec-window/v1'], 'option_autoload' => 'preserve',
     'post_types' => ['page' => ['class' => 'authored']],
     'post_meta' => ['_fixture_runtime' => ['class' => 'runtime']],
     'widgets' => ['block' => ['settings' => ['content' => ['class' => 'authored', 'codec' => 'blocks']]]],
@@ -83,6 +92,55 @@ $override['policy']['block_values'] = $manifest['block_values'];
 wprism_check_throws(static fn() => FrozenPolicy::policy([$manifest], $override), RuntimeException::class,
     'site policy cannot introduce or replace manifest-owned block values');
 wprism_check_same(count($values) + 1, count($policy->block_attr_rules()['fixture/media']), 'value rules and disjoint legacy text share one effective block registry');
+foreach (['feature', 'object-null', 'object-list', 'object-empty', 'object-extra', 'name', 'nested-derived',
+    'nested-kind', 'nested-class', 'depth', 'fields', 'enum-empty', 'enum-duplicate', 'enum-object',
+    'enum-prose', 'enum-user-token', 'enum-limit', 'enum-codec', 'missing-policy', 'missing-plain'] as $fault) {
+    $bad = $manifest;
+    $query =& $bad['block_values']['fixture/media']['query'];
+    if ($fault === 'feature') $bad['engine_features'] = [BlockValueGrammar::FEATURE, RecordFields::FEATURE, 'spec-window/v1'];
+    if ($fault === 'object-null') $query['object_fields'] = null;
+    if ($fault === 'object-list') $query['object_fields'] = [$values['formID']];
+    if ($fault === 'object-empty') $query['object_fields'] = [];
+    if ($fault === 'object-extra') $query['plain_data'] = true;
+    if ($fault === 'name') $query['object_fields']['hidden.key'] = $values['formID'];
+    if ($fault === 'nested-derived') $query['object_fields']['custom'] = ['class' => 'derived'];
+    if ($fault === 'nested-kind') $query['object_fields']['ids']['ref'] = 'missing[]';
+    if ($fault === 'nested-class') $query['object_fields']['custom']['class'] = 'runtime';
+    if ($fault === 'depth') for ($i = 0; $i < 5; $i++) $query = ['class' => 'authored', 'object_fields' => ['child' => $query]];
+    if ($fault === 'fields') $query['object_fields'] = array_fill_keys(array_map(static fn(int $i): string => 'f' . $i, range(0, 256)), $values['formID']);
+    if ($fault === 'enum-empty') $query['object_fields']['custom']['enum'] = [];
+    if ($fault === 'enum-duplicate') $query['object_fields']['custom']['enum'] = ['', ''];
+    if ($fault === 'enum-object') $query['object_fields']['custom']['enum'] = [['id' => 4]];
+    if ($fault === 'enum-prose') $query['object_fields']['custom']['enum'] = ['https://source.test/'];
+    if ($fault === 'enum-user-token') $query['object_fields']['custom']['enum'] = ['user:admin'];
+    if ($fault === 'enum-limit') $query['object_fields']['custom']['enum'] = range(0, 64);
+    if ($fault === 'enum-codec') $query['object_fields']['custom']['plain_data'] = true;
+    if ($fault === 'missing-policy') $query['object_fields']['ids']['on_unmapped'] = 'drop';
+    if ($fault === 'missing-plain') $query['object_fields']['extra']['object_fields']['url']['on_unmapped'] = 'refuse';
+    unset($query);
+    wprism_check_throws(static fn() => $load($bad), RuntimeException::class, "loader refuses block contract $fault");
+}
+$bounded = $manifest;
+unset($bounded['block_values'], $bounded['block_attrs']);
+$bounded['engine_features'][] = BlockValueGrammar::GROUP_FEATURE;
+sort($bounded['engine_features'], SORT_STRING);
+$bounded['block_values']['groups'] = [['blocks' => array_map(static fn(int $i): string => 'fixture/b' . $i, range(1, 255)),
+    'attributes' => ['query'], 'value' => ['class' => 'authored', 'object_fields' => array_fill_keys(
+        array_map(static fn(int $i): string => 'field' . $i, range(1, 256)), $values['styles'])]]];
+$load($bounded);
+wprism_check(true, '65,535 expanded contract rules fit the complete-manifest bound');
+$bounded['block_values']['groups'][0]['blocks'][] = 'fixture/overflow';
+wprism_check_throws(static fn() => $load($bounded), RuntimeException::class,
+    'compact groups cannot exceed the expanded object rule budget');
+unset($bounded);
+foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) foreach ([
+    $values['query'], ['class' => 'authored', 'enum' => ['']],
+    ['class' => 'authored', 'ref' => 'post[]', 'on_unmapped' => 'refuse'],
+] as $rule) {
+    $bad = $manifest;
+    $bad[$section]['fixture_contract'] = $rule;
+    wprism_check_throws(static fn() => $load($bad), RuntimeException::class, "block contracts cannot silently grant $section transport");
+}
 foreach (['v2', 'feature', 'class', 'field', 'csv', 'ambiguous', 'derived', 'path', 'unknown-kind', 'overlap', 'codec', 'legacy-injection'] as $fault) {
     $bad = $manifest;
     if ($fault === 'v2') $bad['spec_version'] = 2;
@@ -177,6 +235,8 @@ $attrs = ['image' => ['id' => 4, 'url' => 'https://source.test/image.png'],
     ],
     'card' => ['payload' => [null, false, 0, 1.5, ['nested' => 'https://source.test/card']],
         'cache' => ['secret' => 'sk_live_' . str_repeat('a', 32)], 'label' => 'Card'],
+    'query' => ['ids' => ['9', '4', '9'], 'custom' => '', 'mode' => 'selected',
+        'extra' => ['owner' => '1', 'url' => 'https://source.test/query']],
     'caption' => 'https://source.test/caption', 'localCounter' => 3];
 $block = static fn(array $a): string => '<!-- wp:fixture/media ' . serialize_block_attributes($a) . ' /-->';
 $native = '<!-- wp:group --><div>' . $block($attrs) . '<img class="before&#13;wp-image-4"/></div><!-- /wp:group -->';
@@ -193,6 +253,9 @@ wprism_check_same($token4, $a['image']['id'], 'nested image identity is tokenize
 wprism_check_same($token9, $a['slides'][0]['image']['id'], 'shared JSON paths transparently traverse repeaters');
 wprism_check_same([$token4, $token9, $token4], $a['postIds'], 'CSV capture keeps order, every selection and duplicate selections');
 wprism_check_same([$token9, $token4], $a['selected'], 'native ID list uses the same scalar reference codec');
+wprism_check_same(['ids' => [$token9, $token4, $token9], 'custom' => '', 'mode' => 'selected',
+    'extra' => ['owner' => 'user:admin', 'url' => '{{home}}/query']], $a['query'],
+    'closed objects compose existing list, user and URL codecs while retaining empty authored fields');
 wprism_check_same([$token9], array_keys($a['map']), 'reference-keyed attribute map is portable');
 wprism_check_same(false, array_key_exists('preview', $a), 'derived preview content is absent before publication');
 wprism_check_same('{{home}}/style.png', $a['styles']['background'], 'plain data uses the shared text tokenizer');
@@ -250,12 +313,75 @@ wprism_check_same(804, $appliedAttrs['image']['id'], 'target attachment identity
 wprism_check_same('804,809,804', $appliedAttrs['postIds'], 'target query selector restores native CSV storage');
 wprism_check_same('809', $appliedAttrs['formID'], 'selected form keeps its declared native string type');
 wprism_check_same('801', $appliedAttrs['editorID'], 'user reference rebinds by login through the shared user codec');
+wprism_check_same(['ids' => ['809', '804', '809'], 'custom' => '', 'mode' => 'selected',
+    'extra' => ['owner' => '801', 'url' => 'https://target.example.test/longer-prefix/query']], $appliedAttrs['query'],
+    'nested references retain order, duplicates and native string types on the target');
 wprism_check_same([809], array_keys($appliedAttrs['map']), 'target map keys use target identities');
 wprism_check_same('https://target.example.test/longer-prefix/image.png', $appliedAttrs['image']['url'], 'nested image URL rebinds to the longer target URL');
 wprism_check_same($captured, Blocks::capture_rewrite($applied, $policy, $targetTokens), 'cross-environment recapture is an exact fixed point');
 wprism_check_same([], BlockReferenceScanner::scan(parse_blocks($captured), $policy->block_attr_rules(), 'fixture.md', 'https://source.test', static fn(int $id) => null),
     'lint accepts canonical structured block values without treating layout numbers as IDs');
-foreach (['raw', 'wrong-kind', 'trailing-token', 'csv-string', 'derived', 'array-ref', 'excluded-record'] as $fault) {
+$structuredObject = $manifest;
+$structuredObject['block_values']['fixture/media']['query']['object_fields']['image'] = $values['image'];
+$structuredPolicy = $load($structuredObject);
+$undeclared = $block(['query' => ['image' => ['id' => $token4, 'otherId' => 9]]]);
+$nestedFindings = BlockReferenceScanner::scan(parse_blocks($undeclared), $structuredPolicy->block_attr_rules(), 'fixture.md',
+    'https://source.test', static fn(int $id): array => ['kind' => 'post', 'id' => $id, 'title' => 'Fixture', 'post_type' => 'page']);
+wprism_check_same(['bare_id'], array_column($nestedFindings, 'class'), 'object nesting preserves structured-reference gap detection');
+wprism_check_same(['blocks.fixture/media.attrs.query.image.otherId'], array_column($nestedFindings, 'locator'),
+    'nested structured findings retain their full owning path');
+foreach ([null, true, false, 0, 1, '', '0', 'selected'] as $literal) {
+    $literalManifest = $manifest;
+    $literalManifest['block_values']['fixture/media']['query']['object_fields']['mode']['enum'] = [$literal];
+    $literalPolicy = $load($literalManifest);
+    $literalBody = $block(['query' => ['mode' => $literal]]);
+    wprism_check_same($literalBody, Blocks::apply_rewrite(Blocks::capture_rewrite($literalBody, $literalPolicy, $sourceTokens),
+        $literalPolicy, $targetTokens), 'literal values preserve their exact JSON type through capture and apply');
+}
+foreach ([null, [], '', [['custom' => '']], ['unknown' => ''], ['custom' => 'p=4'], ['custom' => null],
+    ['ids' => [4]], ['extra' => ['unknown' => 4]]] as $badObject) {
+    $badBody = $block(['query' => $badObject]);
+    wprism_check_throws(static fn() => Blocks::capture_rewrite($badBody, $policy, $sourceTokens), RuntimeException::class,
+        'closed native objects refuse malformed, undeclared and unreviewed values');
+    wprism_check_throws(static fn() => Blocks::apply_rewrite($badBody, $policy, $targetTokens), RuntimeException::class,
+        'closed canonical objects enforce the same value boundary');
+    wprism_check(BlockReferenceScanner::scan(parse_blocks($badBody), $policy->block_attr_rules(), 'fixture.md',
+        'https://source.test', static fn(int $id) => null) !== [], 'lint enforces the closed object value boundary');
+}
+foreach ([['custom' => ''], ['ids' => []], ['extra' => ['url' => 'unchanged']]] as $partial) {
+    $body = $block(['query' => $partial]);
+    wprism_check_same($body, Blocks::apply_rewrite(Blocks::capture_rewrite($body, $policy, $sourceTokens), $policy, $targetTokens),
+        'exact object fields preserve absence and authored empty values without synthesizing defaults');
+}
+$database(0);
+foreach ([false, true] as $force) foreach ([
+    ['class' => 'authored', 'ref' => 'post[]', 'cast' => 'string'],
+    ['class' => 'authored', 'ref' => 'post', 'cast' => 'string'],
+    ['class' => 'authored', 'json_refs' => [['path' => '$.id', 'kind' => 'post']]],
+    ['class' => 'authored', 'key_refs' => ['kind' => 'post']],
+    ['class' => 'authored', 'ref' => 'user', 'cast' => 'string'],
+] as $index => $leaf) {
+    $strict = $manifest;
+    $strict['block_values']['fixture/media']['query']['object_fields']['missing'] = $leaf + ['on_unmapped' => 'refuse'];
+    $strictPolicy = $load($strict);
+    $value = [['4', '404'], '404', ['id' => 404], [404 => ['url' => 'kept']], '404'][$index];
+    $strictTokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
+    wprism_check_throws(static fn() => Blocks::capture_rewrite($block(['query' => ['missing' => $value]]),
+        $strictPolicy, $strictTokens, $force), RuntimeException::class,
+        'strict capture refuses an unmapped identity even with the historical force flag', 'refuses an unmapped');
+}
+$lookups = 0;
+$changingIdentity = new Tokens('https://source.test', 'https://source.test/wp-content/uploads',
+    static function () use (&$lookups, $uuid4): ?string { return ++$lookups === 1 ? $uuid4 : null; });
+wprism_check_throws(static fn() => Blocks::capture_rewrite($block(['query' => ['ids' => ['4']]]), $policy, $changingIdentity),
+    RuntimeException::class, 'a reference lost after preflight cannot fall back to a dropped query selector');
+$database(800);
+$GLOBALS['wpdb']->seedTable('wp_users', [['ID' => 990, 'user_login' => 'unrelated']]);
+$strictTarget = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
+wprism_check_throws(static fn() => Blocks::apply_rewrite($block(['query' => ['extra' => ['owner' => 'user:admin']]]),
+    $policy, $strictTarget), RuntimeException::class, 'strict target user references cannot fall back to the default author');
+$database(800);
+foreach (['raw', 'wrong-kind', 'trailing-token', 'csv-string', 'derived', 'array-ref', 'excluded-record', 'raw-object', 'hidden-query', 'new-object-field'] as $fault) {
     $bad = $a;
     if ($fault === 'raw') $bad['image']['id'] = 4;
     if ($fault === 'wrong-kind') $bad['image']['id'] = str_replace('post:', 'term:', $token4);
@@ -264,6 +390,9 @@ foreach (['raw', 'wrong-kind', 'trailing-token', 'csv-string', 'derived', 'array
     if ($fault === 'derived') $bad['preview'] = null;
     if ($fault === 'array-ref') $bad['image']['id'] = [];
     if ($fault === 'excluded-record') $bad['gallery'][0]['nonces'] = ['edit' => 'canonical-injection'];
+    if ($fault === 'raw-object') $bad['query']['ids'] = ['4'];
+    if ($fault === 'hidden-query') $bad['query']['custom'] = 'p=4';
+    if ($fault === 'new-object-field') $bad['query']['nativeExtensionId'] = 4;
     wprism_check_throws(static fn() => Blocks::apply_rewrite($block($bad), $policy, $targetTokens), RuntimeException::class,
         "apply refuses malformed $fault canonical value");
     wprism_check(BlockReferenceScanner::scan(parse_blocks($block($bad)), $policy->block_attr_rules(), 'fixture.md',
@@ -336,11 +465,14 @@ wprism_check_same(['entities' => 2, 'wordpress' => false, 'database' => false], 
     'complete immutable compiler needs neither WordPress parsing nor a database object');
 wprism_check_same($databaseBefore, $GLOBALS['wpdb']->queries(), 'immutable compiler validates block references without database contact');
 wprism_check($artifact->tree() !== [], 'real immutable compiler admits the complete canonical post graph');
-foreach (['raw', 'derived', 'malformed-json', 'raw-html', 'encoded-html', 'excluded-record'] as $fault) {
+foreach (['raw', 'derived', 'malformed-json', 'raw-html', 'encoded-html', 'excluded-record', 'raw-object', 'hidden-query', 'new-object-field'] as $fault) {
     $bad = $a;
     if ($fault === 'raw') $bad['image']['id'] = 804;
     if ($fault === 'derived') $bad['preview'] = ['source' => 4];
     if ($fault === 'excluded-record') $bad['gallery'][0]['nonces'] = ['edit' => 'canonical-injection'];
+    if ($fault === 'raw-object') $bad['query']['ids'] = ['4'];
+    if ($fault === 'hidden-query') $bad['query']['custom'] = 'p=4';
+    if ($fault === 'new-object-field') $bad['query']['nativeExtensionId'] = 4;
     $badBody = $fault === 'malformed-json' ? '<!-- wp:fixture/media {"image":broken} /-->' : $block($bad);
     if ($fault === 'raw-html') $badBody = str_replace('wp-image-' . $token4, 'wp-image-804', $captured);
     if ($fault === 'encoded-html') $badBody = str_replace('wp-image-{{', 'wp-image-&#123;&#123;', $captured);
@@ -467,6 +599,12 @@ foreach (['secret' => 'sk_live_' . str_repeat('a', 32), 'pii' => 'person@example
     Canon::write_file($scratch . '/state/' . $badEntity['path'], $badEntity['content']);
     wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), RuntimeException::class,
         "retained record fields cannot bypass immutable $kind clearance");
+    $badEntity['content'] = Canon::post_file($badFront, $block(['query' => ['extra' => ['url' => $unsafe]]]));
+    wprism_check_throws(static fn() => $clearance->assertCanonicalContent([$badEntity], $policy), RuntimeException::class,
+        "nested object fields cannot bypass $kind publication clearance");
+    Canon::write_file($scratch . '/state/' . $badEntity['path'], $badEntity['content']);
+    wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), RuntimeException::class,
+        "nested object fields cannot bypass immutable $kind clearance");
 }
 Canon::write_file($scratch . '/state/' . $sourceEntities[$uuid4]['path'], $sourceEntities[$uuid4]['content']);
 $postDatabase(0, [...$sourceRows, $nativeRow(77, 'outside-scope', '')]);
@@ -496,11 +634,14 @@ $sidebar = ['widgets' => [['uuid' => '33333333-3333-4333-8333-333333333333', 'ty
 Canon::write_file($scratch . '/state/sidebars/main.json', Canon::encode($sidebar));
 wprism_check_same(3, count(RepositoryCompiler::compile($scratch, $policy)->tree()),
     'complete compiler accepts the same canonical block inside a widget');
-foreach (['raw', 'derived', 'raw-html', 'encoded-html', 'excluded-record'] as $fault) {
+foreach (['raw', 'derived', 'raw-html', 'encoded-html', 'excluded-record', 'raw-object', 'hidden-query', 'new-object-field'] as $fault) {
     $bad = $a;
     if ($fault === 'raw') $bad['image']['id'] = 4;
     if ($fault === 'derived') $bad['preview'] = ['source' => 4];
     if ($fault === 'excluded-record') $bad['gallery'][0]['nonces'] = ['edit' => 'canonical-injection'];
+    if ($fault === 'raw-object') $bad['query']['ids'] = ['4'];
+    if ($fault === 'hidden-query') $bad['query']['custom'] = 'p=4';
+    if ($fault === 'new-object-field') $bad['query']['nativeExtensionId'] = 4;
     $sidebar['widgets'][0]['settings']['content'] = $fault === 'raw-html' ? str_replace('wp-image-' . $token4, 'wp-image-804', $captured) : $block($bad);
     if ($fault === 'encoded-html') $sidebar['widgets'][0]['settings']['content'] = str_replace('wp-image-{{', 'wp-image-&#123;&#123;', $captured);
     Canon::write_file($scratch . '/state/sidebars/main.json', Canon::encode($sidebar));

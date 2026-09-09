@@ -4,7 +4,7 @@
   "plugin": "visual-portfolio/class-visual-portfolio.php",
   "version_range": {"min": "3.8.1", "max": "3.8.2"},
   "engine_features": [
-    "block-attribute-groups/v1", "block-attribute-values/v1", "encoded-text-values/v1",
+    "block-attribute-groups/v1", "block-attribute-values/v1", "block-value-contracts/v1", "encoded-text-values/v1",
     "manifest-provider-fresh-process/v1", "manifest-provider-runtime/v1", "post-meta-invalidation/v1",
     "provider-filesystem-file-snapshot/v1", "provider-native-option-inputs/v1",
     "provider-native-post-types/v1", "provider-physical-table-rows/v1",
@@ -146,13 +146,29 @@
       }
     ],
     "visual-portfolio/loop": [
-      {"path": "postsQuery", "unsupported": "Nested customQuery and query reference shapes are not yet qualified."},
       {"path": "sourceQuery", "unsupported": "Extension query sources and their identities are not declared."},
       {"path": "customCss", "unsupported": "The modern CSS writer has not yet been observed."}
     ],
     "visual-portfolio/saved": [{"path": "id", "unsupported": "Saved Layout content and legacy metadata are not yet declared."}]
   },
   "block_values": {
+    "visual-portfolio/loop": {
+      "postsQuery": {"class": "authored", "object_fields": {
+        "source": {"class": "authored", "enum": ["post", "page", "portfolio", "post_types_set", "ids", "custom_query", "current_query"]},
+        "postTypesSet": {"class": "authored", "plain_data": true},
+        "ids": {"class": "authored", "ref": "post[]", "cast": "string", "on_unmapped": "refuse"},
+        "excludeIds": {"class": "authored", "ref": "post[]", "cast": "string", "on_unmapped": "refuse"},
+        "order": {"class": "authored", "enum": ["asc", "desc"]},
+        "orderBy": {"class": "authored", "enum": ["post_date", "title", "id", "comment_count", "modified", "menu_order", "post__in", "rand"]},
+        "offset": {"class": "authored", "plain_data": true},
+        "taxonomies": {"class": "authored", "ref": "term[]", "cast": "string", "on_unmapped": "refuse"},
+        "taxonomiesRelation": {"class": "authored", "enum": ["or", "and"]},
+        "avoidDuplicates": {"class": "authored", "enum": [false, true]},
+        "excludeCurrent": {"class": "authored", "enum": [false, true]},
+        "keyword": {"class": "authored", "plain_data": true},
+        "customQuery": {"class": "authored", "enum": [""]}
+      }}
+    },
     "groups": [
       {
         "blocks": ["visual-portfolio/block"],
@@ -233,12 +249,12 @@
       {
         "blocks": ["visual-portfolio/block"],
         "attributes": ["posts_excluded_ids", "posts_ids"],
-        "value": {"cast": "string", "class": "authored", "ref": "post[]"}
+        "value": {"cast": "string", "class": "authored", "ref": "post[]", "on_unmapped": "refuse"}
       },
       {
         "blocks": ["visual-portfolio/block"],
         "attributes": ["posts_taxonomies"],
-        "value": {"cast": "string", "class": "authored", "ref": "term[]"}
+        "value": {"cast": "string", "class": "authored", "ref": "term[]", "on_unmapped": "refuse"}
       },
       {
         "blocks": [
@@ -499,6 +515,8 @@
     ]
   },
   "notes": [
+    "Modern postsQuery is an exact authored object: native picker lists are string references, while customQuery must stay empty even when its source mode is inactive. Native Save retains hidden custom text and deleted selected IDs (fixtures/queries/provenance.json). Unknown extension fields refuse.",
+    "All legacy and modern query selectors refuse unmapped identities. class-get-portfolio.php:2089 omits an empty post__in constraint, so dropping the last missing selected ID could broaden the query to every post.",
     "Experimental source capture, immutable compilation and bounded native settings Apply; archive mapping, role synchronization and deferred hard rewrite effects use the settings provider.",
     "Native 3.8.1 classes/class-custom-post-type.php:200,223 declares hierarchical categories and flat tags. Both are unregistered while portfolio content is disabled; these exact declarations let the engine bound its taxonomy cache roster when re-enabling settings.",
     "The archive page and placeholder are post references. _vp_post_type_mapped is derived from the archive option; treating each marker as authored leaves the old target marker outside outbound scope closure.",
