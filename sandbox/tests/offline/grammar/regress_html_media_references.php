@@ -6,6 +6,13 @@ require_once dirname(__DIR__, 4) . '/agent/src/Kernel/HtmlMediaReferences.php';
 
 use WPrism\HtmlMediaReferences;
 
+// PHP 8.5 reports null stack offsets even behind ??. Root tags, root CDATA
+// and foreign-content breakout already have byte-exact cases below; a runtime
+// diagnostic must fail those product paths instead of accompanying exit 0.
+set_error_handler(static function (int $severity, string $message, string $file, int $line): never {
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
+
 if (($argv[1] ?? '') === '--bounded-memory') {
     $plain = '<div class="' . str_repeat('plain ', 60000) . '">';
     HtmlMediaReferences::assert_canonical($plain);

@@ -38,7 +38,7 @@ final class HtmlAttributeReader {
                 $offset = $end + strlen($closing[0][0]);
                 continue;
             }
-            if (substr($html, $start, 9) === '<![CDATA[' && ($elements[array_key_last($elements)]['namespace'] ?? 'html') !== 'html') {
+            if (substr($html, $start, 9) === '<![CDATA[' && self::current_element($elements)['namespace'] !== 'html') {
                 $end = strpos($html, ']]>', $start + 9);
                 if ($end === false) break;
                 $offset = $end + 3;
@@ -167,6 +167,20 @@ final class HtmlAttributeReader {
     }
 
     /**
+     * Fragments start at the HTML root, and foreign-content breakout can
+     * empty the stack again. Choose that context before indexing: PHP 8.5
+     * diagnoses a null array offset even when the access is followed by ??.
+     *
+     * @param list<array{tag:string,namespace:string,integration:bool}> $elements
+     * @return array{tag:string,namespace:string,integration:bool}
+     */
+    private static function current_element(array $elements): array {
+        return $elements === []
+            ? ['tag' => '', 'namespace' => 'html', 'integration' => false]
+            : $elements[array_key_last($elements)];
+    }
+
+    /**
      * Foreign namespaces change tokenization: SVG title admits HTML children,
      * and CDATA is text only when the current element is foreign. Track those
      * boundaries without reserializing or repairing the source tree.
@@ -175,14 +189,14 @@ final class HtmlAttributeReader {
      * @param array<string,array{offset:int,length:int,quote:string}> $attributes
      */
     private static function namespace_for(array &$elements, string $tag, array $attributes): string {
-        $parent = $elements[array_key_last($elements)] ?? ['tag' => '', 'namespace' => 'html', 'integration' => false];
+        $parent = self::current_element($elements);
         $html = $parent['namespace'] === 'html' || $parent['integration']
             || ($parent['namespace'] === 'math' && in_array($parent['tag'], ['mi', 'mo', 'mn', 'ms', 'mtext'], true) && !in_array($tag, ['mglyph', 'malignmark'], true));
         if (!$html && (in_array($tag, ['b', 'big', 'blockquote', 'body', 'br', 'center', 'code', 'dd', 'div', 'dl', 'dt', 'em', 'embed', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'hr', 'i', 'img', 'li', 'listing', 'menu', 'meta', 'nobr', 'ol', 'p', 'pre', 'ruby', 's', 'small', 'span', 'strong', 'strike', 'sub', 'sup', 'table', 'tt', 'u', 'ul', 'var'], true)
             || ($tag === 'font' && (isset($attributes['color']) || isset($attributes['face']) || isset($attributes['size']))))) {
             do {
                 array_pop($elements);
-                $parent = $elements[array_key_last($elements)] ?? ['tag' => '', 'namespace' => 'html', 'integration' => false];
+                $parent = self::current_element($elements);
             } while ($parent['namespace'] !== 'html' && !$parent['integration']
                 && !($parent['namespace'] === 'math' && in_array($parent['tag'], ['mi', 'mo', 'mn', 'ms', 'mtext'], true)));
             $html = true;
