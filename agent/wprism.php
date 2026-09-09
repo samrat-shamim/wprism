@@ -38,6 +38,7 @@ require_once __DIR__ . '/src/Adapter/ProviderOperationProcess.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/src/Kernel/PrivateEvidenceException.php';
+require_once __DIR__ . '/src/Kernel/PrivateFileBytes.php';
 require_once __DIR__ . '/src/Kernel/PrivateRefusalEvidence.php';
 // Beside CommandRefusal because that is its one dependency, and ahead of every
 // verb: the topology gate has to be loaded for the Policy-free doors
