@@ -1,6 +1,11 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/MediaDerivativeObservation.php';
+require_once __DIR__ . '/MediaDerivativeWorkset.php';
+require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
+require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
@@ -78,6 +83,7 @@ require_once __DIR__ . '/../Rebuild/RebuildRequest.php';
  * attachment metadata, cache flush) runs after the canary disarms.
  */
 final class ApplyRequestCoordinator {
+    private array $mediaTarget = [];
     private Policy $policy;
     private Tokens $tokens;
     private ApplyServices $services;
@@ -196,11 +202,23 @@ final class ApplyRequestCoordinator {
             endDeleteTransaction: fn(): mixed =>
                 $this->deleteGuardCoordinator->end_writer_exclusion_transaction()
         );
+        $mediaBlocks = array_keys(BlockMediaDerivativeGrammar::project($policy->manifests));
         $this->services = new ApplyServices(
             $policy,
             $compiled,
             $callbacks,
-            $this->repo
+            $this->repo,
+            $mediaBlocks === [] ? null : new MediaDerivativeObservation(
+                $policy,
+                fn(DatabaseWorkAuthority $authority): array => Capture::block_inputs_in_transaction($this->repo, $policy, $compiled, $authority, $mediaBlocks),
+                static function () use ($policy): NativeDatabaseProfile {
+                    // Preflight-only callers do not own a capture transaction.
+                    // Load that owner when native consumer observation asks
+                    // for its profile, preserving the isolated preflight seam.
+                    require_once __DIR__ . '/../Capture/CaptureTransaction.php';
+                    return CaptureTransaction::database_profile($policy, readOnly: true);
+                }
+            )
         );
         $this->deleteGuardCoordinator = new DeleteGuardLockCoordinator(
             $policy,
@@ -513,6 +531,7 @@ final class ApplyRequestCoordinator {
             ? array_values(array_map('strval', $result['affected_surfaces']))
             : null;
         $this->categorySummaryContext = $result['category_summary_context'];
+        $this->mediaTarget = $result['media_target'];
         return $result['plan'];
     }
 
@@ -1554,7 +1573,10 @@ final class ApplyRequestCoordinator {
                 performTransaction: $performAuthoredTransaction,
                 defaultAuthor: $this->defaultAuthor,
                 commitScopedAuthoring: $commitScopedAuthoring,
-                rollbackScopedAuthoring: $rollbackScopedAuthoring
+                rollbackScopedAuthoring: $rollbackScopedAuthoring,
+                mediaDerivatives: BlockMediaDerivativeGrammar::project($this->policy->manifests) === [] ? null
+                    : MediaDerivativeWorkset::select($compiled, $this->policy, $this->mediaTarget, $work,
+                        $executeDeletes ? $deleteUuids : [])
             ),
             $this->warnings
         );

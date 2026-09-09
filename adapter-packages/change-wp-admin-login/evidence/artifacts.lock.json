@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "change-wp-admin-login": {
+      "2.4.0": {
+        "url": "https://downloads.wordpress.org/plugin/change-wp-admin-login.2.4.0.zip",
+        "sha256": "2103fb521bc2aae406943b0122f120a098b23d86778f51a6ea20471f81b2fd48",
+        "role": "refusal-fixture"
+      },
+      "2.4.1": {
+        "url": "https://downloads.wordpress.org/plugin/change-wp-admin-login.2.4.1.zip",
+        "sha256": "f025beff401cabc7c4d7c8ee3d549a26197d698e17b5e018ddbabd471b46722b",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

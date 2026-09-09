@@ -278,6 +278,39 @@ wprism_check($stale['refusal'] instanceof CommandRefusalException
     'ordinary drift refuses in preparation before the unrelated update can create a partial apply');
 wprism_check_same(null, $stale['prepared'], 'stale-plan refusal returns no executable workset');
 
+// Native Qi editing reached an ordinary conflict here, but JSON callers got
+// apply_failed plus recovery guidance. Exercise the real precondition owner;
+// its private row details must not become public merely to classify the gate.
+$privatePath = 'state/posts/page/operator@example.test.md';
+foreach ([
+    'conflict' => [
+        [['path' => $privatePath]], '--force-theirs',
+        "wprism: conflicts (env and repo both changed since last sync) — capture first or --force-theirs:\n  - $privatePath",
+    ],
+    'collision' => [
+        [['type' => 'post', 'path' => $privatePath, 'env_id' => 44]], '--adopt-by-slug',
+        "wprism: slug collisions need explicit resolution (--adopt-by-slug=posts,terms,menus,tables adopts unmanaged rows):\n  - post $privatePath collides with env id 44 (same slug, different/no uuid)",
+    ],
+    'delete_conflict' => [
+        [['path' => $privatePath, 'reason' => 'changed native state']], '--with-deletes',
+        "wprism: deletion conflicts (target differs from the tombstone's expected base) — capture/reconcile first or --force-theirs:\n  - $privatePath: changed native state",
+    ],
+] as $bucket => [$rows, $flag, $operatorMessage]) {
+    $plan = $emptyPlan(); $plan[$bucket] = $rows;
+    $queries = $wpdb->queries();
+    $result = $prepare($plan, [], false);
+    $refusal = $result['refusal'];
+    $payload = $refusal instanceof CommandRefusalException ? $refusal->payload() : [];
+    wprism_check_same('apply_refused', $payload['error'] ?? null, "$bucket has reviewed public precondition authority instead of an unclassified failure");
+    wprism_check(str_contains($payload['remediation'] ?? '', $flag) && !str_contains($payload['remediation'] ?? '', 'recovery'),
+        "$bucket names the existing explicit resolution route");
+    wprism_check($payload !== [] && !str_contains(json_encode($payload), 'operator@example.test')
+        && !isset($payload['details_redacted']), "$bucket publishes value-free guidance without leaking the private row or redacting its useful message");
+    wprism_check_same($operatorMessage, $refusal?->getMessage(), "$bucket retains exact private operator wording and row details");
+    wprism_check_same([null, []], [$result['prepared'], $result['warnings']], "$bucket returns neither executable work nor a successful warning");
+    wprism_check_same($queries, $wpdb->queries(), "$bucket refuses before database access");
+}
+
 // The scoped counterpart is the branch that already refused. It must stay a
 // refusal, with its reason code and its operator sentence byte-identical, and
 // it must not also collect the new warning.

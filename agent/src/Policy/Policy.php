@@ -1,6 +1,12 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+
+require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
+
 // Manifest validation is a pure offline pass with several entry points of
 // its own (the frozen-snapshot path, the offline harnesses that load this
 // file directly). The native-action vocabulary is part of that pass, so it
@@ -2868,6 +2874,14 @@ final class Policy {
             if ($rule === null) {
                 continue;
             }
+            if (EncodedText::uses($rule) || EncodedText::uses($static['rule'] ?? [])) {
+                throw new \RuntimeException("wprism: interpreter '$name' cannot introduce or replace a static text encoding codec");
+            }
+            if (PhpContainerValue::uses($rule) || PhpContainerValue::uses($static['rule'] ?? [])) {
+                throw new \RuntimeException(
+                    "wprism: interpreter '$name' cannot introduce or replace a static PHP container option codec"
+                );
+            }
             // This feature authorizes one exact static option, not executable
             // classification. Even echoing a static constrained rule would
             // add a second authority capable of stripping its constraint.
@@ -2900,6 +2914,17 @@ final class Policy {
             }
             $owner = $owners === [] ? "interpreter $name" : (string) ($owners[0]['name'] ?? '?');
             $source = $owners === [] ? $owner : $owner . " (interpreter $name)";
+            if (ReferenceCondition::uses($rule)) {
+                if (count($owners) !== 1 || ($owners[0]['spec_version'] ?? 0) < 3
+                    || !in_array(ReferenceCondition::FEATURE, (array) ($owners[0]['engine_features'] ?? []), true)) {
+                    throw new \RuntimeException("wprism: interpreter '$name' conditional references require an exact v3 owner declaring " . ReferenceCondition::FEATURE);
+                }
+                ReferenceShapeGrammar::validate_reference_shapes(
+                    ['spec_version' => $owners[0]['spec_version'], 'engine_features' => $owners[0]['engine_features'], $section => [$key => $rule]],
+                    $source,
+                    true
+                );
+            }
             if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
                 if (!in_array($section, ['post_meta', 'term_meta', 'user_meta'], true) || count($owners) !== 1
                     || ($owners[0]['spec_version'] ?? 0) < 3
@@ -4153,6 +4178,33 @@ final class Policy {
             ];
         }
         return $out;
+    }
+
+    /**
+     * Pinned compatibility constraints also bind canonical active_plugins:
+     * an unpinned competitor still loads native hooks. Consume desired state,
+     * never target state, so deploy can deactivate a conflicting target plugin.
+     * Unlike version-claim arbitration, no site override displaces this guard.
+     *
+     * @param list<string> $activePlugins
+     * @return list<array{manifest:string,plugin:string,incompatible_plugin:string}>
+     */
+    public function active_plugin_conflicts(array $activePlugins): array {
+        $conflicts = [];
+        foreach ($this->manifests as $manifest) {
+            foreach ($manifest['incompatible_plugins'] ?? [] as $other) {
+                if (in_array($other, $activePlugins, true)) {
+                    $row = [
+                        'manifest' => (string) $manifest['name'],
+                        'plugin' => (string) $manifest['plugin'],
+                        'incompatible_plugin' => (string) $other,
+                    ];
+                    $conflicts[Canon::encode($row)] = $row;
+                }
+            }
+        }
+        ksort($conflicts, SORT_STRING);
+        return array_values($conflicts);
     }
 
     /**

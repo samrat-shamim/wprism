@@ -162,7 +162,9 @@ A new capsule also extends the source census: run `make
 regress-spec-v3-digest-neutrality regress-spec-v3-document
 regress-spec-v3-dry-run regress-spec-window` before the full gate. The literal
 identity baseline must cover the actual library, not merely agree with its own
-two pin lists. Preserve every existing per-adapter digest and smaller pin set
+named pin lists. When a new capsule conflicts with an existing world, add a
+compatible world and prove the union still covers the full library. Preserve
+every existing per-adapter digest and smaller pin set
 unless that adapter's identity inputs changed. The current whole-registry
 address and frozen snapshots still move when an unpinned disposition is added;
 § v3.4's WP-4.5 addressing proposal is explicitly unimplemented. Re-measuring
@@ -435,6 +437,345 @@ value change. Keep all other rows and logical schema constrained, including
 the exact table-counter advancement authorized by new revisions. Never turn
 that authoring-only allowance into an Apply/observer waiver or disable a
 native hook to make a preservation comparison pass.
+
+### A reference whose type depends on a sibling
+
+Exercise every variant of a native settings record before assigning a path a
+reference kind. AIO Login 2.4.1's REST `login-redirection/save-rule` writes a
+decimal string to `login_target_value` for `login_target_type: page`, and a
+URL at the same coordinate for `custom`. An unconditional `json_refs` rule
+captures the page identity but changes the URL to `"0"` during apply.
+
+For ordinary option and metadata structures, declare
+`conditional-json-refs/v1` and use the existing path with a closed sibling
+condition: `"when": {"key":"login_target_type", "equals":"page",
+"otherwise":["custom"]}`. The named branch uses the existing reference and
+cast; the listed alternative retains ordinary text/URL semantics. Missing or
+new variants refuse. The condition is not a general JSONPath filter, a
+privacy exception, or support for a native feature that was not exercised.
+The exact grammar and admitted surfaces are in
+[the format specification](../../spec/repo-format.md#v327-conditional-json-refsv1--sibling-discriminated-structural-references).
+
+Prove both branches through native authoring, Capture, complete repository
+compilation, SQL Apply with divergent IDs, and recapture. Include a changed
+or missing discriminator, wrong-kind token, malformed native ID, and a secret
+beside the positive data. `regress-conditional-json-refs` is the shared engine
+pin; each plugin still needs its own native writer and behavior evidence.
+
+### Structured block attributes and derived editor caches
+
+Use the plugin's editor and inspect the stored block comments. `block_attrs`
+paths are exact top-level attribute names; `image.id` does not traverse an
+`image` object. A query selector stored as CSV also needs its native string
+shape restored after identity rebinding.
+
+Declare `block-attribute-values/v1` and a `block_values` map keyed by block,
+then exact attribute name. Each authored attribute uses the existing value
+rules: `ref` with optional `cast`, `json_refs`/`key_refs`, or `plain_data:true`.
+For example:
+
+```json
+"block_values": {
+  "example/gallery": {
+    "image": {"class":"authored", "json_refs":[{"path":"$.id", "kind":"post"}]},
+    "slides": {"class":"authored", "json_refs":[{"path":"$.image.id", "kind":"post"}]},
+    "postIds": {"class":"authored", "ref":"post[]", "cast":"csv"},
+    "queriedPostsData": {"class":"derived"}
+  }
+}
+```
+
+The shared JSON path walker transparently handles repeater lists. Native IDs
+must match their declared integer/string type; CSV uses positive decimal IDs
+separated by single commas, with no whitespace, empty members or leading
+zeros. Empty CSV is allowed. Canonical CSV is a token list, restored to a
+string on apply. Order and duplicate selections are preserved. Missing targets
+use the existing dangling-reference and unscoped-reference gates.
+
+Use `derived` only after proving the attribute is a reproducible native cache.
+Capture removes that attribute; compilation and apply refuse it if it appears
+in canonical content. The plugin must rebuild it from authored inputs when
+needed. A preview's presence in saved JSON alone is not evidence of ownership.
+Qi Blocks' query previews and contact-form HTML motivated this distinction;
+its adapter still needs native frontend and editor reopen evidence.
+
+One manifest owns a block using these rules. Disjoint legacy `block_attrs`
+can coexist in that manifest; overlapping attributes and whole-block codecs
+refuse. Site policy cannot introduce or replace this grammar. `plain_data`
+rewrites URL-bearing strings without interpreting arbitrary numbers as IDs;
+it grants no executable decoder or privacy exemption. Native PHP container
+wrapping belongs to options, not Gutenberg JSON.
+
+Prove full PostCapture, immutable compilation without WordPress/database
+contact, checked PostMaterializer SQL with different IDs/URLs, rollback after
+an earlier write, retry, repeat and complete recapture. Include widget content
+when the same block can be stored there. `regress-block-attribute-values` is
+the engine pin; native plugin render and editor validation remain capsule work.
+
+### Records that mix authored fields and response caches
+
+Use actual media picker selections when investigating a structured attribute.
+An empty default or hand-built `{id,url}` example does not reveal whether the
+native writer saves its entire API response. Qi's three gallery controls save
+nonces, user details and admin links beside their authored image selection.
+Classifying the entire record as authored would publish those caches.
+
+After proving which fields the native saver consumes and that its picker can
+rehydrate the rest, negotiate `block-record-fields/v1` and add a bounded
+`record_fields` declaration to the existing value rule:
+
+```json
+"gallery": {
+  "class": "authored",
+  "record_fields": {"container": "list", "fields": ["id", "url", "alt", "caption"]},
+  "json_refs": [{"path": "$.id", "kind": "post"}]
+}
+```
+
+`container` is explicitly `object` or `list` of records. Capture removes only
+unlisted immediate record fields before the ordinary reference, URL and privacy
+pipeline. Field order, absence, types, list order and duplicate selections stay
+unchanged. A record must contain at least one retained field; an empty list is
+valid. This avoids turning an empty object into an array under associative JSON
+decoding. The declaration has no recursive selector or implicit defaults.
+
+Each `json_refs` or nested `key_refs` path must start with a retained exact
+field. A root key reference, wildcard or recursive first edge cannot silently
+lose declared identities. Canonical input containing excluded fields refuses
+in compilation, lint and Apply; it is never silently repaired. Existing
+repositories need recapture, compilation and new identity pins after this
+intentional semantic change. Retained fields keep all ordinary privacy gates.
+
+Preserve real picker output as a regression fixture, replacing temporary
+credentials with documented fixture literals. Prove native saved HTML,
+fresh editor validation and media-dialog reopening, then repeat those checks
+after cross-environment Apply. A source-only projection probe is evidence for
+the declaration, not target qualification. Keep differently shaped native
+controls on their own rules even when their UI labels look similar.
+
+### Content-selected image crops
+
+Use the plugin's actual editor Save path and inspect both saved content and
+the uploads directory. A custom crop may exist outside WordPress's attachment
+size metadata. A historical crop cache can include abandoned requests, so it
+cannot define authored work or stale-file ownership.
+
+For a crop determined by saved attachment, URL and dimension fields, negotiate
+`block-media-derivatives/v1` alongside `block-attribute-values/v1`:
+
+```json
+"block_media_derivatives": {
+  "example/image": [{
+    "attachment": "$.image.id", "url": "$.image.url",
+    "width": "$.customWidth", "height": "$.customHeight",
+    "crop": true, "filename": "requested-dimensions",
+    "dimension_cast": "integer",
+    "when": {"key": "size", "equals": "custom"}
+  }]
+}
+```
+
+The same manifest must declare `image.id` as a post reference in this block's
+`block_values`. Use `path` for repeated object contexts, exact child paths for
+fields and `truncate` only when the native writer demonstrably truncates
+fractional numeric dimensions. Inspect both top-level and nested repeater
+controls: Qi's Parallax item saves a custom image inside `items[].itemImage`,
+which requires `"path": "$.items.itemImage"` with the shared list traversal.
+Declare a responsive selection only after proving its editor writer and saved
+render consumer. Shared registration helpers can create Tablet/Mobile defaults
+even when a particular block disables those controls and never renders them;
+those placeholders must not authorize file generation.
+The [recipe contract](../../spec/repo-format.md#v330-block-media-derivativesv1--content-selected-image-recipes)
+defines the closed shapes and bounds.
+
+Use the shared attachment transaction for these effects. It derives recipes
+from saved content, preserves excluded consumers, regenerates content-only
+changes and records generated sizes for durable ownership. Existing native
+crops need a declared target-content selection, native attachment ownership
+and the exact observed original blob before their files can be adopted.
+Unselected files, including equal-byte neighbors, remain outside that grant.
+Do not add a plugin executable to copy arbitrary cache paths into metadata.
+
+Prove same-size repeat, resized content with an unchanged attachment, multiple
+consumers, scoped preservation, removal of the last consumer, original path
+and blob changes, existing native crops, unrelated file collisions, native
+failures and interrupted metadata publication. Exercise first Apply on a fresh
+target with uncaptured stock categories and pages.
+The locked media reader observes its block/original/widget inputs without
+minting identities or requiring a full export; unmanaged crop consumers must
+remain visible to the guard. Compare real output dimensions
+and filenames separately, including oversized and zero-dimension requests if
+the editor can produce them. Request every selected output image on the fresh
+target and check its decoded dimensions. Canonical recapture alone cannot
+detect an omitted recipe: Qi's nested item converged while its image returned
+404. Test native Save, frontend rendering, editor
+reopen and fresh-process convergence; offline image doubles cannot qualify
+those outcomes. Qi Blocks motivated this mechanism, but its native adapter
+qualification remains pending.
+
+### Keep repeated block declarations reviewable
+
+A native block schema is authoring evidence, not a reason to copy an identical
+value rule thousands of times into a manifest. Qi's first draft expanded
+7,497 rules across 49 blocks into 31,397 lines; 7,269 rules were identical
+plain-data declarations. The field names remain useful evidence, but the
+repetition hides media and query references during review.
+
+Negotiate `block-attribute-groups/v1` alongside `block-attribute-values/v1` and
+use `block_values.groups` for exact fields sharing a value rule:
+
+```json
+{
+  "block_values": {
+    "groups": [
+      {
+        "blocks": ["example/card", "example/banner"],
+        "attributes": ["title", "description"],
+        "value": {"class": "authored", "plain_data": true}
+      }
+    ]
+  }
+}
+```
+
+Each group declares precisely the Cartesian product of its block and attribute
+lists. Keep reference and derived-value groups easy to identify. Exact maps
+for other fields can coexist beside `groups`; declaring a field twice refuses,
+even when both rules are equal. Wildcards, implicit defaults and precedence
+are absent. The existing block grammar normalizes this syntax for capture,
+compilation, lint, apply, reference-keyspace and derivative-ownership checks;
+manifest identity continues to bind the authored declaration.
+
+When compacting an existing declaration, pin the canonical expanded-map digest
+and verify it through `BlockValueGrammar::attribute_maps()`, then rerun the
+native fixture and hostile-reference tests. Store the compact capsule and the
+inventory digest. The Qi capsule reduces its declaration to 177 groups while
+preserving the exact original 7,497 field rules.
+
+Exercise the complete candidate's publication clearance as well as the block
+codec. Qi's native corpus exposed phone false positives in hyphenated numeric
+identifiers, SVG viewport coordinates and UUIDs cut by overlapping scan windows.
+These belong in the shared personal-data detector: SVG's
+[four-number viewport grammar](https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute)
+uses the existing HTML reader, and complete UUIDs are recognized before phone
+windows are formed. Keep named contact fields, neighboring private prose and
+secrets protected. Generated markup is not a reason to grant an entire CSS
+option or post body a privacy exception.
+
+### Encoded authored text
+
+Inspect the actual writer before choosing a text declaration. Visual
+Portfolio 3.8.1's editor uses JavaScript `encodeURIComponent` after a literal
+escape for `--`; its similarly named PHP helper uses form encoding, where
+spaces become `+`. Treating either stored string as ordinary text hides URLs
+from rebinding. A successful canonical round trip alone does not prove that
+the plugin will render target-local URLs.
+
+For a measured URI-component scalar, negotiate `encoded-text-values/v1` and
+declare its native framing:
+
+```json
+{
+  "class": "authored",
+  "text_encoding": {
+    "codec": "uri-component",
+    "escape": {"text": "--", "wire": "_u002d__u002d_"}
+  }
+}
+```
+
+Omit `escape` when the writer has no literal replacement. The shared codec
+decodes to canonical UTF-8 text before ordinary URL/query-reference rewriting
+and privacy checks, and encodes after target rebinding. It admits exact
+options, option patterns, one-level static option subkeys, ordinary
+post/term/user metadata and its existing pattern surfaces. Block attributes
+also require `block-attribute-values/v1`. Dynamic options, option-name
+references and custom-table values have no transport under this feature.
+
+Do not add executable decoding or a fake reference path. The declaration is
+closed and exclusive of other value codecs. Malformed percent spelling,
+form encoding, non-string values, unsafe controls, ambiguous escape markers
+and excess expansion refuse. Site policy may exclude the whole value but
+cannot replace its framing; an interpreter cannot introduce or override it.
+The exact limits and compatibility contract are in
+[the specification](../../spec/repo-format.md#v334-encoded-text-valuesv1--native-scalar-text-framing).
+
+Retain independent native writer vectors. Exercise decoded URLs, query IDs,
+Unicode, empty text, quotes, literal plus/percent and escape collisions through
+capture, pure compilation, checked SQL, rollback/retry and full recapture.
+Include secrets embedded inside quoted CSS strings: WordPress escapes inner
+quotes as `\u0022` in block comments. Shared publication clearance opens that
+JSON framing for ordinary and unknown blocks, and for block widgets, without
+changing saved bytes. `regress-encoded-text-values` exercises these boundaries;
+native editor Save/reopen and rendering still belong to the adapter's evidence.
+
+### Native PHP container types and insertion order
+
+Inspect raw option bytes after using the plugin's real writer. Qi Blocks 1.5.2
+persists `qi_blocks_global_styles` as an outer PHP array containing nested
+`stdClass` values; its `posts` map uses post IDs as keys. Ordinary JSON cannot
+retain array versus object types or the insertion order canonical sorting
+removes. `plain_data` alone deliberately refuses PHP objects.
+
+For a whole authored option with this measured requirement, negotiate
+`php-container-values/v1` and declare `php_containers: true`. Choose
+`plain_data: true` when there are no identity positions, or use existing
+`json_refs` paths into the portable representation. For an ID-keyed container,
+declare `key_refs: {"path":"$.root.items.posts","kind":"post",
+"container":"php"}`. This path selects the complete typed node. The shared
+codec rewrites its keys and ordering records together, including a dangling
+entry's removal; a second reference path over ordering metadata would break
+that invariant. Pattern-owned options also need their normal namespace
+discovery declaration. The closed representation and bounds are in
+[the format specification](../../spec/repo-format.md#v328-php-container-valuesv1--ordered-native-php-option-containers).
+
+Do not add an interpreter or a provider just to deserialize this data. Only
+builtin `stdClass` is admitted; arbitrary classes, enums, references, cycles,
+shared objects, noncanonical serialization, binary text and nonfinite floats
+refuse. Existing scalar/array rules keep their storage contract. Site policy
+can exclude the complete option but cannot replace its codec; interpreter
+classification cannot introduce or override it. Metadata, subkeys, dynamic
+option resolvers and custom-table columns are outside this feature.
+
+Prove actual native writer bytes, empty arrays and objects, mixed scalar types,
+map order, source-home URLs and divergent IDs through capture, complete
+compilation, SQL apply and recapture. Include malformed native and canonical
+data, colliding keys, a late write failure, rollback and retry. The shared
+`regress-php-container-values` suite proves the engine mechanism; each adapter
+still needs native render and lifecycle evidence for its own settings.
+
+### Identity repeated inside a stored string
+
+Inspect native consumers as well as writers. Qi Blocks stores a page ID as a
+`qi_blocks_global_styles.posts` map key and repeats that ID in saved selectors
+such as `body[class*="-13"]`. The frontend emits the selector verbatim, so
+rebinding only the owning key leaves the target page unstyled.
+
+For this storage shape, additionally negotiate `key-bound-strings/v1` and add
+`bound_strings` to the existing typed `key_refs` declaration. Each entry has
+`path`, `prefix` and `suffix`; the path is relative to each owning map value,
+and the strings framing the identity are literal, stable native syntax. Qi's
+selector declaration is:
+
+```json
+{"path":"$.items.*.items.values.items.items.selector","prefix":"body[class*=\"-","suffix":"\"]"}
+```
+
+The shared codec requires every selected string to contain its owning key
+inside every matching frame. It handles repeated occurrences and refuses a
+missing frame, a different ID/token, a malformed string or overlapping
+reference ownership. Absent optional paths remain valid. Canonical frames
+contain the same `{{kind:uuid}}` token as their map key, so immutable compilation
+can check the relationship without a database. Typed key, order and value
+rewrites remain atomic, including dangling-entry removal. URL rewriting stays
+in the existing text codec; apply binds frames before that codec can consume
+an embedded query-reference token.
+
+Use `regress-key-bound-strings` for engine coverage and the capsule's real
+saved values for plugin coverage. Prove native rendering with different target
+IDs; exact recapture alone can miss a consistently preserved stale selector.
+This feature belongs to static whole PHP-container options and option patterns.
+Do not implement a plugin-specific CSS search/replace executable.
 
 ### Portable validation versus WordPress-native predicates
 
@@ -1512,6 +1853,10 @@ claims the named plugin, the shared policy finalizer emits the same refusal in
 either pin order before compilation, capture publication, promotion leases,
 lifecycle hooks, or providers. This is a non-surface compatibility constraint,
 not an operator composition override; the remedy is to pin only one adapter.
+Canonical `active_plugins` is checked during repository authorization as well:
+omitting the competing adapter pin cannot authorize its active plugin. Include
+that one-pin case in the refusal evidence. The guard reads desired state, so a
+compatible repository can still deactivate a conflicting target plugin.
 Use a participant-declared integration scenario to prove both orders against
 the exact supported plugin artifacts.
 
@@ -2263,6 +2608,17 @@ defensible manifest, add adversarial offline and live tests, and run the
 repository gates. It records commands, visible outputs, corrections and
 assumptions; it does not record private chain-of-thought.
 
+Verify every plugin-owned writer triggered by the visible Save action. A
+successful core REST post update or `core/editor.savePost()` does not prove
+that a plugin's editor state was flushed. Qi Blocks 1.5.2 attaches a debounced
+style save to the editor Save-button click: the core save API persisted all
+block comments while leaving `qi_blocks_global_styles` empty. Clicking the
+actual Save button persisted the styles and changed frontend rendering. Trace
+such event handlers, wait for their responses, and retain raw owned-row
+readback plus frontend behavior. If a native request fails while a sibling
+request succeeds, record both outcomes; do not invent the missing state or
+claim the whole settings form saved successfully.
+
 Continue autonomously when a command already supplies a typed recovery. In
 particular, narrow an over-broad or under-broad `--match`, use `--force` after
 the create-only draft output names that remedy, seed representative rows when
@@ -2322,7 +2678,13 @@ decision. Native settings and inactive assignments remain local; init does not
 invent widget identities, remove instances, or infer references from their
 values. A selected non-local classification without widget grammar still
 blocks instead of being downgraded. Once the adapter declares the widget type,
-the structural widget grammar owns portable instances.
+the structural widget grammar owns portable instances. Repeat that scope review
+after native settings writers: WordPress's Customizer can turn an empty legacy
+widget option into a numbered, unassigned instance. A conformance seed that
+creates its site configuration directly must prove the inactive/unassigned
+premise and record the same exact local decision through `wprism classify`.
+Retain native before/after bytes; do not put another component's widget scope in
+the plugin manifest or erase the instance to bypass capture.
 
 An **active** assignment is different: its complete sidebar is an authored
 layout, and excluding one widget option cannot make a partial layout safe to
@@ -2526,6 +2888,15 @@ wprism adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
   --out=<site-repo>/adapters/wpforms.json --force
 ```
 
+`adapter-probe --format=json` emits one formatted JSON document. In a live
+shell harness, use the shared `capture_wprism_json_document` helper: it keeps
+stdout separate from transport stderr, accepts compact or formatted objects
+and arrays, and refuses runtime diagnostics, extra stdout or a nonzero exit
+before publishing the value. The compact-envelope helper is for commands that
+emit their answer on one line after action receipts. AIO Login authoring reached
+the probe successfully but its former last-line reader rejected the closing
+brace; flattening or discarding that output would have hidden the actual schema.
+
 Note what that example gives you on a **freshly activated** plugin, because it
 is the state you are most likely to run it in. A plugin creates its tables at
 activation and fills them only through use, so every one of the six
@@ -2629,6 +3000,20 @@ different one.
 
 ### 6. Exercise it
 
+A capsule-owned live driver starts with these exact first three active shell
+statements, before changing directory, constructing flags, or acquiring a pair:
+
+```bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+```
+
+`regress-fetch-artifact` checks this preamble across discovered capsule callers.
+The early physical package scope keeps later shell branches and child commands
+from selecting the aggregate artifact library. A late literal package slug can
+fetch the right artifact in one run while violating that caller contract.
+
 Independent live lanes require a fresh **whole pair**, not just fresh database
 rows. `pair.sh reset` deliberately clears databases and repository contents
 while retaining webroot volumes. Reusing those volumes after deleting native
@@ -2637,7 +3022,11 @@ refuse to overwrite them. Between independent lanes, use the existing
 `pair_live_ownership_finish_leg()`, then `pair_live_ownership_acquire()` and
 `pair_live_ownership_up()`. This removes owned resources and releases the lease
 before re-proving the complete namespace, while retaining private host-registry
-scratch. The four-plugin scenario's `regress_pair_lane_isolation.php` executes
+scratch. Capsule drivers can source `tests/lib/pair_live_ownership.sh` from
+`sandbox/`; it is an explicitly reviewed shared test dependency. The package
+validator still requires the exact ordinary `.sh` file and refuses unreviewed
+neighbors. Normalize a driver's own invocation path before changing directory
+when sourcing capsule-relative hooks through `BASH_SOURCE`. The four-plugin scenario's `regress_pair_lane_isolation.php` executes
 its actual dispatcher and shared ownership helper: DB-only reset reproduces
 the lost-ownership mechanism, and body, creation, acquisition and teardown
 faults cannot start a later lane or publish PASS. A reset is still appropriate
@@ -2809,10 +3198,14 @@ branches can retain that bare value even after a future adapter leaves the
 library.
 
 1. **Create the capsule and write its manifest** at
-   `adapter-packages/<name>/package/manifest.json`. While the capsule is
+   `adapter-packages/<name>/package/manifest.json`, with a provisional
+   `experimental` disposition beside it. State the untested boundaries and
+   claim only operations the current evidence exercises. The library loader
+   requires the manifest/disposition pair even for grammar validation; a
+   missing disposition refuses before the grammar runs. While the capsule is
    incomplete, iterate with `php cli/wprism manifest-validate .
-   --manifest=<name> --pins=core,<name>`; the complete package validator intentionally refuses a
-   half-authored disposition/evidence boundary.
+   --manifest=<name> --pins=core,<name>`; the complete package validator also
+   requires the capsule's test and evidence boundary.
 2. **Add the reviewed entry** at
    `adapter-packages/<name>/package/disposition.json`, with a
    `reason` a human wrote. Coverage is exact, so this is not optional
@@ -2867,6 +3260,14 @@ library.
    remain read-only with respect to missing context. Exercise an absent root,
    a distinct canonical lease store, and a non-directory root in shared harness
    tests; never add adapter-specific directory creation to hide a lease bug.
+
+   Exercise fixture media through `MediaCapture` offline before a live round
+   trip. AIO Login's initial 1px PNG passed WordPress metadata inspection but
+   failed the engine's complete container check because its IDAT CRC was
+   invalid. Share the exact image file between the native upload seed and
+   the offline check; synthetic attachment identities do not establish that
+   the plugin's image bytes can cross the media boundary. Keep the malformed
+   file as a refusal control, without relaxing the production validator.
 
    Positive round trips must also provision the three required core bindings.
    `establish_core_environment_bindings` in `sandbox/conformance/asserts.sh`
@@ -3154,7 +3555,10 @@ library.
    belongs in `evidence/target-observation-premises.tsv`; package validation
    checks both directions and its exact count header. Account for all twelve
    scenario families in `evidence/production-readiness.json`, citing the exact
-   package, shared-engine, or participant-owned scenario gates. A missing
+   package, shared-engine, or participant-owned scenario gates. Shared Capture
+   atomicity and platform-policy suites belong to the allowed shared evidence
+   roots alongside Apply, reference and repository primitives. Cite their actual
+   tests when they establish the shared half of a readiness claim. A missing
    primitive is `blocked`; missing coverage is `gaps`; neither may be hidden as
    `not_applicable`. See
    [the production-readiness contract](../agents/adapter-production-readiness.md).

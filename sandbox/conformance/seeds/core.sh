@@ -76,6 +76,7 @@ require_fixture_values UP_URL
 HELLO_CONTENT="<!-- wp:image {\"id\":$ATT_ID,\"sizeSlug\":\"full\",\"linkDestination\":\"none\"} -->
 <figure class=\"wp-block-image size-full\"><img src=\"$UP_URL\" alt=\"\" class=\"wp-image-$ATT_ID\"/></figure>
 <!-- /wp:image -->
+<figure class=\"classic-media-proof\"><img src=\"$UP_URL\" alt=\"\" class=\"before&#13;wp-image-$ATT_ID\"/></figure>
 <!-- wp:paragraph --><p>Hello from the core conformance seed.</p><!-- /wp:paragraph -->"
 HELLO_ID=$(wp_conf1 post create --post_type=post --post_title='Hello Conformance' --post_name=hello-conformance \
   --post_status=publish --post_category="$NEWS_ID" --post_content="$HELLO_CONTENT" --porcelain)

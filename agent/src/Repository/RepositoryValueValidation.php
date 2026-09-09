@@ -5,6 +5,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
+require_once __DIR__ . '/RepositoryMediaDerivatives.php';
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
 }
@@ -25,6 +26,7 @@ final class RepositoryValueValidation {
     }
 
     private static function assert_tree(array $tree, Policy $policy, bool $native): void {
+        RepositoryMediaDerivatives::derive($tree, $policy);
         foreach ($tree as $entity) {
             $type = $entity['type'] ?? null;
             $hook = match ($type) {

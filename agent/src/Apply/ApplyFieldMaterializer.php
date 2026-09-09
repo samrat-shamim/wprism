@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -283,6 +285,10 @@ final class ApplyFieldMaterializer {
             $rule = ($termMeta
                 ? $this->policy->meta_rule_for_term($row['meta_key'], $envFlat)
                 : $this->policy->meta_rule_for_post($row['meta_key'], $envFlat)) ?? [];
+            if (array_key_exists(EncodedText::FIELD, $rule)) {
+                $where = "$ownerLabel meta " . $row['meta_key'];
+                EncodedText::decode(PlainData::decode($row['meta_value'], $where), $rule, $where);
+            }
             if (array_key_exists(NativeValueValidation::FIELD, $rule)) {
                 $where = "$ownerLabel meta " . $row['meta_key'];
                 NativeValueValidation::assert_native(PlainData::decode($row['meta_value'], $where), $rule, $where);
@@ -402,6 +408,10 @@ final class ApplyFieldMaterializer {
     }
 
     private function resolveMetaValue(mixed $value, array $rule, string $context): mixed {
+        if (array_key_exists(EncodedText::FIELD, $rule)) {
+            EncodedText::assert_canonical($value, $rule, $context);
+            return EncodedText::encode($this->tokens->detokenize_text($value), $rule, $context);
+        }
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
             return StructuredValue::encode($value, $rule, $context);

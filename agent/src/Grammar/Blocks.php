@@ -2,16 +2,17 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
+require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
 require_once __DIR__ . '/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/Shortcodes.php';
+require_once __DIR__ . '/BlockValueCodec.php';
 
 /**
  * Structure-aware content rewriting via the official block parser:
  * - block attributes per the manifest block_attrs registry (typed paths),
- * - wp-image-<id> classes inside media blocks' inner HTML,
+ * - reserved wp-image-<id> class tokens in saved HTML attributes,
  * - URL tokenization of inner content strings.
- * Classic (non-block) content parses as a single freeform block and gets URL
- * tokenization only. serialize_blocks() re-emission is the canonical form; it
+ * Classic (non-block) content shares the same HTML media and URL grammar. serialize_blocks() re-emission is the canonical form; it
  * is a fixed point after the first normalization, which the capture-twice
  * determinism test asserts.
  *
@@ -59,9 +60,6 @@ require_once __DIR__ . '/Shortcodes.php';
  * it if it ever does.
  */
 final class Blocks {
-    /** Blocks whose inner HTML may carry wp-image-<id> classes. */
-    private const IMAGE_CLASS_BLOCKS = ['core/image', 'core/gallery', 'core/media-text', 'core/cover'];
-
     /**
      * Discover exact stored core/legacy-widget identities before SidebarState
      * capture. Authority is closed by the existing whole-block codec rule's
@@ -231,7 +229,20 @@ final class Blocks {
             fn($b) => self::walk($b, $rules, $tokens, true, $policy, $forceUnresolvedRefs, $postLabel, $idCodecs),
             $blocks
         );
-        return serialize_blocks($blocks);
+        // A body-wide pass preserves raw-text context across Gutenberg child
+        // boundaries. Per-chunk parsing can mistake script text for markup.
+        return HtmlMediaReferences::rewrite(serialize_blocks($blocks), static function (array $reference) use (
+            $tokens, $policy, $forceUnresolvedRefs, $postLabel
+        ): ?string {
+            if (is_string($reference['reference'])) return $reference['suffix'];
+            $id = $reference['reference'];
+            $token = $tokens->id_to_token($id, 'post');
+            if ($token !== null) return $token;
+            $name = $reference['block'];
+            $tokens->warnings[] = "block '$name' wp-image-$id class: unmapped post id $id dropped (dangling reference)";
+            self::queue_unscoped($tokens, $policy, $forceUnresolvedRefs, $postLabel, $name, 'wp-image-class', 'post', $id);
+            return null;
+        });
     }
 
     public static function apply_rewrite(string $content, Policy $policy, Tokens $tokens): string {
@@ -245,7 +256,12 @@ final class Blocks {
             fn($b) => self::walk($b, $rules, $tokens, false, $policy, false, '', $idCodecs),
             $blocks
         );
-        return serialize_blocks($blocks);
+        return HtmlMediaReferences::rewrite(serialize_blocks($blocks), static function (array $reference) use ($tokens): string {
+            if (!is_string($reference['reference']) || !$reference['literal']) {
+                throw new \RuntimeException('wprism: HTML media class requires a canonical post token before apply');
+            }
+            return (string) $tokens->token_to_id($reference['reference']);
+        });
     }
 
     /** @param array<string,array<string,array{id_type:string}>> $idCodecs */
@@ -264,7 +280,7 @@ final class Blocks {
         // `blockName` is NULL, and PHP 8.5 deprecates a null array offset —
         // both sides of the #561 merge fixed this independently (WP-6.1 here,
         // the whole-block codec change upstream). This copy keeps `$name`
-        // itself null so every warning and IMAGE_CLASS_BLOCKS check reads
+        // itself null so every existing attribute warning reads
         // exactly as it did, and normalises only the LOOKUP key: no registry
         // can hold a rule under the empty string.
         // The `?? null` covers the key being ABSENT rather than null, which is
@@ -325,6 +341,21 @@ final class Blocks {
         }
         foreach ($codec === null ? $declaredRules : [] as $rule) {
             $path = $rule['path'];
+            if (isset($rule['value']) && array_key_exists($path, (array) ($block['attrs'] ?? []))) {
+                $valueRule = $rule['value'];
+                if ($capture && ($valueRule['class'] ?? '') === 'derived') {
+                    unset($block['attrs'][$path]);
+                    continue;
+                }
+                $where = "block '$name' attribute '$path'";
+                $block['attrs'][$path] = $capture
+                    ? BlockValueCodec::capture($block['attrs'][$path], $valueRule, $tokens,
+                        static function (int $id, string $kind) use ($tokens, $policy, $forceUnresolvedRefs, $postLabel, $name, $path): void {
+                            self::queue_unscoped($tokens, $policy, $forceUnresolvedRefs, $postLabel, $name, $path, $kind, $id);
+                        }, $where)
+                    : BlockValueCodec::apply($block['attrs'][$path], $valueRule, $tokens, $where);
+                continue;
+            }
             if (!isset($block['attrs'][$path])) {
                 continue;
             }
@@ -449,54 +480,14 @@ final class Blocks {
             }
         }
 
-        $rewriteImageClass = in_array($name, self::IMAGE_CLASS_BLOCKS, true);
         $rewriteString = function (?string $s) use (
-            $tokens, $capture, $rewriteImageClass, $policy, $forceUnresolvedRefs, $postLabel, $name
+            $tokens, $capture, $policy, $forceUnresolvedRefs, $postLabel
         ): ?string {
             if ($s === null || $s === '') {
                 return $s;
             }
-            if ($rewriteImageClass) {
-                if ($capture) {
-                    // issue #3212: this used to fail OPEN on an unmapped id —
-                    // $m[0] (the raw "wp-image-999" text) returned unchanged,
-                    // leaking the raw env-local id into canonical state
-                    // (harness case B4) — the one place in this class that
-                    // didn't already match attrs.id's own drop-with-warning
-                    // treatment two mechanisms up, despite reading the SAME
-                    // ledger entry via the SAME id_to_token() call. Capture
-                    // group 1 is whatever whitespace precedes the token (or
-                    // '' at the start of a class list); on drop, both the
-                    // token AND its own leading separator are removed
-                    // together, so "foo wp-image-999 bar" -> "foo bar" (the
-                    // separator AFTER "wp-image-999" already there before
-                    // bar is left untouched) rather than leaving a double
-                    // space or an orphaned separator behind.
-                    $s = preg_replace_callback('/(\s*)wp-image-(\d+)/', function ($m) use (
-                        $tokens, $policy, $forceUnresolvedRefs, $postLabel, $name
-                    ) {
-                        $ws = $m[1];
-                        $id = (int) $m[2];
-                        $tok = $tokens->id_to_token($id, 'post');
-                        if ($tok !== null) {
-                            return $ws . 'wp-image-' . $tok;
-                        }
-                        $tokens->warnings[] = "block '$name' wp-image-$id class: unmapped post id $id "
-                            . 'dropped (dangling reference)';
-                        self::queue_unscoped(
-                            $tokens, $policy, $forceUnresolvedRefs, $postLabel,
-                            $name, 'wp-image-class', 'post', $id
-                        );
-                        return ''; // drop the class AND its own leading separator together
-                    }, $s);
-                } else {
-                    $s = preg_replace_callback('/wp-image-(\{\{post:[0-9a-f-]{36}\}\})/', function ($m) use ($tokens) {
-                        return 'wp-image-' . $tokens->token_to_id($m[1]);
-                    }, $s);
-                }
-            }
             // issue #3259: shortcode-attribute ref rewriting, threaded
-            // through the SAME per-chunk closure wp-image-N/URL
+            // through the same per-chunk closure URL
             // tokenization already runs on -- a shortcode instance is
             // just more raw text sitting in innerContent, whether it's
             // hand-typed into a Classic/Paragraph block or the entire
@@ -542,7 +533,7 @@ final class Blocks {
         // string, confirmed against the block-parser stub's own parse
         // loop), so rewriting both was always redundant work on the same
         // input — harmless while $rewriteString was a pure substitution,
-        // but once the wp-image-N branch gained side effects (a warning +
+        // but once structural rewrites gained side effects (a warning +
         // an unscoped-ref queue push), redundant execution became a real
         // double-fire bug: caught by this task's own new B4/B10 checks
         // asserting on warning/queue COUNTS, not just final values, before

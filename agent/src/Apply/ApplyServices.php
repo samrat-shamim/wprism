@@ -10,6 +10,7 @@ require_once __DIR__ . '/TermMaterializer.php';
 require_once __DIR__ . '/OptionsMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
+require_once __DIR__ . '/MediaDerivativeObservation.php';
 require_once __DIR__ . '/PostMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteExecutor.php';
 require_once __DIR__ . '/EnvironmentValues.php';
@@ -64,7 +65,8 @@ final class ApplyServices {
         private readonly Policy $policy,
         private readonly CompiledRepository $compiled,
         private readonly ApplyServiceCallbacks $callbacks,
-        private readonly string $repositoryRoot
+        private readonly string $repositoryRoot,
+        private readonly ?MediaDerivativeObservation $mediaObservation = null
     ) {
         $this->tokens = new Tokens();
         $this->tokens->policy = $policy;
@@ -128,7 +130,8 @@ final class ApplyServices {
             $this->policy,
             $this->field_materializer(),
             $this->compiled,
-            $this->repositoryRoot
+            $this->repositoryRoot,
+            $this->mediaObservation
         );
     }
 

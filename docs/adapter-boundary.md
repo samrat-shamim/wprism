@@ -90,6 +90,33 @@ Engine responsibilities include capture, validation, planning, conflict
 detection, scoped materialization, lifecycle orchestration, effects, receipts,
 recovery, and verification.
 
+Untrusted PHP serialization also crosses an engine boundary. All engine-owned
+raw decodes use `SerializedDataPreflight` before PHP's decoder. The class filter
+alone is insufficient: PHP enum records ignore `allowed_classes` and can invoke
+an autoloader before an outer value check. The preflight distinguishes actual
+`E` records from the same bytes inside length-framed strings; ordinary class
+records remain subject to the existing disabled-class filter. `PlainData`
+continues to refuse objects, references, recursion and noncanonical framing.
+The shared regression exercises authored-option capture and the review,
+delete-guard and native rewrite readers without executing an autoloader.
+
+An explicitly negotiated whole-option `php-container-values/v1` contract can
+retain builtin `stdClass` alongside PHP arrays. `PhpContainerValue` owns the
+closed, ordered data representation and reconstructs only those two native
+containers. It composes with the existing reference, text and privacy codecs;
+`StructuredReferenceCodec` rewrites an ID-keyed container's items and order
+atomically. Repository authorization validates this representation without
+WordPress or plugin code, and the checked option materializer restores native
+types before serialization. No plugin executable owns this storage conversion.
+
+Structured Gutenberg attributes use the negotiated `block_values` grammar.
+`Kernel/BlockValueGrammar` owns pure declaration and ownership projection;
+`Grammar/BlockValueCodec` composes the existing identity and text codecs.
+The immutable compiler uses `Kernel/BlockAttributeReader` to inspect declared
+comment attributes without WordPress, database access or body reserialization.
+Derived editor caches are explicit exclusions, and their canonical presence
+refuses. Post materialization and transaction recovery remain engine-owned.
+
 ### 2. Declarative manifest
 
 A manifest describes facts that can be represented as data:

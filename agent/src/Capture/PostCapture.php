@@ -27,6 +27,28 @@ final class PostCapture {
     ) {}
 
     /**
+     * Input observation has no authority to publish a canonical post. Its
+     * body and original use the same codecs as capture, without unrelated
+     * author, parent, taxonomy or authored-meta identity prerequisites.
+     */
+    public function captureBlockInput(object $post, string $uuid): array {
+        $front = ['uuid' => $uuid, 'type' => (string) $post->post_type];
+        $mediaRef = null;
+        if ($post->post_type === 'attachment') {
+            $byKey = $this->entityMetaCapture->postMetaByKey((int) $post->ID);
+            $attachment = $this->mediaCapture->capture((int) $post->ID,
+                $byKey['_wp_attached_file'][0] ?? null, (string) $post->post_mime_type, '', true);
+            $front += $attachment['front'];
+            $mediaRef = $attachment['media_ref'];
+        }
+        $body = $this->policy->body_mode((string) $post->post_type) === 'blocks'
+            ? Blocks::capture_rewrite((string) $post->post_content, $this->policy, $this->tokens, false,
+                "{$post->post_type} '{$post->post_name}'") : '';
+        return ['entity' => ['uuid' => $uuid, 'type' => 'post', 'data' => $front, 'body' => $body],
+            'media_ref' => $mediaRef];
+    }
+
+    /**
      * @param array<string,string[]> $taxonomiesByPostType
      * @return array{entity:array,media_ref:?array{0:string,1:array{path?:string,bytes?:string}}}
      */

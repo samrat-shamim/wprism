@@ -1,6 +1,13 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
+require_once __DIR__ . '/../Kernel/KeyBoundStrings.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+require_once __DIR__ . '/../Kernel/RecordFields.php';
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
+
 require_once __DIR__ . '/AdapterSources.php';
 // The feature roster names the action grammar's bounded post-kind selector.
 // Load that owner explicitly: agent/ has no production autoloader, and the
@@ -10,6 +17,7 @@ require_once __DIR__ . '/ActionProviderGrammar.php';
 // judges site.wprism.json's own spec_version and cannot reference this layer.
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
 require_once __DIR__ . '/../Kernel/NativeValueValidation.php';
+require_once __DIR__ . '/../Kernel/ReferenceCondition.php';
 // WP-6.4: the value grammar for the `declaration_evidence` section. Eager, not
 // lazy like AdapterCertification below — that one is deferred because it is one
 // of the four names agent/wprism.php's bootstrap deliberately does not declare
@@ -173,6 +181,16 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        BlockMediaDerivativeGrammar::FEATURE => ['since' => 3, 'keys' => [BlockMediaDerivativeGrammar::SECTION => 'field']],
+        BlockValueGrammar::FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::SECTION => 'field']],
+        // Exact groups normalize inside block_values, so they retain that
+        // section's certificate arm and cannot create a second state surface.
+        BlockValueGrammar::GROUP_FEATURE => ['since' => 3, 'keys' => []],
+        RecordFields::FEATURE => ['since' => 3, 'keys' => []],
+        EncodedText::FEATURE => ['since' => 3, 'keys' => []],
+        PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
+        KeyBoundStrings::FEATURE => ['since' => 3, 'keys' => []],
+        ReferenceCondition::FEATURE => ['since' => 3, 'keys' => []],
         // A predicate on an existing metadata field, not a new surface. Its
         // native arm executes only at explicit Capture/Plan/Apply boundaries.
         NativeValueValidation::FEATURE => ['since' => 3, 'keys' => []],
@@ -524,6 +542,24 @@ final class AdapterContractGrammar {
             if ($name === NativeValueValidation::FEATURE) {
                 $rows[$name]['value_constraint'] = NativeValueValidation::declaration_grammar();
             }
+            if ($name === BlockValueGrammar::GROUP_FEATURE) {
+                $rows[$name]['value_constraint'] = BlockValueGrammar::group_grammar();
+            }
+            if ($name === RecordFields::FEATURE) {
+                $rows[$name]['value_constraint'] = RecordFields::declaration_grammar();
+            }
+            if ($name === EncodedText::FEATURE) {
+                $rows[$name]['value_constraint'] = EncodedText::declaration_grammar();
+            }
+            if ($name === KeyBoundStrings::FEATURE) {
+                $rows[$name]['value_constraint'] = KeyBoundStrings::declaration_grammar();
+            }
+            if ($name === PhpContainerValue::FEATURE) {
+                $rows[$name]['value_constraint'] = PhpContainerValue::declaration_grammar();
+            }
+            if ($name === ReferenceCondition::FEATURE) {
+                $rows[$name]['value_constraint'] = ReferenceCondition::declaration_grammar();
+            }
         }
 
         return $rows;
@@ -557,6 +593,8 @@ final class AdapterContractGrammar {
         require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
         require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
         $grammars = [
+            BlockValueGrammar::SECTION => BlockValueGrammar::section_grammar(),
+            BlockMediaDerivativeGrammar::SECTION => BlockMediaDerivativeGrammar::section_grammar(),
             AttrIdCodecGrammar::SECTION => AttrIdCodecGrammar::section_grammar(),
             BodyRefGrammar::SECTION => BodyRefGrammar::section_grammar(),
             ColumnCodecGrammar::SECTION => ColumnCodecGrammar::section_grammar(),

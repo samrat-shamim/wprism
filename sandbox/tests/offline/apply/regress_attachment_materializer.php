@@ -236,7 +236,22 @@ namespace {
         /** @var array<int,array<string,array{function:callable,accepted_args:int}>> */
         public array $callbacks = [];
     }
-    final class WP_Image_Editor_GD {}
+    final class WP_Image_Editor_GD {
+        public function __construct(private readonly string $file) {}
+        public function resize(int $width, int $height, bool $crop): bool {
+            return !($GLOBALS['wprism_recipe_resize_failure'] ?? false);
+        }
+        public function save(string $path, string $mime): array|false {
+            if ($GLOBALS['wprism_recipe_save_failure'] ?? false) return false;
+            $bytes = file_get_contents($this->file);
+            if ($GLOBALS['wprism_recipe_different_bytes'] ?? false) {
+                $bytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=', true);
+            }
+            file_put_contents($path, $bytes);
+            return ['path' => $path, 'file' => basename($path), 'width' => 1, 'height' => 1,
+                'mime-type' => $mime, 'filesize' => strlen($bytes) + (int) ($GLOBALS['wprism_recipe_bad_projection'] ?? false)];
+        }
+    }
     final class WC_Regenerate_Images {
         public static function add_uncropped_metadata(mixed $metadata): never {
             ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
@@ -656,7 +671,13 @@ namespace {
             trigger_error('hostile-editor-warning-secret', E_USER_WARNING);
         }
         if ($GLOBALS['wprism_attachment_editor_output']) echo 'hostile-editor-output-secret';
-        return new WP_Image_Editor_GD();
+        return new WP_Image_Editor_GD($file);
+    }
+
+    function image_resize_dimensions(int $sourceWidth, int $sourceHeight, int $width, int $height, bool $crop): array|false {
+        // The one-pixel fixture cannot shrink. A controlled geometry response
+        // exercises the resize failure boundary without claiming native GD evidence.
+        return ($GLOBALS['wprism_recipe_resize_failure'] ?? false) ? [0, 0, 0, 0, 1, 1, 1, 1] : false;
     }
 
     function wp_generate_attachment_metadata(int $attachmentId, string $file): array {
@@ -1023,6 +1044,178 @@ namespace {
         $filesystem->cleanup_complete(null);
         $filesystem->end();
         $check(!is_dir($repository . '/.wprism/attachment-filesystem/current'), 'terminal marker-free cleanup removes the reusable current slot');
+
+        require_once $root . '/sandbox/tests/lib/frozen_policy.php';
+        require_once $root . '/sandbox/tests/lib/agent_version.php';
+        wprism_test_define_agent_versions();
+        $recipeManifest = ['name' => 'attachment-recipe-fixture', 'spec_version' => 3,
+            'engine_features' => ['block-attribute-values/v1', 'block-media-derivatives/v1', 'spec-window/v1'],
+            'option_autoload' => 'preserve',
+            'block_values' => ['fixture/image' => ['image' => ['class' => 'authored',
+                'json_refs' => [['path' => '$.id', 'kind' => 'post']]]]],
+            'block_media_derivatives' => ['fixture/image' => [['attachment' => '$.image.id', 'url' => '$.image.url',
+                'width' => '$.width', 'height' => '$.height', 'crop' => true,
+                'filename' => 'requested-dimensions', 'dimension_cast' => 'integer']]]];
+        $recipePolicy = \WPrismTest\FrozenPolicy::policy([$recipeManifest], \WPrismTest\FrozenPolicy::site([$recipeManifest], 3));
+        $recipePage = '22222222-2222-4222-8222-222222222222';
+        $recipeFront = array_replace($front, ['file' => '2026/08/recipes.png']);
+        $recipeTarget = [$uuid => ['body' => '', 'data' => $recipeFront, 'type' => 'post'],
+            $recipePage => ['body' => '', 'data' => ['type' => 'page', 'uuid' => $recipePage], 'type' => 'post']];
+        $recipeTree = $recipeTarget;
+        foreach ([[333, 211], [300, 300]] as [$width, $height]) {
+            $recipeTree[$recipePage]['body'] .= '<!-- wp:fixture/image ' . json_encode([
+                'image' => ['id' => '{{post:' . $uuid . '}}', 'url' => '{{uploads}}/2026/08/recipes-' . $width . 'x' . $height . '.png'],
+                'width' => $width, 'height' => $height,
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . ' /-->';
+        }
+        $recipeCompiled = CompiledRepository::create([
+            'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
+            'tree' => $recipeTree,
+            'media_derivatives' => \WPrism\RepositoryMediaDerivatives::derive($recipeTree, $recipePolicy),
+            'manifest_hash' => str_repeat('d', 64),
+        ]);
+        $recipeWork = [['uuid' => $recipePage]];
+        file_put_contents($uploads . '/2026/08/recipes.png', $png);
+        $recipeSelection = \WPrism\MediaDerivativeWorkset::select($recipeCompiled, $recipePolicy, $recipeTarget, $recipeWork, []);
+        $recipeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+        $recipeGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $recipeCompiled, $recipeFs);
+        $throws(static fn() => $recipeFs->prepare($recipeWork, $recipeTree, $recipeGenerator),
+            'require observed consumer work selection', 'compiled crop work cannot silently enter the legacy attachment-only path');
+        $recipeFs->prepare($recipeWork, $recipeTree, $recipeGenerator, $recipeSelection);
+        $recipeJournalPath = $repository . '/.wprism/attachment-filesystem/current/journal.json';
+        $recipeJournal = \WPrism\Canon::decode(file_get_contents($recipeJournalPath));
+        $check(count($recipeJournal['rows']) === 1 && count($recipeJournal['rows'][0]['derivative_recipes'] ?? []) === 2,
+            'content-only work selects its unchanged attachment and seals both requested crop transforms');
+        $recipeFs->register_attachment(41, $recipeFront, ['2026/08/recipes.png']);
+        $recipeMarker = $recipeFs->seal_authored_transaction();
+        $recipeFs->commit_authored_transaction($recipeMarker['value']);
+        $throws(static fn() => $recipeFs->generation_recipes(41, $uploads . '/2026/08/recipes.png'),
+            'exact journal generation boundary', 'recipe authority refuses public upload paths and pre-generation phases');
+        $throws(static fn() => $recipeFs->generation_recipes(42, $uploads . '/2026/08/recipes.png'),
+            'identity is absent', 'recipe authority refuses a different attachment identity');
+        $recipeFs->end();
+        foreach (['resize_failure' => 'native resize failed', 'save_failure' => 'native save lacks exact',
+            'bad_projection' => 'projection disagrees with generated bytes',
+            'different_bytes' => 'conflicts with native generated file bytes'] as $fault => $needle) {
+            $recipeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+            $recipeFs->load_pending();
+            $recipeFs->recover_pending_with_marker($recipeMarker['value']);
+            $recipeGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $recipeCompiled, $recipeFs);
+            $GLOBALS['wprism_recipe_' . $fault] = true;
+            try {
+                $throws(static fn() => $recipeFs->generate_metadata($recipeGenerator), $needle,
+                    "declared derivative $fault refuses before publishing any crop");
+            } finally { $GLOBALS['wprism_recipe_' . $fault] = false; }
+            $check(!file_exists($uploads . '/2026/08/recipes-333x211.png') && $recipeFs->phase() === 'generating_metadata',
+                "declared derivative $fault leaves its committed original and recoverable generation intent");
+            $recipeFs->end();
+        }
+        $recipeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+        $journalBytes = file_get_contents($recipeJournalPath);
+        $badJournal = \WPrism\Canon::decode($journalBytes);
+        ++$badJournal['rows'][0]['derivative_recipes'][0]['width'];
+        file_put_contents($recipeJournalPath, \WPrism\Canon::encode($badJournal));
+        try {
+            $throws(static fn() => $recipeFs->load_pending(), 'disagrees with its sealed original or transform',
+                'a changed durable crop transform refuses before native generation or publication');
+        } finally { file_put_contents($recipeJournalPath, $journalBytes); }
+        $recipeFs->load_pending();
+        $recipeFs->recover_pending_with_marker($recipeMarker['value']);
+        $recipeGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $recipeCompiled, $recipeFs);
+        $recipeFs->generate_metadata($recipeGenerator);
+        $recipeMetadata = PlainData::decode_serialized($recipeFs->generated_metadata_rows()[0]['metadata'], 'recipe fixture');
+        $recipeSizes = $recipeMetadata['sizes'];
+        $recipeFiles = array_column($recipeSizes, 'file');
+        $check(count($recipeSizes) === 2 && in_array('recipes-333x211.png', $recipeFiles, true)
+            && count(array_filter($recipeFiles, static fn(string $file): bool => $file === 'recipes-300x300.png')) === 1,
+            'requested crop files carry native ownership while byte-identical native size collisions coalesce');
+        foreach ($recipeSizes as $size) {
+            $check($size['width'] === 1 && $size['height'] === 1 && $size['filesize'] === strlen($png),
+                'requested filename dimensions remain separate from exact generated dimensions and filesize');
+        }
+        $recipeFs->publish_derivatives();
+        $recipeMetadataMarker = $recipeFs->seal_metadata_transaction();
+        $recipeFs->metadata_transaction_committed($recipeMetadataMarker['value']);
+        $recipeFs->end();
+        $recipeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+        $recipeFs->load_pending();
+        $recipeFs->recover_pending_with_marker($recipeMetadataMarker['value']);
+        $recipeFs->remove_stale_derivatives($recipeMetadataMarker['value']);
+        $recipeFs->cleanup_complete(null);
+        $recipeFs->end();
+        $check(file_get_contents($uploads . '/2026/08/recipes-333x211.png') === $png,
+            'a fresh filesystem owner recovers the metadata COMMIT and retains the exact declared crop bytes');
+
+        $removedCompiled = CompiledRepository::create([
+            'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
+            'tree' => $recipeTarget, 'manifest_hash' => str_repeat('d', 64),
+        ]);
+        $removedWork = \WPrism\MediaDerivativeWorkset::select($removedCompiled, $recipePolicy, $recipeTree, $recipeWork, []);
+        $removedFs = new AttachmentFilesystemTransaction($removedCompiled, $repository);
+        $removedGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $removedCompiled, $removedFs);
+        $removedFs->prepare($recipeWork, $recipeTarget, $removedGenerator, $removedWork);
+        $removedFs->register_attachment(41, $recipeFront, ['2026/08/recipes.png', ...array_map(
+            static fn(string $file): string => '2026/08/' . $file, $recipeFiles)]);
+        $removedMarker = $removedFs->seal_authored_transaction();
+        $removedFs->commit_authored_transaction($removedMarker['value']);
+        $removedFs->generate_metadata($removedGenerator);
+        $removedFs->publish_derivatives();
+        $check(is_file($uploads . '/2026/08/recipes-333x211.png'), 'last-consumer removal retains old crop bytes until native metadata COMMIT');
+        $removedMetadataMarker = $removedFs->seal_metadata_transaction();
+        $removedFs->metadata_transaction_committed($removedMetadataMarker['value']);
+        $removedFs->remove_stale_derivatives($removedMetadataMarker['value']);
+        $check(!file_exists($uploads . '/2026/08/recipes-333x211.png') && is_file($uploads . '/2026/08/recipes-300x300.png'),
+            'last-consumer removal cleans only stale owned crop output and preserves the registered native size');
+        $removedFs->cleanup_complete(null);
+        $removedFs->end();
+
+        // Native plugin crops have content ownership before they acquire a
+        // WordPress sizes row. The exact old original is an independent
+        // prerequisite: the compiled replacement cannot vouch for it.
+        $nativeRecipeWork = \WPrism\MediaDerivativeWorkset::select($recipeCompiled, $recipePolicy, $recipeTree, $recipeWork, []);
+        $nativeOriginal = $uploads . '/2026/08/recipes.png';
+        $nativeCrop = $uploads . '/2026/08/recipes-333x211.png';
+        file_put_contents($nativeCrop, $png);
+        foreach (['unowned-original', 'changed-original', 'changed-after-prepare'] as $fault) {
+            file_put_contents($nativeOriginal, $fault === 'changed-original' ? 'foreign original bytes' : $png);
+            $nativeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+            $nativeGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $recipeCompiled, $nativeFs);
+            $nativeFs->prepare($recipeWork, $recipeTree, $nativeGenerator, $nativeRecipeWork);
+            if ($fault === 'changed-after-prepare') file_put_contents($nativeOriginal, 'late original bytes');
+            $needle = match ($fault) {
+                'unowned-original' => 'lacks prior native attachment ownership',
+                'changed-original' => 'differs from its frozen native file',
+                'changed-after-prepare' => 'prior inventory changed',
+            };
+            $nativeOwned = $fault === 'unowned-original' ? [] : ['2026/08/recipes.png'];
+            $throws(static fn() => $nativeFs->register_attachment(41, $recipeFront, $nativeOwned), $needle,
+                "observed native crop $fault refuses before authored publication");
+            $check(file_get_contents($nativeCrop) === $png, "native crop $fault refusal preserves exact prior crop bytes");
+            if ($fault === 'changed-after-prepare') file_put_contents($nativeOriginal, $png);
+            $nativeFs->rollback_authored_transaction(null);
+            $nativeFs->end();
+        }
+        file_put_contents($nativeOriginal, $png);
+        $nativeFs = new AttachmentFilesystemTransaction($recipeCompiled, $repository);
+        $nativeGenerator = $makeGenerator(static fn(int $id): string => 'image/png', [], $recipeCompiled, $nativeFs);
+        $nativeFs->prepare($recipeWork, $recipeTree, $nativeGenerator, $nativeRecipeWork);
+        $nativeFs->register_attachment(41, $recipeFront, ['2026/08/recipes.png', '2026/08/recipes-300x300.png']);
+        $nativeJournal = \WPrism\Canon::decode(file_get_contents($recipeJournalPath));
+        $check(in_array('2026/08/recipes-333x211.png', $nativeJournal['rows'][0]['owned_prior_paths'], true),
+            'observed native crop enters the existing journal ownership roster with its exact before-image');
+        $nativeMarker = $nativeFs->seal_authored_transaction();
+        $nativeFs->commit_authored_transaction($nativeMarker['value']);
+        $nativeFs->generate_metadata($nativeGenerator);
+        $nativeFs->publish_derivatives();
+        $nativeMetadataMarker = $nativeFs->seal_metadata_transaction();
+        $nativeFs->metadata_transaction_committed($nativeMetadataMarker['value']);
+        $nativeFs->remove_stale_derivatives($nativeMetadataMarker['value']);
+        $nativeMetadata = PlainData::decode_serialized($nativeFs->generated_metadata_rows()[0]['metadata'], 'native crop fixture');
+        $check(in_array('recipes-333x211.png', array_column($nativeMetadata['sizes'], 'file'), true)
+            && file_get_contents($nativeCrop) === $png,
+            'native crop adoption republishes the selected file and establishes genuine generated metadata ownership');
+        $nativeFs->cleanup_complete(null);
+        $nativeFs->end();
 
         $secondUuid = '1a2b3c4d-5e6f-4789-8abc-def012345678';
         $secondFront = $front;

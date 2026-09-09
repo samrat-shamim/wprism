@@ -1,0 +1,561 @@
+{
+  "status": "in-progress",
+  "adapter": "qi-blocks",
+  "plugin": "qi-blocks/class-qi-blocks.php",
+  "version": "1.5.2",
+  "native_fixture_origin": {
+    "pair": "qiauthor02",
+    "source_commit": "1e675fd1",
+    "writer": "Native editor Save button after block insertion and style edits",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2",
+      "contact-form-7": "6.1.7",
+      "woocommerce": "11.0.0"
+    },
+    "body_sha256": "ddb983cc66b235e53d727e1faf108b906d71119edeb01994739b33d0381db53e"
+  },
+  "offline": {
+    "content": {
+      "script": "tests/offline/regress_native_content.php",
+      "exit": 0,
+      "assertions": 478,
+      "native_block_types": 49,
+      "native_instances": 52,
+      "native_media_coordinates": 222
+    },
+    "options": {
+      "script": "tests/offline/regress_native_options.php",
+      "exit": 0,
+      "assertions": 34,
+      "native_selector_strings": 86,
+      "native_identity_frames": 88,
+      "prior_failure": {
+        "engine_commit": "596d9b29",
+        "failure": "Map key 13 became 813 but 88 saved CSS page identity frames remained at source ID 13. The unchanged native round-trip assertion failed before the shared key-bound string codec."
+      },
+      "scope": "Read-only native option capture, immutable compilation, checked SQL transaction, injected rollback/retry and exact recapture. No CSS privacy exception; capture and compilation independently reject private values. Native target behavior is measured separately."
+    },
+    "manifest_validation": {
+      "command": "php cli/wprism manifest-validate . --manifest=qi-blocks --pins=core,qi-blocks",
+      "exit": 0,
+      "scope": "Declaration grammar and pinned-set checks only; does not qualify native behavior."
+    },
+    "package_validation": {
+      "command": "php tools/adapter-package-validate.php --adapter=qi-blocks",
+      "exit": 0,
+      "checks": 15,
+      "scope": "Structure, grammar, artifact and evidence ownership checks; readiness is explicitly unready and native conformance is not yet qualified."
+    },
+    "shared_codec": {
+      "script": "sandbox/tests/offline/grammar/regress_key_bound_strings.php",
+      "exit": 0,
+      "assertions": 109,
+      "scope": "Negotiation, closed/overlapping ownership, source/target ID and URL divergence, compiler/scanner/apply refusals, dangling keys, collisions and size/occurrence bounds."
+    },
+    "declaration_groups": {
+      "script": "sandbox/tests/offline/grammar/regress_block_attribute_groups.php",
+      "exit": 0,
+      "assertions": 223,
+      "scope": "43 group grammar, ownership and identity assertions plus the complete 180-assertion block capture/compiler/SQL/rollback/widget suite. The historical 7497-rule inventory is unchanged apart from three explicitly pinned gallery record projections.",
+      "groups": 177,
+      "manifest_bytes": 120737,
+      "manifest_lines": 2092,
+      "expanded_rules": 7497,
+      "expanded_sha256": "fe99a8e3e8c58c58bb060560808f2c0c161f6a64d5933f69b161625337d834e5",
+      "original_expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"
+    },
+    "conformance_corpus": {
+      "script": "tests/offline/regress_conformance_corpus.php",
+      "exit": 0,
+      "assertions": 98,
+      "native_block_types": 47,
+      "native_instances": 50,
+      "native_selector_frames": 84,
+      "scope": "Independent standalone native corpus preparation, complete block capture and final publication clearance; hostile private prose refuses and the target hook remains explicitly unqualified."
+    },
+    "shared_clearance": {
+      "script": "sandbox/tests/offline/capture/regress_capture_safety_gates.php",
+      "exit": 0,
+      "assertions": 147,
+      "scope": "Complete alphabetic identifiers with one numeric suffix, native SVG viewport coordinates, complete UUIDs across scan windows, and hostile phone/email/secret controls. Named personal roles and bare numeric URL query keys retain their existing privacy refusals."
+    },
+    "native_apply_evidence": {
+      "script": "tests/offline/regress_native_apply_evidence.php",
+      "exit": 0,
+      "assertions": 91,
+      "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Executes the live snapshot operation with different per-site catalogs; these doubles do not qualify native execution."
+    },
+    "native_media": {
+      "script": "tests/offline/regress_native_media.php",
+      "exit": 0,
+      "assertions": 16,
+      "scope": "Native saved crop fragments through actual block capture/apply, immutable compiler and content-only media work selection; stale nested dimensions/URLs refuse. Nine assertions failed against the prior declaration."
+    },
+    "native_controls": {
+      "script": "tests/offline/regress_native_controls.php",
+      "exit": 0,
+      "assertions": 21,
+      "scope": "Six genuine native picker fragments with exactly three sanitized nonce objects. Capture projects the three full-response galleries and preserves the simple-media fields; divergent-ID Apply and exact recapture pass. Four assertions failed before the shared record constraint. Native target qualification is separate."
+    },
+    "native_contexts": {
+      "script": "tests/offline/regress_native_contexts.php",
+      "exit": 0,
+      "assertions": 91,
+      "scope": "Complete native six-widget family and three native widget/page/template style values through SidebarState Capture, immutable compilation and checked widget/option materialization. All six widget IDs diverge, native storage types remain exact, late style failure rolls back widget allocation and writes, and retry/repeat/recapture pass. Template body has content-only compiler coverage; native template discovery and rendering remain separate obligations."
+    }
+  },
+  "quality_gates": {
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 375,
+      "packages": 20,
+      "package_tests": 92,
+      "scenario_gates": 9,
+      "scenarios": 5
+    },
+    "composer check": {
+      "exit": 0,
+      "phpunit_tests": 1324,
+      "phpunit_assertions": 37027
+    },
+    "release-gate": {
+      "exit": 0
+    },
+    "scope": "Full local gates passed on the named candidate before the focused gallery pair. Later documentation changes receive structural and canonical aggregate checks; current results are reported in PR #594.",
+    "tested_engine_commit": "4d50d712593d208e5db98bb440cb9968e0058fec"
+  },
+  "limitations": [
+    "This is an experimental draft, not a production qualification. Twelve readiness families remain open.",
+    "Native content-only page Apply, four selected crops, six-widget typography transfer, zero-write repeats, complete recapture and HTTP CSS pass. Target page editor recognizes 51 valid blocks; widget native Save/reopen is separately exercised. Template discovery/rendering, broader widget/media interactions, lifecycle, host, version-matrix and hostile families remain incomplete.",
+    "Signature, progress-bar images and all three galleries have actual source picker Save/reopen fixtures. Three gallery response caches are now projected by the shared engine; corrected target Apply, real Edit Gallery/Select/Save, reopen and recapture pass. Signature/progress target editing remains outside that result. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
+    "The crop fixture has uniform PNG pixels. Native multi-format/asymmetric crop, removal, collision, recovery, scope and co-install cases remain outside this capsule result."
+  ],
+  "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
+  "source_engine_state": "Native source capture-plan, content-only target Apply, four native crop consumers, three native gallery editor round trips, widget contexts and scoped core-profile FSE template transfer pass on their named commits. Qi remains experimental; complete production qualification is pending.",
+  "native_source_conformance": {
+    "status": "source-capture-plan-passed",
+    "first_attempt": {
+      "source_commit": "be8bfecb381fd5c1357eb54ffcc7b2e6104aae76",
+      "exit": 1,
+      "failure": "WordPress 7.1 REST draft creation with an explicit slug emitted undefined id/post_parent warnings. The fixture now assigns its slug through the publish request; diagnostics remain fatal."
+    },
+    "follow_up_observations": {
+      "native_styles_writer": "passed",
+      "fresh_native_readback": "passed: 47 block types, 50 instances, 84 selector frames",
+      "capture": "refused by the canonical body phone detector before publication; reproduced offline and fixed in the shared detector without privacy exceptions"
+    },
+    "clean_rerun": {
+      "source_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
+      "command": "CONF_PAIR=qicf01 CONF1_PORT=9176 CONF2_PORT=9177 CONF_EXPECTED_SOURCE_SHA=202d7f85a90587af16fa194b3025f0b5b1580c34 WPRISM_SOURCE_ROOT=<candidate-worktree> bash sandbox/conformance/run.sh qi-blocks",
+      "exit": 0,
+      "wordpress": "7.1",
+      "qi_blocks": "1.5.2",
+      "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+      "source_ids": {
+        "image": 1,
+        "first": 2,
+        "second": 3,
+        "page": 4
+      },
+      "native_block_types": 47,
+      "native_instances": 50,
+      "native_selector_frames": 84,
+      "native_body_sha256": "d0b383c3a5ded1f7207fa1e4f4cc0073d3a854735c02fb77754b6d89dd8d6ea8",
+      "native_styles_sha256": "9a5a2ab17d5b682a4774f1761fb0c1afd7d73bd8c8a6e9ebd46d282ed70b0c12",
+      "log_sha256": "39fafaaf9009f48d435d214b46d356d4be85e7c3994f85462f748fb13cd804ce",
+      "verified": [
+        "native WordPress REST content writers",
+        "native Qi style REST writer",
+        "fresh native readback",
+        "complete canonical body and style equality",
+        "zero lint findings",
+        "capture-twice equality",
+        "immutable compilation",
+        "experimental plan and capability boundaries"
+      ],
+      "scope": "Source capture-plan only. No target apply, render, editor Save/reopen, lifecycle, host promotion or combination qualification."
+    }
+  },
+  "native_apply_conformance": {
+    "status": "content-only-native-apply-passed",
+    "source_commit": "44c3cf3fa0f0bce162d2c79fc3da78ecba310e8e",
+    "script": "tests/live/regress_native_apply.sh",
+    "command": "QI_APPLY_PAIR=qia02 QI_APPLY_PORT1=9176 QI_APPLY_PORT2=9177 QI_APPLY_ZIP=<locked-local-archive> WPRISM_EXPECTED_SOURCE_SHA=44c3cf3fa0f0bce162d2c79fc3da78ecba310e8e bash adapter-packages/qi-blocks/tests/live/regress_native_apply.sh",
+    "exit": 0,
+    "wordpress": "7.1",
+    "qi_blocks": "1.5.2",
+    "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "native_block_types": 47,
+    "native_block_instances": 50,
+    "saved_selector_frames": 84,
+    "emitted_selector_frames": 204,
+    "compiled_entities": 7,
+    "preserved_target_trash_rows": 8,
+    "source_uploads": 9,
+    "target_uploads": 8,
+    "source_body_sha256": "5ea30585f85f28dc007d0ca29b61a2c9c0c8e6197081c83599b6f65028c3dfcd",
+    "target_body_sha256": "9b7f2f0668cd92b08310236db6495e0f0684648f926dd8b79f4b15b9fc0df002",
+    "source_styles_sha256": "a661590fb4cfe78385a1504e7804bd109ab8e69c2211589c8c06ea18ddfb905d",
+    "target_styles_sha256": "6366d98721cdcf20c4c55956eca4a13db4bd3cbfc2d432d8af884427eee5642d",
+    "log_sha256": "572031bf0caa6a4c5fda09862582ae53421b567b7d7b413b59e85d0886b2274e",
+    "retained_repositories": [
+      "source",
+      "target-input",
+      "target",
+      "source-repeat",
+      "render-source",
+      "render-target"
+    ],
+    "verified": [
+      "native WordPress and Qi REST writers and fresh readback",
+      "complete native target body and ordered PHP style container against independent corpus expectations",
+      "all four target post/attachment IDs diverge while durable identities remain unchanged",
+      "complete target-local trash rows and every Qi runtime option row preserved",
+      "native attachment metadata, URL, featured-image references and complete upload hashes, lengths and dimensions",
+      "unused source-only 333x211 crop stays absent from target and has no saved or rendered consumer",
+      "actual Apply canary and canonical recapture verifier, zero-write repeat and unchanged complete native observation",
+      "independently retained per-site media catalogs and complete compiled repository convergence across all six snapshots",
+      "complete emitted HTTP stylesheet and all 204 page selectors, with no native mutation during frontend requests",
+      "owned pair, site roots and lease destroyed"
+    ],
+    "scope": "Content-only Apply, repeat, complete native body/options/media and HTTP CSS. No browser, selected custom crop, lifecycle, host, version or combination qualification."
+  },
+  "native_media_conformance": {
+    "source_engine_commit": "b98d450b5f796e534199e75afcdd4670fb81bc65",
+    "command": "QI_APPLY_PAIR=<owned> QI_APPLY_PORT1=<even> QI_APPLY_PORT2=<next> QI_APPLY_ZIP=<locked-1.5.2.zip> WPRISM_EXPECTED_SOURCE_SHA=<source> bash adapter-packages/qi-blocks/tests/live/regress_native_apply.sh",
+    "runner_scope": "The committed runner executed through both admissions. A scratch driver held its existing owned pair for browser inspection before verified teardown.",
+    "exit": 0,
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "selected_dimensions": [
+      [
+        251,
+        157
+      ],
+      [
+        293,
+        181
+      ],
+      [
+        317,
+        193
+      ],
+      [
+        347,
+        219
+      ]
+    ],
+    "source_uploads": 13,
+    "target_uploads": 12,
+    "checks": [
+      "One content update schedules all four native crop consumers on an unchanged attachment; actual verifier passes seven entities.",
+      "All four selected frontend image URLs return HTTP 200 and match native source decoded dimensions and pixels; PNG encoding bytes may differ.",
+      "Four generated metadata entries own their actual files. Complete target Qi options, existing post rows, stock metadata and upload bytes remain unchanged.",
+      "Repeat Apply writes zero; complete target observation remains identical after repeat and native HTTP rendering.",
+      "Four additional per-site policy/state/media snapshots compile and converge; all 204 emitted CSS frames and the full stylesheet match.",
+      "Source-only unused 333x211 crop remains outside target ownership."
+    ],
+    "browser": {
+      "target_block_count": 51,
+      "invalid_blocks": 0,
+      "frontend_console_errors": 0,
+      "editor_console_errors": 0,
+      "editor_console_warnings": 1,
+      "warning": "global-styles-css-custom-properties-inline-css was added to the iframe incorrectly; the same WordPress warning was observed on the source before target Apply.",
+      "images": "All four selected images decode completely with their requested natural dimensions and visible computed visibility.",
+      "native_after": "Every prior post row, Qi option, attachment and upload is unchanged. Native WordPress editor opening adds one wp_global_styles row and one revision autosave; complete post-census equality is not claimed after browser use."
+    },
+    "fixture_sha256": "aa4d08e52ab6b1e751cbd011f749f4af408c062445de104bcc3c7365ca88f6b8",
+    "native_stream_sha256": {
+      "media-source": "9644edb76faacfe07dd2067d5404f3b797b434cb7cf1b085f65ff500bfc59964",
+      "media-target": "f2bb1e37a764e0b597ce6850c0ec65c9881bbf1559fe4262cb7887ccab789422",
+      "media-stable": "f2bb1e37a764e0b597ce6850c0ec65c9881bbf1559fe4262cb7887ccab789422",
+      "media-pixels1": "a0658b13bbd37def92ad9c95a83c27fd1147e348776aa60231cdc0a21ba55bbd",
+      "media-pixels2": "fd7a79ad2d21d28fb8d6e11dc0cb4a3ed56565d34619cc670881f59ff56d3f06",
+      "media-browser-after": "f9e9aa411908083825fda0efe344a1a3209151977a4c9990ee91b42c55db7024"
+    },
+    "scope": "Selected native PNG crop controls, content-only page Apply, HTTP CSS/images and target editor reopen. Source interactive Save provenance is retained with the fixture. No complete readiness, lifecycle, host, version or combination claim."
+  },
+  "native_controls_source": {
+    "source_engine_commit": "3324ff7ee7a592ae3907e3c0c68356889b3d4e53",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "fixture": "fixtures/native-controls/blocks.html",
+    "fixture_sha256": "4d26fead2c183c392f01dae7d5838dc47bcf957c07ef5540f90f714fa7bb9f86",
+    "controls": 6,
+    "invalid_blocks": 0,
+    "discovery": "Actual gallery pickers saved complete wp.media responses; native Capture retained nonces and admin metadata. The separate simple-media controls save six-field image objects.",
+    "representation_probe": "Native savers produced identical HTML with id,url,alt,caption. Actual Save/reopen and Edit Gallery rehydration passed on source only. The initial empty-gallery picker emitted one native Backbone URL-property error; later reopen/Slider had zero errors and one known WordPress iframe stylesheet warning.",
+    "scope": "Source selection/projection evidence, not corrected-engine target Apply or complete readiness."
+  },
+  "native_gallery_target": {
+    "source_engine_commit": "4d50d712593d208e5db98bb440cb9968e0058fec",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "runner": "tests/live/regress_native_apply.sh",
+    "execution_scope": "Focused driver executed the committed baseline and gallery phases, then held the same exact-source pair for browser use. It did not execute the later crop phase.",
+    "pair": "qig01",
+    "driver_exit": 0,
+    "teardown": "Browser closed; owned pair, lease and both site repositories removed. Foreign pair untouched.",
+    "fixture_sha256": "4d26fead2c183c392f01dae7d5838dc47bcf957c07ef5540f90f714fa7bb9f86",
+    "adapter_digest": "aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550",
+    "galleries": [
+      "qi-blocks/image-gallery",
+      "qi-blocks/image-gallery-pinterest",
+      "qi-blocks/image-slider"
+    ],
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "checks": [
+      "Native source REST Save retains all three full media responses. Target Apply retains only id,url,alt,caption and rebinds image ID and home.",
+      "Actual seven-entity verification, one content update and zero-write repeat pass. Four independently retained complete policy/state/media repositories compile and converge before browser edits.",
+      "Complete native target body, options, unrelated rows, attachment metadata and uploads pass independent comparison. All three selected HTTP images match the native attachment bytes; full CSS still matches.",
+      "Target editor opens 51 valid blocks with four-field gallery records. Edit Gallery restores all three checked selections and native attachment details; Select rebuilds the full native media response.",
+      "Actual target page and Qi style Saves both return HTTP 200. Fresh reopen has 51 valid blocks; Capture again removes response metadata without warnings or notes.",
+      "Source and target each produce two complete byte-identical captures after their separate native Saves. All four snapshots compile, and strict complete convergence passes within each site.",
+      "The separately saved source/target repositories differ in exactly page.modified and page.modified_gmt. Complete page body, all other state, policy and media bytes match. Strict cross-site compiler convergence correctly refuses those authored timestamp differences; no timestamp filter is used."
+    ],
+    "browser": {
+      "block_count": 51,
+      "invalid_blocks": 0,
+      "editor_console_errors": 0,
+      "editor_console_warnings": 1,
+      "frontend_console_errors": 0,
+      "warning": "The known WordPress global-styles-css-custom-properties-inline-css iframe stylesheet warning occurs on both editors.",
+      "images": "All three visible gallery images decode. Fetching each actual currentSrc returns HTTP 200 and exactly the independent 4609-byte, 1200x800 native upload SHA. Slider has one authored image and two native Swiper clones.",
+      "native_changes": "The real Save changes only page content and its two modified fields among pre-browser rows, plus the authored Qi style option. Every other prior row, Qi runtime option, attachment and upload stays exact. WordPress adds a global-style row and revisions; fresh reopen replaces its earlier autosave. Full database equality after browser use is not claimed.",
+      "probe_corrections": "Initial automation stopped at the welcome overlay and default Upload tab; subsequent native UI steps passed. The first frontend probe incorrectly compared density-corrected naturalWidth with raw file pixels. The corrected probe independently checks visible DOM images and decoded bitmap/upload bytes. An initial preservation assertion treated a replaced native autosave as permanent; its exact deletion/replacement is retained."
+    },
+    "native_stream_sha256": {
+      "controls-source": "f4c9a85be9aed0e806d0a1f4c326df91d58650f39e04945b8961492e2b6c632e",
+      "controls-target": "36fc402faf075306d372a6944616105fab39e948ca7bdd2705d5a41ed64c0ed5",
+      "controls-stable": "36fc402faf075306d372a6944616105fab39e948ca7bdd2705d5a41ed64c0ed5",
+      "controls-apply": "61f14d94308fbdcf17228584009063897e89ca3cc26803d0cd05eb1389b1e7cf",
+      "controls-repeat": "03ad8be60aefb30775f3e35d8c65c8490fe642d9cd3f4a86a7e26593ec032a39"
+    },
+    "browser_stream_sha256": {
+      "browser-target-saved": "44d6a32ffa685d24b82454a744de407959430c5af814f1be8b951c9c610cf976",
+      "browser-target-after": "f27b3c1e2faebcc9dfd9cc2895aa81f6b34be655b397f4dbb60d21b1363ef305",
+      "browser-source-saved": "b4c401032b5515a25124a8f8ad11e9d9bc67773db50310a4b53af8e8f2ff76b3",
+      "browser-target-capture": "5e2187d59680ba8985bd17b92ac7df451cabe750da6c22a7b8e48fb362471320",
+      "browser-source-capture": "f73604bf7d6187d9187b5dc2aed4e6a8ec1cc8642ff1bc0fa9d19691a30ad57b"
+    },
+    "native_save_body_sha256": {
+      "target-page-request": "0fae92b3ce922f4ea5c5700385e1a0e0dc03d74dbb298bd2bee785dd67406c60",
+      "target-page-response": "e7156d31be1d7bf9c3bb34dd010ea4fbf2c153107ed8c8985d7f03fa7f693df5",
+      "target-style-request": "5c0056f3ad236ece9524bea5ed337488a2662376aed82fb3bdbe5cf1b461b976",
+      "target-style-response": "fae40f9670fd2f4f86fef49af62d92d632331bbf5321f18c80335ac80b3b0e7b",
+      "source-page-request": "b4ccf505f70e10e9967183544fe21c973772776ebcf5f570a441e986945d1c1c",
+      "source-page-response": "611506108cf3c08805c2f76e9114cec4b40fd340a4fd08e4327b9f416478661b",
+      "source-style-request": "1720df4e94d4a9841c88db956a2c00ac7890a3158ce5866210a956ee07598e79",
+      "source-style-response": "fae40f9670fd2f4f86fef49af62d92d632331bbf5321f18c80335ac80b3b0e7b"
+    },
+    "scope": "Three single-image gallery controls on the locked free artifact. Private complete evidence is retained; this is no multi-image, other-media, lifecycle, host, version or combination qualification."
+  },
+  "native_widget_contexts": {
+    "source_engine_commit": "0d7efbd9a7b27341b6cc76c7b251f54286f1af75",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2",
+      "twentytwentyone": "2.9"
+    },
+    "pair": "qiw02",
+    "driver_exit": 0,
+    "teardown": "Owned browser, pair, lease and both site repositories removed; foreign pair untouched.",
+    "adapter_digest": "aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550",
+    "execution_scope": "Private source-bound setup and transfer drivers use the shared pair-ownership, private-command, capture, compiler and convergence helpers. Actual browser controls save widget typography on both sites and page typography on the source. This is scoped authoring evidence, not the production conformance hook.",
+    "source_ids": {
+      "page": 1,
+      "widgets": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    "target_ids": {
+      "page": 9,
+      "widgets": [
+        21,
+        22,
+        23,
+        24,
+        25,
+        26
+      ]
+    },
+    "checks": [
+      "Actual source Block Inserter and native typography control save Advanced Text at 29px. WordPress batch transport returns 207 with six successful widget subresponses, and the separate Qi style response has the exact success envelope. Complete widget and style response values match native storage.",
+      "Initial Apply materializes four entities, the actual verifier passes all four, and repeat Apply writes zero. Four independently retained complete repositories compile and converge. All six target widget IDs differ; eight local trash rows and twenty stored unassigned widgets remain intact.",
+      "The target native editor reopens valid Qi content at 29px. Real source and target control edits to 30px each complete the native widget and style Save; full request/response values match stored widgets and styles. Both widget editors report zero errors and warnings.",
+      "Widget-only native storage uses a populated stdClass section with an empty posts array. Qi itself returns false from has_configured_global_styles and renders the text at 18px with no Qi inline stylesheet on both sites. The adapter preserves this upstream behavior without storage coercion.",
+      "Actual source page control Save adds a 31px page style. Concurrent edits of the shared style option produce the reviewed apply_refused conflict before mutation; the complete observed native state is unchanged. Independent comparison proves the source contains every target widget edit, with only the new page style added.",
+      "Explicit reconciliation applies the page and style option, verifies all four entities, and repeats with zero writes. Complete native styles match after rebinding page 1 to page 9. Four independently retained repositories converge, plus two further complete captures after frontend rendering.",
+      "Both frontends display the page text at 31px and widget text at 30px. Their complete Qi inline CSS is identical after the exact page-selector binding. The target frontend reports zero errors and warnings."
+    ],
+    "native_boundaries": [
+      "The native widget editor parks nineteen of the twenty local unassigned block instances in wp_inactive_widgets; all twenty stored settings stay exact. The exact parked-local warning remains visible in later target Capture, Apply and repeat receipts.",
+      "Initial Apply has the explicit default-category adoption warning, synchronizes the authored site name and normalizes the empty widget_text family marker. It does not claim every unrelated option byte stays unchanged.",
+      "The explicit conflict decision is reported in Apply. Its other named warning removes custom_css_post_id=-1 from the active theme option: both native sites have this empty lookup sentinel and no custom_css post. Frontend access recreates that cache; canonical state still converges.",
+      "The source page editor reports the known WordPress iframe stylesheet warning, with no JavaScript errors. Its heartbeat advances exactly the existing runtime _edit_lock on page 1. Apart from this exact lease update and the target empty CSS lookup cache, all observed native fields remain identical after rendering.",
+      "The initial sidebar ordering POST has HTTP 200 evidence but its full request/response body was not retained before navigation. Later widget/style and page/style Save bodies are complete. Native observations cover complete posts, postmeta, terms, term_taxonomy, term_relationships and options, plus uploads; they do not claim a complete database dump."
+    ],
+    "probe_corrections": "The first setup rejected a redundant already-active theme warning and cleaned up. Private transfer setup corrected its required fail callback, owned lease delegation, Bash local-variable initialization and private output directory before product Apply. Widget traversal was corrected for controlled widget areas. Two host admission helpers initially used incorrect return types; retained-stream replay with the documented APIs passes. The reconciliation helper checked native preservation before an incorrect JSON-bytes/array assertion; the explicit decision preceded correction of that assertion. A later complete native comparison identified the exact source editor heartbeat rather than treating it as authored drift.",
+    "native_stream_sha256": {
+      "widget-only-source-native": "54ccf9aab448f6d3c8a6b862c49007a1ebd6deded611e954134eb59f7002b4c9",
+      "widget-only-target-native": "2fd18f13d1d88dfa4f50ea37d1fdf34766776ebd128ef7b2536a074a60ef6b7e",
+      "widget-only-target-apply": "b2b2b53a955ab1cbd743c84448a6e46acb1e9907ac635ccc81b7f941ec453deb",
+      "widget-only-target-repeat": "baee3a5051079b5f381dfb6c7bdb10ce381d2c1cb82c4840cb37588e0cafb198",
+      "widget-page-target-before": "bae269fae522284a425fdd3234107bf32c229aa7bd3438f59f968162db9652b1",
+      "widget-page-target-apply": "942fd89edafb257608a188c41ad88c33679921df9ea99108ceb336def7737bb6",
+      "widget-page-refused-native": "bae269fae522284a425fdd3234107bf32c229aa7bd3438f59f968162db9652b1",
+      "widget-page-target-force": "8f898a6a280de718c1ad8f377b73fbb6b753d17d07ec944f3ef26358da4376bd",
+      "widget-page-source-native": "b031a77b88cfc9136d3259497a85fd6746ec71b43dc9cc03e92c15d2f6a48df5",
+      "widget-page-target-native": "33a759e18439d785b57e21bcbb451733772de6f6ae1e1d638463d94f64827349",
+      "widget-page-target-repeat": "0b7753667b057b3951d80a5b6905e6550836ab0f81f0188168278cde56a0412f",
+      "widget-render-source-native": "d63cdf57c046a2fd5f1f8e112b328fb3c85f9367c972d492ce8c50c9e4d75759",
+      "widget-render-target-native": "7b7399c5b36eabae51dd334207a27cd7b404a5aa2c057675162e6c34d2fc06bb"
+    },
+    "browser_stream_sha256": {
+      "source-widget-save": "2df3ba158e3d408bf2110cff58b53f4869ddc7eff1babe115c53eb7b169c022d",
+      "source-widget-save30": "4a8bdbed5f237ab212261b4a1fe81ec99d70a8127687a3ba67566f6e031415da",
+      "target-widget-save30": "5b55ccc886cde6e8fb70ad5e5b2f4c8435dc5ffc04cbff128a251a36bbc13e89",
+      "source-page-save": "aba6d58563f11930025a777b44cbc78a0ed111794f28f5edde922ff781450d37",
+      "target-widget-reopen": "13b43a60e580fbfb983ae28bca1cde20a98e511e85f27db2d1517992d71f76c7",
+      "source-widget-page-frontend": "446e865758ef7e650bc77c217a8a18472168c332af66dbb18aec38c928d7efe4",
+      "target-widget-page-frontend": "e39ee5ff9b4b39e06dd802d8f46530b757aafb5f47817da999ee1c2025e40fe6"
+    },
+    "scope": "One Qi Advanced Text widget alongside five core widgets, native font controls, two style-root combinations, divergent identities, explicit concurrency refusal/reconciliation and complete recapture. No native FSE template, widget media, multi-image, lifecycle, host, version or participant-combination qualification."
+  },
+  "native_fse_contexts": {
+    "source_engine_commit": "585e7ede68f174f4721149a845b7add2d6490aff",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2",
+      "twentytwentyfive": "1.5"
+    },
+    "pair": "qif01",
+    "driver_exit": 0,
+    "teardown": "Owned browser, pair, lease and both site repositories removed; foreign pair untouched.",
+    "adapter_digest": "aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550",
+    "execution_scope": "Private source-bound setup and transfer drivers use shared pair ownership, private command streams, Capture, Apply, immutable compilation and strict repository convergence. Existing InitPlanner::fse_profile_scope selects the certified core profile. Actual Site Editor and page-template controls provide native writer evidence. This is scoped authoring evidence, not the production conformance hook.",
+    "source_ids": {
+      "page": 1,
+      "wp_template": 2,
+      "wp_navigation": 4,
+      "wp_theme": 2
+    },
+    "target_ids": {
+      "page": 10,
+      "wp_template": 9,
+      "wp_navigation": 11,
+      "wp_theme": 10
+    },
+    "checks": [
+      "Both actual setup wizards complete with the same 48 submitted free-block controls, telemetry declined and the native completed flag. The plugin creates its own full-width template during admin_init on both sites and attaches the active wp_theme term.",
+      "Actual source Site Editor controls insert Advanced Text at 32px. Both the complete WordPress template Save and Qi literal-template style Save return HTTP 200; their complete request/response bodies match native storage. Header, post-content, Qi text and footer remain valid root blocks.",
+      "The source page template chooser selects Qi Blocks Full Width and saves the exact template slug and unchanged page body. Its native previews also populate two page-specific style records; the page style writer and full raw option readback agree.",
+      "Capture uses the existing core FSE post-type and taxonomy profile. Explicit native template/category/theme adoption applies seven entities; the actual seven-entity verifier passes and repeat Apply writes zero with no warnings. Four complete retained policy/state/media repositories compile and converge.",
+      "Complete managed post rows agree after their three independent ID/GUID bindings. Native template discovery differs only by wp_id 2 to 9. The active theme term moves from 2 to 10, while the target existing relationship remains exact. The selected page template and durable post/term metadata agree.",
+      "All eight target-local trash rows and their category relationships remain exact. The five inherited core widgets preserve complete settings under their allocated target IDs. Complete raw Qi style bytes, PHP types, root order and all selectors match after page 1 to 10 rebinding. Other Qi runtime options remain exact.",
+      "Both frontends render the selected template text at 32px with header and footer. The complete Qi stylesheet matches after the exact page-selector binding. The target native Site Editor reopens all 37 blocks as valid and retains the 32px control value.",
+      "Actual source and target Site Editor control edits to 33px each complete both native Save writers; complete request/response values match stored templates and styles. Fresh editors reopen all 37 blocks as valid at 33px. Four further complete repositories compile and converge within each site; independent native Saves differ across sites only in the template modified/modified_gmt timestamps."
+    ],
+    "native_boundaries": [
+      "Before the page chooser runs, the populated template stdClass section alone leaves has_configured_global_styles false. The chooser creates native page style records and its Save enables rendering. No adapter type coercion or fabricated page style is used.",
+      "After the 33px template edits, both native frontends still render 32px: the chooser-created page-specific 32px rule overrides the template 33px rule. The source reproduces this without any Apply writing to it. Complete source/target CSS agrees after page rebinding. This does not qualify successful frontend rendering of the later 33px edit.",
+      "Initial Apply reports exactly the template, default-category and active-theme-term adoptions. It also synchronizes the site name, normalizes the empty widget_text marker, sorts the unordered disabled-block membership map and invalidates the empty category_children cache. Complete native options comparisons name these changes; blanket option-byte preservation is not claimed.",
+      "Native editor use creates revisions on both sites and a target wp_global_styles row with its native theme relationship, and refreshes theme/style/pattern caches. All pre-existing post rows remain exact outside the actual template Save fields; all other Qi options and existing post/term metadata remain exact. Complete native observations are stable across repeat Capture.",
+      "Fresh direct Site Editor visits have zero JavaScript errors and the known WordPress iframe stylesheet warning. Frontend observations have no JavaScript errors. Native observations cover complete posts, postmeta, terms, termmeta, term_taxonomy, term_relationships and options plus uploads, not every database table.",
+      "Strict cross-site repository convergence correctly refuses the two separate authored Save timestamps (source 2026-09-09 00:52:13, target 2026-09-09 00:49:36). Exact file comparison proves these are the only cross-site canonical differences; no generic timestamp normalization is used."
+    ],
+    "probe_corrections": "The initial onboarding reader expected a nonexistent switcher field; the native form serializes its 48 block controls directly. Transfer was invoked before that assertion was corrected; retained complete requests and native flags later pass the corrected comparison. Host readers subsequently corrected their expected trash-category relationships and metadata allocation order, admitted the exact empty taxonomy cache invalidation, and stopped expecting modified_gmt from the template REST response, which exposes only modified. Exact retained native timestamps supply that separate check. A raw-byte comparison replaces an invalid decode/re-encode comparison that changed an empty metadata object into an array. Initial reader failures are not reported as passes; the corrected complete native and writer admissions pass.",
+    "native_stream_sha256": {
+      "template-source-first-save": "db6c857171724e942e484cff34e4e49955706d36d62cec058c59a8a2a87827f6",
+      "template-source-selected": "1c2a0f0ff1ad87219aa21003b6b12e168167981693b8cdd5ea8f1acb7ea38494",
+      "template-target-created": "0783200f68af886e576c09187e4f1c764f9038e47941b70e9586ce3a64d47e47",
+      "template-selected-source-native": "939a608ee07a6f3697c9d0568294f9b301e458d79d7a34ba39fa5e511d613427",
+      "template-selected-target-before": "fecdd260e59a63c25bf75a5b39f3bb6dac072654c7a35aac578a16502f6b275e",
+      "template-selected-target-native": "4463d5016d9026fe4f564bbfdfde24f9aabf37c16104863e448d3b4b1be57ee1",
+      "template-selected-target-plan": "d85f348d7633157fe99ec90e579f18dcdcb6aeb54c1cebaaa42ed87d2af090a7",
+      "template-selected-target-apply": "7f112f1c0824f6e840e23ad783ce02b370c9130e34c2a36f72dd2c384b4dbb18",
+      "template-selected-target-repeat": "e4f1776c458e2f16a0750a029ec22434513fe926eb8ba82f59a998aa90513163",
+      "template-selected-target-stable": "4463d5016d9026fe4f564bbfdfde24f9aabf37c16104863e448d3b4b1be57ee1",
+      "template-target-saved33": "0668101ad53c252e96d89a11481dcaa96db009ffeb15ffa68d95c3f38caef4ef",
+      "template-edited-source-native": "2f2d0d6e8b748b9e69c7ede371a46ba0a6c37250d4074d240b8a3ed651949dbe",
+      "template-edited-target-native": "0668101ad53c252e96d89a11481dcaa96db009ffeb15ffa68d95c3f38caef4ef",
+      "template-edited-repeat-source-native": "2f2d0d6e8b748b9e69c7ede371a46ba0a6c37250d4074d240b8a3ed651949dbe",
+      "template-edited-repeat-target-native": "0668101ad53c252e96d89a11481dcaa96db009ffeb15ffa68d95c3f38caef4ef"
+    },
+    "browser_stream_sha256": {
+      "source-onboarding-finish": "b2b42f1e886776c34efea324e0c49b3a1827876acb1743b20e5e809e2a2f54d2",
+      "target-onboarding-finish": "eba3efa61bda22df9e1ae61a4626787ee871c578ed40520d59f86dc37493b9d1",
+      "source-template-controls32": "d5a3ba2480cde87d2728e5d393e984d6bc686275e658506971c99e3b4adfbedb",
+      "source-page-template-save": "f16db254f1427682807188b459acdd002b491a92a4f267040a623211a82eb362",
+      "target-template-reopen32": "335d31790d73f290ce84a786fe252883fbf554974400a52c2f153157bee03c5b",
+      "source-template-save33": "7ecada26f374950b9234015233ae40fe200fbf62207706d97119ae4d8bd281bd",
+      "target-template-save33": "f9b96c2b83d72ed2d397ff5401ff033b37d0090664044b599b8d58f972f55393",
+      "source-template-reopen33": "52cc5469adfbceaf42b8e6fc10a276a740831ce785393683408c47b672babe37",
+      "target-template-reopen33": "2e477937a34baa9285cfc32291dd72ad30caa40e1f75d7d22e07ec7b90ecb358",
+      "source-template-only-frontend": "89f750962f6a2576cd36dae01e2f43cede9d31d5b7563bf5aac5421636b5524c",
+      "target-template-selected-frontend": "237ad2b715554c13d1c3f2f0788a3ee32886b1e6f6b2633ce8b581cfadb64c3d",
+      "source-template33-frontend": "9fd3b55703de2aa4f5ba6641d42bbf091474759cb4b5993080d52b3aa98aec10",
+      "target-template33-frontend": "f326aef6e673118b5e7a517ef68f8977fd02e62130a319b6ffc956feaae88454"
+    },
+    "initial_template_writer_sha256": {
+      "source-template-save-request": "4efaa05668b7d38abdf61e75f47f35c200c8e9ee0f6cf7e49f0cdd34fc83a3db",
+      "source-template-save-response": "02b37a5597c8084564537e7b5f997c83e61fe7790276ca15a3649a0bbaa47bda",
+      "source-template-style-request": "f65c997ce7d8d543bdf6eb210a4110e0e20c0f36f3c09615aea1fddc9816cfd6",
+      "source-template-style-response": "0e84df26fe3aeaef143fe887156689e66e3afb87e0ed4fde179c89ca54fbe6b7"
+    },
+    "admission_sha256": {
+      "admission-04": "2bf1dcf202ebad56a80b16c3590c600db5df9b2a51b4ba45b1620edbef52d6c8",
+      "writer-admission-03": "7f81c26c2998366f348777e4efbd93bbc8f58019a2df51e29f84345d044b5d0e",
+      "onboarding-admission": "7d5793ddadb855c26d13ef9ed8e9834e0ba3fd4e97051af63aa219d1e6dcde02"
+    },
+    "scope": "One Qi Advanced Text template and native page selection with the existing core FSE profile and the same exact active block theme. No inline-template writer requalification, theme-file editing, template media, lifecycle, host, adjacent-version or participant-combination qualification. The historical source-template-only-frontend filename records the already-selected page after its chooser Save, not a template-only CSS failure."
+  }
+}

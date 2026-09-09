@@ -708,6 +708,50 @@ capture_probe() { # <success|Warning|Notice|Deprecated|display-warning|startup|p
 CAPTURE_SUCCESS=$(capture_probe success)
 [ "$CAPTURE_SUCCESS" = $'compose prelude\nWarning: provider capability fired: fixture rebuild (verified)\nRESULT={"canary":"clean"}' ] \
   || fail "capture_wprism_json_success did not publish the exact final envelope while preserving transport/action receipts: $CAPTURE_SUCCESS"
+
+document_capture_probe() {
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    fake_document() {
+      printf 'compose document prelude\n' >&2
+      case "$1" in
+        pretty) printf '{\n  "tables": {"fixture": {"present": true}}\n}\n' ;;
+        array) printf '[\n  {"fixture":true}\n]\n' ;;
+        compact) printf '{"ok":true}' ;;
+        warning-stdout) printf 'PHP Warning: fixture warning in Unknown on line 0\n{\n  "ok":true\n}\n' ;;
+        warning-stderr) printf '{"ok":true}'; printf 'PHP Warning: fixture warning in Unknown on line 0\n' >&2 ;;
+        suffix) printf '{\n  "ok":true\n}\nunexpected output\n' ;;
+        prefix) printf 'unexpected output\n{\n  "ok":true\n}\n' ;;
+        multiple) printf '{"first":true}\n{"second":true}\n' ;;
+        scalar) printf 'true\n' ;;
+        empty) : ;;
+        refusal) printf '{\n  "format":"wprism-command-refusal/v1"\n}\n'; return 7 ;;
+      esac
+    }
+    local document=unset
+    capture_wprism_json_document document 'unit probe document' fake_document "$1"
+    printf 'DOCUMENT=%s\n' "$document"
+  ) 2>&1
+}
+for form in pretty array compact; do
+  DOCUMENT_OUT=$(document_capture_probe "$form") \
+    || fail "strict document capture refused healthy $form output: $DOCUMENT_OUT"
+  grep -q '^DOCUMENT=' <<<"$DOCUMENT_OUT" && grep -q '^compose document prelude$' <<<"$DOCUMENT_OUT" \
+    || fail 'strict document capture lost its answer or stderr transport'
+done
+DOCUMENT_OUT=$(document_capture_probe pretty)
+[ "$DOCUMENT_OUT" = $'compose document prelude\nDOCUMENT={\n  "tables": {"fixture": {"present": true}}\n}' ] \
+  || fail 'strict document capture changed the multiline payload bytes'
+for fault in warning-stdout warning-stderr suffix prefix multiple scalar empty refusal; do
+  DOCUMENT_OUT=$(document_capture_probe "$fault") && DOCUMENT_RC=0 || DOCUMENT_RC=$?
+  [ "$DOCUMENT_RC" -ne 0 ] && ! grep -q '^DOCUMENT=' <<<"$DOCUMENT_OUT" \
+    || fail "strict document capture published a $fault answer: $DOCUMENT_OUT"
+done
+DOCUMENT_OUT=$(document_capture_probe refusal) && DOCUMENT_RC=0 || DOCUMENT_RC=$?
+grep -Fq 'wprism-command-refusal/v1' <<<"$DOCUMENT_OUT" && grep -Fq 'failed with exit 7' <<<"$DOCUMENT_OUT" \
+  || fail 'strict document capture lost nonzero refusal data or command status'
+pass 'strict document capture preserves formatted probe output and rejects diagnostics, extra stdout, non-documents and nonzero status'
 for diagnostic in Warning Notice Deprecated display-warning startup parse; do
   CAPTURE_DIAGNOSTIC=$(capture_probe "$diagnostic") && CAPTURE_DIAGNOSTIC_RC=0 || CAPTURE_DIAGNOSTIC_RC=$?
   [ "$CAPTURE_DIAGNOSTIC_RC" -ne 0 ] \

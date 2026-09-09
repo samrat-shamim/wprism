@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
+require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 
@@ -727,8 +728,14 @@ final class SidebarState {
         $out = [];
         foreach ($settings as $key => $value) {
             $rule = (array) $rules[$key];
+            $canonicalBlocks = null;
+            $clearanceValue = $value;
+            if (($rule['codec'] ?? '') === 'blocks' && is_string($value)) {
+                $canonicalBlocks = Blocks::capture_rewrite($value, $policy, $tokens, $forceUnresolvedRefs, "sidebar '$sidebar'");
+                $clearanceValue = [$value, BlockAttributeReader::clearance_value($canonicalBlocks)];
+            }
             $secret = empty($rule['allow_secret'])
-                ? Secrets::clearance_match_deep((string) $key, $value)
+                ? Secrets::clearance_match_deep((string) $key, $clearanceValue)
                 : null;
             if ($secret !== null) {
                 throw new \RuntimeException(
@@ -736,7 +743,7 @@ final class SidebarState {
                     . 'refusing capture without allow_secret=true'
                 );
             }
-            $pii = empty($rule['allow_pii']) ? PersonalData::match_deep((string) $key, $value) : null;
+            $pii = empty($rule['allow_pii']) ? PersonalData::match_deep((string) $key, $clearanceValue) : null;
             if ($pii !== null) {
                 throw new \RuntimeException(
                     "wprism: widget_$type setting '$key' in sidebar '$sidebar' contains personal data ($pii); "
@@ -747,9 +754,7 @@ final class SidebarState {
                 if (!is_string($value)) {
                     throw new \RuntimeException("wprism: widget_$type setting '$key' must be block-content text");
                 }
-                $out[$key] = Blocks::capture_rewrite(
-                    $value, $policy, $tokens, $forceUnresolvedRefs, "sidebar '$sidebar'"
-                );
+                $out[$key] = $canonicalBlocks;
             } elseif (in_array(($rule['ref'] ?? ''), ['term', 'post'], true)) {
                 $kind = (string) $rule['ref'];
                 $id = self::captured_reference_id($value, $type, (string) $key, $sidebar, $kind);

@@ -1,0 +1,51 @@
+{
+  "format": "wprism-aio-login-native-roundtrip/v1",
+  "source_commit": "1fed665dd319afcaf6ed12ef66b0e7f7422029f2",
+  "artifact": {
+    "version": "2.4.1",
+    "sha256": "f025beff401cabc7c4d7c8ee3d549a26197d698e17b5e018ddbabd471b46722b"
+  },
+  "observed": {
+    "source_ids": [
+      1,
+      2,
+      3
+    ],
+    "target_ids": [
+      801,
+      802,
+      803
+    ],
+    "authored_options": 74,
+    "media_references": 5,
+    "native_get_routes": 32,
+    "canary": "clean",
+    "canonical_verification": "pass",
+    "native_password_login": true,
+    "native_email_otp_verification": true,
+    "repeated_apply": "pass",
+    "complete_recapture_diff_bytes": 0
+  },
+  "records": {
+    "apply.json": {
+      "sha256": "bb86a290827ce1ee0c115bb5ac97664162747660cc8880db6840ae13c6f5b1c7"
+    },
+    "canonical.json": {
+      "sha256": "904519d2613364ffe72909e8fbd085081c24b2c002ddc23c2e1f9d6c117a7fe9"
+    },
+    "native.json": {
+      "sha256": "22982e2da450436125a0b813547615a2fbc57c261b092d29f02f2a2babfc7900"
+    },
+    "http.json": {
+      "sha256": "0da9bd063aa1e5ee31af2e6c6231154bd49b50da0d43c9b249d3d63be465d850"
+    },
+    "repeated-apply.json": {
+      "sha256": "1360375a25a658dad7826e56d97f6653e24a95ade8d9dd55d1e2b55d551c32e0"
+    },
+    "recapture.diff": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "scope": "Direct WordPress deploy/apply qualification in a disposable single-site pair. Source capture-plan conformance also passed at this commit. Host release, update/hostile-target, lifecycle, recovery and cross-plugin qualification remain incomplete; experimental status is unchanged.",
+  "source_native_writer_record_sha256": "b95859136adeaaa7fa7426772ac997aef8b022ff3c4ecd495a71d065eb16e296"
+}

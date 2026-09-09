@@ -172,4 +172,72 @@ foreach ([
         'the policy refusal occurs before any transaction or recovery state can be created');
 }
 
+// A pin need not exist for an incompatible plugin to be active. Compile the
+// canonical state-only repository: CodeCompatibility is intentionally absent.
+require_once __DIR__ . '/../../lib/frozen_policy.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+$manifest = [
+    'name' => 'fixture-free-login', 'spec_version' => 3,
+    'engine_features' => ['plugin-incompatibility/v1', 'spec-window/v1'],
+    'plugin' => 'fixture-login/login.php', 'version_range' => ['min' => '1.0', 'max' => '2.0'],
+    'incompatible_plugins' => ['fixture-competitor/login.php'],
+    'option_autoload' => 'preserve',
+    'options' => ['active_plugins' => ['class' => 'managed'], 'fixture_login_route' => ['class' => 'authored']],
+];
+$config = WPrismTest\FrozenPolicy::site([$manifest], WPRISM_SPEC_VERSION);
+$config['policy']['post_types'] = $config['policy']['taxonomies'] = [];
+$policy = WPrismTest\FrozenPolicy::policy([$manifest], $config);
+$repo = $site . '/compiler';
+mkdir($repo . '/state/options', 0700, true);
+register_shutdown_function(static function () use ($repo, $site): void {
+    foreach (['/state/options/core.json', '/site.wprism.json'] as $path) @unlink($repo . $path);
+    foreach (['/state/options', '/state', ''] as $path) @rmdir($repo . $path);
+    @rmdir($site);
+});
+Canon::write_file($repo . '/site.wprism.json', Canon::encode($config));
+$writeActive = static function (array $active) use ($repo): string {
+    $bytes = Canon::encode(WPrism\OptionState::document([
+        'active_plugins' => WPrism\OptionState::present($active, 'yes'),
+        'fixture_login_route' => WPrism\OptionState::present('fixture-route', 'yes'),
+    ]));
+    Canon::write_file($repo . '/state/options/core.json', $bytes);
+    return $bytes;
+};
+$verdicts = [];
+foreach ([
+    ['fixture-login/login.php', 'fixture-competitor/login.php'],
+    ['fixture-competitor/login.php', 'fixture-login/login.php'],
+    ['fixture-competitor/login.php'],
+] as $active) {
+    $bytes = $writeActive($active);
+    $verdict = null;
+    try {
+        WPrism\RepositoryCompiler::compile($repo, $policy);
+    } catch (WPrism\RepositoryAuthorizationException $failure) {
+        $verdict = $failure->payload();
+    }
+    wprism_check_same('repository_active_plugin_incompatible', $verdict['diagnostics'][0]['code'] ?? null,
+        'compilation refuses an active competitor without its adapter pin');
+    wprism_check_same('fixture-competitor/login.php', $verdict['diagnostics'][0]['field'] ?? null,
+        'the authorization finding names the exact active competitor');
+    wprism_check_same('fixture-free-login', $verdict['diagnostics'][0]['declared_by'] ?? null,
+        'the authorization finding names the contract that forbids the competitor');
+    $verdicts[] = $verdict;
+    wprism_check_same($bytes, Canon::read_file($repo . '/state/options/core.json'),
+        'incompatible compilation leaves canonical state unchanged');
+    wprism_check(!is_dir($repo . '/.wprism'), 'incompatible compilation creates no target or recovery state');
+    // Capture publishes only after this same in-memory authorization boundary.
+    wprism_check_throws(static fn() => WPrism\RepositoryAuthorization::assert_tree($policy, [
+        'options/core' => ['type' => 'options', 'path' => 'options/core.json', 'data' => Canon::decode($bytes)],
+    ]), WPrism\RepositoryAuthorizationException::class,
+        'capture-tree authorization refuses the same unpinned active competitor', 'repository_active_plugin_incompatible');
+}
+wprism_check_same($verdicts[0], $verdicts[1], 'active-plugin order cannot change the structured incompatibility verdict');
+foreach ([['fixture-login/login.php'], [], ['fixture-login/login.php', 'fixture-competitor/other.php']] as $active) {
+    $writeActive($active);
+    $compiled = WPrism\RepositoryCompiler::compile($repo, $policy);
+    wprism_check_same($active, WPrism\OptionState::values($compiled->tree()['options/core']['data'])['active_plugins'],
+        'an exact compatible desired graph compiles, allowing lifecycle to remove a target competitor');
+}
+
 wprism_check_summary('regress_plugin_incompatibility');

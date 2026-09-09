@@ -37,10 +37,10 @@
  * are the two blocks where that is a real constraint rather than an accident of
  * three-element lists.
  *
- * The two blocks without a certified anchor are explicit: `wpforms-lite`
- * is experimental, and `duplicate-post` lost its managed-clone certification.
- * An exercise fixture records intent, not a certified version boundary; even
- * an adjacent refusal cannot make either block a bisection result to reproduce.
+ * WPForms and Qi Blocks are experimental; Duplicate Post lost its native
+ * managed-clone certification. These three blocks lack a certified anchor.
+ * An exercise fixture records intent, and an adjacent refusal cannot make
+ * an unqualified block a bisection result to reproduce.
  *
  * ## The properties the synthetic cases exist for
  *
@@ -172,14 +172,14 @@ foreach ((array) $lock['plugins'] as $slug => $block) {
 // other certified block. Duplicate Post's withdrawn claim now joins WPForms
 // outside this certified-anchor set; its adjacent refusal does not restore it.
 wprism_check_same(
-    15,
+    16,
     count($bisectionShaped),
-    '15 of the 17 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
+    '16 of the 19 committed plugin blocks carry a certified-boundary role and are therefore bisection results'
 );
 wprism_check_same(
-    ['duplicate-post', 'wpforms-lite'],
+    ['duplicate-post', 'qi-blocks', 'wpforms-lite'],
     array_keys($exerciseOnly),
-    'both non-authorizing blocks lack a certified anchor, so the search never proposes either as a boundary'
+    'all three non-authorizing blocks lack a certified anchor, so the search never proposes them as boundaries'
 );
 
 // The lock authors its rows oldest-first inside each block, which is the order

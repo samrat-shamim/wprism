@@ -16,13 +16,13 @@
  * one-byte canonical difference in one document would move that adapter's
  * digest, every `site.wprism.json` content pin naming it, and — through
  * `manifest_hash` — every compiled artifact in the field. The WPrism
- * greenfield baseline below pins the current 19-subject identity map through
- * two maximal compatible 18-subject policy worlds, so a split-induced byte
+ * greenfield baseline below pins the current 21-subject identity map through
+ * two maximal compatible 19-subject policy worlds and a separate AIO world, so a split-induced byte
  * change is still a measured fleet-visible failure.
  *
  * THE GATE ASSERTION, AND WHY IT IS NOT A TAUTOLOGY
  * ------------------------------------------------
- * PART 1 pins the current WPrism 19-subject digest union, each compatible
+ * PART 1 pins the current WPrism 21-subject digest union, each compatible
  * world's `manifest_hash` and snapshot, and `registry_sha256` as LITERALS
  * captured from this greenfield tree, through the product path a deployed
  * site uses. Recomputing both sides of an equality would prove nothing — it
@@ -162,7 +162,7 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * Rule 2 makes each of those historical transitions fleet-visible BY DESIGN.
  *
  * The frozen map and these overlays remain historical evidence only. The
- * current WPrism gate is the explicit 18-subject map below, observed as the
+ * current WPrism gate is the explicit 21-subject map below, observed as the
  * union of two valid maximal policy worlds; it does not infer an unmoved or
  * moved count from the pre-split capture.
  */
@@ -345,6 +345,19 @@ const PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA = '5f923b7b5e6b2decaf3272fcda46
 const PRE_WPFORMS_LOCATION_PROVIDER_RANK_SNAPSHOT_SHA = 'c54d19c1c4722335f9f2e3a586baed2ff47c8cd8aff962d4b24cd6c9f5cbd4a3';
 const PRE_WPFORMS_LOCATION_PROVIDER_YOAST_SNAPSHOT_SHA = 'c6e85f18d1da81585d333c29deffcfed673c91df7ff5aecc054d7bbcd36fa9c3';
 
+// Native Qi Save exposed an omitted Parallax item and six unused responsive
+// placeholders. Only its declaration changes; keep the prior addresses so
+// this intentional re-pin cannot silently move a neighbouring adapter.
+const PRE_QI_CROP_SELECTION_DIGEST = '5c71f2e2babd8aa9be205587ca492482f9913b3117cf512831f481cf76cb6dcc';
+const PRE_QI_CROP_RANK_MANIFEST_HASH = 'bfaf45ed2f985742dd6a4174d9b22a86e7e9412e1425e9b78d8bd6c1142c0bbe';
+const PRE_QI_CROP_YOAST_MANIFEST_HASH = '00d8e80efdfc11fdf1c7ed92c2bf766f8775b1e0f51cf0aaa4750f5a1fdc97a1';
+const PRE_QI_CROP_RANK_SNAPSHOT_SHA = 'ed4ee62440064dc04b4e3dea2c0e6561df41d19ad920bf45ea8fd9c6da81422a';
+const PRE_QI_CROP_YOAST_SNAPSHOT_SHA = '45fd42af992fa865417d0a8edb5e2e6351728cdcc00e6ebf7273cfce91a1460a';
+
+// Actual native gallery responses require an intentional three-rule projection.
+// Preserve the preceding crop-qualified Qi identity as its own transition.
+const PRE_QI_RECORD_FIELDS_DIGEST = '590ffbb979b8a049674c0813aa04216e159340ff7dec31a22e8664115e6753f9';
+
 // Withdrawing an overbroad native-clone claim moves only its disposition.
 // Preserve the exact preceding claim to check the other 18 entries unchanged.
 const PRE_MANAGED_CLONE_YDP_DIGEST = '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456';
@@ -365,6 +378,7 @@ const PRE_MANAGED_CLONE_YDP_REASON = 'Certified for exact Yoast Duplicate Post 4
 const WPRISM_CURRENT_DIGESTS = [
     'acf' => 'c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d',
     'advanced-editor-tools' => 'cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d',
+    'change-wp-admin-login' => 'd40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
@@ -373,6 +387,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '933ff6b878ef3545597b9111aeade9aa13d54389a168f9a44ddee89984991e17',
+    'qi-blocks' => 'aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
@@ -383,11 +398,11 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '37fb63ff449c34d5640c8784cfa137ffac026e6caca0a709d5f72af573ec51d3';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '9a82f4109840f1664159fea9e24fd4ead969f9f601bcc21cbf62fc8d03a42a24';
-const WPRISM_CURRENT_REGISTRY_SHA = '8081c46a5e41b0da615a1a16d0382ded7e72c968bc150ca31eb3219f34a739bc';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '454e99aed56b98e0b09e0f09d0902d21933cf8bce584d80d2261bc00d6860e34';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'bc6ce45921fb339252902621cb0e4a6725286b8a5c8b7058fdb19241d088a673';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '16e71494c59307634541b725aef83618b54fcc7638384c2804953e51d57b9e4b';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'c1e83e5223987c126595854ae8d8dc99f1a1b020c41ab5749e66bf8abbd93dbc';
+const WPRISM_CURRENT_REGISTRY_SHA = '074e3eac800ba5ecbca42315f464139f14731767660ecc7ca432173bfc8c81a7';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '187877989496373c599eaf943dc9edef5c25c6deb281210409937b6235b6ad5b';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '8b4da6c849d129a401a4657a87fb7848a17d5465737c9d9d802db3366dcbc44d';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -397,10 +412,12 @@ wprism_check(
 $shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
-wprism_check_same($actualNames, $shippedNames, 'the literal identity baseline includes every actual package, not only its own two-world union');
-$rankWorldPins = array_values(array_diff($shippedNames, ['yoast']));
-$yoastWorldPins = array_values(array_diff($shippedNames, ['rank-math']));
+wprism_check_same($actualNames, $shippedNames, 'the literal identity baseline includes every actual package, not only its own compatible-world union');
+$rankWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'yoast']));
+$yoastWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'rank-math']));
+$aioPins = ['core', 'change-wp-admin-login'];
 $shippedPolicies = [
+    'aio-world' => Policy::load(null, $aioPins, adapterLibrary: $adapterLibrary),
     'rank-world' => Policy::load(null, $rankWorldPins, adapterLibrary: $adapterLibrary),
     'yoast-world' => Policy::load(null, $yoastWorldPins, adapterLibrary: $adapterLibrary),
 ];
@@ -416,9 +433,9 @@ foreach ($shippedPolicies as $world => $policy) {
     }
 }
 ksort($observed, SORT_STRING);
-$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins)));
+$worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins, $aioPins)));
 sort($worldUnion, SORT_STRING);
-wprism_check_same($shippedNames, $worldUnion, 'the two maximal compatible worlds jointly cover every shipped subject');
+wprism_check_same($shippedNames, $worldUnion, 'the compatible-world union covers every shipped subject');
 wprism_check_same(['rank-math'], array_values(array_diff($rankWorldPins, $yoastWorldPins)), 'the Rank-compatible world differs only by Rank Math');
 wprism_check_same(['yoast'], array_values(array_diff($yoastWorldPins, $rankWorldPins)), 'the Yoast-compatible world differs only by Yoast');
 wprism_check_same(
@@ -699,6 +716,17 @@ wprism_check_same(
 wprism_check_same(['wpforms-lite'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'wpforms-lite' => PRE_WPFORMS_LOCATION_PROVIDER_DIGEST,
 ]))), 'the experimental location provider moves only WPForms package identity, not its engine consumers or neighbours');
+wprism_check_same(['qi-blocks'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'qi-blocks' => PRE_QI_CROP_SELECTION_DIGEST,
+]))), 'native crop selection changes only Qi declaration identity; shared engine owners and neighbouring adapters stay pinned');
+wprism_check(PRE_QI_CROP_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
+    && PRE_QI_CROP_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
+    && PRE_QI_CROP_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
+    && PRE_QI_CROP_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
+    'both compatible Qi policy worlds require explicit recompile and re-pin after correcting the crop consumers');
+wprism_check_same(['qi-blocks'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'qi-blocks' => PRE_QI_RECORD_FIELDS_DIGEST,
+]))), 'native gallery projection changes only Qi identity from the four-crop declaration; all neighbouring adapters stay pinned');
 wprism_check(PRE_WPFORMS_LOCATION_PROVIDER_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
     && PRE_WPFORMS_LOCATION_PROVIDER_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH
     && PRE_WPFORMS_LOCATION_PROVIDER_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA
@@ -714,6 +742,8 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
 $preManagedCloneRegistry = $shippedRegistry->data();
+// The upstream historical address predates the two capsules added here.
+unset($preManagedCloneRegistry['manifests']['change-wp-admin-login'], $preManagedCloneRegistry['manifests']['qi-blocks']);
 $priorYdp = &$preManagedCloneRegistry['manifests']['yoast-duplicate-post'];
 wprism_check_same('native-managed-duplication', $priorYdp['unsupported'][0]['surface'] ?? null,
     'the withdrawn native workflow is the one explicit new unsupported boundary');
@@ -722,7 +752,7 @@ $priorYdp['reason'] = PRE_MANAGED_CLONE_YDP_REASON;
 array_shift($priorYdp['unsupported']);
 unset($priorYdp);
 wprism_check_same(PRE_MANAGED_CLONE_REGISTRY_SHA, hash('sha256', Canon::encode($preManagedCloneRegistry)),
-    'restoring only the withdrawn claim reconstructs the exact preceding registry; all other dispositions are unchanged');
+    'restoring the withdrawn claim in the original subject set reconstructs the exact preceding registry; all other original dispositions are unchanged');
 wprism_check_same(['yoast-duplicate-post'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'yoast-duplicate-post' => PRE_MANAGED_CLONE_YDP_DIGEST,
 ]))), 'the managed-clone readiness withdrawal moves only Yoast Duplicate Post identity');
@@ -735,7 +765,7 @@ wprism_check(PRE_MANAGED_CLONE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_
 $priorRegistry = $preManagedCloneRegistry;
 unset($priorRegistry['manifests']['wpforms-lite']);
 wprism_check_same(PRE_NATIVE_VALUE_REGISTRY_SHA, hash('sha256', Canon::encode($priorRegistry)),
-    'all 18 pre-existing reviewed dispositions remain byte-identical after adding the WPForms preview');
+    'all 18 pre-existing reviewed dispositions remain byte-identical after adding WPForms, AIO Login and Qi Blocks');
 wprism_check(PRE_NATIVE_VALUE_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA,
     'the new disposition still moves whole-registry addressing; re-pinning is not closure of WP-4.5');
 wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
@@ -857,7 +887,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(20, $documentCount, 'the reviewed source is 20 documents: 19 subjects and the profiles map');
+wprism_check_same(22, $documentCount, 'the reviewed source is 22 documents: 21 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

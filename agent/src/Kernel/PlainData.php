@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/SerializedDataPreflight.php';
+
 /**
  * Safe boundary for values that may be PHP-serialized in WordPress storage.
  *
@@ -53,7 +55,7 @@ final class PlainData {
         // The option is load-bearing: a target-controlled object must become
         // an incomplete marker, never a live instance whose __wakeup() can
         // run before our plain-data checks.
-        $decoded = @unserialize($trimmed, ['allowed_classes' => false]);
+        $decoded = SerializedDataPreflight::decode($trimmed, $ctx);
         if ($decoded === false && $trimmed !== 'b:0;') {
             throw new \RuntimeException(
                 "wprism: $ctx contains malformed or noncanonical PHP-serialized data"

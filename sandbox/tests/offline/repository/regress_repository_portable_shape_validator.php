@@ -38,6 +38,7 @@ namespace WPrism {
         }
         /** @return array<string,array<string,mixed>> */
         public function widget_types(): array { return $this->widgets; }
+        public function block_attr_rules(): array { return []; }
     }
 
     final class Snapshot {

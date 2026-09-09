@@ -516,6 +516,7 @@ flock_waiter_for_path() {
 abort_lock_cancellation_case() {
   local gate="$1" first_pid="$2" contender_pid="$3" message="$4" pid
   : > "$gate/release"
+  : > "$gate/helper-proceed"
   for pid in "$contender_pid" "$first_pid"; do
     if pid_running "$pid"; then
       kill -KILL "$pid" 2>/dev/null || true
@@ -1756,7 +1757,7 @@ run_flock_lock_sigkill_case() {
 }
 
 run_pair_lock_cancellation_case() {
-  local mode="$1" signal="$2" startup="${3:-ready}" signal_label label
+  local mode="$1" signal="$2" startup="${3:-ready}" signal_label label allocation_startup=0
   case "$signal" in
     TERM) signal_label=term ;;
     KILL) signal_label=kill ;;
@@ -1768,6 +1769,11 @@ run_pair_lock_cancellation_case() {
     cancel-before-reader)
       [ "$mode:$signal" = python:TERM ] || fail 'startup cancellation requires the Python TERM lane'
       label="${label}_startup"
+      ;;
+    cancel-before-helper|cancel-during-allocation)
+      allocation_startup=1
+      [ "$signal" = TERM ] || fail 'allocation cancellation requires the TERM lane'
+      label="${label}_${startup}"
       ;;
     *) fail 'unknown helper startup premise' ;;
   esac
@@ -1787,6 +1793,29 @@ run_pair_lock_cancellation_case() {
   if [ "$mode" = python ]; then
     install_python_lock_path "$fake_bin"
     path_value="$fake_bin"
+  fi
+  if [ "$allocation_startup" = 1 ]; then
+    # Stop allocation or its next external operation, before the helper starts.
+    # TERM must own the new directory even at these earlier boundaries.
+    local startup_command=awk
+    [ "$mode" != python ] || startup_command=mkfifo
+    [ "$startup" != cancel-during-allocation ] || startup_command=mktemp
+    export WPRISM_PAIR_TEST_REAL_STARTUP_COMMAND="$(PATH="$ORIGINAL_PATH" command -v "$startup_command")"
+    [ ! -e "$fake_bin/$startup_command" ] || rm "$fake_bin/$startup_command"
+    cat > "$fake_bin/$startup_command" <<'STARTUP_COMMAND'
+#!/usr/bin/env bash
+set -euo pipefail
+status=0
+"$WPRISM_PAIR_TEST_REAL_STARTUP_COMMAND" "$@" || status=$?
+if [ "${WPRISM_PAIR_TEST_DELAY_ALLOCATION:-0}" = 1 ] \
+    && { [[ "$0" = */mkfifo ]] || [[ "${2:-}" = /proc/*/stat ]] \
+      || { [[ "$0" = */mktemp ]] && [[ "$*" = *\.pair-budget-helper.* ]]; }; }; then
+  : > "$WPRISM_PAIR_TEST_RACE_GATE/helper-after-allocation"
+  while [ ! -f "$WPRISM_PAIR_TEST_RACE_GATE/helper-proceed" ]; do sleep 0.01; done
+fi
+exit "$status"
+STARTUP_COMMAND
+    chmod +x "$fake_bin/$startup_command"
   fi
   if [ "$startup" = cancel-before-reader ]; then
     # Observe the real parent's join, which follows its cancellation write and
@@ -1818,6 +1847,17 @@ wait() {
   builtin wait "$@"
 }
 CANCELLATION_ENV
+  elif [ "$startup" = ready ]; then
+    # A fixed sleep can signal before the contender has launched its helper.
+    # Pin the blocked-waiter premise separately from allocation cancellation.
+    cat > "$case_root/cancellation-env.sh" <<'CANCELLATION_ENV'
+sleep() {
+  if [ -n "${PAIR_BUDGET_LOCK_HELPER_PID:-}" ]; then
+    : > "$WPRISM_PAIR_TEST_RACE_GATE/contender-helper-started"
+  fi
+  command sleep "$@"
+}
+CANCELLATION_ENV
   fi
   lock_path="$canonical_root/sandbox/siterepo/.pair-budget.lock"
   export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -1845,23 +1885,26 @@ CANCELLATION_ENV
   if [ "$startup" = cancel-before-reader ]; then
     env PATH="$path_value" BASH_ENV="$case_root/cancellation-env.sh" WPRISM_PAIR_TEST_DELAY_READER=1 \
       "$case_root/sandbox/bin/pair.sh" up "$contender" 9913 9914 --headless >"$output2" 2>&1 &
+  elif [ "$allocation_startup" = 1 ]; then
+    env PATH="$path_value" WPRISM_PAIR_TEST_DELAY_ALLOCATION=1 \
+      "$case_root/sandbox/bin/pair.sh" up "$contender" 9913 9914 --headless >"$output2" 2>&1 &
   else
-    env PATH="$path_value" "$case_root/sandbox/bin/pair.sh" up "$contender" 9913 9914 --headless \
+    env PATH="$path_value" BASH_ENV="$case_root/cancellation-env.sh" \
+      "$case_root/sandbox/bin/pair.sh" up "$contender" 9913 9914 --headless \
       >"$output2" 2>&1 &
   fi
   contender_pid=$!
-  if [ "$startup" = cancel-before-reader ]; then
-    for i in $(seq 1 300); do
-      if [ -f "$gate/helper-before-reader" ]; then helper_started=1; break; fi
-      pid_running "$contender_pid" || break
-      sleep 0.01
-    done
-    [ "$helper_started" = 1 ] \
-      || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
-        "$label did not reach the controlled before-reader boundary"
-  else
-    sleep 0.2
-  fi
+  local startup_marker=contender-helper-started
+  [ "$startup" != cancel-before-reader ] || startup_marker=helper-before-reader
+  [ "$allocation_startup" != 1 ] || startup_marker=helper-after-allocation
+  for i in $(seq 1 300); do
+    if [ -f "$gate/$startup_marker" ]; then helper_started=1; break; fi
+    pid_running "$contender_pid" || break
+    sleep 0.01
+  done
+  [ "$helper_started" = 1 ] \
+    || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
+      "$label did not reach the controlled startup boundary"
   [ ! -e "$case_root/sandbox/siterepo/${contender}1" ] \
     || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
       "$label contender created side-1 state while the holder owned the lock"
@@ -1872,6 +1915,7 @@ CANCELLATION_ENV
   ls_held="$(grep -cF 'docker <compose> <ls>' "$log" 2>/dev/null || true)"
 
   kill -"$signal" "$contender_pid" 2>/dev/null || true
+  [ "$allocation_startup" != 1 ] || : > "$gate/helper-proceed"
   if ! wait_pid_exit "$contender_pid" 200; then
     abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
       "$label contender did not exit promptly after SIG$signal"
@@ -1902,21 +1946,19 @@ CANCELLATION_ENV
     || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
       "$label left an external flock waiter after SIG$signal: $waiter"
 
-  if [ "$mode" = python ]; then
-    # The contender's helper owns a unique directory. TERM must close its
-    # control FIFO and SIGKILL must be noticed by the helper itself; either
-    # way, only the holder's one helper directory may remain before release.
-    helper_count=2
-    for i in $(seq 1 200); do
-      helper_count="$(find "$canonical_root/sandbox/siterepo" -maxdepth 1 -type d \
-        -name '.pair-budget-helper.*' -print 2>/dev/null | wc -l | tr -d ' ')"
-      [ "${helper_count:-0}" -le 1 ] && break
-      sleep 0.01
-    done
-    [ "${helper_count:-0}" -le 1 ] \
-      || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
-        "$label left a contender Python helper directory after SIG$signal"
-  fi
+  # Either backend owns a unique helper directory. TERM during allocation
+  # must clean it even before a helper exists to notice its parent's death.
+  # Only the holder's one helper directory may remain before release.
+  helper_count=2
+  for i in $(seq 1 200); do
+    helper_count="$(find "$canonical_root/sandbox/siterepo" -maxdepth 1 -type d \
+      -name '.pair-budget-helper.*' -print 2>/dev/null | wc -l | tr -d ' ')"
+    [ "${helper_count:-0}" -le 1 ] && break
+    sleep 0.01
+  done
+  [ "${helper_count:-0}" -le 1 ] \
+    || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
+      "$label left a contender helper directory after SIG$signal"
 
   # Release only after all cancellation checks. If any waiter survived, it
   # would acquire here and make a second live query or create the contender's
@@ -2807,6 +2849,12 @@ run_pair_lock_cancellation_case flock KILL
 
 say "Python fcntl contender TERM cancellation (fake compose; no Docker/DB)"
 run_pair_lock_cancellation_case python TERM
+
+say "TERM after helper allocation, before the helper starts (fake compose; no Docker/DB)"
+run_pair_lock_cancellation_case python TERM cancel-before-helper
+run_pair_lock_cancellation_case flock TERM cancel-before-helper
+run_pair_lock_cancellation_case python TERM cancel-during-allocation
+run_pair_lock_cancellation_case flock TERM cancel-during-allocation
 
 say "Python cancellation queued before the helper opens its FIFO reader (fake compose; no Docker/DB)"
 run_pair_lock_cancellation_case python TERM cancel-before-reader

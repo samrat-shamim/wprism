@@ -2,6 +2,10 @@
 namespace WPrism;
 
 require_once __DIR__ . '/JsonRefs.php';
+require_once __DIR__ . '/ReferenceCondition.php';
+require_once __DIR__ . '/PhpContainerValue.php';
+require_once __DIR__ . '/IdentityTokenCodec.php';
+require_once __DIR__ . '/KeyBoundStrings.php';
 
 /**
  * Pure structural codec for manifest-declared json_refs and key_refs.
@@ -13,6 +17,13 @@ require_once __DIR__ . '/JsonRefs.php';
  * only the declared scalar/key rewrite protocol and its historical ordering.
  */
 final class StructuredReferenceCodec {
+    /** A declared container codec changes only the selected map's framing. */
+    public static function key_ref_map($value, array $rule, string $context) {
+        $map = ($rule['container'] ?? null) === 'php' ? PhpContainerValue::map($value, $context) : $value;
+        if (array_key_exists(KeyBoundStrings::FIELD, $rule)) KeyBoundStrings::assert_map($map, $rule, $context);
+        return $map;
+    }
+
     /**
      * Capture direction: rewrite declared scalar ids and id-keyed maps.
      *
@@ -33,7 +44,9 @@ final class StructuredReferenceCodec {
                 $idToToken,
                 $warn
             ): void {
+                if (!ReferenceCondition::matches($container, $rule, $locator)) return;
                 $current = $container[$key];
+                ReferenceCondition::assert_native($current, $rule, $locator);
                 if (is_array($current)) {
                     return; // A declared path resolved to a container, not a scalar id.
                 }
@@ -64,8 +77,10 @@ final class StructuredReferenceCodec {
     public static function apply($value, array $jsonRefs, ?array $keyRefs, callable $tokenToId) {
         foreach ($jsonRefs as $rule) {
             $segments = JsonRefs::parse_path($rule['path']);
-            JsonRefs::walk($value, $segments, function (&$container, $key) use ($rule, $tokenToId): void {
+            JsonRefs::walk($value, $segments, function (&$container, $key, string $locator) use ($rule, $tokenToId): void {
+                if (!ReferenceCondition::matches($container, $rule, $locator)) return;
                 $current = $container[$key];
+                ReferenceCondition::assert_canonical($current, $rule, $locator);
                 if ($current === null || $current === '' || is_array($current)) {
                     return;
                 }
@@ -103,8 +118,45 @@ final class StructuredReferenceCodec {
             $idToToken,
             $tokenToId,
             $warn,
-            $kind
+            $kind,
+            $keyRefs
         ): void {
+            if (($keyRefs['container'] ?? null) === 'php') {
+                if (array_key_exists(KeyBoundStrings::FIELD, $keyRefs)) self::key_ref_map($container[$key], $keyRefs, $locator);
+                $container[$key] = PhpContainerValue::rewrite_keys(
+                    $container[$key],
+                    static function ($mapKey) use ($capture, $idToToken, $tokenToId, $warn, $kind, $locator) {
+                        if ($capture) {
+                            if (!((is_int($mapKey) && $mapKey > 0)
+                                || (is_string($mapKey) && preg_match('/^[1-9][0-9]*$/D', $mapKey)
+                                    && (string) (int) $mapKey === $mapKey))) {
+                                throw new \RuntimeException("wprism: typed key_refs map $locator requires canonical positive integer keys");
+                            }
+                            $token = $idToToken((int) $mapKey, $kind);
+                            if ($token === null) $warn("key_refs: unmapped $kind id '$mapKey' at $locator dropped (dangling reference)");
+                            return $token;
+                        }
+                        $identity = null;
+                        if (is_string($mapKey)) {
+                            try { $identity = IdentityTokenCodec::decode($mapKey); } catch (\RuntimeException) {}
+                        }
+                        if ($identity === null || $identity['kind'] !== $kind
+                            || IdentityTokenCodec::encode($identity['kind'], $identity['uuid']) !== $mapKey) {
+                            throw new \RuntimeException("wprism: typed key_refs map $locator requires tokens in its declared keyspace");
+                        }
+                        $id = $tokenToId($mapKey);
+                        if (!is_int($id) || $id <= 0) {
+                            throw new \RuntimeException("wprism: typed key_refs map $locator resolved an invalid local id");
+                        }
+                        return $id;
+                    },
+                    "typed key_refs map $locator",
+                    array_key_exists(KeyBoundStrings::FIELD, $keyRefs)
+                        ? static fn($entry, $oldKey, $newKey) => KeyBoundStrings::rewrite_entry($entry, $oldKey, $newKey, $keyRefs, $locator)
+                        : null
+                );
+                return;
+            }
             $map = $container[$key];
             if (!is_array($map)) {
                 return;

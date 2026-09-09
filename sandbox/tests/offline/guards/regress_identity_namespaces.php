@@ -287,11 +287,13 @@ foreach ($sourceLibrary->packages() as $package) {
 usort($stampedAtGate, static fn(string $left, string $right): int => strcmp($left . '.json', $right . '.json'));
 wprism_check_same(
     [
+        'change-wp-admin-login',
         'code-snippets',
         'elementor',
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'qi-blocks',
         'rank-math',
         'redirection',
         'the-events-calendar',
@@ -325,7 +327,7 @@ wprism_check_same(
 $unprefixed = $namespaceVerdict($manifest('cache', 3), 'cache');
 wprism_check(
     is_string($unprefixed) && str_contains($unprefixed, "the unprefixed name 'cache'")
-        && str_contains($unprefixed, 'closed reserved list of 19 names')
+        && str_contains($unprefixed, 'closed reserved list of 21 names')
         && str_contains($unprefixed, '§ v3.9'),
     'an unprefixed out-of-tree name refuses BY NAME, naming the closed list and the section that decided it'
 );

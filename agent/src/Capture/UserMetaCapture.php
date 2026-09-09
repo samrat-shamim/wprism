@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/EncodedText.php';
+
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 
@@ -426,6 +428,7 @@ final class UserMetaCapture {
         $value = PlainData::decode($values[0], "user '$login' meta $key");
         PlainData::assert($value, "user '$login' meta $key");
         NativeValueValidation::assert_native($value, $rule, "user '$login' meta $key");
+        $value = EncodedText::decode_if_declared($value, $rule, "user '$login' meta $key");
         ($this->guardSecret)('user_meta', $key, $value, $rule, " on exact login '$login'");
         ($this->guardPersonalData)($key, $value, $rule, $login);
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {

@@ -35,6 +35,14 @@ $stored = get_option("rewrite_rules");
 $wp_rewrite->matches = "matches";
 $generated = $wp_rewrite->rewrite_rules();
 $post = get_page_by_path("hello-conformance", OBJECT, "post");
+$attachment = get_page_by_path("conformance-logo", OBJECT, "attachment");
+$classicMedia = 0;
+if ($post && $attachment) {
+  $html = new WP_HTML_Tag_Processor($post->post_content);
+  while ($html->next_tag("IMG")) {
+    if ($html->has_class("before") && $html->has_class("wp-image-" . $attachment->ID)) ++$classicMedia;
+  }
+}
 echo wp_json_encode([
   "structure" => get_option("permalink_structure"),
   "stored_type" => get_debug_type($stored),
@@ -43,6 +51,7 @@ echo wp_json_encode([
   "post_id" => $post ? (int) $post->ID : 0,
   "permalink" => $post ? get_permalink($post) : "",
   "resolved_id" => $post ? url_to_postid(get_permalink($post)) : 0,
+  "classic_media_count" => $classicMedia,
 ]);
 ')
 require_wprism_answered "conf2 core rewrite state" json "$CORE_REWRITE_STATE"
@@ -50,6 +59,7 @@ jq -e --arg port "$CONF2_PORT" '
   .structure == "/journal/%postname%/" and
   .stored_type == "array" and .stored_count > 0 and .rules_match == true and
   .post_id > 0 and .resolved_id == .post_id and
+  .classic_media_count == 1 and
   .permalink == ("http://localhost:" + $port + "/journal/hello-conformance/")
 ' <<<"$CORE_REWRITE_STATE" >/dev/null \
   || fail "core rewrite state did not converge through WordPress APIs: $CORE_REWRITE_STATE"
@@ -57,6 +67,8 @@ CORE_JOURNAL_BODY=$(curl -fsSL "http://localhost:${CONF2_PORT}/journal/hello-con
   || fail "source permalink route did not return HTTP success after apply"
 grep -Fq 'Hello from the core conformance seed.' <<<"$CORE_JOURNAL_BODY" \
   || fail "source permalink route did not render the applied post"
+grep -Fq 'classic-media-proof' <<<"$CORE_JOURNAL_BODY" \
+  || fail "source permalink route did not render the classic media fixture"
 CORE_OLD_CODE=$(curl -sS -o /dev/null -w '%{http_code}' "http://localhost:${CONF2_PORT}/target/$(jq -r '.post_id' <<<"$CORE_REWRITE_STATE")/")
 [ "$CORE_OLD_CODE" != 200 ] \
   || fail "old target permalink grammar still served the post after rewrite regeneration"
@@ -974,10 +986,11 @@ echo wp_json_encode('"$projection"', JSON_UNESCAPED_SLASHES);
 '
 }
 
-core_capture_plan_native_state() { # <output variable> <label> <private stage>
+core_capture_native_state() { # <output variable> <label> <private stage>
   local output_variable="$1" label="$2" stage="$3" stem
   case "$stage" in identity-baseline|native-before|native-after|native-repeated) ;; *) fail 'unknown core native diagnostic stage' ;; esac
   stem="$CORE_NATIVE_EVIDENCE/$stage"
+  . "$PAIR_SOURCE_ROOT/sandbox/tests/lib/private_command_capture.sh"
   # The shared transport retains rows and both streams before any assertion
   # can destroy the disposable target. The ordinary report still carries only
   # hashes/counts; private retention grants no plan or repair authority.
@@ -993,8 +1006,9 @@ core_capture_plan_native_state() { # <output variable> <label> <private stage>
   fi
 }
 
-core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
+core_assert_deletion_exclusion() ( # <profile> <frozen-context> <apply-flags...>
   local profile="$1" context="$2" reason='' nodes=1 before='' after='' baseline='' output='' answer='' receipt='' rc=0
+  local CORE_NATIVE_EVIDENCE
   shift 2
   case "$profile" in
     plain) reason=deletion_writer_exclusion_required ;;
@@ -1002,7 +1016,23 @@ core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
     forced-conflicts) reason=apply_forced_override_failed; nodes=2 ;;
     *) fail 'unknown core direct-deletion refusal profile' ;;
   esac
-  capture_wprism_json_success before 'core direct-deletion native and ledger baseline' core_deletion_native_state
+  # The 077b5440 sweep lost its unequal rows when pair teardown followed this
+  # refusal. Keep each window outside the site bind; table equality remains
+  # the acceptance gate and these private rows grant no mutation authority.
+  mkdir -p "$PAIR_SOURCE_ROOT/sandbox/tmp"
+  CORE_NATIVE_EVIDENCE=$(umask 077; mktemp -d "$PAIR_SOURCE_ROOT/sandbox/tmp/wprism-core-deletion.${profile}.XXXXXX")
+  printf 'core deletion diagnostics (unverified): %s\n' "$CORE_NATIVE_EVIDENCE" >&2
+  . "$PAIR_SOURCE_ROOT/sandbox/tests/lib/wordpress_cron_window.sh"
+  core_cron_window_transport() {
+    wordpress_cron_window_compose_transport cli2 "$@"
+  }
+  trap 'wordpress_cron_window_exit "$?"' EXIT
+  trap 'exit 130' INT TERM
+  # The complete-row contract includes doing_cron. Like the fresh-map window
+  # below, control new spawning before baseline boot; writes through the guard
+  # and durable option changes must still fail the unchanged row comparison.
+  wordpress_cron_window_begin wp_conf2 core_cron_window_transport
+  core_capture_native_state before 'core direct-deletion native and ledger baseline' native-before
   require_observed_nonempty "core direct-deletion native and ledger baseline" "$before"
   capture_wprism_json_success baseline 'core direct-deletion private baseline' \
     core_private_refusal_evidence snapshot "$profile" /siterepo/.wprism/refusals "$context"
@@ -1036,11 +1066,16 @@ core_assert_deletion_exclusion() { # <profile> <frozen-context> <apply-flags...>
     (.node_message_sha256 | type == "array" and length == $nodes) and
     all(.node_message_sha256[]; type == "string" and test("^[a-f0-9]{64}$"))
   ' <<<"$receipt" >/dev/null || fail 'core direct-deletion private receipt is malformed'
-  capture_wprism_json_success after 'core direct-deletion native and ledger readback' core_deletion_native_state
+  core_capture_native_state after 'core direct-deletion native and ledger readback' native-after
   require_observed_nonempty "core direct-deletion native and ledger readback" "$after"
-  jq -en --argjson before "$before" --argjson after "$after" '$before == $after' >/dev/null \
-    || fail 'direct core deletion changed target posts, revisions, comments, relationships, options or identity/base/recovery ledgers'
-}
+  if ! jq -en --argjson before "$before" --argjson after "$after" '$before == $after' >/dev/null; then
+    jq -cn --arg profile "$profile" --argjson before "$before" --argjson after "$after" '
+      {format:"wprism-core-native-state-difference/v1",purpose:"diagnostic_only",verified:false,profile:$profile,
+       changed_tables:[($before | keys[]) as $table | select($before[$table] != $after[$table]) |
+         {table:$table,before:$before[$table],after:$after[$table]}]}' >&2
+    fail 'direct core deletion changed target posts, revisions, comments, relationships, options or identity/base/recovery ledgers'
+  fi
+)
 
 # issue #3210: absence alone is not authority; capture replaces the prior Home
 # page with a versioned tombstone. A target-only comment blocks deletion;
@@ -1388,12 +1423,12 @@ trap 'exit 130' INT TERM
 # Freeze spawning before the first native boot, retain every option row, and
 # keep the guard through the repeat read. Cleanup never boots WordPress.
 wordpress_cron_window_begin wp_conf2 core_cron_window_transport
-core_capture_plan_native_state FRESH_IDENTITY_BASELINE 'core existing target native and restorable identity baseline' identity-baseline
+core_capture_native_state FRESH_IDENTITY_BASELINE 'core existing target native and restorable identity baseline' identity-baseline
 require_observed_nonempty 'core existing target native and restorable identity baseline' "$FRESH_IDENTITY_BASELINE"
 jq -e '.restorable_map.count > 0' <<<"$FRESH_IDENTITY_BASELINE" >/dev/null \
   || fail 'fresh-target fixture has no durable identity mappings to restore'
 wp_conf2 db query 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' >/dev/null
-core_capture_plan_native_state FRESH_NATIVE_BEFORE 'core unmapped target native and ledger baseline' native-before
+core_capture_native_state FRESH_NATIVE_BEFORE 'core unmapped target native and ledger baseline' native-before
 require_observed_nonempty "core unmapped target native and ledger baseline" "$FRESH_NATIVE_BEFORE"
 jq -en --argjson baseline "$FRESH_IDENTITY_BASELINE" --argjson before "$FRESH_NATIVE_BEFORE" '
   {count:0,sha256:"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"} as $empty |
@@ -1407,7 +1442,7 @@ jq -e --argjson count "$TOMBSTONES" '
   (.delete_conflict | length) == $count and
   all(.delete_conflict[]; .reason == "target entity exists but has no last-synced base")
 ' <<<"$FRESH_PLAN" >/dev/null || fail 'unmapped existing target entities lost their missing-base deletion conflicts'
-core_capture_plan_native_state FRESH_NATIVE_AFTER 'core unmapped target native and ledger readback' native-after
+core_capture_native_state FRESH_NATIVE_AFTER 'core unmapped target native and ledger readback' native-after
 require_observed_nonempty "core unmapped target native and ledger readback" "$FRESH_NATIVE_AFTER"
 jq -en --argjson baseline "$FRESH_IDENTITY_BASELINE" --argjson before "$FRESH_NATIVE_BEFORE" --argjson after "$FRESH_NATIVE_AFTER" '
   $after == ($before | .wprism_map=$baseline.restorable_map | .restorable_map=$baseline.restorable_map)
@@ -1418,7 +1453,7 @@ require_wprism_answered 'conf2 repaired-map missing-base repeat plan' json "$FRE
 jq -en --argjson first "$FRESH_PLAN" --argjson repeated "$FRESH_REPEAT_PLAN" '
   [$first.deleted,$first.delete,$first.delete_conflict] == [$repeated.deleted,$repeated.delete,$repeated.delete_conflict]
 ' >/dev/null || fail 'repairing an identity map changed the pending missing-base deletion conflicts'
-core_capture_plan_native_state FRESH_NATIVE_REPEATED 'core repaired-map native and ledger fixed point' native-repeated
+core_capture_native_state FRESH_NATIVE_REPEATED 'core repaired-map native and ledger fixed point' native-repeated
 require_observed_nonempty 'core repaired-map native and ledger fixed point' "$FRESH_NATIVE_REPEATED"
 [ "$FRESH_NATIVE_AFTER" = "$FRESH_NATIVE_REPEATED" ] || fail 'repeated fresh-target plan changed native or ledger state'
 pass "unmapped existing target entities remain deletion conflicts; exact embedded maps repair once, without minting identity or a state baseline"

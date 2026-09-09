@@ -229,13 +229,14 @@ wprism_check_same(
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
         'agent/src/Policy/Policy.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER beside six gate readers of exact declarations or '
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside seven gate readers of exact declarations or '
         . 'interpreter ownership, and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
@@ -262,14 +263,22 @@ wprism_check_same(
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'block-attribute-groups/v1',
+        'block-attribute-values/v1',
+        'block-media-derivatives/v1',
+        'block-record-fields/v1',
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
+        'conditional-json-refs/v1',
+        'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
+        'key-bound-strings/v1',
         'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'native-value-validation/v1',
+        'php-container-values/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
         'provider-native-option-inputs/v1',
@@ -285,8 +294,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries twenty-two IMPLEMENTED features, and five claim sections v3 did not have — '
-        . '"declared and implemented admits" is a path walked five times, not an admissibility argument'
+    'v3.2: the vocabulary carries the exact reviewed feature names independently of the spec version'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by
 // SECTION NAME, because the section's own version (3) sat outside the window;
@@ -433,7 +441,7 @@ wprism_check_same(
 // subsection whose "Enforced today:" line says "yes" about one half must not be
 // readable as a claim about the other.
 wprism_check(
-    count($adapterLibrary->packages()) === 19
+    count($adapterLibrary->packages()) === 21
         && !file_exists($repo . '/manifests')
         && array_reduce(
             $adapterLibrary->packages(),
@@ -872,9 +880,9 @@ wprism_check(
     . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
 );
 wprism_check_same(
-    19,
+    21,
     $entryCount,
-    'the current split has exactly 19 subject documents, independently of the historical monolith count'
+    'the current split has exactly 21 subject documents, independently of the historical monolith count'
 );
 wprism_check_same(['fse'], $profileNames, 'and `profiles` is the one row the split gave its own document');
 

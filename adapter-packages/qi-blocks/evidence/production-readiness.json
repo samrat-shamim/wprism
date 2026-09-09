@@ -1,0 +1,22 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "qi-blocks",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {
+    "contract-dependency": "Exact free 1.5.2 declarations and both downloaded artifacts are pinned. Fresh source/target installation, source capture-plan and content-only native Apply pass. Adjacent-version refusal and upgrade conformance remain pending.",
+    "clean-target": "Native page, six-widget and core-profile FSE template Apply pass on fresh targets with divergent IDs, complete bodies/styles, native template discovery and exact recapture. Broader widget/template media and host promotion remain pending.",
+    "dirty-target": "Eight target-local trash rows and the full Qi runtime option census survive Apply and repeat. An ordinary authored conflict refused without native mutation during editor exploration and required explicit override. Hostile files, ID collisions and unmanaged crop consumers remain to be exercised together.",
+    "identity-references": "Native page Apply rebinds four post/attachment identities, all 204 emitted CSS frames and four selected crops. Six widget identities also diverge and preserve complete settings/style roots. Core-profile template, page, navigation and active-theme term IDs diverge with native discovery, page selection and exact relationships intact. Broader widget/template media and scope closure remain pending.",
+    "native-behavior": "Native writers, complete HTTP CSS, four selected crop images and target editor reopen (51 valid blocks) pass. Three single-image galleries pass cross-ID Apply, native picker rehydration, Save/reopen, recapture and visible images on 4d50d712. FSE template Save/reopen recognizes all 37 blocks, and the initial selected template renders correctly; native page-preview CSS overrides later template edits on both source and target. Signature/progress, multi-image and broader editing remain pending. WordPress iframe warnings and upstream typography/widget-only style failures remain visible.",
+    "derived-state": "Stock sizes and four content-selected crop files/metadata pass native HTTP, decoded dimensions/pixels and zero-write repeat; an unused crop stays absent. Broader cache/preview, widget/template, multi-format, collision, removal and recovery cases remain pending.",
+    "deletion": "Plugin-specific entity deletion is not declared. Captured content removal, last style/crop consumer removal and supported core deletion/refusal preservation still need native capsule evidence.",
+    "failure-recovery": "Checked option write failure, rollback and identical retry pass offline. Native media, lifecycle and promotion failures and recovery remain pending.",
+    "concurrency-idempotence": "Native page, gallery, crop, widget and FSE template Apply repeat with zero writes; complete retained repositories converge. Actual concurrent widget/page edits of the shared style option refuse without native mutation, then explicitly reconciled intent verifies and repeats. Independent template editor Saves retain their two authored timestamp differences, with exact within-site repeat Capture. Broader media/lifecycle concurrency remains pending.",
+    "lifecycle": "Activation, retirement, reactivation, downgrade refusal and target-local setup/cache preservation remain pending.",
+    "data-boundary": "Runtime keyspaces are declared. Shared record projection excludes gallery response nonces and admin metadata through actual native Apply, target editor Save and recapture. Retained fields keep capture/compiler privacy guards without exceptions. Broader hostile secret/PII, runtime and premium-residue boundaries remain pending.",
+    "scope-platform": "Source fixtures include Contact Form 7 and WooCommerce blocks. Explicit capsule combination scenarios, scoped host promotion and the supported platform boundary remain pending."
+  },
+  "blocked": {},
+  "not_applicable": {}
+}

@@ -23,6 +23,10 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-live-pair-ownership regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-proof-legacy-pair
 .PHONY: regress-text-tokenizer
 .PHONY: regress-structured-reference-codec
+.PHONY: regress-conditional-json-refs
+.PHONY: regress-serialized-data-preflight
+.PHONY: regress-php-container-values regress-key-bound-strings regress-block-attribute-groups regress-encoded-text-values
+.PHONY: regress-block-attribute-values regress-html-media-references regress-media-derivative-recipes
 .PHONY: regress-url-query-reference-codec
 .PHONY: regress-rank-math-commerce-multilingual regress-rank-math-yoast-incompatibility
 .PHONY: regress-lint-primitives
@@ -2267,6 +2271,33 @@ regress-text-tokenizer:
 
 regress-structured-reference-codec:
 	php sandbox/tests/offline/grammar/regress_structured_reference_codec.php
+
+regress-serialized-data-preflight:
+	php sandbox/tests/offline/grammar/regress_serialized_data_preflight.php
+
+regress-block-attribute-groups:
+	php sandbox/tests/offline/grammar/regress_block_attribute_groups.php
+
+regress-key-bound-strings:
+	php sandbox/tests/offline/grammar/regress_key_bound_strings.php
+
+regress-php-container-values:
+	php sandbox/tests/offline/grammar/regress_php_container_values.php
+
+regress-encoded-text-values:
+	php sandbox/tests/offline/grammar/regress_encoded_text_values.php
+
+regress-html-media-references:
+	php sandbox/tests/offline/grammar/regress_html_media_references.php
+
+regress-block-attribute-values:
+	php sandbox/tests/offline/grammar/regress_block_attribute_values.php
+
+regress-media-derivative-recipes:
+	php sandbox/tests/offline/grammar/regress_media_derivative_recipes.php
+
+regress-conditional-json-refs:
+	php sandbox/tests/offline/grammar/regress_conditional_json_refs.php
 
 regress-url-query-reference-codec:
 	php sandbox/tests/offline/grammar/regress_url_query_reference_codec.php

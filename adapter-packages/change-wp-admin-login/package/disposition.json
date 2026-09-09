@@ -1,0 +1,65 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "plugin-specific entity deletion"
+      ]
+    },
+    "entity_sections": [],
+    "field_sections": [
+      "options"
+    ],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
+    "operations": [
+      "capture",
+      "compile",
+      "plan",
+      "deploy",
+      "apply",
+      "recapture",
+      "render-api"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "conformance-change-wp-admin-login",
+      "exact-artifact-version-matrix",
+      "regress-native-options",
+      "regress-native-roundtrip",
+      "regress-dependency-preflight"
+    ]
+  },
+  "reason": "Reviewed for exact free AIO Login 2.4.1: native REST, Customizer and Permalinks authoring; all 74 exercised authored rows; page/URL redirect variants and five media references across divergent IDs; login design, password lockout, enumeration and OTP consumers; target-local credentials/runtime preservation; conflict and malformed-state refusal, checked-SQL rollback, guarded option deletion, repeated recapture, native uninstall/reinstall and official 2.4.0 refusal. Pro and competing login routers remain excluded. External authentication/notification delivery is environment-owned and is not a portability claim.",
+  "status": "certified",
+  "supported_versions": {
+    "plugin": "change-wp-admin-login/change-wp-admin-login.php",
+    "range": {
+      "min": "2.4.1",
+      "max": "2.4.2"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "The platform single-site boundary excludes network route settings."
+    },
+    {
+      "operation": "all",
+      "surface": "premium",
+      "reason": "The pinned artifact is the free edition. SMS, magic links, advanced redirects, social login, premium templates and Google Fonts require separate paid-artifact evidence."
+    },
+    {
+      "operation": "delete",
+      "surface": "deletions.*",
+      "reason": "No plugin-owned entity keyspace or entity deletion selector is declared; authored options use generic apply --with-deletes. Native 2.4.1 uninstall retains its enumeration-log table; this adapter does not claim runtime-log cleanup."
+    }
+  ]
+}

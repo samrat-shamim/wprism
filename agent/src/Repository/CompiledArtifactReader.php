@@ -19,6 +19,7 @@ if (!class_exists(Policy::class, false)) {
 // is that a file loads every engine class it names, and this one has no
 // ordering relationship with the Canon/Policy stack above.
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/RepositoryMediaDerivatives.php';
 
 /**
  * Validates and loads an immutable persisted compiled-repository artifact.
@@ -69,6 +70,10 @@ final class CompiledArtifactReader {
                 'compiled_artifact_invalid', $path,
                 'compiled effect inventory does not match the active manifest contracts'
             );
+        }
+        if ($artifact->media_derivatives() !== RepositoryMediaDerivatives::derive($artifact->tree(), $policy)) {
+            throw self::artifact_exception('compiled_artifact_invalid', $path,
+                'compiled media derivatives do not match the declared content recipes');
         }
         $policyHasCode = $policy->code_config() !== null;
         $artifactHasCode = $artifact->code_descriptor() !== null;

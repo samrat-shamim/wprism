@@ -172,6 +172,15 @@ $expectedApi = [
         $parameter('compiled', '?WPrism\\CompiledRepository', false),
         $parameter('policy', '?WPrism\\Policy', false),
     ]],
+    // Apply borrows capture under its native consumer locks; the required
+    // authority keeps this separate from a snapshot that starts a transaction.
+    'block_inputs_in_transaction' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('policy', 'WPrism\\Policy'),
+        $parameter('compiled', 'WPrism\\CompiledRepository'),
+        $parameter('workAuthority', 'WPrism\\DatabaseWorkAuthority'),
+        $parameter('blockNames', 'array'),
+    ]],
     'build_read_only_export' => ['array', [
         $parameter('repo', 'string'),
         $parameter('policy', 'WPrism\\Policy'),
@@ -225,7 +234,7 @@ $normalizedExpectedApi = array_map(
     $expectedApi
 );
 $check(array_keys($actualApi) === array_keys($normalizedExpectedApi),
-    'Capture preserves the complete historical public method set and declaration order');
+    'Capture preserves the declared public method set and declaration order');
 $check($actualApi === $normalizedExpectedApi,
     'Capture preserves visibility, staticness, return types, parameters, defaults, and references');
 
@@ -274,6 +283,7 @@ foreach ([
     'CapturePublicationWorkflow::run(' => 'publication workflow',
     'CaptureSnapshotService::snapshot(' => 'ordinary snapshot service',
     'CaptureSnapshotService::snapshotReadOnly(' => 'strict snapshot service',
+    'CaptureSnapshotService::blockInputsInTransaction(' => 'caller-owned block input observation service',
     'CaptureSnapshotService::buildReadOnlyExport(' => 'read-only export service',
     'CaptureSnapshotService::snapshotOptionsCore(' => 'lifecycle options service',
     'CaptureGateScanner(' => 'pending gate scanner',
@@ -373,6 +383,37 @@ $check(
     $runtimeIdentity->ensurePost(7, 'post', false) === $canonicalUuid,
     'capture identity accepts one canonical exact sidecar through the real ledger product path'
 );
+
+$durableMap = $GLOBALS['wpdb']->rows('wp_wprism_map');
+$canonicalMeta = $GLOBALS['wpdb']->rows('wp_postmeta');
+$contradictoryMap = $durableMap;
+$contradictoryMap[0]['entity_type'] = 'term:category';
+foreach ([
+    'absent' => [[], [], null, null],
+    'durable' => [$canonicalMeta, $durableMap, $canonicalUuid, null],
+    'missing map' => [$canonicalMeta, [], null, 'durable identity is missing'],
+    'contradictory map' => [$canonicalMeta, $contradictoryMap, null, 'durable identity contradicts'],
+    'alias' => [[array_replace($canonicalMeta[0], ['meta_key' => '_WPRISM_UUID'])], [], null, 'aliased'],
+    'duplicate' => [[...$canonicalMeta, array_replace($canonicalMeta[0], ['meta_id' => 2])], [], null, 'ambiguous collation-equal'],
+] as $name => [$metadata, $mapping, $expectedUuid, $expectedFailure]) {
+    $GLOBALS['wpdb'] = $identityDb($metadata)->seedTable('wp_wprism_map', $mapping)->resetLog();
+    $observedUuid = null;
+    $observationFailure = null;
+    try {
+        $observedUuid = $runtimeIdentity->observePost(7, 'post');
+    } catch (Throwable $failure) {
+        $observationFailure = $failure->getMessage();
+    }
+    $check($expectedFailure === null
+        ? $observationFailure === null && $observedUuid === $expectedUuid
+        : $observationFailure !== null && str_contains($observationFailure, $expectedFailure),
+        "optional identity observation preserves the $name identity contract");
+    $check($GLOBALS['wpdb']->rows('wp_postmeta') === $metadata
+        && $GLOBALS['wpdb']->rows('wp_wprism_map') === $mapping
+        && array_filter($GLOBALS['wpdb']->queries(), static fn(string $sql): bool =>
+            preg_match('/^\\s*(?:INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|TRUNCATE)\\b/i', $sql) === 1) === [],
+        "optional $name observation neither mints nor repairs identity");
+}
 
 $GLOBALS['wpdb'] = $identityDb([[
     'meta_id' => 1,

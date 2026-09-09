@@ -765,7 +765,6 @@ check(
 );
 check(str_contains($codeInventorySource, 'Secrets::hard_match($window)'), 'every code byte crosses the high-confidence secret matcher');
 check(str_contains($codeInventorySource, 'substr($window, -32768)'), 'streaming secret scan retains one full bounded-pattern chunk');
-check(str_contains($siteProbeSource, "['allowed_classes' => false]"), 'risk discovery cannot instantiate serialized user-meta objects');
 check(!str_contains($siteProbeSource, 'maybe_unserialize('), 'read-only risk discovery never uses class-enabled WordPress unserialization');
 check(
     str_contains($siteProbeSource, 'ORDER BY $idColumn ASC LIMIT $fetchLimit')
@@ -1306,6 +1305,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Init/InitSiteProbe.php';
 require_once __DIR__ . '/../../../../agent/src/Init/Init.php';
+require_once __DIR__ . '/../../lib/wp_serialization_stubs.php';
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 
 // The proposal-time manual-recovery gate and the recovery-time deletion
@@ -2122,6 +2122,31 @@ check(($boundedRisk['truncated'] ?? false) === true, 'oversized values make risk
 
 $fakeWpdb->oversizedOptions = 0;
 $fakeWpdb->oversizedUserMeta = 0;
+// The public risk scan must disable object hooks and reject enum records
+// before PHP's enum deserializer can invoke autoload despite allowed_classes.
+final class InitRiskStoredObject {
+    public static int $wakeups = 0;
+    public function __wakeup(): void { ++self::$wakeups; }
+}
+$fakeWpdb->userMetaRows = [['umeta_id' => 1, 'meta_key' => 'fixture_data',
+    'meta_value' => serialize(new InitRiskStoredObject())]];
+$objectRisk = \WPrism\InitSiteProbe::risk();
+check(($objectRisk['scanned']['user_meta'] ?? null) === 1 && InitRiskStoredObject::$wakeups === 0,
+    'public risk discovery scans serialized user-meta objects without running their hooks');
+$riskAutoloads = [];
+$riskLoader = static function (string $class) use (&$riskAutoloads): void { $riskAutoloads[] = $class; };
+spl_autoload_register($riskLoader);
+$fakeWpdb->userMetaRows[0]['meta_value'] = 'E:21:"InitRiskMissing:Value";';
+try {
+    \WPrism\InitSiteProbe::risk();
+    fail('risk discovery accepted an enum record');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(), 'refusing before autoload') && $riskAutoloads === [],
+        'public risk discovery refuses serialized enums before any autoloader runs');
+} finally {
+    spl_autoload_unregister($riskLoader);
+    $fakeWpdb->userMetaRows = [];
+}
 for ($i = 1; $i <= 130; $i++) {
     $fakeWpdb->optionRows[] = [
         'option_id' => $i,

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
+
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
@@ -280,7 +282,7 @@ final class InitSiteProbe {
         if (!function_exists('is_serialized') || !is_serialized($raw)) {
             return $raw;
         }
-        $decoded = @unserialize(trim($raw), ['allowed_classes' => false]);
+        $decoded = SerializedDataPreflight::decode(trim($raw), 'initial metadata risk observation');
         // A disallowed object becomes __PHP_Incomplete_Class. Keep the raw
         // bytes opaque; the outer meta key can still produce a redacted PII
         // label, while no wakeup/unserialize/destructor code can execute.

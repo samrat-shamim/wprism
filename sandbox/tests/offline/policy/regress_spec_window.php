@@ -359,11 +359,13 @@ wprism_check_same(
 $declarers = array_keys(array_filter($library, static fn(array $m): bool => array_key_exists('engine_features', $m)));
 wprism_check_same(
     [
+        'change-wp-admin-login',
         'code-snippets',
         'elementor',
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'qi-blocks',
         'rank-math',
         'redirection',
         'the-events-calendar',

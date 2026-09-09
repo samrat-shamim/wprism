@@ -27,6 +27,7 @@ require_once __DIR__ . '/CompiledArtifactReader.php';
 // media cataloguing are independent of tree parsing and Policy. Required
 // directly so existing RepositoryCompiler consumers keep one closed load graph.
 require_once __DIR__ . '/RepositoryMediaCatalog.php';
+require_once __DIR__ . '/RepositoryMediaDerivatives.php';
 require_once __DIR__ . '/RepositoryDeletionParser.php';
 require_once __DIR__ . '/RepositoryEntityParser.php';
 require_once __DIR__ . '/RepositoryIdentityRegistry.php';
@@ -559,6 +560,8 @@ final class RepositoryCompiler {
             'tree' => $tree,
             'deletions' => $this->deletions,
         ];
+        $derivatives = RepositoryMediaDerivatives::derive($tree, $this->policy);
+        if ($derivatives !== []) $payload['media_derivatives'] = $derivatives;
         if ($codeDescriptor !== null) {
             $payload['code'] = $codeDescriptor;
         }

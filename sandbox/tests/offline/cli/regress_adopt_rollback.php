@@ -1503,15 +1503,20 @@ adopt_check(
 );
 unlink($writerPending);
 
+// The included agent writes webBoot while the loader still owns its fence.
+// A marker after require returns proves the release boundary was reached;
+// polling webBoot raced the loader's finally block under the parallel gate.
 $webRunner = <<<'PHP'
 putenv('WPRISM_FENCE_BOOT=' . $argv[2]);
 require $argv[1];
+file_put_contents($argv[3], (string) getmypid());
 fgets(STDIN);
 PHP;
 $webBoot = $generationFixture . '/web-reader.boot';
-$webReader = $startGenerationProcess([PHP_BINARY, '-r', $webRunner, $loaderPath, $webBoot]);
+$webReady = $generationFixture . '/web-reader.ready';
+$webReader = $startGenerationProcess([PHP_BINARY, '-r', $webRunner, $loaderPath, $webBoot, $webReady]);
 $awaitGenerationEvidence(
-    static fn(): bool => is_file($webBoot),
+    static fn(): bool => is_file($webBoot) && is_file($webReady),
     'a normal WordPress-style process completes the eager agent bootstrap'
 );
 $webWriter = fopen($generationMu, 'rb');

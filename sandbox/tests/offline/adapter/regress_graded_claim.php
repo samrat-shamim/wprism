@@ -336,16 +336,16 @@ foreach ($report['manifests'] as $row) {
     $statuses[(string) $row['name']] = (string) $row['status'];
 }
 ksort($statuses, SORT_STRING);
-// WPForms is a non-authorizing preview; Yoast Duplicate Post's managed-clone
-// claim was withdrawn. Neither may count beside the 16 certified subjects.
+// WPForms and Qi are non-authorizing previews; Yoast Duplicate Post's
+// managed-clone claim was withdrawn. None count beside the 17 certified subjects.
 wprism_check_same(
-    ['certified' => 16, 'excluded' => 1, 'experimental' => 2],
+    ['certified' => 17, 'excluded' => 1, 'experimental' => 3],
     (static function (array $words): array {
         $counts = array_count_values($words);
         ksort($counts, SORT_STRING);
         return $counts;
     })(array_values($statuses)),
-    'ManifestDispositions::report() projects the reviewed word verbatim over 19 subjects, including both non-authorizing capsules'
+    'ManifestDispositions::report() projects the reviewed word verbatim over 21 subjects, including all three non-authorizing capsules'
 );
 wprism_check(
     str_contains(

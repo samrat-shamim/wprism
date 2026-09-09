@@ -4,6 +4,8 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
+require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+require_once __DIR__ . '/../Kernel/Uuid.php';
 require_once __DIR__ . '/CaptureIdentity.php';
 require_once __DIR__ . '/CaptureSafetyGates.php';
 require_once __DIR__ . '/CaptureTransaction.php';
@@ -184,6 +186,71 @@ final class CaptureCandidateBuilder {
     /** @return array{menus_by_term_id:array} */
     public function planObservations(): array {
         return $this->planObservations;
+    }
+
+    /**
+     * Borrowed input observation is deliberately not an export: a stock
+     * category awaiting adoption cannot block an unrelated image recipe.
+     * Comparison-only unmanaged consumer ids prevent silent omission while
+     * granting no durable identity or publication authority.
+     */
+    public function buildBlockInputs(array $blockNames, DatabaseWorkAuthority $workAuthority): array {
+        if (!array_is_list($blockNames) || $blockNames === [] || count($blockNames) > 4096) {
+            throw new \RuntimeException('wprism: block input observation requires an exact bounded block roster');
+        }
+        foreach ($blockNames as $name) {
+            if (!is_string($name) || preg_match('/^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*$/D', $name) !== 1) {
+                throw new \RuntimeException('wprism: block input observation has a malformed block selector');
+            }
+        }
+        if (count(array_unique($blockNames)) !== count($blockNames)) {
+            throw new \RuntimeException('wprism: block input observation requires an exact bounded block roster');
+        }
+        $this->reset(false);
+        $posts = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array => $this->scopeDiscovery->posts());
+        $identities = [];
+        $managed = [];
+        foreach ($posts as $post) {
+            $id = (int) $post->ID;
+            $uuid = DatabaseQueryIsolation::work_unit($workAuthority,
+                fn(): ?string => $this->captureIdentity->observePost($id, 'post'));
+            if ($uuid !== null) $managed[$id] = $uuid;
+            $identities[$id] = $uuid ?? Uuid::v5(Uuid::NAMESPACE_WPRISM, 'unmanaged-block-input:post:' . $id);
+        }
+        $entities = [];
+        $mediaSizes = [];
+        $mediaBytes = 0;
+        foreach ($posts as $post) {
+            $id = (int) $post->ID;
+            $isAttachment = $post->post_type === 'attachment';
+            if ($isAttachment && !isset($managed[$id])) continue;
+            if (!$isAttachment && ($this->policy->body_mode((string) $post->post_type) !== 'blocks'
+                || BlockAttributeReader::read((string) $post->post_content, $blockNames) === [])) continue;
+            $build = DatabaseQueryIsolation::work_unit($workAuthority,
+                fn(): array => $this->postCapture->captureBlockInput($post, $identities[$id]));
+            if ($build['media_ref'] !== null) {
+                [$name, $source] = $build['media_ref'];
+                $size = $source['witness']['size'] ?? null;
+                if (!is_int($size) || (isset($mediaSizes[$name]) && $mediaSizes[$name] !== $size)) {
+                    throw new \RuntimeException('wprism: block input media lacks a consistent bounded source witness');
+                }
+                if (!isset($mediaSizes[$name])) $mediaBytes = MediaPayloadAuthority::addToAggregate($mediaBytes, $size);
+                $mediaSizes[$name] = $size;
+            }
+            $entities[] = $build['entity'];
+        }
+        $references = $this->portableWidgetReferenceScan($posts, $identities, null, $workAuthority)['references'];
+        // SidebarState's non-minting comparison path verifies existing maps
+        // and retains unmanaged widget markers. Strict export would reject
+        // unrelated default widgets; duplicating its assignment parser would
+        // lose portable references to selected inactive instances.
+        $sidebars = DatabaseQueryIsolation::work_unit($workAuthority, fn(): array => SidebarState::capture(
+            $this->policy, $this->tokens, false, false, false, $references === [] ? null : $references,
+            $this->canonicalShortcodeTree
+        ));
+        $entities = [...$entities, ...$sidebars['entities']];
+        $this->safetyGates->assertContentReferences($this->tokens);
+        return $entities;
     }
 
     /** Options-only candidate used by lifecycle handoff snapshots. */

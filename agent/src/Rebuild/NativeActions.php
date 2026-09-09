@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/PlainData.php';
+
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
 require_once __DIR__ . '/../Kernel/BoundedChildProcess.php';
 require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
@@ -810,7 +812,7 @@ final class NativeActions {
                 "wprism: native action 'rewrite.flush' checked option read returned a non-string value for '$name'"
             );
         }
-        return ['present' => true, 'value' => maybe_unserialize($raw)];
+        return ['present' => true, 'value' => PlainData::decode($raw, "native rewrite option '$name'")];
     }
 
     /** WordPress stores plain-permalink rewrite state as the exact empty string. */

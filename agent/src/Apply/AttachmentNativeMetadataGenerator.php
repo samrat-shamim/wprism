@@ -66,6 +66,10 @@ final class AttachmentNativeMetadataAuthority {
         return $this->compiled?->manifest_hash();
     }
 
+    public function derivative_recipes(int $attachmentId, string $stageFile): array {
+        return $this->filesystem?->generation_recipes($attachmentId, $stageFile) ?? [];
+    }
+
     /** @return ?array{intent_id:string,artifact_hash:string,roster_hash:string,manifest_hash:string} */
     public function post_commit_context(): ?array {
         if ($this->compiled === null || $this->filesystem === null || !in_array($this->filesystem->phase(), [
@@ -557,6 +561,13 @@ final class AttachmentNativeMetadataGenerator {
                 // sealed filesize before the closed metadata filter.
                 $metadata = ['filesize' => $lockedClassification['size']];
             }
+            $recipes = $this->authority->derivative_recipes($attachmentId, $stageFile);
+            if ($recipes !== []) {
+                if ($lockedClassification['kind'] !== 'raster') {
+                    throw new \RuntimeException('wprism: declared media derivatives require a sealed raster original');
+                }
+                $metadata = $this->generate_declared_derivatives($stageFile, $mime, $metadata, $recipes);
+            }
             $metadata = $this->apply_quarantined_adapter_projection(
                 $metadata,
                 $lockedSizes['sizes'],
@@ -644,6 +655,86 @@ final class AttachmentNativeMetadataGenerator {
                 0,
                 $primary
             );
+        }
+        return $metadata;
+    }
+
+    /**
+     * Requested filenames and actual dimensions differ for constrained/no-op
+     * resizes. Real GD output becomes an ordinary native size record, so the
+     * existing exact metadata inventory owns publication, recovery and cleanup.
+     */
+    private function generate_declared_derivatives(string $original, string $mime, array $metadata, array $recipes): array {
+        if (!function_exists('image_resize_dimensions') || !is_array($metadata['sizes'] ?? null)) {
+            throw new \RuntimeException('wprism: declared media derivatives lack the native resize runtime or size projection');
+        }
+        [$sourceWidth, $sourceHeight] = $this->assert_bounded_source_image($original);
+        foreach ($recipes as $recipe) {
+            $geometry = image_resize_dimensions($sourceWidth, $sourceHeight, $recipe['width'], $recipe['height'], $recipe['crop']);
+            // In the closed Core topology, false means no smaller image exists.
+            // Skip that no-op explicitly; a real resize error is never ignored.
+            $expectedWidth = $geometry === false ? $sourceWidth : ($geometry[4] ?? null);
+            $expectedHeight = $geometry === false ? $sourceHeight : ($geometry[5] ?? null);
+            if (!is_int($expectedWidth) || !is_int($expectedHeight) || $expectedWidth <= 0 || $expectedHeight <= 0
+                || $expectedWidth > self::MAX_IMAGE_DIMENSION || $expectedHeight > self::MAX_IMAGE_DIMENSION
+                || $expectedWidth * $expectedHeight > self::MAX_OUTPUT_PIXELS) {
+                throw new \RuntimeException('wprism: declared media derivative geometry exceeds its native pixel authority');
+            }
+            $editor = wp_get_image_editor($original);
+            if (is_wp_error($editor) || get_class($editor) !== 'WP_Image_Editor_GD') {
+                throw new \RuntimeException('wprism: declared media derivative requires the closed GD editor');
+            }
+            if ($geometry !== false && $editor->resize($recipe['width'], $recipe['height'], $recipe['crop']) !== true) {
+                throw new \RuntimeException('wprism: declared media derivative native resize failed');
+            }
+            $name = basename($recipe['target_path']);
+            $target = dirname($original) . '/' . $name;
+            $temporary = dirname($original) . '/.wprism-recipe-' . $recipe['recipe_id'] . '.' . pathinfo($name, PATHINFO_EXTENSION);
+            if (file_exists($temporary) || is_link($temporary)) {
+                throw new \RuntimeException('wprism: declared media derivative staging target is already occupied');
+            }
+            try {
+                $saved = $editor->save($temporary, $mime);
+                if (is_wp_error($saved) || !is_array($saved) || ($saved['path'] ?? null) !== $temporary
+                    || ($saved['file'] ?? null) !== basename($temporary)
+                    || ($saved['width'] ?? null) !== $expectedWidth || ($saved['height'] ?? null) !== $expectedHeight
+                    || ($saved['mime-type'] ?? null) !== $mime || is_link($temporary) || !is_file($temporary)) {
+                    throw new \RuntimeException('wprism: declared media derivative native save lacks exact path, MIME or dimensions');
+                }
+                $classification = MediaPayloadAuthority::classifyFile($temporary, $name, $mime);
+                $dimensions = getimagesize($temporary);
+                if (($dimensions[0] ?? null) !== $expectedWidth || ($dimensions[1] ?? null) !== $expectedHeight
+                    || (isset($saved['filesize']) && $saved['filesize'] !== $classification['size'])) {
+                    throw new \RuntimeException('wprism: declared media derivative native projection disagrees with generated bytes');
+                }
+                $size = ['file' => $name, 'width' => $expectedWidth, 'height' => $expectedHeight,
+                    'mime-type' => $mime, 'filesize' => $classification['size']];
+                if (file_exists($target) || is_link($target)) {
+                    $matched = false;
+                    foreach ($metadata['sizes'] as $native) {
+                        if (($native['file'] ?? null) !== $name) continue;
+                        if (($native['width'] ?? null) !== $expectedWidth || ($native['height'] ?? null) !== $expectedHeight
+                            || ($native['mime-type'] ?? null) !== $mime) {
+                            throw new \RuntimeException('wprism: declared media derivative conflicts with a native size projection');
+                        }
+                        $matched = true;
+                    }
+                    if (!$matched || is_link($target) || !is_file($target)
+                        || hash_file('sha256', $temporary) !== hash_file('sha256', $target)) {
+                        throw new \RuntimeException('wprism: declared media derivative conflicts with native generated file bytes');
+                    }
+                } else {
+                    $key = 'wprism_recipe_' . $recipe['recipe_id'];
+                    if (array_key_exists($key, $metadata['sizes']) || !rename($temporary, $target)) {
+                        throw new \RuntimeException('wprism: declared media derivative cannot seal its native size record');
+                    }
+                    $metadata['sizes'][$key] = $size;
+                }
+            } finally {
+                if ((file_exists($temporary) || is_link($temporary)) && !unlink($temporary)) {
+                    throw new \RuntimeException('wprism: declared media derivative staging cleanup failed');
+                }
+            }
         }
         return $metadata;
     }
