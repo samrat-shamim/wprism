@@ -11,12 +11,16 @@ require_once "$root/agent/src/Capture/CaptureSafetyGates.php";
 require_once "$root/agent/src/Repository/RepositoryCompiler.php";
 require_once "$root/agent/src/Policy/ScopeContract.php";
 require_once "$root/agent/src/Scope/ScopedStateOverlay.php";
+require_once "$root/agent/src/Review/Lint.php";
+require_once "$root/sandbox/tests/support/wp-block-parser-stub.php";
+require_once "$root/sandbox/tests/support/wp-shortcode-stub.php";
 wprism_test_define_agent_versions();
 
 use WPrism\Canon;
 use WPrism\CaptureSafetyGates;
 use WPrism\CommandRefusalException;
 use WPrism\EntityMetaCapture;
+use WPrism\Lint;
 use WPrism\OptionsCapture;
 use WPrism\OptionState;
 use WPrism\RepositoryAuthorizationException;
@@ -104,6 +108,31 @@ $resolution = ScopeContract::resolve($compiled, $policy, ['option:vp_general']);
 $selected = ScopedStateOverlay::selected_identities($resolution);
 wprism_check(in_array($uuid(10), $selected, true) && in_array($uuid(3), $selected, true), 'option scope closes over its archive and placeholder references');
 wprism_check(!in_array($uuid(1), $selected, true), 'old target archive is not an outbound authored dependency');
+// The first native capture collided with post 3. Preserve that value and
+// collide every image width too, so reviewed counts cannot depend on small IDs.
+$numericFields = ['vp_general' => ['archive_page_items_per_page'],
+    'vp_images' => ['sm', 'md', 'lg', 'xl', 'sm_popup', 'md_popup', 'xl_popup']];
+$collisions = [];
+$expectedLocators = [];
+$unreviewed = $manifest;
+foreach ($numericFields as $option => $fields) foreach ($fields as $field) {
+    $id = (int) $values[$option][$field];
+    $collisions[$id] = ['ID' => $id, 'post_type' => 'post', 'post_title' => 'Native numeric collision ' . $id, 'post_status' => 'publish'];
+    $expectedLocators[] = 'options.' . $option . '.' . $field;
+    unset($unreviewed['options'][$option]['sub_keys'][$field]['lint_ok']);
+}
+$db->seedTable('wp_posts', array_values($collisions));
+$nativeRows = [$db->rows('wp_options'), $db->rows('wp_posts')];
+$unreviewedPolicy = FrozenPolicy::policy([$core, $unreviewed], $site);
+$findings = Lint::scan_tree($scratch . '/state', $unreviewedPolicy);
+$actualLocators = array_column($findings, 'locator');
+sort($expectedLocators, SORT_STRING);
+sort($actualLocators, SORT_STRING);
+wprism_check_same($expectedLocators, $actualLocators, 'removing the numeric reviews reproduces every count/width collision through real lint');
+wprism_check_same(['bare_id'], array_values(array_unique(array_column($findings, 'class'))), 'the counterfactual findings are numeric identity coincidences');
+wprism_check_same([], Lint::scan_tree($scratch . '/state', $policy), 'native counts and image widths lint clean with real colliding post IDs');
+wprism_check_same($nativeRows, [$db->rows('wp_options'), $db->rows('wp_posts')], 'lint preserves complete native fixture rows');
+wprism_check_same(Canon::encode($document), file_get_contents($scratch . '/state/options/core.json'), 'lint never repairs or changes canonical numeric settings');
 $unclassified = [];
 $meta = new EntityMetaCapture($policy, $tokens, $guard, static function (): void {},
     static function (string $key) use (&$unclassified): void { $unclassified[] = $key; });

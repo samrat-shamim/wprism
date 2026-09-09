@@ -32,7 +32,7 @@
       "sub_keys": {
         "register_portfolio_post_type": {"class": "authored"},
         "portfolio_archive_page": {"class": "authored", "ref": "post", "cast": "string"},
-        "archive_page_items_per_page": {"class": "authored"},
+        "archive_page_items_per_page": {"class": "authored", "lint_ok": true},
         "filter_taxonomies": {"class": "authored"},
         "no_image": {"class": "authored", "ref": "post", "cast": "string"},
         "ajax_caching": {"class": "env"},
@@ -50,13 +50,13 @@
       "sub_keys": {
         "lazy_loading": {"class": "authored"},
         "lazy_loading_excludes": {"class": "authored"},
-        "sm": {"class": "authored"},
-        "md": {"class": "authored"},
-        "lg": {"class": "authored"},
-        "xl": {"class": "authored"},
-        "sm_popup": {"class": "authored"},
-        "md_popup": {"class": "authored"},
-        "xl_popup": {"class": "authored"}
+        "sm": {"class": "authored", "lint_ok": true},
+        "md": {"class": "authored", "lint_ok": true},
+        "lg": {"class": "authored", "lint_ok": true},
+        "xl": {"class": "authored", "lint_ok": true},
+        "sm_popup": {"class": "authored", "lint_ok": true},
+        "md_popup": {"class": "authored", "lint_ok": true},
+        "xl_popup": {"class": "authored", "lint_ok": true}
       }
     },
     "vp_popup_gallery": {
@@ -473,6 +473,7 @@
   "notes": [
     "Experimental source capture and immutable compilation only; archive mapping, role synchronization and rewrite effects do not yet have an Apply contract.",
     "The archive page and placeholder are post references. _vp_post_type_mapped is derived from the archive option; treating each marker as authored leaves the old target marker outside outbound scope closure.",
+    "The native archive page-size and seven image-width settings are numeric controls (classes/class-settings.php:287, 434-485), not post identities. Their narrow lint_ok reviews preserve string values even when they coincide with real post IDs.",
     "Legacy custom CSS replaces double hyphens with _u002d__u002d_ before encodeURIComponent (gutenberg/utils/encode-decode/index.js:34); single hyphens remain literal.",
     "The exact native registry supplies attribute names. Instance block_id/queryId, filter slugs and saved count are data; taxonomyId is a term reference. Free settings do not acquire premium behavior merely because a native form also submits hidden premium fields."
   ]
