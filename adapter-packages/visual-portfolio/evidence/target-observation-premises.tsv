@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=8 fixtures=0
+# expected observations=22 fixtures=0
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_VERIFY1 'Visual Portfolio complete canonical source readback' wp_conf1 eval-file /siterepo/.tmp-vp-capture/verify.php --use-include --user=admin
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_OBSERVED1 'Visual Portfolio complete native source observation' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php observe --use-include --user=admin
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_RECAPTURE 'Visual Portfolio public repeated Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
@@ -8,3 +8,17 @@ observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_OB
 observation	tests/conformance/seed.sh	capture_wprism_json_success VP_PADDING 'Visual Portfolio native identity divergence' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php pad-target --use-include --user=admin
 observation	tests/conformance/seed.sh	capture_wprism_json_success VP_SEED 'Visual Portfolio native media and projects' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php seed-source --use-include --user=admin
 observation	tests/conformance/seed.sh	capture_wprism_json_success VP_SAVED 'Visual Portfolio native block and settings writers' wp_conf1 eval-file /siterepo/.tmp-vp-capture/save.php --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture padding wp_side 2 eval-file "$fixture" pad --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture "setup$side" wp_side "$side" eval-file "$fixture" "setup-$role" --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture capture1 candidate 1 capture --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture baseline-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json
+observation	tests/live/regress_settings_apply.sh	capture baseline-target wp_side 2 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture "$phase-save" wp_side 1 eval-file "$fixture" "$phase" --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture "$phase-capture" candidate 1 capture --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-source" wp_side 1 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture "$phase-scope" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" scope source --roots=option:vp_general --contract --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-plan" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" plan target --scope-contract="$sink/$phase-scope.stdout" --format=json
+observation	tests/live/regress_settings_apply.sh	capture_expected "$phase-apply" "$expected" host_apply --scope-contract="$sink/$phase-scope.stdout" --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-target" wp_side 2 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture "$phase-repeat" host_apply --scope-contract="$sink/$phase-scope.stdout" --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-stable" wp_side 2 eval-file "$fixture" observe --use-include --user=admin

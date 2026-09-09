@@ -1,11 +1,12 @@
 # Visual Portfolio
 
 Experimental declarations for the official free **3.8.1** artifact. This capsule
-exercises source capture, immutable compilation and codec fixed points. It does
-not authorize production release or claim a complete native target Apply.
+exercises source capture, immutable compilation, codec fixed points and a bounded
+native settings Apply lane. It does not authorize production release.
 
 The manifest uses 41 exact block groups for 469 value declarations, plus five
-explicit unsupported attributes. It ships no interpreter, provider or regenerator.
+explicit unsupported attributes. One manifest provider repairs native settings;
+there is no interpreter or regenerator.
 The native source registry accounts for all 22 block types in its observed context;
 registry coverage is not evidence that every control was edited and saved.
 
@@ -19,10 +20,32 @@ synthetic codec cases; their native picker qualification remains open.
 
 `vp_general.portfolio_archive_page` and `no_image` are post references.
 `_vp_post_type_mapped` is derived: independently authored markers leave an old
-archive marker outside the new option's outbound scope closure. Archive repair,
-role synchronization and the plugin's deferred **hard** rewrite flush still need a
-complete scoped effect and recovery contract. Reading-time metadata uses the
+archive marker outside the new option's outbound scope closure. The settings
+provider calls the plugin's public archive, role and deferred **hard** rewrite
+helpers through the engine's fresh-process runtime. SDK transactions, complete
+physical row witnesses, native getter provenance and an independent fresh observer
+verify the derived database projection while preserving unrelated state.
+Reading-time metadata uses the
 shared `on_post_write: delete` mechanism; view counters remain runtime state.
+
+The settings lane uses a new content-only repository and already installed plugins:
+an adoption baseline, scoped archive move/clear, disabling portfolio content, and
+terminal replay. It checks divergent native IDs, the old archive outside authored
+scope, all nine native dependency tables and retained engine state. Its semantic
+offline doubles cover native no-ops, deferred rewrites, unrelated writes and aliases;
+they do not establish native injected-failure recovery.
+
+Returning to an earlier artifact after an intervening Apply currently refuses:
+the direct scoped request is identified by scope/content, so its historical terminal
+receipt describes the earlier target. Re-enabling after clear → disable reproduces
+this engine boundary. The live suite requires that exact refusal and unchanged
+observed state. A new direct request generation belongs in the engine follow-up;
+changing an unrelated setting or deleting receipts is not a recovery procedure.
+
+This first lane requires one WordPress document root and bounds each dependency
+table at 8,192 rows / 16 MiB. Server-file snapshots bind bytes or absence; they do
+not prove rewrite-file semantics or provide file rollback. Server files and native
+external hooks remain explicitly irreversible effects, blocking automatic promotion.
 
 Saved Layouts, modern post queries, extension queries and modern custom CSS refuse
 where declared. Premium settings, including hidden premium fields submitted by the
@@ -54,6 +77,20 @@ saves through WordPress REST and plugin source writers, then exercises public
 Capture and immutable compilation. It compares complete canonical files, seven
 native tables, the block registry and upload hashes across repeated Capture.
 It stops before target deploy or Apply.
+
+The separate settings lane owns and destroys its pair automatically:
+
+```sh
+VP_SETTINGS_PAIR=vpset01 VP_SETTINGS_PORT1=9186 VP_SETTINGS_PORT2=9187 \
+  VP_SETTINGS_ZIP=/absolute/path/to/visual-portfolio.3.8.1.zip \
+  WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
+  bash adapter-packages/visual-portfolio/tests/live/regress_settings_apply.sh
+```
+
+It requires the exact artifact hash in `evidence/artifacts.lock.json`, retains
+complete private stdout/stderr/status files, and admits the original command
+streams behind the shared diagnostic collector's pointer. An unexpected diagnostic
+or process status fails the run. It is API-authored evidence, not another UI Save.
 
 The source fixture hashes and native writer receipt are in
 [fixtures/native/provenance.json](fixtures/native/provenance.json). HTTP request

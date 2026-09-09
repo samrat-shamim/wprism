@@ -3988,6 +3988,7 @@ class FakeWpdb {
             [
                 'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH', 'LEFT', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
                 'IS_USED_LOCK', 'CONNECTION_ID', 'CURRENT_USER', 'VERSION', 'SHA2', 'COALESCE', 'CONCAT', 'SUM', 'MAX',
+                'JSON_EXTRACT', 'JSON_UNQUOTE',
             ],
             true
         )) {
@@ -4196,7 +4197,10 @@ class FakeWpdb {
     }
 
     private static function isBinary(array $node): bool {
-        return $node['k'] === 'binary';
+        // JSON_UNQUOTE returns utf8mb4_bin on the supported MySQL/MariaDB
+        // generations; a case-folded owner must not satisfy a lock fence.
+        return $node['k'] === 'binary'
+            || ($node['k'] === 'fn' && $node['name'] === 'JSON_UNQUOTE');
     }
 
     /** @param array{table:string,alias:?string,columns:?list<string>}|null $ctx */
@@ -4238,6 +4242,8 @@ class FakeWpdb {
                 isset($node['args'][0]) && self::isBinary($node['args'][0])
             ),
             'SHA2' => $this->sha2Function($args),
+            'JSON_EXTRACT' => $this->jsonExtractFunction($args),
+            'JSON_UNQUOTE' => $this->jsonUnquoteFunction($args),
             // Advisory locks are a live-MySQL concern; the fake reports a
             // configurable, deterministic result so the engine's lock branch
             // is exercisable without a server.
@@ -4256,6 +4262,49 @@ class FakeWpdb {
             ),
             default => throw $this->unsupported('SQL function ' . $node['name']),
         };
+    }
+
+    /**
+     * Promotion-lock cleanup predicates need exact JSON member values while
+     * retaining the ordinary connection/nonce/owner conjunction. A canned
+     * DELETE answer would hide an incorrect owner or a lost process fence.
+     * This deliberately supports one named object member and scalar results;
+     * other JSON paths and numeric floating-point conversions remain loud.
+     */
+    private function jsonExtractFunction(array $args): ?string {
+        if (count($args) !== 2) throw $this->unsupported('JSON_EXTRACT() requires two arguments');
+        if (in_array(null, $args, true)) return null;
+        if (!is_string($args[0]) || !is_string($args[1])
+            || preg_match('/^\$\.([a-zA-Z_][a-zA-Z0-9_]*)$/D', $args[1], $match) !== 1) {
+            throw $this->unsupported('JSON_EXTRACT() requires JSON text and one named object-member path');
+        }
+        try {
+            $document = json_decode($args[0], false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw $this->unsupported('JSON_EXTRACT() invalid JSON: ' . $error->getMessage());
+        }
+        if (!$document instanceof \stdClass) throw $this->unsupported('JSON_EXTRACT() requires an object document');
+        if (!property_exists($document, $match[1])) return null;
+        $value = $document->{$match[1]};
+        if (is_object($value) || is_array($value) || is_float($value)) {
+            throw $this->unsupported('JSON_EXTRACT() supports string, integer, boolean, or null members');
+        }
+        return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    }
+
+    private function jsonUnquoteFunction(array $args): ?string {
+        if (count($args) !== 1) throw $this->unsupported('JSON_UNQUOTE() requires one argument');
+        $value = $args[0];
+        if ($value === null) return null;
+        if (!is_string($value)) throw $this->unsupported('JSON_UNQUOTE() requires text');
+        if (!str_starts_with($value, '"') || !str_ends_with($value, '"')) return $value;
+        try {
+            $decoded = json_decode($value, false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw $this->unsupported('JSON_UNQUOTE() invalid JSON string: ' . $error->getMessage());
+        }
+        if (!is_string($decoded)) throw $this->unsupported('JSON_UNQUOTE() requires a JSON string literal');
+        return $decoded;
     }
 
     private function concatFunction(array $values): ?string {
