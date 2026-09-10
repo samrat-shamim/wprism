@@ -1247,6 +1247,21 @@ version_matrix_reset_after_delete() {
       }
     }
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''woocommerce_%'\'' OR option_name LIKE '\''wc_%'\'' OR option_name LIKE '\''_transient_wc_%'\'' OR option_name LIKE '\''_site_transient_wc_%'\'' OR option_name LIKE '\''action_scheduler_%'\'' OR option_name IN ('\''schema-ActionScheduler_StoreSchema'\'', '\''schema-ActionScheduler_LoggerSchema'\'')");
+    // Three WooCommerce options carry its state under names its own prefixes
+    // do not cover, so the sweep above leaves them while `site empty` deletes
+    // every term they point at. default_product_cat then dangles at a term id
+    // from the previous boundary case, and capture refuses exactly as it
+    // should: "option default_product_cat: capture found no exact physical
+    // term-coordinate tuple in the declared taxonomy" -- measured on the
+    // 11.0.1 leg, where default_product_cat was 15 while product_cat held no
+    // terms at all. The two *_children options are the same class, WordPress
+    // hierarchy caches keyed by term ids that no longer exist, and both are
+    // declared derived, so dropping them loses nothing. Delete rather than
+    // rebind: this hook runs after plugin deletion, so the WooCommerce
+    // installer is what must re-establish its default category, the way the
+    // shared reset rebinds the core default_category before an extension
+    // installer can reuse a stale numeric id.
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name IN ('\''default_product_cat'\'', '\''product_cat_children'\'', '\''product_brand_children'\'')");
   ' >/dev/null
 }
 
