@@ -773,6 +773,36 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   pass 'WooCommerce 11.0.1 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures modulo exact derived product timestamps'
 }
 
+# A host-orchestrated deploy reports its target refusal redacted: the machine
+# stream carries only lifecycle_status_failed with details_redacted, and the
+# precise cause is retained as private operator evidence under that side's
+# repository. Every control here that drives a target refusal asserts both
+# halves through this helper -- the public stream must stay redacted AND must
+# not leak the named detail, while the private graph must still carry it. A
+# redaction that quietly became a lost diagnostic fails the private half; a
+# leak fails the public half. Grepping the public stream for the detail, as
+# these controls used to, described the direct target verb this capsule no
+# longer uses.
+woocommerce_assert_redacted_target_refusal() { # <1|2> <output> <label> <private-pattern>...
+  local side="$1" out="$2" label="$3" private_file pattern
+  shift 3
+  grep -Fq 'wprism: deploy: lifecycle preflight failed; no target mutation occurred' <<<"$out" \
+    && grep -Fq '"details_redacted":true' <<<"$out" \
+    || fail "$label did not refuse through the redacted lifecycle boundary: $out"
+  private_file=$(ls -t "siterepo/${PAIR}${side}"/.wprism/refusals/*-lifecycle-status-*.json 2>/dev/null | head -n 1)
+  [ -n "$private_file" ] \
+    || fail "$label retained no private operator evidence"
+  for pattern in "$@"; do
+    grep -Eq -- "$pattern" <<<"$out" \
+      && fail "$label leaked '$pattern' into machine output: $out"
+    jq -e --arg pattern "$pattern" '
+      .format == "wprism-private-refusal-evidence/v2" and .command == "lifecycle-status" and
+      ([.throwable[]? | select((.message // "") | test($pattern))] | length) >= 1
+    ' "$private_file" >/dev/null \
+      || fail "$label private operator evidence did not name $pattern"
+  done
+}
+
 check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   local version="$1" artifact="$2" expected_sha before_native reactivated_native
   local before_uninstall absent_after_uninstall missing_before missing_after missing_rc missing_out
@@ -804,30 +834,8 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   missing_before="$absent_after_uninstall"; missing_rc=0
   missing_out=$(host_wprism conf2 deploy 2>&1) || missing_rc=$?
   require_wprism_answered "WooCommerce $version deploy with code absent" human "$missing_out"
-  # A host-orchestrated deploy reports its target's refusal redacted: the
-  # machine stream carries lifecycle_status_failed with details_redacted, and
-  # the precise cause is retained as private operator evidence under the target
-  # repository. That is the reviewed shape, pinned the same way by rank-math's
-  # matrix. Grepping the public stream for 'code_mismatch' described the direct
-  # target verb this capsule no longer uses, so assert both halves instead: the
-  # public refusal stays redacted, AND the private graph still names the exact
-  # missing executable. A redaction that quietly became a lost diagnostic would
-  # fail the second half.
-  [ "$missing_rc" -ne 0 ] \
-    && grep -Fq 'wprism: deploy: lifecycle preflight failed; no target mutation occurred' <<<"$missing_out" \
-    && grep -Fq '"details_redacted":true' <<<"$missing_out" \
-    || fail "WooCommerce $version missing-code deploy did not refuse through the redacted lifecycle boundary: $missing_out"
-  grep -Eq 'code_mismatch|woocommerce/woocommerce\.php' <<<"$missing_out" \
-    && fail "WooCommerce $version redacted missing-code refusal leaked target detail into machine output: $missing_out"
-  missing_private_file=$(ls -t "siterepo/${PAIR}2"/.wprism/refusals/*-lifecycle-status-*.json 2>/dev/null | head -n 1)
-  [ -n "$missing_private_file" ] \
-    || fail "WooCommerce $version redacted missing-code refusal retained no private operator evidence"
-  jq -e '
-    .format == "wprism-private-refusal-evidence/v2" and .command == "lifecycle-status" and
-    ([.throwable[]? | select((.message // "") | test("code_mismatch")
-       and test("woocommerce/woocommerce\\.php"))] | length) >= 1
-  ' "$missing_private_file" >/dev/null \
-    || fail "WooCommerce $version private operator evidence did not name the exact missing executable"
+  woocommerce_assert_redacted_target_refusal 2 "$missing_out" \
+    "WooCommerce $version missing-code deploy refusal" 'code_mismatch' 'woocommerce/woocommerce\.php'
   missing_after=$(woocommerce_boundary_storage_hash)
   [ "$missing_after" = "$missing_before" ] || fail "WooCommerce $version missing-code refusal partially changed retained storage"
   wp2 plugin install "$artifact" --force >/dev/null
@@ -1494,8 +1502,8 @@ DEPLOY_OUT=$(host_wprism conf1 deploy 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse woocommerce 10.9.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
-  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
+woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
+  'WooCommerce below-range 10.9.4 deploy refusal' 'outside_version_range'
 grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
 grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
@@ -1564,10 +1572,8 @@ DEPLOY_OUT=$(host_wprism conf1 deploy 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
-  || fail "exclusive-upper deploy refused, but not for outside_version_range (got: $DEPLOY_OUT)"
-grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" \
-  || fail "exclusive-upper refusal did not name the WooCommerce plugin (got: $DEPLOY_OUT)"
+woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
+  'WooCommerce exclusive-upper deploy refusal' 'outside_version_range' 'woocommerce/woocommerce\.php'
 grep -q "11.0.2" <<<"$DEPLOY_OUT" \
   || fail "exclusive-upper refusal did not name WordPress's installed Version header (got: $DEPLOY_OUT)"
 [ "$(wp1 option get active_plugins --format=json | tail -1)" = "$PRE_REFUSAL_ACTIVE" ] \
