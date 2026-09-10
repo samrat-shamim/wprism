@@ -1411,4 +1411,43 @@ wprism_check(
 );
 $wpdb->simulateExternalTransactionControl('ROLLBACK AND NO CHAIN NO RELEASE');
 
+// The engine's own pre-policy probe must survive its own isolation grammar.
+// PlatformCompatibility::current_facts() reads `SELECT VERSION()` before
+// Policy::load() admits anything, and DatabaseLockBoundary reads it again
+// before a transactional mutation. VERSION() was missing from the reviewed
+// built-in list while its weaker siblings CONNECTION_ID() and DATABASE() were
+// present, so once a native profile was active the probe's own query was
+// refused as "an unreviewed SQL function". current_facts() catches that and
+// reports platform_probe_unavailable on the database axis, which reads as a
+// broken server rather than a rejected statement — measured live: every
+// `wprism capture --scope-contract=...` refused on a healthy pair while the
+// same repo captured cleanly without the contract.
+$wpdb = db_authority_fixture()->setServerVersion('11.4.4-MariaDB');
+Db::start('engine version probe under an active profile', db_authority_profile(['wp_wprism_kv']));
+$versionDispatched = 0;
+$wpdb->onQuery(static function (string $query) use (&$versionDispatched): null {
+    if ($query === 'SELECT VERSION()') {
+        $versionDispatched++;
+    }
+    return null;
+});
+$versionFailure = db_authority_failure(static fn() => $wpdb->get_var('SELECT VERSION()'));
+wprism_check_same(null, $versionFailure,
+    'SELECT VERSION() is admitted while a native database profile is active');
+wprism_check_same(1, $versionDispatched,
+    'the admitted version probe actually reaches the database exactly once');
+
+// Negative control: admitting VERSION() must not open the callable surface.
+// The control reads a profile-readable table so it reaches the callable
+// grammar rather than being stopped earlier by the statement-shape guard.
+$unreviewedFailure = db_authority_failure(
+    static fn() => $wpdb->query('SELECT HEX(k) FROM wp_wprism_kv')
+);
+wprism_check($unreviewedFailure instanceof DatabaseQueryIsolationViolationException,
+    'an unreviewed built-in is still refused after VERSION() was admitted');
+wprism_check_same('wprism: an unreviewed SQL function crossed the native database profile',
+    $unreviewedFailure?->getMessage(),
+    'the unreviewed-function refusal keeps its exact public sentence');
+Db::rollback_after_failure($unreviewedFailure, 'version probe control rollback');
+
 wprism_check_summary('database transaction authority');
