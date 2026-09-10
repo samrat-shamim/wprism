@@ -194,8 +194,8 @@ read -r -d '' SEED_PHP <<'PHPEOF' || true
 $event_id = tribe_events()->set_args([
     'title' => 'Regen Dependency Test Event',
     'status' => 'publish',
-    'start_date' => '2026-09-05 17:00:00',
-    'end_date' => '2026-09-05 20:00:00',
+    'start_date' => '2041-09-05 17:00:00',
+    'end_date' => '2041-09-05 20:00:00',
     'description' => 'Seeded for issue #3234.',
 ])->create()->ID;
 if (!$event_id) { fwrite(STDERR, "failed to create event\n"); exit(1); }

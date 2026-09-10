@@ -1210,7 +1210,7 @@ printf '%s\n' "$TARGET" | jq -e \
   .event.organizer_names == ["WPrism Readiness Team 東京","WPrism Accessibility Guild বাংলা","WPrism Night Crew مرحبا"] and
   .event.preview_organizers == [$dirty.organizers[2],$dirty.organizers[0],$dirty.organizers[1]] and
   .event.preview_venues == [$dirty.venue] and .event.category_ids == [.category.id] and
-  .event.start == "2026-09-05 22:30:00" and .event.end == "2026-09-06 01:45:00" and
+  .event.start == "2041-09-05 22:30:00" and .event.end == "2041-09-06 01:45:00" and
   .event.timezone == "Asia/Kathmandu" and .event.cost == "125.50" and
   .event.cost_description == "Admission details 東京 — bring ID" and
   .event.date_time_separator == " · at · " and .event.time_range_separator == " · until · " and
@@ -2971,7 +2971,7 @@ tec_update_event_preserving_links() { # <conf1|conf2> <description> <url-path-or
 # Competing source/target native repository edits must surface a conflict,
 # remain atomic unforced, and converge only under explicit repository authority.
 tec_update_event_preserving_links conf1 'Repository competing body 東京 🚀' \
-  /repository-authority/ '2026-09-07 10:00:00' '2026-09-07 12:30:00' Asia/Kathmandu
+  /repository-authority/ '2041-09-07 10:00:00' '2041-09-07 12:30:00' Asia/Kathmandu
 commit_tec_source 'conformance: competing TEC event intent'
 tec_update_event_preserving_links conf2 'Target competing body' '' \
   '2032-01-01 05:00:00' '2032-01-01 06:00:00' UTC
@@ -2993,7 +2993,7 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict 
 CONVERGED=$(observe_tec conf2)
 printf '%s\n' "$CONVERGED" | jq -e '
   .home as $home |
-  .event.start == "2026-09-07 10:00:00" and .event.end == "2026-09-07 12:30:00" and
+  .event.start == "2041-09-07 10:00:00" and .event.end == "2041-09-07 12:30:00" and
   .event.timezone == "Asia/Kathmandu" and (.event.content | contains($home)) and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
   .options.maps_key == "target-maps-key-preserved" and .cache == "target-runtime-preserved"
@@ -3005,7 +3005,7 @@ pass "native event conflicts refuse atomically; explicit authority converges and
 # refuse it before either custom-table write, retain the batch marker, and let
 # the next process retry the identical canonical intent after the hook leaves.
 tec_update_event_preserving_links conf1 'TEC filtered-row refusal body 東京 🚀' \
-  /filter-refusal/ '2026-09-08 13:15:00' '2026-09-08 16:45:00' Asia/Kathmandu
+  /filter-refusal/ '2041-09-08 13:15:00' '2041-09-08 16:45:00' Asia/Kathmandu
 commit_tec_source 'conformance: TEC filtered derived-row refusal intent'
 FILTER_DERIVED_BEFORE=$(tec_derived_hash)
 FILTER_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
@@ -3037,7 +3037,7 @@ require_wprism_answered "TEC native event-data filter refusal" human "$FILTER_OU
 [ "$(wp_conf2 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   echo get_post_meta($p->ID,"_EventStartDate",true);
-')" = '2026-09-08 13:15:00' ] || fail "TEC event-data filter refusal lost the committed authored intent"
+')" = '2041-09-08 13:15:00' ] || fail "TEC event-data filter refusal lost the committed authored intent"
 [ "$(tec_derived_hash)" = "$FILTER_DERIVED_BEFORE" ] \
   || fail "TEC event-data filter refusal mutated a derived row before topology validation"
 [ "$(wp_conf2 eval '
@@ -3063,7 +3063,7 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' 
 ')" = clear ] || fail "TEC successful event-data filter retry retained its batch marker"
 FILTER_RETRIED=$(observe_tec conf2)
 printf '%s\n' "$FILTER_RETRIED" | jq -e '
-  .event.start == "2026-09-08 13:15:00" and .event.end == "2026-09-08 16:45:00" and
+  .event.start == "2041-09-08 13:15:00" and .event.end == "2041-09-08 16:45:00" and
   .event.timezone == "Asia/Kathmandu" and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
   (.event.content | contains("TEC filtered-row refusal body 東京 🚀"))
@@ -3073,13 +3073,13 @@ pass "native event-data filter topology refuses before derived writes, arms retr
 # A late postmeta constraint failure lands after the post body write. The whole
 # transaction, derived rows, and retry marker must survive as one unit.
 tec_update_event_preserving_links conf1 'TEC transaction body 東京 🚀' \
-  /transaction/ '2026-09-09 13:15:00' '2026-09-09 16:45:00' Asia/Kathmandu
+  /transaction/ '2041-09-09 13:15:00' '2041-09-09 16:45:00' Asia/Kathmandu
 commit_tec_source 'conformance: TEC transactional recovery intent'
 FAULT_BEFORE=$(tec_target_hash)
 wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS wprism_tec_fail_end' >/dev/null
 wp_conf2 db query '
   ALTER TABLE wp_postmeta ADD CONSTRAINT wprism_tec_fail_end
-  CHECK (meta_key <> "_EventEndDate" OR meta_value <> "2026-09-09 16:45:00")
+  CHECK (meta_key <> "_EventEndDate" OR meta_value <> "2041-09-09 16:45:00")
 ' >/dev/null
 FAULT_RC=0
 FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
@@ -3096,7 +3096,7 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' 
   || fail "TEC retry did not consume durable intent: $RETRY"
 RETRIED=$(observe_tec conf2)
 printf '%s\n' "$RETRIED" | jq -e '
-  .event.start == "2026-09-09 13:15:00" and .event.end == "2026-09-09 16:45:00" and
+  .event.start == "2041-09-09 13:15:00" and .event.end == "2041-09-09 16:45:00" and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
   (.event.content | contains("TEC transaction body 東京 🚀"))
 ' >/dev/null || fail "TEC retry did not converge native event/occurrence state: $RETRIED"
