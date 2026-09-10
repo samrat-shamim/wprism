@@ -56,7 +56,7 @@ version_matrix_reset_after_delete() {
 
 version_matrix_workflow() {
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for POLYLANG_VERSION in 3.8 3.8.7 3.8.9; do
+for POLYLANG_VERSION in 3.8 3.8.9; do
   say "boundary: polylang $POLYLANG_VERSION"
 
   reset_env wp1

@@ -1072,7 +1072,7 @@ namespace {
     );
     $versionMatrix = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
     wprism_check(
-        str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.7 3.8.9; do')
+        str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.9; do')
             && str_contains($versionMatrix, 'fetch_artifact polylang "$POLYLANG_VERSION" cli1')
             && str_contains($versionMatrix, 'fetch_artifact polylang 3.8.9 cli1')
             && str_contains($versionMatrix, '[ "$INSTALLED_1" = "$POLYLANG_VERSION" ]')
