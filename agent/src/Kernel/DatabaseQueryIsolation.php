@@ -100,13 +100,24 @@ final class DatabaseHookGate implements \Iterator, \ArrayAccess {
                 'wpdb placeholder removal is unavailable inside the authored transaction'
             );
         }
-        DatabaseQueryIsolation::authorize_query($value);
         $clean = $this->database->remove_placeholder_escape($value);
         if (!is_string($clean)) {
             DatabaseQueryIsolation::violation(
                 'wpdb placeholder removal returned malformed SQL inside the authored transaction'
             );
         }
+        // Authorize the bytes the server will actually receive. wpdb::prepare()
+        // rewrites a literal %% into its placeholder escape, `{` . wp_hash() .
+        // `}`, and wpdb::query() strips that again immediately below this
+        // filter — so the pre-removal string is not SQL and never reaches
+        // MySQL. Analysing it meant the profile and grammar checks ran against
+        // a different statement than the one executed, and the tokenizer
+        // rejected the escape's own opening brace: measured on a pair, every
+        // Paid Memberships Pro capture died on "database SQL contains a token
+        // outside the native profile grammar" at byte 0x7b. The exact permit
+        // still compares the unmodified $value, because that is the string the
+        // caller handed to wpdb and the identity it recorded.
+        DatabaseQueryIsolation::authorize_query($value, $clean);
         return $clean;
     }
 
@@ -566,7 +577,12 @@ final class DatabaseQueryIsolation {
     }
 
     /** Called only by the installed query gate. */
-    public static function authorize_query(string $sql): void {
+    public static function authorize_query(string $sql, ?string $executed = null): void {
+        // $sql is the exact string the caller permitted; $executed is what wpdb
+        // will run once its placeholder escape is removed. They differ only for
+        // a statement carrying a literal %%. Identity checks use $sql, every
+        // profile/grammar check uses what actually executes.
+        $analysed = $executed ?? $sql;
         self::assert_active('database query authorization');
         if ($sql !== 'SHOW WARNINGS') {
             try {
@@ -598,9 +614,9 @@ final class DatabaseQueryIsolation {
         }
 
         if (self::$profile !== null) {
-            self::charge_profile_query($sql);
+            self::charge_profile_query($analysed);
         }
-        $structure = self::query_structure($sql);
+        $structure = self::query_structure($analysed);
         $verb = '';
         if (preg_match(
             '/^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN|INSERT|UPDATE|DELETE|REPLACE)\b/i',
@@ -609,7 +625,7 @@ final class DatabaseQueryIsolation {
         ) === 1) {
             $verb = strtoupper($head[1]);
         } elseif (str_starts_with($structure, '(')) {
-            $verb = self::statement_verb(self::sql_tokens($sql)['tokens'], false);
+            $verb = self::statement_verb(self::sql_tokens($analysed)['tokens'], false);
         }
         if (!in_array($verb, ['SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN', 'INSERT', 'UPDATE', 'DELETE', 'REPLACE'], true)
             || preg_match('/\bINTO\s+(?:OUTFILE|DUMPFILE)\b/i', $structure) === 1
@@ -621,7 +637,7 @@ final class DatabaseQueryIsolation {
             );
         }
         if (self::$profile !== null) {
-            self::assert_profiled_query($sql, $structure, self::$profile);
+            self::assert_profiled_query($analysed, $structure, self::$profile);
         }
     }
 
