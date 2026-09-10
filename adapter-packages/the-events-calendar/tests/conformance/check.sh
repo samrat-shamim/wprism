@@ -3129,8 +3129,19 @@ wp_conf2 db query '
 FAULT_RC=0
 FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
 require_wprism_answered "TEC injected transaction failure" human "$FAULT_OUT"
-[ "$FAULT_RC" -ne 0 ] && grep -q 'wprism_tec_fail_end' <<<"$FAULT_OUT" \
-  || fail "TEC injected late database failure did not surface exactly: $FAULT_OUT"
+# Apply writes authored post meta through Db::mutation(), whose refusal carries
+# no driver text on purpose (agent/src/Kernel/Db.php:104-107 — the native error
+# renders the statement, so it can echo option/meta payloads). The constraint
+# name therefore never reaches the operator, and asserting it would be asserting
+# a leak. Attribute through the product boundary instead and assert the
+# redaction, which is the idiom the yoast-duplicate-post provider control
+# already uses (its check.sh:328 pairs the failed-action sentence with
+# `! grep -q` on the sensitive name).
+[ "$FAULT_RC" -ne 0 ] \
+  && grep -Fq 'wprism: database mutation failed: apply reconcile authored post meta' <<<"$FAULT_OUT" \
+  || fail "TEC injected late database failure did not surface at the product boundary: $FAULT_OUT"
+! grep -q 'wprism_tec_fail_end' <<<"$FAULT_OUT" \
+  || fail "TEC late-failure refusal leaked native driver text, which renders SQL values, into operator output: $FAULT_OUT"
 [ "$(tec_target_hash)" = "$FAULT_BEFORE" ] || fail "TEC failed transaction left partial post/meta/derived writes"
 [ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail "TEC failed transaction did not retain retry authority"
