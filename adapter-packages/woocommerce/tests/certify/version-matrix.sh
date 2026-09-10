@@ -691,7 +691,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   assert_woocommerce_downgrade_refusal_unchanged plan "$snapshot"
 
   deploy_rc=0
-  deploy_out=$(wp2 wprism deploy --repo=/siterepo 2>&1) || deploy_rc=$?
+  deploy_out=$(host_wprism conf2 deploy 2>&1) || deploy_rc=$?
   require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
   [ "$deploy_rc" -ne 0 ] && grep -q 'code_drift' <<<"$deploy_out" \
     && grep -q '11.0.1' <<<"$deploy_out" && grep -q '11.0.0' <<<"$deploy_out" \
@@ -709,8 +709,8 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   pass 'WooCommerce 11.0.1 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without WPrism storage, runtime, or repository mutation'
 
   local forced_source forced_target
-  forced_source=$(wp1 wprism deploy --repo=/siterepo --force-code-drift 2>&1)
-  forced_target=$(wp2 wprism deploy --repo=/siterepo --force-code-drift 2>&1)
+  forced_source=$(host_wprism conf1 deploy --force-code-drift 2>&1)
+  forced_target=$(host_wprism conf2 deploy --force-code-drift 2>&1)
   normalize_woocommerce_harness_placeholder_mode wp2
   grep -q 'FORCED past code_drift' <<<"$forced_source" \
     && grep -q 'FORCED past code_drift' <<<"$forced_target" \
@@ -789,7 +789,7 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   require_observed_nonempty "WooCommerce $version native state before deactivation" "$before_native"
   wp2 plugin deactivate woocommerce >/dev/null
   wp2 plugin is-active woocommerce >/dev/null 2>&1 && fail "WooCommerce $version deactivation premise did not land"
-  wp2 wprism deploy --repo=/siterepo >/dev/null
+  host_wprism conf2 deploy >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version deploy did not reactivate the exact plugin"
   normalize_woocommerce_harness_placeholder_mode wp2
   reactivated_native=$(woocommerce_boundary_observation)
@@ -802,14 +802,14 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   absent_after_uninstall=$(woocommerce_boundary_storage_hash)
   [ "$absent_after_uninstall" = "$before_uninstall" ] || fail "WooCommerce $version default uninstall changed retained authored or target-runtime storage"
   missing_before="$absent_after_uninstall"; missing_rc=0
-  missing_out=$(wp2 wprism deploy --repo=/siterepo 2>&1) || missing_rc=$?
+  missing_out=$(host_wprism conf2 deploy 2>&1) || missing_rc=$?
   require_wprism_answered "WooCommerce $version deploy with code absent" human "$missing_out"
   [ "$missing_rc" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$missing_out" || fail "WooCommerce $version missing-code deploy did not refuse at compatibility: $missing_out"
   missing_after=$(woocommerce_boundary_storage_hash)
   [ "$missing_after" = "$missing_before" ] || fail "WooCommerce $version missing-code refusal partially changed retained storage"
   wp2 plugin install "$artifact" --force >/dev/null
   [ "$(wp2 plugin get woocommerce --field=version)" = "$version" ] || fail "WooCommerce exact reinstall reported the wrong version at $version"
-  wp2 wprism deploy --repo=/siterepo >/dev/null
+  host_wprism conf2 deploy >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version exact reinstall was not active after deploy"
   normalize_woocommerce_harness_placeholder_mode wp2
   check_woocommerce_content
@@ -1286,7 +1286,7 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
 
-  wp2 wprism deploy --repo=/siterepo
+  host_wprism conf2 deploy
   normalize_woocommerce_harness_placeholder_mode wp2
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
@@ -1318,7 +1318,7 @@ EOF
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
     [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.1 ] \
       || fail 'WooCommerce source in-place upgrade did not install exact 11.0.1'
-    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    host_wprism conf1 deploy --force-code-drift >/dev/null
     wp1 eval '
       $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
       if (!$product) { throw new RuntimeException("upgrade product missing"); }
@@ -1335,7 +1335,7 @@ EOF
     [ "$(wp2 plugin get woocommerce --field=version)" = 11.0.1 ] \
       || fail 'WooCommerce target in-place upgrade did not install exact 11.0.1'
     git -C "siterepo/${PAIR}2" pull -q origin main
-    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    host_wprism conf2 deploy --force-code-drift >/dev/null
     normalize_woocommerce_harness_placeholder_mode wp2
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
@@ -1429,7 +1429,7 @@ INSTALLED_OOR=$(wp1 plugin get woocommerce --field=version)
 [ "$INSTALLED_OOR" = "10.9.4" ] || fail "negative control: expected woocommerce 10.9.4 installed, got $INSTALLED_OOR"
 
 set +e
-DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(host_wprism conf1 deploy 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse woocommerce 10.9.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
@@ -1499,7 +1499,7 @@ PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)
 PRE_REFUSAL_REPO=$(git -C "siterepo/${PAIR}1" status --porcelain)
 
 set +e
-DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(host_wprism conf1 deploy 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
