@@ -21,6 +21,13 @@ check_polylang_content() {
   local CONF_REPO2="siterepo/${PAIR}2"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
+  # The biography refusal fixture reads ${COMPOSE:?} to run its private
+  # observer as the site's CLI uid. run.sh sets COMPOSE globally; under the
+  # certify driver each helper has to supply it, exactly as
+  # seed_polylang_content above does. Without it every hostile-biography
+  # refusal fails at its baseline stage with "COMPOSE: parameter null or not
+  # set" and reads as a missing product refusal rather than a missing local.
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   local POLYLANG_BOUNDARY_ONLY=1
   local POLYLANG_EXPECTED_VERSION="$POLYLANG_VERSION"
   local APPLY_JSON="${POLYLANG_BOUNDARY_PROVIDER_RECEIPT:-}"
