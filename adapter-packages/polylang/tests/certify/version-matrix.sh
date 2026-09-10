@@ -21,6 +21,13 @@ check_polylang_content() {
   local CONF_REPO2="siterepo/${PAIR}2"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
+  # The biography refusal fixture reads ${COMPOSE:?} to run its private
+  # observer as the site's CLI uid. run.sh sets COMPOSE globally; under the
+  # certify driver each helper has to supply it, exactly as
+  # seed_polylang_content above does. Without it every hostile-biography
+  # refusal fails at its baseline stage with "COMPOSE: parameter null or not
+  # set" and reads as a missing product refusal rather than a missing local.
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   local POLYLANG_BOUNDARY_ONLY=1
   local POLYLANG_EXPECTED_VERSION="$POLYLANG_VERSION"
   local APPLY_JSON="${POLYLANG_BOUNDARY_PROVIDER_RECEIPT:-}"
@@ -49,7 +56,7 @@ version_matrix_reset_after_delete() {
 
 version_matrix_workflow() {
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for POLYLANG_VERSION in 3.8 3.8.7; do
+for POLYLANG_VERSION in 3.8 3.8.9; do
   say "boundary: polylang $POLYLANG_VERSION"
 
   reset_env wp1
@@ -119,51 +126,51 @@ EOF
   pass "byte-identical recapture at polylang $POLYLANG_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 
   if [ "$POLYLANG_VERSION" = 3.8 ]; then
-    say 'in-place upgrade: polylang 3.8 -> 3.8.7 on both populated environments'
-    UPGRADE_ARTIFACT_1=$(fetch_artifact polylang 3.8.7 cli1)
-    UPGRADE_ARTIFACT_2=$(fetch_artifact polylang 3.8.7 cli2)
+    say 'in-place upgrade: polylang 3.8 -> 3.8.9 on both populated environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact polylang 3.8.9 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact polylang 3.8.9 cli2)
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
-    [ "$(wp1 plugin get polylang --field=version)" = 3.8.7 ] \
-      || fail 'Polylang source in-place upgrade did not install exact 3.8.7'
+    [ "$(wp1 plugin get polylang --field=version)" = 3.8.9 ] \
+      || fail 'Polylang source in-place upgrade did not install exact 3.8.9'
     wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     UPGRADE_POST=$(jq -r '.posts.fr' "siterepo/${PAIR}1/.tmp-polylang-source.json")
     require_fixture_ids UPGRADE_POST
-    wp1 post update "$UPGRADE_POST" --post_title='Polylang 3.8 vers 3.8.7 française 東京 🚀' >/dev/null
+    wp1 post update "$UPGRADE_POST" --post_title='Polylang 3.8 vers 3.8.9 française 東京 🚀' >/dev/null
     wp1 wprism capture --repo=/siterepo
     wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
-    "${GIT1[@]}" commit -qm 'capture: polylang 3.8 to 3.8.7 in-place upgrade'
+    "${GIT1[@]}" commit -qm 'capture: polylang 3.8 to 3.8.9 in-place upgrade'
     "${GIT1[@]}" push -q origin main
     git -C "siterepo/${PAIR}2" pull -q origin main
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
-    [ "$(wp2 plugin get polylang --field=version)" = 3.8.7 ] \
-      || fail 'Polylang target in-place upgrade did not install exact 3.8.7'
+    [ "$(wp2 plugin get polylang --field=version)" = 3.8.9 ] \
+      || fail 'Polylang target in-place upgrade did not install exact 3.8.9'
     wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" --format=json \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     assert_version_matrix_apply_ready
-    assert_no_php_diagnostics 'Polylang 3.8 to 3.8.7 upgrade apply' "$VMATRIX_APPLY_LOG"
+    assert_no_php_diagnostics 'Polylang 3.8 to 3.8.9 upgrade apply' "$VMATRIX_APPLY_LOG"
     UPGRADE_APPLY_JSON=$(awk '/^[{]/ { receipt=$0 } END { print receipt }' "$VMATRIX_APPLY_LOG")
-    require_wprism_answered 'Polylang 3.8 to 3.8.7 upgrade apply' json "$UPGRADE_APPLY_JSON"
+    require_wprism_answered 'Polylang 3.8 to 3.8.9 upgrade apply' json "$UPGRADE_APPLY_JSON"
     jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$UPGRADE_APPLY_JSON" >/dev/null \
-      || fail 'Polylang 3.8 -> 3.8.7 apply canary was not clean'
+      || fail 'Polylang 3.8 -> 3.8.9 apply canary was not clean'
     SAVED_POLYLANG_VERSION="$POLYLANG_VERSION"
-    POLYLANG_VERSION=3.8.7
+    POLYLANG_VERSION=3.8.9
     check_polylang_content
     POLYLANG_VERSION="$SAVED_POLYLANG_VERSION"
     UPGRADED_TITLE=$(wp2 post get "$UPGRADE_POST" --field=post_title 2>/dev/null || true)
-    [ "$UPGRADED_TITLE" != 'Polylang 3.8 vers 3.8.7 française 東京 🚀' ] \
+    [ "$UPGRADED_TITLE" != 'Polylang 3.8 vers 3.8.9 française 東京 🚀' ] \
       || fail 'Polylang upgrade assertion accidentally consumed the source-local post id on the target'
     UPGRADED_TITLE=$(wp2 post list --post_type=post --name=portable-polylang-story-fr --field=post_title)
-    [ "$UPGRADED_TITLE" = 'Polylang 3.8 vers 3.8.7 française 東京 🚀' ] \
-      || fail "Polylang 3.8.7 did not consume the translated post authored under 3.8: $UPGRADED_TITLE"
+    [ "$UPGRADED_TITLE" = 'Polylang 3.8 vers 3.8.9 française 東京 🚀' ] \
+      || fail "Polylang 3.8.9 did not consume the translated post authored under 3.8: $UPGRADED_TITLE"
     wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-upgraded-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-polylang-upgraded-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-polylang-upgraded-final"
     [ -z "$UPGRADE_DIFF" ] \
-      || fail "Polylang 3.8 -> 3.8.7 in-place upgrade lost byte identity: $UPGRADE_DIFF"
-    pass 'polylang 3.8 -> 3.8.7 in-place upgrade preserves native multilingual behavior, target-local identity, ordering and byte-identical state'
+      || fail "Polylang 3.8 -> 3.8.9 in-place upgrade lost byte identity: $UPGRADE_DIFF"
+    pass 'polylang 3.8 -> 3.8.9 in-place upgrade preserves native multilingual behavior, target-local identity, ordering and byte-identical state'
   fi
 done
 
@@ -174,12 +181,12 @@ reset_case_repositories
 # Build valid canonical state at the certified upper boundary, then replace
 # only the installed plugin bytes. The refusal therefore proves the version
 # gate against a real Polylang state tree rather than an empty repository.
-IN_RANGE_ARTIFACT=$(fetch_artifact polylang 3.8.7 cli1)
+IN_RANGE_ARTIFACT=$(fetch_artifact polylang 3.8.9 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
 NEGATIVE_INSTALLED=$(wp1 plugin get polylang --field=version)
 require_fixture_values NEGATIVE_INSTALLED
-[ "$NEGATIVE_INSTALLED" = "3.8.7" ] \
-  || fail "negative control premise did not install exact polylang 3.8.7 bytes"
+[ "$NEGATIVE_INSTALLED" = "3.8.9" ] \
+  || fail "negative control premise did not install exact polylang 3.8.9 bytes"
 cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "polylang"],
@@ -223,44 +230,44 @@ grep -q "3.7" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-instal
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: polylang 3.7 (real, installed, immediately below the corrected 3.8 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
-# The declared upper bound has no real 3.8.8 release to install. Mutating
-# ONLY the already-digest-verified 3.8.7 header makes WordPress's real plugin
-# header parser report 3.8.8 while preserving the same canonical repository.
+# The declared upper bound has no real 3.8.10 release to install. Mutating
+# ONLY the already-digest-verified 3.8.9 header makes WordPress's real plugin
+# header parser report 3.8.10 while preserving the same canonical repository.
 # This is the exact boundary Deploy compares, rather than a guessed semantic
 # version helper or a synthetic manifest.
 wp1 plugin delete polylang >/dev/null
-UPPER_BOUND_ARTIFACT=$(fetch_artifact polylang 3.8.7 cli1)
+UPPER_BOUND_ARTIFACT=$(fetch_artifact polylang 3.8.9 cli1)
 wp1 plugin install "$UPPER_BOUND_ARTIFACT" --activate >/dev/null
-[ "$(wp1 plugin get polylang --field=version)" = "3.8.7" ] \
-  || fail 'synthetic upper-bound premise did not install exact Polylang 3.8.7'
+[ "$(wp1 plugin get polylang --field=version)" = "3.8.9" ] \
+  || fail 'synthetic upper-bound premise did not install exact Polylang 3.8.9'
 POLY_SYNTHETIC_HEAD_BEFORE=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)
 wp1 eval '
 $file = WP_PLUGIN_DIR . "/polylang/polylang.php";
 $source = @file_get_contents($file);
 if (!is_string($source)) throw new RuntimeException("synthetic Polylang header source is unreadable");
-$updated = preg_replace("/^ \\* Version:[^\\r\\n]*$/m", " * Version:           3.8.8", $source, 1, $count);
+$updated = preg_replace("/^ \\* Version:[^\\r\\n]*$/m", " * Version:           3.8.10", $source, 1, $count);
 if (!is_string($updated) || $count !== 1) throw new RuntimeException("synthetic Polylang version header replacement was not exact");
 if (file_put_contents($file, $updated) !== strlen($updated)) throw new RuntimeException("synthetic Polylang version header write failed");
 ' >/dev/null
 SYNTHETIC_UPPER_VERSION=$(wp1 plugin get polylang --field=version)
-[ "$SYNTHETIC_UPPER_VERSION" = '3.8.8' ] \
-  || fail "synthetic upper-bound premise did not expose the real plugin header as 3.8.8 (got: $SYNTHETIC_UPPER_VERSION)"
+[ "$SYNTHETIC_UPPER_VERSION" = '3.8.10' ] \
+  || fail "synthetic upper-bound premise did not expose the real plugin header as 3.8.10 (got: $SYNTHETIC_UPPER_VERSION)"
 set +e
 DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] \
-  || fail "expected deploy to refuse synthetic Polylang 3.8.8 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+  || fail "expected deploy to refuse synthetic Polylang 3.8.10 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
 grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
-  || fail "synthetic Polylang 3.8.8 refusal was not outside_version_range (got: $DEPLOY_OUT)"
+  || fail "synthetic Polylang 3.8.10 refusal was not outside_version_range (got: $DEPLOY_OUT)"
 grep -q 'polylang/polylang.php' <<<"$DEPLOY_OUT" \
-  || fail "synthetic Polylang 3.8.8 refusal did not name the plugin (got: $DEPLOY_OUT)"
-grep -q '3.8.8' <<<"$DEPLOY_OUT" \
-  || fail "synthetic Polylang 3.8.8 refusal did not name the installed header version (got: $DEPLOY_OUT)"
+  || fail "synthetic Polylang 3.8.10 refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q '3.8.10' <<<"$DEPLOY_OUT" \
+  || fail "synthetic Polylang 3.8.10 refusal did not name the installed header version (got: $DEPLOY_OUT)"
 [ "$(git -C "siterepo/${PAIR}1" rev-parse HEAD)" = "$POLY_SYNTHETIC_HEAD_BEFORE" ] \
-  || fail 'synthetic Polylang 3.8.8 refusal mutated the repository ref'
+  || fail 'synthetic Polylang 3.8.10 refusal mutated the repository ref'
 wp1 plugin install "$UPPER_BOUND_ARTIFACT" --force --activate >/dev/null
-[ "$(wp1 plugin get polylang --field=version)" = '3.8.7' ] \
-  || fail 'synthetic Polylang 3.8.8 probe did not restore exact 3.8.7 artifact bytes'
-pass 'synthetic Polylang 3.8.8 header is loudly refused at the exclusive upper bound without a repository mutation'
+[ "$(wp1 plugin get polylang --field=version)" = '3.8.9' ] \
+  || fail 'synthetic Polylang 3.8.10 probe did not restore exact 3.8.9 artifact bytes'
+pass 'synthetic Polylang 3.8.10 header is loudly refused at the exclusive upper bound without a repository mutation'
 }

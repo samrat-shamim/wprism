@@ -1063,20 +1063,20 @@ namespace {
     );
     wprism_check_same(
         [
-            'url' => 'https://downloads.wordpress.org/plugin/polylang.3.8.7.zip',
-            'sha256' => 'bdb1e8d929410b3083f0884e6a356f91d659159771cc63893c9c06e83daddcb0',
+            'url' => 'https://downloads.wordpress.org/plugin/polylang.3.8.9.zip',
+            'sha256' => 'de5fae3d399e34c2db496a02b7cff4e4ca79723c418c8542b82bb7c030204a60',
             'role' => 'certified-boundary',
         ],
-        $artifactLock['plugins']['polylang']['3.8.7'] ?? null,
-        'official Polylang 3.8.7 archive is digest-pinned as the admitted upper boundary'
+        $artifactLock['plugins']['polylang']['3.8.9'] ?? null,
+        'official Polylang 3.8.9 archive is digest-pinned as the admitted upper boundary'
     );
     $versionMatrix = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
     wprism_check(
-        str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.7; do')
+        str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.9; do')
             && str_contains($versionMatrix, 'fetch_artifact polylang "$POLYLANG_VERSION" cli1')
-            && str_contains($versionMatrix, 'fetch_artifact polylang 3.8.7 cli1')
+            && str_contains($versionMatrix, 'fetch_artifact polylang 3.8.9 cli1')
             && str_contains($versionMatrix, '[ "$INSTALLED_1" = "$POLYLANG_VERSION" ]')
-            && str_contains($versionMatrix, "[ \"\$(wp1 plugin get polylang --field=version)\" = '3.8.7' ]"),
+            && str_contains($versionMatrix, "[ \"\$(wp1 plugin get polylang --field=version)\" = '3.8.9' ]"),
         'version matrix installs and exercises both exact official admitted boundaries'
     );
     wprism_check(
@@ -1086,12 +1086,12 @@ namespace {
         'version matrix installs the real adjacent 3.7 lower control and proves its version-gate refusal'
     );
     wprism_check(
-        str_contains($versionMatrix, 'synthetic Polylang 3.8.8')
-            && str_contains($versionMatrix, 'Version:           3.8.8')
+        str_contains($versionMatrix, 'synthetic Polylang 3.8.10')
+            && str_contains($versionMatrix, 'Version:           3.8.10')
             && str_contains($versionMatrix, 'outside_version_range')
             && str_contains($versionMatrix, 'POLY_SYNTHETIC_HEAD_BEFORE')
-            && str_contains($versionMatrix, 'did not restore exact 3.8.7 artifact bytes'),
-        'version matrix creates only the real header-parser 3.8.8 control, proves refusal/no ref mutation, and restores the exact artifact'
+            && str_contains($versionMatrix, 'did not restore exact 3.8.9 artifact bytes'),
+        'version matrix creates only the real header-parser 3.8.10 control, proves refusal/no ref mutation, and restores the exact artifact'
     );
     $conformanceRoot = dirname(__DIR__) . '/conformance';
     $seedScript = (string) file_get_contents($conformanceRoot . '/seed.sh');
