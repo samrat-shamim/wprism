@@ -1906,7 +1906,7 @@ pass 'deterministic WooCommerce provider race refuses the loser at process_fence
 # then the digest-bound cached artifact must recover the retained state.
 wp_conf2 plugin deactivate woocommerce >/dev/null
 wp_conf2 plugin is-active woocommerce >/dev/null 2>&1 && fail 'WooCommerce deactivation premise did not land'
-REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+REACTIVATE=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WPrism deploy did not reactivate exact WooCommerce code'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
@@ -1917,7 +1917,7 @@ wp_conf2 plugin is-installed woocommerce >/dev/null 2>&1 && fail 'WooCommerce un
 [ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
   || fail 'WooCommerce default uninstall changed retained catalog/configuration storage'
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+MISSING_OUT=$(host_wprism conf2 deploy 2>&1) || MISSING_RC=$?
 require_wprism_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing WooCommerce code did not refuse at compatibility: $MISSING_OUT"
@@ -1928,7 +1928,7 @@ WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.1 ] \
   || fail 'WooCommerce exact reinstall reported the wrong version'
-REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+REINSTALL_DEPLOY=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact reinstall was not active after deploy'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
