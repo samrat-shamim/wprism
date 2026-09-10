@@ -2341,8 +2341,30 @@ COLOR_ATOMIC_OUT=$(wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json \
   --default-author=admin 2>&1) || COLOR_ATOMIC_RC=$?
 require_wprism_answered "TEC injected atomic scoped author-receipt failure" human "$COLOR_ATOMIC_OUT"
-[ "$COLOR_ATOMIC_RC" -ne 0 ] && grep -Fq 'wprism_tec_fail_scoped_receipt' <<<"$COLOR_ATOMIC_OUT" \
+# This CHECK fires on wp_wprism_kv's scoped_apply_session row, which only the
+# engine writes, through Db::mutation(). That path deliberately carries no
+# driver text: agent/src/Kernel/Db.php:104-107 states it, because the native
+# error echoes the rendered statement and can therefore contain option/meta
+# payloads. An authored write behaves differently and is where the sibling
+# capsules read their constraint name from -- measured on a pair, a raw failing
+# INSERT into wp_postmeta reaches WordPress's own print_error(), which
+# error_log()s "WordPress database error CONSTRAINT `...` failed ... for query
+# <rendered values>" to stderr before it ever consults show_errors. The engine's
+# own ledger write is held back from that echo on purpose.
+#
+# So assert the product's attribution rather than a native constraint name the
+# engine intentionally withholds. This stays specific: it names the exact engine
+# operation whose atomicity is under test, so an unrelated mutation failure
+# still fails this control.
+[ "$COLOR_ATOMIC_RC" -ne 0 ] \
+  && grep -Fq 'wprism: database mutation failed: scoped apply session update CAS' <<<"$COLOR_ATOMIC_OUT" \
   || fail "TEC atomic scoped author-receipt constraint did not fail at the product boundary: $COLOR_ATOMIC_OUT"
+# The old expectation here was the native constraint name. It passed only while
+# the engine's own failing write still reached WordPress's error_log() echo, so
+# it was asserting a leak rather than a boundary. Keep it as the guard it should
+# always have been.
+grep -Fq 'wprism_tec_fail_scoped_receipt' <<<"$COLOR_ATOMIC_OUT" \
+  && fail "TEC scoped apply leaked native driver text, which renders SQL values, into operator output: $COLOR_ATOMIC_OUT"
 [ "$(tec_scoped_color_storage_hash "$TEC_COLOR_UUID")" = "$COLOR_ATOMIC_BEFORE" ] \
   || fail "TEC atomic author-receipt failure did not roll target, map, state, and CSS bytes back"
 COLOR_ATOMIC_SESSION=$(tec_scoped_session_evidence)
