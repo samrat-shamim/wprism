@@ -2567,14 +2567,28 @@ wp_conf1 eval '
 BEFORE_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 SECRET_RC=0
 SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-body-warning 2>&1) || SECRET_RC=$?
-[ "$SECRET_RC" -eq 0 ] \
-  && grep -Fq 'looks like it contains a aws key' <<<"$SECRET_OUT" \
-  && grep -Fq 'not blocked: bodies may legitimately discuss credentials' <<<"$SECRET_OUT" \
+# A credential-shaped body used to capture with a warning, on the reasoning that
+# prose may legitimately discuss credentials (PostCapture.php:233 still carries
+# that sentence). #579 replaced that with a clearance gate that refuses
+# canonical content carrying a secret unless a review-exception rule admits it,
+# and the engine's own evidence now pins the stricter contract directly:
+# sandbox/tests/offline/capture/regress_capture_safety_gates.php:450 asserts
+# "labelled credential-shaped prose blocks before publication" with reason code
+# secret_state_refused. No capsule declares a review exception, so a TEC event
+# body carrying an AWS-shaped key must refuse. Assert that, and keep asserting
+# the part that never changed: the operator is told which field tripped without
+# the value itself being echoed back.
+require_wprism_answered "TEC credential-shaped authored body capture" human "$SECRET_OUT"
+[ "$SECRET_RC" -ne 0 ] \
+  && grep -Fq 'canonical content clearance tripped' <<<"$SECRET_OUT" \
+  && grep -Fq "field 'body' contains secret matching aws key" <<<"$SECRET_OUT" \
+  && grep -Fq 'posts/tribe_events/' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
-  && grep -RFl "$FAKE_SECRET" "$BODY_WARNING_DIR/posts/tribe_events" >/dev/null \
-  || fail "TEC credential-shaped body did not capture with a redacted warning: $SECRET_OUT"
+  || fail "TEC credential-shaped body did not refuse at the canonical content clearance: $SECRET_OUT"
+! grep -RFq "$FAKE_SECRET" "$BODY_WARNING_DIR" 2>/dev/null \
+  || fail "TEC canonical content clearance refused but still published the credential to $BODY_WARNING_DIR"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BEFORE_STATUS" ] \
-  || fail "TEC body-warning probe changed the committed repository"
+  || fail "TEC body-clearance probe changed the committed repository"
 rm -rf "$BODY_WARNING_DIR"
 wp_conf1 eval '
   global $wpdb;
