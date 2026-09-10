@@ -714,7 +714,7 @@ final class Polylang {
     }
 
     /**
-     * The 3.8.0--3.8.7 constructor owns exactly one storage filter and one
+     * The 3.8.0--3.8.9 constructor owns exactly one storage filter and one
      * shutdown writer. Native validation is unsafe if another callback can
      * alter get_option()/update_option() bytes or if the official callback was
      * displaced. The exact optional co-install union is bounded separately:
