@@ -2367,11 +2367,20 @@ grep -Fq 'wprism_tec_fail_scoped_receipt' <<<"$COLOR_ATOMIC_OUT" \
   && fail "TEC scoped apply leaked native driver text, which renders SQL values, into operator output: $COLOR_ATOMIC_OUT"
 [ "$(tec_scoped_color_storage_hash "$TEC_COLOR_UUID")" = "$COLOR_ATOMIC_BEFORE" ] \
   || fail "TEC atomic author-receipt failure did not roll target, map, state, and CSS bytes back"
+# The action hash is asserted through .author_action_matches, which
+# tec_scoped_session_evidence derives by hashing the current authored-transaction
+# label. It used to be pinned here a second time as a bare digest as well, and
+# that copy went stale invisibly: the 2026-08-29 rebrand (#576) renamed the
+# runtime label duo-scoped-authored-transaction/v2 ->
+# wprism-scoped-authored-transaction/v2, and no rename can reach a hex literal.
+# The pinned a0b8cb4c... is exactly sha256("duo-scoped-authored-transaction/v2").
+# A digest nobody can read is a digest nobody can maintain, so assert the shape
+# here and let the derived comparison carry the value.
 COLOR_ATOMIC_SESSION=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_ATOMIC_SESSION" | jq -e '
   .phase == "authoring" and .recovery_from == null and
   .intent_count == 1 and .receipt_count == 0 and
-  .author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0" and
+  (.author_action_hash | test("^[a-f0-9]{64}$")) and
   .author_action_matches == true and
   .author_receipt_after == null and .author_matches == false
 ' >/dev/null || fail "TEC failed atomic author receipt did not retain only retryable authoring intent: $COLOR_ATOMIC_SESSION"
@@ -2438,7 +2447,7 @@ COLOR_FAULT_SESSION=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_FAULT_SESSION" | jq -e '
   .phase == "recovery_required" and .recovery_from == "effects_pending" and
   .intent_count >= 3 and .receipt_count >= 2 and
-  .author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0" and
+  (.author_action_hash | test("^[a-f0-9]{64}$")) and
   .author_action_matches == true and .author_matches == true
 ' >/dev/null || fail "TEC failed Category Colors provider action did not retain exact scoped recovery authority: $COLOR_FAULT_SESSION"
 wp_conf2 db query 'ALTER TABLE wp_wprism_kv DROP CONSTRAINT wprism_tec_fail_scoped_effect_receipt' >/dev/null

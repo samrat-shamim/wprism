@@ -8472,7 +8472,7 @@ foreach ([
     '$authorActionHash=$record["intents"][0]["action_hash"]??null',
     '"author_action_hash"=>$authorActionHash',
     'hash_equals(hash("sha256","wprism-scoped-authored-transaction/v2"),$authorActionHash)',
-    '.author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0"',
+    '(.author_action_hash | test("^[a-f0-9]{64}$"))',
     '.author_action_matches == true',
     'tec_category_scope "$TEC_COLOR_SCOPE" "$TEC_COLOR_UUID"',
     '--scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json',
