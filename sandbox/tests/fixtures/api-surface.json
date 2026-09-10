@@ -16935,6 +16935,14 @@
                             "name": "sql",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "executed",
+                            "type": "?string",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
