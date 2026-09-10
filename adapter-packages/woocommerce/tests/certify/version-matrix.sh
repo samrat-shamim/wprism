@@ -804,7 +804,30 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   missing_before="$absent_after_uninstall"; missing_rc=0
   missing_out=$(host_wprism conf2 deploy 2>&1) || missing_rc=$?
   require_wprism_answered "WooCommerce $version deploy with code absent" human "$missing_out"
-  [ "$missing_rc" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$missing_out" || fail "WooCommerce $version missing-code deploy did not refuse at compatibility: $missing_out"
+  # A host-orchestrated deploy reports its target's refusal redacted: the
+  # machine stream carries lifecycle_status_failed with details_redacted, and
+  # the precise cause is retained as private operator evidence under the target
+  # repository. That is the reviewed shape, pinned the same way by rank-math's
+  # matrix. Grepping the public stream for 'code_mismatch' described the direct
+  # target verb this capsule no longer uses, so assert both halves instead: the
+  # public refusal stays redacted, AND the private graph still names the exact
+  # missing executable. A redaction that quietly became a lost diagnostic would
+  # fail the second half.
+  [ "$missing_rc" -ne 0 ] \
+    && grep -Fq 'wprism: deploy: lifecycle preflight failed; no target mutation occurred' <<<"$missing_out" \
+    && grep -Fq '"details_redacted":true' <<<"$missing_out" \
+    || fail "WooCommerce $version missing-code deploy did not refuse through the redacted lifecycle boundary: $missing_out"
+  grep -Eq 'code_mismatch|woocommerce/woocommerce\.php' <<<"$missing_out" \
+    && fail "WooCommerce $version redacted missing-code refusal leaked target detail into machine output: $missing_out"
+  missing_private_file=$(ls -t "siterepo/${PAIR}2"/.wprism/refusals/*-lifecycle-status-*.json 2>/dev/null | head -n 1)
+  [ -n "$missing_private_file" ] \
+    || fail "WooCommerce $version redacted missing-code refusal retained no private operator evidence"
+  jq -e '
+    .format == "wprism-private-refusal-evidence/v2" and .command == "lifecycle-status" and
+    ([.throwable[]? | select((.message // "") | test("code_mismatch")
+       and test("woocommerce/woocommerce\\.php"))] | length) >= 1
+  ' "$missing_private_file" >/dev/null \
+    || fail "WooCommerce $version private operator evidence did not name the exact missing executable"
   missing_after=$(woocommerce_boundary_storage_hash)
   [ "$missing_after" = "$missing_before" ] || fail "WooCommerce $version missing-code refusal partially changed retained storage"
   wp2 plugin install "$artifact" --force >/dev/null
