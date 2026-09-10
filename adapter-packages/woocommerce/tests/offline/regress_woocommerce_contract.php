@@ -2513,13 +2513,19 @@ foreach ([
     'new WC_Product_Variation()',
     'source capture omitted the named product_variation',
     'local product_variation tombstone was malformed',
-    '.deletion_type == "product_variation"',
+    // post:product_variation is declared unsupported by this capsule's own
+    // disposition, so compilation refuses the intent and there is no planned
+    // delete to pin. The witnesses below bind the declared boundary instead:
+    // the blocking diagnostic, and that --with-deletes cannot promote an
+    // unsupported selector into a supported one.
+    'select(.severity == "blocking" and .code == "unsupported_deletion"',
+    'contains("post:product_variation")',
+    'admitted an unsupported product_variation deletion',
     'wp_wc_product_meta_lookup WHERE product_id=$variation_target',
     'wp_wc_product_attributes_lookup WHERE product_id=$variation_target',
-    '.reason_code == "deletion_writer_exclusion_required"',
-    'external-exclusion refusal changed the named variation',
-    'external-exclusion refusal changed variation lookup rows',
-    'local product_variation deletion refuses before mutation without signed external writer exclusion',
+    'unsupported-deletion refusal changed the named variation',
+    'unsupported-deletion refusal changed variation lookup rows',
+    'product_variation deletion is refused at repository compilation as an unsupported selector',
 ] as $variationDeletionWitness) {
     woo_ok(str_contains($woocommerceMatrixHarness, $variationDeletionWitness),
         "exact WooCommerce product_variation-deletion matrix pins $variationDeletionWitness");

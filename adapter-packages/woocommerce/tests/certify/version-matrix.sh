@@ -1062,33 +1062,56 @@ SELECT
     .uuid == $uuid and .source_path == $source_path
   ' "$variation_delete_file" >/dev/null \
     || fail "WooCommerce $version local product_variation tombstone was malformed"
-  variation_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
-  require_wprism_answered "WooCommerce $version named product_variation deletion plan" json "$variation_plan"
-  echo "$variation_plan" | jq -e --arg uuid "$variation_uuid" '
-    [.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product_variation" and ((.blocked // "") == ""))] | length == 1
-  ' >/dev/null || fail "WooCommerce $version named product_variation was not one clean planned delete: $variation_plan"
   variation_before_tree=$(git -C "$repo" status --porcelain)
-  set +e
+  # package/disposition.json declares this selector unsupported outright --
+  # deletion_semantics.unsupported carries post:product_variation -- and the
+  # manifest note says why: a variation's parent projection requires Woo's
+  # broader irreversible hook surface. Repository compilation therefore refuses
+  # the intent before any plan exists, so there is no "clean planned delete" to
+  # observe. Measured on a pair: reason_code repository_compilation_failed with
+  # one blocking unsupported_deletion diagnostic naming this exact tombstone and
+  # the post:product_variation selector.
+  #
+  # This block used to assert one clean planned delete for the same selector,
+  # which contradicted the capsule's own reviewed disposition. Assert the
+  # declared boundary instead, and assert it on the mutating verb too: a
+  # deletion the adapter does not support must not become supported by adding
+  # --with-deletes.
+  variation_plan_rc=0
+  variation_plan_raw=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || variation_plan_rc=$?
+  variation_plan=$(printf '%s\n' "$variation_plan_raw" | awk 'NF { line=$0 } END { print line }')
+  require_wprism_answered "WooCommerce $version named product_variation deletion plan" json "$variation_plan"
+  [ "$variation_plan_rc" -ne 0 ] \
+    && printf '%s\n' "$variation_plan" | jq -e --arg path "deletions/$variation_uuid.json" '
+      .reason_code == "repository_compilation_failed" and
+      ([.diagnostics[]?
+        | select(.severity == "blocking" and .code == "unsupported_deletion" and .path == $path
+                 and (.message | contains("post:product_variation")))] | length) == 1
+    ' >/dev/null \
+    || fail "WooCommerce $version unsupported product_variation deletion did not refuse at repository compilation: $variation_plan"
   variation_apply_rc=0
-  variation_apply=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json 2>&1) || variation_apply_rc=$?
-  set -e
+  variation_apply_raw=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json 2>&1) || variation_apply_rc=$?
+  variation_apply=$(printf '%s\n' "$variation_apply_raw" | awk 'NF { line=$0 } END { print line }')
   require_wprism_answered "WooCommerce $version named product_variation deletion apply" json "$variation_apply"
   [ "$variation_apply_rc" -ne 0 ] \
-    && echo "$variation_apply" | tail -1 | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
-    || fail "WooCommerce $version local product_variation delete did not refuse for absent external exclusion"
+    && printf '%s\n' "$variation_apply" | jq -e '
+      .reason_code == "repository_compilation_failed" and
+      ([.diagnostics[]? | select(.code == "unsupported_deletion")] | length) >= 1
+    ' >/dev/null \
+    || fail "WooCommerce $version --with-deletes admitted an unsupported product_variation deletion: $variation_apply"
   [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')" = "$variation_target" ] \
-    || fail "WooCommerce $version external-exclusion refusal changed the named variation"
+    || fail "WooCommerce $version unsupported-deletion refusal changed the named variation"
   [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')" = "$variation_parent_target" ] \
-    || fail "WooCommerce $version external-exclusion refusal changed the variation parent"
+    || fail "WooCommerce $version unsupported-deletion refusal changed the variation parent"
   variation_lookup_after=$(wp2 db query "
 SELECT
   (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$variation_target) +
   (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$variation_target)
 " --skip-column-names | tr -d '\r')
   [ "$variation_lookup_after" = "$variation_lookup_before" ] \
-    || fail "WooCommerce $version external-exclusion refusal changed variation lookup rows"
+    || fail "WooCommerce $version unsupported-deletion refusal changed variation lookup rows"
   [ "$(git -C "$repo" status --porcelain)" = "$variation_before_tree" ] \
-    || fail "WooCommerce $version variation exclusion refusal mutated repository intent"
+    || fail "WooCommerce $version unsupported-deletion refusal mutated repository intent"
   rm "$variation_delete_file"
   rmdir "$repo/state/deletions"
   mv "$variation_backup" "$variation_target_file"
@@ -1098,7 +1121,7 @@ SELECT
     || fail "WooCommerce $version product_variation deletion did not settle: $variation_final_plan"
   [ -z "$(git -C "$repo" status --porcelain)" ] \
     || fail "WooCommerce $version local variation refusal fixture did not restore the target repository"
-  pass "WooCommerce $version local product_variation deletion refuses before mutation without signed external writer exclusion"
+  pass "WooCommerce $version product_variation deletion is refused at repository compilation as an unsupported selector, on both plan and --with-deletes, without touching the variation, its parent, Woo lookup rows or repository intent"
 }
 
 woocommerce_deletion_owner_agreements() {
