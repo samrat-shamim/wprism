@@ -1343,6 +1343,17 @@ final class DatabaseQueryIsolation {
                     'LEAST', 'LEFT', 'LENGTH', 'LOWER', 'LTRIM', 'MAX', 'MD5', 'MIN',
                     'NULLIF', 'OCTET_LENGTH', 'REPLACE', 'RIGHT', 'ROUND', 'RTRIM', 'SHA1', 'SHA2',
                     'SUBSTR', 'SUBSTRING', 'SUM', 'TRIM', 'UPPER',
+                    // VERSION() is the engine's own pre-policy probe, not
+                    // provider SQL: PlatformCompatibility::current_facts()
+                    // (:117) must read the server version before Policy::load()
+                    // admits anything, and DatabaseLockBoundary (:607) reads it
+                    // again before a transactional mutation. Omitting it made
+                    // every scoped capture refuse `platform_probe_unavailable`
+                    // on the database axis, because current_facts() catches the
+                    // isolation violation and reports it as an unreadable fact.
+                    // It is nullary, side-effect-free and strictly weaker than
+                    // the CONNECTION_ID()/DATABASE() built-ins already admitted.
+                    'VERSION',
                 ], true)) {
                 self::violation('wprism: an unreviewed SQL function crossed the native database profile');
             }

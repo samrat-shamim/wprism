@@ -1851,18 +1851,19 @@ $readiness = json_decode(
 );
 
 wprism_check_same(
-    ['min' => '6.17.2', 'max' => '6.17.4'],
+    ['min' => '6.17.2', 'max' => '6.17.5'],
     $manifest['version_range'],
-    'the exclusive range admits the reviewed 6.17.2/6.17.3 artifact family without admitting 6.17.4'
+    'the exclusive range admits the reviewed 6.17.2-through-6.17.4 artifact family without admitting 6.17.5'
 );
 wprism_check_same(
-    ['6.17.1', '6.17.2', '6.17.3'],
+    ['6.17.1', '6.17.2', '6.17.3', '6.17.4'],
     array_keys($artifacts),
-    'the artifact lock carries one real adjacent refusal and both exact boundaries'
+    'the artifact lock carries one real adjacent refusal and every exercised artifact'
 );
 wprism_check_same('refusal-fixture', $artifacts['6.17.1']['role'], '6.17.1 is an adjacent refusal artifact');
 wprism_check_same('certified-boundary', $artifacts['6.17.2']['role'], '6.17.2 is the certified lower boundary');
-wprism_check_same('certified-boundary', $artifacts['6.17.3']['role'], '6.17.3 is the certified upper exercised artifact');
+wprism_check_same('certified-boundary', $artifacts['6.17.3']['role'], '6.17.3 stays exercised by the standalone conformance run');
+wprism_check_same('certified-boundary', $artifacts['6.17.4']['role'], '6.17.4 is the certified upper exercised artifact');
 wprism_check_same('certified', $disposition['status'] ?? null, 'the reviewed TEC disposition is certified');
 wprism_check_same('ready', $readiness['readiness'] ?? null, 'the TEC production-readiness ledger is closed');
 wprism_check_same([], $readiness['gaps'] ?? null, 'the certified TEC ledger retains no applicable gap');
@@ -1934,7 +1935,7 @@ $versionDb->setColumns($versionDb->options, [
     ],
 ]);
 $GLOBALS['tec_readiness_options']['active_plugins'] = [$tecPlugin];
-foreach (['6.17.2', '6.17.3'] as $inRangeVersion) {
+foreach (['6.17.2', '6.17.3', '6.17.4'] as $inRangeVersion) {
     $GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => $inRangeVersion]];
     $writeTecPluginVersion($inRangeVersion);
     wprism_check_same(
@@ -1943,7 +1944,7 @@ foreach (['6.17.2', '6.17.3'] as $inRangeVersion) {
         "the real lifecycle planner admits exact TEC $inRangeVersion"
     );
 }
-foreach (['6.17.1', '6.17.4'] as $outOfRangeVersion) {
+foreach (['6.17.1', '6.17.5'] as $outOfRangeVersion) {
     $GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => $outOfRangeVersion]];
     $writeTecPluginVersion($outOfRangeVersion);
     $beforeVersionRefusal = serialize([
@@ -1960,7 +1961,7 @@ foreach (['6.17.1', '6.17.4'] as $outOfRangeVersion) {
             'kind' => 'plugin',
             'plugin' => $tecPlugin,
             'installed_version' => $outOfRangeVersion,
-            'version_range' => ['min' => '6.17.2', 'max' => '6.17.4'],
+            'version_range' => ['min' => '6.17.2', 'max' => '6.17.5'],
             'manifest' => 'the-events-calendar',
         ],
         array_intersect_key($versionRows[0] ?? [], array_flip([
@@ -8472,7 +8473,7 @@ foreach ([
     '$authorActionHash=$record["intents"][0]["action_hash"]??null',
     '"author_action_hash"=>$authorActionHash',
     'hash_equals(hash("sha256","wprism-scoped-authored-transaction/v2"),$authorActionHash)',
-    '.author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0"',
+    '(.author_action_hash | test("^[a-f0-9]{64}$"))',
     '.author_action_matches == true',
     'tec_category_scope "$TEC_COLOR_SCOPE" "$TEC_COLOR_UUID"',
     '--scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json',
@@ -8844,7 +8845,7 @@ foreach ([
     'postdeploy_the_events_calendar_content() {' => 'hostile target helper',
     'check_the_events_calendar_boundary_content() {' => 'product-path boundary helper',
     'postapply_the_events_calendar_content() {' => 'target-local post-apply helper',
-    'for TEC_VERSION in 6.17.2 6.17.3; do' => 'exact supported-artifact loop',
+    'for TEC_VERSION in 6.17.2 6.17.4; do' => 'exact supported-artifact loop',
 ] as $matrixNeedle => $matrixLabel) {
     wprism_check_same(
         1,
@@ -8860,7 +8861,7 @@ foreach ([
     '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
     'TEC_UPGRADE_DEPLOY_OUT=$(wp2 wprism deploy --repo=/siterepo 2>&1)',
     'wp2 wprism deploy --repo=/siterepo --force-code-drift',
-    'TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content',
+    'TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.4 check_the_events_calendar_boundary_content',
     'TEC_OUT_OF_RANGE_ARTIFACT=$(fetch_artifact the-events-calendar 6.17.1 cli1)',
 ] as $matrixEvidence) {
     wprism_check(
@@ -8881,7 +8882,7 @@ wprism_check(
 $tecMatrixFirstCheck = strpos($tecMatrixCase, 'check_the_events_calendar_boundary_content');
 $tecMatrixUpgradeCheck = strpos(
     $tecMatrixCase,
-    'TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content'
+    'TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.4 check_the_events_calendar_boundary_content'
 );
 $tecMatrixIdentityCleanup = strpos(
     $tecMatrixCase,

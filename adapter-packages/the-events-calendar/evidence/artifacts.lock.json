@@ -15,6 +15,11 @@
         "url": "https://downloads.wordpress.org/plugin/the-events-calendar.6.17.3.zip",
         "sha256": "2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687",
         "role": "certified-boundary"
+      },
+      "6.17.4": {
+        "url": "https://downloads.wordpress.org/plugin/the-events-calendar.6.17.4.zip",
+        "sha256": "d8271f2df4f3abc45699471c99d55bbe0c8a6a7efd997da9a5b858032c1c1561",
+        "role": "certified-boundary"
       }
     }
   },
