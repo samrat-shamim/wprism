@@ -1,0 +1,6 @@
+# format wprism-target-observation-premises/v1
+# expected observations=3 fixtures=0
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/seed.sh	require_observed_nonempty "Map Block source seed"
+observation	tests/conformance/capture-check.sh	require_observed_nonempty "Map Block saved-content premise"
+observation	tests/conformance/capture-check.sh	require_observed_nonempty "Map Block restored-source premise"

@@ -1,0 +1,45 @@
+{
+  "name": "map-block-gutenberg",
+  "spec_version": 3,
+  "plugin": "map-block-gutenberg/map-block-gutenberg.php",
+  "version_range": {
+    "min": "1.35",
+    "max": "1.35.1"
+  },
+  "engine_features": [
+    "spec-window/v1"
+  ],
+  "option_autoload": "preserve",
+  "interpreter": "map-block-gutenberg",
+  "options": {
+    "gmw-map-block-key": {
+      "class": "env",
+      "required": false,
+      "note": "The plugin's editor default API key belongs to each environment; absence also remains environment-owned."
+    }
+  },
+  "block_attrs": {
+    "webfactory/map": [
+      {
+        "path": "zoom",
+        "codec": "map-block-gutenberg"
+      },
+      {
+        "path": "height",
+        "codec": "map-block-gutenberg"
+      },
+      {
+        "path": "address",
+        "codec": "map-block-gutenberg"
+      },
+      {
+        "path": "api_key",
+        "codec": "map-block-gutenberg"
+      }
+    ]
+  },
+  "notes": [
+    "Official 1.35 assets/js/_source/blocks/index.js buildMapIframe() saves the API key in iframe.src even when Gutenberg omits the default api_key attribute. An attribute-presence refusal is insufficient. The whole-block interpreter refuses every webfactory/map, including empty/default and nested blocks, before capture or materialization; its repository constraint also refuses hand-authored map blocks during immutable compilation without WordPress.",
+    "Production transport requires one reviewed environment-binding primitive spanning the block attributes and saved iframe HTML, with target editor save/validation and recapture evidence. This capsule does not implement that primitive or claim map-content transport. Only the exact audited 1.35 release is exercised."
+  ]
+}

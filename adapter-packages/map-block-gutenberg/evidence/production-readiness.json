@@ -1,0 +1,28 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "map-block-gutenberg",
+  "readiness": "unready",
+  "covered": {
+    "data-boundary": [
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php",
+      "adapter-packages/map-block-gutenberg/tests/conformance/capture-check.sh"
+    ]
+  },
+  "gaps": {
+    "contract-dependency": "The exact 1.35 exercise and adjacent 1.34 refusal ZIPs are pinned. The complete live absent/inactive/wrong-basename/unreadable/below-min/max-exclusive matrix remains unqualified.",
+    "native-behavior": "Source conformance checks the real plugin's editor key localization. Native target editor save/validation and render parity require transport qualification.",
+    "failure-recovery": "Source capture refusal preserves published state and restores byte-identical recapture. Target transaction, interruption, rollback and recovery evidence remains outstanding.",
+    "concurrency-idempotence": "Capture-twice and refusal-recovery determinism are exercised; competing operations and repeated target apply remain unqualified.",
+    "lifecycle": "Activation during source setup is exercised. Deactivation/reactivation, downgrade refusal, uninstall residue and reinstall need exact-artifact lifecycle evidence.",
+    "scope-platform": "The source profile uses the platform single-site boundary. Target feature/platform and unavailable-API refusals remain unqualified."
+  },
+  "blocked": {
+    "clean-target": "The plugin saves the source API key in both api_key and static iframe HTML; the existing whole-block hook returns attributes only. A reviewed environment-binding primitive spanning both representations is needed before map deploy/apply and recapture can be qualified.",
+    "dirty-target": "Target-key preservation and dirty map reconciliation depend on the same missing attribute-and-saved-HTML environment binding.",
+    "deletion": "Map-content create/update transport is blocked, so map deletion, guarded retries and target preservation cannot yet be qualified."
+  },
+  "not_applicable": {
+    "identity-references": "Exact 1.35 has only zoom/height/address/api_key block attributes and one API-key option. It defines no plugin entities, tables, or post/term/user references; owning posts and widget identities belong to core.",
+    "derived-state": "Exact 1.35 registers editor assets and saves static iframe markup. It owns no generated cache/index/table/file or repair action. Target iframe credential rebinding is a transport blocker under clean-target, not an inapplicable derived-state exemption."
+  }
+}

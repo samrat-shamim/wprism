@@ -1,0 +1,67 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "map-content deletion"
+      ]
+    },
+    "entity_sections": [],
+    "field_sections": [
+      "options",
+      "block_attrs",
+      "interpreter"
+    ],
+    "lifecycle_phases": [],
+    "operations": [
+      "capture",
+      "compile",
+      "plan"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "conformance-map-block-gutenberg",
+      "regress-package-contract",
+      "regress-map-boundary"
+    ]
+  },
+  "reason": "Experimental capture-plan profile for official Map Block for Google Maps 1.35 on single-site WordPress. The sole plugin option is environment-owned. Every webfactory/map block is refused because its static saved iframe contains a source API key even when api_key is absent from the comment. Ordinary content remains capturable with the plugin active. Map-content deploy, apply, native target behavior and production readiness are blocked on environment binding across both attributes and saved HTML.",
+  "status": "experimental",
+  "supported_versions": {
+    "plugin": "map-block-gutenberg/map-block-gutenberg.php",
+    "range": {
+      "min": "1.35",
+      "max": "1.35.1"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "capture",
+      "surface": "block:webfactory/map",
+      "reason": "All map blocks refuse, including default-key, empty, nested and malformed forms; API credentials can exist solely in saved iframe HTML."
+    },
+    {
+      "operation": "compile",
+      "surface": "block:webfactory/map",
+      "reason": "Repository-authored map blocks in posts or block widgets refuse before immutable publication, without requiring WordPress."
+    },
+    {
+      "operation": "apply",
+      "surface": "map-content transport",
+      "reason": "No environment-binding codec exists for both api_key and saved iframe.src; the interpreter refuses materialization."
+    },
+    {
+      "operation": "deploy",
+      "surface": "adapter-wide deploy/apply",
+      "reason": "No native target transport is qualified; this capture-plan profile is non-authorizing."
+    },
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "The platform refuses multisite; this capsule claims single-site only."
+    }
+  ]
+}
