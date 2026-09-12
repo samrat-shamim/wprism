@@ -3,6 +3,18 @@
   "adapter": "map-block-gutenberg",
   "readiness": "unready",
   "covered": {
+    "clean-target": [
+      "adapter-packages/map-block-gutenberg/tests/conformance/seed.sh",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/map-block-gutenberg/tests/conformance/postdeploy.sh",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
     "data-boundary": [
       "adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php",
       "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
@@ -10,15 +22,12 @@
     ]
   },
   "gaps": {
-    "contract-dependency": "Exact 1.35 exercise and adjacent 1.34 refusal artifacts are pinned. Complete native absent/inactive/wrong-basename/unreadable/below-min/max-exclusive qualification remains required.",
-    "clean-target": "The environment-bound transport is implemented. The corrected native saver must complete the exact-commit agent-roundtrip and editor acceptance before this row is covered.",
-    "dirty-target": "Conformance now declares unmanaged same-slug adoption, distinct target identity, target-only runtime state and missing/drifted key preservation; await exact-commit execution.",
-    "native-behavior": "Real editor serialization produced the six offline fixtures and caught wrapper/escaping defects. Recheck the corrected materialized target with the native editor and frontend.",
+    "contract-dependency": "The real capability reporter enforces exact active, inactive, absent, wrong-basename, unreadable-version, below-minimum, maximum-exclusive and future-version facts offline. Exact 1.35 native activation is exercised; the full native dependency matrix remains required.",
     "deletion": "This capsule declares no deletion grants. Adapter-specific unsupported-delete no-mutation evidence remains required.",
-    "failure-recovery": "Offline binding checks and capture publication refusal/retry are covered. Complete target interruption and rollback/recovery qualification remains required.",
-    "concurrency-idempotence": "Transaction-bound option locks and stale intended-value refusal are tested offline; exact native competing operations and final repeated-apply evidence remain to be qualified.",
+    "failure-recovery": "Native capture publication refusal/retry and real post-materializer late-SQL rollback/retry are covered. Process interruption, durable recovery and native crash qualification remain required.",
+    "concurrency-idempotence": "Transaction-bound option locks and stale intended-value refusal are tested offline; exact native no-op reapply passes. Controlled native competing-operation qualification remains required.",
     "lifecycle": "Source activation and experimental agent activation are exercised; exact-artifact deactivation/reactivation, downgrade refusal, uninstall residue and reinstall remain required.",
-    "scope-platform": "Single-site only, using the platform boundary. Full native unavailable-API and unsupported platform assertions remain required."
+    "scope-platform": "Single-site WordPress 7.1/PHP 8.3 is exercised. Full unavailable-API and unsupported-platform assertions remain required; the native editor also emits upstream deprecation/enqueue warnings documented in qualification.md."
   },
   "blocked": {},
   "not_applicable": {

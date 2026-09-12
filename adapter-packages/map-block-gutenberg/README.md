@@ -59,6 +59,8 @@ validity, billing state, restrictions, or availability of the Maps service.
 
 `evidence/production-readiness.json` is the authoritative remaining-work ledger;
 a successful fixture or schema check alone cannot promote this adapter.
+The exact source-bound run, native-editor observations, upstream warnings and
+local gate limitations are recorded in `evidence/qualification.md`.
 
 ```sh
 php tools/adapter-package-validate.php --adapter=map-block-gutenberg
