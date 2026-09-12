@@ -16,7 +16,7 @@
     "gmw-map-block-key": {
       "class": "env",
       "required": true,
-      "note": "Provision with env-set on each target. Native maps bind this target-local key; source default and explicit historical keys are never transported."
+      "note": "Provision with env-set on each target. Native maps bind this target-local key; source default and explicit historical keys are never transported. The target key cannot be the PHP-falsey string 0, which the native editor replaces with its bundled fallback."
     }
   },
   "block_attrs": {

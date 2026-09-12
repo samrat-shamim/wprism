@@ -126,12 +126,104 @@ foreach ([
 ] as $label => $body) {
     wprism_check_throws(static fn() => Blocks::capture_rewrite($body, $policy, $tokens, true), RuntimeException::class, "$label refuses even with force", 'static map schema');
 }
-$tokens->bind_block_environment_options(['gmw-map-block-key' => 'bad&key']);
-wprism_check_throws(static fn() => Blocks::apply_rewrite($canonical, $policy, $tokens), RuntimeException::class, 'invalid target key refuses without coercion', 'static map schema');
+foreach (['bad&key', '0'] as $invalidKey) {
+    $tokens->bind_block_environment_options(['gmw-map-block-key' => $invalidKey]);
+    wprism_check_throws(static fn() => Blocks::apply_rewrite($canonical, $policy, $tokens), RuntimeException::class, 'invalid or native-falsey target key refuses without coercion', 'static map schema');
+}
 $tokens->bind_block_environment_options(['gmw-map-block-key' => 'rotated-target-key']);
 wprism_check_same($canonical, Blocks::capture_rewrite(Blocks::apply_rewrite($canonical, $policy, $tokens), $policy, $tokens), 'key rotation does not change authored canonical identity');
 $ordinary = '<!-- wp:paragraph --><p>Ordinary content.</p><!-- /wp:paragraph -->';
 wprism_check_same($ordinary, Blocks::capture_rewrite($ordinary, $policy, $tokens), 'unrelated block capture remains byte-identical');
 wprism_check_same($ordinary, Blocks::apply_rewrite($ordinary, $policy, $tokens), 'unrelated block materialization remains byte-identical');
 wprism_check_same([], $tokens->warnings, 'refusals do not downgrade to warnings');
+
+// The real post materializer must roll back an already rebound iframe when
+// a later post fails; testing only Blocks cannot establish that boundary.
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+require_once $root . '/agent/src/Repository/Ledger.php';
+require_once $root . '/agent/src/Apply/PostMaterializer.php';
+require_once $root . '/agent/src/Apply/BlockEnvironmentOptions.php';
+$second = $front;
+$second['uuid'] = '99999999-9999-4999-8999-999999999999';
+$second['slug'] = 'map-second';
+Canon::write_file($scratch . '/state/posts/page/' . $second['uuid'] . '--map-second.md', Canon::post_file($second, $canonical));
+$compiled = RepositoryCompiler::compile($scratch, $policy);
+$row = static fn(int $id, string $slug): array => [
+    'ID' => $id, 'post_author' => 1, 'post_date' => '2026-09-12 00:00:00', 'post_date_gmt' => '2026-09-12 00:00:00',
+    'post_content' => '<p>Existing target ' . $slug . '</p>', 'post_title' => $slug, 'post_excerpt' => '', 'post_status' => 'publish',
+    'comment_status' => 'closed', 'ping_status' => 'closed', 'post_password' => '', 'post_name' => $slug,
+    'post_modified' => '2026-09-12 00:00:00', 'post_modified_gmt' => '2026-09-12 00:00:00',
+    'post_parent' => 0, 'menu_order' => 0, 'post_type' => 'page', 'post_mime_type' => '', 'guid' => 'local-' . $id,
+];
+$db = WPrismTest\FakeWpdb::install()->enableInformationSchema()
+    ->seedTable('wp_posts', [$row(804, 'map'), $row(809, 'map-second'), $row(900, 'target-only')])
+    ->seedTable('wp_users', [['ID' => 1, 'user_login' => 'admin']])
+    ->seedTable('wp_postmeta', [['meta_id' => 1, 'post_id' => 804, 'meta_key' => '_edit_lock', 'meta_value' => 'target-runtime']])
+    ->seedTable('wp_wprism_map', [
+        ['uuid' => $uuid, 'entity_type' => 'post:page', 'id_kind' => 'post', 'local_id' => 804],
+        ['uuid' => $second['uuid'], 'entity_type' => 'post:page', 'id_kind' => 'post', 'local_id' => 809],
+    ])
+    ->seedTable('wp_options', [['option_id' => 1, 'option_name' => 'gmw-map-block-key', 'option_value' => 'map-fixture-target-key', 'autoload' => 'off']]);
+foreach (['wp_posts', 'wp_users', 'wp_postmeta', 'wp_wprism_map', 'wp_options'] as $table) $db->setTableEngine($table, 'InnoDB');
+$db->setColumns('wp_wprism_map', ['uuid' => 'varchar(36)', 'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned', 'entity_type' => 'varchar(64)'])
+    ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+    ->setColumns('wp_posts', ['ID' => 'bigint unsigned', 'post_content' => 'longtext', 'post_type' => 'varchar(20)'])
+    ->setColumns('wp_users', ['ID' => 'bigint unsigned', 'user_login' => 'varchar(60)'])
+    ->setColumns('wp_postmeta', ['meta_id' => 'bigint unsigned', 'post_id' => 'bigint unsigned', 'meta_key' => 'varchar(255)', 'meta_value' => 'longtext'])
+    ->setIndexes('wp_postmeta', [['Key_name' => 'post_id', 'Column_name' => 'post_id', 'Seq_in_index' => 1, 'Non_unique' => 1, 'Sub_part' => null, 'Index_type' => 'BTREE']])
+    ->setColumns('wp_options', ['option_id' => 'bigint unsigned', 'option_name' => 'varchar(191)', 'option_value' => 'longtext', 'autoload' => 'varchar(20)'])
+    ->setIndexes('wp_options', [['Key_name' => 'option_name', 'Column_name' => 'option_name', 'Seq_in_index' => 1, 'Non_unique' => 0, 'Sub_part' => null, 'Index_type' => 'BTREE']]);
+WPrismTest\WpStore::reset()->seedOptions(['home' => 'https://target.example.test']);
+WPrism\EnvironmentValues::set($scratch, 'gmw-map-block-key', 'map-fixture-target-key');
+$targetTokens = new Tokens('https://target.example.test', 'https://target.example.test/wp-content/uploads');
+$fields = new WPrism\ApplyFieldMaterializer($policy, $targetTokens);
+$materializer = new WPrism\PostMaterializer($policy, $targetTokens, $fields,
+    new WPrism\RelationshipMaterializer($policy, $fields), new WPrism\AttachmentMaterializer($policy, $fields, $compiled, $scratch));
+$write = static function () use ($policy, $scratch, $targetTokens, $fields, $materializer, $compiled): void {
+    WPrism\Db::start_repeatable_read('map rollback fixture', new WPrism\NativeDatabaseProfile(
+        ['wp_posts', 'wp_postmeta', 'wp_wprism_map', 'wp_users', 'wp_options'], ['wp_posts', 'wp_postmeta']));
+    $fields->begin_authored_transaction();
+    WPrism\CacheInvalidationTransaction::begin();
+    try {
+        $targetTokens->bind_block_environment_options(WPrism\BlockEnvironmentOptions::lock($policy, $scratch));
+        $warnings = [];
+        foreach ($compiled->tree() as $entity) $materializer->finalize_post($entity['data'], $entity['body'], 1, $warnings, []);
+        WPrism\Db::commit('map rollback fixture');
+        WPrism\CacheInvalidationTransaction::finish();
+        wprism_check_same([], $warnings, 'map post materialization has no warnings');
+    } catch (Throwable $failure) {
+        WPrism\Db::rollback('map rollback fixture');
+        throw $failure;
+    } finally {
+        $targetTokens->bind_block_environment_options([]);
+        $fields->end_authored_transaction();
+        WPrism\CacheInvalidationTransaction::end();
+    }
+};
+$before = [];
+foreach (['wp_posts', 'wp_postmeta', 'wp_wprism_map', 'wp_options'] as $table) $before[$table] = $db->rows($table);
+$updates = 0;
+$earlierBound = false;
+$db->onQuery(static function (string $sql, string $method, WPrismTest\FakeWpdb $observed) use (&$updates, &$earlierBound): ?string {
+    if (str_starts_with($sql, 'UPDATE `wp_posts` ') && ++$updates === 2) {
+        $earlierBound = substr_count($observed->rows('wp_posts')[0]['post_content'], 'map-fixture-target-key') === 2;
+        return 'injected later map post update failure';
+    }
+    return null;
+});
+wprism_check_throws($write, RuntimeException::class, 'later checked SQL failure refuses the batch', 'database mutation failed: apply update post');
+wprism_check($earlierBound, 'fault occurs after a real target-bound iframe write');
+foreach ($before as $table => $rows) wprism_check_same($rows, $db->rows($table), "$table is byte-identical after rollback");
+wprism_check_throws(static fn() => Blocks::apply_rewrite($canonical, $policy, $targetTokens), RuntimeException::class, 'rollback clears transaction credentials', 'transaction-bound');
+$db->onQuery(null);
+$write();
+$after = $db->rows('wp_posts');
+foreach (array_slice($after, 0, 2) as $post) {
+    wprism_check_same(2, substr_count($post['post_content'], 'map-fixture-target-key'), 'retry materializes both target key locations');
+    wprism_check_same($canonical, Blocks::capture_rewrite($post['post_content'], $policy, $targetTokens), 'checked SQL output recaptures exactly');
+}
+wprism_check_same($before['wp_posts'][2], $after[2], 'retry preserves unrelated target-only post');
+foreach (['wp_postmeta', 'wp_wprism_map', 'wp_options'] as $table) wprism_check_same($before[$table], $db->rows($table), "retry preserves $table");
+$write();
+wprism_check_same($after, $db->rows('wp_posts'), 'repeated complete map materialization is idempotent');
 wprism_check_summary('map-block-gutenberg credential boundary');

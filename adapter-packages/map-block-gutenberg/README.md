@@ -27,7 +27,8 @@ Provision the target using the existing newline-terminated stdin workflow:
 wp wprism env-set --repo=/path/to/site-repo --name=gmw-map-block-key --stdin
 ```
 
-Keys must contain 1..64 ASCII letters, digits, underscores or hyphens. The
+Keys must contain 1..64 ASCII letters, digits, underscores or hyphens, and
+cannot be the string `0` (the native editor would use its fallback). The
 target's bundled public fallback is never substituted for missing provisioning.
 Apply verifies intended and physical option bytes under the existing exact
 option-row lock before adoption or materialization. Missing or drifted bindings

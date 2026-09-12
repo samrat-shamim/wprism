@@ -33,7 +33,9 @@ final class MapBlockGutenberg {
     public function apply_block_content(array $block, Tokens $tokens, array $environment): array {
         $attrs = self::canonical($block);
         $key = $environment[self::OPTION] ?? null;
-        if (!is_string($key) || preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $key) !== 1) self::refuse();
+        // The native editor tests get_option() for truthiness before using
+        // it; PHP's falsey string "0" would select the bundled fallback.
+        if (!is_string($key) || $key === '0' || preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $key) !== 1) self::refuse();
         $attrs['api_key'] = $key;
         return ['attrs' => $attrs, 'html' => "\n" . self::html($attrs, $key) . "\n"];
     }
