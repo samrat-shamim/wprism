@@ -11,7 +11,7 @@ fi
 pass 'Map Block environment key and option are excluded from canonical state'
 
 for MAP_MODE in default explicit nested; do
-  MAP_PREMISE=$(wp_conf1 eval-file /siterepo/.tmp-map-probe.php "$MAP_MODE")
+  MAP_PREMISE=$(wp_conf1 eval-file /siterepo/.tmp-map-probe.php "$MAP_MODE" --use-include)
   require_observed_nonempty "Map Block saved-content premise" "$MAP_PREMISE"
   jq -e --arg mode "$MAP_MODE" '.mode == $mode and .post > 0 and .body_has_map and .option_matches and .editor_uses_local_key' <<<"$MAP_PREMISE" >/dev/null \
     || fail 'Map Block saved-content premise failed'
@@ -32,7 +32,7 @@ for MAP_MODE in default explicit nested; do
   pass "Map Block $MAP_MODE capture refuses without publishing state or disclosing its key"
 done
 
-MAP_RESTORED=$(wp_conf1 eval-file /siterepo/.tmp-map-probe.php restore)
+MAP_RESTORED=$(wp_conf1 eval-file /siterepo/.tmp-map-probe.php restore --use-include)
 require_observed_nonempty "Map Block restored-source premise" "$MAP_RESTORED"
 jq -e '.mode == "restore" and .post > 0 and (.body_has_map | not) and .option_matches and .editor_uses_local_key' <<<"$MAP_RESTORED" >/dev/null \
   || fail 'Map Block source restoration premise failed'
