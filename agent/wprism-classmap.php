@@ -48,6 +48,8 @@ return [
     'WPrism\\AuthoredTransactionRequest' => 'src/Apply/AuthoredTransactionRequest.php',
     'WPrism\\AuthorizedReleaseRepository' => 'src/Promotion/AuthorizedReleaseRepository.php',
     'WPrism\\BlockAttributeReader' => 'src/Kernel/BlockAttributeReader.php',
+    'WPrism\\BlockContentGrammar' => 'src/Kernel/BlockContentGrammar.php',
+    'WPrism\\BlockEnvironmentOptions' => 'src/Apply/BlockEnvironmentOptions.php',
     'WPrism\\BlockMediaDerivativeGrammar' => 'src/Kernel/BlockMediaDerivativeGrammar.php',
     'WPrism\\BlockReferenceScanner' => 'src/Review/BlockReferenceScanner.php',
     'WPrism\\BlockValueCodec' => 'src/Grammar/BlockValueCodec.php',

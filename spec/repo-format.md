@@ -3325,6 +3325,54 @@ the declaration. A package adopting it requires recompilation and new pins.
 authority; `ApplyFieldMaterializer` owns its bounded transactional effect.
 
 
+### v3.36 `block-content-codecs/v1` — environment-bound static leaf blocks
+
+A v3 manifest may declare `block_content.<exact-block-name>` as the closed
+object `{codec, env_options, public_text}`. The codec must be that manifest's
+interpreter and own every `block_attrs` path for the same block. No other
+manifest or site override may own that block through `block_attrs`,
+`block_values` (including groups), or `block_content`. Existing attribute-only
+codecs retain their original return shape and saved-HTML behavior.
+
+The new hooks are `capture_block_content(block, Tokens, force, label)` and
+`apply_block_content(block, Tokens, environment)`. Both return exactly
+`{attrs, html}`: a closed object of declared attributes and at most 1 MiB of
+leaf HTML. Child blocks, self-closing inputs, malformed results, undeclared
+attributes, and output block delimiters refuse. The engine synchronizes
+`innerHTML` and `innerContent`; it does not run generic shortcode/text rewriting
+again on the codec-owned result. The whole-document HTML media guard remains.
+The interpreter must validate its native saver and canonical representation;
+its pure repository constraint must reject raw or injected native values.
+`ProviderSdk::block_attributes_read()` supplies bounded opening-comment
+observations without loading WordPress; it does not validate saved HTML.
+
+`env_options` is a list of distinct exact required scalar `class: env` options
+declared by the same manifest, with no site replacement. Apply reads the
+owner-only target-local `env-set` intent, locks those option rows in sorted
+order through the existing exact option-row boundary before adoption or
+materialization, and requires byte equality with intended storage. It passes
+only the selected block's names/values to the apply hook. Missing, drifted,
+ambiguous or unreadable bindings refuse. Values exist only in the authored
+transaction's in-memory context, cleared on exit; no key enters canonical
+state or the compiled artifact. Ordinary env options and prior lock ordering
+are unchanged when this feature is absent. Provisioning does not itself
+rewrite existing saved blocks; materialized blocks use the locked target value.
+
+`public_text` names distinct declared scalar-string attributes reviewed as
+public authored text (for example a map search destination). Clearance retains
+the original body and every decoded scalar byte, but removes that field's
+semantic PII key role from its decoded observation. Containers are not exempt.
+Secret-role names cannot be declared as public text, and value-shaped PII,
+labelled credentials and hard secret signatures remain blocking. This is not
+an `allow_secret` or whole-body privacy exemption.
+
+The Map Block 1.35 adapter uses `api_key: "@env"` and the same marker in its
+canonical iframe query. Its sole declared option supplies the binding name;
+the marker is not a native key or a general text token. Default and explicit
+source keys intentionally converge to this binding. Custom HTML, unknown
+fields, inconsistent keys and values outside the reviewed native schema
+refuse. Different per-map target credentials are outside this adapter contract.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

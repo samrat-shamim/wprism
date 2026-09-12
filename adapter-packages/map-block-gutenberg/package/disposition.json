@@ -10,13 +10,16 @@
     "field_sections": [
       "options",
       "block_attrs",
+      "block_content",
       "interpreter"
     ],
     "lifecycle_phases": [],
     "operations": [
       "capture",
       "compile",
-      "plan"
+      "plan",
+      "deploy",
+      "apply"
     ]
   },
   "default_authored_keyspaces": [],
@@ -28,7 +31,7 @@
       "regress-map-boundary"
     ]
   },
-  "reason": "Experimental capture-plan profile for official Map Block for Google Maps 1.35 on single-site WordPress. The sole plugin option is environment-owned. Every webfactory/map block is refused because its static saved iframe contains a source API key even when api_key is absent from the comment. Ordinary content remains capturable with the plugin active. Map-content deploy, apply, native target behavior and production readiness are blocked on environment binding across both attributes and saved HTML.",
+  "reason": "Map Block 1.35 static leaf maps bind a required target-local API key across attributes and saved HTML. Experimental while the production-readiness evidence is completed; no broader schema or version coverage is implied.",
   "status": "experimental",
   "supported_versions": {
     "plugin": "map-block-gutenberg/map-block-gutenberg.php",
@@ -41,22 +44,17 @@
     {
       "operation": "capture",
       "surface": "block:webfactory/map",
-      "reason": "All map blocks refuse, including default-key, empty, nested and malformed forms; API credentials can exist solely in saved iframe HTML."
+      "reason": "Unknown attributes, custom or inconsistent saved HTML, nested children inside a map, invalid keys, and values outside the bounded native inspector schema refuse. Maps inside ordinary parent blocks are supported."
     },
     {
       "operation": "compile",
       "surface": "block:webfactory/map",
-      "reason": "Repository-authored map blocks in posts or block widgets refuse before immutable publication, without requiring WordPress."
+      "reason": "Repository-injected credentials or noncanonical map payloads refuse before immutable publication, without requiring WordPress."
     },
     {
       "operation": "apply",
-      "surface": "map-content transport",
-      "reason": "No environment-binding codec exists for both api_key and saved iframe.src; the interpreter refuses materialization."
-    },
-    {
-      "operation": "deploy",
-      "surface": "adapter-wide deploy/apply",
-      "reason": "No native target transport is qualified; this capture-plan profile is non-authorizing."
+      "surface": "unprovisioned target maps",
+      "reason": "Missing or drifted target-local env-set intent refuses; the plugin's bundled fallback credential is not a target provisioning path."
     },
     {
       "operation": "all",

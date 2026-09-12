@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ExactOptionReader.php';
+require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
@@ -65,6 +66,11 @@ final class ProviderSdk {
     public const DATABASE_POSTIMAGE_APPLIED = 'applied';
     public const DATABASE_POSTIMAGE_NOT_APPLIED = 'not_applied';
     public const DATABASE_POSTIMAGE_UNKNOWN = 'unknown';
+
+    /** Pure opening-comment observations; negotiated by block-content-codecs/v1. */
+    public static function block_attributes_read(string $body, array $names): array {
+        return BlockAttributeReader::read($body, $names);
+    }
 
     /**
      * Observe one exact confined generated-file tree through the shared

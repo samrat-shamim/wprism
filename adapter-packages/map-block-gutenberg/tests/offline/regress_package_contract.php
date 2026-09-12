@@ -21,7 +21,7 @@ wprism_check_same('env', $policy->option_rule('gmw-map-block-key')['class'], 'na
 wprism_check_same(['min' => '1.35', 'max' => '1.35.1'], $manifest['version_range'], 'window contains only the inspected release family');
 wprism_check_same($manifest['version_range'], $disposition['supported_versions']['range'], 'claim and enforced window agree');
 wprism_check_same('experimental', $disposition['status'], 'withheld primary surface cannot certify itself');
-wprism_check_same(['capture', 'compile', 'plan'], $disposition['capabilities']['operations'], 'no deploy/apply or target recapture claim');
+wprism_check_same(['capture', 'compile', 'plan', 'deploy', 'apply'], $disposition['capabilities']['operations'], 'bounded transport operations are exercised');
 wprism_check_same([], $disposition['capabilities']['lifecycle_phases'], 'no target lifecycle is claimed');
 $readiness = AdapterProductionReadiness::record($root, 'map-block-gutenberg');
 wprism_check_same('unready', $readiness['readiness'], 'production work remains visible');
@@ -32,5 +32,5 @@ wprism_check_same(['map-block-gutenberg'], array_values(array_unique(array_colum
 $artifacts = $read('evidence/artifacts.lock.json')['plugins']['map-block-gutenberg'];
 wprism_check_same('exercise-fixture', $artifacts['1.35']['role'], 'audited artifact does not claim target certification');
 wprism_check_same('refusal-fixture', $artifacts['1.34']['role'], 'adjacent previous release is an explicit refusal fixture');
-wprism_check_same('capture-plan', $read('tests/conformance/entry.json')['entry']['mode'], 'live entry exercises the bounded profile');
+wprism_check_same('roundtrip', $read('tests/conformance/entry.json')['entry']['mode'], 'live entry exercises target transport');
 wprism_check_summary('map-block-gutenberg package contract');

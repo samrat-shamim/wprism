@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -343,7 +344,8 @@ final class CaptureSafetyGates {
                     $values['body'] = BodyRefGrammar::decode($body, "$path body");
                     $bodyPiiPaths = $policy->body_ref_rule($postType)['pii_paths'] ?? [];
                 } elseif ($policy->body_mode($postType) === 'blocks') {
-                    $values['body'] = BlockAttributeReader::clearance_value($body);
+                    $values['body'] = BlockAttributeReader::clearance_value($body,
+                        BlockContentGrammar::project($policy->manifests, $policy->site['policy'] ?? []));
                 }
             } elseif (str_starts_with($path, 'terms/')) {
                 $front = Canon::decode((string) ($entity['content'] ?? ''));

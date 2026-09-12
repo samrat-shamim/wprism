@@ -7,6 +7,7 @@
     "max": "1.35.1"
   },
   "engine_features": [
+    "block-content-codecs/v1",
     "spec-window/v1"
   ],
   "option_autoload": "preserve",
@@ -14,8 +15,8 @@
   "options": {
     "gmw-map-block-key": {
       "class": "env",
-      "required": false,
-      "note": "The plugin's editor default API key belongs to each environment; absence also remains environment-owned."
+      "required": true,
+      "note": "Provision with env-set on each target. Native maps bind this target-local key; source default and explicit historical keys are never transported."
     }
   },
   "block_attrs": {
@@ -38,8 +39,11 @@
       }
     ]
   },
+  "block_content": {
+    "webfactory/map": {"codec": "map-block-gutenberg", "env_options": ["gmw-map-block-key"], "public_text": ["address"]}
+  },
   "notes": [
-    "Official 1.35 assets/js/_source/blocks/index.js buildMapIframe() saves the API key in iframe.src even when Gutenberg omits the default api_key attribute. An attribute-presence refusal is insufficient. The whole-block interpreter refuses every webfactory/map, including empty/default and nested blocks, before capture or materialization; its repository constraint also refuses hand-authored map blocks during immutable compilation without WordPress.",
-    "Production transport requires one reviewed environment-binding primitive spanning the block attributes and saved iframe HTML, with target editor save/validation and recapture evidence. This capsule does not implement that primitive or claim map-content transport. Only the exact audited 1.35 release is exercised."
+    "The 1.35 native static saver is a closed leaf: zoom 1..21, height 50..1000, UTF-8 address up to 8192 bytes, API key 1..64 ASCII letters/digits/underscore/hyphen. Missing native defaults normalize. Unknown attributes, custom HTML, mismatched attribute/iframe keys and malformed values refuse without values in diagnostics.",
+    "Canonical api_key and iframe key contain only @env. All maps intentionally bind the provisioned target option, including maps saved with an explicit or historical source key. Apply locks and verifies target-local env-set intent before writes. The bundled public fallback key is never used on a target."
   ]
 }

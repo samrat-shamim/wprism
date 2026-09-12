@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 
@@ -682,7 +683,8 @@ final class RepositoryAuthorization {
                 } else {
                     self::authorize_sensitivity(
                         $out, $path, $stateKey, "widget[$i].settings", (string) $setting,
-                        ($rule['codec'] ?? '') === 'blocks' && is_string($value) ? BlockAttributeReader::clearance_value($value) : $value,
+                        ($rule['codec'] ?? '') === 'blocks' && is_string($value)
+                            ? BlockAttributeReader::clearance_value($value, BlockContentGrammar::project($policy->manifests, $policy->site['policy'] ?? [])) : $value,
                         $rule, 'manifest widgets.' . $type
                     );
                 }
@@ -964,7 +966,8 @@ final class RepositoryAuthorization {
         string $body,
         string $path
     ): mixed {
-        if ($policy->body_mode($postType) === 'blocks') return BlockAttributeReader::clearance_value($body);
+        if ($policy->body_mode($postType) === 'blocks') return BlockAttributeReader::clearance_value($body,
+            BlockContentGrammar::project($policy->manifests, $policy->site['policy'] ?? []));
         try {
             return match ($policy->body_mode($postType)) {
                 'serialized' => PlainData::decode_serialized($body, "$path body"),

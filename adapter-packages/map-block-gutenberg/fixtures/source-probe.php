@@ -10,16 +10,17 @@ if ($mode === 'seed') {
     $id = wp_insert_post([
         'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Map boundary fixture',
         'post_name' => 'map-boundary-fixture',
-        'post_content' => '<!-- wp:paragraph --><p>Ordinary source content.</p><!-- /wp:paragraph -->',
+        'post_content' => (string) file_get_contents('/siterepo/.tmp-map-saved.html'),
     ], true);
     if (is_wp_error($id) || !$id) throw new RuntimeException('map fixture page creation failed');
     $post = get_post($id);
     file_put_contents('/siterepo/.tmp-map-original.json', wp_json_encode((array) $post));
-} elseif (in_array($mode, ['default', 'explicit', 'nested'], true)) {
+} elseif (in_array($mode, ['default', 'explicit', 'nested', 'malformed'], true)) {
     if (!$post) throw new RuntimeException('map fixture page missing');
     $body = file_get_contents('/siterepo/.tmp-map-saved.html');
     if ($mode === 'explicit') $body = str_replace('"zoom":12', '"api_key":"map-fixture-source-key","zoom":12', $body);
     if ($mode === 'nested') $body = '<!-- wp:group --><div class="wp-block-group">' . $body . '</div><!-- /wp:group -->';
+    if ($mode === 'malformed') $body = str_replace('"zoom":12', '"unknown":"private-source-value","zoom":12', $body);
     $result = wp_update_post(wp_slash(['ID' => $post->ID, 'post_content' => $body]), true);
     if (is_wp_error($result)) throw new RuntimeException('map fixture content save failed');
     if (get_post($post->ID)->post_content !== $body) throw new RuntimeException('map fixture saved bytes disagree');
@@ -36,17 +37,20 @@ if ($mode === 'seed') {
     foreach ($restore as $field => $value) {
         if ($restored->$field !== $value) throw new RuntimeException('map fixture restore readback failed');
     }
-} elseif ($mode !== 'observe') {
+} elseif (!in_array($mode, ['observe', 'target'], true)) {
     throw new RuntimeException('unknown map fixture mode');
 }
 if (!class_exists('wf_map_block')) throw new RuntimeException('native map plugin missing');
 wf_map_block::enqueue_block_editor_assets();
 $localized = wp_scripts()->get_data('wf-map-block', 'data');
+$expectedKey = $mode === 'target' ? 'map-fixture-target-key' : 'map-fixture-source-key';
 echo wp_json_encode([
     'mode' => $mode,
     'post' => (int) ($post->ID ?? 0),
     'version' => wf_map_block::get_plugin_version(),
-    'option_matches' => get_option('gmw-map-block-key') === 'map-fixture-source-key',
-    'editor_uses_local_key' => is_string($localized) && str_contains($localized, 'map-fixture-source-key'),
+    'option_matches' => get_option('gmw-map-block-key') === $expectedKey,
+    'editor_uses_local_key' => is_string($localized) && str_contains($localized, $expectedKey),
     'body_has_map' => $post && str_contains(get_post($post->ID)->post_content, '<!-- wp:webfactory/map '),
+    'target_key_locations' => $post ? substr_count($post->post_content, $expectedKey) : 0,
+    'source_key_absent' => $post && !str_contains($post->post_content, 'map-fixture-source-key'),
 ]);

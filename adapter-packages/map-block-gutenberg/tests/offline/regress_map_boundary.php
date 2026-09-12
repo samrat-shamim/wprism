@@ -18,6 +18,7 @@ use WPrism\RepositoryCompiler;
 use WPrism\Tokens;
 
 $policy = Policy::load(null, ['core', 'map-block-gutenberg'], adapterLibrary: AdapterLibrary::fromSourcePackage($root, 'map-block-gutenberg'));
+$policy->site['spec_version'] = WPRISM_SPEC_VERSION;
 $fixture = (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/saved-default-key.html');
 wprism_check(!str_contains($fixture, '"api_key"') && str_contains($fixture, 'key=map-fixture-source-key'), 'default-key fixture holds the key only in saved HTML');
 $variants = [
@@ -82,12 +83,44 @@ wprism_check(str_contains(Blocks::capture_rewrite($fixture, $attributeOnly, $tok
     'counterfactual attribute-only refusal leaks the default key through the real block codec');
 foreach ($variants as $label => $body) {
     foreach ([false, true] as $force) {
-        wprism_check_throws(static fn() => Blocks::capture_rewrite($body, $policy, $tokens, $force), RuntimeException::class,
-            "$label capture refuses with force=" . (int) $force, 'saved iframe HTML require a target environment binding');
+        if (in_array($label, ['saved-default', 'explicit-key', 'nested'], true)) {
+            $canonical = Blocks::capture_rewrite($body, $policy, $tokens, $force);
+            wprism_check(!str_contains($canonical, 'map-fixture-source-key') && substr_count($canonical, '@env') === 2,
+                "$label capture removes both credential locations with force=" . (int) $force);
+            wprism_check_same([], $policy->repository_constraint_diagnostics([['type' => 'post', 'body' => $canonical]]), "$label canonical form passes immutable checks");
+            $tokens->bind_block_environment_options(['gmw-map-block-key' => 'map-fixture-target-key']);
+            $native = Blocks::apply_rewrite($canonical, $policy, $tokens);
+            wprism_check_same(2, substr_count($native, 'map-fixture-target-key'), "$label binds both target credential locations");
+            wprism_check_same($canonical, Blocks::capture_rewrite($native, $policy, $tokens), "$label recapture is byte-identical");
+            $tokens->bind_block_environment_options([]);
+            wprism_check_throws(static fn() => Blocks::apply_rewrite($canonical, $policy, $tokens), RuntimeException::class,
+                "$label missing transaction binding refuses", 'transaction-bound');
+        } else {
+            wprism_check_throws(static fn() => Blocks::capture_rewrite($body, $policy, $tokens, $force), RuntimeException::class,
+                "$label capture refuses with force=" . (int) $force, 'wprism:');
+        }
     }
     wprism_check_throws(static fn() => Blocks::apply_rewrite($body, $policy, $tokens), RuntimeException::class,
-        "$label materialization refuses", 'saved iframe HTML require a target environment binding');
+        "$label raw materialization refuses", 'wprism:');
 }
+$canonical = Blocks::capture_rewrite($fixture, $policy, $tokens);
+Canon::write_file($path, Canon::post_file($front, $canonical));
+$compiled = RepositoryCompiler::compile($scratch, $policy);
+wprism_check(isset($compiled->tree()[$uuid]), 'real immutable compiler accepts the credential-free map');
+foreach ([
+    'mismatched-key' => str_replace('"zoom":12', '"api_key":"different-key","zoom":12', $fixture),
+    'duplicate-src' => str_replace('src="', 'src="https://evil.test/" src="', $fixture),
+    'extra-html' => str_replace('</iframe>', '</iframe><script>private-key</script>', $fixture),
+    'null-address' => str_replace('"Dhaka, Bangladesh"', 'null', $fixture),
+    'fractional-zoom' => str_replace('"zoom":12', '"zoom":12.5', $fixture),
+    'unknown-field' => str_replace('"zoom":12', '"className":"private-key","zoom":12', $fixture),
+] as $label => $body) {
+    wprism_check_throws(static fn() => Blocks::capture_rewrite($body, $policy, $tokens, true), RuntimeException::class, "$label refuses even with force", 'static map schema');
+}
+$tokens->bind_block_environment_options(['gmw-map-block-key' => 'bad&key']);
+wprism_check_throws(static fn() => Blocks::apply_rewrite($canonical, $policy, $tokens), RuntimeException::class, 'invalid target key refuses without coercion', 'static map schema');
+$tokens->bind_block_environment_options(['gmw-map-block-key' => 'rotated-target-key']);
+wprism_check_same($canonical, Blocks::capture_rewrite(Blocks::apply_rewrite($canonical, $policy, $tokens), $policy, $tokens), 'key rotation does not change authored canonical identity');
 $ordinary = '<!-- wp:paragraph --><p>Ordinary content.</p><!-- /wp:paragraph -->';
 wprism_check_same($ordinary, Blocks::capture_rewrite($ordinary, $policy, $tokens), 'unrelated block capture remains byte-identical');
 wprism_check_same($ordinary, Blocks::apply_rewrite($ordinary, $policy, $tokens), 'unrelated block materialization remains byte-identical');
