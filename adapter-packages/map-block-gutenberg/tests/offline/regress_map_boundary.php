@@ -104,10 +104,19 @@ foreach ($variants as $label => $body) {
         "$label raw materialization refuses", 'wprism:');
 }
 $canonical = Blocks::capture_rewrite($fixture, $policy, $tokens);
+foreach (json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/native-editor-saves.json'), true, 512, JSON_THROW_ON_ERROR)['cases'] as $case) {
+    $nativeCanonical = Blocks::capture_rewrite($case['body'], $policy, $tokens);
+    wprism_check(!str_contains($nativeCanonical, 'map-fixture-target-key') && !str_contains($nativeCanonical, 'historical-fixture-key'), $case['label'] . ' native editor capture removes keys');
+    $tokens->bind_block_environment_options(['gmw-map-block-key' => 'new-target-key']);
+    wprism_check_same($nativeCanonical, Blocks::capture_rewrite(Blocks::apply_rewrite($nativeCanonical, $policy, $tokens), $policy, $tokens), $case['label'] . ' native editor fixture is a fixed point');
+    wprism_check_same([], $policy->repository_constraint_diagnostics([['type' => 'post', 'body' => $nativeCanonical]]), $case['label'] . ' immutable schema accepts the native-derived canonical form');
+}
+$tokens->bind_block_environment_options([]);
 Canon::write_file($path, Canon::post_file($front, $canonical));
 $compiled = RepositoryCompiler::compile($scratch, $policy);
 wprism_check(isset($compiled->tree()[$uuid]), 'real immutable compiler accepts the credential-free map');
 foreach ([
+    'missing-core-wrapper-class' => preg_replace('/<div class="wp-block-webfactory-map">/', '<div>', $fixture, 1),
     'mismatched-key' => str_replace('"zoom":12', '"api_key":"different-key","zoom":12', $fixture),
     'duplicate-src' => str_replace('src="', 'src="https://evil.test/" src="', $fixture),
     'extra-html' => str_replace('</iframe>', '</iframe><script>private-key</script>', $fixture),

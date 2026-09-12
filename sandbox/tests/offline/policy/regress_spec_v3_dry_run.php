@@ -470,7 +470,7 @@ $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ?
 // feature-claimed keys deliberately sit in § v3.21's roster rather than
 // duplicating the signer partition.
 wprism_check_same(
-    ['attr_id_codecs', 'block_media_derivatives', 'block_values', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    ['attr_id_codecs', 'block_content', 'block_media_derivatives', 'block_values', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $unknownInUse,
     'F1: every shipped key outside the signer partition belongs to an explicitly declared feature roster'
 );
@@ -479,7 +479,7 @@ wprism_check_same(
     array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
     'F1: every shipped key outside the partition has a certificate arm in the feature roster'
 );
-wprism_check_same(38, count($unionKeys), 'F1: the in-use union is 38 keys');
+wprism_check_same(39, count($unionKeys), 'F1: the in-use union is 39 keys');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
@@ -800,6 +800,7 @@ wprism_check_same(
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/BlockContentGrammar.php',
         'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
@@ -808,7 +809,7 @@ wprism_check_same(
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside seven gate readers (provider contracts, body mode, column framing, '
+        . 'refuses an unimplemented name — beside eight gate readers (provider contracts, body mode, column framing, leaf content, '
         . 'block groups, value predicates, invalidate verbs, interpreter ownership) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
@@ -821,6 +822,7 @@ wprism_check_same(
         'attr-id-codecs/v1',
         'block-attribute-groups/v1',
         'block-attribute-values/v1',
+        'block-content-codecs/v1',
         'block-media-derivatives/v1',
         'block-record-fields/v1',
         'body-pii-paths/v1',
@@ -917,6 +919,7 @@ echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate ar
 wprism_check_same(
     [
         'attr_id_codecs' => 'field',
+        'block_content' => 'field',
         'block_media_derivatives' => 'field',
         'block_values' => 'field',
         'body_refs' => 'field',
@@ -926,7 +929,7 @@ wprism_check_same(
         'incompatible_plugins' => 'non_surface',
     ],
     AdapterContractGrammar::feature_key_arms(),
-    'V3-ARM: the roster classifies eight keys — five value grammar sections as '
+    'V3-ARM: the roster classifies nine keys — six value grammar sections as '
         . '`field`, and the claim channel, evidence records, and incompatibility list as `non_surface`'
 );
 $report('feature-claimed key arms: ' . json_encode(AdapterContractGrammar::feature_key_arms(), JSON_UNESCAPED_SLASHES));

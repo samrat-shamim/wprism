@@ -1,8 +1,12 @@
 # format wprism-target-observation-premises/v1
-# expected observations=5 fixtures=0
+# expected observations=9 fixtures=0
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/seed.sh	require_observed_nonempty "Map Block source seed"
 observation	tests/conformance/capture-check.sh	require_observed_nonempty "Map Block saved-content premise"
 observation	tests/conformance/capture-check.sh	require_observed_nonempty "Map Block restored-source premise"
 observation	tests/conformance/check.sh	require_observed_nonempty "Map Block target native observation"
 observation	tests/conformance/check.sh	require_observed_nonempty "Map Block target frontend observation"
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty "Map Block dirty target premise"
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty "Map Block refused target observation"
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty "Map Block drift refusal observation"
+observation	tests/conformance/check.sh	require_observed_nonempty "Map Block updated native observation"

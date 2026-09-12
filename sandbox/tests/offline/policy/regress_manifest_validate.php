@@ -1572,6 +1572,7 @@ ksort($emittedArms, SORT_STRING);
 check(
     $emittedArms === [
         'attr_id_codecs' => 'field',
+        'block_content' => 'field',
         'block_media_derivatives' => 'field',
         'block_values' => 'field',
         'body_refs' => 'field',

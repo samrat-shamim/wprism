@@ -1,45 +1,69 @@
 # Map Block for Google Maps
 
-Experimental, **not production-ready**. Audited artifact: official
+Experimental pending production qualification and review. Exact audited plugin:
 `map-block-gutenberg` 1.35, SHA-256 pinned in `evidence/artifacts.lock.json`.
-The compatibility window is `>=1.35 <1.35.1`; 1.34 is a refusal fixture.
+The enforced compatibility window is `>=1.35 <1.35.1`; 1.34 is a refusal fixture.
 
-The capsule classifies `gmw-map-block-key` as environment-owned and allows
-capture/compile/plan of ordinary content while the plugin is active. It
-refuses every `webfactory/map` block, including blocks in reusable content,
-nested blocks and block widgets. No map deploy/apply capability is claimed.
+## Transport contract
 
-The plugin's `assets/js/_source/blocks/index.js` declares four attributes:
-`zoom`, `height`, `address`, and `api_key`. Its `buildMapIframe()` and `save()`
-write static iframe HTML with the key in `src`. The `api_key` default comes
-from `wf_map_block.api_key`, localized by `enqueue_block_editor_assets()` in
-`map-block-gutenberg.php`. Gutenberg can omit that default from the comment
-while retaining it in the iframe. Refusing only a present `api_key` attribute
-therefore leaks source credentials. The fixture is a source-derived probe of
-that native save shape with a synthetic key, not an editor-captured artifact.
+The adapter captures native `webfactory/map` leaf blocks in posts and block
+widgets. Its four attributes are `zoom`, `height`, `address`, and `api_key`.
+A map may be nested inside ordinary parent blocks, but cannot contain children.
+Custom classes/styles/metadata, custom HTML, malformed values, and unknown fields
+refuse rather than being silently discarded. The inspected native bounds are
+zoom 1..21, height 50..1000, and a UTF-8 destination of at most 8192 bytes.
+The destination is reviewed public text; value-level PII and secret checks remain.
 
-The whole-block codec closes capture/materialization; the interpreter's
-repository constraint closes immutable post and block-widget compilation.
-Errors name the boundary without printing the key, address, or HTML.
-An empty or keyless map remains refused because no map transport is qualified.
+The key occurs in both the attributes and static iframe URL. Gutenberg omits
+`api_key` when it equals the editor default, but the iframe still contains it.
+Capture replaces both locations with `@env`; apply binds the adapter's one
+required environment option, `gmw-map-block-key`. Explicit historical source
+keys intentionally use the same target binding. Different per-map target keys
+are outside this contract. No source key is committed or compiled.
 
-Production work needs a reviewed engine primitive to bind a target-local key
-in both block attributes and saved iframe HTML without storing the source key
-in canonical content. Current whole-block hooks return attributes only, and
-`block_values` has no environment binding. After that primitive exists, add
-real editor save/validation, clean/dirty target roundtrips, native render,
-lifecycle, failure/recovery and concurrency evidence before certification.
-The twelve-family readiness record keeps that work explicit.
+Provision the target using the existing newline-terminated stdin workflow:
 
-Local checks:
+```sh
+wp wprism env-set --repo=/path/to/site-repo --name=gmw-map-block-key --stdin
+```
+
+Keys must contain 1..64 ASCII letters, digits, underscores or hyphens. The
+target's bundled public fallback is never substituted for missing provisioning.
+Apply verifies intended and physical option bytes under the existing exact
+option-row lock before adoption or materialization. Missing or drifted bindings
+refuse with value-free guidance. Provisioning alone does not rewrite previously
+saved maps; blocks materialized by a subsequent authored update use the new key.
+
+## Evidence
+
+The runtime uses negotiated `block-content-codecs/v1` (spec §v3.36), with no
+plugin branches in the engine. Pure repository constraints reject raw credentials
+and noncanonical saved HTML before publication, without WordPress.
+
+`fixtures/native-editor-saves.json` was produced with the real 1.35 bundle and
+WordPress 7.1's `wp.blocks.createBlock/serialize/parse`, using synthetic keys.
+It includes defaults, explicit keys, empty destinations, Unicode, apostrophes,
+and delimiter-like text. Native inspection caught two important details:
+WordPress injects the block class on the outer wrapper, and apostrophes remain
+literal in double-quoted iframe attributes. Offline regressions pin both.
+
+The `agent-roundtrip` conformance profile explicitly proves host deployment
+still refuses the experimental disposition, then uses documented lower-level
+agent verbs for target qualification. It never marks the adapter certified.
+The profile exercises clean creation, unmanaged same-slug adoption with different
+IDs, missing/drifted target keys, preservation of a target-only runtime option,
+authored updates, repeated apply, native frontend/localization, capture failure
+recovery, and whole-tree recapture. It does not contact Google or assert the
+validity, billing state, restrictions, or availability of the Maps service.
+
+`evidence/production-readiness.json` is the authoritative remaining-work ledger;
+a successful fixture or schema check alone cannot promote this adapter.
 
 ```sh
 php tools/adapter-package-validate.php --adapter=map-block-gutenberg
 php tools/adapter-package-tests.php --adapter=map-block-gutenberg
+make regress-block-content-codecs
+# Use a clean source commit and an allocated disposable pair:
+CONF_EXPECTED_SOURCE_SHA=<commit> CONF_PAIR=<pair> CONF1_PORT=<port> CONF2_PORT=<port> \
+  bash sandbox/conformance/run.sh map-block-gutenberg
 ```
-
-Live evidence uses this capsule's capture-plan conformance entry and the
-repository's disposable-pair harness, bound to a clean source commit. The
-source check exercises the plugin's real editor localization, API-key
-exclusion, saved-HTML refusal, restoration of the fixture edit, and deterministic
-recapture. It does not contact Google or assert map-service availability.

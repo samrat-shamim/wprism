@@ -25,12 +25,12 @@ wprism_check_same(['capture', 'compile', 'plan', 'deploy', 'apply'], $dispositio
 wprism_check_same([], $disposition['capabilities']['lifecycle_phases'], 'no target lifecycle is claimed');
 $readiness = AdapterProductionReadiness::record($root, 'map-block-gutenberg');
 wprism_check_same('unready', $readiness['readiness'], 'production work remains visible');
-wprism_check(isset($readiness['blocked']['clean-target']), 'missing transport is blocked rather than inapplicable');
+wprism_check(isset($readiness['gaps']['clean-target']), 'target qualification remains explicit until the corrected native saver is exercised');
 $rules = $policy->block_attr_rules()['webfactory/map'];
 wprism_check_same(['zoom', 'height', 'address', 'api_key'], array_column($rules, 'path'), 'native four-attribute inventory is closed');
 wprism_check_same(['map-block-gutenberg'], array_values(array_unique(array_column($rules, 'codec'))), 'whole-block guard runs even when no attribute is present');
 $artifacts = $read('evidence/artifacts.lock.json')['plugins']['map-block-gutenberg'];
 wprism_check_same('exercise-fixture', $artifacts['1.35']['role'], 'audited artifact does not claim target certification');
 wprism_check_same('refusal-fixture', $artifacts['1.34']['role'], 'adjacent previous release is an explicit refusal fixture');
-wprism_check_same('roundtrip', $read('tests/conformance/entry.json')['entry']['mode'], 'live entry exercises target transport');
+wprism_check_same('agent-roundtrip', $read('tests/conformance/entry.json')['entry']['mode'], 'experimental live entry exercises agent transport without authorizing production promotion');
 wprism_check_summary('map-block-gutenberg package contract');

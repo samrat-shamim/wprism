@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [ -d "$CONF_REPO1/state/posts/page" ] || fail 'captured map page directory missing'
-if rg -q 'map-fixture-source-key|private-source-value|gmw-map-block-key' "$CONF_REPO1/state"; then
+if rg -q 'map-fixture-source-key|historical-fixture-key|private-source-value|gmw-map-block-key' "$CONF_REPO1/state"; then
   fail 'captured state contains source credential material'
 fi
 rg -q '@env' "$CONF_REPO1/state/posts/page" || fail 'canonical binding missing'

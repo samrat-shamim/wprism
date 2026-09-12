@@ -5,6 +5,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 require_once __DIR__ . '/../Kernel/WordPressOptionValueCodec.php';
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -27,7 +28,11 @@ final class BlockEnvironmentOptions {
             $value = $expected[$name] ?? null;
             if (!is_string($value) || $value === '' || $row === null
                 || !hash_equals(WordPressOptionValueCodec::encode_scalar_string($value), $row['option_value'])) {
-                throw new \RuntimeException('wprism: block environment binding is missing or differs from target-local intent');
+                throw CommandRefusalException::applyRefused(
+                    'block environment binding is missing or differs from target-local intent',
+                    'provision each required block environment option with wp wprism env-set --stdin, then retry apply',
+                    'wprism: block environment binding is missing or differs from target-local intent'
+                );
             }
             $out[$name] = $value;
         }

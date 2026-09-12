@@ -362,6 +362,18 @@ capture_wprism_json_refusal() { # <OUT_VAR> <what> <command> [args...]
 # assignment aborted before inspecting that answer. Independent shipped claims
 # bind status/operations; complete streams bind diagnostics/exit. Plan must keep
 # exactly its source promote blockers, never acquire an unreviewed exception.
+assert_agent_roundtrip_refusal() { # <independent claims JSON> <host exit> <host output>
+  jq -e 'type == "array" and length > 0 and any(.[]; .status == "experimental") and
+    all(.[]; (.status == "certified" or .status == "experimental") and
+      (.operations | index("deploy") != null and index("apply") != null))' <<<"$1" >/dev/null \
+    || fail 'agent-roundtrip requires independently declared experimental deploy/apply claims'
+  [ "$2" = 1 ] || fail 'agent-roundtrip host deployment must refuse, never report promotion success'
+  assert_no_php_runtime_diagnostics 'agent-roundtrip host refusal' "$3"
+  grep -Fxq 'wprism: deploy: refusing before promotion-begin; only certified adapters may enter deployment' <<<"$3" \
+    || fail 'agent-roundtrip host refusal is not the expected certification boundary'
+  if grep -q '^deploy complete:' <<<"$3"; then fail 'agent-roundtrip cannot accept host promotion success'; fi
+}
+
 run_wprism_capture_plan() { # <independent claims JSON> <wp command/function> <repo>
   local __wprism_profile_claims="$1" __wprism_profile_wp="$2" __wprism_profile_repo="$3"
   local __wprism_profile_stream='' __wprism_profile_report='' __wprism_profile_rc=0 __wprism_profile_plan=''

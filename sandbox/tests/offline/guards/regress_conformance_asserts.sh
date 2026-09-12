@@ -163,6 +163,28 @@ grep -q 'CONFORMANCE PASSED (%s; capture-plan)' conformance/run.sh \
   || fail "conformance/run.sh has no explicit successful early terminal before target apply"
 pass "capture-plan mode is closed, convention-hooked, and terminates explicitly before target apply"
 
+# Experimental target evidence never promotes its own claim. Exercise the
+# real gate helper, including mixed stdout and failed preflight controls.
+AGENT_CLAIMS='[{"name":"fixture","status":"experimental","operations":["capture","deploy","apply"]}]'
+AGENT_REFUSAL='wprism: deploy: refusing before promotion-begin; only certified adapters may enter deployment'
+( . "$FRAGMENT"; assert_agent_roundtrip_refusal "$AGENT_CLAIMS" 1 "$AGENT_REFUSAL" ) \
+  || fail 'agent qualification did not admit the exact expected production refusal'
+for AGENT_FAULT in exit success unrelated warning certified operation; do
+  AGENT_CASE_CLAIMS="$AGENT_CLAIMS"; AGENT_CASE_RC=1; AGENT_CASE_OUT="$AGENT_REFUSAL"
+  case "$AGENT_FAULT" in
+    exit) AGENT_CASE_RC=0 ;;
+    success) AGENT_CASE_OUT="$AGENT_REFUSAL"$'\ndeploy complete: invalid' ;;
+    unrelated) AGENT_CASE_OUT='connection failed' ;;
+    warning) AGENT_CASE_OUT="$AGENT_REFUSAL"$'\nPHP Warning: invalid native result' ;;
+    certified) AGENT_CASE_CLAIMS='[{"status":"certified","operations":["deploy","apply"]}]' ;;
+    operation) AGENT_CASE_CLAIMS='[{"status":"experimental","operations":["capture"]}]' ;;
+  esac
+  if ( . "$FRAGMENT"; assert_agent_roundtrip_refusal "$AGENT_CASE_CLAIMS" "$AGENT_CASE_RC" "$AGENT_CASE_OUT" ) >/dev/null 2>&1; then
+    fail "agent qualification accepted $AGENT_FAULT instead of the exact production refusal"
+  fi
+done
+pass 'agent-roundtrip requires experimental target claims and proves production deployment remains refused'
+
 # Execute the actual terminal block in a fresh shell: putting a function in ||
 # disables errexit and hides the original rc-3 assignment defect. Independent
 # claims also catch falsely certified/ready reports, not just bad blocker counts.

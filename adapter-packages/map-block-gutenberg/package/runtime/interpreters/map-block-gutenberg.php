@@ -73,8 +73,10 @@ final class MapBlockGutenberg {
         $query = strtr(rawurlencode($attrs['address']), ['%21' => '!', '%27' => "'", '%28' => '(', '%29' => ')', '%2A' => '*']);
         $src = 'https://www.google.com/maps/embed/v1/place?q=' . $query
             . '&maptype=roadmap&zoom=' . $attrs['zoom'] . '&key=' . $key;
-        $escaped = htmlspecialchars($src, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        return '<div><div class="wp-block-webfactory-map"><iframe title="Map" width="100%" height="'
+        $escaped = htmlspecialchars($src, ENT_COMPAT | ENT_SUBSTITUTE, 'UTF-8');
+        // Core injects the default block class on save()'s outer element;
+        // the plugin itself supplies the identical class on its inner div.
+        return '<div class="wp-block-webfactory-map"><div class="wp-block-webfactory-map"><iframe title="Map" width="100%" height="'
             . $attrs['height'] . 'px" src="' . $escaped . '" frameborder="0"></iframe></div></div>';
     }
 
