@@ -7,7 +7,7 @@ jq -e '.created > 7001 and .created_target_bound' <<<"$MAP_TARGET" >/dev/null ||
 capture_wprism_json_checked MAP_REPEAT 'repeated map apply' assert_wprism_apply_ready \
   wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json
 jq -e '.applied == 0 and .warnings == [] and .plan.update == 0 and .plan.create == 0 and .plan.drift == 0' <<<"$MAP_REPEAT" >/dev/null || fail 'repeated map apply is not a clean no-op'
-MAP_FRONT=$(curl --fail --silent --show-error "http://localhost:$CONF2_PORT/?page_id=$(jq -r .post <<<"$MAP_TARGET")")
+MAP_FRONT=$(curl --fail --silent --show-error --location --max-redirs 3 --max-time 30 "http://localhost:$CONF2_PORT/?page_id=$(jq -r .post <<<"$MAP_TARGET")")
 require_observed_nonempty "Map Block target frontend observation" "$MAP_FRONT"
 [[ "$MAP_FRONT" == *'www.google.com/maps/embed/v1/place?'* && "$MAP_FRONT" == *'key=map-fixture-target-key'* ]] || fail 'native frontend map missing'
 [[ "$MAP_FRONT" != *'map-fixture-source-key'* && "$MAP_FRONT" != *'@env'* ]] || fail 'frontend leaked source or canonical binding'
