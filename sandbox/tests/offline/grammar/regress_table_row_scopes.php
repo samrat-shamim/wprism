@@ -26,6 +26,7 @@ require_once __DIR__ . '/../policy/manifest_fixtures.php';
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Repository/Snapshot.php';
+require_once $root . '/agent/src/Repository/IdentityNotes.php';
 require_once $root . '/agent/src/Repository/Ledger.php';
 require_once $root . '/agent/src/Apply/TypedTableMaterializer.php';
 require_once $root . '/agent/src/Capture/OptionsCapture.php';
@@ -54,6 +55,13 @@ $manifest = ['name' => 'acme-templates', 'spec_version' => 3, 'option_autoload' 
         'row_scope' => ['item_type' => 'user'],
         'columns' => ['item_type' => ['class' => 'authored'], 'template_type' => ['class' => 'authored'],
             'name' => ['class' => 'authored'], 'data' => ['class' => 'authored']], 'refs' => []]]];
+$setMember = str_starts_with($argv[1] ?? '', '--scope-set=') ? substr($argv[1], 12) : null;
+if ($setMember !== null) {
+    if (!in_array($setMember, ['export', 'import'], true)) throw new RuntimeException('unknown scope-set fixture');
+    $manifest['engine_features'][] = 'table-row-scope-sets/v1';
+    sort($manifest['engine_features'], SORT_STRING);
+    $manifest['tables']['acme_templates']['row_scope']['template_type'] = ['export', 'import'];
+}
 $scratch = sys_get_temp_dir() . '/wprism-row-scopes-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700, true);
 register_shutdown_function(static fn() => manifest_fixture_remove_tree($scratch));
@@ -65,8 +73,8 @@ $load = static function (array $input) use ($scratch): Policy {
 };
 $policy = $load($manifest);
 $decl = $policy->declared_tables()['acme_templates'];
-wprism_check_same(['item_type' => 'user'], $decl['row_scope'], 'real policy loader preserves explicit ownership');
-foreach ([null, [], ['user'], ['item_type' => 1], ['item_type' => ''], ['item_type' => '%'],
+wprism_check_same($manifest['tables']['acme_templates']['row_scope'], $decl['row_scope'], 'real policy loader preserves explicit ownership');
+foreach ([null, 1, true, 'user', [], ['user'], ['item_type' => 1], ['item_type' => ''], ['item_type' => '%'],
     ['item_type' => 'User Name'], ['item_type' => ['user']], ['bad`column' => 'user']] as $badScope) {
     $bad = $manifest;
     $bad['tables']['acme_templates']['row_scope'] = $badScope;
@@ -139,6 +147,14 @@ $database = static function (array $rows): FakeWpdb {
     return $db;
 };
 WpStore::reset()->seedOptions(['home' => 'https://source.test']);
+if ($setMember !== null) {
+    $source['template_type'] = $setMember;
+    $foreignRows[0]['template_type'] = 'import';
+    $foreignRows[1]['item_type'] = 'user';
+    $foreignRows[1]['template_type'] = 'Import';
+    $foreignRows[2]['item_type'] = 'user';
+    $foreignRows[2]['template_type'] = 'import ';
+}
 $db = $database([$source, ...$foreignRows]);
 $identity = new class($uuid) {
     public array $seen = [];
@@ -181,6 +197,15 @@ foreach (['product', 'User', 'user ', null] as $outside) {
     Canon::write_file($scratch . '/state/' . $entities[0]['path'], Canon::encode($bad));
     wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), RuntimeException::class,
         'compiler rejects an edited canonical row outside ownership');
+}
+if ($setMember !== null) {
+    foreach (['unknown', 'Import', 'import ', null, true, 1, ['import']] as $outside) {
+        $bad = Canon::decode($entities[0]['content']);
+        $bad['columns']['template_type'] = $outside;
+        Canon::write_file($scratch . '/state/' . $entities[0]['path'], Canon::encode($bad));
+        wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), RuntimeException::class,
+            'set ownership rejects unknown or non-byte-exact canonical variants');
+    }
 }
 Canon::write_file($scratch . '/state/' . $entities[0]['path'], $entities[0]['content']);
 
@@ -333,6 +358,75 @@ foreach ([false, true] as $strict) {
     wprism_check_throws(static fn() => $options->capture(!$strict, strictReadOnly: $strict), RuntimeException::class,
         'failed scoped liveness cannot silently drop an option-name reference', 'cannot verify owned row existence');
     $db->onQuery(null);
+}
+
+if ($setMember === null) {
+    $setManifest = $manifest;
+    $setManifest['engine_features'][] = 'table-row-scope-sets/v1';
+    sort($setManifest['engine_features'], SORT_STRING);
+    $setManifest['tables']['acme_templates']['row_scope']['template_type'] = ['export', 'import'];
+    $setPolicy = $load($setManifest);
+    $setDecl = $setPolicy->declared_tables()['acme_templates'];
+    $multi = $setManifest;
+    $multi['tables']['acme_templates']['row_scope']['item_type'] = ['customer', 'user'];
+    $multiPolicy = $load($multi);
+    $db = $database([$source, array_replace($source, ['id' => 6, 'template_type' => 'import']),
+        array_replace($source, ['id' => 7, 'item_type' => 'customer']),
+        array_replace($source, ['id' => 8, 'item_type' => 'customer', 'template_type' => 'import']), ...$foreignRows]);
+    $db->setUniqueKey('wprism_map', ['uuid', 'id_kind']);
+    Db::start_repeatable_read('set scope natural identity', new NativeDatabaseProfile(
+        ['wp_acme_templates', 'wp_wprism_map'], ['wp_acme_templates', 'wp_wprism_map']));
+    try {
+        $both = Snapshot::capture($multiPolicy, $tokens, true);
+        Db::commit('set scope natural identity');
+    } catch (Throwable $failure) {
+        Db::rollback_after_failure($failure, 'set scope natural identity');
+        throw $failure;
+    }
+    wprism_check_same(4, count($both), 'one real Snapshot intersects two set-valued discriminators and captures every owned variant');
+    wprism_check_same(4, count(array_unique(array_column($db->rows('wprism_map'), 'uuid'))),
+        'same native name in different variants receives distinct real ledger identities');
+    $max = $setManifest;
+    $max['tables']['acme_templates']['row_scope']['template_type'] = array_map(
+        static fn(int $i): string => sprintf('v%02d', $i), range(1, 16));
+    $maxDecl = $load($max)->declared_tables()['acme_templates'];
+    wprism_check(TableRowScope::matches($maxDecl, ['item_type' => 'user', 'template_type' => 'v16']),
+        'maximum declared set retains its final alternative');
+    foreach (['export', 'import'] as $member) {
+        wprism_check(TableRowScope::matches($setDecl, ['item_type' => 'user', 'template_type' => $member]),
+            'each explicit set member grants ownership with the other discriminator');
+        wprism_check(!TableRowScope::matches($setDecl, ['item_type' => 'product', 'template_type' => $member]),
+            'a set member cannot bypass another discriminator');
+    }
+    foreach ([[], ['export'], ['import', 'export'], ['export', 'export'], ['export', 1],
+        ['export', ''], ['export', 'import '], ['export', '%'], ['a' => 'export', 'b' => 'import'],
+        array_map(static fn(int $i): string => sprintf('v%02d', $i), range(1, 17))] as $badSet) {
+        $bad = $setManifest;
+        $bad['tables']['acme_templates']['row_scope']['template_type'] = $badSet;
+        wprism_check_throws(static fn() => $load($bad), RuntimeException::class,
+            'set scope rejects empty, singleton, unsorted, duplicate, malformed and excessive alternatives');
+    }
+    foreach (['spec-window/v1', 'table-row-scopes/v1', 'table-row-scope-sets/v1'] as $missing) {
+        $bad = $setManifest;
+        $bad['engine_features'] = array_values(array_diff($bad['engine_features'], [$missing]));
+        wprism_check_throws(static fn() => $load($bad), RuntimeException::class,
+            'scope sets require every owning feature: ' . $missing);
+    }
+    wprism_check_throws(static fn() => WPrism\ManifestGrammar::validate_tables($setManifest, 'site', true),
+        RuntimeException::class, 'site policy cannot grant set ownership');
+    foreach (['export', 'import'] as $member) {
+        $child = proc_open([PHP_BINARY, __FILE__, '--scope-set=' . $member],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($child)) throw new RuntimeException('could not start scope-set product-path proof');
+        fclose($pipes[0]);
+        $out = stream_get_contents($pipes[1]);
+        $err = stream_get_contents($pipes[2]);
+        fclose($pipes[1]); fclose($pipes[2]);
+        wprism_check_same(0, proc_close($child), 'complete ownership product-path suite passes for ' . $member);
+        wprism_check_same('', $err, 'set ownership subprocess is warning-free');
+        wprism_check(preg_match('/\A(?:ok: [^\r\n]+\n)+PASS: typed-table row scopes \(\d+ assertions\)\n\z/D', $out) === 1,
+            'set ownership subprocess returns its complete admitted suite verdict');
+    }
 }
 
 wprism_check_summary('typed-table row scopes');

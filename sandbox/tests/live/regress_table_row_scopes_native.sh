@@ -25,9 +25,11 @@ pair_live_ownership_acquire "$ENGINE"
 pair_live_ownership_up --journal
 printf 'Source: %s; engine: %s\n' "$SOURCE_SHA" "$ENGINE" > "$ARTIFACTS/result.log"
 docker inspect "$PAIR_LIVE_OWNERSHIP_CONTAINER" --format '{{.Image}}' > "$ARTIFACTS/database-image.txt"
-bash tests/offline_diagnostics_guard.sh docker compose -p "wprism-$PAIR" -f pair.yml -f pair.journal.yml \
-  run --rm -T -v "$ROOT/sandbox/tests:/wprism-tests:ro" cli1 \
-  wp eval-file /wprism-tests/live/fixtures/table_row_scopes.php --use-include >> "$ARTIFACTS/result.log" 2>&1 \
-  || { cat "$ARTIFACTS/result.log"; fail 'native row-scope regression failed'; }
+for member in '' export import; do
+  bash tests/offline_diagnostics_guard.sh docker compose -p "wprism-$PAIR" -f pair.yml -f pair.journal.yml \
+    run --rm -T -v "$ROOT/sandbox/tests:/wprism-tests:ro" cli1 \
+    wp eval-file /wprism-tests/live/fixtures/table_row_scopes.php "$member" --use-include >> "$ARTIFACTS/result.log" 2>&1 \
+    || { cat "$ARTIFACTS/result.log"; fail 'native row-scope regression failed'; }
+done
 cat "$ARTIFACTS/result.log"
 pair_live_ownership_complete 'NATIVE_TABLE_ROW_SCOPES_PASSED'

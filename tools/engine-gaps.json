@@ -308,6 +308,16 @@
         "sandbox/tests/offline/grammar/regress_column_value_contracts.php",
         "sandbox/tests/live/fixtures/column_value_contracts.php"
       ]
+    },
+    "table_row_scope_sets": {
+      "title": "bounded alternative values for typed-table row ownership",
+      "status": "shipped",
+      "definition": "Negotiated sorted finite discriminator sets reuse the shared byte-exact PHP and prepared SQL ownership predicate. Every discriminator remains conjunctive; complete natural keys, locking, liveness, recovery and cross-owner exclusions are preserved. This grants no import payload or file binding authority.",
+      "evidence": [
+        "agent/src/Kernel/TableRowScope.php",
+        "sandbox/tests/offline/grammar/regress_table_row_scopes.php",
+        "sandbox/tests/live/fixtures/table_row_scopes.php"
+      ]
     }
   },
   "candidates": [
@@ -998,6 +1008,31 @@
       ],
       "probed_on": "2026-09-13",
       "closing": "Column feature negotiation enables the existing shared projector. Native importer Save/reopen and identical CSV output after projection establish cursor regeneration; offline and native typed-column paths exercise projection, canonical refusal and original clearance. Capsule template enrollment, import CSV bindings, native product qualification and lifecycle/combination evidence remain pending.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
+      "id": "user-importer-template-owner-sets",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "table_row_scope_sets",
+          "closed_by": [
+            "agent/src/Kernel/TableRowScope.php",
+            "sandbox/tests/offline/grammar/regress_table_row_scopes.php",
+            "sandbox/tests/live/fixtures/table_row_scopes.php"
+          ],
+          "coordinate": "tables.wt_iew_mapping_template.row_scope.template_type",
+          "cannot_represent": "Native import and export user templates share one physical table with other item types. The existing exact conjunctive scope admits only one template type; dropping that discriminator claims unknown variants. Both forms need explicit bounded membership without changing complete tuple identity."
+        }
+      ],
+      "probed_on": "2026-09-14",
+      "closing": "One shared set predicate composes exact alternative values with the existing ownership boundaries. Offline product paths exercise both variants and real natural identities; the native lane exercises collation and concurrent ownership changes. Import payload semantics, local CSV binding, native missing-password warnings and full adapter qualification remain open.",
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]
