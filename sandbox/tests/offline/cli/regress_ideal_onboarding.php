@@ -2342,18 +2342,67 @@ $targetDescendant = $boundedTransport->captureRawBounded(
 usleep(500000);
 wprism_check_same(124, $targetDescendant['exit'], 'bounded target capture times out the owned process group');
 wprism_check(!file_exists($targetTimeoutMarker), 'a target descendant cannot mutate after the timeout returns');
-$targetOutputMarker = $tmp . '/target-output-descendant';
-$targetOutputDescendant = $boundedTransport->captureRawBounded(
-    '(sleep 1; printf mutation > ' . escapeshellarg($targetOutputMarker) . ') & '
-        . escapeshellarg(PHP_BINARY) . ' -r '
-        . escapeshellarg('fwrite(STDOUT, str_repeat("x", 20000));') . '; wait',
-    1000,
-    4096,
-    4096
-);
-usleep(500000);
-wprism_check_same(125, $targetOutputDescendant['exit'], 'bounded target capture cancels the owned process group on output refusal');
-wprism_check(!file_exists($targetOutputMarker), 'a target descendant cannot mutate after output refusal returns');
+// The old timer failed under a paused controller with its marker ALREADY
+// present at return. Readiness precedes the flood; only this controller's
+// post-return release permits a mutation, and a PID witness closes the case
+// where a leaked child simply has not been scheduled during a fixed sleep.
+$childIsLive = static function (int $pid): bool {
+    if (!posix_kill($pid, 0)) return false;
+    // Linux may retain an exited zombie until init reaps it. Observe process
+    // state independently of ProcessGroup's own cleanup verdict.
+    $observed = HostProcess::run(['ps', '-o', 'stat=', '-p', (string) $pid]);
+    $state = trim($observed['stdout']);
+    if ($observed['exit'] === 1 && $state === '' && $observed['stderr'] === '') return false;
+    if ($observed['exit'] !== 0 || $observed['stderr'] !== '' || preg_match('/^[A-Za-z+<>]+$/D', $state) !== 1) {
+        throw new RuntimeException('cannot observe the cancellation descendant process state');
+    }
+    return !str_starts_with($state, 'Z');
+};
+$outputDescendant = static function (bool $positive) use ($tmp, $boundedTransport, $childIsLive): array {
+    $directory = $tmp . '/output-descendant-' . bin2hex(random_bytes(6));
+    mkdir($directory, 0700);
+    $nonce = bin2hex(random_bytes(16));
+    if ($positive) file_put_contents($directory . '/release', $nonce);
+    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/fixtures/cancellation_waiter.php')
+        . ' ' . escapeshellarg($directory) . ' ' . escapeshellarg($nonce)
+        . ' & child=$!; while [ ! -f ' . escapeshellarg($directory . '/ready') . ' ]; do sleep 0.01; done; '
+        . ($positive ? '' : 'printf %020000d 0; ') . 'wait "$child"';
+    $witness = null;
+    try {
+        $result = $boundedTransport->captureRawBounded($command, 10000, 4096, 4096);
+        $witness = json_decode(file_get_contents($directory . '/ready'), true, flags: JSON_THROW_ON_ERROR);
+        if (!is_array($witness) || ($witness['nonce'] ?? null) !== $nonce
+            || !is_int($witness['pid'] ?? null) || $witness['pid'] < 2) {
+            throw new RuntimeException('cancellation child did not publish its exact readiness witness');
+        }
+        clearstatcache(true, $directory . '/marker');
+        $beforeRelease = file_exists($directory . '/marker');
+    } finally {
+        // Even the parent-only cancellation mutant gets a release and exits;
+        // never signal a numeric PID that may since have been reused.
+        file_put_contents($directory . '/release', $nonce);
+        if (is_array($witness) && is_int($witness['pid'] ?? null) && $witness['pid'] > 1) {
+            $deadline = hrtime(true) + 3000000000;
+            while ($childIsLive($witness['pid']) && hrtime(true) < $deadline) usleep(10000);
+        }
+    }
+    clearstatcache(true, $directory . '/marker');
+    return ['result' => $result, 'before_release' => $beforeRelease,
+        'marker' => is_file($directory . '/marker') ? file_get_contents($directory . '/marker') : null,
+        'nonce' => $nonce, 'child_gone' => !$childIsLive($witness['pid'])];
+};
+$positiveDescendant = $outputDescendant(true);
+wprism_check_same(['exit' => 0, 'stdout' => '', 'stderr' => ''], $positiveDescendant['result'],
+    'the released descendant positive control completes normally');
+wprism_check_same($positiveDescendant['nonce'], $positiveDescendant['marker'],
+    'the positive control proves the ready descendant can perform its mutation');
+wprism_check($positiveDescendant['child_gone'], 'the positive control leaves no live descendant');
+$targetOutputDescendant = $outputDescendant(false);
+wprism_check_same(['exit' => 125, 'stdout' => '', 'stderr' => 'transport command output exceeded capture limit'],
+    $targetOutputDescendant['result'], 'bounded target capture cancels the owned process group on output refusal');
+wprism_check(!$targetOutputDescendant['before_release'], 'the descendant cannot mutate before the post-return release');
+wprism_check_same(null, $targetOutputDescendant['marker'], 'a target descendant cannot mutate after output refusal returns');
+wprism_check($targetOutputDescendant['child_gone'], 'output refusal leaves no live descendant waiting to mutate later');
 
 $faultRoot = $tmp . '/fault-demo-root';
 foreach ([$faultRoot, $faultRoot . '/bin', $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp'] as $directory) {
