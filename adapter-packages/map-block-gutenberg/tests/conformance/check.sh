@@ -144,3 +144,59 @@ map_preserved active 1.35
 wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-map-lifecycle-state >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-map-lifecycle-state" || fail 'Map Block lifecycle recapture changed canonical bytes'
 pass 'Map Block native dependency/lifecycle controls preserve target data and exact recapture'
+
+mkdir "$CONF_REPO2/.tmp-map-deletion"
+chmod a+rwx "$CONF_REPO2/.tmp-map-deletion"
+cp "$MAP_CAPSULE/fixtures/deletion-native.php" "$MAP_CAPSULE/fixtures/deletion-evidence.php" "$CONF_REPO2/.tmp-map-deletion/"
+capture_wprism_json_success MAP_DELETE_ARTIFACT 'Map Block retained pre-deletion artifact' \
+  wp_conf2 wprism compile --repo=/siterepo --out=/siterepo/.tmp-map-deletion/artifact.json --format=json
+jq -e '.format == "wprism-compiled-repository/v1" and (.artifact_hash | type == "string" and test("^[a-f0-9]{64}$"))' \
+  <<<"$MAP_DELETE_ARTIFACT" >/dev/null || fail 'Map Block pre-deletion artifact premise missing'
+map_delete_observe() {
+  capture_wprism_json_success MAP_DELETE_OBSERVATION 'Map Block credential deletion native observation' \
+    wp_conf2 eval-file /siterepo/.tmp-map-deletion/deletion-native.php "$1" --use-include
+  require_observed_nonempty 'Map Block credential deletion observation' "$MAP_DELETE_OBSERVATION"
+  php "$MAP_CAPSULE/fixtures/deletion-evidence.php" observation <<<"$MAP_DELETE_OBSERVATION" \
+    || fail 'Map Block credential deletion native premise failed'
+}
+map_delete_refused() { # <compile|apply> <command-specific args...>
+  local command="$1" sink suffix result=0
+  shift
+  sink=$(umask 077; mktemp -d "$MAP_ROOT/sandbox/tmp/map-delete-$CONF_PAIR.XXXXXX")
+  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/command.$suffix"); done
+  wprism_private_capture_stage "$sink" command wp_conf2 wprism "$command" --repo=/siterepo --format=json "$@" || result=$?
+  # Admit the complete stdout/stderr and exact exit before printing anything;
+  # typed authorization findings, unlike a generic apply_failed, name the gate.
+  php "$MAP_CAPSULE/fixtures/deletion-evidence.php" transport "$command" "$CONF_PAIR" "$sink/command" \
+    || fail "Map Block credential deletion refusal differs; private transport: $sink"
+  [ "$result" = 1 ] || fail 'Map Block unsupported credential deletion lost its refusal exit'
+  map_delete_observe observe
+  [ "$(jq -Sc '[.artifact_sha256,.intent_sha256]' <<<"$MAP_DELETE_OBSERVATION")" = "$MAP_DELETE_PRESERVED" ] \
+    || fail 'Map Block credential deletion refusal changed the retained artifact or environment intent'
+  [ "$(jq -r .options_sha256 <<<"$MAP_DELETE_OBSERVATION")" = "$MAP_DELETE_INPUT" ] \
+    || fail 'Map Block credential deletion refusal changed the rejected source intent'
+  diff -r "$CONF_REPO2/.tmp-map-deletion/state-rejected" "$CONF_REPO2/state" \
+    || fail 'Map Block credential deletion partially published canonical state'
+  map_preserved active 1.35
+}
+map_delete_observe observe
+MAP_DELETE_ORIGINAL=$(jq -r .options_sha256 <<<"$MAP_DELETE_OBSERVATION")
+MAP_DELETE_PRESERVED=$(jq -Sc '[.artifact_sha256,.intent_sha256]' <<<"$MAP_DELETE_OBSERVATION")
+cp -R "$CONF_REPO2/state" "$CONF_REPO2/.tmp-map-deletion/state-original"
+map_delete_observe prepare
+jq -e '.deleted' <<<"$MAP_DELETE_OBSERVATION" >/dev/null || fail 'Map Block credential tombstone was not manufactured'
+MAP_DELETE_INPUT=$(jq -r .options_sha256 <<<"$MAP_DELETE_OBSERVATION")
+[ "$MAP_DELETE_INPUT" != "$MAP_DELETE_ORIGINAL" ] || fail 'Map Block credential deletion did not change source intent'
+cp -R "$CONF_REPO2/state" "$CONF_REPO2/.tmp-map-deletion/state-rejected"
+map_delete_refused compile --out=/siterepo/.tmp-map-deletion/artifact.json
+map_delete_refused apply --default-author=admin --with-deletes
+map_delete_refused apply --default-author=admin --with-deletes --force-theirs --force-delete-referenced
+map_delete_observe restore
+jq -e '.deleted == false' <<<"$MAP_DELETE_OBSERVATION" >/dev/null || fail 'Map Block unsupported credential deletion intent survived restoration'
+diff -r "$CONF_REPO2/.tmp-map-deletion/state-original" "$CONF_REPO2/state" || fail 'Map Block deletion restoration changed canonical bytes'
+capture_wprism_json_checked MAP_DELETE_RETRY 'Map Block restored deletion no-op apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+jq -e '.applied == 0 and .warnings == [] and .plan.update == 0 and .plan.create == 0 and .plan.drift == 0' \
+  <<<"$MAP_DELETE_RETRY" >/dev/null || fail 'Map Block deletion refusal recovery is not a clean no-op'
+map_preserved active 1.35
+pass 'Map Block unsupported credential deletion preserves native data, target intent and prior publication'
