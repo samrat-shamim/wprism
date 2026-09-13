@@ -74,7 +74,12 @@ try {
             Db::commit('native row scope');
             return $result;
         } catch (Throwable $failure) {
-            Db::rollback('native row scope');
+            try {
+                Db::rollback('native row scope');
+            } catch (Throwable $cleanupFailure) {
+                throw new RuntimeException('native fixture rollback failed; primary=' . $failure->getMessage()
+                    . '; cleanup=' . $cleanupFailure->getMessage(), 0, $failure);
+            }
             throw $failure;
         }
     };
@@ -106,6 +111,8 @@ try {
     $external = new class(DB_USER, DB_PASSWORD, DB_NAME, DB_HOST) extends wpdb {
         public function nativeHandle(): mysqli { return $this->dbh; }
     };
+    wprism_check($wpdb->get_var('SELECT CONNECTION_ID()') !== $external->get_var('SELECT CONNECTION_ID()'),
+        'concurrent native writer has a distinct database connection');
     wprism_check_throws(static fn() => $transaction(static function () use ($wpdb, $physical, $external, $writer, $entity, $targetTokens): void {
         $sql = "SELECT item_type FROM `$physical` WHERE id=2";
         wprism_check_same('user', $wpdb->get_var($sql), 'repeatable-read snapshot begins with the owned row');
