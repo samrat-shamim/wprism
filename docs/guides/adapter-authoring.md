@@ -3275,6 +3275,20 @@ can become a tombstone or erase the ledger evidence. Keep exact native payload
 observations separate from adapter qualification: a template Save/reopen alone
 does not establish that its JSON references or local input files can migrate.
 
+The shared native SQL probe checks byte-exact Capture, materialization,
+rollback, deletion and a concurrent ownership change after a repeatable-read
+snapshot. On a clean committed checkout, run it with an owned pair on each
+database engine affected by a SQL change:
+
+```sh
+WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) WPRISM_DB_ENGINE=mariadb \
+  bash sandbox/tests/live/regress_table_row_scopes.sh
+```
+
+Use `WPRISM_DB_ENGINE=mysql` for the MySQL leg. The harness destroys its pair
+after each leg; `ROW_SCOPE_PAIR`, `ROW_SCOPE_PORT1` and `ROW_SCOPE_PORT2` select
+a distinct name and even/adjacent ports when sharing a host.
+
 ## Dispositions: the reviewed claim source
 
 Each capsule's `package/disposition.json` (`wprism-manifest-dispositions/v1`) is

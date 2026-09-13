@@ -1430,7 +1430,7 @@ final class Snapshot {
     }
 
     /**
-     * Does a live row exist for (id_kind, local_id), independent of whether
+     * Does an owned live row exist for (id_kind, local_id), independent of whether
      * it has been minted a uuid yet? Task #93's option_name_refs discovery
      * (OptionsCapture::capture()) needs this to distinguish DANGLING (no
      * such row exists anywhere — the #73 dangling class, warn+drop) from
@@ -1460,7 +1460,19 @@ final class Snapshot {
             }
             $prefixed = $wpdb->prefix . $table;
             $pk = $decl['pk'];
-            return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$pk` = %d", $localId));
+            $scope = TableRowScope::predicate($decl, $wpdb);
+            if ($scope === '') {
+                return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$pk` = %d", $localId));
+            }
+            $wpdb->last_error = '';
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT 1 FROM `$prefixed` WHERE `$pk` = %d AND $scope LIMIT 1",
+                $localId
+            ));
+            if ($exists === false || (string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException("wprism: cannot verify owned row existence for table '$table'");
+            }
+            return $exists !== null;
         }
         return false;
     }

@@ -803,14 +803,15 @@ wprism_check_same(
         'agent/src/Kernel/BlockContentGrammar.php',
         'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
+        'agent/src/Kernel/TableRowScope.php',
         'agent/src/Policy/ManifestGrammar.php',
         'agent/src/Policy/Policy.php',
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside eight gate readers (provider contracts, body mode, column framing, leaf content, '
-        . 'block groups, value predicates, invalidate verbs, interpreter ownership) that ask only '
+        . 'refuses an unimplemented name — beside nine gate readers (provider contracts, body mode, column framing, leaf content, '
+        . 'block groups, value predicates, row ownership, invalidate verbs, interpreter ownership) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
@@ -852,6 +853,7 @@ wprism_check_same(
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
+        'table-row-scopes/v1',
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),

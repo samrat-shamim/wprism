@@ -28,6 +28,8 @@ require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Repository/Snapshot.php';
 require_once $root . '/agent/src/Repository/Ledger.php';
 require_once $root . '/agent/src/Apply/TypedTableMaterializer.php';
+require_once $root . '/agent/src/Capture/OptionsCapture.php';
+require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
 wprism_test_define_agent_versions();
 
 use WPrism\Canon;
@@ -286,5 +288,42 @@ $db->setColumns('acme_templates', ['id' => 'int(11)', 'item_type' => 'int(11)', 
     'name' => 'varchar(255)', 'data' => 'longtext']);
 wprism_check_throws(static fn() => Snapshot::assert_row_schema('acme_templates', $decl), RuntimeException::class,
     'numeric native discriminator cannot reinterpret text ownership', 'must have a native text type');
+
+// Exercise the option-name producer with Snapshot's actual liveness callback.
+// A PK present in a foreign slice is not an owned row awaiting identity minting.
+$optionManifest = $manifest;
+$optionManifest['option_name_refs'] = [['class' => 'authored', 'id_kind' => 'acme_template',
+    'match' => '^acme_template_(?<id>[1-9][0-9]*)$', 'autoload' => 'yes']];
+$optionPolicy = FrozenPolicy::policy([$optionManifest], FrozenPolicy::site([$optionManifest], 3));
+foreach ([false, true] as $strict) {
+    $db = $database([$source, ...$foreignRows]);
+    $optionRows = [];
+    foreach ([3, 4, 5] as $id) {
+        $optionRows[] = ['option_id' => $id, 'option_name' => 'acme_template_' . $id, 'option_value' => 'foreign setting', 'autoload' => 'yes'];
+    }
+    $db->seedTable('options', $optionRows);
+    $optionTokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
+    $optionTokens->policy = $optionPolicy;
+    $options = new WPrism\OptionsCapture($optionPolicy, $optionTokens, static function (): void {},
+        static fn() => null, static fn(Policy $selected, string $kind, int $id): bool => Snapshot::row_exists_for_kind($selected, $kind, $id));
+    $result = $options->capture(!$strict, strictReadOnly: $strict);
+    wprism_check_same([], $result['unscoped_option_name_refs'], 'foreign, case-only and trailing-space option ids do not claim owned liveness');
+    (new WPrism\CaptureSafetyGates($scratch))->assertOptions($result['unclassified'], $result['unscoped_refs'],
+        $result['unscoped_option_name_refs'], $optionTokens);
+    wprism_check_same(3, count($optionTokens->warnings), 'foreign option-name references retain existing unresolved warnings');
+    wprism_check_same($optionRows, $db->rows('options'), 'foreign option references leave native options intact');
+    $optionRows[] = ['option_id' => 2, 'option_name' => 'acme_template_2', 'option_value' => 'owned setting', 'autoload' => 'yes'];
+    $db->seedTable('options', $optionRows);
+    $result = $options->capture(!$strict, strictReadOnly: $strict);
+    wprism_check_same([['option' => 'acme_template_2', 'id_kind' => 'acme_template', 'id' => 2]],
+        $result['unscoped_option_name_refs'], 'an actual owned unminted row still reaches the blocking capture gate');
+    wprism_check_throws(static fn() => (new WPrism\CaptureSafetyGates($scratch))->assertOptions([], [],
+        $result['unscoped_option_name_refs'], $optionTokens), WPrism\CommandRefusalException::class,
+        'the real option-name safety gate preserves owned identity refusal', 'real, unminted table rows');
+    $db->onQuery(static fn(string $sql): ?string => str_contains($sql, 'FROM `wp_acme_templates`') ? 'injected row liveness read failure' : null);
+    wprism_check_throws(static fn() => $options->capture(!$strict, strictReadOnly: $strict), RuntimeException::class,
+        'failed scoped liveness cannot silently drop an option-name reference', 'cannot verify owned row existence');
+    $db->onQuery(null);
+}
 
 wprism_check_summary('typed-table row scopes');
