@@ -22,11 +22,6 @@
       "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
       "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
     ],
-    "data-boundary": [
-      "adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php",
-      "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
-      "adapter-packages/map-block-gutenberg/tests/conformance/capture-check.sh"
-    ],
     "deletion": [
       "adapter-packages/map-block-gutenberg/fixtures/deletion-native.php",
       "adapter-packages/map-block-gutenberg/fixtures/deletion-evidence.php",
@@ -44,13 +39,20 @@
       "adapter-packages/map-block-gutenberg/fixtures/lifecycle-evidence.php",
       "adapter-packages/map-block-gutenberg/tests/offline/regress_lifecycle_evidence.php",
       "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "failure-recovery": [
+      "adapter-packages/map-block-gutenberg/fixtures/recovery-native.php",
+      "adapter-packages/map-block-gutenberg/fixtures/recovery-evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_recovery_evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
     ]
   },
-  "gaps": {
-    "failure-recovery": "Native capture publication refusal/retry and real post-materializer late-SQL rollback/retry are covered. Process interruption, durable recovery and native crash qualification remain required.",
-    "scope-platform": "Single-site WordPress 7.1/PHP 8.3 is exercised. Full unavailable-API and unsupported-platform assertions remain required; the native editor also emits upstream deprecation/enqueue warnings documented in qualification.md."
+  "gaps": {},
+  "blocked": {
+    "data-boundary": "Credential/schema/serialization and native saved-content evidence passes in tests/offline/regress_map_boundary.php, fixtures/native-editor-saves.json and tests/conformance/capture-check.sh. Required human review of the shared block-content codec and the exact address public-text clearance has not been recorded; see evidence/human-review.md. This replaces the earlier technical-coverage-only row, not its evidence.",
+    "scope-platform": "tests/offline/regress_scope_platform.php exercises typed Capture/Apply topology, version and unavailable-fact refusals, genuine absent-parser refusal, and explicit injected PHP/filesystem/process boundaries. Native WordPress 7.1/PHP 8.3/MariaDB 11 transport passes. Human acceptance of the documented upstream editor warnings, bounded platform/service limitations and final disposition remains pending; see evidence/human-review.md. No real Maps service validity or expanded adapter-specific platform matrix is claimed."
   },
-  "blocked": {},
   "not_applicable": {
     "identity-references": "The exact plugin defines no entities, tables, or post/term/user reference attributes: only zoom, height, address, api_key and one API-key option. Owning post/widget identities belong to core; conformance still forces different post IDs.",
     "derived-state": "The exact 1.35 plugin registers editor assets and saves static iframe markup. It owns no generated cache/index/table/file or repair action. Credential rebinding is authored transport, covered separately."
