@@ -41,9 +41,11 @@ $throws = static function (callable $run, string $fragment, string $message) use
     }
 };
 
+// Input-file grammar now loads the pure UUID validator. Identity minting remains
+// injected through SnapshotIdentity; loading Uuid is not a runtime-service load.
 $check(class_exists(TypedTableCapture::class, false), 'TypedTableCapture loads as a direct offline boundary');
 foreach ([Snapshot::class, Policy::class, Ledger::class, IdentityNotes::class, Tokens::class,
-    SnapshotIdentity::class, Uuid::class] as $runtimeClass) {
+    SnapshotIdentity::class] as $runtimeClass) {
     $check(!class_exists($runtimeClass, false), "TypedTableCapture does not pull in $runtimeClass");
 }
 

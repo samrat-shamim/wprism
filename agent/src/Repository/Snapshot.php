@@ -1297,8 +1297,8 @@ final class Snapshot {
      * @return bool true when a new row was inserted (false: already adopted
      *   or ledger'd from a prior pass in this same run)
      */
-    public static function ensure_row(Policy $policy, array $entity): bool {
-        return self::typed_table_materializer($policy)->ensureRow($entity);
+    public static function ensure_row(Policy $policy, array $entity, ?object $tokens = null): bool {
+        return self::typed_table_materializer($policy)->ensureRow($entity, $tokens);
     }
 
     /**

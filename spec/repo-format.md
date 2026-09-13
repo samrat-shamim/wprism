@@ -4796,3 +4796,55 @@ contracts validate before phase-one row insertion or identity publication.
 This feature transports expressions, not CSV files or customer records. Native
 consumer evidence and separate target-local input binding remain necessary
 before an adapter may enroll saved import templates or claim qualification.
+
+### v3.47 `column-input-files/v1` — target-local file dependencies
+
+A v3 manifest declaring this feature and its typed-value/container features may
+declare an exact nested `object_fields` leaf, including in `value_cases`:
+
+```json
+{"class":"authored","input_file":{"directory":"webtoffee_import","extensions":["csv"]}}
+```
+
+The leaf has exactly these two keys. Other codecs and privacy waivers cannot
+share it. It is available only inside strict JSON or PHP-serialized columns of
+ordinary mapped or natural-key rows; root leaves and composite identities refuse.
+The directory is content-relative: 1–4 ASCII identifier segments, at most 256
+bytes. Extensions are a sorted unique list of 1–16 lowercase alphanumeric codes,
+each 1–12 bytes. Existing contract depth and node budgets remain in force.
+
+Native nonempty values are bounded HTTP(S) URLs ending in the declared directory
+and one literal filename of an allowed extension. Credentials, queries,
+fragments, whitespace, control bytes, backslashes and brace syntax refuse.
+Filenames are at most 255 bytes and cannot contain path separators or percent
+escapes. Capture accepts a restored foreign environment's URL: its only portable
+meaning is dependency presence. It emits exactly `{"environment":"input_file"}`.
+An explicit empty draft remains `""`; an absent field remains absent. Neither
+creates a binding. Source filenames, URLs and file contents never enter canonical
+state, and Capture neither fetches the URL nor requires the source file to exist.
+Ordinary siblings and enclosing authored values retain existing privacy checks.
+
+The compiled entity UUID, column and exact object-field path derive the operator
+name `column_file:<uuid>:<column>.<field>...`. Canonical data cannot supply an alias
+or bind another owner. `env-set --name=<name> --stdin` accepts one filename under
+`WP_CONTENT_DIR/<directory>/`, proves a readable regular non-symlink file and
+publishes intent in the existing private `.wprism-env-values.json`. For this
+binding it does not write authored rows. Apply constructs the native URL from
+`WP_CONTENT_URL`, the declared directory and the intended filename.
+
+Plan reports absent intent or unavailable files through required `env_missing`.
+A pointer differing from available intent selects an otherwise unchanged row for
+ordinary Apply; this never turns authored drift or conflict into write authority.
+Only selected work resolves private URLs. Its environment-intent lock is acquired
+before attachment effects or the authored transaction, held through commit and
+released on every outcome. Cooperating provisioning uses a nonblocking exclusive
+lock on the same private control inode; replacing the JSON atomically does not
+replace that lock. Apply rechecks intent, lock identity and file availability
+before commit and rolls back on disagreement. The typed writer receives resolved
+values through its existing token context; grammar and canonical state never
+read the private store. Missing bindings on unselected rows do not widen work.
+
+Availability is checked at resolution and before commit. The engine does not
+open, copy, hash or reserve the input contents for a later plugin job. This adds
+no arbitrary-path transport, remote downloader, import execution or adapter
+qualification; each adapter still needs native producer and consumer evidence.

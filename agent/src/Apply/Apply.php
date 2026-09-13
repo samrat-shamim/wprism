@@ -20,8 +20,8 @@ final class Apply {
         return ApplyRequestCoordinator::explain($repo, $selector, $opts);
     }
 
-    public static function set_env_option(string $repo, string $name, string $value): array {
-        return ApplyRequestCoordinator::set_env_option($repo, $name, $value);
+    public static function set_env_option(string $repo, string $name, string $value, array $opts = []): array {
+        return ApplyRequestCoordinator::set_env_option($repo, $name, $value, $opts);
     }
 
     public static function apply(string $repo, array $opts = []): array {

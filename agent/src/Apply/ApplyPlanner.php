@@ -1563,6 +1563,22 @@ final class ApplyPlanner {
         ];
     }
 
+    /** Target-local pointer changes cannot widen authored drift/conflict into write authority. */
+    public static function project_input_rebinds(array $plan, array $rebinds): array {
+        if ($rebinds === []) return $plan;
+        $unchanged = [];
+        foreach ($plan['unchanged'] as $row) {
+            if (!isset($rebinds[$row['uuid']])) {
+                $unchanged[] = $row;
+                continue;
+            }
+            $row['annotations'][] = 'Target-local input file differs from provisioned intent; Apply will rebind it.';
+            $plan['update'][] = $row;
+        }
+        $plan['unchanged'] = $unchanged;
+        return $plan;
+    }
+
     /**
      * Project the read-only checklist for manifest-declared environment
      * options. Apply supplies the already-resolved Policy rules and the live

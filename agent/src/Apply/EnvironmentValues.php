@@ -60,6 +60,17 @@ final class EnvironmentValues {
     }
 
     public static function set(string $repo, string $name, string $value): void {
+        if ($name === '' || $value === '') throw new \RuntimeException('wprism: environment binding requires a nonempty name and value');
+        $lock = self::lock($repo, true);
+        try {
+            self::set_locked($repo, $name, $value, $lock);
+        } finally {
+            fclose($lock);
+        }
+    }
+
+    /** @param resource $lock */
+    private static function set_locked(string $repo, string $name, string $value, $lock): void {
         if (self::postPasswordUuid($name) !== null) {
             PostPasswordBinding::assertValue($value);
         }
@@ -93,6 +104,7 @@ final class EnvironmentValues {
             }
             fclose($handle);
             $handle = null;
+            self::assert_lock($repo, $lock);
             if (!rename($temporary, $path)) {
                 throw new \RuntimeException('wprism: cannot publish ' . self::FILE);
             }
@@ -107,6 +119,61 @@ final class EnvironmentValues {
                 @unlink($temporary);
             }
         }
+    }
+
+    /**
+     * Nonblocking control-inode locks serialize read/modify/publish and hold
+     * Apply intent through COMMIT. Locking the replaced JSON inode cannot do
+     * either. The existing private operational directory keeps lock metadata
+     * outside the canonical repository inventory.
+     * @return resource
+     */
+    public static function lock(string $repo, bool $exclusive = false) {
+        $path = self::lock_path($repo);
+        $directory = dirname($path);
+        if ((!is_dir($directory) && !@mkdir($directory, 0700)) || is_link($directory)) {
+            throw new \RuntimeException('wprism: environment value lock requires a regular operational directory');
+        }
+        $mask = umask(0077);
+        try { $handle = @fopen($path, 'x+b'); } finally { umask($mask); }
+        if ($handle === false) {
+            clearstatcache(true, $path);
+            $stat = @lstat($path);
+            if (!is_array($stat) || ($stat['mode'] & 0170000) !== 0100000 || ($stat['mode'] & 0077) !== 0) {
+                throw new \RuntimeException('wprism: environment value lock must be a private regular non-symlink file');
+            }
+            $handle = @fopen($path, 'rb');
+        }
+        if ($handle === false) throw new \RuntimeException('wprism: cannot open environment value lock');
+        try {
+            self::assert_lock($repo, $handle);
+            if (!flock($handle, ($exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB)) {
+                throw new \RuntimeException('wprism: environment values are in use; retry provisioning after the current operation');
+            }
+            self::assert_lock($repo, $handle);
+            return $handle;
+        } catch (\Throwable $failure) {
+            fclose($handle);
+            throw $failure;
+        }
+    }
+
+    /** @param resource $handle */
+    public static function assert_lock(string $repo, $handle): void {
+        $path = self::lock_path($repo);
+        clearstatcache(true, $path);
+        $named = @lstat($path);
+        $opened = is_resource($handle) ? @fstat($handle) : false;
+        if (is_link(dirname($path)) || !is_array($named) || !is_array($opened)
+            || ($named['mode'] & 0170000) !== 0100000 || ($named['mode'] & 0077) !== 0
+            || ($opened['mode'] & 0170000) !== 0100000 || ($opened['mode'] & 0077) !== 0
+            || $named['dev'] !== $opened['dev'] || $named['ino'] !== $opened['ino']) {
+            throw new \RuntimeException('wprism: environment value lock changed identity or permissions');
+        }
+    }
+
+    private static function lock_path(string $repo): string {
+        return dirname(self::path($repo)) . '/.wprism/environment-values.lock';
     }
 
     private static function path(string $repo): string {

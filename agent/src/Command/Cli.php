@@ -2321,7 +2321,8 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path>
-     * --name=<name>       : A declared class="env" option or canonical post_password:<uuid> binding.
+     * --name=<name>       : A declared env option, canonical post_password:<uuid>, or column_file:<uuid>:<column>.<field> binding.
+     *   File bindings accept one filename in the declared content directory; Apply writes the saved pointer.
      * [--stdin]           : Read the value interactively from STDIN with terminal echo disabled
      *   (`stty -echo`, restored afterward) — never printed back. Non-interactive callers pipe one
      *   newline-terminated value; only that terminal LF and its optional CR are framing. Every

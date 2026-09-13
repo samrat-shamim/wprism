@@ -12,6 +12,7 @@ require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
 require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
 require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
+require_once __DIR__ . '/../Kernel/InputFileBinding.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
 require_once __DIR__ . '/AuthoredValueCodec.php';
@@ -154,6 +155,8 @@ final class ColumnCodecGrammar {
             'value_codec' => ['required' => self::VALUE_CODEC_KEYS, 'feature' => self::VALUES_FEATURE,
                 'refines' => 'strict json or php_serialized container; authored value contract; every ref declares on_unmapped:refuse; record_fields requires its column feature; no text_encoding'],
             'value_cases' => ['feature' => ColumnValueCases::FEATURE] + ColumnValueCases::declaration_grammar(),
+            'input_file' => ['feature' => InputFileBinding::FEATURE, 'shape' => 'authored input_file:{directory,extensions}',
+                'refines' => 'ordinary typed rows; content-relative directory, literal filename; canonical dependency marker or empty draft; target-local env-set intent and readable regular file; no file transport'],
             'field_templates' => ['feature' => FieldTemplateMap::FEATURE, 'formats' => FieldTemplateMap::FORMATS,
                 'max_expression_bytes' => FieldTemplateMap::MAX_BYTES, 'max_fragments' => FieldTemplateMap::MAX_FRAGMENTS,
                 'refines' => 'authored field-code map; native brace expressions or [expression, integer 0 or 1]; canonical text/field fragment lists; only literals use text transport and destination privacy roles'],
@@ -206,7 +209,8 @@ final class ColumnCodecGrammar {
         $values = new ValueContractGrammar(true,
             in_array(self::RECORDS_FEATURE, (array) ($manifest['engine_features'] ?? []), true), false, 'column', true,
             in_array(self::FIELD_LABELS_FEATURE, (array) ($manifest['engine_features'] ?? []), true),
-            in_array(FieldTemplateMap::FEATURE, (array) ($manifest['engine_features'] ?? []), true));
+            in_array(FieldTemplateMap::FEATURE, (array) ($manifest['engine_features'] ?? []), true),
+            in_array(InputFileBinding::FEATURE, (array) ($manifest['engine_features'] ?? []), true));
         foreach ($section as $table => $columns) {
             $table = (string) $table;
             $where = "$label column_codecs.$table";
@@ -340,12 +344,14 @@ final class ColumnCodecGrammar {
                     throw new \RuntimeException("wprism: $where.value_cases requires engine feature '" . ColumnValueCases::FEATURE . "'");
                 }
                 ColumnValueCases::validate($codec['value_cases'], $table, $values, "$where.value_cases");
+                self::assert_input_identity($codec, $table, $where);
                 return;
             }
             if (!is_array($codec['value']) || array_is_list($codec['value']) || ($codec['value']['class'] ?? '') !== 'authored') {
                 throw new \RuntimeException("wprism: $where.value requires an authored value contract");
             }
             $values->validate($codec['value'], "$where.value");
+            self::assert_input_identity($codec, $table, $where);
             return;
         }
         if (!in_array($codec['leaves'], self::LEAVES, true)) {
@@ -354,6 +360,18 @@ final class ColumnCodecGrammar {
                 . ' but the leaf codec vocabulary is closed and engine-owned (' . implode(', ', self::LEAVES)
                 . ') — "text" is the ordinary home/uploads URL and query-reference pass'
             );
+        }
+    }
+
+    public static function has_input_files(array $codec): bool {
+        $rules = isset($codec['value']) ? [$codec['value']] : array_column($codec['value_cases']['cases'] ?? [], 'value');
+        foreach ($rules as $rule) if (InputFileBinding::declared($rule)) return true;
+        return false;
+    }
+
+    private static function assert_input_identity(array $codec, array $table, string $where): void {
+        if (($table['identity']['mode'] ?? '') === 'composite_ref' && self::has_input_files($codec)) {
+            throw new \RuntimeException("wprism: $where input files require ordinary typed-table identity");
         }
     }
 
@@ -441,7 +459,7 @@ final class ColumnCodecGrammar {
      *
      * @param array{container:string,leaves?:string,value?:array} $codec
      */
-    public static function apply_value(mixed $canonical, array $codec, object $tokens, string $where): mixed {
+    public static function apply_value(mixed $canonical, array $codec, object $tokens, string $where, ?callable $inputFile = null): mixed {
         $decoded = self::decode($canonical, $codec, $where, 'authored');
         if ($decoded['kind'] === 'null') {
             return null;
@@ -450,7 +468,7 @@ final class ColumnCodecGrammar {
             return $tokens->detokenize_text($decoded['value']);
         }
         $value = isset($codec['value'])
-            ? AuthoredValueCodec::apply($decoded['value'], $codec['value'], $tokens, $where)
+            ? AuthoredValueCodec::apply($decoded['value'], $codec['value'], $tokens, $where, $inputFile)
             : $tokens->plain_data_apply($decoded['value']);
         return $decoded['kind'] === 'json'
             ? StructuredValue::encode($value, ['json_encoded' => true], $where)

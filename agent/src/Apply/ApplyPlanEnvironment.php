@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/EnvironmentValues.php';
+require_once __DIR__ . '/ColumnInputFiles.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Kernel/WordPressOptionValueCodec.php';
@@ -79,6 +80,10 @@ final class ApplyPlanEnvironment {
                 . "this environment — see 'wp wprism env-set --name=$binding --stdin'";
         }
 
+        $inputs = ColumnInputFiles::projection($this->repo, $this->policy, $tree);
+        array_push($projection['env_missing'], ...$inputs['env_missing']);
+        array_push($projection['warnings'], ...$inputs['warnings']);
+        if ($inputs['input_rebinds'] !== []) $projection['input_rebinds'] = $inputs['input_rebinds'];
         return $projection;
     }
 }

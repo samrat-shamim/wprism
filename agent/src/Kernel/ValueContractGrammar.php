@@ -10,6 +10,7 @@ require_once __DIR__ . '/RecordFields.php';
 require_once __DIR__ . '/EncodedText.php';
 require_once __DIR__ . '/FieldLabelMap.php';
 require_once __DIR__ . '/FieldTemplateMap.php';
+require_once __DIR__ . '/InputFileBinding.php';
 
 /** Surface owners negotiate capabilities; this pure grammar owns their shared recursive value shape. */
 final class ValueContractGrammar {
@@ -26,12 +27,13 @@ final class ValueContractGrammar {
         private readonly string $surface,
         private readonly bool $strictReferences = false,
         private readonly bool $fieldLabels = false,
-        private readonly bool $fieldTemplates = false
+        private readonly bool $fieldTemplates = false,
+        private readonly bool $inputFiles = false
     ) {}
 
     /** Object members reuse the authored leaf grammar; absence never creates a default. */
     public function validate(array $rule, string $where, int $depth = 0): void {
-        $contract = array_intersect(array_keys($rule), [...ReferenceRules::BLOCK_CONTRACT_FIELDS, FieldLabelMap::FIELD, FieldTemplateMap::FIELD]) !== [];
+        $contract = array_intersect(array_keys($rule), [...ReferenceRules::BLOCK_CONTRACT_FIELDS, FieldLabelMap::FIELD, FieldTemplateMap::FIELD, InputFileBinding::FIELD]) !== [];
         $negotiated = $this->contracts;
         if (($contract || $depth > 0) && (!$negotiated || $depth > self::MAX_OBJECT_DEPTH
             || ++$this->contractRules > self::MAX_CONTRACT_RULES)) {
@@ -46,8 +48,13 @@ final class ValueContractGrammar {
         }
         if (($rule['class'] ?? null) !== 'authored'
             || array_diff(array_keys($rule), ['class', 'ref', 'cast', 'json_refs', 'key_refs', 'plain_data',
-                RecordFields::FIELD, EncodedText::FIELD, FieldLabelMap::FIELD, FieldTemplateMap::FIELD, ...ReferenceRules::BLOCK_CONTRACT_FIELDS])) {
+                RecordFields::FIELD, EncodedText::FIELD, FieldLabelMap::FIELD, FieldTemplateMap::FIELD, InputFileBinding::FIELD, ...ReferenceRules::BLOCK_CONTRACT_FIELDS])) {
             throw new \RuntimeException("wprism: $where has an unsupported value disposition or field");
+        }
+        if (array_key_exists(InputFileBinding::FIELD, $rule)) {
+            if ($depth === 0) throw new \RuntimeException("wprism: $where input files require an exact nested object field");
+            InputFileBinding::assert_rule($rule, $where, $this->inputFiles);
+            return;
         }
         if (array_key_exists(FieldTemplateMap::FIELD, $rule)) {
             FieldTemplateMap::assert_rule($rule, $where, $this->fieldTemplates);

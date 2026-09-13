@@ -2034,21 +2034,18 @@ this file: its job is to stop secret-shaped bytes from entering captured
 state, while this file is explicitly outside capture and protected by file
 permissions plus the git-tracked hygiene gate.
 
-### Scope: options only, v1
+### Provisionable bindings
 
-`class: "env"` classification, `env_missing`, and `env-set` all operate on
-**options only** in this first pass — never `post_meta`/`term_meta`, and
-never a `sub_keys` carve-out's individual keys (those remain classified
-independently under their own `class`, unaffected by their parent
-option's `env` classification). `Policy::env_options()`'s own docblock
-has the full reasoning: unlike options, meta classification is
-interpreter-driven per post (`Policy::meta_rule_for_post()`), so "every
-env-classified meta key across the whole install" has no well-defined,
-enumerable answer the way a manifest's flat `options` map does. Every
-real `class: "env"` value across every shipped manifest today is an
-option — verified empirically, not assumed. A genuine need for
-env-classified meta, if one ever surfaces, is separate, scoped follow-up
-work, not something this pass tries to solve speculatively.
+`env-set` accepts declared flat env options and canonical post-password or
+typed-column input-file bindings. It does not provision arbitrary post/term
+meta or a `sub_keys` carve-out's individual keys. Input names have the form
+`column_file:<uuid>:<column>.<field>...` and come from Plan's `env_missing`
+checklist. Supply one filename under the adapter's declared content directory
+through `--stdin`; the private intent store receives it, then ordinary Apply
+updates the saved pointer. Source filenames and file contents never travel
+with repository state. Provisioning refuses while an authored Apply holds
+input intent, and Apply rechecks file availability before commit. A later
+plugin job remains responsible for consuming its local file.
 
 ## Proposed spec addition
 

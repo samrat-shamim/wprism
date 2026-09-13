@@ -147,6 +147,20 @@ final class Tokens {
 
     /** Target-local values exist only during the authored transaction; never part of canonical tokens or snapshots. */
     private array $blockEnvironmentOptions = [];
+    /** Resolved input URLs are injected only for the selected authored work. */
+    private array $inputFiles = [];
+
+    public function bind_input_files(array $values): void {
+        $this->inputFiles = $values;
+    }
+
+    public function input_file(string $name): string {
+        $value = $this->inputFiles[$name] ?? null;
+        if (!is_string($value) || $value === '') {
+            throw new \RuntimeException('wprism: column input file requires a provisioned target binding');
+        }
+        return $value;
+    }
 
     public function bind_block_environment_options(array $values): void {
         $this->blockEnvironmentOptions = $values;
