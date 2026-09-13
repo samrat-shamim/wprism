@@ -352,6 +352,17 @@
         "sandbox/tests/offline/apply/regress_column_input_requests.php",
         "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/input-files-native.php"
       ]
+    },
+    "typed_object_record_projection": {
+      "title": "record projection composed with exact typed object fields",
+      "status": "shipped",
+      "definition": "Negotiated object-record-fields/v1 composes existing record_fields with object_fields on both block and strict column value contracts. Both declarations own the same retained field set; child codecs remain explicit, complete native data stays subject to bounds and privacy checks, and excluded canonical fields refuse before target resolution.",
+      "evidence": [
+        "agent/src/Kernel/RecordFields.php",
+        "agent/src/Kernel/ValueContractGrammar.php",
+        "agent/src/Grammar/AuthoredValueCodec.php",
+        "sandbox/tests/offline/grammar/regress_object_record_fields.php"
+      ]
     }
   },
   "candidates": [
@@ -1146,6 +1157,33 @@
       ],
       "probed_on": "2026-09-14",
       "closing": "The generic input dependency survives public Capture, compilation, provisioning, Plan, Apply and independent canonical verification. The actual registered Importer 2.7.5 local-file consumer reads replacement target bytes after rebinding and rotation. This closes the binding primitive only: saved-template enrollment, native import jobs including omitted mapped-password warnings, lifecycle and adapter qualification remain open.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
+      "id": "user-importer-typed-method-projection",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "typed_object_record_projection",
+          "closed_by": [
+            "agent/src/Kernel/RecordFields.php",
+            "agent/src/Kernel/ValueContractGrammar.php",
+            "agent/src/Grammar/AuthoredValueCodec.php",
+            "sandbox/tests/offline/grammar/regress_object_record_fields.php",
+            "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/input-files-native.php"
+          ],
+          "coordinate": "column_codecs.wt_iew_mapping_template.data.method_import_form_data",
+          "cannot_represent": "The native saved method object mixes a regenerable selected_template cursor with a functional wt_iew_local_file dependency. Existing object_fields refuses composition with record_fields, while opaque record projection cannot assign the retained file its typed binding semantics."
+        }
+      ],
+      "probed_on": "2026-09-14",
+      "closing": "The generic object composition retains typed children while projecting the cursor; deterministic column and block paths cover references, target bindings, canonical refusals and discarded-field privacy. The bounded native file-consumer lane exercises public Capture, Plan, Apply and independent canonical verification with cursor projection. Complete saved-template enrollment, native jobs and adapter qualification remain separate followup work.",
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]

@@ -36,6 +36,7 @@ final class AuthoredValueCodec {
                 static fn(string $text): string => $tokens->tokenize_text($text, $where), $where);
         }
         if (isset($rule['object_fields'])) {
+            if (isset($rule[RecordFields::FIELD])) $value = RecordFields::capture($value, $rule[RecordFields::FIELD]);
             foreach ($value as $field => &$child) {
                 $child = self::capture_at($child, $rule['object_fields'][$field], $tokens, $unmapped, "$where.$field");
             }
@@ -132,6 +133,10 @@ final class AuthoredValueCodec {
         if (isset($rule['object_fields'])) {
             // PHP's associative JSON decoder cannot distinguish {} from [].
             // A nonempty exact object preserves shape without guessing defaults.
+            if (isset($rule[RecordFields::FIELD])) {
+                RecordFields::assert_value($value, $rule[RecordFields::FIELD], $canonical, $where);
+                $value = RecordFields::capture($value, $rule[RecordFields::FIELD]);
+            }
             if (!is_array($value) || array_is_list($value) || array_diff_key($value, $rule['object_fields'])) {
                 throw new \RuntimeException("wprism: $where requires a nonempty object containing only declared fields");
             }
@@ -231,6 +236,12 @@ final class AuthoredValueCodec {
         if (isset($rule['object_fields'])) {
             $subject = [];
             foreach ($value as $field => $child) {
+                // Native excluded fields still undergo their original privacy
+                // checks; projection is transport authority, not clearance.
+                if (!array_key_exists($field, $rule['object_fields'])) {
+                    $subject[$field] = $child;
+                    continue;
+                }
                 $part = self::project($child, $rule['object_fields'][$field], $canonical, "$where.$field", $purpose);
                 if ($part['present']) $subject[$field] = $part['value'];
             }

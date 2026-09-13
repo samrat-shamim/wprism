@@ -201,6 +201,7 @@ final class AdapterContractGrammar {
         BlockValueGrammar::GROUP_FEATURE => ['since' => 3, 'keys' => []],
         BlockValueGrammar::CONTRACT_FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::FEATURE => ['since' => 3, 'keys' => []],
+        RecordFields::OBJECT_FEATURE => ['since' => 3, 'keys' => []],
         EncodedText::FEATURE => ['since' => 3, 'keys' => []],
         ScalarValueConstraint::FEATURE => ['since' => 3, 'keys' => []],
         PostMetaInvalidation::FEATURE => ['since' => 3, 'keys' => []],
@@ -589,6 +590,9 @@ final class AdapterContractGrammar {
             }
             if ($name === RecordFields::FEATURE) {
                 $rows[$name]['value_constraint'] = RecordFields::declaration_grammar();
+            }
+            if ($name === RecordFields::OBJECT_FEATURE) {
+                $rows[$name]['value_constraint'] = RecordFields::object_declaration_grammar();
             }
             if ($name === ScalarValueConstraint::FEATURE) {
                 $rows[$name]['value_constraint'] = ScalarValueConstraint::declaration_grammar();

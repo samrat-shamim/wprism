@@ -3182,6 +3182,30 @@ paths must start with a retained exact field; scalar references cannot compose
 with projection. Column clearance still scans the original decoded data,
 including excluded fields. Run the column-value offline suite and native lane.
 
+When retained members need different codecs, compose `record_fields` with
+`object_fields` using `object-record-fields/v1` and the existing surface value
+and record features (`typed-column-values/v1` + `column-record-fields/v1`, or
+`block-value-contracts/v1` + `block-record-fields/v1`). For example:
+
+```json
+{"class":"authored",
+ "record_fields":{"container":"object","fields":["mode","input"]},
+ "object_fields":{
+   "mode":{"class":"authored","enum":["local"]},
+   "input":{"class":"authored","input_file":{"directory":"imports","extensions":["csv"]}}
+ }}
+```
+
+The input leaf additionally requires `column-input-files/v1`; it does not gain
+block authority from this composition. Retained names must equal the typed
+field set. Lists cannot compose with exact object fields. This keeps exclusion
+and typing explicit while reusing the existing projection and child codecs.
+Native extra fields still undergo whole-value JSON bounds and privacy checks;
+canonical extra fields refuse before any target binding. Missing children stay
+absent. A functional input field must be rebound, not dropped together with a
+temporary wizard cursor. Run `regress-object-record-fields` and the relevant
+native consumer lane before enrolling the adapter's complete saved form.
+
 When one physical column has different meanings in different owned row types,
 use `column-value-cases/v1`. Keep one strict container and replace `value` with
 `value_cases: {column, cases}`. The selector names a declared `row_scope` set;

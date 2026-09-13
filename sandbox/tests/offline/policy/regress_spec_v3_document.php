@@ -288,6 +288,7 @@ wprism_check_same(
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'native-value-validation/v1',
+        'object-record-fields/v1',
         'php-container-values/v1',
         'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
