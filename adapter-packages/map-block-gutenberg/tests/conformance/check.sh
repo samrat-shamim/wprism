@@ -60,13 +60,14 @@ map_preserved() { # <active|inactive> <version|missing>
     || fail 'Map Block lifecycle changed native posts, metadata, identities, state or target-owned options'
 }
 map_capability() { # <active|inactive> <version|missing>
-  local stream='' report='' rc=0
+  local stream='' report='' rc=0 expected_rc=3
   stream=$(wp_conf2 wprism capabilities --repo=/siterepo --operation=apply --format=json 2>&1) || rc=$?
   require_wprism_answered 'Map Block native dependency capability' json "$stream"
   assert_no_php_runtime_diagnostics 'Map Block native dependency capability' "$stream"
   report=$(awk 'NF { line=$0 } END { print line }' <<<"$stream")
   awk 'NF { last=NR } { lines[NR]=$0 } END { for (i=1; i<last; i++) print lines[i] }' <<<"$stream" >&2
-  [ "$rc" = 3 ] || fail 'Map Block capability answer lost its experimental refusal exit'
+  if [ "$1" = active ] && [ "$2" = 1.35 ]; then expected_rc=0; fi
+  [ "$rc" = "$expected_rc" ] || fail 'Map Block capability exit differs from its exact target boundary'
   php "$MAP_CAPSULE/fixtures/lifecycle-evidence.php" capability "$1" "$2" <<<"$report" \
     || fail 'Map Block native dependency gate disagrees with manufactured target facts'
   map_preserved "$1" "$2"

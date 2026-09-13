@@ -78,5 +78,8 @@ refusal; the previous native 1.34 header fault was not that artifact test. Any
 `package/disposition.json` change moves adapter identity: normal recompilation
 and re-pinning are required, followed by the capsule's live run and complete
 local merge/release gates and independent review of the final candidate.
-Until then the disposition remains experimental. The current digest remains
+The review checkpoint kept the disposition experimental. A following candidate
+may declare the reviewed certified boundary to exercise that real host path;
+it must not be merged or reported production-ready until those gates pass.
+The digest at the review checkpoint was
 `e814fa810757d428dfabc5479e217c5313eb0d8e7ca4ca25da59403ebaba1c8c`.

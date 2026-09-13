@@ -1,7 +1,8 @@
 # Map Block for Google Maps
 
-Experimental pending final native and certified host-path
-qualification. Exact audited plugin:
+Review-approved certification candidate, pending the final exact-artifact and
+certified host-path gate results recorded in `evidence/qualification.md`.
+Do not treat the candidate declaration as a completed release gate. Exact audited plugin:
 `map-block-gutenberg` 1.35, SHA-256 pinned in `evidence/artifacts.lock.json`.
 The enforced compatibility window is `>=1.35 <1.35.1`; 1.34 is a refusal fixture.
 
@@ -51,9 +52,10 @@ and delimiter-like text. Native inspection caught two important details:
 WordPress injects the block class on the outer wrapper, and apostrophes remain
 literal in double-quoted iframe attributes. Offline regressions pin both.
 
-The `agent-roundtrip` conformance profile explicitly proves host deployment
-still refuses the experimental disposition, then uses documented lower-level
-agent verbs for target qualification. It never marks the adapter certified.
+The current `roundtrip` conformance profile requires successful certified host
+deployment. Earlier `agent-roundtrip` runs proved the experimental host refusal,
+then used documented lower-level agent verbs; those runs alone never certified
+the adapter.
 The profile exercises clean creation, unmanaged same-slug adoption with different
 IDs, missing/drifted target keys, preservation of a target-only runtime option,
 authored updates, repeated apply, native frontend/localization, capture failure
@@ -75,12 +77,16 @@ local gate limitations are recorded in `evidence/qualification.md`.
 `evidence/human-review.md` records the authorized review and the remaining
 certified host-path/exact-artifact validation. Its evidence correction identifies
 an installer warning in earlier terminal-PASS logs; a warning-free native rerun
-is required. Review approval alone does not change the experimental status.
+is required. Review approval alone does not establish a completed release gate.
 
 ```sh
 php tools/adapter-package-validate.php --adapter=map-block-gutenberg
 php tools/adapter-package-tests.php --adapter=map-block-gutenberg
 make regress-block-content-codecs
+# Exact positive and refusal artifacts, including the full host roundtrip:
+VMATRIX_MANIFEST=map-block-gutenberg VMATRIX_EXPECTED_SOURCE_SHA=<commit> \
+  VMATRIX_PAIR=<pair> VMATRIX_PORT1=<port> VMATRIX_PORT2=<port> \
+  bash sandbox/tests/certify/certify_version_matrix.sh
 # Use a clean source commit and an allocated disposable pair:
 CONF_EXPECTED_SOURCE_SHA=<commit> CONF_PAIR=<pair> CONF1_PORT=<port> CONF2_PORT=<port> \
   bash sandbox/conformance/run.sh map-block-gutenberg

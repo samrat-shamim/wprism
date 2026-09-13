@@ -36,7 +36,7 @@ foreach ([
     $codes = array_column($rows[0]['verdict']['reasons'], 'code');
     wprism_check_same(!in_array($case, ['exact-active', 'inactive'], true), in_array('plugin_version_mismatch', $codes, true), "$case enforces the exact version window");
     wprism_check_same(in_array($case, ['inactive', 'absent', 'wrong-basename'], true), in_array('plugin_not_active', $codes, true), "$case enforces the exact active basename");
-    wprism_check(in_array('authored_state_not_certified', $codes, true) && !$report['ready'], "$case cannot promote the experimental capsule");
+    wprism_check(!in_array('authored_state_not_certified', $codes, true) && $report['ready'] === ($case === 'exact-active'), "$case admits only the certified exact active target");
 }
 wprism_check_same(null, $policy->deletion_capability('option:gmw-map-block-key'), 'environment binding does not acquire an option deletion grant');
 wprism_check_summary('map-block-gutenberg runtime contract');

@@ -310,7 +310,7 @@ wp_conf2() {
   fi
 }
 SH;
-foreach (['valid', 'empty', 'malformed', 'zero-exit', 'other-exit', 'php-stdout', 'php-stderr', 'observation-empty', 'post-changed', 'option-changed'] as $mutation) {
+foreach (['valid', 'empty', 'malformed', 'refusal-exit', 'other-exit', 'php-stdout', 'php-stderr', 'observation-empty', 'post-changed', 'option-changed'] as $mutation) {
     $answer = json_encode($reports['exact'], JSON_THROW_ON_ERROR);
     $native = $observation;
     if ($mutation === 'post-changed') $native['state']['posts']['sha256'] = str_repeat('1', 64);
@@ -320,7 +320,7 @@ foreach (['valid', 'empty', 'malformed', 'zero-exit', 'other-exit', 'php-stdout'
     if ($mutation === 'php-stdout') $answer = "PHP Warning: fixture failure\n" . $answer;
     [$status, $output, $diagnostic] = ShellProbe::run($setup . "\n" . $functions . "\nmap_capability active 1.35\nprintf 'ACCEPTED\\n'\n", [
         $root, $answer, $mutation === 'observation-empty' ? '' : json_encode($native, JSON_THROW_ON_ERROR),
-        $mutation === 'zero-exit' ? '0' : ($mutation === 'other-exit' ? '7' : '3'),
+        $mutation === 'refusal-exit' ? '3' : ($mutation === 'other-exit' ? '7' : '0'),
         $mutation === 'php-stderr' ? 'PHP Warning: fixture failure' : '', json_encode($observation, JSON_THROW_ON_ERROR),
     ], $root);
     if ($mutation === 'valid' && $status !== 0) fwrite(STDERR, $diagnostic . $output);

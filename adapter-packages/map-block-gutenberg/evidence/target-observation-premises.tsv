@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=13 fixtures=0
+# expected observations=16 fixtures=0
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/seed.sh	require_observed_nonempty "Map Block source seed"
 observation	tests/conformance/capture-check.sh	require_observed_nonempty "Map Block saved-content premise"
@@ -14,3 +14,6 @@ observation	tests/conformance/check.sh	require_observed_nonempty "Map Block life
 observation	tests/conformance/check.sh	require_observed_nonempty 'Map Block credential deletion observation'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Map Block capture barrier observation'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Map Block recovery observation'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Map Block same-version replacement'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Map version matrix native rows'
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Map version matrix credential intent and artifact'

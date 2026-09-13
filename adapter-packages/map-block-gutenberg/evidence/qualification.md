@@ -291,3 +291,24 @@ host deployment path, and final local gates. The previous real native minimum
 version case mutated the 1.35 header; it does not replace testing the actual
 digest-pinned 1.34 refusal artifact. No shipped runtime/package bytes changed in
 this review checkpoint, and no new service/editor/platform coverage is claimed.
+
+## Promotion candidate (gates pending)
+
+The follow-up branch proposes the reviewed certified disposition and a
+`roundtrip` entry, with the exact 1.35 artifact marked `certified-boundary`.
+Its readiness ledger names all scenario evidence owners, including the new
+exact-artifact workflow. These are candidate declarations needed to exercise
+the actual host certification gate, not a claim that the new live run has
+already passed. Do not merge or report production readiness until the native
+workflow, warning-free reinstall, complete local gates and independent final
+review are recorded here. Changing the disposition moves adapter identity;
+fresh compilation and content pins are mandatory, with no mismatch bypass.
+
+Before the live run, the candidate's isolated package validator passes 16 checks
+and all nine capsule offline suites pass, 874 assertions. The version-matrix
+workflow contributes 98 deterministic controls and reuses the full conformance
+entry exactly once for its positive leg; it then installs the real pinned 1.34
+artifact on that same target and verifies the exact private Apply refusal and
+preservation. The proposed disposition changes the adapter digest from
+`e814fa810757d428dfabc5479e217c5313eb0d8e7ca4ca25da59403ebaba1c8c` to
+`a35cfb808248030a89a03b73240077c9e5b471ed5f99edda087af6687365568f`.

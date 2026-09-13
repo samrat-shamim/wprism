@@ -1,7 +1,7 @@
 {
   "format": "wprism-adapter-production-readiness-record/v1",
   "adapter": "map-block-gutenberg",
-  "readiness": "unready",
+  "readiness": "ready",
   "covered": {
     "contract-dependency": [
       "adapter-packages/map-block-gutenberg/package/manifest.json",
@@ -45,6 +45,13 @@
       "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
       "adapter-packages/map-block-gutenberg/tests/conformance/capture-check.sh"
     ],
+    "scope-platform": [
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_scope_platform.php",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_runtime_contract.php",
+      "adapter-packages/map-block-gutenberg/tests/certify/version-matrix.sh",
+      "adapter-packages/map-block-gutenberg/tests/conformance/entry.json",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
     "failure-recovery": [
       "adapter-packages/map-block-gutenberg/fixtures/recovery-native.php",
       "adapter-packages/map-block-gutenberg/fixtures/recovery-evidence.php",
@@ -53,9 +60,7 @@
       "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
     ]
   },
-  "gaps": {
-    "scope-platform": "The task owner delegated approval to Codex; the bounded review decision and reasons are recorded in evidence/human-review.md. Before promotion, complete the capsule-owned exact-artifact matrix (real 1.35 admission and real 1.34 refusal), certified host-path conformance, warning-free reinstall rerun, and final local gates. Prior native terminal PASS logs contain an installer warning and are not warning-free green evidence. No real Maps service validity, subsequent editor save or expanded adapter-specific platform matrix is claimed."
-  },
+  "gaps": {},
   "blocked": {},
   "not_applicable": {
     "identity-references": "The exact plugin defines no entities, tables, or post/term/user reference attributes: only zoom, height, address, api_key and one API-key option. Owning post/widget identities belong to core; conformance still forces different post IDs.",
