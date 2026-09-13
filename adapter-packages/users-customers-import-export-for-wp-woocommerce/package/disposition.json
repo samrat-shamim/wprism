@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Native settings discovery supports nine explicit subkeys. Offline and native capsule conformance, populated-history preservation, lifecycle and plugin combinations are still being authored; this is not production authorization.",
+  "reason": "Nine native advanced settings exercise capture, immutable compilation, scoped plan/Apply, exact recapture and inert request replay. Native evidence preserves shared module settings, users, history and generated files. Full adapter qualification remains open.",
   "supported_versions": {
     "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
     "range": {
@@ -17,6 +17,8 @@
     "operations": [
       "capture",
       "compile",
+      "plan",
+      "apply",
       "recapture"
     ],
     "lifecycle_phases": [],
@@ -31,14 +33,16 @@
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
       "regress-package-contract",
-      "regress-native-settings"
+      "regress-native-settings",
+      "regress-native-harness",
+      "regress-settings-apply"
     ]
   },
   "unsupported": [
     {
       "operation": "apply",
-      "surface": "adapter",
-      "reason": "Complete capsule Apply, populated operational-history preservation and native recovery are not yet proven."
+      "surface": "manually-edited-values-and-native-failure-recovery",
+      "reason": "This milestone exercises native-Saved settings values. Generic scalar type/range/enum constraints for ordinary option subkeys and native failure/recovery qualification remain open; the deterministic settings rollback test is not native recovery evidence."
     },
     {
       "operation": "deploy",
