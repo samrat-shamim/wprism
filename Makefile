@@ -2299,6 +2299,9 @@ regress-php-container-values:
 regress-encoded-text-values:
 	php sandbox/tests/offline/grammar/regress_encoded_text_values.php
 
+regress-scalar-option-constraints:
+	php sandbox/tests/offline/grammar/regress_scalar_option_constraints.php
+
 regress-html-media-references:
 	php sandbox/tests/offline/grammar/regress_html_media_references.php
 

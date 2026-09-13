@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/RecordFields.php';
 require_once __DIR__ . '/EncodedText.php';
@@ -12,7 +14,7 @@ final class ValueContractGrammar {
     public const MAX_OBJECT_FIELDS = 256;
     public const MAX_OBJECT_DEPTH = 4;
     public const MAX_CONTRACT_RULES = 65536;
-    public const MAX_ENUM_VALUES = 64;
+    public const MAX_ENUM_VALUES = ScalarValueConstraint::MAX_ENUM_VALUES;
     private int $contractRules = 0;
 
     public function __construct(
@@ -64,17 +66,7 @@ final class ValueContractGrammar {
                 || $values === [] || count($values) > self::MAX_ENUM_VALUES) {
                 throw new \RuntimeException("wprism: $where.enum requires a bounded nonempty literal list and no other codec");
             }
-            $seen = [];
-            foreach ($values as $value) {
-                // Literal codes are site-independent: URL prose and token
-                // envelopes still belong to the existing text/ref codecs.
-                if (!(is_int($value) || is_bool($value) || $value === null
-                    || (is_string($value) && preg_match('/^[A-Za-z0-9_-]{0,128}$/D', $value) === 1))
-                    || in_array($value, $seen, true)) {
-                    throw new \RuntimeException("wprism: $where.enum requires distinct integers, booleans, null or bounded ASCII codes");
-                }
-                $seen[] = $value;
-            }
+            ScalarValueConstraint::assert_literal_values($values, $where);
             return;
         }
         if (array_key_exists('on_unmapped', $rule) && (($rule['on_unmapped'] ?? null) !== 'refuse'

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
@@ -91,6 +93,7 @@ final class PolicyRuleResolver {
                 foreach ($this->manifests as $manifest) {
                     $declared = $manifest['options'][$name] ?? null;
                     if (is_array($declared)) {
+                        ScalarValueConstraint::assert_site_override($declared, $sitePolicy, "options.$name");
                         ScalarReferenceIntersection::assert_site_override($declared, $sitePolicy, "options.$name");
                         PhpContainerValue::assert_site_override($declared, $sitePolicy, "options.$name");
                         EncodedText::assert_site_override($declared, $sitePolicy, "options.$name");
@@ -155,6 +158,7 @@ final class PolicyRuleResolver {
         if (!in_array($section, ['options', 'post_meta', 'term_meta', 'user_meta'], true)) return $selected;
         $owners = [];
         $encodedOwners = [];
+        $scalarOwners = [];
         $invalidationOwners = [];
         $allClaimants = [];
         $claimants = [];
@@ -173,6 +177,7 @@ final class PolicyRuleResolver {
             if (is_array($rule) && array_key_exists(NativeValueValidation::FIELD, $rule)) {
                 $owners[(string)($manifest['name'] ?? '?')] = true;
             }
+            if (is_array($rule) && ScalarValueConstraint::uses($rule)) $scalarOwners[(string)($manifest['name'] ?? '?')] = true;
             if (is_array($rule) && EncodedText::uses($rule)) $encodedOwners[(string)($manifest['name'] ?? '?')] = true;
             if (is_array($rule) && PostMetaInvalidation::uses($rule)) $invalidationOwners[(string)($manifest['name'] ?? '?')] = true;
             if (is_array($rule)) $allClaimants[(string)($manifest['name'] ?? '?')] = true;
@@ -182,6 +187,9 @@ final class PolicyRuleResolver {
         }
         if ($owners !== [] && (count($owners) !== 1 || count($claimants) > 1 || !isset($owners[$selected['source']]))) {
             throw new \RuntimeException("wprism: $section.$name native value validation has conflicting classification owners");
+        }
+        if ($scalarOwners !== [] && (count($scalarOwners) !== 1 || count($claimants) > 1 || !isset($scalarOwners[$selected['source']]))) {
+            throw new \RuntimeException("wprism: $section.$name scalar value constraints have conflicting classification owners");
         }
         if ($encodedOwners !== [] && (count($encodedOwners) !== 1 || count($claimants) > 1 || !isset($encodedOwners[$selected['source']]))) {
             throw new \RuntimeException("wprism: $section.$name text encoding has conflicting classification owners");

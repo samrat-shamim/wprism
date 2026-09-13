@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
 
@@ -2877,6 +2879,9 @@ final class Policy {
             }
             if (PostMetaInvalidation::uses($rule) || PostMetaInvalidation::uses($static['rule'] ?? [])) {
                 throw new \RuntimeException("wprism: interpreter '$name' cannot introduce or replace a static post-meta invalidation contract");
+            }
+            if (ScalarValueConstraint::uses($rule) || ScalarValueConstraint::uses($static['rule'] ?? [])) {
+                throw new \RuntimeException("wprism: interpreter '$name' cannot introduce or replace a static scalar value constraint");
             }
             if (EncodedText::uses($rule) || EncodedText::uses($static['rule'] ?? [])) {
                 throw new \RuntimeException("wprism: interpreter '$name' cannot introduce or replace a static text encoding codec");

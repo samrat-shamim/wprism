@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/ScalarValueConstraint.php';
+
 // This collaborator is also exercised directly by offline harnesses. Keep
 // its declaration-shape dependency explicit instead of relying on Policy's
 // bootstrap order.
@@ -33,7 +35,10 @@ final class ReferenceShapeGrammar {
         // A misplaced write grant must refuse rather than load as inert data.
         foreach (['post_types', 'taxonomies'] as $section) {
             foreach ($source[$section] ?? [] as $name => $rule) {
-                if (is_array($rule)) PostMetaInvalidation::assert_rule($rule, "$label.$section.$name");
+                if (is_array($rule)) {
+                    PostMetaInvalidation::assert_rule($rule, "$label.$section.$name");
+                    ScalarValueConstraint::assert_rule($rule, "$label.$section.$name", false);
+                }
             }
         }
         $conditionalRefs = $manifestFeatures && ($source['spec_version'] ?? 0) >= 3
@@ -65,7 +70,9 @@ final class ReferenceShapeGrammar {
                     $containerOptions && $section === 'options',
                     $boundStrings && $section === 'options',
                     $encodedText,
-                    $postMetaInvalidation && $section === 'post_meta'
+                    $postMetaInvalidation && $section === 'post_meta',
+                    $manifestFeatures && $section === 'options' && ($source['spec_version'] ?? 0) >= 3
+                        && in_array(ScalarValueConstraint::FEATURE, (array) ($source['engine_features'] ?? []), true)
                 );
             }
         }
@@ -90,6 +97,7 @@ final class ReferenceShapeGrammar {
             }
         }
         foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
+            ScalarValueConstraint::assert_rule($declaration, "$label.dynamic_options.$name", false);
             PostMetaInvalidation::assert_rule($declaration, "$label.dynamic_options.$name");
             PhpContainerValue::assert_rule($declaration, "$label.dynamic_options.$name", false);
             KeyBoundStrings::assert_rule($declaration, "$label.dynamic_options.$name", false);
@@ -121,9 +129,13 @@ final class ReferenceShapeGrammar {
             }
         }
         foreach (($source['tables'] ?? []) as $table => $declaration) {
+            ScalarValueConstraint::assert_rule($declaration, "$label.tables.$table", false);
             PostMetaInvalidation::assert_rule($declaration, "$label.tables.$table");
             foreach ($declaration['columns'] ?? [] as $column => $rule) {
-                if (is_array($rule)) PostMetaInvalidation::assert_rule($rule, "$label.tables.$table.columns.$column");
+                if (is_array($rule)) {
+                    PostMetaInvalidation::assert_rule($rule, "$label.tables.$table.columns.$column");
+                    ScalarValueConstraint::assert_rule($rule, "$label.tables.$table.columns.$column", false);
+                }
             }
             if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
                 continue;
@@ -150,7 +162,8 @@ final class ReferenceShapeGrammar {
         bool $phpContainers = false,
         bool $boundStrings = false,
         bool $encodedText = false,
-        bool $postMetaInvalidation = false
+        bool $postMetaInvalidation = false,
+        bool $scalarConstraints = false
     ): void {
         PhpContainerValue::assert_rule($rule, $where, $phpContainers);
         if (array_key_exists(NativeValueValidation::FIELD, $rule) && !$allowNativeValidation) {
@@ -164,7 +177,7 @@ final class ReferenceShapeGrammar {
                     . ScalarReferenceIntersection::FEATURE
             );
         }
-        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers, $boundStrings, encodedText: $encodedText, postMetaInvalidation: $postMetaInvalidation);
+        ReferenceRules::value_rule($rule, $where, $conditionalRefs, $phpContainers, $boundStrings, encodedText: $encodedText, postMetaInvalidation: $postMetaInvalidation, scalarConstraints: $scalarConstraints && !$allowSubKeys);
         if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
             throw new \RuntimeException(
                 "wprism: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"
@@ -177,7 +190,7 @@ final class ReferenceShapeGrammar {
         }
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
             if (is_array($subRule) && !array_is_list($subRule)) {
-                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false, false, false, false, $conditionalRefs, encodedText: $encodedText);
+                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false, false, false, false, $conditionalRefs, encodedText: $encodedText, scalarConstraints: $scalarConstraints);
             }
         }
     }

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
 
 require_once __DIR__ . '/../Kernel/EncodedText.php';
@@ -1022,6 +1024,11 @@ final class RepositoryAuthorization {
         ?array $piiSubject = null
     ): void {
         self::authorize_encoding($out, $path, $uuid, $surface, $field, $value, $rule, $source);
+        try {
+            ScalarValueConstraint::assert_value($value, $rule, "$surface.$field");
+        } catch (\RuntimeException) {
+            self::finding($out, 'repository_scalar_value_invalid', $path, $uuid, $surface, $field, 'malformed', $source);
+        }
         if (empty($rule['allow_secret']) && Secrets::clearance_match_deep($field, $value) !== null) {
             self::finding(
                 $out, 'repository_secret_not_allowed', $path, $uuid,

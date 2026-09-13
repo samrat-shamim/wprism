@@ -66,6 +66,7 @@
           "BlockContentGrammar",
           "BlockValueGrammar",
           "ValueContractGrammar",
+          "ScalarValueConstraint",
           "RecordFields",
           "EncodedText",
           "PostMetaInvalidation",
@@ -170,7 +171,7 @@
             ]
           }
         ],
-        "file_count": 90,
+        "file_count": 91,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -179,6 +180,7 @@
           "BlockContentGrammar.php",
           "BlockValueGrammar.php",
           "ValueContractGrammar.php",
+          "ScalarValueConstraint.php",
           "RecordFields.php",
           "EncodedText.php",
           "PostMetaInvalidation.php",
