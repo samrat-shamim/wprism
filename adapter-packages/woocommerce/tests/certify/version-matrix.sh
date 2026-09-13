@@ -1503,9 +1503,8 @@ DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse woocommerce 10.9.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
 woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
-  'WooCommerce below-range 10.9.4 deploy refusal' 'outside_version_range'
-grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
-grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+  'WooCommerce below-range 10.9.4 deploy refusal' \
+  'declared version_range' 'woocommerce/woocommerce\.php' '10\.9\.4'
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 
@@ -1573,9 +1572,8 @@ DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
 woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
-  'WooCommerce exclusive-upper deploy refusal' 'outside_version_range' 'woocommerce/woocommerce\.php'
-grep -q "11.0.2" <<<"$DEPLOY_OUT" \
-  || fail "exclusive-upper refusal did not name WordPress's installed Version header (got: $DEPLOY_OUT)"
+  'WooCommerce exclusive-upper deploy refusal' \
+  'declared version_range' 'woocommerce/woocommerce\.php' '11\.0\.2'
 [ "$(wp1 option get active_plugins --format=json | tail -1)" = "$PRE_REFUSAL_ACTIVE" ] \
   || fail "exclusive-upper code mismatch changed active_plugins before refusing"
 [ "$(git -C "siterepo/${PAIR}1" rev-parse HEAD)" = "$PRE_REFUSAL_HEAD" ] \
