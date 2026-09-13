@@ -1,0 +1,24 @@
+{
+  "source": {
+    "wt_iew_maximum_execution_time": 600,
+    "wt_iew_enable_import_log": 1,
+    "wt_iew_default_import_method": "quick",
+    "wt_iew_default_import_batch": 17,
+    "wt_iew_default_export_method": "quick",
+    "wt_iew_default_export_batch": 41,
+    "wt_iew_enable_history_auto_delete": 1,
+    "wt_iew_auto_delete_history_count": 75,
+    "wt_iew_include_bom": 0
+  },
+  "target": {
+    "wt_iew_maximum_execution_time": 0,
+    "wt_iew_default_import_method": "template",
+    "wt_iew_default_import_batch": 23,
+    "wt_iew_default_export_method": "template",
+    "wt_iew_include_bom": "1",
+    "wt_iew_default_export_batch": 52,
+    "wt_iew_auto_delete_history_count": 100,
+    "wt_iew_enable_import_log": 0,
+    "wt_iew_enable_history_auto_delete": 0
+  }
+}

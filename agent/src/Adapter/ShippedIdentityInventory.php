@@ -32,6 +32,7 @@ final class ShippedIdentityInventory
         'redirection',
         'speculation-rules',
         'the-events-calendar',
+        'users-customers-import-export-for-wp-woocommerce',
         'visual-portfolio',
         'woocommerce',
         'wordpress-popup',

@@ -1,0 +1,23 @@
+# format wprism-target-observation-premises/v1
+# expected observations=21 fixtures=0
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
+observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
+observation	tests/conformance/seed.sh	capture_wprism_json_success IMPORTER_SAVE 'Importer native settings Save' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" save-source --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture "setup$side" native_side "$side" "setup-$role"
+observation	tests/live/regress_settings_apply.sh	capture baseline-capture candidate 1 capture --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture baseline-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json
+observation	tests/live/regress_settings_apply.sh	capture jobs native_side 2 jobs
+observation	tests/live/regress_settings_apply.sh	capture baseline-target native_side 2 observe
+observation	tests/live/regress_settings_apply.sh	capture "$phase-save" native_side 1 "save-$phase"
+observation	tests/live/regress_settings_apply.sh	capture "$phase-capture" candidate 1 capture --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-source" native_side 1 observe
+observation	tests/live/regress_settings_apply.sh	capture "$phase-scope" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" scope source --roots=option:wt_iew_advanced_settings --contract --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-plan" "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" plan target --scope-contract="$sink/$phase-scope.stdout" --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-apply" host_apply --scope-contract="$sink/$phase-scope.stdout" --request-id="importer-settings-$phase" --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-target" native_side 2 observe
+observation	tests/live/regress_settings_apply.sh	capture "$phase-repeat" host_apply --scope-contract="$sink/$phase-scope.stdout" --request-id="importer-settings-$phase" --format=json
+observation	tests/live/regress_settings_apply.sh	capture "$phase-stable" native_side 2 observe
+observation	tests/live/regress_settings_apply.sh	capture "$phase-recapture" candidate 2 capture --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture purge-save native_side 2 save-retention
+observation	tests/live/regress_settings_apply.sh	capture purge-target native_side 2 observe

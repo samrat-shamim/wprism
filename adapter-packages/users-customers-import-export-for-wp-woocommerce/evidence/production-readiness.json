@@ -1,0 +1,22 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "users-customers-import-export-for-wp-woocommerce",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {
+    "contract-dependency": "Capsule-owned contract-dependency conformance remains pending; prior native settings discovery is not qualification.",
+    "clean-target": "Capsule-owned clean-target conformance remains pending; prior native settings discovery is not qualification.",
+    "dirty-target": "Capsule-owned dirty-target conformance remains pending; prior native settings discovery is not qualification.",
+    "identity-references": "Capsule-owned identity-references conformance remains pending; prior native settings discovery is not qualification.",
+    "native-behavior": "Capsule-owned native-behavior conformance remains pending; prior native settings discovery is not qualification.",
+    "derived-state": "Capsule-owned derived-state conformance remains pending; prior native settings discovery is not qualification.",
+    "deletion": "Capsule-owned deletion conformance remains pending; prior native settings discovery is not qualification.",
+    "failure-recovery": "Capsule-owned failure-recovery conformance remains pending; prior native settings discovery is not qualification.",
+    "lifecycle": "Capsule-owned lifecycle conformance remains pending; prior native settings discovery is not qualification.",
+    "data-boundary": "Capsule-owned data-boundary conformance remains pending; prior native settings discovery is not qualification.",
+    "scope-platform": "Capsule-owned scope-platform conformance remains pending; prior native settings discovery is not qualification.",
+    "concurrency-idempotence": "Capsule-owned concurrency-idempotence conformance remains pending; prior native settings discovery is not qualification."
+  },
+  "blocked": {},
+  "not_applicable": {}
+}

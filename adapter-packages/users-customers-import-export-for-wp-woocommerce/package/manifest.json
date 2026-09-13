@@ -1,0 +1,82 @@
+{
+  "name": "users-customers-import-export-for-wp-woocommerce",
+  "spec_version": 3,
+  "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
+  "version_range": {
+    "min": "2.7.5",
+    "max": "2.7.6"
+  },
+  "engine_features": [
+    "spec-window/v1"
+  ],
+  "option_autoload": "preserve",
+  "options": {
+    "wt_iew_advanced_settings": {
+      "class": "env",
+      "required": false,
+      "sub_keys": {
+        "wt_iew_maximum_execution_time": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/import/import.php:119-132: authored execution-time preference, consumed by imports; native Save stores an integer."
+        },
+        "wt_iew_enable_import_log": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/import/import.php:135-145: authored logging toggle; generated logs and imported records remain runtime."
+        },
+        "wt_iew_default_import_method": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/import/import.php:147-156: default wizard method; native source quick and target template were Saved and reopened."
+        },
+        "wt_iew_default_import_batch": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/import/import.php:157-164: authored batch size, not an entity ID."
+        },
+        "wt_iew_default_export_method": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/export/export.php:132-145: default export wizard method; source and target native Saves diverged."
+        },
+        "wt_iew_default_export_batch": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/export/export.php:154-164: authored batch size, not an entity ID."
+        },
+        "wt_iew_enable_history_auto_delete": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/history/history.php:242-253: authored retention toggle. Applying configuration must not replay after_advanced_setting_update or purge operational history."
+        },
+        "wt_iew_auto_delete_history_count": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/history/history.php:257-272: authored history retention limit, not a history row ID."
+        },
+        "wt_iew_include_bom": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "admin/modules/export/export.php:146-153: authored CSV BOM toggle; native unchecked value is integer 0 and checked value is string 1."
+        }
+      },
+      "note": "Shared settings container: only these nine native user-importer controls are owned. Other module keys remain target-local and must survive partial Apply."
+    },
+    "wt_iew_admin_modules": {
+      "class": "runtime",
+      "note": "admin/class-wt-import-export-for-woo-admin.php:425-448: active module initialization flags, not portable settings."
+    },
+    "wt_u_iew_is_active": {
+      "class": "runtime"
+    },
+    "wt_u_iew_basic_json_migration_complete": {
+      "class": "runtime"
+    }
+  },
+  "notes": [
+    "Experimental 2.7.5 settings capsule. Nine controls were Saved and reopened natively on two disposable sites; capsule conformance and production readiness remain pending.",
+    "Authored mapping templates are not classified runtime: their selected-user codec is available, but complete template identity, header mappings and target-local CSV input semantics remain outside this milestone. Operational history, generated exports/logs, imported users and customer data are never authored settings.",
+    "The native settings Save invokes wt_iew_after_advanced_setting_update_basic, whose history listener can delete files and records. WPrism must materialize configuration without replaying this operational action."
+  ]
+}

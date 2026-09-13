@@ -1,0 +1,12 @@
+{
+  "plugins": {
+    "users-customers-import-export-for-wp-woocommerce": {
+      "2.7.5": {
+        "url": "https://downloads.wordpress.org/plugin/users-customers-import-export-for-wp-woocommerce.2.7.5.zip",
+        "sha256": "6b7bd053960bee782e900688dac0cfed9df2519a2a0cdf72f65cf47d4b77e4a2",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}

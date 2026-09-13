@@ -1,0 +1,54 @@
+{
+  "status": "experimental",
+  "reason": "Native settings discovery supports nine explicit subkeys. Offline and native capsule conformance, populated-history preservation, lifecycle and plugin combinations are still being authored; this is not production authorization.",
+  "supported_versions": {
+    "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
+    "range": {
+      "min": "2.7.5",
+      "max": "2.7.6"
+    }
+  },
+  "default_authored_keyspaces": [],
+  "capabilities": {
+    "entity_sections": [],
+    "field_sections": [
+      "options"
+    ],
+    "operations": [
+      "capture",
+      "compile",
+      "recapture"
+    ],
+    "lifecycle_phases": [],
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "mapping template, history, user and customer deletion"
+      ]
+    }
+  },
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-package-contract",
+      "regress-native-settings"
+    ]
+  },
+  "unsupported": [
+    {
+      "operation": "apply",
+      "surface": "adapter",
+      "reason": "Complete capsule Apply, populated operational-history preservation and native recovery are not yet proven."
+    },
+    {
+      "operation": "deploy",
+      "surface": "adapter",
+      "reason": "Lifecycle, adjacent-version and participant-declared combination evidence remain pending."
+    },
+    {
+      "operation": "capture",
+      "surface": "wt_iew_mapping_template; unnamed advanced setting keys; generated exports/logs; users and customers",
+      "reason": "Template semantics and local CSV bindings remain unqualified. Other module settings remain local; operational records and user/customer data are not authored configuration."
+    }
+  ]
+}
