@@ -300,9 +300,9 @@ wprism_check_same(
     'the optional-core source union has one explicit schema'
 );
 wprism_check_same(
-    ['11.0.0', '11.0.1'],
+    ['11.0.0', '11.0.1', '11.1.0'],
     array_keys((array) ($inventory['artifacts'] ?? [])),
-    'the optional-core inventory admits only the two exact reviewed artifacts'
+    'the optional-core inventory admits only the exact reviewed artifacts'
 );
 foreach ((array) ($inventory['artifacts'] ?? []) as $version => $sha256) {
     wprism_check_same(
@@ -311,16 +311,20 @@ foreach ((array) ($inventory['artifacts'] ?? []) as $version => $sha256) {
         "optional-core source evidence is pinned to the official WooCommerce $version artifact"
     );
 }
+// Thirty-four paths in total. Six of them diverge in 11.1.0 and are pinned per
+// artifact below, so the byte-identical set is the remainder rather than a
+// number that quietly shrinks when an artifact is admitted.
 wprism_check_same(
-    32,
-    count((array) ($inventory['source_files'] ?? [])),
-    'the inventory binds all 32 exact optional-core storage writers, readers, and registries'
+    34,
+    count((array) ($inventory['source_files'] ?? []))
+        + count((array) ($inventory['version_specific_source_files'] ?? [])),
+    'the inventory binds all 34 exact optional-core storage writers, readers, and registries'
 );
 foreach ((array) ($inventory['source_files'] ?? []) as $path => $sha256) {
     wprism_check(
         is_string($path) && $path !== ''
             && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
-        "$path carries one reviewed byte-identical 11.0.0/11.0.1 source digest"
+        "$path carries one reviewed source digest byte-identical across every admitted artifact"
     );
 }
 wprism_check_same(
@@ -328,14 +332,36 @@ wprism_check_same(
         'includes/class-woocommerce.php' => [
             '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
             '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+            '11.1.0' => 'b4763ca729371c09b0a2b5ee8f542a9f29ad4201dea12553779d222098218faa'
+        ],
+        'src/Internal/EmailEditor/Integration.php' => [
+            '11.0.0' => '017fac02e739a7069e9ef2cb4326d1670438bc8db84171be33469f1ec60b7883',
+            '11.0.1' => '017fac02e739a7069e9ef2cb4326d1670438bc8db84171be33469f1ec60b7883',
+            '11.1.0' => 'c47cba2e5c7dd1c8135f5b3e8ef204e52c3c54c55f63db4b1f2817b8fb08052f'
+        ],
+        'src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsGenerator.php' => [
+            '11.0.0' => '8f34b2614665dd5d7dd6394914da4906ea7c7c9de22711f3e42e72d70259049d',
+            '11.0.1' => '8f34b2614665dd5d7dd6394914da4906ea7c7c9de22711f3e42e72d70259049d',
+            '11.1.0' => 'e5297e268992b6f31dbebe6db4bf3acef342d06a916c7d6092e6290ebea8ff90'
+        ],
+        'src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsManager.php' => [
+            '11.0.0' => 'b3126f190e4eb0a1bd033cc586b2cae38e179ecc127c5f34c2e08768bb376a99',
+            '11.0.1' => 'b3126f190e4eb0a1bd033cc586b2cae38e179ecc127c5f34c2e08768bb376a99',
+            '11.1.0' => '0b28c87246fa28ac5e2daedf63377ab57e2c04656262418d2fe46c331ffe6281'
         ],
         'src/Internal/OrderReviews/Endpoint.php' => [
             '11.0.0' => 'dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8',
             '11.0.1' => '326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3',
+            '11.1.0' => '90537df37d1ce1615158e2ed499a0e68375b31731119f7e0ea6072cc97feedda'
+        ],
+        'src/Internal/VariationGallery/Package.php' => [
+            '11.0.0' => '1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8',
+            '11.0.1' => '1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8',
+            '11.1.0' => '9b59cc813088eec71765fdbddca4cf664125afc761a9f15828c278c76971c644'
         ],
     ],
     $inventory['version_specific_source_files'] ?? null,
-    'the optional review-route bootstrap and endpoint behavior bind both exact version-specific artifacts'
+    'every optional-core path that diverges between admitted artifacts is pinned per artifact'
 );
 wprism_check_same(
     [

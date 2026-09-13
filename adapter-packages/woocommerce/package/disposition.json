@@ -58,7 +58,7 @@
     "supported_versions": {
         "plugin": "woocommerce/woocommerce.php",
         "range": {
-            "max": "11.0.2",
+            "max": "11.1.1",
             "min": "11.0.0"
         }
     },

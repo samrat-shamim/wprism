@@ -576,7 +576,7 @@ foreach ($policy->manifests as $manifest) {
     }
 }
 $valid = array_column($loaded, "name") === ["core", "woocommerce"]
-    && ($woocommerce["version_range"] ?? null) === ["min" => "11.0.0", "max" => "11.0.2"]
+    && ($woocommerce["version_range"] ?? null) === ["min" => "11.0.0", "max" => "11.1.1"]
     && ($evidence["rules"]["option:pickup_location_pickup_locations"] ?? null) === [
         "rule" => ["class" => "authored", "plain_data" => true, "allow_pii" => true, "autoload" => "preserve"],
         "source" => "woocommerce",
@@ -1274,12 +1274,14 @@ version_matrix_reset_after_delete() {
 }
 
 version_matrix_workflow() {
-# WooCommerce 11.0.0 is the declared minimum and 11.0.1 is the current exact
-# release below the exclusive 11.0.2 bound. Certify both artifacts, then upgrade populated 11.0.0
-# environments in place so a fresh 11.0.1 install is not mistaken for upgrade
-# compatibility.
+# WooCommerce 11.0.0 is the declared minimum and 11.1.0 is the current exact
+# release below the exclusive 11.1.1 bound. Certify both edges, then upgrade populated 11.0.0
+# environments in place so a fresh 11.1.0 install is not mistaken for upgrade
+# compatibility. 11.0.1 sits inside the window rather than on an edge; standalone
+# conformance and the in-range downgrade control below keep it probed, which is
+# what keeps its artifact-lock pin honest.
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for WOO_VERSION in 11.0.0 11.0.1; do
+for WOO_VERSION in 11.0.0 11.1.0; do
   say "boundary: woocommerce $WOO_VERSION"
 
   reset_env wp1
@@ -1381,42 +1383,42 @@ EOF
   check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"
 
   if [ "$WOO_VERSION" = 11.0.0 ]; then
-    say 'in-place upgrade: populated woocommerce 11.0.0 -> exact 11.0.1 on both environments'
-    UPGRADE_ARTIFACT_1=$(fetch_artifact woocommerce 11.0.1 cli1)
-    UPGRADE_ARTIFACT_2=$(fetch_artifact woocommerce 11.0.1 cli2)
+    say 'in-place upgrade: populated woocommerce 11.0.0 -> exact 11.1.0 on both environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact woocommerce 11.1.0 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact woocommerce 11.1.0 cli2)
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
-    [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.1 ] \
-      || fail 'WooCommerce source in-place upgrade did not install exact 11.0.1'
+    [ "$(wp1 plugin get woocommerce --field=version)" = 11.1.0 ] \
+      || fail 'WooCommerce source in-place upgrade did not install exact 11.1.0'
     host_wprism conf1 deploy --force-code-drift >/dev/null
     wp1 eval '
       $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
       if (!$product) { throw new RuntimeException("upgrade product missing"); }
-      $product->set_purchase_note("WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀");
+      $product->set_purchase_note("WooCommerce 11.0.0 to 11.1.0 upgrade 東京 🚀");
       $product->save();
     ' >/dev/null
     wp1 wprism capture --repo=/siterepo
     wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
-    "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+    "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.0 to 11.1.0 in-place upgrade'
     "${GIT1[@]}" push -q origin main
 
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
-    [ "$(wp2 plugin get woocommerce --field=version)" = 11.0.1 ] \
-      || fail 'WooCommerce target in-place upgrade did not install exact 11.0.1'
+    [ "$(wp2 plugin get woocommerce --field=version)" = 11.1.0 ] \
+      || fail 'WooCommerce target in-place upgrade did not install exact 11.1.0'
     git -C "siterepo/${PAIR}2" pull -q origin main
     host_wprism conf2 deploy --force-code-drift >/dev/null
     normalize_woocommerce_harness_placeholder_mode wp2
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
+    woocommerce_preapply_authority_assertion 11.1.0 'in-place upgrade'
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
-      || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+      || fail 'apply canary not clean after woocommerce 11.0.0 to 11.1.0 in-place upgrade'
     UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)
     [ "$UPGRADE_PROVIDER_COUNT" -eq 1 ] \
       && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.1\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
-      || fail 'WooCommerce 11.0.0 -> 11.0.1 product-note upgrade did not invoke exactly one verified product-lookup provider'
+      || fail 'WooCommerce 11.0.0 -> 11.1.0 product-note upgrade did not invoke exactly one verified product-lookup provider'
     SAVED_WOO_VERSION="$WOO_VERSION"
     WOO_VERSION=11.0.1
     check_woocommerce_content
@@ -1508,19 +1510,19 @@ woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 
-say "negative control: woocommerce synthetic 11.0.2 (the exclusive upper endpoint) must be REFUSED before deploy mutates lifecycle state"
+say "negative control: woocommerce synthetic 11.1.1 (the exclusive upper endpoint) must be REFUSED before deploy mutates lifecycle state"
 reset_env wp1
 reset_case_repositories
 
-# wp.org does not supply a published 11.0.2 archive. Start from the exact
-# admitted 11.0.1 artifact and replace only its Version header in this
+# wp.org does not supply a published 11.1.1 archive. Start from the exact
+# admitted 11.1.0 artifact and replace only its Version header in this
 # disposable container. That is the narrowest executable upper-bound fixture:
 # WordPress itself parses the synthetic endpoint, while every other source byte
-# and the captured Woo state remain the reviewed 11.0.1 product path.
-IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1)
+# and the captured Woo state remain the reviewed 11.1.0 product path.
+IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.1.0 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
-[ "$(wp1 plugin get woocommerce --field=version)" = "11.0.1" ] \
-  || fail "upper-bound premise did not install exact WooCommerce 11.0.1 bytes"
+[ "$(wp1 plugin get woocommerce --field=version)" = "11.1.0" ] \
+  || fail "upper-bound premise did not install exact WooCommerce 11.1.0 bytes"
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "upper-bound source could not establish HPOS through WooCommerce's native new-shop lifecycle"
 cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
@@ -1551,17 +1553,17 @@ wp1 plugin deactivate woocommerce >/dev/null
 wp1 eval '
 $path = WP_PLUGIN_DIR . "/woocommerce/woocommerce.php";
 $bytes = file_get_contents($path);
-if (!is_string($bytes) || substr_count($bytes, " * Version: 11.0.1") !== 1) {
-    throw new RuntimeException("exclusive-upper fixture did not find one 11.0.1 Version header");
+if (!is_string($bytes) || substr_count($bytes, " * Version: 11.1.0") !== 1) {
+    throw new RuntimeException("exclusive-upper fixture did not find one 11.1.0 Version header");
 }
-$next = preg_replace("/^ \\* Version: 11\\.0\\.1$/m", " * Version: 11.0.2", $bytes, 1);
+$next = preg_replace("/^ \\* Version: 11\\.1\\.0$/m", " * Version: 11.1.1", $bytes, 1);
 if (!is_string($next) || $next === $bytes || file_put_contents($path, $next) !== strlen($next)) {
     throw new RuntimeException("exclusive-upper fixture could not replace the inactive plugin Version header");
 }
 ' >/dev/null
 UPPER_INSTALLED=$(wp1 plugin get woocommerce --field=version)
-[ "$UPPER_INSTALLED" = "11.0.2" ] \
-  || fail "exclusive-upper fixture expected WordPress to parse WooCommerce 11.0.2, got $UPPER_INSTALLED"
+[ "$UPPER_INSTALLED" = "11.1.1" ] \
+  || fail "exclusive-upper fixture expected WordPress to parse WooCommerce 11.1.1, got $UPPER_INSTALLED"
 PRE_REFUSAL_ACTIVE=$(wp1 option get active_plugins --format=json | tail -1)
 PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)
 PRE_REFUSAL_REPO=$(git -C "siterepo/${PAIR}1" status --porcelain)
@@ -1570,10 +1572,10 @@ set +e
 DEPLOY_OUT=$(host_wprism conf1 deploy 2>&1)
 DEPLOY_RC=$?
 set -e
-[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.1.1 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
 woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
   'WooCommerce exclusive-upper deploy refusal' \
-  'declared version_range' 'woocommerce/woocommerce\.php' '11\.0\.2'
+  'declared version_range' 'woocommerce/woocommerce\.php' '11\.1\.1'
 [ "$(wp1 option get active_plugins --format=json | tail -1)" = "$PRE_REFUSAL_ACTIVE" ] \
   || fail "exclusive-upper code mismatch changed active_plugins before refusing"
 [ "$(git -C "siterepo/${PAIR}1" rev-parse HEAD)" = "$PRE_REFUSAL_HEAD" ] \
@@ -1581,5 +1583,5 @@ woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
 [ "$(git -C "siterepo/${PAIR}1" status --porcelain)" = "$PRE_REFUSAL_REPO" ] \
   || fail "exclusive-upper code mismatch changed the captured repository before refusing"
 printf '%s\n' "$DEPLOY_OUT"
-pass "confirmed: synthetic WooCommerce 11.0.2 is rejected at the exclusive upper bound before deploy changes lifecycle state or the captured repository"
+pass "confirmed: synthetic WooCommerce 11.1.1 is rejected at the exclusive upper bound before deploy changes lifecycle state or the captured repository"
 }

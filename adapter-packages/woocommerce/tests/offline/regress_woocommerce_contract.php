@@ -152,8 +152,8 @@ foreach ($operationalSourcePaths as $sourcePath) {
         continue;
     }
     $versionHashes = (array) ($operationalVersionSources[$sourcePath] ?? []);
-    woo_ok(array_keys($versionHashes) === ['11.0.0', '11.0.1'],
-        "$sourcePath binds both exact artifact-specific operational source hashes");
+    woo_ok(array_keys($versionHashes) === ['11.0.0', '11.0.1', '11.1.0'],
+        "$sourcePath binds every exact artifact-specific operational source hash");
     foreach ($versionHashes as $version => $sha256) {
         woo_ok(is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
             "$sourcePath@$version has one exact operational source hash");
@@ -161,9 +161,9 @@ foreach ($operationalSourcePaths as $sourcePath) {
     }
 }
 woo_ok(($operationalSourceUnion['source_count'] ?? null) === 82
-    && ($operationalSourceUnion['shared_source_count'] ?? null) === 80
-    && count($operationalSharedSources) === 80
-    && count($operationalVersionSources) === 2
+    && ($operationalSourceUnion['shared_source_count'] ?? null) === 60
+    && count($operationalSharedSources) === 60
+    && count($operationalVersionSources) === 22
     && count($operationalSourcePaths) === 82
     && ($operationalSourceUnion['source_set_sha256'] ?? null)
         === hash('sha256', $operationalSourceBytes)
@@ -178,33 +178,63 @@ woo_ok(($operationalSourceUnion['classification_counts'] ?? null) === [
     'extension_prefix' => 2,
     'runtime' => 77,
     'runtime_prefix' => 3,
-] && ($operationalSourceUnion['version_specific_source_files'] ?? null) === [
-    'includes/class-woocommerce.php' => [
-        '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
-        '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
-    ],
-    'includes/wc-product-functions.php' => [
-        '11.0.0' => '19aa8c372aef52ec9526d91115003e6c1f35cf5cd783bfa873e55c951c78c9be',
-        '11.0.1' => 'e73e5fe1dd2844bf2bdc3a59bf728b6d38aee79b2152f616f2f993f515975c76',
-    ],
-], 'the operational union freezes every class count and both exact artifact-specific source authorities');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 97,
-    'the inventory binds all ninety-seven byte-identical visible, operational, container, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, attachment-bootstrap, frontend-read, and conditional tracking-topology sources');
+],
+    'the operational union freezes every residual class count');
+// Which files diverge between the admitted artifacts is frozen by name here;
+// their exact per-version hashes are already bound byte-for-byte by
+// source_set_sha256 above, which is recomputed from this same map rather than
+// trusted. Inlining sixty-six hashes would restate that digest unreadably.
+woo_ok(array_keys((array) ($operationalSourceUnion['version_specific_source_files'] ?? [])) === [
+    'includes/admin/class-wc-admin-notices.php',
+    'includes/admin/class-wc-admin-setup-wizard.php',
+    'includes/admin/class-wc-admin.php',
+    'includes/admin/settings/class-wc-settings-emails.php',
+    'includes/class-wc-ajax.php',
+    'includes/class-wc-install.php',
+    'includes/class-wc-payment-gateways.php',
+    'includes/class-woocommerce.php',
+    'includes/data-stores/class-wc-product-variable-data-store-cpt.php',
+    'includes/wc-product-functions.php',
+    'includes/wc-update-functions.php',
+    'src/Admin/API/OnboardingTasks.php',
+    'src/Admin/Features/OnboardingTasks/Tasks/CustomizeStore.php',
+    'src/Admin/Features/OnboardingTasks/Tasks/Shipping.php',
+    'src/Admin/Features/OnboardingTasks/Tasks/Tax.php',
+    'src/Admin/Features/PaymentGatewaySuggestions/DefaultPaymentGateways.php',
+    'src/Internal/Admin/Analytics.php',
+    'src/Internal/Admin/Events.php',
+    'src/Internal/Admin/Homescreen.php',
+    'src/Internal/Admin/Settings/PaymentsProviders.php',
+    'src/Internal/Admin/SystemStatusReport.php',
+    'src/Internal/DataStores/Orders/DataSynchronizer.php',
+], 'the operational union freezes the exact set of artifact-specific source authorities');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 69
+    && count((array) ($settingsInventory['version_specific_source_files'] ?? [])) === 30,
+    'the inventory binds all ninety-nine visible, operational, container, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, attachment-bootstrap, frontend-read, and conditional tracking-topology sources, split into those byte-identical across every admitted artifact and those that are not');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
             && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
-        "$sourceFile carries one exact shared 11.0.0/11.0.1 source digest"
+        "$sourceFile carries one exact source digest shared by every admitted artifact"
     );
 }
+// The upload path stays byte-identical across every admitted artifact; the two
+// bootstrap paths diverge in 11.1.0 and are pinned per artifact instead, so this
+// keeps naming the exact callback authority rather than loosening to a count.
 woo_ok(
     ($settingsInventory['source_files']['includes/admin/class-wc-admin-upload-downloadable-product.php'] ?? null)
         === '9429ae47760787c84156b9c29514294e49b0d4ec98856b43bb0a704435f82c1e'
-        && ($settingsInventory['source_files']['includes/admin/class-wc-admin-post-types.php'] ?? null)
-            === '65743558642c7c92aa15d5971ebafc310d4e3a8dd076c84f1e033861b6d6c601'
-        && ($settingsInventory['source_files']['src/Admin/API/Init.php'] ?? null)
-            === 'b0d48420c2337f176bbab5d1b1bba662e6f8b58c96eef33cb04ab0e5d0727691',
-    'both exact admin bootstrap paths register one byte-identical downloadable-upload callback authority'
+        && ($settingsInventory['version_specific_source_files']['includes/admin/class-wc-admin-post-types.php'] ?? null) === [
+            '11.0.0' => '65743558642c7c92aa15d5971ebafc310d4e3a8dd076c84f1e033861b6d6c601',
+            '11.0.1' => '65743558642c7c92aa15d5971ebafc310d4e3a8dd076c84f1e033861b6d6c601',
+            '11.1.0' => '9af48c2aeebe36313d0d9c5bd206904663d2f1e2c3675f18eb74fbb9edc347d5',
+        ]
+        && ($settingsInventory['version_specific_source_files']['src/Admin/API/Init.php'] ?? null) === [
+            '11.0.0' => 'b0d48420c2337f176bbab5d1b1bba662e6f8b58c96eef33cb04ab0e5d0727691',
+            '11.0.1' => 'b0d48420c2337f176bbab5d1b1bba662e6f8b58c96eef33cb04ab0e5d0727691',
+            '11.1.0' => 'd82d2cf797721ddde2745e689a0ee3c3d71e70f310d6b1245c538014a3394fb6',
+        ],
+    'every admitted artifact registers its exact downloadable-upload callback authority'
 );
 woo_ok(
     ($settingsInventory['source_files']['src/Internal/CustomerEmailVerification/CustomerEmailVerification.php'] ?? null)
@@ -212,6 +242,7 @@ woo_ok(
         && ($settingsInventory['version_specific_source_files']['includes/class-woocommerce.php'] ?? null) === [
             '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
             '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+            '11.1.0' => 'b4763ca729371c09b0a2b5ee8f542a9f29ad4201dea12553779d222098218faa',
         ],
     'both exact bootstrap paths always resolve and register the customer verification email subsystem'
 );
@@ -223,8 +254,11 @@ woo_ok(
 woo_ok(
     ($settingsInventory['source_files']['includes/customizer/class-wc-shop-customizer.php'] ?? null)
         === '6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53'
-        && ($settingsInventory['source_files']['includes/wc-template-functions.php'] ?? null)
-            === '33bab39b8616f42c6ac8f9c1901977f6ea440208817268dad1b7c2f035e82485'
+        && ($settingsInventory['version_specific_source_files']['includes/wc-template-functions.php'] ?? null) === [
+            '11.0.0' => '33bab39b8616f42c6ac8f9c1901977f6ea440208817268dad1b7c2f035e82485',
+            '11.0.1' => '33bab39b8616f42c6ac8f9c1901977f6ea440208817268dad1b7c2f035e82485',
+            '11.1.0' => '11e0d9538353785f938d99b5a4e41b5d5a4af57984acb45e17ab955d1d10f4ab',
+        ]
         && ($settingsInventory['source_files']['src/Admin/API/Options.php'] ?? null)
             === '475588425f5657d7d951ffcd33b64521bdae5d0e6fd3cad0d37e0d73b7a14dcb',
     'the store-notice Customizer writer, legacy settings endpoint, and site-wide frontend reader are exact across both artifacts'
@@ -236,6 +270,7 @@ woo_ok(
             === [
                 '11.0.0' => 'dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8',
                 '11.0.1' => '326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3',
+                '11.1.0' => '90537df37d1ce1615158e2ed499a0e68375b31731119f7e0ea6072cc97feedda',
             ],
     'the review-page resolver and both exact route implementations are source-bound despite the 11.0.1 auth hardening'
 );
@@ -258,43 +293,100 @@ $schedulerSources = [
     'packages/action-scheduler/classes/data-stores/ActionScheduler_DBStore.php' => '23e5ca462db869b2e5f4114edd116565822c963b45dfe8572cbe69803f101144',
     'packages/action-scheduler/classes/schema/ActionScheduler_LoggerSchema.php' => '12311d4a842b3ecb7602fcae7ea957d03b83a1f9f1f8a1746bc7dab453f26890',
     'packages/action-scheduler/classes/schema/ActionScheduler_StoreSchema.php' => 'c917c87ed0680f2a7881c56e7a60f8bd087dcd04497a597f388150735faf0c05',
-    'src/Admin/Features/Features.php' => '095b85cd1c689dd7e712ce4b011eaf168d01e5b18fa21cf4e3bc1fba3d439fcc',
+    'src/Admin/Features/Features.php' => [
+        '11.0.0' => '095b85cd1c689dd7e712ce4b011eaf168d01e5b18fa21cf4e3bc1fba3d439fcc',
+        '11.0.1' => '095b85cd1c689dd7e712ce4b011eaf168d01e5b18fa21cf4e3bc1fba3d439fcc',
+        '11.1.0' => '69974d3d7be99bf82dc12462a559d39601cf51d528f4e263f9d1106017ee3f95',
+    ],
     'src/Admin/Schedulers/SchedulerTraits.php' => 'fa94da88dc1d4c367dddcf68435f3a6abad92ab27514b2f4ad04395a6e1d1a94',
-    'src/Internal/Admin/Schedulers/OrdersScheduler.php' => 'f9a47c8f6b682cafca5d6c218a710a5a6b050000f2990f7a4890d2eb4d9798bb',
+    'src/Internal/Admin/Schedulers/OrdersScheduler.php' => [
+        '11.0.0' => 'f9a47c8f6b682cafca5d6c218a710a5a6b050000f2990f7a4890d2eb4d9798bb',
+        '11.0.1' => 'f9a47c8f6b682cafca5d6c218a710a5a6b050000f2990f7a4890d2eb4d9798bb',
+        '11.1.0' => '349ed8a1a046baba4d3419335b089dbb96115b7f7de0b80718d7ca734fb0b6e6',
+    ],
     'src/Internal/DataStores/Orders/CustomOrdersTableController.php' => 'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf',
-    'src/Internal/DataStores/Orders/DataSynchronizer.php' => 'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234',
-    'src/Internal/Features/FeaturesController.php' => 'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2',
+    'src/Internal/DataStores/Orders/DataSynchronizer.php' => [
+        '11.0.0' => 'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234',
+        '11.0.1' => 'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234',
+        '11.1.0' => 'a431e293f882f6ed0517de243856bff419454888d65d1c0e5779ad7959abc594',
+    ],
+    'src/Internal/Features/FeaturesController.php' => [
+        '11.0.0' => 'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2',
+        '11.0.1' => 'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2',
+        '11.1.0' => '667bd335a443c93e9746d8be05309b98877cc4498888fdb91fe93a13a8b30348',
+    ],
     'src/Internal/StockNotifications/DataRetentionController.php' => '22873bc914fae710dc9f5464057a67bd784cb7c2986e122fd5b5cfeffc5e0e0f',
 ];
 foreach ($schedulerSources as $sourceFile => $sha256) {
-    woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
-        "$sourceFile is exact and byte-identical across official WooCommerce 11.0.0/11.0.1");
+    // A string pins a file byte-identical across every admitted artifact; an
+    // array pins its exact hash per artifact for the ones that diverge.
+    $recorded = is_array($sha256)
+        ? ($settingsInventory['version_specific_source_files'][$sourceFile] ?? null)
+        : ($settingsInventory['source_files'][$sourceFile] ?? null);
+    woo_ok($recorded === $sha256,
+        "$sourceFile is pinned exactly for every admitted official WooCommerce artifact");
 }
 $thumbnailSources = [
     'includes/class-wc-post-data.php' => '0c4cd2da527f3207083a55a6e941d26faa4962ebcc87c34d63ba2d10c1b889d9',
-    'includes/class-wc-regenerate-images-request.php' => '42488e32d32f611af7a85a46e578b26f604727c8b4458ee7b86c83a621d72fb6',
-    'includes/class-wc-regenerate-images.php' => '8211a8d6771a553b42799691815c2566415e762790de45d8148cb10dfe66dc5e',
+    'includes/class-wc-regenerate-images-request.php' => [
+        '11.0.0' => '42488e32d32f611af7a85a46e578b26f604727c8b4458ee7b86c83a621d72fb6',
+        '11.0.1' => '42488e32d32f611af7a85a46e578b26f604727c8b4458ee7b86c83a621d72fb6',
+        '11.1.0' => '61da3cfdc9de5eb68f2b66971c9ea094b5044a9dbc04ac4cba13dde5406200b2',
+    ],
+    'includes/class-wc-regenerate-images.php' => [
+        '11.0.0' => '8211a8d6771a553b42799691815c2566415e762790de45d8148cb10dfe66dc5e',
+        '11.0.1' => '8211a8d6771a553b42799691815c2566415e762790de45d8148cb10dfe66dc5e',
+        '11.1.0' => '79deb8277633869e9647b0c86d0d564ea510dc87ade41f7cc6389ed9aac90aa8',
+    ],
     'includes/customizer/class-wc-shop-customizer.php' => '6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53',
-    'includes/wc-core-functions.php' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684',
+    'includes/wc-core-functions.php' => [
+        '11.0.0' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684',
+        '11.0.1' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684',
+        '11.1.0' => '644fcf86ccb4b58bef3c2e02bf3138ce8ccad8da3763ef472474e62fb2749923',
+    ],
     'src/StoreApi/Schemas/V1/ImageAttachmentSchema.php' => 'ee557f57b75fe8849fb97002a08e5b779be98b721c770a95cad06d6d98979df9',
 ];
 foreach ($thumbnailSources as $sourceFile => $sha256) {
-    woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
-        "$sourceFile is exact and byte-identical across official WooCommerce 11.0.0/11.0.1");
+    // A string pins a file byte-identical across every admitted artifact; an
+    // array pins its exact hash per artifact for the ones that diverge.
+    $recorded = is_array($sha256)
+        ? ($settingsInventory['version_specific_source_files'][$sourceFile] ?? null)
+        : ($settingsInventory['source_files'][$sourceFile] ?? null);
+    woo_ok($recorded === $sha256,
+        "$sourceFile is pinned exactly for every admitted official WooCommerce artifact");
 }
 $operationalAuthorities = [
-    'includes/admin/class-wc-admin-notices.php' => 'bf4a07c145f7005804c23357f6c2e82b06fa5f284e21cffbf79d87c120ff507e',
+    'includes/admin/class-wc-admin-notices.php' => [
+        '11.0.0' => 'bf4a07c145f7005804c23357f6c2e82b06fa5f284e21cffbf79d87c120ff507e',
+        '11.0.1' => 'bf4a07c145f7005804c23357f6c2e82b06fa5f284e21cffbf79d87c120ff507e',
+        '11.1.0' => '8d5e8fdbcb6413f9646ee7beebd91d28657c002aad9f2cbb4350fd8c9d868979',
+    ],
     'includes/admin/class-wc-admin-permalink-settings.php' => 'db546611151444e54677ea4f3a4317181a49c4f5aa9095740fa88e4bbdf32969',
-    'includes/admin/class-wc-admin-setup-wizard.php' => '920cd8767034ce6e2379ce6641524334bdbd1b47980e40227297d0943fcda301',
-    'includes/wc-update-functions.php' => 'ef71483132ffca291e1672818f013a5b005673513b37b67a8934a6c28f438f94',
+    'includes/admin/class-wc-admin-setup-wizard.php' => [
+        '11.0.0' => '920cd8767034ce6e2379ce6641524334bdbd1b47980e40227297d0943fcda301',
+        '11.0.1' => '920cd8767034ce6e2379ce6641524334bdbd1b47980e40227297d0943fcda301',
+        '11.1.0' => 'e411dcb3f9a64480652d982c09f2d40011e163b14e3cfba68fa65509dffbaecc',
+    ],
+    'includes/wc-update-functions.php' => [
+        '11.0.0' => 'ef71483132ffca291e1672818f013a5b005673513b37b67a8934a6c28f438f94',
+        '11.0.1' => 'ef71483132ffca291e1672818f013a5b005673513b37b67a8934a6c28f438f94',
+        '11.1.0' => 'f974617e456b5544e3923d0aa75b1b4907bccd2d9cc4a72482f0d8fdc9b22a2e',
+    ],
     'includes/wc-user-functions.php' => 'e504b14bd34a5fd156cce2e91a9933a126db549213ddb821994a0ce5efab4330',
-    'src/Internal/Admin/Events.php' => 'e8e5acf756a2d35444246875723df09022bdc750048185b2309c4a9650cc562f',
+    'src/Internal/Admin/Events.php' => [
+        '11.0.0' => 'e8e5acf756a2d35444246875723df09022bdc750048185b2309c4a9650cc562f',
+        '11.0.1' => 'e8e5acf756a2d35444246875723df09022bdc750048185b2309c4a9650cc562f',
+        '11.1.0' => '72c33b04c5cf02f83992ae0fbdc515313ef3fb96f15b6815b90fa00709343e8d',
+    ],
     'src/Internal/RestApi/Routes/V4/Settings/Products/Controller.php' => '8cc95559c063f06d5c34fd08eb0be0a96cc8c6e24331a8f63a96616b751c4135',
     'src/Internal/RestApi/Routes/V4/Settings/Products/Schema/ProductSettingsSchema.php' => '2c1e9afc9acd4acc1590352acfafb0a9737ffe44f73fb5102ac82f2cbd2b5bdb',
 ];
 foreach ($operationalAuthorities as $sourceFile => $sha256) {
-    woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
-        "$sourceFile is exact operational/source-union authority shared by both admitted artifacts");
+    $recorded = is_array($sha256)
+        ? ($settingsInventory['version_specific_source_files'][$sourceFile] ?? null)
+        : ($settingsInventory['source_files'][$sourceFile] ?? null);
+    woo_ok($recorded === $sha256,
+        "$sourceFile is exact operational/source-union authority for every admitted artifact");
 }
 foreach ((array) ($settingsInventory['artifacts'] ?? []) as $version => $sha256) {
     woo_ok(
@@ -302,14 +394,19 @@ foreach ((array) ($settingsInventory['artifacts'] ?? []) as $version => $sha256)
         "settings source inventory is pinned to the official WooCommerce $version artifact"
     );
 }
-woo_ok(array_keys((array) ($settingsInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1']
-    && ($manifest['version_range'] ?? null) === ['min' => '11.0.0', 'max' => '11.0.2'],
-    'the source inventory and manifest admit exactly the same two official artifacts');
+woo_ok(array_keys((array) ($settingsInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1', '11.1.0']
+    && ($manifest['version_range'] ?? null) === ['min' => '11.0.0', 'max' => '11.1.1'],
+    'the source inventory and manifest admit exactly the same three official artifacts');
 woo_ok(($externalProductInventory['format'] ?? null) === 'wprism-woocommerce-external-product-inventory/v1',
     'external products use one exact source-derived inventory');
-woo_ok(array_keys((array) ($externalProductInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1']
-    && count((array) ($externalProductInventory['source_files'] ?? [])) === 7,
-    'the external-product inventory binds both admitted artifacts and all seven native persistence/read paths');
+// Two of these seven were recorded as byte-identical across the admitted
+// artifacts while actually carrying 11.0.1's hash: the REST product controllers
+// differ in 11.0.0. Splitting the union to admit 11.1.0 exposed and corrected
+// that, so the count is now expressed as the union rather than as one map.
+woo_ok(array_keys((array) ($externalProductInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1', '11.1.0']
+    && count((array) ($externalProductInventory['source_files'] ?? []))
+        + count((array) ($externalProductInventory['version_specific_source_files'] ?? [])) === 7,
+    'the external-product inventory binds every admitted artifact and all seven native persistence/read paths');
 foreach ((array) ($externalProductInventory['artifacts'] ?? []) as $version => $sha256) {
     woo_ok(($artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null) === $sha256,
         "external-product source evidence is pinned to official WooCommerce $version");
@@ -323,7 +420,8 @@ woo_ok(($externalProductInventory['contract']['authored_post_meta'] ?? null) ===
     && ($externalProductInventory['contract']['url_semantics'] ?? null) === 'source-home-tokenized-target-home-rebound',
     'the external-product inventory closes its two authored rows and target-local URL identity');
 woo_ok(($termSurfaceInventory['format'] ?? null) === 'wprism-woocommerce-term-surface-inventory/v1'
-    && count((array) ($termSurfaceInventory['source_files'] ?? [])) === 15,
+    && count((array) ($termSurfaceInventory['source_files'] ?? []))
+        + count((array) ($termSurfaceInventory['version_specific_source_files'] ?? [])) === 15,
     'the brand/category/visual inventory binds all fifteen exact native paths');
 foreach ((array) ($termSurfaceInventory['artifacts'] ?? []) as $version => $sha256) {
     woo_ok(($artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null) === $sha256,
@@ -427,8 +525,21 @@ foreach ([
     woo_ok(($policy->option_rule($featureOption)['class'] ?? null) === 'env',
         "$featureOption is an explicit target platform feature control");
 }
-woo_ok(count((array) ($settingsInventory['feature_option_ids'] ?? [])) === 31,
-    'the inventory freezes every exact core feature option key, including custom-key definitions');
+// 11.1.0 adds two feature definitions -- order_withdrawal, and the
+// ProductMediaGallery package whose explicit option_key is
+// woocommerce_feature_product_gallery_videos_enabled. The manifest pattern that
+// admits these is a closed alternation, not woocommerce_feature_[a-z_]+_enabled,
+// so a new upstream feature is uncovered until it is reviewed. Both are env,
+// matching all twenty-seven feature-prefixed flags already classified and the
+// variation-gallery predecessor of the gallery one.
+woo_ok(count((array) ($settingsInventory['feature_option_ids'] ?? [])) === 34
+    && ($settingsInventory['feature_option_ids']['woocommerce_feature_block_editor_unified_assets_enabled'] ?? null) === 'env'
+    && ($policy->option_rule('woocommerce_feature_block_editor_unified_assets_enabled')['class'] ?? null) === 'env'
+    && ($settingsInventory['feature_option_ids']['woocommerce_feature_order_withdrawal_enabled'] ?? null) === 'env'
+    && ($settingsInventory['feature_option_ids']['woocommerce_feature_product_gallery_videos_enabled'] ?? null) === 'env'
+    && ($policy->option_rule('woocommerce_feature_order_withdrawal_enabled')['class'] ?? null) === 'env'
+    && ($policy->option_rule('woocommerce_feature_product_gallery_videos_enabled')['class'] ?? null) === 'env',
+    'the inventory freezes every exact core feature option key, including the three 11.1.0 additions');
 foreach ((array) ($settingsInventory['feature_option_ids'] ?? []) as $featureOption => $classification) {
     woo_ok(
         ($policy->option_rule((string) $featureOption)['class'] ?? null) === $classification,
@@ -519,11 +630,15 @@ woo_ok($emailFieldClasses === [
     'subject_paid' => 'authored',
     'subject_partial' => 'authored',
 ], 'every exact core email subkey has one portable or target-environment ruling');
-woo_ok(count(array_filter(
+$emailUnionPaths = array_merge(
     array_keys((array) ($settingsInventory['source_files'] ?? [])),
+    array_keys((array) ($settingsInventory['version_specific_source_files'] ?? []))
+);
+woo_ok(count(array_filter(
+    $emailUnionPaths,
     static fn(string $path): bool => str_starts_with($path, 'includes/emails/class-wc-email')
 )) === 23
-    && isset($settingsInventory['source_files']['includes/class-wc-emails.php']),
+    && in_array('includes/class-wc-emails.php', $emailUnionPaths, true),
     'the exact source union binds WC_Emails, the base email class, and every registered core email implementation');
 woo_ok(count(array_filter(
     array_keys((array) ($settingsInventory['source_files'] ?? [])),
@@ -1191,7 +1306,7 @@ foreach ([
     woo_ok(str_contains($woocommerceMatrixHarness, $piiWitness),
         "exact WooCommerce matrix pins WPRA-019 evidence step $piiWitness");
 }
-$boundaryLoop = strpos($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do');
+$boundaryLoop = strpos($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.1.0; do');
 $piiInvocation = strpos(
     $woocommerceMatrixHarness,
     'check_woocommerce_allow_pii_roundtrip "$WOO_VERSION" "$ARTIFACT_2"'
@@ -1201,7 +1316,7 @@ woo_ok($boundaryLoop !== false
     && $boundaryLoop < $piiInvocation
     && substr_count($woocommerceMatrixHarness,
         'check_woocommerce_allow_pii_roundtrip "$WOO_VERSION" "$ARTIFACT_2"') === 1,
-    'all fourteen WPRA-019 grants run once inside each exact 11.0.0/11.0.1 boundary case');
+    'all fourteen WPRA-019 grants run once inside each exact boundary case');
 $wooEntry = json_decode(
     (string) file_get_contents(dirname(__DIR__) . '/conformance/entry.json'),
     true,
@@ -1221,14 +1336,20 @@ $wooInterpreterSource = (string) file_get_contents($root . '/adapter-packages/wo
 $settingsApiPath = 'includes/abstracts/abstract-wc-settings-api.php';
 $settingsApiHash = '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
 $formattingFunctionsPath = 'includes/wc-formatting-functions.php';
-$formattingFunctionsHash = 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41';
+$formattingFunctionsHashes = [
+    '11.0.0' => 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41',
+    '11.0.1' => 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41',
+    '11.1.0' => 'a4188d2d9b6786eebed14e4a3e07fc37a2c2eec48cfb6a32199a2605c3415361',
+];
 $settingsApiLoaderHashes = [
     '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
     '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+    '11.1.0' => 'b4763ca729371c09b0a2b5ee8f542a9f29ad4201dea12553779d222098218faa',
 ];
 woo_ok(
     ($settingsInventory['source_files'][$settingsApiPath] ?? null) === $settingsApiHash
-        && ($settingsInventory['source_files'][$formattingFunctionsPath] ?? null) === $formattingFunctionsHash
+        && ($settingsInventory['version_specific_source_files'][$formattingFunctionsPath] ?? null)
+            === $formattingFunctionsHashes
         && ($settingsInventory['version_specific_source_files']['includes/class-woocommerce.php'] ?? null)
             === $settingsApiLoaderHashes,
     'the settings abstract, permalink sanitizer, and each exact WooCommerce loader remain pinned before partial-runtime loading is admitted'
@@ -1258,7 +1379,30 @@ $nativePermalinkRecord = $nativePermalinkRecordStart !== false && $nativePermali
 $settingsApiClassCheck = strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)");
 $settingsApiReflection = strpos($nativeSettingsApi, "new \\ReflectionClass('WC_Settings_API')");
 $settingsApiHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)');
-$formattingHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)');
+// The settings abstract is byte-identical across every admitted artifact and
+// stays a single pin; the formatter is not, so 11.1.0 made it an admitted set
+// tested for membership in constant time. A file matching no entry is still
+// refused, which is why the admitted list is asserted exactly rather than by
+// count.
+$formattingHashCheck = strpos($nativeValidationFiles, 'self::admitted_native_source_hash(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)');
+$formattingAdmitted = [];
+if (preg_match(
+    '/WOO_FORMATTING_FUNCTIONS_SHA256 = \[(.*?)\];/s',
+    $wooInterpreterSource,
+    $formattingMatch
+) === 1) {
+    preg_match_all('/\'([0-9a-f]{64})\'/', $formattingMatch[1], $formattingHashes);
+    $formattingAdmitted = $formattingHashes[1];
+}
+woo_ok($formattingAdmitted === [
+    'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41',
+    'a4188d2d9b6786eebed14e4a3e07fc37a2c2eec48cfb6a32199a2605c3415361',
+] && str_contains($wooInterpreterSource, 'private static function admitted_native_source_hash(')
+    && !str_contains($wooInterpreterSource, 'return true;
+            }
+        }
+        return false;'),
+    'the formatter pin admits exactly the reviewed per-artifact hashes through a non-short-circuiting membership test');
 // The interpreter still binds both native files by digest and still refuses a
 // substituted loaded sanitizer. What it no longer does is create native
 // authority for itself: no include of plugin bytes, and no child process that
@@ -1762,7 +1906,7 @@ SH
 $conformanceFamilyWitnesses = [
     'contract-dependency' => [$matrixHarness, [
         'woocommerce 10.9.4 (real wp.org release',
-        'woocommerce synthetic 11.0.2',
+        'woocommerce synthetic 11.1.1',
         'PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)',
     ]],
     'clean-target' => [$wooSeedHarness, [
@@ -2374,20 +2518,20 @@ woo_ok(
                 'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision"',
                 strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
             )
-        && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
-        && strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+        && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.1.0 'in-place upgrade'")
+        && strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.1.0 'in-place upgrade'")
             < strpos(
                 $woocommerceMatrixHarness,
                 'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
-                strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+                strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.1.0 'in-place upgrade'")
             ),
     'every successful exact WooCommerce boundary, upgrade, and downgrade apply emits deterministic loaded-manifest and diagnostic-seam rule authority evidence first'
 );
 woo_ok(substr_count($woocommerceMatrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
-    && str_contains($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
+    && str_contains($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.1.0; do'),
     'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
 woo_ok(substr_count($woocommerceMatrixHarness, 'check_woocommerce_product_deletion "$WOO_VERSION"') === 1
-    && str_contains($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
+    && str_contains($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.1.0; do'),
     'one guarded product plus successful product/variation deletion call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
 $wooMatrixCaseStart = strpos($woocommerceMatrixHarness, 'version_matrix_workflow() {');
 $wooMatrixCase = $wooMatrixCaseStart !== false
@@ -2409,7 +2553,7 @@ $wooBoundaryReceipt = $wooBoundaryCanary === false
     : strpos($wooMatrixCase, 'WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")', $wooBoundaryCanary);
 $wooUpgradeAuthority = strpos(
     $wooMatrixCase,
-    "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'"
+    "woocommerce_preapply_authority_assertion 11.1.0 'in-place upgrade'"
 );
 $wooUpgradeApply = $wooUpgradeAuthority === false
     ? false

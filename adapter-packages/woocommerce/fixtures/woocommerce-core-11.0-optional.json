@@ -2,7 +2,8 @@
   "format": "wprism-woocommerce-optional-core-inventory/v1",
   "artifacts": {
     "11.0.0": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
-    "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"
+    "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21",
+    "11.1.0": "6bae9bf74d722b6deb15f049687c311cfafc26e3a5d8fa55ac6ea4b9a3a8df19"
   },
   "source_files": {
     "includes/wc-page-functions.php": "11281d2800a401e7cf8cc167d994bfe2fe9ad436c570deff3ae997c5b32b1338",
@@ -15,13 +16,10 @@
     "src/Internal/CLI/Migrator/Lib/ImportSession.php": "6ba1e10e5f264ce603b14f4e183bf87374b98857a3902a02dc60b09fde411f91",
     "src/Internal/DataStores/StockNotifications/StockNotificationsDataStore.php": "53ba4af84ef4f095b26071fcce823236c9839403aebffa6127e136b1db3af478",
     "src/Internal/Email/Unsubscribes/Storage.php": "060cb5c40c3e4010f75044ce144018fd9bbc77182e132beafc2a7745a681839e",
-    "src/Internal/EmailEditor/Integration.php": "017fac02e739a7069e9ef2cb4326d1670438bc8db84171be33469f1ec60b7883",
     "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateDivergenceDetector.php": "9c5cf61a141387d272e1d6233005cbf22a0a94e40d286eb540e29168b1829ce6",
     "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateSelectiveApplier.php": "80211cbce1eb057ff0fe0d8e3df74ae7992e2efd1bc294cb142a082027d9a7d2",
     "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateSyncBackfill.php": "2dd459b91dbfa541d9f4aea9953758f7f60a28e6406f2e5192895ca8e6ff8e55",
     "src/Internal/EmailEditor/WCTransactionalEmails/WCEmailTemplateSyncTracker.php": "faa5f915e4e74b07bd7c0880b9b4792f643f4fd5cdca286305900fe6e9396a33",
-    "src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsGenerator.php": "8f34b2614665dd5d7dd6394914da4906ea7c7c9de22711f3e42e72d70259049d",
-    "src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsManager.php": "b3126f190e4eb0a1bd033cc586b2cae38e179ecc127c5f34c2e08768bb376a99",
     "src/Internal/PushNotifications/DataStores/NotificationPreferencesDataStore.php": "c7fe18e50d8ec830b34a388b9f7f3e8f8514abb3bc376d95c40ec9e024a0dbb8",
     "src/Internal/PushNotifications/DataStores/PushTokensDataStore.php": "61ff6a2ddccecbe614e9c53bee8469c09f3fa8df015979cebf9af8bfdaa58f78",
     "src/Internal/PushNotifications/Entities/PushToken.php": "75dabcc7c80e020c0e2fa9ff69dfc18050c12d2275091f5ac6ca60de391013a6",
@@ -35,18 +33,15 @@
     "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifyEmail.php": "e6828bddbd43456a104bf1c1367ad980fd93183e5a3bd6aee2b43b1db32cf0bf",
     "src/Internal/StockNotifications/Emails/EmailManager.php": "e0af8812884aafac662aaa06e8c363585af73440f57c5479ee10ddfcb710a463",
     "src/Internal/VariationGallery/LegacyVariationGalleryCompatibility.php": "abbe086bcd140726516e5529eb46ca2562c495b98a25fcf538da9f142e14bef3",
-    "src/Internal/VariationGallery/Migration.php": "9a649a0a1137756f3104d5654d36e2a982fd3248ccb2d32df2f880b8746418a8",
-    "src/Internal/VariationGallery/Package.php": "1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8"
+    "src/Internal/VariationGallery/Migration.php": "9a649a0a1137756f3104d5654d36e2a982fd3248ccb2d32df2f880b8746418a8"
   },
   "version_specific_source_files": {
-    "includes/class-woocommerce.php": {
-      "11.0.0": "5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4",
-      "11.0.1": "2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7"
-    },
-    "src/Internal/OrderReviews/Endpoint.php": {
-      "11.0.0": "dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8",
-      "11.0.1": "326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3"
-    }
+    "includes/class-woocommerce.php": {"11.0.0":"5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4","11.0.1":"2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7","11.1.0":"b4763ca729371c09b0a2b5ee8f542a9f29ad4201dea12553779d222098218faa"},
+    "src/Internal/EmailEditor/Integration.php": {"11.0.0":"017fac02e739a7069e9ef2cb4326d1670438bc8db84171be33469f1ec60b7883","11.0.1":"017fac02e739a7069e9ef2cb4326d1670438bc8db84171be33469f1ec60b7883","11.1.0":"c47cba2e5c7dd1c8135f5b3e8ef204e52c3c54c55f63db4b1f2817b8fb08052f"},
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsGenerator.php": {"11.0.0":"8f34b2614665dd5d7dd6394914da4906ea7c7c9de22711f3e42e72d70259049d","11.0.1":"8f34b2614665dd5d7dd6394914da4906ea7c7c9de22711f3e42e72d70259049d","11.1.0":"e5297e268992b6f31dbebe6db4bf3acef342d06a916c7d6092e6290ebea8ff90"},
+    "src/Internal/EmailEditor/WCTransactionalEmails/WCTransactionalEmailPostsManager.php": {"11.0.0":"b3126f190e4eb0a1bd033cc586b2cae38e179ecc127c5f34c2e08768bb376a99","11.0.1":"b3126f190e4eb0a1bd033cc586b2cae38e179ecc127c5f34c2e08768bb376a99","11.1.0":"0b28c87246fa28ac5e2daedf63377ab57e2c04656262418d2fe46c331ffe6281"},
+    "src/Internal/OrderReviews/Endpoint.php": {"11.0.0":"dda95b0edb8ac48434477aaf4664f267b477f858ab44da248752557f91bea9c8","11.0.1":"326511d748cc282caac2bfaeb22451e5b80f73209dcdbea81c2a4ef32570b6f3","11.1.0":"90537df37d1ce1615158e2ed499a0e68375b31731119f7e0ea6072cc97feedda"},
+    "src/Internal/VariationGallery/Package.php": {"11.0.0":"1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8","11.0.1":"1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8","11.1.0":"9b59cc813088eec71765fdbddca4cf664125afc761a9f15828c278c76971c644"}
   },
   "families": {
     "block_email_editor": {

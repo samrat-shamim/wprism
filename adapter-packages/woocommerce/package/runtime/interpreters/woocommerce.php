@@ -166,8 +166,18 @@ final class Woocommerce {
     private const WOO_SETTINGS_TRACKING = 'WC_Settings_Tracking';
     private const WOO_SETTINGS_API_SHA256 =
         '1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c';
-    private const WOO_FORMATTING_FUNCTIONS_SHA256 =
-        'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41';
+    // abstract-wc-settings-api.php is byte-identical across every admitted
+    // artifact, so it stays a single pin. wc-formatting-functions.php is not:
+    // 11.1.0 changed it. The admitted set therefore carries one hash per
+    // artifact identity, and a file matching none of them is still refused --
+    // widening version_range is what adds an entry here, never a fallback.
+    /** @var list<string> */
+    private const WOO_FORMATTING_FUNCTIONS_SHA256 = [
+        // 11.0.0 and 11.0.1 share these bytes.
+        'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41',
+        // 11.1.0.
+        'a4188d2d9b6786eebed14e4a3e07fc37a2c2eec48cfb6a32199a2605c3415361',
+    ];
     private const WPSEO_SITEMAPS = 'WPSEO_Sitemaps';
     private const WPSEO_SITEMAPS_CACHE = 'WPSEO_Sitemaps_Cache';
     private const WPSEO_CONTAINER_REGISTRY = 'Yoast\\WP\\Lib\\Dependency_Injection\\Container_Registry';
@@ -1548,10 +1558,26 @@ final class Woocommerce {
             || !hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)
             || $formattingFileReal !== $formattingFile
             || !is_string($formattingHash)
-            || !hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)) {
+            || !self::admitted_native_source_hash(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)) {
             throw new \RuntimeException($message);
         }
         return ['settings' => $settingsFileReal, 'formatting' => $formattingFileReal];
+    }
+
+    /**
+     * Constant-time membership test for one admitted native source hash.
+     *
+     * Every candidate is compared and no loop exits early, so the work does
+     * not depend on which admitted artifact the environment happens to carry.
+     *
+     * @param list<string> $admitted
+     */
+    private static function admitted_native_source_hash(array $admitted, string $observed): bool {
+        $match = false;
+        foreach ($admitted as $candidate) {
+            $match = hash_equals($candidate, $observed) || $match;
+        }
+        return $match;
     }
 
     /** @param array<string,mixed> $value @param array<string,string> $fields */
