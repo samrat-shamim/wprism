@@ -7,6 +7,7 @@
     "max": "2.7.6"
   },
   "engine_features": [
+    "scalar-option-constraints/v1",
     "spec-window/v1"
   ],
   "option_autoload": "preserve",
@@ -18,47 +19,95 @@
         "wt_iew_maximum_execution_time": {
           "class": "authored",
           "lint_ok": true,
-          "note": "admin/modules/import/import.php:119-132: authored execution-time preference, consumed by imports; native Save stores an integer."
+          "value_constraint": {
+            "type": "integer"
+          },
+          "note": "admin/modules/import/import.php:124-133 and helpers/class-wt-security-helper.php:72-74 store an integer; the plugin bootstrap passes it to set_time_limit (main file:93-97). Nonnumeric text can fatal. Native Save admits signed integers, so no unproven range is imposed."
         },
         "wt_iew_enable_import_log": {
           "class": "authored",
           "lint_ok": true,
+          "value_constraint": {
+            "enum": [
+              0,
+              1
+            ]
+          },
           "note": "admin/modules/import/import.php:135-145: authored logging toggle; generated logs and imported records remain runtime."
         },
         "wt_iew_default_import_method": {
           "class": "authored",
           "lint_ok": true,
+          "value_constraint": {
+            "enum": [
+              "new",
+              "quick",
+              "template"
+            ]
+          },
           "note": "admin/modules/import/import.php:147-156: default wizard method; native source quick and target template were Saved and reopened."
         },
         "wt_iew_default_import_batch": {
           "class": "authored",
           "lint_ok": true,
+          "value_constraint": {
+            "type": "integer",
+            "minimum": 0
+          },
           "note": "admin/modules/import/import.php:157-164: authored batch size, not an entity ID."
         },
         "wt_iew_default_export_method": {
           "class": "authored",
           "lint_ok": true,
+          "value_constraint": {
+            "enum": [
+              "new",
+              "quick",
+              "template"
+            ]
+          },
           "note": "admin/modules/export/export.php:132-145: default export wizard method; source and target native Saves diverged."
         },
         "wt_iew_default_export_batch": {
           "class": "authored",
           "lint_ok": true,
+          "value_constraint": {
+            "type": "integer",
+            "minimum": 0
+          },
           "note": "admin/modules/export/export.php:154-164: authored batch size, not an entity ID."
         },
         "wt_iew_enable_history_auto_delete": {
           "class": "authored",
           "lint_ok": true,
+          "value_constraint": {
+            "enum": [
+              0,
+              1
+            ]
+          },
           "note": "admin/modules/history/history.php:242-253: authored retention toggle. Applying configuration must not replay after_advanced_setting_update or purge operational history."
         },
         "wt_iew_auto_delete_history_count": {
           "class": "authored",
           "lint_ok": true,
+          "value_constraint": {
+            "type": "integer",
+            "minimum": 0
+          },
           "note": "admin/modules/history/history.php:257-272: authored history retention limit, not a history row ID."
         },
         "wt_iew_include_bom": {
           "class": "authored",
           "lint_ok": true,
-          "note": "admin/modules/export/export.php:146-153: authored CSV BOM toggle; native unchecked value is integer 0 and checked value is string 1."
+          "value_constraint": {
+            "enum": [
+              0,
+              1,
+              "1"
+            ]
+          },
+          "note": "admin/modules/export/export.php:145-153 declares default integer 1; native Save stores checked string 1 and unchecked integer 0. Preserve these exact scalar spellings instead of coercing them."
         }
       },
       "note": "Shared settings container: only these nine native user-importer controls are owned. Other module keys remain target-local and must survive partial Apply."

@@ -43,7 +43,7 @@ capture_expected() {
   wprism_private_capture_stage "$sink" "$name" "$@" || result=$?
   [ "$result" -eq "$expected" ] || fail "$name exited $result (expected $expected); retained $sink/$name"
   assert_no_php_runtime_diagnostics "$name stdout" "$(cat "$sink/$name.stdout")"
-  php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name" "$PAIR" "$verb"
+  php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name" "$PAIR" "$verb" "$expected"
   printf 'ok: %s\n' "$name"
 }
 zip="${IMPORTER_SETTINGS_ZIP:?local locked Importer 2.7.5 zip required}"
@@ -80,6 +80,40 @@ capture binding2 establish_core_environment_bindings wp_side /siterepo admin@exa
 capture baseline-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json
 capture jobs native_side 2 jobs
 capture baseline-target native_side 2 observe
+pair_live_ownership_repo_host
+cp "$R2/state/options/core.json" "$sink/baseline-options.json"
+capture repository-invalid native_side 2 repository-invalid
+capture repository-before php "$PACKAGE_ROOT/fixtures/settings-evidence.php" snapshot "$R2"
+capture_expected repository-compile 1 candidate 2 compile --repo=/siterepo --format=json
+capture_expected repository-plan 1 candidate 2 plan --repo=/siterepo --format=json
+capture_expected repository-apply 1 candidate 2 apply --repo=/siterepo --format=json
+capture repository-target native_side 2 observe
+pair_live_ownership_repo_host
+capture repository-after php "$PACKAGE_ROOT/fixtures/settings-evidence.php" snapshot "$R2"
+cp "$sink/baseline-options.json" "$R2/state/options/core.json"
+capture edge-edit native_side 2 repository-edge
+pair_live_ownership_repo_host
+cp "$R2/state/options/core.json" "$sink/edge-options.json"
+capture edge-plan candidate 2 plan --repo=/siterepo --format=json
+capture edge-apply candidate 2 apply --repo=/siterepo --format=json
+capture edge-target native_side 2 observe
+capture edge-capture candidate 2 capture --repo=/siterepo --format=json
+pair_live_ownership_repo_host
+cmp "$sink/edge-options.json" "$R2/state/options/core.json" || fail 'manual boundary settings recapture changed canonical bytes'
+cp "$sink/baseline-options.json" "$R2/state/options/core.json"
+capture restore-apply candidate 2 apply --repo=/siterepo --format=json
+capture restore-target native_side 2 observe
+capture baseline-source native_side 1 observe
+capture native-corrupt wp_side 1 option patch update wt_iew_advanced_settings wt_iew_maximum_execution_time '"invalid-seconds"' --format=json
+capture native-before wp_side 1 eval-file "$fixture" raw-observe --use-include --user=admin
+pair_live_ownership_repo_host
+capture native-state-before php "$PACKAGE_ROOT/fixtures/settings-evidence.php" snapshot "$R1"
+capture_expected native-capture 1 candidate 1 capture --repo=/siterepo --format=json
+capture native-after wp_side 1 eval-file "$fixture" raw-observe --use-include --user=admin
+pair_live_ownership_repo_host
+capture native-state-after php "$PACKAGE_ROOT/fixtures/settings-evidence.php" snapshot "$R1"
+capture native-restore wp_side 1 option patch update wt_iew_advanced_settings wt_iew_maximum_execution_time 600 --format=json
+capture restored-source native_side 1 observe
 php -r '$c=["envs"=>[]]; foreach(["source"=>"cli1","target"=>"cli2"] as $name=>$service) $c["envs"][$name]=["transport"=>"docker","compose_file"=>$argv[2],"service"=>$service,"repo_path"=>"/siterepo"]; file_put_contents($argv[1],json_encode($c,JSON_THROW_ON_ERROR));' "$sink/envs.json" "$REPO_ROOT/sandbox/pair.yml"
 for phase in target source retention; do
   capture "$phase-save" native_side 1 "save-$phase"

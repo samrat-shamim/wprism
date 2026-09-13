@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Nine native advanced settings exercise capture, immutable compilation, scoped plan/Apply, exact recapture and inert request replay. Native evidence preserves shared module settings, users, history and generated files. Full adapter qualification remains open.",
+  "reason": "Nine native advanced settings use shared scalar type/range/enum predicates across Capture, immutable compilation and checked Apply. Native evidence exercises invalid-value refusals, manually authored boundary values, scoped Apply, exact recapture and inert request replay while preserving shared module settings, users, history and generated files. Full adapter qualification remains open.",
   "supported_versions": {
     "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
     "range": {
@@ -41,8 +41,8 @@
   "unsupported": [
     {
       "operation": "apply",
-      "surface": "manually-edited-values-and-native-failure-recovery",
-      "reason": "This milestone exercises native-Saved settings values. Generic scalar type/range/enum constraints for ordinary option subkeys and native failure/recovery qualification remain open; the deterministic settings rollback test is not native recovery evidence."
+      "surface": "native-failure-recovery",
+      "reason": "Deterministic settings rollback and native pre-mutation scalar refusals are covered. Native post-write failure/recovery qualification remains open; fixture restoration of a deliberately invalid setting is not product recovery evidence."
     },
     {
       "operation": "deploy",

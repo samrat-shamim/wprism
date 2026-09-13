@@ -5,8 +5,13 @@ $phase = $args[0] ?? '';
 $check = static function (bool $ok, string $reason): void {
     if (!$ok) throw new RuntimeException('Importer native settings evidence: ' . $reason);
 };
-$check(current_user_can('manage_options') && is_admin(), 'owned administrator context');
-$check(defined('WT_U_IEW_VERSION') && WT_U_IEW_VERSION === '2.7.5', 'exact locked plugin');
+$check(current_user_can('manage_options'), 'owned administrator identity');
+// The plugin calls set_time_limit during admin bootstrap. Observe deliberately
+// malformed raw seconds without loading that consumer, before public Capture.
+if ($phase !== 'raw-observe') {
+    $check(is_admin(), 'native administrator context');
+    $check(defined('WT_U_IEW_VERSION') && WT_U_IEW_VERSION === '2.7.5', 'exact locked plugin');
+}
 $native = json_decode((string) file_get_contents(__DIR__ . '/native-settings.json'), true, 32, JSON_THROW_ON_ERROR);
 global $wpdb, $wp_filter;
 $callback = static function (string $hook, string $method) use (&$wp_filter, $check): object {
@@ -57,6 +62,26 @@ if ($phase === 'verify-capture') {
         'native_sha256' => hash('sha256', serialize($stored))], JSON_THROW_ON_ERROR), "\n";
     return;
 }
+if (str_starts_with($phase, 'repository-')) {
+    $check(in_array($phase, ['repository-invalid', 'repository-edge'], true), 'known manual repository edit');
+    $path = '/siterepo/state/options/core.json';
+    $records = WPrism\OptionState::records(WPrism\Canon::decode(WPrism\Canon::read_file($path)));
+    $record = $records['wt_iew_advanced_settings'];
+    $check($record['state'] === 'present', 'existing canonical settings record');
+    $settings = $record['value'];
+    $settings['wt_iew_maximum_execution_time'] = 'invalid-seconds';
+    if ($phase === 'repository-edge') {
+        $settings = array_replace($native['source'], ['wt_iew_maximum_execution_time' => -1,
+            'wt_iew_default_import_method' => 'new', 'wt_iew_default_export_method' => 'new',
+            'wt_iew_default_import_batch' => 0, 'wt_iew_default_export_batch' => 0,
+            'wt_iew_auto_delete_history_count' => 0, 'wt_iew_include_bom' => 1]);
+    }
+    $records['wt_iew_advanced_settings'] = WPrism\OptionState::present($settings, $record['autoload']);
+    WPrism\Canon::write_file($path, WPrism\Canon::encode(WPrism\OptionState::document($records)));
+    echo json_encode(['phase' => $phase, 'settings' => $settings, 'autoload' => $record['autoload'],
+        'canonical_sha256' => hash_file('sha256', $path)], JSON_THROW_ON_ERROR), "\n";
+    return;
+}
 if ($phase === 'jobs') {
     $id = wp_insert_user(['user_login' => 'importer-fixture-reader', 'user_email' => 'importer-reader@example.test',
         'display_name' => 'Importer Fixture Reader', 'role' => 'subscriber', 'user_pass' => wp_generate_password(32)]);
@@ -91,7 +116,7 @@ if ($phase === 'jobs') {
     echo json_encode(['phase' => $phase, 'jobs' => $jobs], JSON_THROW_ON_ERROR), "\n";
     return;
 }
-$check($phase === 'observe', 'known observation');
+$check(in_array($phase, ['observe', 'raw-observe'], true), 'known observation');
 $rows = static function (string $table, string $order) use ($wpdb, $check): array {
     $wpdb->last_error = '';
     $rows = $wpdb->get_results("SELECT * FROM $table ORDER BY $order LIMIT 1025", ARRAY_A);
@@ -114,8 +139,9 @@ foreach (['webtoffee_export', 'webtoffee_import'] as $directory) {
     }
 }
 ksort($files, SORT_STRING);
-$settings = Wt_Import_Export_For_Woo_User_Basic_Common_Helper::get_advanced_settings();
+$settings = $phase === 'raw-observe' ? get_option('wt_iew_advanced_settings')
+    : Wt_Import_Export_For_Woo_User_Basic_Common_Helper::get_advanced_settings();
 foreach ($order as $suffix => $key) $check($tables[$suffix] === $rows($wpdb->prefix . $suffix, $key), 'native settings read preserves ' . $suffix);
 echo json_encode(['format' => 'wprism-importer-native-settings/v1', 'wordpress' => get_bloginfo('version'),
-    'plugin' => WT_U_IEW_VERSION, 'php' => PHP_VERSION, 'database' => $wpdb->db_server_info(),
+    'plugin' => defined('WT_U_IEW_VERSION') ? WT_U_IEW_VERSION : null, 'php' => PHP_VERSION, 'database' => $wpdb->db_server_info(),
     'tables' => $tables, 'files' => $files, 'settings' => $settings], JSON_THROW_ON_ERROR), "\n";

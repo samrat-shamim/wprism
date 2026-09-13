@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=21 fixtures=0
+# expected observations=40 fixtures=0
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
@@ -21,3 +21,22 @@ observation	tests/live/regress_settings_apply.sh	capture "$phase-stable" native_
 observation	tests/live/regress_settings_apply.sh	capture "$phase-recapture" candidate 2 capture --repo=/siterepo --format=json
 observation	tests/live/regress_settings_apply.sh	capture purge-save native_side 2 save-retention
 observation	tests/live/regress_settings_apply.sh	capture purge-target native_side 2 observe
+observation	tests/live/regress_settings_apply.sh	capture repository-invalid native_side 2 repository-invalid
+observation	tests/live/regress_settings_apply.sh	capture_expected repository-compile 1 candidate 2 compile --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture_expected repository-plan 1 candidate 2 plan --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture_expected repository-apply 1 candidate 2 apply --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture repository-target native_side 2 observe
+observation	tests/live/regress_settings_apply.sh	capture edge-edit native_side 2 repository-edge
+observation	tests/live/regress_settings_apply.sh	capture edge-plan candidate 2 plan --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture edge-apply candidate 2 apply --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture edge-target native_side 2 observe
+observation	tests/live/regress_settings_apply.sh	capture edge-capture candidate 2 capture --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture restore-apply candidate 2 apply --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture restore-target native_side 2 observe
+observation	tests/live/regress_settings_apply.sh	capture baseline-source native_side 1 observe
+observation	tests/live/regress_settings_apply.sh	capture native-corrupt wp_side 1 option patch update wt_iew_advanced_settings wt_iew_maximum_execution_time '"invalid-seconds"' --format=json
+observation	tests/live/regress_settings_apply.sh	capture native-before wp_side 1 eval-file "$fixture" raw-observe --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture_expected native-capture 1 candidate 1 capture --repo=/siterepo --format=json
+observation	tests/live/regress_settings_apply.sh	capture native-after wp_side 1 eval-file "$fixture" raw-observe --use-include --user=admin
+observation	tests/live/regress_settings_apply.sh	capture native-restore wp_side 1 option patch update wt_iew_advanced_settings wt_iew_maximum_execution_time 600 --format=json
+observation	tests/live/regress_settings_apply.sh	capture restored-source native_side 1 observe
