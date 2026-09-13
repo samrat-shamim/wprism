@@ -26,6 +26,10 @@ $decl = ['class' => 'authored_snapshot', 'pk' => 'id', 'id_kind' => 'row_scope_p
     'identity' => ['mode' => 'mapped'], 'row_scope' => ['item_type' => 'user'],
     'columns' => ['item_type' => ['class' => 'authored'], 'name' => ['class' => 'authored'],
         'data' => ['class' => 'authored']], 'refs' => []];
+$setMember = $args[0] ?? '';
+if (!in_array($setMember, ['', 'export', 'import'], true)) throw new RuntimeException('unknown native scope-set fixture');
+if ($setMember !== '') $decl['row_scope']['template_type'] = ['export', 'import'];
+$decl['columns']['template_type'] = ['class' => 'authored'];
 $uuid = '11111111-1111-4111-8111-111111111111';
 $query = static function (string $sql) use ($wpdb): void {
     if ($wpdb->query($sql) === false) throw new RuntimeException('native row-scope fixture SQL failed');
@@ -34,7 +38,7 @@ if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($physic
     throw new RuntimeException('native row-scope fixture refuses to replace an existing table');
 }
 $query("CREATE TABLE `$physical` (id bigint unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    item_type varchar(32) NOT NULL, name varchar(64) NOT NULL, data longtext NOT NULL)
+    item_type varchar(32) NOT NULL, template_type varchar(32) NOT NULL DEFAULT 'export', name varchar(64) NOT NULL, data longtext NOT NULL)
     ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 $external = null;
 try {
@@ -43,6 +47,12 @@ try {
         (3,'product','Foreign','alice@example.test'),
         (4,'User','Case','sk_live_FOREIGNCREDENTIAL1234567890'),
         (5,'user ','Space','foreign trailing space')");
+    if ($setMember !== '') {
+        $query($wpdb->prepare("UPDATE `$physical` SET template_type=%s WHERE id=2", $setMember));
+        $query("UPDATE `$physical` SET template_type='import' WHERE id=3");
+        $query("UPDATE `$physical` SET item_type='user',template_type='Import' WHERE id=4");
+        $query("UPDATE `$physical` SET item_type='user',template_type='import ' WHERE id=5");
+    }
     Snapshot::assert_row_schema($table, $decl);
     $rows = static fn(): array => $wpdb->get_results("SELECT * FROM `$physical` ORDER BY id", ARRAY_A);
     $before = $rows();
@@ -110,28 +120,31 @@ try {
         'concurrent native writer has a distinct database connection');
     $snapshotMode = $wpdb->get_results("SHOW VARIABLES LIKE 'innodb_snapshot_isolation'", ARRAY_A);
     $snapshotConflicts = isset($snapshotMode[0]['Value']) && in_array(strtoupper($snapshotMode[0]['Value']), ['1', 'ON'], true);
-    wprism_check_throws(static fn() => $transaction(static function () use ($wpdb, $physical, $external, $writer, $entity, $targetTokens): void {
-        $sql = "SELECT item_type FROM `$physical` WHERE id=2";
-        wprism_check_same('user', $wpdb->get_var($sql), 'repeatable-read snapshot begins with the owned row');
-        if (!$external->nativeHandle()->query("UPDATE `$physical` SET item_type='product',data='external committed payload' WHERE id=2")) {
+    $raceColumn = $setMember === '' ? 'item_type' : 'template_type';
+    $ownedValue = $setMember === '' ? 'user' : $setMember;
+    $foreignValue = $setMember === '' ? 'product' : 'Import';
+    wprism_check_throws(static fn() => $transaction(static function () use ($wpdb, $physical, $external, $writer, $entity, $targetTokens, $raceColumn, $ownedValue, $foreignValue): void {
+        $sql = "SELECT `$raceColumn` FROM `$physical` WHERE id=2";
+        wprism_check_same($ownedValue, $wpdb->get_var($sql), 'repeatable-read snapshot begins with the owned row');
+        if (!$external->nativeHandle()->query($wpdb->prepare("UPDATE `$physical` SET `$raceColumn`=%s,data='external committed payload' WHERE id=2", $foreignValue))) {
             throw new RuntimeException('concurrent native fixture update failed');
         }
-        wprism_check_same('user', $wpdb->get_var($sql), 'ordinary repeatable read still sees the stale owned preimage');
+        wprism_check_same($ownedValue, $wpdb->get_var($sql), 'ordinary repeatable read still sees the stale owned preimage');
         $writer->finalizeRow($targetTokens, $entity);
     }), $snapshotConflicts ? WPrism\TransientDbException::class : RuntimeException::class,
         'Apply refuses the changed owner through the active native isolation contract',
         $snapshotConflicts ? 'database snapshot conflict' : 'outside declared row_scope');
     $after = $rows();
-    wprism_check_same('product', $after[0]['item_type'], 'refusal preserves the externally committed owner');
+    wprism_check_same($foreignValue, $after[0][$raceColumn], 'refusal preserves the externally committed owner');
     wprism_check_same('external committed payload', $after[0]['data'], 'refusal preserves the externally committed payload');
     wprism_check_same($foreign, array_slice($after, 1), 'ownership-race refusal preserves the other foreign rows');
     wprism_check_same([], $capture->capture_table($table, $decl, [], $targetTokens, true), 'native recapture excludes the changed owner');
     wprism_check_throws(static fn() => $transaction(static fn() => $writer->deleteLocalRow($table, 2)),
         RuntimeException::class, 'native deletion refuses the foreign retained id', 'outside declared row_scope');
-    $query("UPDATE `$physical` SET item_type='user' WHERE id=2");
+    $query($wpdb->prepare("UPDATE `$physical` SET `$raceColumn`=%s WHERE id=2", $ownedValue));
     $transaction(static fn() => $writer->deleteLocalRow($table, 2));
     wprism_check_same($foreign, $rows(), 'native owned deletion preserves every foreign row');
-    echo 'Database: ', $wpdb->get_var('SELECT VERSION()'), '; snapshot conflicts: ', $snapshotConflicts ? 'on' : 'off',
+    echo 'Scope member: ', $setMember === '' ? 'scalar' : $setMember, '; Database: ', $wpdb->get_var('SELECT VERSION()'), '; snapshot conflicts: ', $snapshotConflicts ? 'on' : 'off',
         '; WordPress: ', get_bloginfo('version'), '; PHP: ', PHP_VERSION, "\n";
 } finally {
     if ($external !== null) $external->close();

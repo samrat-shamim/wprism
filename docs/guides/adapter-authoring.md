@@ -3383,6 +3383,14 @@ feature refuses structural refs on that table and attached-meta sidecars;
 see [the complete contract](../../spec/repo-format.md#v338-table-row-scopesv1--ownership-within-shared-physical-tables).
 Do not replace these unsupported structures with an unbounded table claim.
 
+For several explicitly owned variants, also declare `table-row-scope-sets/v1`
+and use a sorted set such as `"template_type": ["export", "import"]` alongside
+`"item_type": "user"`. Every discriminator still has to match. Sets admit
+2–16 exact strings; a singleton keeps the scalar form. Do not remove a
+secondary discriminator merely to capture another row type: that would claim
+all its unknown variants too. Payload semantics and local input bindings need
+their own declarations and evidence.
+
 Prove foreign-row preservation through Capture, immutable compilation, Apply,
 repeat Apply, deletion and rollback. Include case-only and trailing-space
 owner collisions, retained ids whose owner changed, failed ownership reads,

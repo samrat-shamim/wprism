@@ -80671,8 +80671,14 @@
                 "FEATURE": {
                     "value_repr": "table-row-scopes/v1"
                 },
+                "MAX_ALTERNATIVES": {
+                    "value_repr": 16
+                },
                 "MAX_DISCRIMINATORS": {
                     "value_repr": 8
+                },
+                "SETS_FEATURE": {
+                    "value_repr": "table-row-scope-sets/v1"
                 }
             },
             "final": true,
@@ -80775,6 +80781,14 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "sets_declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },

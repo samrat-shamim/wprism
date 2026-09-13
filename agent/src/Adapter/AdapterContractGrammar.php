@@ -188,6 +188,7 @@ final class AdapterContractGrammar {
      */
     private const IMPLEMENTED_FEATURES = [
         TableRowScope::FEATURE => ['since' => 3, 'keys' => []],
+        TableRowScope::SETS_FEATURE => ['since' => 3, 'keys' => []],
         BlockContentGrammar::FEATURE => ['since' => 3, 'keys' => [BlockContentGrammar::SECTION => 'field']],
         BlockMediaDerivativeGrammar::FEATURE => ['since' => 3, 'keys' => [BlockMediaDerivativeGrammar::SECTION => 'field']],
         BlockValueGrammar::FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::SECTION => 'field']],
@@ -596,6 +597,9 @@ final class AdapterContractGrammar {
             }
             if ($name === TableRowScope::FEATURE) {
                 $rows[$name]['value_constraint'] = TableRowScope::declaration_grammar();
+            }
+            if ($name === TableRowScope::SETS_FEATURE) {
+                $rows[$name]['value_constraint'] = TableRowScope::sets_declaration_grammar();
             }
             if ($name === ReferenceCondition::FEATURE) {
                 $rows[$name]['value_constraint'] = ReferenceCondition::declaration_grammar();

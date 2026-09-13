@@ -857,6 +857,7 @@ wprism_check_same(
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
+        'table-row-scope-sets/v1',
         'table-row-scopes/v1',
         'typed-column-codecs/v1',
         'typed-column-values/v1',
