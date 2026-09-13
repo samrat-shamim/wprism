@@ -3,6 +3,13 @@
   "adapter": "map-block-gutenberg",
   "readiness": "unready",
   "covered": {
+    "contract-dependency": [
+      "adapter-packages/map-block-gutenberg/package/manifest.json",
+      "adapter-packages/map-block-gutenberg/evidence/artifacts.lock.json",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_runtime_contract.php",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_lifecycle_evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
     "clean-target": [
       "adapter-packages/map-block-gutenberg/tests/conformance/seed.sh",
       "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
@@ -19,14 +26,28 @@
       "adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php",
       "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
       "adapter-packages/map-block-gutenberg/tests/conformance/capture-check.sh"
+    ],
+    "deletion": [
+      "adapter-packages/map-block-gutenberg/fixtures/deletion-native.php",
+      "adapter-packages/map-block-gutenberg/fixtures/deletion-evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_deletion_boundary.php",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/map-block-gutenberg/fixtures/concurrency-native.php",
+      "adapter-packages/map-block-gutenberg/fixtures/concurrency-evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_concurrency_evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/map-block-gutenberg/fixtures/lifecycle-native.php",
+      "adapter-packages/map-block-gutenberg/fixtures/lifecycle-evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_lifecycle_evidence.php",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
     ]
   },
   "gaps": {
-    "contract-dependency": "The real capability reporter enforces exact active, inactive, absent, wrong-basename, unreadable-version, below-minimum, maximum-exclusive and future-version facts offline. Exact 1.35 native activation is exercised; the full native dependency matrix remains required.",
-    "deletion": "This capsule declares no deletion grants. Adapter-specific unsupported-delete no-mutation evidence remains required.",
     "failure-recovery": "Native capture publication refusal/retry and real post-materializer late-SQL rollback/retry are covered. Process interruption, durable recovery and native crash qualification remain required.",
-    "concurrency-idempotence": "Transaction-bound option locks and stale intended-value refusal are tested offline; exact native no-op reapply passes. Controlled native competing-operation qualification remains required.",
-    "lifecycle": "Source activation and experimental agent activation are exercised; exact-artifact deactivation/reactivation, downgrade refusal, uninstall residue and reinstall remain required.",
     "scope-platform": "Single-site WordPress 7.1/PHP 8.3 is exercised. Full unavailable-API and unsupported-platform assertions remain required; the native editor also emits upstream deprecation/enqueue warnings documented in qualification.md."
   },
   "blocked": {},

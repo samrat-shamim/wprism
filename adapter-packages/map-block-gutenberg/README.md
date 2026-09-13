@@ -56,6 +56,11 @@ IDs, missing/drifted target keys, preservation of a target-only runtime option,
 authored updates, repeated apply, native frontend/localization, capture failure
 recovery, and whole-tree recapture. It does not contact Google or assert the
 validity, billing state, restrictions, or availability of the Maps service.
+The follow-up qualification adds native dependency/lifecycle refusals, exact
+reinstall, unsupported credential-deletion preservation, and barrier-controlled
+capture/capture/apply contention. Its exact scope and refusal ordering are
+recorded in `evidence/qualification.md`; process-crash recovery and the remaining
+platform/API work are not implied by those passing controls.
 
 `evidence/production-readiness.json` is the authoritative remaining-work ledger;
 a successful fixture or schema check alone cannot promote this adapter.

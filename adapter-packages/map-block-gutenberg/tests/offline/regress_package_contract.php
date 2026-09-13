@@ -25,7 +25,7 @@ wprism_check_same(['capture', 'compile', 'plan', 'deploy', 'apply'], $dispositio
 wprism_check_same([], $disposition['capabilities']['lifecycle_phases'], 'no target lifecycle is claimed');
 $readiness = AdapterProductionReadiness::record($root, 'map-block-gutenberg');
 wprism_check_same('unready', $readiness['readiness'], 'production work remains visible');
-wprism_check(isset($readiness['covered']['clean-target'], $readiness['gaps']['lifecycle']), 'exercised target transport does not erase remaining lifecycle qualification');
+wprism_check(isset($readiness['covered']['clean-target'], $readiness['covered']['lifecycle'], $readiness['gaps']['failure-recovery'], $readiness['gaps']['scope-platform']) && !isset($readiness['gaps']['lifecycle']), 'native lifecycle evidence does not erase remaining recovery and platform qualification');
 $rules = $policy->block_attr_rules()['webfactory/map'];
 wprism_check_same(['zoom', 'height', 'address', 'api_key'], array_column($rules, 'path'), 'native four-attribute inventory is closed');
 wprism_check_same(['map-block-gutenberg'], array_values(array_unique(array_column($rules, 'codec'))), 'whole-block guard runs even when no attribute is present');
