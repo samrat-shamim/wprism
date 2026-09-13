@@ -2177,8 +2177,11 @@ $columnCodecManifest = static function (array $codec) use ($codecTable): array {
     $features = ['spec-window/v1', 'typed-column-codecs/v1'];
     if (($codec['container'] ?? null) === 'php_serialized_or_text') {
         $features[] = 'mixed-column-codecs/v1';
-        sort($features, SORT_STRING);
     }
+    if (($codec['container'] ?? null) === 'json') {
+        $features[] = 'json-column-codecs/v1';
+    }
+    sort($features, SORT_STRING);
     return solo_b([
         'engine_features' => $features,
         'tables' => $codecTable,
@@ -2194,7 +2197,7 @@ foreach ($vocabularies['column_codec_containers'] as $container) {
     );
 }
 refuses(
-    $columnCodecManifest(['container' => 'json', 'leaves' => 'text']),
+    $columnCodecManifest(['container' => 'yaml', 'leaves' => 'text']),
     'the column container vocabulary is closed and engine-owned ('
         . implode(', ', $vocabularies['column_codec_containers']) . ')',
     'a column container outside the published set is refused with the published set printed back'
