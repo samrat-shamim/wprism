@@ -33,11 +33,18 @@ $valueRule = ['class' => 'authored', 'object_fields' => [
         'wt_iew_email' => ['class' => 'authored', 'ref' => 'user[]', 'cast' => 'string', 'on_unmapped' => 'refuse']]],
     'url' => ['class' => 'authored', 'plain_data' => true],
     'nested' => ['class' => 'authored', 'plain_data' => true]]];
-$codecs = ['data' => ['container' => 'json', 'value' => $valueRule]];
 $blockManifest = ['name' => 'typed-column-native', 'spec_version' => 3, 'option_autoload' => 'preserve',
     'engine_features' => ['block-attribute-values/v1', 'block-value-contracts/v1', 'spec-window/v1'],
     'block_values' => ['fixture/typed-column' => ['query' => $valueRule]]];
 $blockPolicy = WPrismTest\FrozenPolicy::policy([$blockManifest], WPrismTest\FrozenPolicy::site([$blockManifest], 3));
+$valueRule['object_fields']['label_fields'] = ['class' => 'authored', 'field_labels' => 'label_enabled'];
+$valueRule['object_fields']['selected_labels'] = ['class' => 'authored', 'field_labels' => 'label'];
+$columnManifest = ['name' => 'field-label-native', 'spec_version' => 3, 'option_autoload' => 'preserve',
+    'engine_features' => ['column-field-labels/v1', 'json-column-codecs/v1', 'spec-window/v1',
+        'table-row-scopes/v1', 'typed-column-codecs/v1', 'typed-column-values/v1'],
+    'tables' => [$table => $decl], 'column_codecs' => [$table => ['data' => ['container' => 'json', 'value' => $valueRule]]]];
+$columnPolicy = WPrismTest\FrozenPolicy::policy([$columnManifest], WPrismTest\FrozenPolicy::site([$columnManifest], 3));
+$codecs = $columnPolicy->column_codec_rules($table);
 $logins = ['wprism_column_reader', 'wprism_column_editor'];
 foreach ($logins as $login) {
     if (username_exists($login)) throw new RuntimeException('native typed column fixture refuses an existing user');
@@ -66,6 +73,9 @@ $query("CREATE TABLE `$physical` (id bigint unsigned NOT NULL AUTO_INCREMENT PRI
 try {
     $sourceUsers = $createUsers();
     $native = wp_json_encode(['filter_form_data' => ['wt_iew_email' => $sourceUsers], 'url' => 'https://source.test/path?q="quoted"',
+        'label_fields' => ['user_email' => ['Email address', 1], 'display_name' => ['Display name', 0],
+            'first_name' => ['First name', 1], 'last_name' => ['Last name', 0], 'nickname' => ['Nickname', 0]],
+        'selected_labels' => ['user_email' => 'Email address', 'display_name' => 'Display name'],
         'nested' => ['note' => 'বাংলা', 'empty' => [], 'enabled' => true, 'nothing' => null, 'count' => 7, 'fraction' => 1.25]]);
     $query($wpdb->prepare("INSERT INTO `$physical` (id,item_type,name,data,hits) VALUES
         (2,'user','Selected',%s,42),(3,'product','Foreign','{broken',91)", $native));
@@ -90,7 +100,9 @@ try {
     $expected['filter_form_data']['wt_iew_email'] = array_map(static fn(string $login): string => 'user:' . $login, $logins);
     $expected['url'] = '{{home}}/path?q="quoted"';
     wprism_check_same(wp_json_encode($expected), $canonical, 'native Capture rewrites user references and text through one value contract');
-    $blockNative = '<!-- wp:fixture/typed-column ' . wp_json_encode(['query' => json_decode($native, true)]) . ' /-->';
+    $blockValue = json_decode($native, true);
+    unset($blockValue['label_fields'], $blockValue['selected_labels']);
+    $blockNative = '<!-- wp:fixture/typed-column ' . wp_json_encode(['query' => $blockValue]) . ' /-->';
     $blockCanonical = WPrism\Blocks::capture_rewrite($blockNative, $blockPolicy, $sourceTokens);
     foreach ($ownedUsers as $id) {
         if (!wp_delete_user($id)) throw new RuntimeException('native source binding deletion failed');
@@ -155,6 +167,19 @@ try {
     wprism_check_throws(static fn() => $transaction(static fn() => $writer->finalizeRow($targetTokens, $changed)),
         RuntimeException::class, 'native Apply refuses malformed canonical JSON', 'not valid JSON');
     wprism_check_same($after, $rows(), 'native malformed Apply preserves the complete table');
+    $changed['data']['columns']['data'] = wp_json_encode(['label_fields' => ['user_email' => ['Email address', '1']]]);
+    wprism_check_throws(static fn() => $transaction(static fn() => $writer->finalizeRow($targetTokens, $changed)),
+        RuntimeException::class, 'native Apply refuses a noninteger field enable flag', 'integer 0 or 1');
+    wprism_check_same($after, $rows(), 'malformed field metadata preserves every native row');
+    foreach ([['user_email' => ['reader@example.test', 1]], ['reader@example.test' => ['Email', 1]],
+        ['user_pass' => ['s3cr3t-Credential-0123456789!', 1]]] as $private) {
+        $query($wpdb->prepare("UPDATE `$physical` SET data=%s WHERE id=2", wp_json_encode(['label_fields' => $private])));
+        $privateRows = $rows();
+        wprism_check_throws(static fn() => $captureJson($targetTokens), RuntimeException::class,
+            'native label metadata retains key, value and credential clearance');
+        wprism_check_same($privateRows, $rows(), 'native refused label Capture preserves stored bytes');
+    }
+    $query($wpdb->prepare("UPDATE `$physical` SET data=%s WHERE id=2", $after[0]['data']));
     $transaction(static fn() => $writer->deleteLocalRow($table, 2));
     wprism_check_same([$before[1]], $rows(), 'native deletion preserves foreign malformed JSON');
     echo 'Database: ', $wpdb->get_var('SELECT VERSION()'), '; WordPress: ', get_bloginfo('version'), '; PHP: ', PHP_VERSION, "\n";

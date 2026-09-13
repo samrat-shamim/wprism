@@ -10,6 +10,7 @@ require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
+require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
 require_once __DIR__ . '/AuthoredValueCodec.php';
 
 /**
@@ -94,6 +95,7 @@ final class ColumnCodecGrammar {
     public const JSON_FEATURE = 'json-column-codecs/v1';
 
     public const VALUES_FEATURE = 'typed-column-values/v1';
+    public const FIELD_LABELS_FEATURE = 'column-field-labels/v1';
     public const VALUE_CODEC_KEYS = ['container', 'value'];
 
     /**
@@ -147,6 +149,8 @@ final class ColumnCodecGrammar {
             'codec' => ['required' => self::CODEC_KEYS, 'optional' => []],
             'value_codec' => ['required' => self::VALUE_CODEC_KEYS, 'feature' => self::VALUES_FEATURE,
                 'refines' => 'strict json or php_serialized container; authored value contract; every ref declares on_unmapped:refuse; no record_fields or text_encoding'],
+            'field_labels' => ['feature' => self::FIELD_LABELS_FEATURE, 'formats' => FieldLabelMap::FORMATS,
+                'refines' => 'authored value codec; field-code map to string labels or [string label, integer 0 or 1]; empty map allowed; all key/value bytes still scanned'],
             'container' => self::CONTAINERS,
             'leaves' => self::LEAVES,
             'refines' => 'never the table\'s slug_column and never an identity column (identity.column, '
@@ -188,7 +192,8 @@ final class ColumnCodecGrammar {
             );
         }
         $tables = is_array($manifest['tables'] ?? null) ? $manifest['tables'] : [];
-        $values = new ValueContractGrammar(true, false, false, 'column', true);
+        $values = new ValueContractGrammar(true, false, false, 'column', true,
+            in_array(self::FIELD_LABELS_FEATURE, (array) ($manifest['engine_features'] ?? []), true));
         foreach ($section as $table => $columns) {
             $table = (string) $table;
             $where = "$label column_codecs.$table";

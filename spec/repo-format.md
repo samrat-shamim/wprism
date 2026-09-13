@@ -4618,3 +4618,38 @@ cannot introduce, echo, erase, or replace a constrained static rule; competing
 manifest claimants refuse independently of pin order. This is a portable shape
 contract, separate from `native-value-validation/v1` and its WordPress runtime
 predicate.
+
+### v3.42 `column-field-labels/v1` — explicit field-definition maps
+
+A v3 manifest declaring `column-field-labels/v1` in addition to the column
+framing and typed-value features may use either of these exclusive authored
+value leaves, at the column root or beneath closed `object_fields`:
+
+```json
+{"class": "authored", "field_labels": "label"}
+{"class": "authored", "field_labels": "label_enabled"}
+```
+
+`label` requires a map of nonempty string field codes to string display labels.
+`label_enabled` requires the same keys with exactly `[string label, integer flag]`
+values, where the flag is 0 or 1. Empty arrays represent empty maps; nonempty
+lists, numeric keys, nested labels, extra tuple members and coerced flags refuse.
+Empty string labels and Unicode keys/labels are valid. Existing strict framing,
+JSON depth/node limits and shared declaration depth/rule budgets still apply.
+This leaf cannot combine with another codec or privacy override. Other value
+surfaces cannot borrow this column feature.
+
+The adapter declaration asserts that keys and labels are field definitions,
+not personal field values. After shape validation, PII projection scans each
+field code as a scalar alongside its label and optional flag. This removes
+only the immediate field-code role, retaining every original key/value byte
+for value-based checks and retaining enclosing object and column roles.
+Secret clearance continues to inspect the entire original decoded value.
+Malformed maps cannot obtain projection; ordinary plain-data rules retain
+their original behavior.
+
+Capture, immutable compilation, lint and Apply share the shape validator.
+The existing plain-data codec tokenizes and restores text leaves; map order,
+native types and enabled flags are preserved. Compilation performs the same
+privacy projection without WordPress or a database. This adds no plugin
+executable, user migration, file transport or template qualification.
