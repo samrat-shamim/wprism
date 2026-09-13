@@ -62,10 +62,10 @@ if ($phase === 'jobs') {
         'display_name' => 'Importer Fixture Reader', 'role' => 'subscriber', 'user_pass' => wp_generate_password(32)]);
     $check(is_int($id) && $id > 1, 'fixture reader created');
     $form = [
-        'method_export_form_data' => ['method_export' => 'advanced'],
+        'method_export_form_data' => ['method_export' => 'new'],
         'filter_form_data' => ['wt_iew_email' => [(string) $id], 'wt_iew_limit' => '1', 'wt_iew_sort_columns' => ['user_login'], 'wt_iew_order_by' => 'ASC'],
         'mapping_form_data' => ['mapping_fields' => ['user_login' => ['user_login', 1], 'display_name' => ['display_name', 1]],
-            'mapping_selected_fields' => ['user_login', 'display_name']],
+            'mapping_selected_fields' => ['user_login' => 'user_login', 'display_name' => 'display_name']],
         'advanced_form_data' => ['wt_iew_batch_count' => '10', 'wt_iew_file_as' => 'csv', 'wt_iew_delimiter' => ','],
     ];
     $export = $callback('wp_ajax_iew_export_ajax_basic', 'ajax_main');
