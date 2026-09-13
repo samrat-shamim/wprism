@@ -124,22 +124,4 @@ final class TableRowScope {
         return implode(' AND ', $parts);
     }
 
-    /** A surviving ledger id is not permission to seize a row that changed owner. */
-    public static function assert_live_row(string $table, array $decl, int $localId, object $db, bool $lock = false): void {
-        if (!array_key_exists('row_scope', $decl)) {
-            return;
-        }
-        self::validate($table, $decl);
-        $prefixed = $db->prefix . $table;
-        $pk = $decl['pk'];
-        $db->last_error = '';
-        $suffix = $lock ? ' FOR UPDATE' : '';
-        $rows = $db->get_results($db->prepare("SELECT * FROM `$prefixed` WHERE `$pk` = %d LIMIT 1$suffix", $localId), ARRAY_A);
-        if (!is_array($rows) || (string) ($db->last_error ?? '') !== '') {
-            throw new \RuntimeException("wprism: cannot verify row ownership for table '$table'");
-        }
-        if ($rows !== []) {
-            self::assert_matches($table, $decl, $rows[0]);
-        }
-    }
 }

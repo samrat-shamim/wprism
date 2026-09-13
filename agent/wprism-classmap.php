@@ -345,6 +345,7 @@ return [
     'WPrism\\SupersededWireSiteAdapterCertificate' => 'src/Adapter/AdapterCertification.php',
     'WPrism\\TableDeclarationResolver' => 'src/Grammar/TableDeclarationResolver.php',
     'WPrism\\TableGraph' => 'src/Kernel/TableGraph.php',
+    'WPrism\\TableRowOwnership' => 'src/Kernel/TableRowOwnership.php',
     'WPrism\\TableRowScope' => 'src/Kernel/TableRowScope.php',
     'WPrism\\TableSchema' => 'src/Kernel/TableSchema.php',
     'WPrism\\TargetProbe' => 'src/Adapter/TargetProbe.php',

@@ -129,6 +129,7 @@
           "TableGraph",
           "TableSchema",
           "TableRowScope",
+          "TableRowOwnership",
           "HtmlMediaReferences",
           "IdentityTokenCodec",
           "ProcessFence",
@@ -168,7 +169,7 @@
             ]
           }
         ],
-        "file_count": 88,
+        "file_count": 89,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -246,6 +247,7 @@
           "TableGraph.php",
           "TableSchema.php",
           "TableRowScope.php",
+          "TableRowOwnership.php",
           "TermCoordinateWitness.php",
           "TermRows.php",
     "TextTokenizer.php",

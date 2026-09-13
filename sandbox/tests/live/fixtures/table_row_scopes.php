@@ -74,12 +74,7 @@ try {
             Db::commit('native row scope');
             return $result;
         } catch (Throwable $failure) {
-            try {
-                Db::rollback('native row scope');
-            } catch (Throwable $cleanupFailure) {
-                throw new RuntimeException('native fixture rollback failed; primary=' . $failure->getMessage()
-                    . '; cleanup=' . $cleanupFailure->getMessage(), 0, $failure);
-            }
+            Db::rollback_after_failure($failure, 'native row scope');
             throw $failure;
         }
     };
@@ -113,6 +108,8 @@ try {
     };
     wprism_check($wpdb->get_var('SELECT CONNECTION_ID()') !== $external->get_var('SELECT CONNECTION_ID()'),
         'concurrent native writer has a distinct database connection');
+    $snapshotMode = $wpdb->get_results("SHOW VARIABLES LIKE 'innodb_snapshot_isolation'", ARRAY_A);
+    $snapshotConflicts = isset($snapshotMode[0]['Value']) && in_array(strtoupper($snapshotMode[0]['Value']), ['1', 'ON'], true);
     wprism_check_throws(static fn() => $transaction(static function () use ($wpdb, $physical, $external, $writer, $entity, $targetTokens): void {
         $sql = "SELECT item_type FROM `$physical` WHERE id=2";
         wprism_check_same('user', $wpdb->get_var($sql), 'repeatable-read snapshot begins with the owned row');
@@ -121,7 +118,9 @@ try {
         }
         wprism_check_same('user', $wpdb->get_var($sql), 'ordinary repeatable read still sees the stale owned preimage');
         $writer->finalizeRow($targetTokens, $entity);
-    }), RuntimeException::class, 'Apply locks and refuses the current foreign owner', 'outside declared row_scope');
+    }), $snapshotConflicts ? WPrism\TransientDbException::class : RuntimeException::class,
+        'Apply refuses the changed owner through the active native isolation contract',
+        $snapshotConflicts ? 'database snapshot conflict' : 'outside declared row_scope');
     $after = $rows();
     wprism_check_same('product', $after[0]['item_type'], 'refusal preserves the externally committed owner');
     wprism_check_same('external committed payload', $after[0]['data'], 'refusal preserves the externally committed payload');
@@ -132,7 +131,8 @@ try {
     $query("UPDATE `$physical` SET item_type='user' WHERE id=2");
     $transaction(static fn() => $writer->deleteLocalRow($table, 2));
     wprism_check_same($foreign, $rows(), 'native owned deletion preserves every foreign row');
-    echo 'Database: ', $wpdb->get_var('SELECT VERSION()'), '; WordPress: ', get_bloginfo('version'), '; PHP: ', PHP_VERSION, "\n";
+    echo 'Database: ', $wpdb->get_var('SELECT VERSION()'), '; snapshot conflicts: ', $snapshotConflicts ? 'on' : 'off',
+        '; WordPress: ', get_bloginfo('version'), '; PHP: ', PHP_VERSION, "\n";
 } finally {
     if ($external !== null) $external->close();
     $query("DROP TABLE `$physical`");

@@ -200,7 +200,7 @@ $transaction = static function (callable $action) use (&$mapping): mixed {
         Db::commit('scoped row fixture');
         return $result;
     } catch (Throwable $failure) {
-        Db::rollback('scoped row fixture');
+        Db::rollback_after_failure($failure, 'scoped row fixture');
         $mapping = $mapBefore;
         throw $failure;
     }
@@ -234,6 +234,15 @@ wprism_check_throws(static function () use ($transaction, $writer, $changed, $ta
 }, RuntimeException::class, 'a later failure aborts the owned write', 'injected late failure');
 wprism_check($observedWrite, 'late failure occurs after the actual checked update');
 wprism_check_same($beforeFailure, $db->rows('acme_templates'), 'rollback restores owned and foreign rows');
+$db->simulateSnapshotConflict('FOR UPDATE');
+wprism_check_throws(static fn() => $transaction(static function () use ($writer, $changed, $targetTokens, $targetRow): void {
+    Db::update('wp_acme_templates', ['data' => 'pending before ownership read'], ['id' => (int) $targetRow['id']]);
+    $writer->finalizeRow($targetTokens, $changed);
+}), WPrism\TransientDbException::class, 'ownership locking read preserves verified native snapshot-conflict evidence', 'database snapshot conflict');
+wprism_check_same($beforeFailure, $db->rows('acme_templates'), 'server-aborted ownership read restores every prior write');
+wprism_check(!Db::connection_transaction_active('scoped conflict cleanup proof'), 'ownership conflict leaves a settled idle connection');
+wprism_check_throws(static fn() => WPrism\TableRowOwnership::assert_live_row('acme_templates', $decl, 2, new FakeWpdb(), true),
+    RuntimeException::class, 'ownership lock cannot read through a different database object', 'requires the bound database connection');
 $recaptured = $capture->capture_table('acme_templates', $decl, [], $targetTokens, true);
 wprism_check_same($entities[0]['content'], $recaptured[0]['content'], 'target recapture is byte-identical');
 $beforeDelete = $db->rows('acme_templates');
@@ -272,7 +281,7 @@ wprism_check_same($beforeAdoption, $db->rows('wprism_map'), 'refused adoption pr
 $db->onQuery(static fn(string $sql): ?string => str_contains($sql, 'FROM `wp_acme_templates`') ? 'injected ownership read failure' : null);
 wprism_check_throws(static fn() => $capture->capture_table('acme_templates', $decl, [], $targetTokens, true),
     RuntimeException::class, 'failed scoped capture cannot publish an empty roster', 'cannot read owned rows');
-wprism_check_throws(static fn() => TableRowScope::assert_live_row('acme_templates', $decl, 4, $db),
+wprism_check_throws(static fn() => WPrism\TableRowOwnership::assert_live_row('acme_templates', $decl, 4, $db),
     RuntimeException::class, 'failed ownership observation is never permission to write', 'cannot verify row ownership');
 $db->onQuery(null);
 $mappedManifest = $manifest;

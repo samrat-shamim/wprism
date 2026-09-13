@@ -1,5 +1,5 @@
 {
-    "class_count": 514,
+    "class_count": 515,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -80189,16 +80189,9 @@
             "properties": [],
             "readonly": false
         },
-        "WPrism\\TableRowScope": {
+        "WPrism\\TableRowOwnership": {
             "abstract": false,
-            "constants": {
-                "FEATURE": {
-                    "value_repr": "table-row-scopes/v1"
-                },
-                "MAX_DISCRIMINATORS": {
-                    "value_repr": 8
-                }
-            },
+            "constants": [],
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -80251,7 +80244,26 @@
                     "return_type": "void",
                     "static": true,
                     "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\TableRowScope": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "table-row-scopes/v1"
                 },
+                "MAX_DISCRIMINATORS": {
+                    "value_repr": 8
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
                 "assert_matches": {
                     "abstract": false,
                     "final": false,

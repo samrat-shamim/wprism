@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
+require_once __DIR__ . '/../Kernel/TableRowOwnership.php';
 
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 
@@ -100,7 +101,7 @@ final class TypedTableMaterializer {
         }
         if ($localId !== null) {
             global $wpdb;
-            TableRowScope::assert_live_row($table, $decl, $localId, $wpdb, true);
+            TableRowOwnership::assert_live_row($table, $decl, $localId, $wpdb, true);
         }
     }
 

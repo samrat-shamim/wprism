@@ -3441,7 +3441,9 @@ row retains the existing deletion/recreation semantics.
 Apply, deletion, reparenting and adoption check the current native owner.
 Scoped writes require the existing tracked transaction and lock the selected
 row before observing its discriminator, so an earlier repeatable-read snapshot
-cannot authorize a later ownership change. Unscoped declarations retain their
+cannot authorize a later ownership change. A server-side snapshot conflict
+aborts through the shared verified transaction-cleanup boundary; it never
+permits the stale write. Unscoped declarations retain their
 previous query and transport semantics. This feature adds no shipped adapter
 claim and does not transport JSON template references or local import files.
 

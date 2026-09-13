@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
+require_once __DIR__ . '/../Kernel/TableRowOwnership.php';
 
 require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
 
@@ -1255,7 +1256,7 @@ final class Snapshot {
         if (isset($decl['row_scope']) && !Db::transaction_active("row-scoped table '$table' adoption")) {
             throw new \RuntimeException("wprism: row-scoped table '$table' adoption requires an active transaction");
         }
-        TableRowScope::assert_live_row($table, $decl, $envId, $wpdb, true);
+        TableRowOwnership::assert_live_row($table, $decl, $envId, $wpdb, true);
         self::snapshot_identity($policy)->adopt($uuid, $table, $envId);
     }
 
@@ -1418,7 +1419,7 @@ final class Snapshot {
         foreach (Ledger::all_map() as $map) {
             if (isset($byKind[$map['id_kind']])) {
                 [$table, $decl] = $byKind[$map['id_kind']];
-                TableRowScope::assert_live_row($table, $decl, $map['local_id'], $wpdb);
+                TableRowOwnership::assert_live_row($table, $decl, $map['local_id'], $wpdb);
             }
         }
     }
@@ -1514,7 +1515,7 @@ final class Snapshot {
             throw CommandRefusalException::scopedIdentityRecoveryRequired();
         }
         try {
-            TableRowScope::assert_live_row($table, $decl, $localId, $wpdb);
+            TableRowOwnership::assert_live_row($table, $decl, $localId, $wpdb);
         } catch (\Throwable $failure) {
             throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
         }
