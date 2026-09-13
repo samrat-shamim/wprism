@@ -340,6 +340,18 @@
         "sandbox/tests/offline/grammar/regress_column_value_cases.php",
         "sandbox/tests/live/fixtures/column_value_contracts.php"
       ]
+    },
+    "column_input_files": {
+      "title": "target-local file dependencies inside typed columns",
+      "status": "shipped",
+      "definition": "A negotiated nested input-file leaf carries only canonical dependency presence. Compiled ownership derives the operator coordinate; the existing private environment store owns a filename in the declared content directory. Plan selects pointer rebinding without widening drift or conflict, and selected Apply locks intent, validates availability before effects and commit, and uses the ordinary typed writer. No input contents are transported and later plugin jobs remain separate.",
+      "evidence": [
+        "agent/src/Kernel/InputFileBinding.php",
+        "agent/src/Apply/ColumnInputFiles.php",
+        "sandbox/tests/offline/grammar/regress_column_input_files.php",
+        "sandbox/tests/offline/apply/regress_column_input_requests.php",
+        "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/input-files-native.php"
+      ]
     }
   },
   "candidates": [
@@ -1107,6 +1119,33 @@
       ],
       "probed_on": "2026-09-14",
       "closing": "A shared bounded fragment codec preserves native expression semantics through Capture, immutable compilation, lint and checked materialization. Actual registered Importer 2.7.5 consumer evidence follows real typed-table transport. Target-local CSV binding, native import jobs including the missing-password warning case, adapter enrollment and qualification remain open.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
+      "id": "user-importer-local-input",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "column_input_files",
+          "closed_by": [
+            "agent/src/Kernel/InputFileBinding.php",
+            "agent/src/Apply/ColumnInputFiles.php",
+            "sandbox/tests/offline/grammar/regress_column_input_files.php",
+            "sandbox/tests/offline/apply/regress_column_input_requests.php",
+            "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/input-files-native.php"
+          ],
+          "coordinate": "column_codecs.wt_iew_mapping_template.data.method_import_form_data.wt_iew_local_file",
+          "cannot_represent": "A saved import template remembers a functional local CSV URL. Stripping it produces an empty draft whose native consumer cannot find a file; ordinary text transport retains the source filename without proving independent target availability."
+        }
+      ],
+      "probed_on": "2026-09-14",
+      "closing": "The generic input dependency survives public Capture, compilation, provisioning, Plan, Apply and independent canonical verification. The actual registered Importer 2.7.5 local-file consumer reads replacement target bytes after rebinding and rotation. This closes the binding primitive only: saved-template enrollment, native import jobs including omitted mapped-password warnings, lifecycle and adapter qualification remain open.",
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]
