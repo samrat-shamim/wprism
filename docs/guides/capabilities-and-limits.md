@@ -239,10 +239,16 @@ If WordPress rejects the subsequent write, the newly published intent remains
 and the plan stays red until the live value is repaired, so a partial operation
 cannot create a false-green unbound value.
 
-Scope note: `class: "env"`, `env_missing`, and `env-set` operate on **options
-only** today — never post or term meta, and never a `sub_keys` carve-out's
-individual keys, which stay governed by their own class. The reasoning is in
-[cli/README.md § Env-bound value provisioning](../../cli/README.md#env-bound-value-provisioning).
+The same checklist and private store support canonical `post_password:<uuid>`
+bindings and declared `column_file:<uuid>:<column>.<field>...` input bindings.
+For an input binding, place the file in the adapter's declared content directory
+and provide only its filename through `env-set --name=<name> --stdin`. Then run
+Plan and Apply: provisioning records intent, and Apply updates the saved pointer.
+Source filenames and file contents are never transported. Missing files remain
+checklist items; a later plugin job still requires its file to be available.
+Concurrent provisioning refuses while Apply holds input intent; retry after that
+operation finishes. Arbitrary post/term meta and individual `sub_keys` entries
+are not provisionable through this command.
 
 ## The six projected dimensions
 

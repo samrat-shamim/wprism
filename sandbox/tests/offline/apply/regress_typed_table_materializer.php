@@ -555,7 +555,7 @@ namespace {
     $snapshotSource = file_get_contents(__DIR__ . '/../../../../agent/src/Repository/Snapshot.php');
     materializer_check(is_string($snapshotSource)
         && str_contains($snapshotSource, "require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';")
-        && str_contains($snapshotSource, 'typed_table_materializer($policy)->ensureRow($entity)')
+        && str_contains($snapshotSource, 'typed_table_materializer($policy)->ensureRow($entity, $tokens)')
         && str_contains($snapshotSource, 'typed_table_materializer($policy)->finalizeRow($tokens, $entity)')
         && str_contains($snapshotSource, 'typed_table_materializer($policy)->deleteLocalRow($table, $localId)')
         && str_contains($snapshotSource, 'typed_table_materializer($policy)->reparentLocalRow($table, $localId, $column, $targetId)'),

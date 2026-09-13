@@ -11,6 +11,7 @@ require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
 require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
 require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
+require_once __DIR__ . '/../Kernel/InputFileBinding.php';
 
 /**
  * Shared authored value transformations. Callers supply the token capability
@@ -22,11 +23,14 @@ final class AuthoredValueCodec {
     public static function capture(mixed $value, array $rule, object $tokens, callable $unmapped, string $where): mixed {
         self::assert_value($value, $rule, false, $where);
         $value = self::capture_at($value, $rule, $tokens, $unmapped, $where);
-        if (self::has_templates($rule)) self::assert_value($value, $rule, true, $where);
+        if (self::has_projected_values($rule)) self::assert_value($value, $rule, true, $where);
         return $value;
     }
 
     private static function capture_at(mixed $value, array $rule, object $tokens, callable $unmapped, string $where): mixed {
+        if (isset($rule[InputFileBinding::FIELD])) {
+            return InputFileBinding::capture($value, $rule[InputFileBinding::FIELD]);
+        }
         if (isset($rule[FieldTemplateMap::FIELD])) {
             return FieldTemplateMap::transform($value, $rule[FieldTemplateMap::FIELD], true,
                 static fn(string $text): string => $tokens->tokenize_text($text, $where), $where);
@@ -62,19 +66,27 @@ final class AuthoredValueCodec {
         return $tokens->plain_data_capture($value);
     }
 
-    public static function apply(mixed $value, array $rule, object $tokens, string $where): mixed {
+    public static function apply(mixed $value, array $rule, object $tokens, string $where, ?callable $inputFile = null): mixed {
         self::assert_value($value, $rule, true, $where);
-        return self::apply_at($value, $rule, $tokens, $where);
+        return self::apply_at($value, $rule, $tokens, $where, $inputFile, []);
     }
 
-    private static function apply_at(mixed $value, array $rule, object $tokens, string $where): mixed {
+    private static function apply_at(mixed $value, array $rule, object $tokens, string $where, ?callable $inputFile, array $path): mixed {
+        if (isset($rule[InputFileBinding::FIELD])) {
+            if ($value === '') return '';
+            if ($inputFile === null) throw new \RuntimeException('wprism: column input file requires an explicit target binding capability');
+            $native = $inputFile($rule[InputFileBinding::FIELD], $path);
+            if (!is_string($native) || $native === '') throw new \RuntimeException('wprism: column input binding did not produce a native URL');
+            InputFileBinding::capture($native, $rule[InputFileBinding::FIELD]);
+            return $native;
+        }
         if (isset($rule[FieldTemplateMap::FIELD])) {
             return FieldTemplateMap::transform($value, $rule[FieldTemplateMap::FIELD], false,
                 static fn(string $text): string => $tokens->detokenize_text($text), $where);
         }
         if (isset($rule['object_fields'])) {
             foreach ($value as $field => &$child) {
-                $child = self::apply_at($child, $rule['object_fields'][$field], $tokens, "$where.$field");
+                $child = self::apply_at($child, $rule['object_fields'][$field], $tokens, "$where.$field", $inputFile, [...$path, $field]);
             }
             unset($child);
             return $value;
@@ -105,6 +117,10 @@ final class AuthoredValueCodec {
         }
         $nodes = 0;
         self::assert_json($value, 0, $nodes, $where);
+        if (isset($rule[InputFileBinding::FIELD])) {
+            InputFileBinding::assert_value($value, $canonical, $where);
+            return;
+        }
         if (isset($rule[FieldTemplateMap::FIELD])) {
             FieldTemplateMap::assert_value($value, $rule[FieldTemplateMap::FIELD], $canonical, $fragments, $where);
             return;
@@ -187,20 +203,21 @@ final class AuthoredValueCodec {
 
     /** Existing contracts retain their complete original secret subject. */
     public static function secret_subject(mixed $value, array $rule, bool $canonical, string $where): mixed {
-        if (!self::has_templates($rule)) return $value;
+        if (!self::has_projected_values($rule)) return $value;
         self::assert_value($value, $rule, $canonical, $where);
         return self::project($value, $rule, $canonical, $where, 'secret')['value'];
     }
 
     /** Lint scans canonical literals, while declared reference scanning keeps the original value. */
     public static function text_subject(mixed $value, array $rule, string $where): mixed {
-        if (!self::has_templates($rule)) return $value;
+        if (!self::has_projected_values($rule)) return $value;
         self::assert_value($value, $rule, true, $where);
         return self::project($value, $rule, true, $where, 'text')['value'];
     }
 
     /** @return array{present:bool,value:mixed} */
     private static function project(mixed $value, array $rule, bool $canonical, string $where, string $purpose): array {
+        if (isset($rule[InputFileBinding::FIELD])) return ['present' => false, 'value' => null];
         if ($purpose === 'pii' && isset($rule['ref'])) return ['present' => false, 'value' => null];
         if ($purpose === 'pii' && isset($rule[FieldLabelMap::FIELD])) {
             return ['present' => true, 'value' => FieldLabelMap::pii_subject($value)];
@@ -222,9 +239,9 @@ final class AuthoredValueCodec {
         return ['present' => true, 'value' => $value];
     }
 
-    private static function has_templates(array $rule): bool {
-        if (isset($rule[FieldTemplateMap::FIELD])) return true;
-        foreach ($rule['object_fields'] ?? [] as $child) if (self::has_templates($child)) return true;
+    private static function has_projected_values(array $rule): bool {
+        if (isset($rule[FieldTemplateMap::FIELD]) || isset($rule[InputFileBinding::FIELD])) return true;
+        foreach ($rule['object_fields'] ?? [] as $child) if (self::has_projected_values($child)) return true;
         return false;
     }
 

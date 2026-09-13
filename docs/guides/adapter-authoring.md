@@ -3231,6 +3231,26 @@ That bounded evidence does not exercise an import job or provide its input file.
 A remembered CSV path is functional state: do not project it away to make an
 otherwise unsupported import template fit the declaration.
 
+Use `column-input-files/v1` for a functional file pointer that each environment
+must provide independently. Declare the exact nested field with
+`{"class":"authored","input_file":{"directory":"webtoffee_import","extensions":["csv"]}}`
+inside its typed column value contract. Capture records only dependency presence;
+an empty draft remains empty. Plan derives the binding name from the canonical
+row and field, and the operator provisions one filename in the declared content
+directory through `env-set`. Apply binds that target file through the ordinary
+typed writer. This feature supports ordinary mapped and natural-key rows, not
+composite identities or a whole-column input leaf.
+
+Prove the native producer's URL spelling and the actual consumer's allowed
+extensions; an upload dialog's list can be broader than the import consumer's.
+Do not treat remembered input as regenerable noise, transport customer CSV bytes,
+or add a plugin executable to choose paths. Test missing and replaced files,
+unsafe paths, empty drafts, canonical edits, rebinding after intent changes,
+drift, scope, repeat Apply and rollback. Run `regress-column-input-files` and
+`regress-column-input-requests`, plus the capsule's native input lane. The private
+intent lock protects Apply from cooperating provisioning; point-in-time file
+availability does not promise a later import job will still find identical bytes.
+
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
 an independently managed target row with the same key. Plan must either offer

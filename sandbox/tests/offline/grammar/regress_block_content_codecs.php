@@ -110,7 +110,9 @@ $policy->manifests = [$manifest];
 $scratch = sys_get_temp_dir() . '/wprism-block-env-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700);
 register_shutdown_function(static function () use ($scratch): void {
-    foreach (new FilesystemIterator($scratch, FilesystemIterator::SKIP_DOTS) as $entry) unlink($entry->getPathname());
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($scratch, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $entry) {
+        $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
+    }
     rmdir($scratch);
 });
 $db = WPrismTest\FakeWpdb::install()->enableInformationSchema()

@@ -90,7 +90,8 @@ final class AuthoredTransactionExecutor {
         \Closure $recheckDeleteGuard,
         \Closure $verifyDeleteCommit,
         \Closure $endDeleteTransaction,
-        private readonly ?\Closure $lockBlockEnvironmentOptions = null
+        private readonly ?\Closure $lockBlockEnvironmentOptions = null,
+        private readonly ?\Closure $lockInputFiles = null
     ) {
         $this->taxonomyOwnership = $taxonomyOwnership;
         $this->renewLease = $renewLease;
@@ -137,8 +138,12 @@ final class AuthoredTransactionExecutor {
         $transactionStarted = false;
         $scopedCommitParticipantStarted = false;
         $retainNativeRebuildAuthority = false;
+        $inputContext = null;
         Canary::arm();
         try {
+            $inputTree = array_intersect_key($tree, array_fill_keys(array_column($work, 'uuid'), true));
+            $inputContext = $this->lockInputFiles === null ? null : ($this->lockInputFiles)($inputTree);
+            $this->tokens->bind_input_files($inputContext?->values() ?? []);
             $this->attachmentMaterializer->prepare_filesystem($work, $tree, $request->mediaDerivatives);
             $deletionProfile = $executeDeletes && $deleteWork !== []
                 ? ($this->deletionDatabaseProfile)($deleteWork)
@@ -212,6 +217,7 @@ final class AuthoredTransactionExecutor {
                 // failure and runs the complete rollback path below.
                 ($this->verifyDeleteCommit)();
             }
+            $inputContext?->assert_current();
             Db::commit('apply transaction commit');
             $transactionStarted = false;
             $postCommitFailures = [];
@@ -373,6 +379,8 @@ final class AuthoredTransactionExecutor {
             // either commit or rollback.
             $this->termMaterializer->end_authored_transaction();
             $this->tokens->bind_block_environment_options([]);
+            $this->tokens->bind_input_files([]);
+            $inputContext?->release();
             $this->fieldMaterializer->end_authored_transaction();
             $this->optionsMaterializer->end_authored_transaction();
             $this->attachmentMaterializer->end_authored_transaction($retainNativeRebuildAuthority);
@@ -504,7 +512,7 @@ final class AuthoredTransactionExecutor {
                 ($this->renewLease)('apply-phase-1');
                 $entity = $tree[$row['uuid']];
                 if (isset($this->snapshotRowTables[$entity['type']])) {
-                    Snapshot::ensure_row($this->policy, $entity);
+                    Snapshot::ensure_row($this->policy, $entity, $this->tokens);
                 } elseif ($entity['type'] === 'term') {
                     $this->termMaterializer->ensure_term_row($entity['data'], 'term');
                 } elseif ($entity['type'] === 'menu') {

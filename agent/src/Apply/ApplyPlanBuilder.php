@@ -441,6 +441,7 @@ final class ApplyPlanBuilder {
         // against both named environments and diffing the two
         // env_missing lists client-side — see cli/README.md).
         $envMissing = $this->env_missing_projection($tree);
+        $plan = ApplyPlanner::project_input_rebinds($plan, $envMissing['input_rebinds'] ?? []);
         $plan['env_missing'] = $envMissing['env_missing'];
         foreach ($envMissing['warnings'] as $warning) {
             $this->warnings[] = $warning;

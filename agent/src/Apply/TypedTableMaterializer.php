@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+require_once __DIR__ . '/../Kernel/InputFileBinding.php';
 
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
 require_once __DIR__ . '/../Kernel/TableRowOwnership.php';
@@ -118,11 +119,12 @@ final class TypedTableMaterializer {
      *
      * @param array<string,array{container:string,leaves:string}> $codecs
      */
-    private static function applyColumn(mixed $value, array $codecs, string $column, object $tokens, string $where): mixed {
+    private static function applyColumn(mixed $value, array $codecs, string $column, object $tokens, string $where, string $uuid): mixed {
         if (!isset($codecs[$column])) {
             return is_string($value) ? $tokens->detokenize_text($value) : $value;
         }
-        return ColumnCodecGrammar::apply_value($value, $codecs[$column], $tokens, $where);
+        return ColumnCodecGrammar::apply_value($value, $codecs[$column], $tokens, $where,
+            static fn(array $spec, array $path): string => $tokens->input_file(InputFileBinding::name($uuid, $column, $path)));
     }
 
     /**
@@ -132,7 +134,7 @@ final class TypedTableMaterializer {
      *
      * @return bool true when a new row was inserted
      */
-    public function ensureRow(array $entity): bool {
+    public function ensureRow(array $entity, ?object $tokens = null): bool {
         global $wpdb;
         $decl = ($this->rowTables)()[$entity['type']];
         if (TableGraph::is_composite_ref($decl)) {
@@ -147,7 +149,12 @@ final class TypedTableMaterializer {
             if (isset($codec['value']) || array_key_exists(ColumnValueCases::FIELD, $codec)) {
                 $where = "table '{$entity['type']}' column '$column'";
                 $selected = ColumnValueCases::resolve($codec, (array) ($front['columns'] ?? []), $where);
-                ColumnCodecGrammar::decode_canonical_value($front['columns'][$column] ?? null, $selected, $where);
+                $value = ColumnCodecGrammar::decode_canonical_value($front['columns'][$column] ?? null, $selected, $where);
+                foreach (InputFileBinding::bindings($value, $selected['value']) as $binding) {
+                    if ($tokens === null) throw new \RuntimeException('wprism: column input file requires target binding preflight before insertion');
+                    $native = $tokens->input_file(InputFileBinding::name($front['uuid'], $column, $binding['path']));
+                    InputFileBinding::capture($native, $binding['spec']);
+                }
             }
         }
         $uuid = $front['uuid'];
@@ -234,7 +241,8 @@ final class TypedTableMaterializer {
                 $codecs,
                 (string) $col,
                 $tokens,
-                "table '{$entity['type']}' column '$col' (row $uuid)"
+                "table '{$entity['type']}' column '$col' (row $uuid)",
+                $uuid
             );
         }
         foreach ($decl['refs'] ?? [] as $ref) {
@@ -302,7 +310,8 @@ final class TypedTableMaterializer {
                 $codecs,
                 (string) $column,
                 $tokens,
-                "table '{$entity['type']}' column '$column' (composite row $uuid)"
+                "table '{$entity['type']}' column '$column' (composite row $uuid)",
+                $uuid
             );
         }
 

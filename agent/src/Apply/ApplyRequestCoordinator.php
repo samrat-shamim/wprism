@@ -7,8 +7,10 @@ require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 
 require_once __DIR__ . '/EnvironmentValues.php';
+require_once __DIR__ . '/ColumnInputFiles.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
+require_once __DIR__ . '/../Kernel/InputFileBinding.php';
 require_once __DIR__ . '/../Kernel/ExactOptionWriter.php';
 require_once __DIR__ . '/../Kernel/WordPressOptionValueCodec.php';
 if (!class_exists(Db::class, false)) {
@@ -645,14 +647,17 @@ final class ApplyRequestCoordinator {
      *
      * @return array{name:string, previously_set:bool}
      */
-    public static function set_env_option(string $repo, string $name, string $value): array {
-        $policy = Policy::load($repo);
+    public static function set_env_option(string $repo, string $name, string $value, array $opts = []): array {
+        $policy = self::policy($repo, $opts);
         if ($value === '') {
             throw new \RuntimeException(
                 "wprism: env-set: refusing to set '$name' to an empty string — that would still read as "
                 . "env_missing on the next 'wprism plan' (missing means absent OR empty), so it can never "
                 . 'satisfy provisioning'
             );
+        }
+        if (str_starts_with($name, InputFileBinding::PREFIX)) {
+            return ColumnInputFiles::provision($repo, $policy, self::compiled($repo, $policy, $opts)->tree(), $name, $value);
         }
         $passwordUuid = EnvironmentValues::postPasswordUuid($name);
         if ($passwordUuid !== null) {

@@ -69,6 +69,7 @@
           "ColumnValueCases",
           "FieldLabelMap",
           "FieldTemplateMap",
+          "InputFileBinding",
           "ScalarValueConstraint",
           "RecordFields",
           "EncodedText",
@@ -174,7 +175,7 @@
             ]
           }
         ],
-        "file_count": 94,
+        "file_count": 95,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -186,6 +187,7 @@
           "ColumnValueCases.php",
           "FieldLabelMap.php",
           "FieldTemplateMap.php",
+          "InputFileBinding.php",
           "ScalarValueConstraint.php",
           "RecordFields.php",
           "EncodedText.php",
@@ -888,8 +890,9 @@
             ]
           }
         ],
-        "file_count": 37,
+        "file_count": 38,
         "files": [
+          "ColumnInputFiles.php",
           "MediaDerivativeObservation.php",
           "MediaDerivativeWorkset.php",
           "Apply.php",

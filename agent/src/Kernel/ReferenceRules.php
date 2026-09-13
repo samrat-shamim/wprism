@@ -13,6 +13,7 @@ require_once __DIR__ . '/KeyBoundStrings.php';
 require_once __DIR__ . '/RecordFields.php';
 require_once __DIR__ . '/FieldLabelMap.php';
 require_once __DIR__ . '/FieldTemplateMap.php';
+require_once __DIR__ . '/InputFileBinding.php';
 
 /**
  * Manifest-time normalization and validation for the shared structural-ref
@@ -83,6 +84,7 @@ final class ReferenceRules {
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
     public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false, bool $encodedText = false, bool $postMetaInvalidation = false, bool $blockContracts = false, bool $scalarConstraints = false): void {
         FieldLabelMap::assert_rule($rule, $where);
+        if (array_key_exists(InputFileBinding::FIELD, $rule)) InputFileBinding::assert_rule($rule, $where);
         FieldTemplateMap::assert_rule($rule, $where);
         if (!$blockContracts && array_intersect(array_keys($rule), self::BLOCK_CONTRACT_FIELDS)) {
             throw new \RuntimeException("wprism: $where block value contracts belong only to negotiated block attribute values");

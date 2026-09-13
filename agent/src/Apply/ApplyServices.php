@@ -15,6 +15,7 @@ require_once __DIR__ . '/PostMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteExecutor.php';
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/BlockEnvironmentOptions.php';
+require_once __DIR__ . '/ColumnInputFiles.php';
 require_once __DIR__ . '/../Delete/DeleteGuardReferenceScanner.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
@@ -240,7 +241,8 @@ final class ApplyServices {
             $this->callbacks->recheckDeleteGuard,
             $this->callbacks->verifyDeleteCommit,
             $this->callbacks->endDeleteTransaction,
-            fn(): array => BlockEnvironmentOptions::lock($this->policy, $this->repositoryRoot)
+            fn(): array => BlockEnvironmentOptions::lock($this->policy, $this->repositoryRoot),
+            fn(array $tree): ?ColumnInputFiles => ColumnInputFiles::lock_work($this->repositoryRoot, $this->policy, $tree)
         );
     }
 
