@@ -200,3 +200,108 @@ jq -e '.applied == 0 and .warnings == [] and .plan.update == 0 and .plan.create 
   <<<"$MAP_DELETE_RETRY" >/dev/null || fail 'Map Block deletion refusal recovery is not a clean no-op'
 map_preserved active 1.35
 pass 'Map Block unsupported credential deletion preserves native data, target intent and prior publication'
+
+# Every command below owns this disposable conformance pair. The holder uses
+# CapturePublicationWorkflow's existing release barrier, not a guessed race.
+mkdir "$CONF_REPO2/.tmp-map-concurrency"
+chmod a+rwx "$CONF_REPO2/.tmp-map-concurrency"
+cp "$MAP_CAPSULE/fixtures/concurrency-native.php" "$CONF_REPO2/.tmp-map-concurrency/"
+MAP_CONCURRENT_SINK=$(umask 077; mktemp -d "$MAP_ROOT/sandbox/tmp/map-concurrent-$CONF_PAIR.XXXXXX")
+for MAP_STAGE in holder same other apply retry cleanup; do
+  for MAP_SUFFIX in stdout stderr exit; do (umask 077; set -C; : >"$MAP_CONCURRENT_SINK/$MAP_STAGE.$MAP_SUFFIX"); done
+done
+map_concurrent_phase() { # <expected phase> [release]
+  capture_wprism_json_success MAP_CONCURRENT_PHASE 'Map Block capture barrier observation' \
+    wp_conf2 eval-file /siterepo/.tmp-map-concurrency/concurrency-native.php "${2:-phase}" --use-include
+  require_observed_nonempty 'Map Block capture barrier observation' "$MAP_CONCURRENT_PHASE"
+  php "$MAP_CAPSULE/fixtures/concurrency-evidence.php" phase "$1" <<<"$MAP_CONCURRENT_PHASE" \
+    || fail 'Map Block capture barrier did not prove its expected phase'
+}
+map_concurrent_preserved() {
+  map_preserved active 1.35
+  map_delete_observe observe
+  [ "$(jq -Sc '[.artifact_sha256,.intent_sha256]' <<<"$MAP_DELETE_OBSERVATION")" = "$MAP_DELETE_PRESERVED" ] \
+    || fail 'Map Block contention changed target credential intent or prior artifact'
+  diff -r "$CONF_REPO2/.tmp-map-deletion/state-original" "$CONF_REPO2/state" \
+    || fail 'Map Block contention changed canonical repository bytes'
+}
+map_concurrent_refused() { # <same|other|apply> <wp args...>
+  local case_name="$1" result=0
+  shift
+  wprism_private_capture_stage "$MAP_CONCURRENT_SINK" "$case_name" wp_conf2 "$@" || result=$?
+  php "$MAP_CAPSULE/fixtures/concurrency-evidence.php" transport "$case_name" "$CONF_PAIR" "$MAP_CONCURRENT_SINK/$case_name" \
+    || fail "Map Block competing command did not return its exact refusal; private transport: $MAP_CONCURRENT_SINK"
+  [ "$result" = 1 ] || fail 'Map Block competing command lost its refusal exit'
+  map_concurrent_phase locked
+  map_concurrent_preserved
+}
+map_concurrent_clean() { # <host output directory>
+  local suffix
+  for suffix in .capture-staging .capture-backup .capture-intent .capture-intent.next .capture-intent.previous .capture-receipt.next .capture-receipt.previous; do
+    [ ! -e "$1$suffix" ] && [ ! -L "$1$suffix" ] || fail 'Map Block capture left publication recovery residue'
+  done
+}
+MAP_CONCURRENT_PID=''
+map_concurrent_cleanup() {
+  local result=$?
+  trap - EXIT
+  if [ -n "$MAP_CONCURRENT_PID" ]; then
+    # Retain all transport, even during cleanup. Releasing only this pair's
+    # barrier lets its bounded holder exit; no foreign process is killed.
+    wprism_private_capture_stage "$MAP_CONCURRENT_SINK" cleanup \
+      wp_conf2 eval-file /siterepo/.tmp-map-concurrency/concurrency-native.php release --use-include || true
+    wait "$MAP_CONCURRENT_PID" || true
+  fi
+  exit "$result"
+}
+trap map_concurrent_cleanup EXIT
+map_concurrent_phase ''
+wprism_private_capture_stage "$MAP_CONCURRENT_SINK" holder \
+  "${PAIR_COMPOSE[@]}" run --rm -T -e WPRISM_TEST_MODE=1 -e WPRISM_TEST_CAPTURE_WAIT_FOR_RELEASE=1 \
+  cli2 sh -c 'umask 000; exec wp "$@"' sh wprism capture --repo=/siterepo \
+  --out=/siterepo/.tmp-map-concurrency/holder --format=json &
+MAP_CONCURRENT_PID=$!
+# Poll a typed native answer; malformed/failed reads never count as waiting.
+for MAP_ATTEMPT in {1..30}; do
+  capture_wprism_json_success MAP_CONCURRENT_PHASE 'Map Block capture holder startup' \
+    wp_conf2 eval-file /siterepo/.tmp-map-concurrency/concurrency-native.php phase --use-include
+  if php "$MAP_CAPSULE/fixtures/concurrency-evidence.php" phase locked <<<"$MAP_CONCURRENT_PHASE" 2>/dev/null; then break; fi
+  php "$MAP_CAPSULE/fixtures/concurrency-evidence.php" phase '' <<<"$MAP_CONCURRENT_PHASE" \
+    || fail 'Map Block holder startup reported an invalid phase'
+  kill -0 "$MAP_CONCURRENT_PID" 2>/dev/null || fail 'Map Block capture holder exited before overlap'
+  sleep 0.1
+done
+map_concurrent_phase locked
+map_concurrent_refused same wprism capture --repo=/siterepo --out=/siterepo/.tmp-map-concurrency/holder --format=json
+map_concurrent_refused other wprism capture --repo=/siterepo --out=/siterepo/.tmp-map-concurrency/other --format=json
+map_concurrent_refused apply wprism apply --repo=/siterepo --default-author=admin --format=json
+for MAP_OUTPUT in holder other; do
+  [ ! -e "$CONF_REPO2/.tmp-map-concurrency/$MAP_OUTPUT" ] && [ ! -L "$CONF_REPO2/.tmp-map-concurrency/$MAP_OUTPUT" ] \
+    || fail 'Map Block contending capture published before holder release'
+  map_concurrent_clean "$CONF_REPO2/.tmp-map-concurrency/$MAP_OUTPUT"
+done
+map_concurrent_phase release release
+MAP_CONCURRENT_RESULT=0
+wait "$MAP_CONCURRENT_PID" || MAP_CONCURRENT_RESULT=$?
+MAP_CONCURRENT_PID=''
+[ "$MAP_CONCURRENT_RESULT" = 0 ] || fail "Map Block capture holder failed; private transport: $MAP_CONCURRENT_SINK"
+php "$MAP_CAPSULE/fixtures/concurrency-evidence.php" transport holder "$CONF_PAIR" "$MAP_CONCURRENT_SINK/holder" \
+  || fail 'Map Block holder did not return a complete clean capture'
+map_concurrent_phase ''
+map_concurrent_preserved
+diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-map-concurrency/holder" || fail 'Map Block winning capture differs from the exact source'
+map_concurrent_clean "$CONF_REPO2/.tmp-map-concurrency/holder"
+wprism_private_capture_stage "$MAP_CONCURRENT_SINK" retry \
+  wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-map-concurrency/other --format=json \
+  || fail 'Map Block refused destination did not become retryable'
+php "$MAP_CAPSULE/fixtures/concurrency-evidence.php" transport retry "$CONF_PAIR" "$MAP_CONCURRENT_SINK/retry" \
+  || fail 'Map Block retry did not return a complete clean capture'
+diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-map-concurrency/other" || fail 'Map Block capture retry differs from the exact source'
+map_concurrent_clean "$CONF_REPO2/.tmp-map-concurrency/other"
+capture_wprism_json_checked MAP_CONCURRENT_APPLY 'Map Block post-contention no-op apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+jq -e '.applied == 0 and .warnings == [] and .plan.update == 0 and .plan.create == 0 and .plan.drift == 0' \
+  <<<"$MAP_CONCURRENT_APPLY" >/dev/null || fail 'Map Block contention retry is not an idempotent no-op'
+map_concurrent_preserved
+trap - EXIT
+pass 'Map Block overlapping capture/capture/apply commands serialize and preserve target-owned data'
