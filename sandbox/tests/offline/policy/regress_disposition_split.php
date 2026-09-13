@@ -368,6 +368,21 @@ const PRE_MANAGED_CLONE_RANK_SNAPSHOT_SHA = 'e2a7c90b5759fd3a84de7d7a0826bc7dbba
 const PRE_MANAGED_CLONE_YOAST_SNAPSHOT_SHA = '97e5aef666c52f3cb35e6c459d690afb7d7cf36da3c4b2bfec66e97692b585a5';
 const PRE_MANAGED_CLONE_YDP_REASON = 'Certified for exact Yoast Duplicate Post 4.7 on single-site WordPress with all 28 authored settings, native clone/taxonomy/meta behavior, large divergent post identities, durable _dp_original rewriting and plugin-native removal, settings/row-action/post-state/metabox rendering, a verified role-capability provider over hostile and missing-role targets, target-sovereign Rewrite & Republish residue, option and duplicated-post deletion authorization, conflict/force/idempotence, failure/retry, lifecycle residue and exact reinstall, credential-shaped-setting refusal, and official 4.6 refusal evidence.';
 
+// PRs #614/#615 intentionally move these two addresses. Keep their preceding
+// values and TEC's four changed disposition fields so older claim-transition
+// proofs reconstruct their original registry instead of rewriting its hashes.
+const PRE_TEC_6174_CF7_MESSAGE_DIGESTS = [
+    'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
+    'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
+];
+const PRE_TEC_6174_REGISTRY_SHA = 'a986c4c4689f63586269b31bba79b439282cd8739f33059da32d1f6fddaa8976';
+const PRE_TEC_6174_REASON = 'Certified for official free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress: exact clean/dirty canonical round trips; populated 6.17.2-to-6.17.3 upgrade; native event, venue, organizer, category, settings, Customizer, widget, REST, and frontend behavior; exact reviewed PII authority limited to eleven native event/organizer/venue contact coordinates populated divergently through the generic entity-meta capture seam; divergent huge identities and ordered repeated organizers; Category Colors and Custom Tables V1 regeneration; scoped receipt-loss and selected-map ABA inverse recovery; database, filter, provider, and transaction failure rollback/retry; competing applies; lifecycle recovery; byte-identical recapture; and official 6.17.1 plus synthetic 6.17.4 refusal controls. Pro/add-on/import/credential/runtime surfaces, plugin-specific deletion, out-of-range releases, and multisite remain explicit loud boundaries.';
+const PRE_TEC_6174_VERSION_REFUSAL = [
+    'operation' => 'all',
+    'reason' => 'The Events Calendar releases before 6.17.2 and 6.17.4 or later are outside the source-audited and exact-artifact-tested range; the exclusive minor-patch maximum prevents a future 6.17.4 release from being silently admitted.',
+    'surface' => 'version:<6.17.2|>=6.17.4',
+];
+
 /**
  * The 21-subject greenfield fixture boundary, including Redirection. These
  * literals pin the identities involved in the audited transitions; an edit
@@ -380,7 +395,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'change-wp-admin-login' => 'd40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
-    'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
+    'contact-form-7' => '53fdac96618f559d7620aa8dbc6af75d1cc1ba1e3b1f408ceb7fc2a8a7930fb9',
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
@@ -389,7 +404,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'qi-blocks' => 'aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
-    'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
+    'the-events-calendar' => '0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5',
     'woocommerce' => '9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0',
     'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
@@ -397,11 +412,11 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '6714fa159d10451de253884ff4eab598456807924295b42c7a5f8031fe1f621e';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '9881e10efb421214f7c1b6803918197159fe29eb2505a00751fc4365fc870308';
-const WPRISM_CURRENT_REGISTRY_SHA = 'a986c4c4689f63586269b31bba79b439282cd8739f33059da32d1f6fddaa8976';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'c2844242f61c18f02617b106670c78907bacecd2227fe357f964a188a39b139d';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '63d6d679cb45cb3a76d2da5b58246a0e8cdc60a3cdd358e5b76a39d71d7f2159';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '7e6cb1461c015b3a0e2fde3c4f5820295a1e6b52cea3e2f708e359bf99444088';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'f2a5945b673eb875f01d77c7f06cc453132a53833976c3f198cdea340d68b050';
+const WPRISM_CURRENT_REGISTRY_SHA = 'a6956294ca5bdbfcdb15656b1ee7bd72c4c3909b9ba395ad0a9c4a03e60c5ded';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '2b9e850100d0fb5096dd66d5b724d858d60b2ae0e61d3448a64d2f31c188b72c';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '14be498a2d912417a2a087cd45aa1d9947e47e782b350fb236e46294a1ae8b4e';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -448,6 +463,9 @@ foreach ($shippedPolicies as $world => $policy) {
     }
 }
 ksort($observed, SORT_STRING);
+wprism_check_same(['contact-form-7', 'the-events-calendar'],
+    array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, PRE_TEC_6174_CF7_MESSAGE_DIGESTS))),
+    'the reviewed TEC version and CF7 message changes move exactly their two capsule identities');
 $worldUnion = array_values(array_unique(array_merge($rankWorldPins, $yoastWorldPins, $aioPins)));
 sort($worldUnion, SORT_STRING);
 wprism_check_same($shippedNames, $worldUnion, 'the compatible-world union covers every historical fixture subject');
@@ -756,7 +774,24 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA !== WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
-$preManagedCloneRegistry = $shippedRegistry->data();
+$preTecRegistry = $shippedRegistry->data();
+$priorTec = &$preTecRegistry['manifests']['the-events-calendar'];
+wprism_check_same(['max' => '6.17.5', 'min' => '6.17.2'], $priorTec['supported_versions']['range'],
+    'the historical TEC overlay starts from the exact reviewed current version range');
+$priorTec['reason'] = PRE_TEC_6174_REASON;
+$priorTec['supported_versions']['range']['max'] = '6.17.4';
+$restoredVersionRows = 0;
+foreach ($priorTec['unsupported'] as &$unsupported) {
+    if ($unsupported['surface'] === 'version:<6.17.2|>=6.17.5') {
+        $unsupported = PRE_TEC_6174_VERSION_REFUSAL;
+        ++$restoredVersionRows;
+    }
+}
+unset($unsupported, $priorTec);
+wprism_check_same(1, $restoredVersionRows, 'the historical TEC overlay restores exactly one version refusal');
+wprism_check_same(PRE_TEC_6174_REGISTRY_SHA, hash('sha256', Canon::encode($preTecRegistry)),
+    'restoring only the four reviewed TEC disposition fields reconstructs the exact preceding registry');
+$preManagedCloneRegistry = $preTecRegistry;
 // The upstream historical address predates the two capsules added here.
 unset($preManagedCloneRegistry['manifests']['change-wp-admin-login'], $preManagedCloneRegistry['manifests']['qi-blocks']);
 $priorYdp = &$preManagedCloneRegistry['manifests']['yoast-duplicate-post'];

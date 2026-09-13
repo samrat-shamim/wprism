@@ -2369,13 +2369,10 @@ grep -Fq 'wprism_tec_fail_scoped_receipt' <<<"$COLOR_ATOMIC_OUT" \
   || fail "TEC atomic author-receipt failure did not roll target, map, state, and CSS bytes back"
 # The action hash is asserted through .author_action_matches, which
 # tec_scoped_session_evidence derives by hashing the current authored-transaction
-# label. It used to be pinned here a second time as a bare digest as well, and
-# that copy went stale invisibly: the 2026-08-29 rebrand (#576) renamed the
-# runtime label duo-scoped-authored-transaction/v2 ->
-# wprism-scoped-authored-transaction/v2, and no rename can reach a hex literal.
-# The pinned a0b8cb4c... is exactly sha256("duo-scoped-authored-transaction/v2").
-# A digest nobody can read is a digest nobody can maintain, so assert the shape
-# here and let the derived comparison carry the value.
+# label. A second bare digest went stale during the 2026-08-29 rebrand (#576):
+# updating the protocol name cannot update an opaque hash of its former name.
+# Assert the shape here and let the helper's comparison against the current
+# wprism-scoped-authored-transaction/v2 label carry the value.
 COLOR_ATOMIC_SESSION=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_ATOMIC_SESSION" | jq -e '
   .phase == "authoring" and .recovery_from == null and

@@ -35,18 +35,17 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-// AIO Login and Qi add two subjects without changing the upstream adapters.
-// AIO Login has its own compatible world; Qi joins both maximal SEO worlds.
-// Native crop and gallery declarations change only Qi identity and pin sets that
-// contain it. Upstream withdrew Yoast Duplicate Post certification separately:
-// preserve that disposition and re-pin its containing worlds plus every
-// registry-addressed snapshot. No other adapter digest or manifest byte moves.
-const BASELINE_FIXTURE_SHA256 = 'ae80319d1f0be747bf9a5305961cccfadb90c5656b097c9940493bd0304256a8';
-const RANK_WORLD_MANIFEST_HASH = '6714fa159d10451de253884ff4eab598456807924295b42c7a5f8031fe1f621e';
-const YOAST_WORLD_MANIFEST_HASH = '9881e10efb421214f7c1b6803918197159fe29eb2505a00751fc4365fc870308';
-const REGISTRY_SHA256 = 'a986c4c4689f63586269b31bba79b439282cd8739f33059da32d1f6fddaa8976';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'c2844242f61c18f02617b106670c78907bacecd2227fe357f964a188a39b139d';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '63d6d679cb45cb3a76d2da5b58246a0e8cdc60a3cdd358e5b76a39d71d7f2159';
+// PR #614 changed TEC's reviewed 6.17.4 boundary; PR #615 changed CF7's message
+// PII declaration and interpreter. Re-pin only those two capsule addresses and
+// their containing worlds. TEC's disposition also moves the cohort registry,
+// so every registry-addressed snapshot changes. Polylang was already re-pinned
+// by PR #613; its digest, all other capsule addresses and every pin order stay.
+const BASELINE_FIXTURE_SHA256 = '2befe21f8b9adf29989e0affa34c2dfd3d2cb1b3ed1d132eeaa278c64223fd13';
+const RANK_WORLD_MANIFEST_HASH = '7e6cb1461c015b3a0e2fde3c4f5820295a1e6b52cea3e2f708e359bf99444088';
+const YOAST_WORLD_MANIFEST_HASH = 'f2a5945b673eb875f01d77c7f06cc453132a53833976c3f198cdea340d68b050';
+const REGISTRY_SHA256 = 'a6956294ca5bdbfcdb15656b1ee7bd72c4c3909b9ba395ad0a9c4a03e60c5ded';
+const RANK_WORLD_SNAPSHOT_SHA256 = '2b9e850100d0fb5096dd66d5b724d858d60b2ae0e61d3448a64d2f31c188b72c';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '14be498a2d912417a2a087cd45aa1d9947e47e782b350fb236e46294a1ae8b4e';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
