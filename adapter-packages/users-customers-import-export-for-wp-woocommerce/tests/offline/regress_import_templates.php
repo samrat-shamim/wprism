@@ -130,45 +130,49 @@ wprism_check_same([false, false, false], $write($tree), 'repeat preserves all id
 wprism_check_same($after, $census(), 'repeat preserves the complete native census');
 $edited = $original;
 $editedValue = $value;
-$editedValue['mapping_form_data']['mapping_selected_fields']['display_name'] = [['text' => 'Public '], ['field' => 'Display']];
+$editedValue['mapping_form_data']['mapping_selected_fields']['display_name'] = [['field' => 'LocalDisplay']];
 $edited['data']['columns']['data'] = json_encode($editedValue);
 $observed = false;
 wprism_check_throws(static function () use ($transaction, $policy, $targetTokens, $edited, $read, &$observed): void {
     $transaction(static function () use ($policy, $targetTokens, $edited, $read, &$observed): void {
         Snapshot::finalize_row($policy, $targetTokens, $edited);
-        $observed = json_decode($read()['data'], true)['mapping_form_data']['mapping_selected_fields']['display_name'] === 'Public {Display}';
+        $observed = json_decode($read()['data'], true)['mapping_form_data']['mapping_selected_fields']['display_name'] === '{LocalDisplay}';
         throw new RuntimeException('later native write failure');
     });
 }, RuntimeException::class, 'post-write failure rolls back through the real transaction', 'later native write failure');
 wprism_check($observed, 'rollback witness reaches the changed native expression');
 wprism_check_same($after, $census(), 'rollback restores templates, ledger and runtime rows');
-foreach (['cursor', 'source-file', 'raw-expression', 'private-literal', 'disabled-secret'] as $fault) {
+foreach (['cursor', 'source-file', 'raw-expression', 'private-literal', 'display-prefix', 'disabled-secret'] as $fault) {
     $invalid = $original['data'];
     $bad = $value;
     if ($fault === 'cursor') $bad['method_import_form_data']['selected_template'] = '1';
     if ($fault === 'source-file') $bad['method_import_form_data']['wt_iew_local_file'] = $fixture['form']['method_import_form_data']['wt_iew_local_file'];
     if ($fault === 'raw-expression') $bad['mapping_form_data']['mapping_selected_fields']['user_email'] = '{Email}';
     if ($fault === 'private-literal') $bad['mapping_form_data']['mapping_selected_fields']['user_email'] = [['text' => 'private@example.net']];
+    if ($fault === 'display-prefix') $bad['mapping_form_data']['mapping_selected_fields']['display_name'] = [['text' => 'Local '], ['field' => 'Display']];
     if ($fault === 'disabled-secret') $bad['mapping_form_data']['mapping_fields']['user_pass'] = [[['text' => 'private-credential-material']], 0];
     $invalid['columns']['data'] = json_encode($bad);
     Canon::write_file($repo . '/state/' . $original['path'], Canon::encode($invalid));
-    wprism_check_throws(static fn() => RepositoryCompiler::compile($repo, $policy), RuntimeException::class, "compiler refuses $fault before Apply");
+    wprism_check_throws(static fn() => RepositoryCompiler::compile($repo, $policy), RuntimeException::class, "compiler refuses $fault before Apply",
+        $fault === 'display-prefix' ? 'repository_pii_not_allowed' : null);
     wprism_check_same($after, $census(), "$fault refusal preserves native state");
 }
 Canon::write_file($repo . '/state/' . $original['path'], $original['content']);
-foreach (['private-discarded', 'literal-password', 'remote-mode', 'malformed-owned-json'] as $fault) {
+foreach (['private-discarded', 'literal-password', 'display-prefix', 'remote-mode', 'malformed-owned-json'] as $fault) {
     $badRows = $after[$table];
     foreach ($badRows as &$row) if ((int) $row['id'] === $localId) {
         $bad = json_decode($row['data'], true);
         if ($fault === 'private-discarded') $bad['method_import_form_data']['api_key'] = 'private-credential-material';
         if ($fault === 'literal-password') $bad['mapping_form_data']['mapping_fields']['user_pass'] = ['private-credential-material', 0];
+        if ($fault === 'display-prefix') $bad['mapping_form_data']['mapping_fields']['display_name'] = ['Local {Display}', 1];
         if ($fault === 'remote-mode') $bad['method_import_form_data']['wt_iew_file_from'] = 'url';
         $row['data'] = $fault === 'malformed-owned-json' ? '{broken' : json_encode($bad);
     }
     unset($row);
     $db->seedTable($table, $badRows);
     $beforeBad = $census();
-    wprism_check_throws(static fn() => $capture($targetTokens), RuntimeException::class, "Capture refuses owned native $fault");
+    wprism_check_throws(static fn() => $capture($targetTokens), RuntimeException::class, "Capture refuses owned native $fault",
+        $fault === 'display-prefix' ? 'personal name' : null);
     wprism_check_same($beforeBad, $census(), "$fault Capture preserves all native state");
 }
 wprism_check_summary('importer saved import templates');

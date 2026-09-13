@@ -53,7 +53,7 @@ if (str_starts_with($phase, 'setup-')) {
         $path = $import->get_file_path($filename);
         $check(!file_exists($path), 'setup cannot replace an existing input');
         $password = wp_generate_password(32, false);
-        $bytes = "Login,Email,Display,Password\n$login,$email,$display,$password\n";
+        $bytes = "Login,Email,Display,Password,LocalDisplay\n$login,$email,$display,$password,Local input\n";
         $check(file_put_contents($path, $bytes) === strlen($bytes), 'complete independent native CSV');
     }
     $fixture = json_decode(file_get_contents(__DIR__ . '/native-import-templates.json'), true, flags: JSON_THROW_ON_ERROR);
@@ -61,8 +61,8 @@ if (str_starts_with($phase, 'setup-')) {
     $form['method_import_form_data']['selected_template'] = '0';
     $form['method_import_form_data']['wt_iew_local_file'] = $import->get_file_url($side . '-input.csv');
     if ($side === 'target') {
-        $form['mapping_form_data']['mapping_selected_fields']['display_name'] = 'Local {Display}';
-        $form['mapping_form_data']['mapping_fields']['display_name'] = ['Local {Display}', 1];
+        $form['mapping_form_data']['mapping_selected_fields']['display_name'] = '{LocalDisplay}';
+        $form['mapping_form_data']['mapping_fields']['display_name'] = ['{LocalDisplay}', 1];
     }
     $original = $save($form, 'Reusable input mapping', 0, 'save');
     $form['method_import_form_data']['selected_template'] = (string) $original;
