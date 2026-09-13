@@ -4774,7 +4774,11 @@ Canonical validation masks recognized WPrism text tokens and requires a
 render/parse fixed point; Apply repeats the proof after target expansion.
 Unknown keys, empty or adjacent text fragments, invalid field bodies and
 ambiguous fragment boundaries refuse. Target URLs cannot introduce new native
-field syntax. Each expression is at most 1 MiB and the complete root value
+field syntax. A text fragment ending in a numeric or canonical post-token value for `p`,
+`page_id` or `attachment_id` cannot be immediately followed by a field fragment:
+that would bind a prefix of a dynamically assembled reference. This restriction
+also applies to relative and external URLs; delimiter-terminated static query
+values remain valid. Each expression is at most 1 MiB and the complete root value
 shares a 16,384-fragment budget. Existing JSON depth and node limits apply before
 transformation and to the resulting canonical value.
 

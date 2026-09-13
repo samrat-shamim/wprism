@@ -3,6 +3,7 @@
 # This bounded lane does not run an import job or claim template qualification.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 cd "$ROOT/sandbox"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }

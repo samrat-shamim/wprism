@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/IdentityTokenCodec.php';
+
 /**
  * Pure structural codec for WordPress's post-id URL query references.
  *
@@ -11,6 +13,22 @@ namespace WPrism;
  * Ledger, WordPress, Capture, policy, and persistent capture state.
  */
 final class UrlQueryReferenceCodec {
+    private const QUERY_PARAMETERS = 'p|page_id|attachment_id';
+
+    /** A dynamic suffix cannot be bound as the static numeric prefix before it. */
+    public static function assert_complete_fragment(string $literal, string $where): void {
+        if (preg_match('/[?&](?:' . self::QUERY_PARAMETERS . ')=([^\s&#]*)$/D', $literal, $match) !== 1) return;
+        $numeric = preg_replace_callback('/\{\{[^{}]*\}\}/', static function (array $part): string {
+            try {
+                $identity = IdentityTokenCodec::decode($part[0]);
+                if ($identity['kind'] === 'post' && IdentityTokenCodec::encode('post', $identity['uuid']) === $part[0]) return '0';
+            } catch (\RuntimeException) {}
+            return $part[0];
+        }, $match[1]);
+        $reference = preg_match('/^[0-9]+$/D', $numeric) === 1;
+        if ($reference) throw new \RuntimeException("wprism: $where cannot bind a query-reference prefix before a dynamic field");
+    }
+
     /**
      * Capture direction: rewrite numeric references inside `{{home}}` URL
      * spans. An unresolved reference drops its entire separator/parameter
@@ -49,7 +67,7 @@ final class UrlQueryReferenceCodec {
             $unresolved
         ) {
             $rewritten = preg_replace_callback(
-                '/([?&])(p|page_id|attachment_id)=(\d+)/',
+                '/([?&])(' . self::QUERY_PARAMETERS . ')=(\d+)/',
                 function (array $match) use ($contextLabel, $idToToken, $warn, $unresolved) {
                     $id = (int) $match[3];
                     $token = $idToToken($id);
@@ -83,7 +101,7 @@ final class UrlQueryReferenceCodec {
             return $value;
         }
         $out = preg_replace_callback(
-            '/([?&](?:p|page_id|attachment_id)=)\{\{post:([0-9a-f-]{36})\}\}/',
+            '/([?&](?:' . self::QUERY_PARAMETERS . ')=)\{\{post:([0-9a-f-]{36})\}\}/',
             fn(array $match) => $match[1] . $tokenToId('{{post:' . $match[2] . '}}'),
             $value
         );

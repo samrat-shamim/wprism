@@ -39,7 +39,7 @@ $cases = [
     'unclosed' => ['{First name', '{First name'],
     'unopened' => ['First name}', 'First name}'],
     'nested_open' => ['{{home}}', 'Nested header}'],
-    'date' => ['{Birthwt_iew_@!Y-m-d}', '2026-09-14 00:00:00'],
+    'date' => ['{Birth' . Wt_Import_Export_For_Woo_User_Admin_Basic::$wt_iew_prefix . '@!Y-m-d}', '2026-09-14 00:00:00'],
     'arithmetic' => ['[{Count}+1]', '3'],
     'zero_no_arithmetic' => ['[{Zero}+1]', '[0+1]'],
     'sequential_substitution' => ['{A}{B}', 'secondsecond'],
@@ -119,6 +119,26 @@ try {
     wprism_check_same($entity['content'], $captureRows($targetTokens)[0]['content'], 'native expression table reaches a canonical fixed point');
     $transaction($apply);
     wprism_check_same($after, $read(), 'repeated native Apply retains complete row bytes');
+    foreach (['p', 'page_id', 'attachment_id'] as $parameter) {
+        $partial = "https://source.test/?$parameter=4{Suffix}";
+        $partialForm = ['mapping_form_data' => ['mapping_fields' => ['description' => [$partial, 1]],
+            'mapping_selected_fields' => ['description' => $partial]]];
+        wprism_check_same("https://source.test/?$parameter=41",
+            $import->process_column_val(['Suffix' => '1'], $partialForm)['mapping_fields']['description'],
+            'native dynamic query values differ from their static numeric prefix');
+        wprism_check_throws(static fn() => WPrism\ColumnCodecGrammar::capture_value(wp_json_encode($partialForm), $codecs['data'],
+            $sourceTokens, 'native dynamic query'), RuntimeException::class,
+            'native dynamic query prefixes refuse before token lookup', 'query-reference prefix');
+        $bad = $entity;
+        $badData = $canonical;
+        $badData['mapping_form_data']['mapping_selected_fields']['description'] = [
+            ['text' => "{{home}}/?$parameter=4"], ['field' => 'Suffix']];
+        $bad['data']['columns']['data'] = wp_json_encode($badData);
+        wprism_check_throws(static fn() => $writer->ensureRow($bad), RuntimeException::class,
+            'native phase one rejects dynamic query prefixes', 'query-reference prefix');
+        wprism_check_same($after, $read(), 'native dynamic-query refusal preserves complete stored bytes');
+    }
+
     $changed = $entity;
     $canonical['mapping_form_data']['mapping_selected_fields']['description'] = [['text' => 'Changed public constant']];
     $changed['data']['columns']['data'] = wp_json_encode($canonical);

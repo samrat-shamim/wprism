@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/IdentityTokenCodec.php';
+require_once __DIR__ . '/UrlQueryReferenceCodec.php';
 
 /** Opaque field references and authored literals have different transport and privacy semantics. */
 final class FieldTemplateMap {
@@ -36,7 +37,7 @@ final class FieldTemplateMap {
                 $definition = $definition[0];
             }
             if ($canonical) self::assert_fragments($definition, true, $budget, $where);
-            elseif (is_string($definition)) self::parse($definition, $budget, $where);
+            elseif (is_string($definition)) self::assert_boundaries(self::parse($definition, $budget, $where), $where);
             else throw new \RuntimeException("wprism: $where native field templates require strings");
         }
     }
@@ -130,12 +131,21 @@ final class FieldTemplateMap {
             self::assert_length($length, $where);
             $masked[] = [$key => $canonical && $key === 'text' ? self::mask_tokens($part[$key]) : $part[$key]];
         }
+        self::assert_boundaries($parts, $where);
         // WPrism tokens overlap the native brace grammar. Mask only recognized
         // text tokens for this proof; after target expansion even those masks
         // disappear, so a target URL cannot introduce new field references.
         $checkBudget = 0;
         if (self::parse(self::render($masked), $checkBudget, $where) !== $masked) {
             throw new \RuntimeException("wprism: $where requires unambiguous normalized field-template fragments");
+        }
+    }
+
+    private static function assert_boundaries(array $parts, string $where): void {
+        foreach ($parts as $index => $part) {
+            if (isset($part['text'], $parts[$index + 1]['field'])) {
+                UrlQueryReferenceCodec::assert_complete_fragment($part['text'], $where);
+            }
         }
     }
 

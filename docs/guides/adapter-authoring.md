@@ -3219,7 +3219,10 @@ the destination's PII and credential roles, including disabled definitions.
 
 Test empty, unmatched and nested braces, adjacent references, whitespace and date
 annotations, source/target URLs, disabled definitions, literal private values,
-malformed canonical edits, graph references and whole-value bounds. Run
+malformed canonical edits, graph references and whole-value bounds. A numeric
+post-query prefix followed by a field, such as `?p=4{Suffix}`, refuses: the
+native result could name post 41, so post 4 cannot be bound independently.
+Complete delimiter-terminated static query values retain ordinary rebinding. Run
 `regress-column-field-templates` plus the capsule's native expression transport
 lane, which calls the actual registered consumer after real typed-table writes.
 That bounded evidence does not exercise an import job or provide its input file.

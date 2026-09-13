@@ -84,7 +84,7 @@ $expressions = ['first_name' => '{First name}', 'user_email' => '{Email address}
     'user_pass' => '{Customer Password Column}', 'description' => 'https://source.test/public/{https://source.test/header}',
     'url_query_header' => '{https://source.test/?p=41}', 'escaped_header' => '{https:\/\/source.test\/header}',
     'empty' => '', 'braces' => '{}{Unclosed', 'adjacent' => '{First}{Last}',
-    'nested' => '{{home}}', 'date' => '{ Birthwt_iew_@!Y-m-d }', 'arithmetic' => '[{Count}+1]',
+    'nested' => '{{home}}', 'date' => '{ Birthwt_iew@!Y-m-d }', 'arithmetic' => '[{Count}+1]',
     'unicode' => '{নাম}', 'unmatched' => 'a}b{', 'literal' => 'Public constant'];
 $fragments = ['first_name' => [['field' => 'First name']], 'user_email' => [['field' => 'Email address']],
     'user_pass' => [['field' => 'Customer Password Column']],
@@ -92,7 +92,7 @@ $fragments = ['first_name' => [['field' => 'First name']], 'user_email' => [['fi
     'url_query_header' => [['field' => 'https://source.test/?p=41']], 'escaped_header' => [['field' => 'https:\/\/source.test\/header']],
     'empty' => [], 'braces' => [['text' => '{}{Unclosed']],
     'adjacent' => [['field' => 'First'], ['field' => 'Last']],
-    'nested' => [['field' => '{home'], ['text' => '}']], 'date' => [['field' => ' Birthwt_iew_@!Y-m-d ']],
+    'nested' => [['field' => '{home'], ['text' => '}']], 'date' => [['field' => ' Birthwt_iew@!Y-m-d ']],
     'arithmetic' => [['text' => '['], ['field' => 'Count'], ['text' => '+1]']],
     'unicode' => [['field' => 'নাম']], 'unmatched' => [['text' => 'a}b{']], 'literal' => [['text' => 'Public constant']]];
 $toTarget = $expressions;
@@ -371,5 +371,31 @@ $wpdb->seedTable('wp_wprism_map', []);
 wprism_check_throws(static fn() => ColumnCodecGrammar::apply_value($queryCanonical, $one,
     new Tokens('https://target.test', 'https://target.test/uploads'), 'query expression'), RuntimeException::class,
     'missing literal query bindings refuse through the existing reference machinery');
+
+// A partial query value must refuse before Tokens can bind (or drop) its
+// numeric prefix. The native field could append digits and name another post.
+$lookups = 0;
+$partialTokens = new Tokens('https://source.test', 'https://source.test/uploads',
+    static function () use (&$lookups, $postUuid): string { ++$lookups; return $postUuid; });
+foreach (['p', 'page_id', 'attachment_id'] as $parameter) {
+    foreach (['https://source.test/', 'https://external.test/', '/relative'] as $prefix) {
+        $nativePartial = ['description' => "$prefix?$parameter=4{Suffix}"];
+        wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value(json_encode($nativePartial), $one, $partialTokens, 'dynamic query'),
+            RuntimeException::class, 'dynamic query prefixes refuse before any binding or unmapped drop', 'query-reference prefix');
+    }
+    foreach (["{{home}}/?$parameter=4", "{{home}}/?$parameter={{post:$postUuid}}", "{{home}}/?$parameter={{post:$postUuid}}1", "{{home}}/?$parameter=4{{post:$postUuid}}1"] as $literal) {
+        $parts = ['selected' => ['description' => [['text' => $literal], ['field' => 'Suffix']]]];
+        $edited = $editData($entities[0], $parts);
+        wprism_check_throws(static fn() => $compile([$edited], $manifest), RuntimeException::class,
+            'canonical edits cannot turn a complete post reference into a dynamic prefix', 'schema_content_mismatch');
+        $before = $wpdb->rows('authored_templates');
+        wprism_check_throws(static fn() => $writer->ensureRow($edited), RuntimeException::class,
+            'phase one refuses dynamic query prefixes before any native write', 'query-reference prefix');
+        wprism_check_same($before, $wpdb->rows('authored_templates'), 'dynamic query refusal preserves complete rows');
+        wprism_check_throws(static fn() => ColumnCodecGrammar::apply_value(json_encode($parts), $codec, $targetTokens, 'dynamic query'),
+            RuntimeException::class, 'Apply also rejects a malformed dynamic query fragment', 'query-reference prefix');
+    }
+}
+wprism_check_same(0, $lookups, 'no dynamic query prefix reaches identity lookup');
 
 wprism_check_summary('column field templates');
