@@ -244,7 +244,7 @@ $wpdb = FakeWpdb::install()->enableInformationSchema()->enableJoinedCaptureSql()
     ->setColumns('authored_templates', ['id' => 'int(11)', 'name' => 'varchar(255)', 'data' => 'longtext',
         'item_type' => 'varchar(32)', 'hits' => 'int(11)'])->setTableEngine('authored_templates', 'InnoDB');
 $users = [['ID' => 2, 'user_login' => 'reader'], ['ID' => 3, 'user_login' => 'editor']];
-$wpdb->seedTable('wp_users', $users);
+$wpdb->seedTable('wp_users', $users)->setTableEngine('wp_users', 'InnoDB');
 $foreign = [['id' => 3, 'name' => 'Foreign', 'item_type' => 'product', 'data' => '{broken', 'hits' => 91]];
 $wpdb->seedTable('authored_templates', [['id' => 2, 'name' => 'Selected', 'item_type' => 'user', 'data' => $native, 'hits' => 42], ...$foreign]);
 $identity = new class($uuid) {
@@ -275,6 +275,7 @@ wprism_check_same(['columns.data'], array_column($lint, 'locator'), 'typed colum
 Canon::write_file($repo . '/state/' . $entity['path'], $entity['content']);
 $targetUsers = [['ID' => 82, 'user_login' => 'reader'], ['ID' => 93, 'user_login' => 'editor']];
 $wpdb->seedTable('wp_users', $targetUsers)->seedTable('authored_templates', $foreign);
+$targetTokens = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
 $mappedId = null;
 $writer = new WPrism\TypedTableMaterializer(static fn() => ['authored_templates' => $decl], static fn() => [],
     static function () use (&$mappedId): ?int { return $mappedId; },
@@ -283,7 +284,7 @@ $writer = new WPrism\TypedTableMaterializer(static fn() => ['authored_templates'
     static function (): void {}, static fn() => $scopedPolicy->column_codec_rules('authored_templates'));
 $transaction = static function (callable $write) use (&$mappedId): mixed {
     $mapBefore = $mappedId;
-    WPrism\Db::start_repeatable_read('typed column fixture', new WPrism\NativeDatabaseProfile(['wp_authored_templates'], ['wp_authored_templates']));
+    WPrism\Db::start_repeatable_read('typed column fixture', new WPrism\NativeDatabaseProfile(['wp_authored_templates', 'wp_users'], ['wp_authored_templates']));
     try {
         $result = $write();
         WPrism\Db::commit('typed column fixture');

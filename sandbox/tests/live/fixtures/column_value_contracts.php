@@ -104,11 +104,15 @@ try {
     wprism_check_same($blockCanonical, WPrism\Blocks::capture_rewrite($blockTarget, $blockPolicy, $targetTokens),
         'native block serialization retains its complete canonical fixed point');
     wprism_check(!array_key_exists('hits', $entity['data']['columns']), 'native runtime counter is absent from authored state');
+    // Force real user reads inside the authored transaction, independent of
+    // the preceding block test's token cache. Production admits users read-only
+    // in AuthoredTransactionExecutor::authored_transaction_profile().
+    $targetTokens = new Tokens('https://target.test/longer', 'https://target.test/longer/wp-content/uploads');
     $writer = new TypedTableMaterializer(static fn() => [$table => $decl], static fn() => [],
         static fn() => 2, static function (): void {}, static fn() => 0, static fn() => [],
         static fn() => false, static fn($value) => $value, static function (): void {}, static fn() => $codecs);
-    $transaction = static function (callable $action) use ($physical): void {
-        Db::start_repeatable_read('native typed column', new NativeDatabaseProfile([$physical], [$physical]));
+    $transaction = static function (callable $action) use ($physical, $wpdb): void {
+        Db::start_repeatable_read('native typed column', new NativeDatabaseProfile([$physical, $wpdb->users], [$physical]));
         try {
             $action();
             Db::commit('native typed column');

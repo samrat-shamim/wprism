@@ -3225,7 +3225,7 @@ refuse rather than claiming an identity the projection could discard. Later
 segments use the unchanged shared path dialect inside the retained value.
 
 `RecordFields` owns the pure declaration and record constraints;
-`BlockValueCodec` composes them with reference and text transport. Immutable
+`AuthoredValueCodec` composes them with reference and text transport. Immutable
 post/widget compilation, lint and Apply reject excluded canonical fields
 through that same validator. Canonical inputs are never silently projected.
 Retained data crosses all existing privacy and scope gates. The feature changes
