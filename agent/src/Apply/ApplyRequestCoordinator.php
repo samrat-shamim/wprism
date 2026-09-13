@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ColumnInputFiles.php';
+require_once __DIR__ . '/../Kernel/InputBindingWitness.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/../Kernel/InputFileBinding.php';
@@ -1657,7 +1658,12 @@ final class ApplyRequestCoordinator {
                     $selectedMapIdentityHashes
                 ): void {
                     $mapRoots = ScopedApply::ledger_map_roots($selectedMapIdentityHashes);
-                    if ($inputObservation !== null) $mapRoots['input_bindings'] = $inputObservation;
+                    // Every receipt already binds authority_hash, including its
+                    // input intent. Preserve after_hash as the map-only witness
+                    // that ApplyLedgerFinalizer rechecks under ledger row locks.
+                    if (InputBindingWitness::state($inputObservation, $authority['target']['input_bindings'] ?? null) !== 'desired') {
+                        throw new \RuntimeException('wprism: scoped author receipt has no exact native input readback');
+                    }
                     if (!hash_equals(
                         (string) ($authority['target']['protected_ledger_map_hash'] ?? ''),
                         (string) $mapRoots['protected_ledger_map_root']

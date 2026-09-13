@@ -364,9 +364,9 @@ ColumnInputFiles::provision($repo, $policy, $tree, $name, 'replacement.csv');
 $wpdb->seedTable('authored_inputs', $rows);
 $newIntent = ColumnInputFiles::witness($repo, $policy, $tree);
 wprism_check_same('mixed', $state($newIntent, $inputAuthority), 'changed intent cannot retarget an old scoped authority even when its pointer matches');
-wprism_check(WPrism\InputBindingWitness::bind_readback($hash, $newIntent) !== WPrism\InputBindingWitness::bind_readback($hash, $scopedReadback),
-    'atomic readback binds native intent beside the same ledger map');
-wprism_check_same($hash, WPrism\InputBindingWitness::bind_readback($hash, null), 'no-input receipt bytes stay unchanged');
+wprism_check_same(WPrism\ScopedApply::authored_ledger_map_hash($afterObservation),
+    WPrism\ScopedApply::authored_ledger_map_hash(['selected_ledger_map_root' => $afterObservation['selected_ledger_map_root']]),
+    'input authority preserves the map-only readback consumed by ledger finalization');
 
 unlink(WP_CONTENT_DIR . '/imports/replacement.csv');
 wprism_check_same([['name' => $name, 'required' => true]], ColumnInputFiles::projection($repo, $policy, $tree)['env_missing'],

@@ -26544,31 +26544,6 @@
                     "static": true,
                     "visibility": "public"
                 },
-                "bind_readback": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "mapHash",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "observation",
-                            "type": "?array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "string",
-                    "static": true,
-                    "visibility": "public"
-                },
                 "matches_before": {
                     "abstract": false,
                     "final": false,

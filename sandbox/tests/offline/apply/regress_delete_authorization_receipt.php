@@ -617,6 +617,47 @@ wprism_check(
     'same-process retry after engine/map/commit faults terminalizes the exact verifying session once'
 );
 
+// Native input evidence binds the authority; finalization still locks only
+// ledger tables. A compound pointer/map after_hash broke this actual boundary.
+$wpdb->seedTable('wp_wprism_kv', []);
+$inputAuthority = $scopedAuthority;
+unset($inputAuthority['authority_hash']);
+$inputAuthority['target']['input_bindings'] = [
+    'intent_hash' => hash('sha256', 'finalizer-intended-input'),
+    'before_hash' => hash('sha256', 'finalizer-before-input'),
+];
+$inputAuthority = \WPrism\ScopedApplySession::seal_authority($inputAuthority);
+$inputSession = \WPrism\ScopedApplySession::begin(new \WPrism\LedgerScopedApplySessionStorage(), $inputAuthority);
+$inputSession->transition(\WPrism\ScopedApplySession::PHASE_AUTHORING);
+$inputIntent = \WPrism\ScopedApplyCoordinator::intent($inputSession, 1, 'wprism-scoped-authored-transaction/v2',
+    'finalizer-input-author', hash('sha256', 'input-work'), hash('sha256', 'input-effect'),
+    $inputAuthority['target']['selected_before_hash']);
+$inputSession->append_intent($inputIntent);
+$inputObservation = $mapRoots + ['input_bindings' => [
+    'available' => true,
+    'intent_hash' => $inputAuthority['target']['input_bindings']['intent_hash'],
+    'observed_hash' => $inputAuthority['target']['input_bindings']['intent_hash'],
+]];
+$inputReceipt = \WPrism\ScopedApplyCoordinator::receipt($inputIntent,
+    \WPrism\ScopedApply::authored_ledger_map_hash($inputObservation));
+$inputSession->commit_authored_receipt($inputReceipt);
+$inputSession->transition(\WPrism\ScopedApplySession::PHASE_EFFECTS_PENDING);
+$inputSession->transition(\WPrism\ScopedApplySession::PHASE_VERIFYING);
+$inputFinalizationFailure = null;
+try {
+    (new ApplyLedgerFinalizer(static function (): void {}))->finalize($compiled, $scopedPlan, $tree,
+        [$authoredRow], [], false, true, [], $inputSession,
+        ['authored_ledger_map_hash' => $inputReceipt['after_hash'], 'receipt_hash' => hash('sha256', 'input-convergence')], $revision);
+} catch (\Throwable $failure) {
+    $inputFinalizationFailure = $failure->getMessage();
+}
+wprism_check_same(null, $inputFinalizationFailure, 'native input proof reaches the actual scoped ledger finalizer');
+wprism_check($inputSession->phase() === \WPrism\ScopedApplySession::PHASE_COMPLETE
+    && $inputReceipt['authority_hash'] === $inputAuthority['authority_hash']
+    && $inputReceipt['authority_hash'] !== $scopedAuthority['authority_hash']
+    && $wpdb->rows('wp_wprism_map') === $mapRows,
+    'terminal receipt binds input intent through authority while finalizing the unchanged physical map');
+
 $wpdb->resetLog()->injectTransactionOutcome('COMMIT', 'after_false');
 try {
     $finalize(false);

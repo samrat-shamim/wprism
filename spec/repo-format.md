@@ -3761,8 +3761,9 @@ refuses rather than being inferred from current state.
 The authored transaction holds the private environment-intent lock while taking
 selected native row/identity locks, proving the sealed preimage, writing, and
 checking actual pointers before its atomic ordinal-one receipt. That receipt
-binds input intent beside the selected map root. Even canonically unchanged input
-work requires this transaction boundary. Fresh post-author verification and
+binds input intent through its existing `authority_hash`; `after_hash` remains the
+selected identity-map witness that ledger finalization independently locks and
+rechecks. Even canonically unchanged input work requires this transaction boundary. Fresh post-author verification and
 terminal replay repeat native availability, intent, pointer, and receipt checks;
 changing local intent requires a new scoped request. Requests without selected
 input dependencies retain their existing authority and receipt bytes. Availability

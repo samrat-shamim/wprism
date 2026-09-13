@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace WPrism;
 
-require_once __DIR__ . '/Canon.php';
-
 /** Opaque target-input evidence, separate from portable authored content. */
 final class InputBindingWitness {
     public static function assert_authority(mixed $value): void {
@@ -47,15 +45,5 @@ final class InputBindingWitness {
         self::assert_authority($authority);
         return $observation['available'] && hash_equals($authority['intent_hash'], $observation['intent_hash'])
             && hash_equals($authority['before_hash'], $observation['observed_hash']);
-    }
-
-    /** No-input requests keep their existing receipt bytes. */
-    public static function bind_readback(string $mapHash, ?array $observation): string {
-        if ($observation === null) return $mapHash;
-        self::assert_observation($observation);
-        if (!$observation['available'] || !hash_equals($observation['intent_hash'], $observation['observed_hash'])) {
-            throw new \RuntimeException('wprism: scoped input bindings have not reached their intended native values');
-        }
-        return hash('sha256', Canon::encode(['ledger_map' => $mapHash, 'input_bindings' => $observation['intent_hash']]));
     }
 }
