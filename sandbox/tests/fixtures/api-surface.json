@@ -67386,6 +67386,9 @@
                 },
                 "MAX_FIELDS": {
                     "value_repr": 256
+                },
+                "OBJECT_FEATURE": {
+                    "value_repr": "object-record-fields/v1"
                 }
             },
             "final": true,
@@ -67466,6 +67469,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "object_declaration_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "validate": {
                     "abstract": false,
                     "final": false,
@@ -67484,6 +67495,39 @@
                             "has_default": false,
                             "name": "where",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_object_fields": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "negotiated",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],
@@ -84978,6 +85022,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "inputFiles",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "objectRecords",
                             "type": "bool",
                             "variadic": false
                         }

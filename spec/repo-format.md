@@ -4848,3 +4848,29 @@ Availability is checked at resolution and before commit. The engine does not
 open, copy, hash or reserve the input contents for a later plugin job. This adds
 no arbitrary-path transport, remote downloader, import execution or adapter
 qualification; each adapter still needs native producer and consumer evidence.
+
+### v3.48 `object-record-fields/v1` — projection of typed objects
+
+A v3 manifest declaring this feature may compose `object_fields` with the
+existing `record_fields` declaration at the root or inside an authored block
+value or strict column value contract, including a selected `value_cases` arm.
+It must also negotiate the surface's value-contract and record-field features:
+`block-value-contracts/v1` + `block-record-fields/v1`, or
+`typed-column-values/v1` + `column-record-fields/v1`, and their base features.
+This grants no new surface or child-codec authority.
+
+The rule has exactly `class: "authored"`, `object_fields` and `record_fields`.
+The latter retains its closed `{container, fields}` shape; container must be
+`"object"` and its distinct exact-name list must equal the typed field set.
+Declaration order does not reorder native keys. Each object must contain at
+least one retained field; absent children remain absent without defaults.
+
+Capture validates the entire native JSON value before projection and transforms
+each retained member with its own existing codec. Excluded native values remain
+in privacy and secret subjects, including when a retained reference, expression
+or input dependency has narrower clearance semantics. Canonical excluded fields
+refuse before reference or file-binding resolution, both during compilation and
+Apply. Apply writes the complete projected value without merging target extras.
+Existing object-field, contract-depth, rule, JSON-depth and node budgets remain
+unchanged and apply before projection. This adds no nested derived disposition,
+list-element object schema, plugin executable or adapter qualification.

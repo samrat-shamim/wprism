@@ -43,12 +43,14 @@ if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($physic
 $query("CREATE TABLE `$physical` (id bigint unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name varchar(64) NOT NULL, data longtext NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 $manifest = ['name' => 'wprism-input-native', 'spec_version' => 3, 'option_autoload' => 'preserve',
-    'engine_features' => ['column-input-files/v1', 'json-column-codecs/v1', 'spec-window/v1', 'typed-column-codecs/v1', 'typed-column-values/v1'],
+    'engine_features' => ['column-input-files/v1', 'column-record-fields/v1', 'json-column-codecs/v1', 'object-record-fields/v1',
+        'spec-window/v1', 'typed-column-codecs/v1', 'typed-column-values/v1'],
     'tables' => [$table => ['class' => 'authored_snapshot', 'pk' => 'id', 'id_kind' => 'input_probe',
         'identity' => ['mode' => 'mapped'], 'slug_column' => 'name',
         'columns' => ['name' => ['class' => 'authored'], 'data' => ['class' => 'authored']], 'refs' => []]],
     'column_codecs' => [$table => ['data' => ['container' => 'json', 'value' => ['class' => 'authored', 'object_fields' => [
-        'method_import_form_data' => ['class' => 'authored', 'object_fields' => [
+        'method_import_form_data' => ['class' => 'authored',
+            'record_fields' => ['container' => 'object', 'fields' => ['wt_iew_file_from', 'wt_iew_local_file']], 'object_fields' => [
             'wt_iew_file_from' => ['class' => 'authored', 'enum' => ['local']],
             'wt_iew_local_file' => ['class' => 'authored', 'input_file' => ['directory' => 'webtoffee_import', 'extensions' => ['csv']]]]],
         'label' => ['class' => 'authored', 'plain_data' => true]]]]]]];
@@ -64,7 +66,7 @@ foreach ($files as $name => $bytes) {
     if (file_exists($path)) throw new RuntimeException('native input fixture refuses an existing file');
     file_put_contents($path, $bytes);
 }
-$native = ['method_import_form_data' => ['wt_iew_file_from' => 'local', 'wt_iew_local_file' => $import->get_file_url('input-source.csv')],
+$native = ['method_import_form_data' => ['selected_template' => '17', 'wt_iew_file_from' => 'local', 'wt_iew_local_file' => $import->get_file_url('input-source.csv')],
     'label' => 'Public template'];
 $query($wpdb->prepare("INSERT INTO `$physical` (id,name,data) VALUES (2,'Input',%s)", wp_json_encode($native)));
 $native['method_import_form_data']['wt_iew_local_file'] = '';
@@ -95,6 +97,7 @@ $binding = array_key_first($declarations);
 $uuid = $declarations[$binding]['uuid'];
 $canonical = json_decode($compiled->tree()[$uuid]['data']['columns']['data'], true, flags: JSON_THROW_ON_ERROR);
 wprism_check_same(InputFileBinding::MARKER, $canonical['method_import_form_data']['wt_iew_local_file'], 'immutable compilation contains only dependency presence');
+wprism_check(!array_key_exists('selected_template', $canonical['method_import_form_data']), 'typed object projection excludes the source wizard cursor');
 wprism_check(!str_contains(Canon::encode($compiled->tree()), 'input-source.csv'), 'source filename is absent from the entire canonical tree');
 $plan = Apply::plan($repo);
 wprism_check(in_array($binding, array_column($plan['env_missing'], 'name'), true), 'public Plan names the unprovisioned file coordinate');
@@ -109,6 +112,7 @@ wprism_check_detail(implode("\n", $result['warnings']));
 wprism_check_same('pass', $result['verification']['result'] ?? null, 'public Apply passes independent fresh-process canonical verification');
 wprism_check_same([], $result['warnings'], 'public Apply emits no warnings');
 wprism_check_same($import->get_file_url('input-target.csv'), $read()['method_import_form_data']['wt_iew_local_file'], 'Apply writes the exact native target URL spelling');
+wprism_check(!array_key_exists('selected_template', $read()['method_import_form_data']), 'public Apply materializes the complete projected object without the source cursor');
 $consume($read(), $files['input-target.csv']);
 $settled = $read();
 $plan = Apply::plan($repo);

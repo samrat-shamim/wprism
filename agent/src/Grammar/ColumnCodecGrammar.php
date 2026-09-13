@@ -210,7 +210,8 @@ final class ColumnCodecGrammar {
             in_array(self::RECORDS_FEATURE, (array) ($manifest['engine_features'] ?? []), true), false, 'column', true,
             in_array(self::FIELD_LABELS_FEATURE, (array) ($manifest['engine_features'] ?? []), true),
             in_array(FieldTemplateMap::FEATURE, (array) ($manifest['engine_features'] ?? []), true),
-            in_array(InputFileBinding::FEATURE, (array) ($manifest['engine_features'] ?? []), true));
+            in_array(InputFileBinding::FEATURE, (array) ($manifest['engine_features'] ?? []), true),
+            in_array(RecordFields::OBJECT_FEATURE, (array) ($manifest['engine_features'] ?? []), true));
         foreach ($section as $table => $columns) {
             $table = (string) $table;
             $where = "$label column_codecs.$table";

@@ -46,7 +46,8 @@ final class BlockValueGrammar {
             $base && in_array(self::CONTRACT_FEATURE, $manifest['engine_features'] ?? [], true),
             $base && in_array(RecordFields::FEATURE, $manifest['engine_features'] ?? [], true),
             $base && in_array(EncodedText::FEATURE, $manifest['engine_features'] ?? [], true),
-            'block'
+            'block',
+            objectRecords: $base && in_array(RecordFields::OBJECT_FEATURE, $manifest['engine_features'] ?? [], true)
         );
         foreach ($registry as $block => $attributes) {
             if (!is_string($block) || preg_match('/^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*$/D', $block) !== 1
@@ -72,7 +73,7 @@ final class BlockValueGrammar {
             'enum' => 'one to 64 distinct strict literals: integers, booleans, null, or ASCII codes [A-Za-z0-9_-] of zero to 128 bytes; preserved without text rewriting',
             'on_unmapped' => 'refuse; reference codecs only; missing capture identities and target user bindings refuse instead of dropping references or using a default author',
             'reference_keyspaces' => 'json_refs/key_refs resolve durable identities; user login identities require ref:user or ref:user[] leaves, including within object_fields',
-            'composition' => 'object_fields and enum each own their complete value and cannot combine with another codec; nested members cannot be derived',
+            'composition' => 'object_fields may compose negotiated object-record-fields/v1 with its surface record feature and an identical retained field set; enum remains exclusive; nested members cannot be derived',
             'max_fields_per_object' => self::MAX_OBJECT_FIELDS, 'max_object_depth' => self::MAX_OBJECT_DEPTH,
             'max_expanded_contract_rules' => self::MAX_CONTRACT_RULES,
             'authority' => 'v3 manifest declaring block-attribute-values/v1 and block-value-contracts/v1; no option, metadata or site-policy transport',

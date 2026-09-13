@@ -28,7 +28,8 @@ final class ValueContractGrammar {
         private readonly bool $strictReferences = false,
         private readonly bool $fieldLabels = false,
         private readonly bool $fieldTemplates = false,
-        private readonly bool $inputFiles = false
+        private readonly bool $inputFiles = false,
+        private readonly bool $objectRecords = false
     ) {}
 
     /** Object members reuse the authored leaf grammar; absence never creates a default. */
@@ -66,10 +67,12 @@ final class ValueContractGrammar {
         }
         if (array_key_exists('object_fields', $rule)) {
             $fields = $rule['object_fields'];
-            if (count($rule) !== 2 || !is_array($fields) || $fields === [] || array_is_list($fields)
+            $projected = array_key_exists(RecordFields::FIELD, $rule);
+            if (count($rule) !== ($projected ? 3 : 2) || !is_array($fields) || $fields === [] || array_is_list($fields)
                 || count($fields) > self::MAX_OBJECT_FIELDS) {
                 throw new \RuntimeException("wprism: $where.object_fields requires a bounded exact authored field map and no other codec");
             }
+            if ($projected) RecordFields::validate_object_fields($rule, $where, $this->records && $this->objectRecords);
             foreach ($fields as $field => $child) {
                 if (!is_string($field) || preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,127}$/D', $field) !== 1
                     || !is_array($child) || array_is_list($child)) {
