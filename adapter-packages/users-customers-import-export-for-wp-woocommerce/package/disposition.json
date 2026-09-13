@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Nine native advanced settings use shared scalar type/range/enum predicates across Capture, immutable compilation and checked Apply. Native evidence exercises invalid-value refusals, manually authored boundary values, scoped Apply, exact recapture and inert request replay while preserving shared module settings, users, history and generated files. Full adapter qualification remains open.",
+  "reason": "Declares nine native settings and scoped export-user templates through shared option predicates, typed JSON values, field-label maps, strict user bindings and record projection. Existing native settings evidence is retained. Complete template product-path, deletion, lifecycle and combination qualification remains pending.",
   "supported_versions": {
     "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
     "range": {
@@ -10,9 +10,12 @@
   },
   "default_authored_keyspaces": [],
   "capabilities": {
-    "entity_sections": [],
+    "entity_sections": [
+      "tables"
+    ],
     "field_sections": [
-      "options"
+      "options",
+      "column_codecs"
     ],
     "operations": [
       "capture",
@@ -35,7 +38,10 @@
       "regress-package-contract",
       "regress-native-settings",
       "regress-native-harness",
-      "regress-settings-apply"
+      "regress-settings-apply",
+      "regress-export-templates",
+      "regress-templates-harness",
+      "regress-templates-apply"
     ]
   },
   "unsupported": [
@@ -51,8 +57,8 @@
     },
     {
       "operation": "capture",
-      "surface": "wt_iew_mapping_template; unnamed advanced setting keys; generated exports/logs; users and customers",
-      "reason": "Template semantics and local CSV bindings remain unqualified. Other module settings remain local; operational records and user/customer data are not authored configuration."
+      "surface": "import and non-user templates; unnamed advanced setting keys; generated exports/logs; users and customers",
+      "reason": "Import-template local CSV bindings remain unqualified. Other module settings and template rows remain local; operational records and user/customer data are not authored configuration."
     }
   ]
 }
