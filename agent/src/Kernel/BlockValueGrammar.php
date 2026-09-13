@@ -6,6 +6,7 @@ namespace WPrism;
 require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/RecordFields.php';
 require_once __DIR__ . '/EncodedText.php';
+require_once __DIR__ . '/ValueContractGrammar.php';
 
 /** Exact block attributes reuse the option/meta value grammar without changing legacy path semantics. */
 final class BlockValueGrammar {
@@ -17,10 +18,10 @@ final class BlockValueGrammar {
     public const MAX_GROUP_MEMBERS = 4096;
     public const MAX_GROUP_VALUES = 65536;
     public const CONTRACT_FEATURE = 'block-value-contracts/v1';
-    public const MAX_OBJECT_FIELDS = 256;
-    public const MAX_OBJECT_DEPTH = 4;
-    public const MAX_CONTRACT_RULES = 65536;
-    public const MAX_ENUM_VALUES = 64;
+    public const MAX_OBJECT_FIELDS = ValueContractGrammar::MAX_OBJECT_FIELDS;
+    public const MAX_OBJECT_DEPTH = ValueContractGrammar::MAX_OBJECT_DEPTH;
+    public const MAX_CONTRACT_RULES = ValueContractGrammar::MAX_CONTRACT_RULES;
+    public const MAX_ENUM_VALUES = ValueContractGrammar::MAX_ENUM_VALUES;
 
     public static function section_grammar(): array {
         return [
@@ -39,7 +40,14 @@ final class BlockValueGrammar {
         if (!is_array($registry) || $registry === [] || array_is_list($registry)) {
             throw new \RuntimeException('wprism: block_values must be a non-empty object keyed by block name');
         }
-        $contractRules = 0;
+        $base = ($manifest['spec_version'] ?? 0) >= 3
+            && in_array(self::FEATURE, $manifest['engine_features'] ?? [], true);
+        $grammar = new ValueContractGrammar(
+            $base && in_array(self::CONTRACT_FEATURE, $manifest['engine_features'] ?? [], true),
+            $base && in_array(RecordFields::FEATURE, $manifest['engine_features'] ?? [], true),
+            $base && in_array(EncodedText::FEATURE, $manifest['engine_features'] ?? [], true),
+            'block'
+        );
         foreach ($registry as $block => $attributes) {
             if (!is_string($block) || preg_match('/^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*$/D', $block) !== 1
                 || !is_array($attributes) || $attributes === [] || array_is_list($attributes)) {
@@ -51,102 +59,10 @@ final class BlockValueGrammar {
                     || !is_array($rule) || array_is_list($rule)) {
                     throw new \RuntimeException("wprism: $where requires an exact attribute name and value rule");
                 }
-                self::validate_rule($rule, $manifest, $where, 0, $contractRules);
+                $grammar->validate($rule, $where);
             }
         }
         self::project([$manifest]);
-    }
-
-    /** Object members reuse the authored leaf grammar; absence never creates a default. */
-    private static function validate_rule(array $rule, array $manifest, string $where, int $depth, int &$contractRules): void {
-        $contract = array_intersect(array_keys($rule), ReferenceRules::BLOCK_CONTRACT_FIELDS) !== [];
-        $negotiated = ($manifest['spec_version'] ?? 0) >= 3
-            && in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
-            && in_array(self::CONTRACT_FEATURE, $manifest['engine_features'] ?? [], true);
-        if (($contract || $depth > 0) && (!$negotiated || $depth > self::MAX_OBJECT_DEPTH
-            || ++$contractRules > self::MAX_CONTRACT_RULES)) {
-            throw new \RuntimeException("wprism: $where requires negotiated bounded block value contracts");
-        }
-        if (($rule['class'] ?? null) === 'derived') {
-            if ($depth > 0) throw new \RuntimeException("wprism: $where object fields require authored value rules");
-            if (array_keys($rule) !== ['class']) {
-                throw new \RuntimeException("wprism: $where derived attributes admit only class");
-            }
-            return;
-        }
-        if (($rule['class'] ?? null) !== 'authored'
-            || array_diff(array_keys($rule), ['class', 'ref', 'cast', 'json_refs', 'key_refs', 'plain_data',
-                RecordFields::FIELD, EncodedText::FIELD, ...ReferenceRules::BLOCK_CONTRACT_FIELDS])) {
-            throw new \RuntimeException("wprism: $where has an unsupported value disposition or field");
-        }
-        if (array_key_exists('object_fields', $rule)) {
-            $fields = $rule['object_fields'];
-            if (count($rule) !== 2 || !is_array($fields) || $fields === [] || array_is_list($fields)
-                || count($fields) > self::MAX_OBJECT_FIELDS) {
-                throw new \RuntimeException("wprism: $where.object_fields requires a bounded exact authored field map and no other codec");
-            }
-            foreach ($fields as $field => $child) {
-                if (!is_string($field) || preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,127}$/D', $field) !== 1
-                    || !is_array($child) || array_is_list($child)) {
-                    throw new \RuntimeException("wprism: $where.object_fields requires exact field names and authored value rules");
-                }
-                self::validate_rule($child, $manifest, "$where.object_fields.$field", $depth + 1, $contractRules);
-            }
-            return;
-        }
-        if (array_key_exists('enum', $rule)) {
-            $values = $rule['enum'];
-            if (count($rule) !== 2 || !is_array($values) || !array_is_list($values)
-                || $values === [] || count($values) > self::MAX_ENUM_VALUES) {
-                throw new \RuntimeException("wprism: $where.enum requires a bounded nonempty literal list and no other codec");
-            }
-            $seen = [];
-            foreach ($values as $value) {
-                // Literal codes are site-independent: URL prose and token
-                // envelopes still belong to the existing text/ref codecs.
-                if (!(is_int($value) || is_bool($value) || $value === null
-                    || (is_string($value) && preg_match('/^[A-Za-z0-9_-]{0,128}$/D', $value) === 1))
-                    || in_array($value, $seen, true)) {
-                    throw new \RuntimeException("wprism: $where.enum requires distinct integers, booleans, null or bounded ASCII codes");
-                }
-                $seen[] = $value;
-            }
-            return;
-        }
-        if (array_key_exists('on_unmapped', $rule) && (($rule['on_unmapped'] ?? null) !== 'refuse'
-            || !(isset($rule['ref']) || isset($rule['json_refs']) || isset($rule['key_refs'])))) {
-            throw new \RuntimeException("wprism: $where.on_unmapped requires refuse and a reference codec");
-        }
-        ReferenceRules::value_rule($rule, $where, blockRecords: true, encodedText: ($manifest['spec_version'] ?? 0) >= 3
-            && in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
-            && in_array(EncodedText::FEATURE, $manifest['engine_features'] ?? [], true), blockContracts: $negotiated);
-        self::assert_structured_keyspaces($rule, $where);
-        if (array_key_exists(RecordFields::FIELD, $rule)) {
-            if (($manifest['spec_version'] ?? 0) < 3
-                || !in_array(self::FEATURE, $manifest['engine_features'] ?? [], true)
-                || !in_array(RecordFields::FEATURE, $manifest['engine_features'] ?? [], true)) {
-                throw new \RuntimeException("wprism: $where.record_fields requires both negotiated block value and record field features");
-            }
-            RecordFields::validate($rule, $where);
-        }
-        $choices = (int) isset($rule['ref']) + (int) (isset($rule['json_refs']) || isset($rule['key_refs']))
-            + (int) (($rule['plain_data'] ?? null) === true) + (int) array_key_exists(EncodedText::FIELD, $rule);
-        if ($choices !== 1 || (isset($rule['cast']) && !isset($rule['ref']))
-            || (($rule['cast'] ?? null) === 'csv' && !str_ends_with($rule['ref'], '[]'))) {
-            throw new \RuntimeException("wprism: $where requires one reference or plain-data codec; CSV requires a list ref");
-        }
-    }
-
-    /** StructuredReferenceCodec resolves durable tokens; user:login belongs to the scalar/list user codec. */
-    public static function assert_structured_keyspaces(array $rule, string $where): void {
-        foreach ($rule['json_refs'] ?? [] as $ref) {
-            if (($ref['kind'] ?? null) === 'user') {
-                throw new \RuntimeException("wprism: $where user references require ref:user or ref:user[]");
-            }
-        }
-        if (($rule['key_refs']['kind'] ?? null) === 'user') {
-            throw new \RuntimeException("wprism: $where user references require ref:user or ref:user[]");
-        }
     }
 
     public static function contract_grammar(): array {

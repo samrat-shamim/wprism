@@ -111,7 +111,10 @@ types before serialization. No plugin executable owns this storage conversion.
 
 Structured Gutenberg attributes use the negotiated `block_values` grammar.
 `Kernel/BlockValueGrammar` owns pure declaration and ownership projection;
-`Grammar/BlockValueCodec` composes the existing identity and text codecs.
+`Kernel/ValueContractGrammar` validates recursive authored shapes and
+`Grammar/AuthoredValueCodec` composes the existing identity and text codecs.
+Stored column containers reuse those contracts through `ColumnCodecGrammar`;
+framing and feature negotiation stay with the surface owner.
 The immutable compiler uses `Kernel/BlockAttributeReader` to inspect declared
 comment attributes without WordPress, database access or body reserialization.
 Derived editor caches are explicit exclusions, and their canonical presence

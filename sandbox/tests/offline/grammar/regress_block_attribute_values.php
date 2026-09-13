@@ -37,7 +37,7 @@ wprism_test_define_agent_versions();
 
 use WPrism\BlockAttributeReader;
 use WPrism\Blocks;
-use WPrism\BlockValueCodec;
+use WPrism\AuthoredValueCodec;
 use WPrism\BlockValueGrammar;
 use WPrism\BlockReferenceScanner;
 use WPrism\Canon;
@@ -297,7 +297,7 @@ foreach (['<!-- wp:fixture/media {"x":broken} /-->', '<!-- wp:fixture/media {"x"
 wprism_check_throws(static fn() => BlockAttributeReader::read(str_repeat('x', 16777217), ['fixture/media']), RuntimeException::class,
     'immutable attribute document has an explicit byte bound');
 foreach ([['x' => INF], ['x' => new stdClass()], ['x' => "\xff"], array_fill(0, 100001, null)] as $badJson) {
-    wprism_check_throws(static fn() => BlockValueCodec::assert_value($badJson, $values['styles'], false, 'fixture'), RuntimeException::class,
+    wprism_check_throws(static fn() => AuthoredValueCodec::assert_value($badJson, $values['styles'], false, 'fixture'), RuntimeException::class,
         'block values refuse non-JSON or unbounded containers');
 }
 
@@ -344,14 +344,14 @@ foreach ($unsupportedStructuredUsers as [$leaf, $nativeUser, $canonicalUser]) fo
     $rawRule = ['class' => 'authored', 'object_fields' => ['owner' => $leaf]];
     foreach ([false, true] as $canonical) {
         $rawValue = ['owner' => $canonical ? $canonicalUser : $nativeUser];
-        wprism_check_throws(static fn() => BlockValueCodec::assert_value($rawValue, $rawRule, $canonical, 'query'),
+        wprism_check_throws(static fn() => AuthoredValueCodec::assert_value($rawValue, $rawRule, $canonical, 'query'),
             RuntimeException::class, 'raw block assertions refuse the unsupported protocol before traversing user values',
             'user references require ref:user or ref:user[]');
     }
-    wprism_check_throws(static fn() => BlockValueCodec::capture(['owner' => $nativeUser], $rawRule, $sourceTokens,
+    wprism_check_throws(static fn() => AuthoredValueCodec::capture(['owner' => $nativeUser], $rawRule, $sourceTokens,
         static function (): void {}, 'query'), RuntimeException::class,
         'raw capture cannot publish a structured user token', 'user references require ref:user or ref:user[]');
-    wprism_check_throws(static fn() => BlockValueCodec::apply(['owner' => $canonicalUser], $rawRule, $targetTokens, 'query'),
+    wprism_check_throws(static fn() => AuthoredValueCodec::apply(['owner' => $canonicalUser], $rawRule, $targetTokens, 'query'),
         RuntimeException::class, 'raw Apply cannot coerce a structured user token to zero',
         'user references require ref:user or ref:user[]');
 }
@@ -456,7 +456,7 @@ foreach ([[], [['label' => 'nested record']], ['cache' => 'only excluded']] as $
         RuntimeException::class, 'object projection refuses an empty record or an undeclared list container');
 }
 foreach ([new stdClass(), INF, "\xff"] as $badJson) {
-    wprism_check_throws(static fn() => BlockValueCodec::capture([['id' => 4, 'cache' => $badJson]], $values['gallery'],
+    wprism_check_throws(static fn() => AuthoredValueCodec::capture([['id' => 4, 'cache' => $badJson]], $values['gallery'],
         $sourceTokens, static function (): void {}, 'fixture'), RuntimeException::class,
         'native JSON bounds apply even inside discarded record fields');
 }

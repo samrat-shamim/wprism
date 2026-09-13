@@ -40,7 +40,7 @@ if (!class_exists(Secrets::class, false)) {
     require_once __DIR__ . '/../Kernel/Secrets.php';
 }
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
-require_once __DIR__ . '/../Grammar/BlockValueCodec.php';
+require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
@@ -248,7 +248,7 @@ final class RepositoryPortableShapeValidator {
                 // that checked materialization would otherwise meet later.
                 foreach ($this->policy->column_codec_rules($entity['type']) as $column => $codec) {
                     try {
-                        ColumnCodecGrammar::decode_for_clearance($d['columns'][$column] ?? null, $codec,
+                        ColumnCodecGrammar::decode_canonical_value($d['columns'][$column] ?? null, $codec,
                             'columns.' . $column);
                     } catch (\RuntimeException) {
                         $this->add('schema_content_mismatch', $path, 'columns.' . $column,
@@ -596,7 +596,7 @@ final class RepositoryPortableShapeValidator {
                     continue;
                 }
                 try {
-                    BlockValueCodec::assert_value($block['attrs'][$attribute], $rule['value'], true, $locator);
+                    AuthoredValueCodec::assert_value($block['attrs'][$attribute], $rule['value'], true, $locator);
                 } catch (\RuntimeException $e) {
                     $this->add('repository_block_value_invalid', $path, $locator, $e->getMessage());
                 }

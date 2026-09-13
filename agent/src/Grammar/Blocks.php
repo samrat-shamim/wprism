@@ -5,7 +5,8 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
 require_once __DIR__ . '/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/Shortcodes.php';
-require_once __DIR__ . '/BlockValueCodec.php';
+require_once __DIR__ . '/AuthoredValueCodec.php';
+require_once __DIR__ . '/Tokens.php';
 require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 
 /**
@@ -374,11 +375,11 @@ final class Blocks {
                 }
                 $where = "block '$name' attribute '$path'";
                 $block['attrs'][$path] = $capture
-                    ? BlockValueCodec::capture($block['attrs'][$path], $valueRule, $tokens,
+                    ? AuthoredValueCodec::capture($block['attrs'][$path], $valueRule, $tokens,
                         static function (int $id, string $kind) use ($tokens, $policy, $forceUnresolvedRefs, $postLabel, $name, $path): void {
                             self::queue_unscoped($tokens, $policy, $forceUnresolvedRefs, $postLabel, $name, $path, $kind, $id);
                         }, $where)
-                    : BlockValueCodec::apply($block['attrs'][$path], $valueRule, $tokens, $where);
+                    : AuthoredValueCodec::apply($block['attrs'][$path], $valueRule, $tokens, $where);
                 continue;
             }
             // Unsupported means presence, including JSON null. Unlike an

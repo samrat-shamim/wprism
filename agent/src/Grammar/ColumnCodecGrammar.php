@@ -9,6 +9,8 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
+require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
+require_once __DIR__ . '/AuthoredValueCodec.php';
 
 /**
  * `column_codecs` — structured typed-table column codecs (WP-6.1).
@@ -91,6 +93,9 @@ final class ColumnCodecGrammar {
     /** Stored JSON needs decoded URL rewriting and the same faithful-framing proof as serialized columns. */
     public const JSON_FEATURE = 'json-column-codecs/v1';
 
+    public const VALUES_FEATURE = 'typed-column-values/v1';
+    public const VALUE_CODEC_KEYS = ['container', 'value'];
+
     /**
      * The closed `leaves` vocabulary: what the codec does to the decoded
      * string leaves once the container is open.
@@ -140,6 +145,8 @@ final class ColumnCodecGrammar {
             'keyed_by' => 'unprefixed table name, then column name — the table must be one THIS manifest '
                 . 'declares as class=authored_snapshot, and the column one of its declared authored columns{}',
             'codec' => ['required' => self::CODEC_KEYS, 'optional' => []],
+            'value_codec' => ['required' => self::VALUE_CODEC_KEYS, 'feature' => self::VALUES_FEATURE,
+                'refines' => 'strict json or php_serialized container; authored value contract; every ref declares on_unmapped:refuse; no record_fields or text_encoding'],
             'container' => self::CONTAINERS,
             'leaves' => self::LEAVES,
             'refines' => 'never the table\'s slug_column and never an identity column (identity.column, '
@@ -181,6 +188,7 @@ final class ColumnCodecGrammar {
             );
         }
         $tables = is_array($manifest['tables'] ?? null) ? $manifest['tables'] : [];
+        $values = new ValueContractGrammar(true, false, false, 'column', true);
         foreach ($section as $table => $columns) {
             $table = (string) $table;
             $where = "$label column_codecs.$table";
@@ -223,7 +231,8 @@ final class ColumnCodecGrammar {
                     is_array($decl['columns'] ?? null) ? $decl['columns'] : [],
                     $identityColumns,
                     $slugColumn,
-                    $manifest
+                    $manifest,
+                    $values
                 );
             }
         }
@@ -240,7 +249,8 @@ final class ColumnCodecGrammar {
         array $columnRules,
         array $identityColumns,
         ?string $slugColumn,
-        array $manifest
+        array $manifest,
+        ValueContractGrammar $values
     ): void {
         $rule = $columnRules[$column] ?? null;
         if (!is_array($rule) || ($rule['class'] ?? null) !== 'authored') {
@@ -270,7 +280,7 @@ final class ColumnCodecGrammar {
         }
         $keys = array_keys($codec);
         sort($keys, SORT_STRING);
-        if ($keys !== self::CODEC_KEYS) {
+        if ($keys !== self::CODEC_KEYS && $keys !== self::VALUE_CODEC_KEYS) {
             throw new \RuntimeException(
                 "wprism: $where declares [" . implode(', ', array_map('strval', $keys)) . '] but a column codec is '
                 . 'exactly {container, leaves} — both are required because a codec with an implied container is a '
@@ -298,6 +308,19 @@ final class ColumnCodecGrammar {
             && !in_array(self::JSON_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
             throw new \RuntimeException("wprism: $where container='json' requires the engine feature '" . self::JSON_FEATURE . "'");
         }
+        if ($keys === self::VALUE_CODEC_KEYS) {
+            if (!in_array(self::VALUES_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
+                throw new \RuntimeException("wprism: $where.value requires engine feature '" . self::VALUES_FEATURE . "'");
+            }
+            if ($codec['container'] === 'php_serialized_or_text') {
+                throw new \RuntimeException("wprism: $where.value requires a strict container; mixed scalar arms do not carry value contracts");
+            }
+            if (!is_array($codec['value']) || array_is_list($codec['value']) || ($codec['value']['class'] ?? '') !== 'authored') {
+                throw new \RuntimeException("wprism: $where.value requires an authored value contract");
+            }
+            $values->validate($codec['value'], "$where.value");
+            return;
+        }
         if (!in_array($codec['leaves'], self::LEAVES, true)) {
             throw new \RuntimeException(
                 "wprism: $where declares leaves=" . var_export($codec['leaves'], true)
@@ -318,7 +341,7 @@ final class ColumnCodecGrammar {
      * earlier declaration whole.
      *
      * @param list<array<string,mixed>> $manifests
-     * @return array<string,array{container:string,leaves:string}> column => codec
+     * @return array<string,array{container:string,leaves?:string,value?:array}> column => codec
      */
     public static function rules_for(array $manifests, string $table): array {
         $out = [];
@@ -338,7 +361,7 @@ final class ColumnCodecGrammar {
      * every length prefix recomputed by PHP's own serializer, which is the
      * half `tokenize_text()` on raw bytes could never get right.
      *
-     * @param array{container:string,leaves:string} $codec
+     * @param array{container:string,leaves?:string,value?:array} $codec
      */
     public static function capture_value(
         mixed $raw,
@@ -352,11 +375,16 @@ final class ColumnCodecGrammar {
         if ($decoded['kind'] === 'null') {
             return null;
         }
-        self::assert_clearance($key, $decoded['value'], $rule, $where);
+        $piiSubject = isset($codec['value'])
+            ? AuthoredValueCodec::pii_subject($decoded['value'], $codec['value'], false, $where) : null;
+        self::assert_clearance($key, $decoded['value'], $rule, $where, $piiSubject);
         if ($decoded['kind'] === 'text') {
             return $tokens->tokenize_text($decoded['value']);
         }
-        $value = $tokens->plain_data_capture($decoded['value']);
+        $value = isset($codec['value'])
+            ? AuthoredValueCodec::capture($decoded['value'], $codec['value'], $tokens,
+                static function (): void { throw new \RuntimeException('wprism: column value refuses an unmapped reference'); }, $where)
+            : $tokens->plain_data_capture($decoded['value']);
         return $decoded['kind'] === 'json'
             ? StructuredValue::encode($value, ['json_encoded' => true], $where)
             : serialize($value);
@@ -372,10 +400,17 @@ final class ColumnCodecGrammar {
         return self::decode($bytes, $codec, $where, $side)['value'];
     }
 
+    /** Immutable compilation and lint validate references without resolving environment bindings. */
+    public static function decode_canonical_value(mixed $bytes, array $codec, string $where): mixed {
+        $value = self::decode_for_clearance($bytes, $codec, $where);
+        if (isset($codec['value'])) AuthoredValueCodec::assert_value($value, $codec['value'], true, $where);
+        return $value;
+    }
+
     /**
      * Apply direction: canonical bytes -> storage bytes.
      *
-     * @param array{container:string,leaves:string} $codec
+     * @param array{container:string,leaves?:string,value?:array} $codec
      */
     public static function apply_value(mixed $canonical, array $codec, object $tokens, string $where): mixed {
         $decoded = self::decode($canonical, $codec, $where, 'authored');
@@ -385,7 +420,9 @@ final class ColumnCodecGrammar {
         if ($decoded['kind'] === 'text') {
             return $tokens->detokenize_text($decoded['value']);
         }
-        $value = $tokens->plain_data_apply($decoded['value']);
+        $value = isset($codec['value'])
+            ? AuthoredValueCodec::apply($decoded['value'], $codec['value'], $tokens, $where)
+            : $tokens->plain_data_apply($decoded['value']);
         return $decoded['kind'] === 'json'
             ? StructuredValue::encode($value, ['json_encoded' => true], $where)
             : serialize($value);
@@ -408,7 +445,7 @@ final class ColumnCodecGrammar {
      * it correctly), so a codec declared over one is a declaration whose author
      * believes something about the data that is not true.
      *
-     * @param array{container:string,leaves:string} $codec
+     * @param array{container:string,leaves?:string,value?:array} $codec
      * @return array{kind:'container'|'json',value:array<mixed>}|array{kind:'text',value:string}|array{kind:'null',value:null}
      */
     private static function decode(mixed $bytes, array $codec, string $where, string $side): array {
@@ -458,7 +495,7 @@ final class ColumnCodecGrammar {
     }
 
     /** The codec owns framing, so clearance must inspect the decoded value. */
-    private static function assert_clearance(string $key, mixed $value, array $rule, string $where): void {
+    private static function assert_clearance(string $key, mixed $value, array $rule, string $where, ?array $piiSubject = null): void {
         if (empty($rule['allow_secret'])) {
             $label = Secrets::clearance_match_deep($key, $value);
             if ($label !== null) {
@@ -469,8 +506,8 @@ final class ColumnCodecGrammar {
                 );
             }
         }
-        if (empty($rule['allow_pii'])) {
-            $label = PersonalData::match_deep($key, $value);
+        if (empty($rule['allow_pii']) && ($piiSubject['present'] ?? true)) {
+            $label = PersonalData::match_deep($key, $piiSubject === null ? $value : $piiSubject['value']);
             if ($label !== null) {
                 throw new \RuntimeException(
                     "wprism: PII guard tripped — $where decodes to a value containing $label but is classified "

@@ -300,6 +300,7 @@ wprism_check_same(
         'structured-evidence/v1',
         'table-row-scopes/v1',
         'typed-column-codecs/v1',
+        'typed-column-values/v1',
     ],
     AdapterContractGrammar::implemented_features(),
     'v3.2: the vocabulary carries the exact reviewed feature names independently of the spec version'

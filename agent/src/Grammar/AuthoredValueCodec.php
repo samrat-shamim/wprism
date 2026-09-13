@@ -8,13 +8,16 @@ require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/EncodedText.php';
-require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
-require_once __DIR__ . '/Tokens.php';
+require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
 
-/** Value framing belongs to the block grammar; identity and text rewriting stay in the shared codecs. */
-final class BlockValueCodec {
+/**
+ * Shared authored value transformations. Callers supply the token capability
+ * and own framing/feature negotiation; declaration loading and isolated table
+ * capture must not load Tokens or its environment readers as a side effect.
+ */
+final class AuthoredValueCodec {
     /** @param callable(int,string):void $unmapped */
-    public static function capture(mixed $value, array $rule, Tokens $tokens, callable $unmapped, string $where): mixed {
+    public static function capture(mixed $value, array $rule, object $tokens, callable $unmapped, string $where): mixed {
         self::assert_value($value, $rule, false, $where);
         if (isset($rule['object_fields'])) {
             foreach ($value as $field => &$child) {
@@ -47,7 +50,7 @@ final class BlockValueCodec {
         return $tokens->plain_data_capture($value);
     }
 
-    public static function apply(mixed $value, array $rule, Tokens $tokens, string $where): mixed {
+    public static function apply(mixed $value, array $rule, object $tokens, string $where): mixed {
         self::assert_value($value, $rule, true, $where);
         if (isset($rule['object_fields'])) {
             foreach ($value as $field => &$child) {
@@ -71,7 +74,7 @@ final class BlockValueCodec {
 
     /** Pure, value-free refusals shared by capture, immutable compilation, lint and apply. */
     public static function assert_value(mixed $value, array $rule, bool $canonical, string $where): void {
-        BlockValueGrammar::assert_structured_keyspaces($rule, $where);
+        ValueContractGrammar::assert_structured_keyspaces($rule, $where);
         if (($rule['class'] ?? '') === 'derived') {
             throw new \RuntimeException("wprism: $where is derived and must be absent from canonical block attributes");
         }
@@ -141,6 +144,34 @@ final class BlockValueCodec {
                 $check($wrapper, 'root', $where);
             }
         }
+    }
+
+    /**
+     * PII role heuristics must not mistake a declared user-ID list under an
+     * email-shaped field name for contact data. Only validated scalar/list
+     * reference leaves may disappear from this projection; secret clearance
+     * still receives the complete original value. Unknown object members fail
+     * before projection, and plain/structured siblings retain their key roles.
+     *
+     * @return array{present:bool,value:mixed}
+     */
+    public static function pii_subject(mixed $value, array $rule, bool $canonical, string $where): array {
+        self::assert_value($value, $rule, $canonical, $where);
+        return self::project_pii($value, $rule);
+    }
+
+    /** @return array{present:bool,value:mixed} */
+    private static function project_pii(mixed $value, array $rule): array {
+        if (isset($rule['ref'])) return ['present' => false, 'value' => null];
+        if (isset($rule['object_fields'])) {
+            $subject = [];
+            foreach ($value as $field => $child) {
+                $part = self::project_pii($child, $rule['object_fields'][$field]);
+                if ($part['present']) $subject[$field] = $part['value'];
+            }
+            return ['present' => $subject !== [], 'value' => $subject];
+        }
+        return ['present' => true, 'value' => $value];
     }
 
     private static function scalar_values(mixed $value, array $rule, bool $canonical): array {
