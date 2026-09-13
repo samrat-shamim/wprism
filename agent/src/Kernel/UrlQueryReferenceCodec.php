@@ -15,17 +15,21 @@ require_once __DIR__ . '/IdentityTokenCodec.php';
 final class UrlQueryReferenceCodec {
     private const QUERY_PARAMETERS = 'p|page_id|attachment_id';
 
-    /** A dynamic suffix cannot be bound as the static numeric prefix before it. */
+    /**
+     * Mirror the tokenizer's numeric-prefix reach, not a whole-number grammar:
+     * static suffix bytes can contain a percent escape completed by the field
+     * (`?p=4%{Suffix}` + `31` names 41 after URL decoding). Only an actual
+     * delimiter ends the current query value before a dynamic boundary.
+     */
     public static function assert_complete_fragment(string $literal, string $where): void {
-        if (preg_match('/[?&](?:' . self::QUERY_PARAMETERS . ')=([^\s&#]*)$/D', $literal, $match) !== 1) return;
         $numeric = preg_replace_callback('/\{\{[^{}]*\}\}/', static function (array $part): string {
             try {
                 $identity = IdentityTokenCodec::decode($part[0]);
                 if ($identity['kind'] === 'post' && IdentityTokenCodec::encode('post', $identity['uuid']) === $part[0]) return '0';
             } catch (\RuntimeException) {}
             return $part[0];
-        }, $match[1]);
-        $reference = preg_match('/^[0-9]+$/D', $numeric) === 1;
+        }, $literal);
+        $reference = preg_match('/[?&](?:' . self::QUERY_PARAMETERS . ')=[0-9][^\s&#]*$/D', $numeric) === 1;
         if ($reference) throw new \RuntimeException("wprism: $where cannot bind a query-reference prefix before a dynamic field");
     }
 

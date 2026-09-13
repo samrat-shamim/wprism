@@ -3221,7 +3221,9 @@ Test empty, unmatched and nested braces, adjacent references, whitespace and dat
 annotations, source/target URLs, disabled definitions, literal private values,
 malformed canonical edits, graph references and whole-value bounds. A numeric
 post-query prefix followed by a field, such as `?p=4{Suffix}`, refuses: the
-native result could name post 41, so post 4 cannot be bound independently.
+native result could name post 41, so post 4 cannot be bound independently. The
+same refusal covers intervening literal bytes such as `?p=4%{Suffix}`: a field
+value of `31` completes an encoded digit.
 Complete delimiter-terminated static query values retain ordinary rebinding. Run
 `regress-column-field-templates` plus the capsule's native expression transport
 lane, which calls the actual registered consumer after real typed-table writes.

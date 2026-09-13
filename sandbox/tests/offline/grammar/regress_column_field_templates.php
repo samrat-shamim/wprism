@@ -378,12 +378,17 @@ $lookups = 0;
 $partialTokens = new Tokens('https://source.test', 'https://source.test/uploads',
     static function () use (&$lookups, $postUuid): string { ++$lookups; return $postUuid; });
 foreach (['p', 'page_id', 'attachment_id'] as $parameter) {
-    foreach (['https://source.test/', 'https://external.test/', '/relative'] as $prefix) {
-        $nativePartial = ['description' => "$prefix?$parameter=4{Suffix}"];
-        wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value(json_encode($nativePartial), $one, $partialTokens, 'dynamic query'),
-            RuntimeException::class, 'dynamic query prefixes refuse before any binding or unmapped drop', 'query-reference prefix');
+    foreach (['', '%', '%3', '%31', '-', 'x', 'e', '?p=4%'] as $suffix) {
+        foreach (['https://source.test/', 'https://external.test/', '/relative'] as $prefix) {
+            $nativePartial = ['description' => "$prefix?$parameter=4{$suffix}{Suffix}"];
+            wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value(json_encode($nativePartial), $one, $partialTokens, 'dynamic query'),
+                RuntimeException::class, 'dynamic query prefixes refuse before any binding or unmapped drop', 'query-reference prefix');
+        }
     }
-    foreach (["{{home}}/?$parameter=4", "{{home}}/?$parameter={{post:$postUuid}}", "{{home}}/?$parameter={{post:$postUuid}}1", "{{home}}/?$parameter=4{{post:$postUuid}}1"] as $literal) {
+    foreach (["{{home}}/?$parameter=4", "{{home}}/?$parameter={{post:$postUuid}}", "{{home}}/?$parameter={{post:$postUuid}}1", "{{home}}/?$parameter=4{{post:$postUuid}}1",
+        "{{home}}/?$parameter={{post:$postUuid}}%", "{{home}}/?$parameter={{post:$postUuid}}%3",
+        "{{home}}/?$parameter={{post:$postUuid}}%31", "{{home}}/?$parameter={{post:$postUuid}}-",
+        "{{home}}/?$parameter={{post:$postUuid}}x", "{{home}}/?$parameter=x?p={{post:$postUuid}}%"] as $literal) {
         $parts = ['selected' => ['description' => [['text' => $literal], ['field' => 'Suffix']]]];
         $edited = $editData($entities[0], $parts);
         wprism_check_throws(static fn() => $compile([$edited], $manifest), RuntimeException::class,
@@ -397,5 +402,16 @@ foreach (['p', 'page_id', 'attachment_id'] as $parameter) {
     }
 }
 wprism_check_same(0, $lookups, 'no dynamic query prefix reaches identity lookup');
+$wpdb->seedTable('wp_wprism_map', [['uuid' => $postUuid, 'id_kind' => 'post', 'local_id' => 211, 'entity_type' => 'post']]);
+foreach (['p', 'page_id', 'attachment_id'] as $parameter) {
+    foreach (['&label=', '#fragment-', ' label-'] as $delimiter) {
+        $input = ['description' => "https://source.test/?$parameter=41{$delimiter}{Header}"];
+        $complete = ColumnCodecGrammar::capture_value(json_encode($input), $one, $queryTokens, 'delimited query');
+        wprism_check_same(json_encode(['description' => "https://target.test/?$parameter=211{$delimiter}{Header}"]),
+            ColumnCodecGrammar::apply_value($complete, $one, $targetTokens, 'delimited query'),
+            'real query delimiters preserve complete static reference rebinding before dynamic text');
+    }
+}
+
 
 wprism_check_summary('column field templates');
