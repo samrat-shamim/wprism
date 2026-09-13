@@ -172,7 +172,7 @@
             ]
           }
         ],
-        "file_count": 91,
+        "file_count": 92,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",

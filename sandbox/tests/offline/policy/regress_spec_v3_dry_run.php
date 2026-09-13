@@ -830,6 +830,7 @@ wprism_check_same(
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
+        'column-field-labels/v1',
         'conditional-json-refs/v1',
         'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
