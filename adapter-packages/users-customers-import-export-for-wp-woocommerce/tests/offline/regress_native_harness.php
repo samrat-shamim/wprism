@@ -7,6 +7,28 @@ require_once "$root/sandbox/tests/lib/ShellProbe.php";
 use WPrismTest\ShellProbe;
 
 $source = (string) file_get_contents($capsule . '/tests/live/regress_settings_apply.sh');
+$allocationStart = strpos($source, "\nhost_apply() ");
+if ($allocationStart === false) throw new RuntimeException('native allocation predecessor unavailable');
+$allocationStart = strpos($source, "\n", $allocationStart + 1) + 1;
+$allocationEnd = strpos($source, "\ncapture() ", $allocationStart);
+if ($allocationEnd === false) throw new RuntimeException('native allocation boundary unavailable');
+$allocation = substr($source, $allocationStart, $allocationEnd - $allocationStart);
+foreach (['missing', 'file'] as $parent) {
+    $probe = <<<'SH'
+set -euo pipefail
+REPO_ROOT=$(mktemp -d)
+EXPECTED_SHA=fixture
+trap 'rm -rf -- "$REPO_ROOT"' EXIT
+if [ "$1" = file ]; then mkdir -p "$REPO_ROOT/sandbox"; : > "$REPO_ROOT/sandbox/tmp"; fi
+SH;
+    $probe .= "\n" . $allocation . <<<'SH'
+
+php -r 'exit(is_dir($argv[1]) && (fileperms($argv[1]) & 0777) === 0700 ? 0 : 1);' "$sink"
+SH;
+    [$status] = ShellProbe::run($probe, [$parent], $root);
+    wprism_check_same($parent === 'missing', $status === 0,
+        "actual native allocation creates a private directory from a fresh checkout and refuses a file obstruction ($parent)");
+}
 preg_match_all('/^(?:fail|pass)\(\) \{[^\n]+$/m', $source, $definitions);
 $common = "set -euo pipefail\n" . implode("\n", $definitions[0]) . <<<'SH'
 

@@ -31,6 +31,7 @@ PAIR_COMPOSE=("${COMPOSE[@]}")
 wp_side() { local side="$1"; shift; "${COMPOSE[@]}" run --rm -T "cli$side" wp "$@"; }
 candidate() { local side="$1" verb="$2"; shift 2; conformance_private_command "cli$side" "$verb" wp_side "$side" wprism "$verb" "$@"; }
 host_apply() { conformance_private_command cli2 apply "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" apply target "$@"; }
+mkdir -p "$REPO_ROOT/sandbox/tmp"
 sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/importer-settings-native.XXXXXX")
 printf 'Retained native settings streams for %s: %s\n' "$EXPECTED_SHA" "$sink"
 capture() { local name="$1"; shift; capture_expected "$name" 0 "$@"; }
