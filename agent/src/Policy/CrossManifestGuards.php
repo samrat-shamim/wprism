@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
 
 require_once __DIR__ . '/../Kernel/EncodedText.php';
@@ -239,6 +241,7 @@ final class CrossManifestGuards {
         foreach ($manifests as $manifest) {
             foreach ((array) ($manifest['options'] ?? []) as $name => $declared) {
                 if (is_array($declared) && is_array($siteOptions[$name] ?? null)) {
+                    ScalarValueConstraint::assert_site_override($declared, $siteOptions[$name], "options.$name");
                     ScalarReferenceIntersection::assert_site_override($declared, $siteOptions[$name], "options.$name");
                     PhpContainerValue::assert_site_override($declared, $siteOptions[$name], "options.$name");
                     EncodedText::assert_site_override($declared, $siteOptions[$name], "options.$name");

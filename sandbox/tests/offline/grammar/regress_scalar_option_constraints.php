@@ -100,17 +100,40 @@ foreach (['runtime', 'derived', 'env'] as $class) {
     wprism_check_throws(static fn() => ScalarValueConstraint::assert_rule(array_replace($integer, ['class' => $class]), 'fixture', true),
         RuntimeException::class, "$class cannot acquire authored scalar constraints", 'class authored');
 }
-foreach ([$parent, ['class' => 'authored'], ['class' => 'env', 'required' => false, 'sub_keys' => ['seconds' => ['class' => 'authored']]]] as $override) {
-    $overridden = $site;
-    $overridden['policy']['options']['fixture_settings'] = $override;
-    wprism_check_throws(static function () use ($manifest, $overridden): void {
-        FrozenPolicy::policy([$manifest], $overridden)->option_rule('fixture_settings');
-    }, RuntimeException::class, 'site policy cannot erase a manifest predicate');
+$loadPolicy = static function (array $siteDocument, bool $snapshot) use ($manifest): Policy {
+    if ($snapshot) return FrozenPolicy::policy([$manifest], $siteDocument);
+    FrozenPolicy::envelope([$manifest], $siteDocument);
+    $repo = sys_get_temp_dir() . '/wprism-scalar-load-' . bin2hex(random_bytes(8));
+    mkdir($repo, 0700);
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode($siteDocument));
+    try {
+        return Policy::load($repo, adapterLibrary: FrozenPolicy::adapterLibrary());
+    } finally {
+        unlink($repo . '/site.wprism.json');
+        rmdir($repo);
+    }
+};
+foreach ([true, false] as $snapshot) {
+    $loader = $snapshot ? 'from_snapshot' : 'load';
+    $echoed = $site;
+    $echoed['policy']['option_autoload'] = 'preserve';
+    $echoed['policy']['options']['fixture_settings'] = $parent;
+    wprism_check_throws(static fn() => $loadPolicy($echoed, $snapshot), RuntimeException::class,
+        "$loader refuses a site-declared predicate at construction", ScalarValueConstraint::FEATURE);
+    foreach ([['class' => 'authored'], ['class' => 'env', 'required' => false, 'sub_keys' => ['seconds' => ['class' => 'authored']]]] as $override) {
+        $overridden = $site;
+        $overridden['policy']['option_autoload'] = 'preserve';
+        $overridden['policy']['options']['fixture_settings'] = $override;
+        // Valid storage avoids an unrelated OptionGrammar refusal. Stop at
+        // construction: resolving a later option would mask a finalizer gap.
+        wprism_check_throws(static fn() => $loadPolicy($overridden, $snapshot), RuntimeException::class,
+            "$loader refuses predicate erasure at construction", 'cannot replace a manifest predicate');
+    }
+    $excluded = $site;
+    $excluded['policy']['options']['fixture_settings'] = ['class' => 'runtime'];
+    wprism_check_same('runtime', $loadPolicy($excluded, $snapshot)->option_rule('fixture_settings')['class'],
+        "$loader retains explicit whole-option exclusion");
 }
-$excluded = $site;
-$excluded['policy']['options']['fixture_settings'] = ['class' => 'runtime'];
-wprism_check_same('runtime', FrozenPolicy::policy([$manifest], $excluded)->option_rule('fixture_settings')['class'],
-    'explicit whole-option exclusion remains available');
 $other = ['name' => 'other-fixture', 'spec_version' => 3, 'option_autoload' => 'preserve',
     'option_patterns' => [['match' => '^fixture_settings$', 'class' => 'authored']]];
 foreach ([[$manifest, $other], [$other, $manifest]] as $order) {
