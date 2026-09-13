@@ -3275,6 +3275,14 @@ drift, scope, repeat Apply and rollback. Run `regress-column-input-files` and
 intent lock protects Apply from cooperating provisioning; point-in-time file
 availability does not promise a later import job will still find identical bytes.
 
+For scoped evidence, rotate the binding while canonical content stays identical,
+then assert the complete native pointer and consume the replacement file. Scoped
+authority seals hash-only native intent and preimage witnesses; locked authored
+readback, recovery, and terminal replay must agree with them. Exercise unavailable
+inputs and changed intent against a completed request, and prove that refusal
+preserves its receipt and native rows. Canonical recapture by itself cannot detect
+an old pointer because both filenames become the same dependency marker.
+
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
 an independently managed target row with the same key. Plan must either offer

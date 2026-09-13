@@ -92,7 +92,7 @@ WpStore::reset()->seedOptions(['home' => 'https://source.test']);
 $wpdb = FakeWpdb::install()->enableInformationSchema()->enableJoinedCaptureSql()
     ->setPrimaryKey('authored_inputs', 'id')->setAutoIncrement('authored_inputs', 800, 'id')
     ->setColumns('authored_inputs', ['id' => 'int(11)', 'name' => 'varchar(255)', 'data' => 'longtext'])
-    ->setTableEngine('authored_inputs', 'InnoDB');
+    ->setTableEngine('authored_inputs', 'InnoDB')->setTableEngine('wprism_map', 'InnoDB');
 $sourceTokens = new Tokens('https://source.test', 'https://source.test/uploads');
 $targetTokens = new Tokens('https://target.test', 'https://target.test/uploads');
 $native = ['method' => ['file' => 'https://source.test/wp-content/imports/private-source.csv', 'mode' => 'local'],
@@ -265,7 +265,7 @@ wprism_check_same([], $wpdb->rows('authored_inputs'), 'failed phase one inserted
 wprism_check_same([], $mapping, 'failed phase one published no identity');
 $transaction = static function (callable $action) use (&$mapping): mixed {
     $before = $mapping;
-    WPrism\Db::start_repeatable_read('column input files', new WPrism\NativeDatabaseProfile(['wp_authored_inputs'], ['wp_authored_inputs']));
+    WPrism\Db::start_repeatable_read('column input files', new WPrism\NativeDatabaseProfile(['wp_authored_inputs', 'wp_wprism_map'], ['wp_authored_inputs']));
     try { $result = $action(); WPrism\Db::commit('column input files'); return $result; }
     catch (Throwable $failure) { WPrism\Db::rollback_after_failure($failure, 'column input files'); $mapping = $before; throw $failure; }
 };
@@ -289,6 +289,85 @@ wprism_check_throws(static function () use ($transaction, $apply, $wpdb, &$obser
 }); }, RuntimeException::class, 'later failure rolls the pointer write back', 'native failure after file pointer write');
 wprism_check($observed, 'rollback test observes the changed pointer before failure');
 wprism_check_same($rows, $wpdb->rows('authored_inputs'), 'rollback restores every native row byte');
+
+// Canonical equality hid scoped rebinds from the authored recovery classifier.
+$compiled = WPrism\RepositoryCompiler::compile($repo, $frozen);
+$scope = WPrism\ScopeContract::resolve($compiled, $frozen, ['table:authored_inputs:' . $uuid]);
+$actual = [];
+foreach ($captureRows($targetTokens) as $entity) $actual[Canon::decode($entity['content'])['uuid']] = $entity;
+$selectedBefore = WPrism\ScopedApply::selected_observation_root($actual, $scope);
+file_put_contents(WP_CONTENT_DIR . '/imports/rotated.csv', "user_login\nrotated\n");
+ColumnInputFiles::provision($repo, $policy, $tree, $name, 'rotated.csv');
+$observation = WPrism\ScopedApply::observe_target($repo, $compiled, $frozen, $scope, $actual, inputBindings: ColumnInputFiles::witness($repo, $frozen, $compiled->tree()));
+$inputBefore = $observation['input_bindings'];
+$inputAuthority = WPrism\InputBindingWitness::authority($inputBefore);
+$state = static fn(?array $observed, ?array $sealed) => WPrism\ScopedApply::authored_state(
+    $actual, $compiled, $frozen, $scope, $selectedBefore, $observed, $sealed);
+wprism_check_same([$uuid => true], ColumnInputFiles::projection($repo, $policy, $tree)['input_rebinds'],
+    'scoped fixture has a real required native pointer update');
+wprism_check_same('before', $state($inputBefore, $inputAuthority), 'canonical equality cannot skip required scoped native binding materialization');
+wprism_check_throws(static fn() => $state(null, null), RuntimeException::class,
+    'canonical inputs refuse an unobserved or obsolete scoped authority', 'exact observed and sealed authority');
+wprism_check_throws(static fn() => WPrism\InputBindingWitness::assert_authority($inputAuthority + ['filename' => 'rotated.csv']), RuntimeException::class,
+    'scoped authority cannot smuggle a native filename');
+wprism_check_throws(static fn() => ColumnInputFiles::witness($repo, $policy, $tree, true), RuntimeException::class,
+    'native input locks require the real transaction', 'no tracked transaction identity');
+$lease = ColumnInputFiles::lock_work($repo, $policy, $tree);
+$targetTokens->bind_input_files($lease->values());
+wprism_check_throws(static fn() => $transaction(static fn() => $lease->assert_scoped($inputAuthority, true)), RuntimeException::class,
+    'atomic receipt cannot certify the old pointer', 'readback disagrees');
+$beforeScopedWrite = $wpdb->rows('authored_inputs');
+wprism_check_throws(static fn() => $transaction(static function () use ($lease, $inputAuthority, $apply): void {
+    $lease->assert_scoped($inputAuthority, false);
+    $apply();
+    unlink(WP_CONTENT_DIR . '/imports/rotated.csv');
+    $lease->assert_scoped($inputAuthority, true);
+}), RuntimeException::class, 'lost file after native write refuses before an atomic receipt', 'available readable regular file');
+wprism_check_same($beforeScopedWrite, $wpdb->rows('authored_inputs'), 'late input failure rolls every native pointer byte back');
+file_put_contents(WP_CONTENT_DIR . '/imports/rotated.csv', "user_login\nrotated\n");
+$scopedReadback = $transaction(static function () use ($lease, $inputAuthority, $apply): array {
+    $lease->assert_scoped($inputAuthority, false);
+    $apply();
+    return $lease->assert_scoped($inputAuthority, true);
+});
+$lease->release();
+wprism_check_same('before', WPrism\InputBindingWitness::state($inputBefore, $inputAuthority), 'retained before witness stays bound to original input');
+wprism_check_same('desired', $state($scopedReadback, $inputAuthority), 'checked native pointer write reaches scoped desired state');
+wprism_check_same(WP_CONTENT_URL . '/imports/rotated.csv', json_decode($wpdb->rows('authored_inputs')[0]['data'], true)['method']['file'],
+    'scoped readback observes the real rotated pointer');
+wprism_check_same($entities[0]['content'], $captureRows($targetTokens)[0]['content'], 'rotation retains exact canonical content');
+$afterObservation = WPrism\ScopedApply::observe_target($repo, $compiled, $frozen, $scope, $actual, inputBindings: ColumnInputFiles::witness($repo, $frozen, $compiled->tree()));
+wprism_check($observation['target_observation_hash'] !== $afterObservation['target_observation_hash'],
+    'locked target preconditions distinguish native changes hidden by canonical markers');
+$hash = hash('sha256', 'scoped input test');
+$authority = ['target' => ['selected_before_hash' => $selectedBefore, 'input_bindings' => $inputAuthority,
+    'protected_out_of_scope_hash' => $afterObservation['protected_out_of_scope_root'],
+    'protected_ledger_map_hash' => $afterObservation['protected_ledger_map_root']]];
+$terminal = ['selected_ledger_map_hash' => $afterObservation['selected_ledger_map_root']];
+wprism_check(WPrism\ScopedApply::terminal_replay_matches($actual, $compiled, $frozen, $scope, $authority, $terminal, $afterObservation),
+    'terminal replay admits exact native intent and map witnesses');
+$nativeDrift = $wpdb->rows('authored_inputs');
+$driftData = json_decode($nativeDrift[0]['data'], true);
+$driftData['method']['file'] = WP_CONTENT_URL . '/imports/changed.csv';
+$nativeDrift[0]['data'] = json_encode($driftData, JSON_THROW_ON_ERROR);
+$wpdb->seedTable('authored_inputs', $nativeDrift);
+$drift = ColumnInputFiles::witness($repo, $policy, $tree);
+wprism_check_same('mixed', $state($drift, $inputAuthority), 'native drift cannot reuse a canonical before root');
+wprism_check(!WPrism\ScopedApply::terminal_replay_matches($actual, $compiled, $frozen, $scope, $authority, $terminal,
+    array_replace($afterObservation, ['input_bindings' => $drift])), 'terminal receipt refuses invisible native pointer drift');
+$lease = ColumnInputFiles::lock_work($repo, $policy, $tree);
+wprism_check_throws(static fn() => $transaction(static fn() => $lease->assert_scoped($inputAuthority, false)), RuntimeException::class,
+    'locked preimage refuses an unrelated native pointer', 'preimage disagrees');
+$lease->release();
+wprism_check_same($nativeDrift, $wpdb->rows('authored_inputs'), 'refused native preimage is unchanged');
+ColumnInputFiles::provision($repo, $policy, $tree, $name, 'replacement.csv');
+$wpdb->seedTable('authored_inputs', $rows);
+$newIntent = ColumnInputFiles::witness($repo, $policy, $tree);
+wprism_check_same('mixed', $state($newIntent, $inputAuthority), 'changed intent cannot retarget an old scoped authority even when its pointer matches');
+wprism_check(WPrism\InputBindingWitness::bind_readback($hash, $newIntent) !== WPrism\InputBindingWitness::bind_readback($hash, $scopedReadback),
+    'atomic readback binds native intent beside the same ledger map');
+wprism_check_same($hash, WPrism\InputBindingWitness::bind_readback($hash, null), 'no-input receipt bytes stay unchanged');
+
 unlink(WP_CONTENT_DIR . '/imports/replacement.csv');
 wprism_check_same([['name' => $name, 'required' => true]], ColumnInputFiles::projection($repo, $policy, $tree)['env_missing'],
     'removed file makes availability missing even after successful Apply');

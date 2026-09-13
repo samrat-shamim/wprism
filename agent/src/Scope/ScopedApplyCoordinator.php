@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
 require_once __DIR__ . '/ScopedApply.php';
 require_once __DIR__ . '/ScopedApplySession.php';
+require_once __DIR__ . '/../Kernel/InputBindingWitness.php';
 if (!class_exists(CompiledRepository::class, false)) {
     require_once __DIR__ . '/../Repository/CompiledArtifact.php';
 }
@@ -127,7 +128,8 @@ final class ScopedApplyCoordinator {
                     'selected' => (string) $observation['selected_ledger_map_root'],
                     'protected' => (string) $observation['protected_ledger_map_root'],
                 ])),
-            ],
+            ] + (isset($observation['input_bindings'])
+                ? ['input_bindings' => InputBindingWitness::authority($observation['input_bindings'])] : []),
             [
                 'precondition_hash' => ApplyPlanner::plan_precondition_hash($plan),
                 'guard_witnesses_hash' => self::guard_witnesses_hash($deleteWork),

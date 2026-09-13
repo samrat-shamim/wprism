@@ -7,6 +7,8 @@ require_once __DIR__ . '/../Apply/ApplyPlanner.php';
 require_once __DIR__ . '/../Policy/ScopeClosure.php';
 require_once __DIR__ . '/../Repository/CanonicalMapWitness.php';
 require_once __DIR__ . '/ScopedApplySession.php';
+require_once __DIR__ . '/../Kernel/InputBindingWitness.php';
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 
 /** Atomic wprism_kv adapter for the generic scoped-session protocol. */
 final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage {
@@ -486,7 +488,8 @@ final class ScopedApply {
         array $contract,
         array $actual,
         ?array $sealedLedgerMapIdentityHashes = null,
-        bool $allowTargetOldMenuItems = false
+        bool $allowTargetOldMenuItems = false,
+        ?array $inputBindings = null
     ): array {
         ScopeContract::assert_associated($contract, $compiled, $policy);
         $selected = self::selected_set($contract);
@@ -616,6 +619,15 @@ final class ScopedApply {
             'selected_before_root' => self::hash_rows(array_values($selectedRows)),
             'protected_out_of_scope_root' => self::hash_rows($protectedRows),
         ] + $mapRoots;
+        $requiresInputs = ColumnCodecGrammar::input_file_declarations(
+            array_intersect_key($compiled->tree(), $selected), $policy->column_codec_rules(...)) !== [];
+        if ($requiresInputs !== ($inputBindings !== null)) {
+            throw new \RuntimeException('wprism: scoped input declarations require an exact native observation');
+        }
+        if ($inputBindings !== null) {
+            InputBindingWitness::assert_observation($inputBindings);
+            $roots['input_bindings'] = $inputBindings;
+        }
         $roots['target_observation_hash'] = hash('sha256', Canon::encode($roots));
         return $roots + [
             // Private, in-process recovery comparison only. Durable/public
@@ -765,14 +777,17 @@ final class ScopedApply {
         ];
     }
 
-    /** Bind the physical selected map generation committed with authored rows. */
+    /** Bind the selected map and native inputs proved by the authored transaction. */
     public static function authored_ledger_map_hash(array $observation): string {
         $selectedLedgerMapRoot = $observation['selected_ledger_map_root'] ?? null;
         if (!is_string($selectedLedgerMapRoot)
             || preg_match('/^[a-f0-9]{64}$/D', $selectedLedgerMapRoot) !== 1) {
             throw new \RuntimeException('wprism: scoped authored readback has a malformed selected ledger-map root');
         }
-        return hash('sha256', "wprism-scoped-authored-map-witness/v1\0" . $selectedLedgerMapRoot);
+        return InputBindingWitness::bind_readback(
+            hash('sha256', "wprism-scoped-authored-map-witness/v1\0" . $selectedLedgerMapRoot),
+            $observation['input_bindings'] ?? null
+        );
     }
 
     /**
@@ -1681,7 +1696,9 @@ final class ScopedApply {
             $compiled,
             $policy,
             $contract,
-            (string) ($authority['target']['selected_before_hash'] ?? '')
+            (string) ($authority['target']['selected_before_hash'] ?? ''),
+            $observation['input_bindings'] ?? null,
+            $authority['target']['input_bindings'] ?? null
         ) === 'desired'
             && hash_equals(
                 (string) ($authority['target']['protected_out_of_scope_hash'] ?? ''),
@@ -1795,16 +1812,19 @@ final class ScopedApply {
         CompiledRepository $compiled,
         Policy $policy,
         array $contract,
-        string $selectedBeforeRoot
+        string $selectedBeforeRoot,
+        ?array $inputObservation = null,
+        ?array $inputAuthority = null
     ): string {
+        $inputState = self::input_binding_state($compiled, $policy, $contract, $inputObservation, $inputAuthority);
         $selected = self::selected_set($contract);
         $matchesBefore = self::selected_observation_matches_before(
             $actual,
             $contract,
             $selectedBeforeRoot
-        );
+        ) && InputBindingWitness::matches_before($inputObservation, $inputAuthority);
 
-        $matchesDesired = true;
+        $matchesDesired = $inputState === 'desired';
         foreach (array_keys($selected) as $identity) {
             if (self::has_record_scoped_options($contract) && ScopeClosure::is_option_root($identity)) {
                 $name = ScopeClosure::option_name_from_root($identity);
@@ -1888,6 +1908,20 @@ final class ScopedApply {
             return 'desired';
         }
         return $matchesBefore ? 'before' : 'mixed';
+    }
+
+    /** Canonical input markers cannot authorize missing native observations or old receipts. */
+    public static function input_binding_state(
+        CompiledRepository $compiled, Policy $policy, array $contract,
+        ?array $observation, ?array $authority
+    ): string {
+        $required = ColumnCodecGrammar::input_file_declarations(
+            array_intersect_key($compiled->tree(), self::selected_set($contract)), $policy->column_codec_rules(...)) !== [];
+        if ($required !== ($observation !== null && $authority !== null)
+            || (!$required && ($observation !== null || $authority !== null))) {
+            throw new \RuntimeException('wprism: scoped input bindings require exact observed and sealed authority');
+        }
+        return InputBindingWitness::state($observation, $authority);
     }
 
     /** Hash the exact target code/lifecycle observation sealed by scoped authority. */

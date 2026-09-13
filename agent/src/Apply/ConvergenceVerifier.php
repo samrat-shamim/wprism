@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/ColumnInputFiles.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
@@ -386,8 +387,14 @@ final class ConvergenceVerifier {
             $this->scopeContract,
             $actual,
             (array) $verifyingSession->authority()['selection']['ledger_map_identity_hashes'],
-            false
+            false,
+            ColumnInputFiles::witness($this->repo, $this->policy,
+                array_intersect_key($compiled->tree(), ScopedApply::selected_set($this->scopeContract)))
         );
+        if (ScopedApply::input_binding_state($compiled, $this->policy, $this->scopeContract,
+            $observation['input_bindings'] ?? null, $verifyingSession->authority()['target']['input_bindings'] ?? null) !== 'desired') {
+            throw new \RuntimeException('wprism: scoped convergence verification found target input binding drift');
+        }
         $authorReceipt = null;
         foreach ($verifyingSession->receipts() as $receipt) {
             if ((int) ($receipt['ordinal'] ?? 0) === 1) {

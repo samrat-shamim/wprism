@@ -10,6 +10,11 @@ require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Kernel/InputBindingWitness.php';
+require_once __DIR__ . '/../Kernel/Canon.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
 
 /** Target-local file observation and intent, composed outside the pure column grammar. */
 final class ColumnInputFiles {
@@ -37,6 +42,19 @@ final class ColumnInputFiles {
         return $this->values;
     }
 
+    /** The private intent lock spans the native row locks and atomic receipt. */
+    public function assert_scoped(array $authority, bool $after): array {
+        $this->assert_current();
+        InputBindingWitness::assert_authority($authority);
+        $observed = self::witness($this->repo, $this->policy, $this->tree, true);
+        if ($observed === null || !$observed['available']
+            || !hash_equals($authority['intent_hash'], $observed['intent_hash'])
+            || !hash_equals($after ? $authority['intent_hash'] : $authority['before_hash'], $observed['observed_hash'])) {
+            throw new \RuntimeException('wprism: scoped input binding ' . ($after ? 'readback' : 'preimage') . ' disagrees with sealed authority');
+        }
+        return $observed;
+    }
+
     public function assert_current(): void {
         EnvironmentValues::assert_lock($this->repo, $this->lock);
         if (self::resolve_work($this->repo, $this->policy, $this->tree) !== $this->values) {
@@ -53,28 +71,7 @@ final class ColumnInputFiles {
 
     /** The immutable tree and its selected contract own every operator-visible binding name. */
     public static function declarations(Policy $policy, array $tree): array {
-        $out = [];
-        foreach ($tree as $uuid => $entity) {
-            if (!is_array($entity)) continue;
-            $table = (string) ($entity['type'] ?? '');
-            $codecs = array_filter($policy->column_codec_rules($table), ColumnCodecGrammar::has_input_files(...));
-            if ($codecs === []) continue;
-            $front = $entity['data'] ?? null;
-            if (!is_array($front) || ($front['uuid'] ?? null) !== $uuid || ($front['table'] ?? null) !== $table) {
-                throw new \RuntimeException('wprism: column input declaration requires canonical table identity');
-            }
-            foreach ($codecs as $column => $codec) {
-                $codec = ColumnValueCases::resolve($codec, (array) ($front['columns'] ?? []), 'column input declaration');
-                if (!isset($codec['value'])) continue;
-                $value = ColumnCodecGrammar::decode_canonical_value($front['columns'][$column] ?? null, $codec, 'column input declaration');
-                foreach (InputFileBinding::bindings($value, $codec['value']) as $binding) {
-                    $name = InputFileBinding::name($uuid, $column, $binding['path']);
-                    $out[$name] = $binding + ['uuid' => $uuid, 'table' => $table, 'column' => $column, 'codec' => $codec];
-                }
-            }
-        }
-        ksort($out, SORT_STRING);
-        return $out;
+        return ColumnCodecGrammar::input_file_declarations($tree, $policy->column_codec_rules(...));
     }
 
     /** env-set publishes intent; Apply remains the only writer of authored typed rows. */
@@ -159,8 +156,38 @@ final class ColumnInputFiles {
         return $out;
     }
 
+    /** Point-in-time availability and native pointers; never input file contents. */
+    public static function witness(string $repo, Policy $policy, array $tree, bool $lock = false): ?array {
+        $declarations = self::declarations($policy, $tree);
+        if ($declarations === []) return null;
+        if ($lock && !Db::transaction_active('scoped input binding witness')) {
+            throw new \RuntimeException('wprism: scoped input row locks require an authored transaction');
+        }
+        $intended = EnvironmentValues::read($repo);
+        $desired = $actual = $rows = [];
+        $available = true;
+        foreach ($declarations as $name => $declaration) {
+            try {
+                $filename = $intended[$name] ?? null;
+                if (!is_string($filename)) throw new \RuntimeException('input binding not provisioned');
+                $desired[$name] = self::resolve_file($filename, $declaration['spec']);
+            } catch (\RuntimeException) {
+                $available = false;
+                $desired[$name] = null;
+            }
+            $key = $declaration['uuid'] . ':' . $declaration['column'];
+            if (!array_key_exists($key, $rows)) $rows[$key] = self::observe($policy, $declaration, $lock);
+            $native = $rows[$key] === null ? null : ColumnCodecGrammar::decode_for_clearance(
+                $rows[$key]['value'], $declaration['codec'], 'scoped input binding observation', 'captured');
+            foreach ($declaration['path'] as $field) $native = is_array($native) ? ($native[$field] ?? null) : null;
+            $actual[$name] = $native;
+        }
+        return ['intent_hash' => hash('sha256', Canon::encode($desired)),
+            'observed_hash' => hash('sha256', Canon::encode($actual)), 'available' => $available];
+    }
+
     /** One statement observes physical membership and the matching ledger tuple together. */
-    private static function observe(Policy $policy, array $declaration): ?array {
+    private static function observe(Policy $policy, array $declaration, bool $lock = false): ?array {
         global $wpdb;
         $table = $declaration['table'];
         $decl = $policy->table_rule($table);
@@ -178,7 +205,7 @@ final class ColumnInputFiles {
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare('SELECT ' . implode(', ', $fields)
             . " FROM `$map` m LEFT JOIN `$prefixed` r ON r.`$pk` = m.local_id"
-            . ' WHERE m.uuid = %s AND m.id_kind = %s LIMIT 2', $declaration['uuid'], $decl['id_kind']), ARRAY_A);
+            . ' WHERE m.uuid = %s AND m.id_kind = %s LIMIT 2' . ($lock ? ' FOR UPDATE' : ''), $declaration['uuid'], $decl['id_kind']), ARRAY_A);
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '' || count($rows) > 1) {
             throw new \RuntimeException('wprism: input binding identity observation failed');
         }

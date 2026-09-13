@@ -171,6 +171,7 @@ return [
     'WPrism\\InitRepositoryBoundary' => 'src/Init/InitRepositoryBoundary.php',
     'WPrism\\InitSiteProbe' => 'src/Init/InitSiteProbe.php',
     'WPrism\\InitialCaptureBoundary' => 'src/Capture/InitialCaptureBoundary.php',
+    'WPrism\\InputBindingWitness' => 'src/Kernel/InputBindingWitness.php',
     'WPrism\\InputFileBinding' => 'src/Kernel/InputFileBinding.php',
     'WPrism\\Journal' => 'src/Repository/Journal.php',
     'WPrism\\JsonRefs' => 'src/Kernel/JsonRefs.php',

@@ -3358,7 +3358,7 @@ $freshSelectedActionsAt = strpos($preparationSource, '$freshSelectedActions = $t
 $attachmentSealAt = strpos($authoredExecutorSource, '->seal_authored_transaction();');
 $canaryCheckAt = strpos($authoredExecutorSource, '$violations = Canary::violations();');
 $isolationCheckAt = strpos($authoredExecutorSource, "'authored transaction final commit boundary'");
-$atomicParticipantAt = strpos($authoredExecutorSource, '$commitScopedAuthoring();');
+$atomicParticipantAt = strpos($authoredExecutorSource, '$commitScopedAuthoring(');
 $databaseCommitAt = strpos($authoredExecutorSource, "Db::commit('apply transaction commit')");
 $authoredEngineBoundaryAt = strpos(
     $authoredExecutorSource,
@@ -3505,6 +3505,51 @@ $check(
         && str_contains($scopedWorkflowSource, "recover_once('wprism:scoped-target-observation-failed')"),
     'every normal scoped target observation failure re-gates the retained phase before surfacing drift'
 );
+
+
+// Native input intent must survive the same durable recovery phases as authored/map state.
+$inputObservation = ['available' => true, 'intent_hash' => $hash('new input'), 'observed_hash' => $hash('old input')];
+$inputAuthorityBase = $authority;
+unset($inputAuthorityBase['authority_hash']);
+$inputAuthorityBase['target']['input_bindings'] = WPrism\InputBindingWitness::authority($inputObservation);
+$inputAuthority = ScopedApplySession::seal_authority($inputAuthorityBase);
+$check($inputAuthority['authority_hash'] !== $authority['authority_hash'], 'target input intent and preimage participate in sealed scoped authority');
+foreach ([null, [], ['intent_hash' => $hash('input')], ['intent_hash' => $hash('input'), 'before_hash' => 'invalid'],
+    ['intent_hash' => $hash('input'), 'before_hash' => $hash('before'), 'filename' => 'private.csv']] as $badInputAuthority) {
+    $badAuthority = $inputAuthorityBase;
+    $badAuthority['target']['input_bindings'] = $badInputAuthority;
+    $expectThrow(static fn() => ScopedApplySession::seal_authority($badAuthority), 'scoped input witness',
+        'scoped authority rejects malformed or value-bearing input witnesses');
+}
+$inputStore = new ScopedRecoveryMemoryStore();
+$inputSession = ScopedApplySession::begin($inputStore, $inputAuthority);
+$inputWorkflow = new WPrism\ScopedApplyWorkflow();
+$inputWorkflow->session = $inputSession;
+$inputIntent = $inputWorkflow->intent(1, 'wprism-scoped-authored-transaction/v2', 'input-author-operation',
+    $hash('input operation'), $hash('input effect'), $inputAuthority['target']['selected_before_hash']);
+$inputState = WPrism\InputBindingWitness::state($inputObservation, $inputAuthority['target']['input_bindings']);
+$inputNativeObservation = ['selected_ledger_map_root' => $inputAuthority['target']['selected_before_ledger_map_hash'],
+    'input_bindings' => $inputObservation];
+$check($inputWorkflow->assert_authored_recovery_boundary($inputState, $inputIntent, $inputNativeObservation,
+    $inputAuthority['plan']['precondition_hash'], $inputAuthority['plan']['guard_witnesses_hash']) === ScopedApplySession::PHASE_PLANNED,
+    'pending native pointer rebind remains resumable authored work');
+$inputSession->transition(ScopedApplySession::PHASE_AUTHORING);
+$inputSession->append_intent($inputIntent);
+$inputDesired = array_replace($inputObservation, ['observed_hash' => $inputObservation['intent_hash']]);
+$inputNativeObservation['input_bindings'] = $inputDesired;
+$inputReadback = ScopedApply::authored_ledger_map_hash($inputNativeObservation);
+$inputSession->commit_authored_receipt($inputIntent + ['after_hash' => $inputReadback]);
+$inputWorkflow->session = ScopedApplySession::open($inputStore);
+$check($inputWorkflow->assert_authored_recovery_boundary(WPrism\InputBindingWitness::state($inputDesired, $inputAuthority['target']['input_bindings']),
+    $inputIntent, $inputNativeObservation, $hash('post-author plan'), $hash('post-author guard')) === ScopedApplySession::PHASE_AUTHORED_COMMITTED,
+    'lost response reopens the atomic input and ledger readback without reauthoring');
+$inputChanged = array_replace($inputDesired, ['intent_hash' => $hash('third input'), 'observed_hash' => $hash('third input')]);
+$inputNativeObservation['input_bindings'] = $inputChanged;
+$expectThrow(static fn() => $inputWorkflow->assert_authored_recovery_boundary(
+    WPrism\InputBindingWitness::state($inputChanged, $inputAuthority['target']['input_bindings']), $inputIntent,
+    $inputNativeObservation, $hash('post-author plan'), $hash('post-author guard')), 'selected target drift after authored commit',
+    'post-author recovery cannot retarget the receipt to new local intent');
+$check($inputWorkflow->session->is_recovery_required(), 'changed native input intent retains an explicit recovery gate');
 
 if ($failures !== 0) {
     fwrite(STDERR, "$failures scoped apply recovery assertion(s) failed\n");

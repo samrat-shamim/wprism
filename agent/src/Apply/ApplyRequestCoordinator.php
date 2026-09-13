@@ -339,7 +339,9 @@ final class ApplyRequestCoordinator {
                 $a->scopedWorkflow->scopeContract,
                 $actual,
                 $a->scopedWorkflow->ledger_map_identity_hashes(),
-                $a->scopedWorkflow->allows_target_old_menu_items($actual)
+                $a->scopedWorkflow->allows_target_old_menu_items($actual),
+                ColumnInputFiles::witness($repo, $policy,
+                    array_intersect_key($compiled->tree(), ScopedApply::selected_set($a->scopedWorkflow->scopeContract)))
             );
             $work = $a->services->apply_planner()->rebuild_work(
                 $plan,
@@ -997,7 +999,9 @@ final class ApplyRequestCoordinator {
                     $preflightContract,
                     $actual,
                     (array) $authority['selection']['ledger_map_identity_hashes'],
-                    false
+                    false,
+                    ColumnInputFiles::witness($repo, $policy,
+                        array_intersect_key($compiled->tree(), ScopedApply::selected_set($preflightContract)))
                 );
                 $terminalReceipt = $terminalReplaySession->terminal_receipt();
                 if (!ScopedApply::terminal_replay_matches(
@@ -1427,7 +1431,9 @@ final class ApplyRequestCoordinator {
                         $this->scopedWorkflow->scopeContract,
                         $actual,
                         $this->scopedWorkflow->ledger_map_identity_hashes(),
-                        $this->scopedWorkflow->allows_target_old_menu_items($actual)
+                        $this->scopedWorkflow->allows_target_old_menu_items($actual),
+                        ColumnInputFiles::witness($this->repo, $this->policy,
+                            array_intersect_key($compiled->tree(), ScopedApply::selected_set($this->scopedWorkflow->scopeContract)))
                     ),
                 ];
             });
@@ -1600,7 +1606,9 @@ final class ApplyRequestCoordinator {
                 $compiled,
                 $this->policy,
                 $this->scopedWorkflow->scopeContract,
-                (string) $authority['target']['selected_before_hash']
+                (string) $authority['target']['selected_before_hash'],
+                $this->scopedWorkflow->observation['input_bindings'] ?? null,
+                $authority['target']['input_bindings'] ?? null
             );
             $this->scopedWorkflow->assert_authored_recovery_boundary(
                 $authoredState,
@@ -1617,7 +1625,10 @@ final class ApplyRequestCoordinator {
                 $this->scopedWorkflow->session->resume_recorded_recovery();
             }
             $phase = $this->scopedWorkflow->session->phase();
-            if ($phase === ScopedApplySession::PHASE_PLANNED && $authoredState === 'desired') {
+            // Local binding authority needs a locked native readback even when
+            // canonical markers are equal; no-input no-ops retain their path.
+            if ($phase === ScopedApplySession::PHASE_PLANNED && $authoredState === 'desired'
+                && !isset($authority['target']['input_bindings'])) {
                 $performAuthoredTransaction = false;
                 $this->scopedWorkflow->session->commit_desired_authoring(
                     $authorIntent,
@@ -1639,13 +1650,14 @@ final class ApplyRequestCoordinator {
                     $authority['selection']['ledger_map_identity_hashes'] ?? null,
                     'authority'
                 );
-                $commitScopedAuthoring = static function () use (
+                $commitScopedAuthoring = static function (?array $inputObservation) use (
                     $session,
                     $authorIntent,
                     $authority,
                     $selectedMapIdentityHashes
                 ): void {
                     $mapRoots = ScopedApply::ledger_map_roots($selectedMapIdentityHashes);
+                    if ($inputObservation !== null) $mapRoots['input_bindings'] = $inputObservation;
                     if (!hash_equals(
                         (string) ($authority['target']['protected_ledger_map_hash'] ?? ''),
                         (string) $mapRoots['protected_ledger_map_root']
@@ -1718,7 +1730,8 @@ final class ApplyRequestCoordinator {
                 rollbackScopedAuthoring: $rollbackScopedAuthoring,
                 mediaDerivatives: BlockMediaDerivativeGrammar::project($this->policy->manifests) === [] ? null
                     : MediaDerivativeWorkset::select($compiled, $this->policy, $this->mediaTarget, $work,
-                        $executeDeletes ? $deleteUuids : [])
+                        $executeDeletes ? $deleteUuids : []),
+                inputBindingAuthority: $scoped ? ($authority['target']['input_bindings'] ?? null) : null
             ),
             $this->warnings
         );
@@ -1747,7 +1760,9 @@ final class ApplyRequestCoordinator {
                         $this->scopedWorkflow->scopeContract,
                         $actual,
                         $this->scopedWorkflow->ledger_map_identity_hashes(),
-                        false
+                        false,
+                        ColumnInputFiles::witness($this->repo, $this->policy,
+                            array_intersect_key($compiled->tree(), ScopedApply::selected_set($this->scopedWorkflow->scopeContract)))
                     ),
                 ];
             });
@@ -1768,7 +1783,9 @@ final class ApplyRequestCoordinator {
                 $compiled,
                 $this->policy,
                 $this->scopedWorkflow->scopeContract,
-                (string) $this->scopedWorkflow->session->authority()['target']['selected_before_hash']
+                (string) $this->scopedWorkflow->session->authority()['target']['selected_before_hash'],
+                $afterObservation['input_bindings'] ?? null,
+                $this->scopedWorkflow->session->authority()['target']['input_bindings'] ?? null
             ) !== 'desired' || Canon::encode((array) $this->scopedWorkflow->receipt_at(1))
                 !== Canon::encode($expectedAuthorReceipt)) {
                 $this->scopedWorkflow->session->recover(hash('sha256', 'wprism:scoped-authored-commit-readback-mismatch'));

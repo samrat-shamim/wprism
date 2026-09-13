@@ -75,6 +75,32 @@ require_once __DIR__ . '/AuthoredValueCodec.php';
  * was faithful.
  */
 final class ColumnCodecGrammar {
+    /** The immutable tree and its selected contract own every operator-visible binding name. */
+    public static function input_file_declarations(array $tree, callable $codecsForTable): array {
+        $out = [];
+        foreach ($tree as $uuid => $entity) {
+            if (!is_array($entity)) continue;
+            $table = (string) ($entity['type'] ?? '');
+            $codecs = array_filter($codecsForTable($table), self::has_input_files(...));
+            if ($codecs === []) continue;
+            $front = $entity['data'] ?? null;
+            if (!is_array($front) || ($front['uuid'] ?? null) !== $uuid || ($front['table'] ?? null) !== $table) {
+                throw new \RuntimeException('wprism: column input declaration requires canonical table identity');
+            }
+            foreach ($codecs as $column => $codec) {
+                $codec = ColumnValueCases::resolve($codec, (array) ($front['columns'] ?? []), 'column input declaration');
+                if (!isset($codec['value'])) continue;
+                $value = self::decode_canonical_value($front['columns'][$column] ?? null, $codec, 'column input declaration');
+                foreach (InputFileBinding::bindings($value, $codec['value']) as $binding) {
+                    $name = InputFileBinding::name($uuid, $column, $binding['path']);
+                    $out[$name] = $binding + ['uuid' => $uuid, 'table' => $table, 'column' => $column, 'codec' => $codec];
+                }
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
     /**
      * The closed `container` vocabulary: how the column's bytes are framed.
      *
