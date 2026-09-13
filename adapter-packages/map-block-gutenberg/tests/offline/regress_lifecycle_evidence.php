@@ -56,7 +56,12 @@ foreach ([
 ] as $case => [$active, $version, $exists]) {
     $plugins = $exists ? [$plugin => $version] : [];
     $activePlugins = $active ? [$plugin] : [];
-    if ($case === 'wrong-basename') $activePlugins[] = 'map-block-gutenberg/map-fixture-wrong.php';
+    $pluginExists = [$plugin => $exists];
+    if ($case === 'wrong-basename') {
+        $activePlugins[] = 'map-block-gutenberg/map-fixture-wrong.php';
+        $plugins['map-block-gutenberg/map-fixture-wrong.php'] = '1.35';
+        $pluginExists['map-block-gutenberg/map-fixture-wrong.php'] = true;
+    }
     $target = ['plugins' => $plugins, 'active_plugins' => $activePlugins];
     $reports[$case] = AdapterRegistry::report($dispositions, $policy->manifests, ['operation' => 'apply'], $target,
         platformBoundary: $policy->adapter_platform_boundary());
@@ -65,7 +70,7 @@ foreach ([
     // Isolate interpretation of observed native facts; the separate live leg
     // supplies those facts using actual WordPress installation/lifecycle APIs.
     $mismatches = (new ReflectionMethod(LifecyclePlanner::class, 'code_mismatch_from_observation'))->invoke(
-        null, $policy, ['active_plugins' => [$plugin]], $target + ['plugin_exists' => [$plugin => $exists]]
+        null, $policy, ['active_plugins' => [$plugin]], $target + ['plugin_exists' => $pluginExists]
     );
     try {
         $result = ApplyPreparationCoordinator::enforce_code_mismatch_gate($mismatches, []);
@@ -90,11 +95,12 @@ foreach ([
         $request = new ApplyPreparationRequest([], CompiledRepository::create(['tree' => []]), $plan, [], false, false, false, false, '', '');
         $warnings = $forced = [];
         try {
-            if ($case === 'missing') {
-                // Capture's full target observation refuses unreadable active
-                // headers before prepare() can interpret the planned version.
-                LifecyclePlanner::code_baseline_capture_snapshot(['active_plugins' => [$plugin]],
-                    $target + ['plugin_exists' => [$plugin => $exists]]);
+            if (in_array($case, ['missing', 'absent', 'wrong-basename'], true)) {
+                // code_drift() checks both desired and active identities
+                // before prepare(). Isolate its real pure version guard;
+                // native conformance proves which gate the full command hits.
+                (new ReflectionMethod(LifecyclePlanner::class, 'assert_publishable_versions'))->invoke(null,
+                    ['active_plugins' => [$plugin]], $target + ['plugin_exists' => $pluginExists]);
             }
             $coordinator->prepare($request, $warnings, $forced);
             throw new LogicException('native lifecycle control passed preparation');

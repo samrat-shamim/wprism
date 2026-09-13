@@ -89,16 +89,16 @@ final class MapLifecycleEvidence {
     // These closed fixture messages independently name the lifecycle gate;
     // apply_failed alone also describes unrelated transport/compiler failures.
     public static function refusalProfile(string $case): array {
-        if ($case === 'missing') {
-            // Full target observation validates baseline inputs before the
-            // plan reaches prepare(); a blank active header is not a version
-            // mismatch plan that apply can force past.
+        if (in_array($case, ['missing', 'absent', 'wrong-basename'], true)) {
+            // Code drift validates every desired/active version before the
+            // plan reaches prepare(); an unreadable desired identity is not
+            // a version-mismatch plan that apply can force past.
             return ['command' => 'apply', 'reason_code' => 'apply_failed', 'nodes' => [[
                 'parent_index' => null, 'relation' => 'root', 'class' => 'RuntimeException',
                 'message' => "wprism: code-version baseline refused — plugin '" . self::PLUGIN . "' has no readable non-empty Version header",
             ]]];
         }
-        if (in_array($case, ['inactive', 'absent', 'wrong-basename'], true)) {
+        if ($case === 'inactive') {
             // Native activation changes authored active_plugins. The ordinary
             // drift guard precedes code_mismatch in prepare():99-151; these
             // controls prove that earlier refusal, not an unreachable gate.
