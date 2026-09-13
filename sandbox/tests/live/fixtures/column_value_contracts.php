@@ -265,7 +265,7 @@ try {
     $badCase['data']['columns']['data'] = '["user:reader"]';
     $mappingBefore = $caseMapping;
     wprism_check_throws(static fn() => $caseWriter->ensureRow($badCase), RuntimeException::class,
-        'native phase one refuses a mismatched selected payload before writing', 'field labels');
+        'native phase one refuses a mismatched selected payload before writing', 'field-label map');
     wprism_check_same($caseAfter, $rows(), 'native phase one refusal makes no row write');
     wprism_check_same($mappingBefore, $caseMapping, 'native phase one refusal publishes no identity');
     $switched = $caseEntities[0];

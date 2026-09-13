@@ -268,5 +268,3 @@ wprism_check_throws(static fn() => ColumnCodecGrammar::validate_column_codecs($b
     'all cases share the existing manifest-wide rule budget', 'bounded column value contracts');
 
 wprism_check_summary('column value cases');
-
-
