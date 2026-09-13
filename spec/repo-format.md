@@ -3746,6 +3746,29 @@ committed receipt. An already-desired no-op uses the same one-CAS phase/receipt
 seal outside an authored transaction only when current selected content, map,
 locked plan, and guards all equal the authority's exact pre-author witnesses.
 
+Selected `column-input-files/v1` dependencies additionally require the closed
+`target.input_bindings` witness `{intent_hash,before_hash}` in scoped authority.
+Both are SHA-256 hashes of canonical binding-coordinate maps: intended native
+URLs and observed native pointers, respectively. No filename, URL, or CSV bytes
+enter authority. The target observation includes `{intent_hash,observed_hash,available}`;
+its hash participates in the second locked preflight. Canonical dependency markers
+alone cannot classify such a row as desired. Native intent must still match sealed
+authority, every input must be available, and each pointer must match that intent.
+Otherwise only the exact canonical and native preimage is resumable; mixed state
+or changed intent requires recovery. Missing input evidence on an old authority
+refuses rather than being inferred from current state.
+
+The authored transaction holds the private environment-intent lock while taking
+selected native row/identity locks, proving the sealed preimage, writing, and
+checking actual pointers before its atomic ordinal-one receipt. That receipt
+binds input intent through its existing `authority_hash`; `after_hash` remains the
+selected identity-map witness that ledger finalization independently locks and
+rechecks. Even canonically unchanged input work requires this transaction boundary. Fresh post-author verification and
+terminal replay repeat native availability, intent, pointer, and receipt checks;
+changing local intent requires a new scoped request. Requests without selected
+input dependencies retain their existing authority and receipt bytes. Availability
+is point-in-time; this does not preserve or attest CSV contents for a later job.
+
 After COMMIT and attachment publication, a second strict canonical capture
 independently proves desired selected content/media, protected content/map
 roots, and the selected map against ordinal 1 before effects. Every normal

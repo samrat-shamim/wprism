@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/ColumnInputFiles.php';
 require_once __DIR__ . '/ApplyPreparationRequest.php';
 require_once __DIR__ . '/PreparedApply.php';
 require_once __DIR__ . '/../Delete/DeleteGuardLockCoordinator.php';
@@ -359,7 +360,9 @@ final class ApplyPreparationCoordinator {
                     $this->scopedWorkflow->scopeContract,
                     $freshActual,
                     $this->scopedWorkflow->ledger_map_identity_hashes(),
-                    $this->scopedWorkflow->allows_target_old_menu_items($freshActual)
+                    $this->scopedWorkflow->allows_target_old_menu_items($freshActual),
+                    ColumnInputFiles::witness($this->repo, $this->policy,
+                        array_intersect_key($request->compiled->tree(), ScopedApply::selected_set($this->scopedWorkflow->scopeContract)))
                 );
                 foreach ([
                     'selected_before_root', 'protected_out_of_scope_root',

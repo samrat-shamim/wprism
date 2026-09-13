@@ -16,6 +16,7 @@ final class AuthoredTransactionRequest {
         public readonly ?int $defaultAuthor,
         public readonly ?\Closure $commitScopedAuthoring,
         public readonly ?\Closure $rollbackScopedAuthoring,
-        public readonly ?MediaDerivativeWorkset $mediaDerivatives = null
+        public readonly ?MediaDerivativeWorkset $mediaDerivatives = null,
+        public readonly ?array $inputBindingAuthority = null
     ) {}
 }

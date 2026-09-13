@@ -141,8 +141,13 @@ final class AuthoredTransactionExecutor {
         $inputContext = null;
         Canary::arm();
         try {
-            $inputTree = array_intersect_key($tree, array_fill_keys(array_column($work, 'uuid'), true));
+            $inputTree = array_intersect_key($tree, $scoped
+                ? ScopedApply::selected_set($request->scopeContract)
+                : array_fill_keys(array_column($work, 'uuid'), true));
             $inputContext = $this->lockInputFiles === null ? null : ($this->lockInputFiles)($inputTree);
+            if ($scoped && ($inputContext !== null) !== ($request->inputBindingAuthority !== null)) {
+                throw new \RuntimeException('wprism: scoped input transaction requires its sealed binding authority');
+            }
             $this->tokens->bind_input_files($inputContext?->values() ?? []);
             $this->attachmentMaterializer->prepare_filesystem($work, $tree, $request->mediaDerivatives);
             $deletionProfile = $executeDeletes && $deleteWork !== []
@@ -157,6 +162,7 @@ final class AuthoredTransactionExecutor {
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'authored transaction storage-engine boundary'
             );
+            if ($scoped) $inputContext?->assert_scoped($request->inputBindingAuthority, false);
             $this->termMaterializer->begin_authored_transaction();
             $this->optionsMaterializer->begin_authored_transaction();
             CacheInvalidationTransaction::begin();
@@ -208,7 +214,7 @@ final class AuthoredTransactionExecutor {
                 // one CAS therefore cannot certify a map generation that the
                 // authored COMMIT later rolls back (issue #3618).
                 $scopedCommitParticipantStarted = true;
-                $commitScopedAuthoring();
+                $commitScopedAuthoring($inputContext?->assert_scoped($request->inputBindingAuthority, true));
             }
             if ($executeDeletes && $deleteWork !== []) {
                 // This is the last operation before COMMIT. The provider's
@@ -218,6 +224,7 @@ final class AuthoredTransactionExecutor {
                 ($this->verifyDeleteCommit)();
             }
             $inputContext?->assert_current();
+            if ($scoped) $inputContext?->assert_scoped($request->inputBindingAuthority, true);
             Db::commit('apply transaction commit');
             $transactionStarted = false;
             $postCommitFailures = [];

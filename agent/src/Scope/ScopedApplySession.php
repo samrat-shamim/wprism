@@ -5,6 +5,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/ScopedApplyRequest.php';
+require_once __DIR__ . '/../Kernel/InputBindingWitness.php';
 
 /**
  * Durable single-slot storage for a scoped apply session.
@@ -1602,6 +1603,10 @@ final class ScopedApplySession {
 
     /** @param mixed $target */
     private static function assert_target(mixed $target): void {
+        if (is_array($target) && array_key_exists('input_bindings', $target)) {
+            InputBindingWitness::assert_authority($target['input_bindings']);
+            unset($target['input_bindings']);
+        }
         self::assert_keys($target, [
             'ledger_roots_hash',
             'protected_ledger_map_hash',

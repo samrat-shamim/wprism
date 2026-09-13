@@ -70,6 +70,7 @@
           "FieldLabelMap",
           "FieldTemplateMap",
           "InputFileBinding",
+          "InputBindingWitness",
           "ScalarValueConstraint",
           "RecordFields",
           "EncodedText",
@@ -175,7 +176,7 @@
             ]
           }
         ],
-        "file_count": 95,
+        "file_count": 96,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -188,6 +189,7 @@
           "FieldLabelMap.php",
           "FieldTemplateMap.php",
           "InputFileBinding.php",
+          "InputBindingWitness.php",
           "ScalarValueConstraint.php",
           "RecordFields.php",
           "EncodedText.php",
@@ -948,6 +950,7 @@
         ],
         "depends_on": [
           "Kernel",
+          "Grammar",
           "Policy",
           "Repository",
           "Scope"
