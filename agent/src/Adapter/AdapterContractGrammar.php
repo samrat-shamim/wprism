@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 require_once __DIR__ . '/../Kernel/KeyBoundStrings.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
@@ -182,6 +183,7 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        BlockContentGrammar::FEATURE => ['since' => 3, 'keys' => [BlockContentGrammar::SECTION => 'field']],
         BlockMediaDerivativeGrammar::FEATURE => ['since' => 3, 'keys' => [BlockMediaDerivativeGrammar::SECTION => 'field']],
         BlockValueGrammar::FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::SECTION => 'field']],
         // Exact groups normalize inside block_values, so they retain that
@@ -604,6 +606,7 @@ final class AdapterContractGrammar {
         require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
         $grammars = [
             BlockValueGrammar::SECTION => BlockValueGrammar::section_grammar(),
+            BlockContentGrammar::SECTION => BlockContentGrammar::section_grammar(),
             BlockMediaDerivativeGrammar::SECTION => BlockMediaDerivativeGrammar::section_grammar(),
             AttrIdCodecGrammar::SECTION => AttrIdCodecGrammar::section_grammar(),
             BodyRefGrammar::SECTION => BodyRefGrammar::section_grammar(),

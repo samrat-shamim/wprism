@@ -229,6 +229,7 @@ wprism_check_same(
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Kernel/BlockContentGrammar.php',
         'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
         'agent/src/Policy/ManifestGrammar.php',
@@ -236,7 +237,7 @@ wprism_check_same(
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER beside seven gate readers of exact declarations or '
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside eight gate readers of exact declarations or '
         . 'interpreter ownership, and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
@@ -265,6 +266,7 @@ wprism_check_same(
         'attr-id-codecs/v1',
         'block-attribute-groups/v1',
         'block-attribute-values/v1',
+        'block-content-codecs/v1',
         'block-media-derivatives/v1',
         'block-record-fields/v1',
         'block-value-contracts/v1',

@@ -66,7 +66,7 @@ version_matrix_reset_after_delete() {
   # TEC retains authored rows, its Custom Tables V1 projections, and almost
   # all setup/runtime options when code is deleted. Reset those disposable
   # matrix residues so each admitted release runs its own installer and no
-  # 6.17.2 schema or cached migration marker can make 6.17.3 look healthy.
+  # 6.17.2 schema or cached migration marker can make 6.17.4 look healthy.
   "$cli" db query "
     DROP TABLE IF EXISTS wp_tec_events, wp_tec_occurrences, wp_tec_kv_cache;
     DELETE FROM wp_options
@@ -99,13 +99,14 @@ version_matrix_reset_after_delete() {
 
 version_matrix_workflow() {
 # One candidate-bound pass executes every real-world standalone scenario on
-# 6.17.2 and the native boundary on 6.17.3; standalone conformance owns the
-# full 6.17.3 run. Keeping the seed, target, and check helpers singular is part
+# 6.17.2 and the native boundary on 6.17.4; standalone conformance owns the
+# full 6.17.3 run, which is what keeps that mid-window artifact's lock pin
+# attached to a live probe while the matrix proves the two range edges. Keeping the seed, target, and check helpers singular is part
 # of the evidence contract: a
 # later duplicate definition can silently replace the product-path check,
 # while a duplicate loop spends the pair budget without adding a boundary.
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for TEC_VERSION in 6.17.2 6.17.3; do
+for TEC_VERSION in 6.17.2 6.17.4; do
   say "boundary: the-events-calendar $TEC_VERSION"
 
   reset_env wp1
@@ -179,29 +180,29 @@ EOF
     # Both admitted artifacts carry byte-identical Custom Tables V1 code, but
     # the populated in-place path still owns installer/migration and code-
     # baseline behavior that two fresh installs cannot prove.
-    TEC_UPGRADE_1=$(fetch_artifact the-events-calendar 6.17.3 cli1)
-    TEC_UPGRADE_2=$(fetch_artifact the-events-calendar 6.17.3 cli2)
+    TEC_UPGRADE_1=$(fetch_artifact the-events-calendar 6.17.4 cli1)
+    TEC_UPGRADE_2=$(fetch_artifact the-events-calendar 6.17.4 cli2)
     wp1 plugin install "$TEC_UPGRADE_1" --force --activate >/dev/null
     wp2 plugin install "$TEC_UPGRADE_2" --force --activate >/dev/null
-    [ "$(wp1 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
-      && [ "$(wp2 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
-      || fail "TEC supported in-place upgrade did not install 6.17.3 on both populated sides"
+    [ "$(wp1 plugin get the-events-calendar --field=version)" = 6.17.4 ] \
+      && [ "$(wp2 plugin get the-events-calendar --field=version)" = 6.17.4 ] \
+      || fail "TEC supported in-place upgrade did not install 6.17.4 on both populated sides"
 
     TEC_UPGRADE_DEPLOY_RC=0
     TEC_UPGRADE_DEPLOY_OUT=$(wp2 wprism deploy --repo=/siterepo 2>&1) || TEC_UPGRADE_DEPLOY_RC=$?
-    require_wprism_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human "$TEC_UPGRADE_DEPLOY_OUT"
+    require_wprism_answered "TEC out-of-band 6.17.2 to 6.17.4 upgrade refusal" human "$TEC_UPGRADE_DEPLOY_OUT"
     [ "$TEC_UPGRADE_DEPLOY_RC" -ne 0 ] \
       && grep -q 'deploy refused — code_drift' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
       && grep -q 'recorded 6.17.2' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
-      && grep -q 'is 6.17.3 on this environment' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
+      && grep -q 'is 6.17.4 on this environment' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
       || fail "TEC out-of-band upgrade did not refuse at the exact code-drift boundary: $TEC_UPGRADE_DEPLOY_OUT"
     wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     TEC_UPGRADE_PLAN=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-    require_wprism_answered "TEC 6.17.2 to 6.17.3 target plan" json "$TEC_UPGRADE_PLAN"
+    require_wprism_answered "TEC 6.17.2 to 6.17.4 target plan" json "$TEC_UPGRADE_PLAN"
     jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$TEC_UPGRADE_PLAN" >/dev/null \
       || fail "TEC supported in-place upgrade invented authored work: $TEC_UPGRADE_PLAN"
 
-    TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content
+    TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.4 check_the_events_calendar_boundary_content
     wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source
     wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-target
     TEC_UPGRADE_SOURCE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/.tmp-tec-upgrade-source" || true)
@@ -209,7 +210,7 @@ EOF
     rm -rf "siterepo/${PAIR}1/.tmp-tec-upgrade-source" "siterepo/${PAIR}2/.tmp-tec-upgrade-target"
     [ -z "$TEC_UPGRADE_SOURCE_DIFF" ] && [ -z "$TEC_UPGRADE_TARGET_DIFF" ] \
       || fail "TEC populated in-place upgrade changed canonical state: source=$TEC_UPGRADE_SOURCE_DIFF target=$TEC_UPGRADE_TARGET_DIFF"
-    pass "TEC populated 6.17.2 sites upgrade in place to 6.17.3 with exact native behavior, no authored drift, and explicit code-baseline authority"
+    pass "TEC populated 6.17.2 sites upgrade in place to 6.17.4 with exact native behavior, no authored drift, and explicit code-baseline authority"
     TEC_VERSION=6.17.2
   fi
   rm -f "siterepo/${PAIR}1/.tmp-tec-source-ids.json" "siterepo/${PAIR}2/.tmp-tec-target-ids.json"
@@ -271,5 +272,5 @@ grep -q '6.17.1' <<<"$TEC_REFUSAL_OUT" \
 wp1 plugin is-active the-events-calendar >/dev/null 2>&1 \
   && fail "outside-range TEC 6.17.1 was activated before deploy refused"
 printf '%s\n' "$TEC_REFUSAL_OUT"
-pass "official TEC 6.17.1 is loudly refused and remains inactive outside >=6.17.2 <6.17.4"
+pass "official TEC 6.17.1 is loudly refused and remains inactive outside >=6.17.2 <6.17.5"
 }

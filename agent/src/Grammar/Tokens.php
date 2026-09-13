@@ -145,6 +145,25 @@ final class Tokens {
      *  reason. */
     public bool $forceUnresolvedRefs = false;
 
+    /** Target-local values exist only during the authored transaction; never part of canonical tokens or snapshots. */
+    private array $blockEnvironmentOptions = [];
+
+    public function bind_block_environment_options(array $values): void {
+        $this->blockEnvironmentOptions = $values;
+    }
+
+    public function block_environment_options(array $names): array {
+        $out = [];
+        foreach ($names as $name) {
+            $value = $this->blockEnvironmentOptions[$name] ?? null;
+            if (!is_string($value) || $value === '') {
+                throw new \RuntimeException('wprism: block content requires transaction-bound target environment values');
+            }
+            $out[$name] = $value;
+        }
+        return $out;
+    }
+
     /**
      * The binding is this environment's own `home` option and uploads base
      * URL — unless a caller observes AS ANOTHER environment. Plan does that

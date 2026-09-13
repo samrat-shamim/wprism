@@ -354,6 +354,7 @@ wprism_check_same(
     // `invalidate-vocabulary/v1` is still not.
     [
         'attr_id_codecs' => 3,
+        'block_content' => 3,
         'block_media_derivatives' => 3,
         'block_values' => 3,
         'body_refs' => 3,

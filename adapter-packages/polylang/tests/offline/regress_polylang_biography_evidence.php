@@ -206,11 +206,46 @@ try {
     foreach (['include', 'eval'] as $mode) {
         [$status, $output, $diagnostic] = \WPrismTest\ShellProbe::run($loadProbe,
             [$root . '/adapter-packages/polylang/fixtures/polylang_biography_native.php', $loadRoot, $mode], $root . '/sandbox');
+        // The eval arm asserts only that eval is NOT a second entrypoint: it
+        // must not reach the native premise. It used to pin PHP's
+        // "strict_types declaration must be the very first statement" fatal,
+        // which PHP 8.5 no longer raises here: eval-ing the source behind a
+        // close-tag prefix leaves the fixture's own `declare` as the first
+        // statement of the eval'd unit, so it compiles and fails later on the
+        // relative require instead. (The prefix is spelled out in $loadProbe
+        // above rather than here, because a close tag inside a // comment ends
+        // PHP mode and silently truncates this file.) That
+        // fatal was doing double duty as the detector for "the fixture stopped
+        // being strict-typed"; the assertions after this block restore that
+        // property directly, without depending on one PHP version's wording.
         wprism_check($mode === 'include' ? $status === 0 && $output === "NATIVE_PREMISE_REACHED\n" && $diagnostic === ''
-            : $status !== 0 && str_contains($diagnostic, 'strict_types declaration must be the very first statement') && $output === '',
+            : $status !== 0 && $output === '',
             "$mode executes the actual strict native file with the expected PHP loading boundary, without substituting WordPress");
     }
 } finally {
     unlink($loadRoot . '/wprism'); rmdir($loadRoot);
 }
+// The fixture's strictness, asserted against the file itself rather than
+// inferred from how one PHP version reacts to eval-ing it. Drop the declare
+// from the fixture and this fails, on every PHP.
+$nativeFixture = (string) file_get_contents(
+    $root . '/adapter-packages/polylang/fixtures/polylang_biography_native.php'
+);
+$firstMeaningful = null;
+foreach (token_get_all($nativeFixture) as $token) {
+    if (is_array($token) && in_array($token[0], [T_OPEN_TAG, T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+        continue;
+    }
+    $firstMeaningful = $token;
+    break;
+}
+wprism_check(
+    is_array($firstMeaningful) && $firstMeaningful[0] === T_DECLARE,
+    'the native fixture opens with a declare, so its strictness is a property of the file rather than of one PHP version'
+);
+wprism_check(
+    preg_match('/\A<\?php\s+declare\(\s*strict_types\s*=\s*1\s*\)\s*;/', $nativeFixture) === 1,
+    'and that declare is exactly strict_types=1 as the first statement in the script'
+);
+
 wprism_check_summary('Polylang biography evidence admission');

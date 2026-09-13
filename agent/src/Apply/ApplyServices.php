@@ -14,6 +14,7 @@ require_once __DIR__ . '/MediaDerivativeObservation.php';
 require_once __DIR__ . '/PostMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteExecutor.php';
 require_once __DIR__ . '/EnvironmentValues.php';
+require_once __DIR__ . '/BlockEnvironmentOptions.php';
 require_once __DIR__ . '/../Delete/DeleteGuardReferenceScanner.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
@@ -238,7 +239,8 @@ final class ApplyServices {
             $this->callbacks->deletionDatabaseProfile,
             $this->callbacks->recheckDeleteGuard,
             $this->callbacks->verifyDeleteCommit,
-            $this->callbacks->endDeleteTransaction
+            $this->callbacks->endDeleteTransaction,
+            fn(): array => BlockEnvironmentOptions::lock($this->policy, $this->repositoryRoot)
         );
     }
 

@@ -41,12 +41,12 @@ use WPrism\Policy;
 // contain it. Upstream withdrew Yoast Duplicate Post certification separately:
 // preserve that disposition and re-pin its containing worlds plus every
 // registry-addressed snapshot. No other adapter digest or manifest byte moves.
-const BASELINE_FIXTURE_SHA256 = '2b8e6095bc6e634ad6ae268a1a0135aca7251d6a02ebd355fe071c2273a508bd';
-const RANK_WORLD_MANIFEST_HASH = '16e71494c59307634541b725aef83618b54fcc7638384c2804953e51d57b9e4b';
-const YOAST_WORLD_MANIFEST_HASH = 'c1e83e5223987c126595854ae8d8dc99f1a1b020c41ab5749e66bf8abbd93dbc';
-const REGISTRY_SHA256 = '074e3eac800ba5ecbca42315f464139f14731767660ecc7ca432173bfc8c81a7';
-const RANK_WORLD_SNAPSHOT_SHA256 = '187877989496373c599eaf943dc9edef5c25c6deb281210409937b6235b6ad5b';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '8b4da6c849d129a401a4657a87fb7848a17d5465737c9d9d802db3366dcbc44d';
+const BASELINE_FIXTURE_SHA256 = 'ae80319d1f0be747bf9a5305961cccfadb90c5656b097c9940493bd0304256a8';
+const RANK_WORLD_MANIFEST_HASH = '6714fa159d10451de253884ff4eab598456807924295b42c7a5f8031fe1f621e';
+const YOAST_WORLD_MANIFEST_HASH = '9881e10efb421214f7c1b6803918197159fe29eb2505a00751fc4365fc870308';
+const REGISTRY_SHA256 = 'a986c4c4689f63586269b31bba79b439282cd8739f33059da32d1f6fddaa8976';
+const RANK_WORLD_SNAPSHOT_SHA256 = 'c2844242f61c18f02617b106670c78907bacecd2227fe357f964a188a39b139d';
+const YOAST_WORLD_SNAPSHOT_SHA256 = '63d6d679cb45cb3a76d2da5b58246a0e8cdc60a3cdd358e5b76a39d71d7f2159';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

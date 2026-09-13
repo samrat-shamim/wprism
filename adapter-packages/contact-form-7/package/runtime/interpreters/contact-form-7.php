@@ -18,7 +18,17 @@ final class ContactForm7 {
         'form' => ['plain_data' => false],
         'mail' => ['plain_data' => true, 'allow_pii' => true],
         'mail_2' => ['plain_data' => true, 'allow_pii' => true],
-        'messages' => ['plain_data' => true],
+        // messages carries the same reviewed PII exception the manifest records
+        // for the underscored spelling, and for the same reason: the capture
+        // guard matches keys as well as values, and this object's keys are CF7
+        // message identifiers rather than data fields. invalid_email --
+        // registered by modules/text.php through the wpcf7_messages filter,
+        // default prose 'Please enter an email address.' -- trips the email-key
+        // heuristic on its name alone. These rules key on the legacy unprefixed
+        // property while the manifest declares the underscored one, so the two
+        // move together or a legacy-spelling form refuses where a current one
+        // captures.
+        'messages' => ['plain_data' => true, 'allow_pii' => true],
     ];
 
     private const NON_PORTABLE_RULES = [

@@ -1,0 +1,38 @@
+{
+  "plugin": "map-block-gutenberg",
+  "plugin_version": "1.35",
+  "wordpress": "7.1",
+  "producer": "wp.blocks.createBlock → wp.blocks.serialize → wp.blocks.parse in the native block editor; synthetic keys only",
+  "cases": [
+    {
+      "label": "defaults",
+      "body": "<!-- wp:webfactory/map -->\n<div class=\"wp-block-webfactory-map\"><div class=\"wp-block-webfactory-map\"><iframe title=\"Map\" width=\"100%\" height=\"300px\" src=\"https://www.google.com/maps/embed/v1/place?q=Theater%20District%2C%20New%20York%2C%20USA&amp;maptype=roadmap&amp;zoom=10&amp;key=map-fixture-target-key\" frameborder=\"0\"></iframe></div></div>\n<!-- /wp:webfactory/map -->",
+      "valid": true
+    },
+    {
+      "label": "ordinary",
+      "body": "<!-- wp:webfactory/map {\"zoom\":12,\"height\":420,\"address\":\"Dhaka, Bangladesh\"} -->\n<div class=\"wp-block-webfactory-map\"><div class=\"wp-block-webfactory-map\"><iframe title=\"Map\" width=\"100%\" height=\"420px\" src=\"https://www.google.com/maps/embed/v1/place?q=Dhaka%2C%20Bangladesh&amp;maptype=roadmap&amp;zoom=12&amp;key=map-fixture-target-key\" frameborder=\"0\"></iframe></div></div>\n<!-- /wp:webfactory/map -->",
+      "valid": true
+    },
+    {
+      "label": "unicode-punctuation",
+      "body": "<!-- wp:webfactory/map {\"zoom\":12,\"height\":420,\"address\":\"ঢাকা / O'Hare \\u0026 東京 (中央)!*\"} -->\n<div class=\"wp-block-webfactory-map\"><div class=\"wp-block-webfactory-map\"><iframe title=\"Map\" width=\"100%\" height=\"420px\" src=\"https://www.google.com/maps/embed/v1/place?q=%E0%A6%A2%E0%A6%BE%E0%A6%95%E0%A6%BE%20%2F%20O'Hare%20%26%20%E6%9D%B1%E4%BA%AC%20(%E4%B8%AD%E5%A4%AE)!*&amp;maptype=roadmap&amp;zoom=12&amp;key=map-fixture-target-key\" frameborder=\"0\"></iframe></div></div>\n<!-- /wp:webfactory/map -->",
+      "valid": true
+    },
+    {
+      "label": "empty-address",
+      "body": "<!-- wp:webfactory/map {\"zoom\":1,\"height\":50,\"address\":\"\"} -->\n<div class=\"wp-block-webfactory-map\"><div class=\"wp-block-webfactory-map\"><iframe title=\"Map\" width=\"100%\" height=\"50px\" src=\"https://www.google.com/maps/embed/v1/place?q=&amp;maptype=roadmap&amp;zoom=1&amp;key=map-fixture-target-key\" frameborder=\"0\"></iframe></div></div>\n<!-- /wp:webfactory/map -->",
+      "valid": true
+    },
+    {
+      "label": "explicit-key",
+      "body": "<!-- wp:webfactory/map {\"zoom\":21,\"height\":1000,\"address\":\"Public destination\",\"api_key\":\"historical-fixture-key\"} -->\n<div class=\"wp-block-webfactory-map\"><div class=\"wp-block-webfactory-map\"><iframe title=\"Map\" width=\"100%\" height=\"1000px\" src=\"https://www.google.com/maps/embed/v1/place?q=Public%20destination&amp;maptype=roadmap&amp;zoom=21&amp;key=historical-fixture-key\" frameborder=\"0\"></iframe></div></div>\n<!-- /wp:webfactory/map -->",
+      "valid": true
+    },
+    {
+      "label": "delimiter-text",
+      "body": "<!-- wp:webfactory/map {\"address\":\"Place \\u003c!\\u002d\\u002d wp:paragraph \\u002d\\u002d\\u003e \\u0026 \\u0022quote\\u0022\"} -->\n<div class=\"wp-block-webfactory-map\"><div class=\"wp-block-webfactory-map\"><iframe title=\"Map\" width=\"100%\" height=\"300px\" src=\"https://www.google.com/maps/embed/v1/place?q=Place%20%3C!--%20wp%3Aparagraph%20--%3E%20%26%20%22quote%22&amp;maptype=roadmap&amp;zoom=10&amp;key=map-fixture-target-key\" frameborder=\"0\"></iframe></div></div>\n<!-- /wp:webfactory/map -->",
+      "valid": true
+    }
+  ]
+}

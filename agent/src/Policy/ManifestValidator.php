@@ -24,6 +24,7 @@ require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 
 /**
@@ -121,6 +122,7 @@ final class ManifestValidator {
         ColumnCodecGrammar::validate_column_codecs($manifest, $label);
         AttrIdCodecGrammar::validate_attr_id_codecs($manifest, $label);
         BlockValueGrammar::validate($manifest);
+        BlockContentGrammar::validate($manifest);
         BlockMediaDerivativeGrammar::validate($manifest);
         // WP-6.5's staged section, in the same slot and for the same reason.
         // Its BODY-MODE half is gated earlier, inside

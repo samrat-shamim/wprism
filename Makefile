@@ -2301,6 +2301,10 @@ regress-html-media-references:
 regress-block-attribute-values:
 	php sandbox/tests/offline/grammar/regress_block_attribute_values.php
 
+.PHONY: regress-block-content-codecs
+regress-block-content-codecs:
+	php sandbox/tests/offline/grammar/regress_block_content_codecs.php
+
 regress-unsupported-block-attributes:
 	php sandbox/tests/offline/grammar/regress_unsupported_block_attributes.php
 

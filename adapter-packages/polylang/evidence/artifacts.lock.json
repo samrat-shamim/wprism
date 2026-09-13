@@ -16,9 +16,9 @@
         "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
         "role": "certified-boundary"
       },
-      "3.8.7": {
-        "url": "https://downloads.wordpress.org/plugin/polylang.3.8.7.zip",
-        "sha256": "bdb1e8d929410b3083f0884e6a356f91d659159771cc63893c9c06e83daddcb0",
+      "3.8.9": {
+        "url": "https://downloads.wordpress.org/plugin/polylang.3.8.9.zip",
+        "sha256": "de5fae3d399e34c2db496a02b7cff4e4ca79723c418c8542b82bb7c030204a60",
         "role": "certified-boundary"
       }
     }

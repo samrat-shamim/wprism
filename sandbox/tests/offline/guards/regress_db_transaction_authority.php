@@ -1411,4 +1411,92 @@ wprism_check(
 );
 $wpdb->simulateExternalTransactionControl('ROLLBACK AND NO CHAIN NO RELEASE');
 
+// The engine's own pre-policy probe must survive its own isolation grammar.
+// PlatformCompatibility::current_facts() reads `SELECT VERSION()` before
+// Policy::load() admits anything, and DatabaseLockBoundary reads it again
+// before a transactional mutation. VERSION() was missing from the reviewed
+// built-in list while its weaker siblings CONNECTION_ID() and DATABASE() were
+// present, so once a native profile was active the probe's own query was
+// refused as "an unreviewed SQL function". current_facts() catches that and
+// reports platform_probe_unavailable on the database axis, which reads as a
+// broken server rather than a rejected statement — measured live: every
+// `wprism capture --scope-contract=...` refused on a healthy pair while the
+// same repo captured cleanly without the contract.
+$wpdb = db_authority_fixture()->setServerVersion('11.4.4-MariaDB');
+Db::start('engine version probe under an active profile', db_authority_profile(['wp_wprism_kv']));
+$versionDispatched = 0;
+$wpdb->onQuery(static function (string $query) use (&$versionDispatched): null {
+    if ($query === 'SELECT VERSION()') {
+        $versionDispatched++;
+    }
+    return null;
+});
+$versionFailure = db_authority_failure(static fn() => $wpdb->get_var('SELECT VERSION()'));
+wprism_check_same(null, $versionFailure,
+    'SELECT VERSION() is admitted while a native database profile is active');
+wprism_check_same(1, $versionDispatched,
+    'the admitted version probe actually reaches the database exactly once');
+
+// Negative control: admitting VERSION() must not open the callable surface.
+// The control reads a profile-readable table so it reaches the callable
+// grammar rather than being stopped earlier by the statement-shape guard.
+$unreviewedFailure = db_authority_failure(
+    static fn() => $wpdb->query('SELECT HEX(k) FROM wp_wprism_kv')
+);
+wprism_check($unreviewedFailure instanceof DatabaseQueryIsolationViolationException,
+    'an unreviewed built-in is still refused after VERSION() was admitted');
+wprism_check_same('wprism: an unreviewed SQL function crossed the native database profile',
+    $unreviewedFailure?->getMessage(),
+    'the unreviewed-function refusal keeps its exact public sentence');
+Db::rollback_after_failure($unreviewedFailure, 'version probe control rollback');
+
+// wpdb::prepare() rewrites a literal %% into its placeholder escape --
+// `{` . wp_hash() . `}` -- and that escape is still present when the `query`
+// filter runs; the isolation gate removes it and returns the cleaned SQL to
+// wpdb. So the string the gate is handed is not SQL, and authorizing it before
+// the removal analysed a statement the server never receives. The tokenizer
+// admits `%` but not `{`, so any prepared statement carrying a literal percent
+// outside quotes was refused: measured on a pair, every Paid Memberships Pro
+// capture died on "database SQL contains a token outside the native profile
+// grammar" at byte 0x7b, inside an engine query using % as a modulo operator.
+$wpdb = db_authority_fixture()->seedTable('wp_wprism_kv', [['k' => 'kept', 'v' => 'value']]);
+Db::start('placeholder escape under an active profile', db_authority_profile(['wp_wprism_kv']));
+$moduloSql = $wpdb->prepare('SELECT k FROM wp_wprism_kv WHERE (LENGTH(k) %% 2) = %d', 0);
+wprism_check(
+    str_contains($moduloSql, '{') && !str_contains($moduloSql, ' % '),
+    'the premise holds: prepare() leaves its placeholder escape, not a bare %, in the statement'
+);
+$executedSql = null;
+$wpdb->onQuery(static function (string $query) use (&$executedSql): null {
+    $executedSql = $query;
+    return null;
+});
+$escapeFailure = db_authority_failure(static fn() => $wpdb->query($moduloSql));
+// The fixture's SQL interpreter has no modulo support, so this read still ends
+// in a LogicException from FakeWpdb itself. That is irrelevant to the boundary
+// under test and is deliberately not asserted away: what matters is that the
+// isolation gate no longer rejects the statement, and that what reached the
+// database below is the restored operator rather than wpdb's escape.
+wprism_check(
+    !$escapeFailure instanceof DatabaseQueryIsolationViolationException,
+    'a prepared statement carrying a literal percent is no longer refused by the isolation grammar'
+);
+wprism_check(
+    is_string($executedSql) && str_contains($executedSql, ' % ') && !str_contains($executedSql, '{'),
+    'and the statement the database actually received carries the restored percent operator'
+);
+$wpdb->onQuery(null);
+Db::rollback_after_failure($escapeFailure, 'placeholder escape premise rollback');
+
+// Control: cleaning the escape must not become a way to smuggle grammar past
+// the profile. The analysis still runs, on the executed bytes.
+$wpdb = db_authority_fixture()->seedTable('wp_wprism_kv', [['k' => 'kept', 'v' => 'value']]);
+Db::start('placeholder escape control', db_authority_profile(['wp_wprism_kv']));
+$escapedUnreviewed = db_authority_failure(
+    static fn() => $wpdb->query($wpdb->prepare('SELECT HEX(k) FROM wp_wprism_kv WHERE (LENGTH(k) %% 2) = %d', 0))
+);
+wprism_check($escapedUnreviewed instanceof DatabaseQueryIsolationViolationException,
+    'an unreviewed built-in inside a placeholder-escaped statement is still refused');
+Db::rollback_after_failure($escapedUnreviewed, 'placeholder escape control rollback');
+
 wprism_check_summary('database transaction authority');

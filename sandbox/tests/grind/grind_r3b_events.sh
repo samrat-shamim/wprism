@@ -178,16 +178,16 @@ $organizer_id = tribe_organizers()->set_args([
 
 $event1_id = tribe_events()->set_args([
     'title' => 'Fall Open House', 'status' => 'publish',
-    'start_date' => '2026-09-05 17:00:00', 'end_date' => '2026-09-05 20:00:00',
+    'start_date' => '2041-09-05 17:00:00', 'end_date' => '2041-09-05 20:00:00',
     'venue' => $venue_id, 'organizer' => $organizer_id,
 ])->create()->ID;
 $event2_id = tribe_events()->set_args([
     'title' => 'Community Meetup', 'status' => 'publish',
-    'start_date' => '2026-09-19 18:30:00', 'end_date' => '2026-09-19 20:00:00',
+    'start_date' => '2041-09-19 18:30:00', 'end_date' => '2041-09-19 20:00:00',
 ])->create()->ID;
 $event3_id = tribe_events()->set_args([
     'title' => 'Annual Gala', 'status' => 'publish',
-    'start_date' => '2026-10-10 18:00:00', 'end_date' => '2026-10-10 22:00:00',
+    'start_date' => '2041-10-10 18:00:00', 'end_date' => '2041-10-10 22:00:00',
     'venue' => $venue_id,
 ])->create()->ID;
 

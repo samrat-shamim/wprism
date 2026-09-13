@@ -60,8 +60,21 @@ final class BlockAttributeReader {
      * only that framing misses a secret prefixed by the escape's final digit;
      * scan decoded attribute values as well, without rewriting repository bytes.
      */
-    public static function clearance_value(string $body): string|array {
-        $attributes = array_column(self::read($body, null), 'attrs');
+    public static function clearance_value(string $body, array $contentRules = []): string|array {
+        $attributes = [];
+        foreach (self::read($body, null) as $block) {
+            $attrs = $block['attrs'];
+            foreach ($contentRules[$block['blockName']]['public_text'] ?? [] as $name) {
+                // Preserve the scalar bytes in the clearance input. Only the
+                // declared public field's semantic key role is removed; nested
+                // containers, hard secrets and value-shaped PII stay blocking.
+                if (is_string($attrs[$name] ?? null)) {
+                    $attrs[] = $attrs[$name];
+                    unset($attrs[$name]);
+                }
+            }
+            $attributes[] = $attrs;
+        }
         return $attributes === [] ? $body : [$body, $attributes];
     }
 }

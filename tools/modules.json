@@ -63,6 +63,7 @@
           "MediaDerivativeRecipe",
           "ActionTriggerMatcher",
           "BlockAttributeReader",
+          "BlockContentGrammar",
           "BlockValueGrammar",
           "RecordFields",
           "EncodedText",
@@ -166,12 +167,13 @@
             ]
           }
         ],
-        "file_count": 86,
+        "file_count": 87,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
           "ActionTriggerMatcher.php",
           "BlockAttributeReader.php",
+          "BlockContentGrammar.php",
           "BlockValueGrammar.php",
           "RecordFields.php",
           "EncodedText.php",
@@ -872,7 +874,7 @@
             ]
           }
         ],
-        "file_count": 36,
+        "file_count": 37,
         "files": [
           "MediaDerivativeObservation.php",
           "MediaDerivativeWorkset.php",
@@ -893,6 +895,7 @@
           "AttachmentMaterializer.php",
           "AttachmentNativeMetadataGenerator.php",
           "AuthoredTransactionExecutor.php",
+          "BlockEnvironmentOptions.php",
           "AuthoredTransactionRequest.php",
           "CacheInvalidationTransaction.php",
           "ConvergenceVerifier.php",

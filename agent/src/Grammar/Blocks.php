@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
 require_once __DIR__ . '/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/Shortcodes.php';
 require_once __DIR__ . '/BlockValueCodec.php';
+require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 
 /**
  * Structure-aware content rewriting via the official block parser:
@@ -316,15 +317,35 @@ final class Blocks {
                 );
             }
             $interpreter = $policy->interpreters()[$codec] ?? null;
-            $method = $capture ? 'capture_block_attributes' : 'apply_block_attributes';
+            $contentRule = BlockContentGrammar::project($policy->manifests, $policy->site['policy'] ?? [])[$lookup] ?? null;
+            $method = $contentRule === null
+                ? ($capture ? 'capture_block_attributes' : 'apply_block_attributes')
+                : ($capture ? 'capture_block_content' : 'apply_block_content');
             if (!is_object($interpreter) || !method_exists($interpreter, $method)) {
                 throw new \RuntimeException(
                     "wprism: block '$name' codec '$codec' must implement $method(array, Tokens): array"
                 );
             }
+            if ($contentRule !== null && (($block['innerBlocks'] ?? null) !== []
+                || !is_string($block['innerHTML'] ?? null)
+                || ($block['innerContent'] ?? null) !== [$block['innerHTML']]
+                || strlen($block['innerHTML']) > 1048576)) {
+                throw new \RuntimeException('wprism: block content codec requires one bounded leaf HTML fragment');
+            }
             $rewritten = $capture
                 ? $interpreter->$method($block, $tokens, $forceUnresolvedRefs, $postLabel)
-                : $interpreter->$method($block, $tokens);
+                : ($contentRule === null ? $interpreter->$method($block, $tokens)
+                    : $interpreter->$method($block, $tokens, $tokens->block_environment_options($contentRule['env_options'])));
+            if ($contentRule !== null) {
+                if (!is_array($rewritten) || count($rewritten) !== 2 || array_diff(array_keys($rewritten), ['attrs', 'html'])
+                    || !is_string($rewritten['html'] ?? null) || strlen($rewritten['html']) > 1048576
+                    || preg_match('~<!--\s+/?wp:~', $rewritten['html']) !== 0) {
+                    throw new \RuntimeException('wprism: block content codec returned a malformed leaf result');
+                }
+                $block['innerHTML'] = $rewritten['html'];
+                $block['innerContent'] = [$rewritten['html']];
+                $rewritten = $rewritten['attrs'] ?? null;
+            }
             if (!is_array($rewritten) || ($rewritten !== [] && array_is_list($rewritten))) {
                 throw new \RuntimeException(
                     "wprism: block '$name' codec '$codec' returned a malformed attribute object"
@@ -338,6 +359,10 @@ final class Blocks {
                 }
             }
             $block['attrs'] = $rewritten;
+            // A content codec owns the complete leaf representation. Re-running
+            // shortcode/URL rewriting on its output could change native saver
+            // bytes or interpret a credential as authored text.
+            if ($contentRule !== null) return $block;
         }
         foreach ($codec === null ? $declaredRules : [] as $rule) {
             $path = $rule['path'];

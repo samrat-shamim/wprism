@@ -142,8 +142,8 @@ $event = tribe_events()->set_args([
     'title' => 'WPrism Production Readiness Event 東京',
     'status' => 'publish',
     'description' => $body,
-    'start_date' => '2026-09-05 22:30:00',
-    'end_date' => '2026-09-06 01:45:00',
+    'start_date' => '2041-09-05 22:30:00',
+    'end_date' => '2041-09-06 01:45:00',
     'timezone' => 'Asia/Kathmandu',
     'venue' => (int) $venue->ID,
     'organizers' => $organizer_ids,
@@ -184,8 +184,8 @@ $all_day = tribe_events()->set_args([
     'title' => 'WPrism All Day Boundary Event',
     'status' => 'publish',
     'description' => "All-day portable event with no venue or organizer.\n<!-- wp:tribe/event-organizer /-->",
-    'start_date' => '2026-10-11 00:00:00',
-    'end_date' => '2026-10-11 23:59:59',
+    'start_date' => '2041-10-11 00:00:00',
+    'end_date' => '2041-10-11 23:59:59',
     'timezone' => 'Asia/Kathmandu',
     'all_day' => true,
     'hide_from_upcoming' => true,
@@ -197,8 +197,8 @@ $delete_probe = tribe_events()->set_args([
     'title' => 'WPrism Unsupported Delete Probe',
     'status' => 'publish',
     'description' => 'This event exists only to prove unsupported deletion refuses atomically.',
-    'start_date' => '2026-11-01 08:00:00',
-    'end_date' => '2026-11-01 09:00:00',
+    'start_date' => '2041-11-01 08:00:00',
+    'end_date' => '2041-11-01 09:00:00',
     'timezone' => 'UTC',
 ])->create();
 if (!$all_day || !$all_day->ID || !$delete_probe || !$delete_probe->ID) {
@@ -247,6 +247,48 @@ foreach ($status_expectations as [$event_id, $status, $reason]) {
 foreach (['_tribe_events_status', '_tribe_events_status_reason'] as $key) {
     if (metadata_exists('post', (int) $delete_probe->ID, $key)) {
         throw new RuntimeException("TEC scheduled-as-absence boundary retained $key");
+    }
+}
+
+// Every downstream identity lookup in check.sh reaches these three events
+// through the ordinary WP_Query path (`get_posts(['post_type'=>'tribe_events',
+// 'title'=>...])`), and that path is filtered by TEC. Measured on 6.17.2: a
+// title lookup for a past-dated event returns 0 rows and the same lookup with
+// `tribe_suppress_query_filters` returns 1, and an unfiltered listing of one
+// past plus one future event returns 1 row rather than 2. So an authored date
+// that has fallen into the past does not merely weaken the evidence — it makes
+// the fixture unreachable, and check.sh dies 1200 lines later on "expected one
+// tribe_events '...', got 0" with no hint that a date is the cause. That is
+// exactly how this suite broke: the dates below were authored near-future and
+// went past on 2026-09-06.
+//
+// Suppressing the filters here would be the wrong repair. Native query
+// visibility IS this capsule's certified postcondition (manifest: "a HARD
+// query-availability dependency, not a soft cache"; regress_tec_regen.sh
+// asserts the applied event is findable by `wp post list` precisely because a
+// missing tec_occurrences row makes it invisible). A suppressed query would
+// pass with no occurrence rows at all. So assert the invariant instead, at the
+// point where the dates are authored, and fail with the remedy named.
+foreach ([
+    'WPrism Production Readiness Event 東京' => (int) $event->ID,
+    'WPrism All Day Boundary Event' => (int) $all_day->ID,
+    'WPrism Unsupported Delete Probe' => (int) $delete_probe->ID,
+] as $seeded_title => $seeded_id) {
+    $visible = get_posts([
+        'post_type' => 'tribe_events',
+        'post_status' => 'any',
+        'posts_per_page' => -1,
+        'title' => $seeded_title,
+    ]);
+    if (count($visible) !== 1 || (int) $visible[0]->ID !== $seeded_id) {
+        $authored_start = (string) get_post_meta($seeded_id, '_EventStartDate', true);
+        throw new RuntimeException(
+            "TEC seeded event '$seeded_title' (id $seeded_id, _EventStartDate '$authored_start') is not "
+            . 'reachable through the ordinary tribe_events query path, so every downstream identity lookup '
+            . 'in check.sh will fail. If that start date is in the past, the fixture has rotted: move the '
+            . 'authored dates in this file and in check.sh forward together. Do not add '
+            . 'tribe_suppress_query_filters — native query visibility is the certified claim under test.'
+        );
     }
 }
 
