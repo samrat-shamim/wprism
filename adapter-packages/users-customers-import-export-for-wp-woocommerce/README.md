@@ -48,10 +48,16 @@ real ledger bookkeeping, compilation, lint and checked materialization. It
 covers different target IDs, exact recapture, repeat, rollback, rename,
 duplicate rejection, adoption, missing bindings and privacy/shape refusals.
 Import, product and case-variant rows, users, sessions and history stay local.
-Native template product-path qualification is still pending. Import templates
-need target-local CSV input qualification; generated CSVs/logs, users and
-customers are operational data. Native post-write recovery, lifecycle and
-plugin combinations remain open. The production-readiness record remains
+The native template lane exercises Save, Update and Save As, target adoption
+and creation with different row/user IDs, full and scoped Apply, replay, exact
+recapture and native resave. Reopened target templates produce CSVs with the
+applied headers and target-local user profiles. Surrounding tables, settings
+and files remain unchanged across Apply.
+
+Complete template qualification remains pending. Import templates need
+target-local CSV input qualification; generated CSVs/logs, users and customers
+are operational data. Template deletion, native post-write recovery, lifecycle
+and plugin combinations remain open. The production-readiness record remains
 unready in all twelve families.
 
 Run the capsule offline gate with
@@ -62,3 +68,8 @@ For the owned native lane, supply `IMPORTER_SETTINGS_PAIR`, even
 `WPRISM_EXPECTED_SOURCE_SHA` for a clean checkout, then run
 `bash adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_settings_apply.sh`.
 The runner owns teardown and keeps native streams in private sandbox scratch.
+For the template lane, use the corresponding `IMPORTER_TEMPLATES_PAIR`,
+`IMPORTER_TEMPLATES_PORT1`, `IMPORTER_TEMPLATES_PORT2` and
+`IMPORTER_TEMPLATES_ZIP` variables with the same clean-checkout source pin,
+then run
+`bash adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_templates_apply.sh`.
