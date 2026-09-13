@@ -90,6 +90,12 @@ foreach ([
         $request = new ApplyPreparationRequest([], CompiledRepository::create(['tree' => []]), $plan, [], false, false, false, false, '', '');
         $warnings = $forced = [];
         try {
+            if ($case === 'missing') {
+                // Capture's full target observation refuses unreadable active
+                // headers before prepare() can interpret the planned version.
+                LifecyclePlanner::code_baseline_capture_snapshot(['active_plugins' => [$plugin]],
+                    $target + ['plugin_exists' => [$plugin => $exists]]);
+            }
             $coordinator->prepare($request, $warnings, $forced);
             throw new LogicException('native lifecycle control passed preparation');
         } catch (RuntimeException $failure) {
