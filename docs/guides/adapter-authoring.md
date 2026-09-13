@@ -3118,8 +3118,8 @@ serialized column. Declare `{container, value}` instead of `{container, leaves}`
 `value` reuses authored `object_fields`, `enum`, scalar/list `ref`, structured
 `json_refs`/`key_refs`, and `plain_data`. Every reference leaf must declare
 `on_unmapped: "refuse"`. Prove the native scalar type and use `cast: "string"`
-when the plugin stores ID strings. Record projection, encoded text and mixed
-scalar framing are not admitted by this feature.
+when the plugin stores ID strings. Record projection requires its separate
+column feature below; encoded text and mixed scalar framing remain unsupported.
 
 For example, importer 2.7.5 stores selected users under
 `filter_form_data.wt_iew_email` as string IDs. Declare exact enclosing objects
@@ -3157,6 +3157,30 @@ and value bytes still undergo value-based privacy checks; enclosing roles and
 full original secret checks remain. Options, metadata and block values cannot
 borrow this column feature. Run the column-value offline suite and its native
 lane; template enrollment and input-file availability need separate evidence.
+
+Use `column-record-fields/v1` when a stored record mixes authored fields with
+proven regenerable context. Add `record_fields` to the existing value leaf:
+
+```json
+{"class":"authored","plain_data":true,"record_fields":{
+  "container":"object","fields":["method_export","mapping_enabled_fields"]
+}}
+```
+
+Importer 2.7.5 Save As retains the previous template's `selected_template` cursor.
+Normal reopen selects the requested row; the wizard rebuilds the cursor on its
+next step. Native Save/reopen and identical CSV output after projection establish
+that it is regenerable context. Prove this with the plugin consumer before
+excluding any field. Projection does not merge target-local preimages or grant
+file transport, and this declaration alone does not qualify saved templates.
+
+The existing `RecordFields` machinery handles one object or a list of records,
+including beneath `object_fields`. It retains immediate field order, absence,
+types and list duplicates. Every record must retain at least one declared field;
+an empty list is valid. Canonical excluded fields refuse. Structured reference
+paths must start with a retained exact field; scalar references cannot compose
+with projection. Column clearance still scans the original decoded data,
+including excluded fields. Run the column-value offline suite and native lane.
 
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create

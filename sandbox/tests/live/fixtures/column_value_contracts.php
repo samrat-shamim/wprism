@@ -39,8 +39,10 @@ $blockManifest = ['name' => 'typed-column-native', 'spec_version' => 3, 'option_
 $blockPolicy = WPrismTest\FrozenPolicy::policy([$blockManifest], WPrismTest\FrozenPolicy::site([$blockManifest], 3));
 $valueRule['object_fields']['label_fields'] = ['class' => 'authored', 'field_labels' => 'label_enabled'];
 $valueRule['object_fields']['selected_labels'] = ['class' => 'authored', 'field_labels' => 'label'];
+$valueRule['object_fields']['method_export_form_data'] = ['class' => 'authored', 'plain_data' => true,
+    'record_fields' => ['container' => 'object', 'fields' => ['method_export', 'mapping_enabled_fields']]];
 $columnManifest = ['name' => 'field-label-native', 'spec_version' => 3, 'option_autoload' => 'preserve',
-    'engine_features' => ['column-field-labels/v1', 'json-column-codecs/v1', 'spec-window/v1',
+    'engine_features' => ['column-field-labels/v1', 'column-record-fields/v1', 'json-column-codecs/v1', 'spec-window/v1',
         'table-row-scopes/v1', 'typed-column-codecs/v1', 'typed-column-values/v1'],
     'tables' => [$table => $decl], 'column_codecs' => [$table => ['data' => ['container' => 'json', 'value' => $valueRule]]]];
 $columnPolicy = WPrismTest\FrozenPolicy::policy([$columnManifest], WPrismTest\FrozenPolicy::site([$columnManifest], 3));
@@ -73,6 +75,7 @@ $query("CREATE TABLE `$physical` (id bigint unsigned NOT NULL AUTO_INCREMENT PRI
 try {
     $sourceUsers = $createUsers();
     $native = wp_json_encode(['filter_form_data' => ['wt_iew_email' => $sourceUsers], 'url' => 'https://source.test/path?q="quoted"',
+        'method_export_form_data' => ['method_export' => 'template', 'selected_template' => '1', 'mapping_enabled_fields' => []],
         'label_fields' => ['user_email' => ['Email address', 1], 'display_name' => ['Display name', 0],
             'first_name' => ['First name', 1], 'last_name' => ['Last name', 0], 'nickname' => ['Nickname', 0]],
         'selected_labels' => ['user_email' => 'Email address', 'display_name' => 'Display name'],
@@ -99,9 +102,10 @@ try {
     $expected = json_decode($native, true);
     $expected['filter_form_data']['wt_iew_email'] = array_map(static fn(string $login): string => 'user:' . $login, $logins);
     $expected['url'] = '{{home}}/path?q="quoted"';
+    unset($expected['method_export_form_data']['selected_template']);
     wprism_check_same(wp_json_encode($expected), $canonical, 'native Capture rewrites user references and text through one value contract');
     $blockValue = json_decode($native, true);
-    unset($blockValue['label_fields'], $blockValue['selected_labels']);
+    unset($blockValue['label_fields'], $blockValue['selected_labels'], $blockValue['method_export_form_data']);
     $blockNative = '<!-- wp:fixture/typed-column ' . wp_json_encode(['query' => $blockValue]) . ' /-->';
     $blockCanonical = WPrism\Blocks::capture_rewrite($blockNative, $blockPolicy, $sourceTokens);
     foreach ($ownedUsers as $id) {
@@ -171,6 +175,18 @@ try {
     wprism_check_throws(static fn() => $transaction(static fn() => $writer->finalizeRow($targetTokens, $changed)),
         RuntimeException::class, 'native Apply refuses a noninteger field enable flag', 'integer 0 or 1');
     wprism_check_same($after, $rows(), 'malformed field metadata preserves every native row');
+    $changed['data']['columns']['data'] = wp_json_encode(['method_export_form_data' => ['method_export' => 'template', 'selected_template' => '99']]);
+    wprism_check_throws(static fn() => $transaction(static fn() => $writer->finalizeRow($targetTokens, $changed)),
+        RuntimeException::class, 'native Apply refuses a reintroduced saved wizard cursor', 'excluded canonical record fields');
+    wprism_check_same($after, $rows(), 'excluded canonical fields preserve every native row');
+    foreach ([['email' => 'reader@example.test'], ['api_key' => 'private-credential-material']] as $private) {
+        $query($wpdb->prepare("UPDATE `$physical` SET data=%s WHERE id=2", wp_json_encode([
+            'method_export_form_data' => ['method_export' => 'template'] + $private])));
+        $privateRows = $rows();
+        wprism_check_throws(static fn() => $captureJson($targetTokens), RuntimeException::class,
+            'native record projection retains original clearance for discarded fields');
+        wprism_check_same($privateRows, $rows(), 'refused record Capture preserves every native byte');
+    }
     foreach ([['user_email' => ['reader@example.test', 1]], ['reader@example.test' => ['Email', 1]],
         ['user_pass' => ['s3cr3t-Credential-0123456789!', 1]]] as $private) {
         $query($wpdb->prepare("UPDATE `$physical` SET data=%s WHERE id=2", wp_json_encode(['label_fields' => $private])));

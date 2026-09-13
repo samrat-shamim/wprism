@@ -15040,6 +15040,9 @@
                 "MIXED_FEATURE": {
                     "value_repr": "mixed-column-codecs/v1"
                 },
+                "RECORDS_FEATURE": {
+                    "value_repr": "column-record-fields/v1"
+                },
                 "SECTION": {
                     "value_repr": "column_codecs"
                 },
