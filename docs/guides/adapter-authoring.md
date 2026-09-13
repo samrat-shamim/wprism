@@ -155,8 +155,10 @@ Re-pin only measured changed addresses, including the fixture's own byte hash;
 leave historical transitions and frozen executable-debt hashes untouched.
 A provider-only edit can move its adapter and compatible manifest hashes while
 leaving manifest JSON, the disposition registry and policy snapshots unchanged.
-Run both identity owners before the aggregate: capsule validation does not
-replace those cross-library identity checks.
+Run `make regress-disposition-split regress-spec-v3-digest-neutrality` before
+the aggregate: capsule validation does not replace those cross-library
+identity checks. Preserve prior transition literals; when reviewed disposition
+fields change, reconstruct the historical claim before checking its old hash.
 
 When a reviewed plugin version range changes, also run `make
 regress-manifest-dispositions`. Its literal ranges must agree with the capsule's
