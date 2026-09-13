@@ -2615,7 +2615,7 @@ wprism_check(
     'a plugin-constructed transient exception cannot bless an early committed transaction'
 );
 
-foreach ([1205 => 'lock-timeout', 1213 => 'deadlock'] as $forgedErrno => $label) {
+foreach ([1020 => 'snapshot-conflict', 1205 => 'lock-timeout', 1213 => 'deadlock'] as $forgedErrno => $label) {
     $wpdb = provider_database_session_fixture();
     $forgedDriverFailure = provider_database_session_failure(
         static fn() => ProviderDatabaseSession::repeatable_read_write(

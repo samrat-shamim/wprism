@@ -100,6 +100,11 @@ final class Db {
                 self::record_server_abort_evidence($failure, $errno);
                 throw $failure;
             }
+            if ($errno === 1020) {
+                $failure = new TransientDbException("wprism: database snapshot conflict at $context");
+                self::record_server_abort_evidence($failure, $errno);
+                throw $failure;
+            }
             if ($errno === 1205 || stripos($error, 'Lock wait timeout') !== false) {
                 // Capture retries this typed class from a fresh consistent
                 // snapshot. Keep the driver text out of the exception: it
@@ -533,6 +538,48 @@ final class Db {
     }
 
     /**
+     * Read rows on one tracked transaction, retaining synchronous driver failure
+     * evidence before any continuity query can replace it. Locking SELECTs can
+     * abort InnoDB transactions just like DML (MariaDB snapshot isolation, 1020).
+     * The caller owns the projection/predicate/limit; the existing query gate
+     * enforces the closed SQL grammar and complete physical-table profile.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function transactional_rows(
+        string $sql,
+        TransactionAuthority $authority,
+        string $context
+    ): array {
+        if (preg_match('/^\s*SELECT\b/i', $sql) !== 1) {
+            throw new \InvalidArgumentException("wprism: $context requires a SELECT statement");
+        }
+        self::before($context);
+        self::assert_product_transaction_usable($context);
+        if (!$authority->equals(self::transaction_authority($context . ' read preflight'))) {
+            throw new DatabaseTransactionOutcomeException($context . ' changed database session authority before read');
+        }
+        global $wpdb;
+        $wpdb->last_error = '';
+        try {
+            $rows = $wpdb->get_results($sql, ARRAY_A);
+        } catch (\Throwable $failure) {
+            throw self::normalize_transaction_failure($failure, $context);
+        }
+        if ((string) ($wpdb->last_error ?? '') !== '' || $rows === false || $rows === null) {
+            self::checked(false, $context);
+        }
+        if (!is_array($rows) || !array_is_list($rows)
+            || array_filter($rows, static fn($row): bool => !is_array($row)) !== []) {
+            throw new DatabaseMutationException($context . ' returned a malformed row set');
+        }
+        if (!$authority->equals(self::transaction_authority($context . ' read postflight'))) {
+            throw new DatabaseTransactionOutcomeException($context . ' changed database session authority after read');
+        }
+        return $rows;
+    }
+
+    /**
      * Convert only a synchronous strict-mysqli failure that crossed the bound
      * wpdb query gate. This keeps retry/abort semantics identical whether PHP
      * exposes the driver error as wpdb false+errno or mysqli_sql_exception.
@@ -548,6 +595,11 @@ final class Db {
                 0,
                 $failure
             );
+            self::record_server_abort_evidence($normalized, $errno);
+            return $normalized;
+        }
+        if ($errno === 1020) {
+            $normalized = new TransientDbException("wprism: database snapshot conflict at $context", 0, $failure);
             self::record_server_abort_evidence($normalized, $errno);
             return $normalized;
         }
@@ -1012,7 +1064,7 @@ final class Db {
     ): void {
         // A throwable's public type/code is provider-constructible. Only the
         // private WeakMap entry minted around WPrism's exact wpdb call proves
-        // that errno 1205/1213 came from the bound server transport rather
+        // that errno 1020/1205/1213 came from the bound server transport rather
         // than plugin PHP after an out-of-band COMMIT.
         $serverAbortProven = self::consume_server_abort_evidence($primary);
         try {
@@ -2069,7 +2121,11 @@ final class Db {
     }
 
     private static function record_server_abort_evidence(\Throwable $failure, int $errno): void {
-        if (!in_array($errno, [1205, 1213], true) || self::$transactionAuthority === null) {
+        // 1020 is ER_CHECKREAD: MariaDB >=11.6.2 defaults snapshot isolation
+        // ON and rolls back on a changed read-view row. Like 1205, the numeric
+        // signal alone is insufficient: cleanup must still prove inactivity
+        // of this exact bound InnoDB transaction before accepting an abort.
+        if (!in_array($errno, [1020, 1205, 1213], true) || self::$transactionAuthority === null) {
             return;
         }
         self::$serverAbortEvidence ??= new \WeakMap();
@@ -2085,7 +2141,7 @@ final class Db {
         }
         $evidence = self::$serverAbortEvidence[$failure];
         unset(self::$serverAbortEvidence[$failure]);
-        return in_array($evidence['errno'], [1205, 1213], true)
+        return in_array($evidence['errno'], [1020, 1205, 1213], true)
             && self::$transactionAuthority !== null
             && $evidence['authority']->equals(self::$transactionAuthority);
     }

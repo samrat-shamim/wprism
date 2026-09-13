@@ -1154,6 +1154,10 @@ regress-agent-src-requires:
 regress-db-transaction-authority:
 	php sandbox/tests/offline/guards/regress_db_transaction_authority.php
 
+.PHONY: regress-database-snapshot-conflicts
+regress-database-snapshot-conflicts:
+	bash sandbox/tests/live/regress_database_snapshot_conflicts.sh
+
 .PHONY: regress-db-repeatable-read-authority
 regress-db-repeatable-read-authority:
 	php sandbox/tests/offline/guards/regress_db_repeatable_read_authority.php

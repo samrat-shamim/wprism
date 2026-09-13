@@ -369,6 +369,33 @@ question is reachable — the WordPress containers simply cannot connect.
 
 ---
 
+## 6. Snapshot conflicts from locking reads
+
+MariaDB 11.6.2 and later enable `innodb_snapshot_isolation` by default. A
+locking read or mutation against a row changed since the read view raises
+`ER_CHECKREAD` (1020) and rolls back the transaction. The scoped-table native
+probe observed this on MariaDB 11.8.8. See the
+[server variable contract](https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-system-variables#innodb_snapshot_isolation).
+
+`Db::transactional_rows()` reads through the existing SQL/profile gate and
+checks the exact transaction before and after publishing rows. Like the DML
+boundary, it retains synchronous driver evidence before a continuity query
+can overwrite that evidence. Error 1020 becomes a value-free transient
+conflict. Cleanup accepts a server abort only when private transport evidence
+and the original transaction's inactive witness agree; a plugin-constructed
+exception grants no such authority. Transaction owners decide whether to retry
+from a fresh snapshot.
+
+`regress-database-snapshot-conflicts` exercises the real
+`ProviderDatabaseSession` on MariaDB with connection-local snapshot isolation
+enabled: a second connection commits a conflicting row after a prior candidate
+write. Both a locking read and DML must restore that prior write, preserve the
+external commit, avoid ambiguous-commit classification, and permit a fresh
+transaction after cleanup. Run from a clean checkout with
+`WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`; the harness owns and destroys
+the pair selected by `SNAPSHOT_CONFLICT_PAIR` and adjacent
+`SNAPSHOT_CONFLICT_PORT1`/`SNAPSHOT_CONFLICT_PORT2`.
+
 ## Summary table
 
 | # | risk | code change now | live probe must produce |
@@ -378,6 +405,7 @@ question is reachable — the WordPress containers simply cannot connect.
 | 3 | `GET_LOCK` names 64 / 60 / 61 bytes | prefix-derived process-fence budget and typed unavailable result | actual product name round-trips; multi-lock holds; 65-char answer recorded |
 | 4 | `get_charset_collate()` → `VARCHAR(191)` keys | none | `SHOW CREATE TABLE` diff, both engines; identical recapture |
 | 5 | `caching_sha2_password` | none | `wp db check` from a throwaway pair — run before everything else |
+| 6 | MariaDB snapshot isolation raises 1020 on locking reads and DML | checked transactional row reads and privately proven conflict cleanup | prior write rolled back, external commit preserved, fresh transaction succeeds |
 
 The exact product-name failure justifies the bounded §3 correction; the other
 SQL findings still require their named live evidence. The platform contract's
