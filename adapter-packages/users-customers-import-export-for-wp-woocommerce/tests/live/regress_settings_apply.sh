@@ -6,6 +6,7 @@ export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 REPO_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 cd "$REPO_ROOT/sandbox"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+pass() { printf 'ok: %s\n' "$*"; }
 PAIR="${IMPORTER_SETTINGS_PAIR:?unique owned pair required}"
 PORT1="${IMPORTER_SETTINGS_PORT1:?even port required}"
 PORT2="${IMPORTER_SETTINGS_PORT2:?successor port required}"
@@ -35,6 +36,7 @@ capture_expected() {
   for suffix in stdout stderr exit; do (umask 077; set -C; : > "$sink/$name.$suffix"); done
   wprism_private_capture_stage "$sink" "$name" "$@" || result=$?
   [ "$result" -eq "$expected" ] || fail "$name exited $result (expected $expected); retained $sink/$name"
+  assert_no_php_runtime_diagnostics "$name stdout" "$(cat "$sink/$name.stdout")"
   php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name" "$PAIR" "$verb"
   printf 'ok: %s\n' "$name"
 }
