@@ -9,6 +9,7 @@ require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
+require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
 
 /**
  * Shared authored value transformations. Callers supply the token capability
@@ -80,6 +81,10 @@ final class AuthoredValueCodec {
         }
         $nodes = 0;
         self::assert_json($value, 0, $nodes, $where);
+        if (isset($rule[FieldLabelMap::FIELD])) {
+            FieldLabelMap::assert_value($value, $rule[FieldLabelMap::FIELD], $where);
+            return;
+        }
         if (isset($rule['object_fields'])) {
             // PHP's associative JSON decoder cannot distinguish {} from [].
             // A nonempty exact object preserves shape without guessing defaults.
@@ -149,7 +154,9 @@ final class AuthoredValueCodec {
     /**
      * PII role heuristics must not mistake a declared user-ID list under an
      * email-shaped field name for contact data. Only validated scalar/list
-     * reference leaves may disappear from this projection; secret clearance
+     * reference leaves may disappear from this projection. Field definitions
+     * retain every key and value as scalar subjects without field-code roles;
+     * enclosing roles remain intact. Secret clearance
      * still receives the complete original value. Unknown object members fail
      * before projection, and plain/structured siblings retain their key roles.
      *
@@ -163,6 +170,7 @@ final class AuthoredValueCodec {
     /** @return array{present:bool,value:mixed} */
     private static function project_pii(mixed $value, array $rule): array {
         if (isset($rule['ref'])) return ['present' => false, 'value' => null];
+        if (isset($rule[FieldLabelMap::FIELD])) return ['present' => true, 'value' => FieldLabelMap::pii_subject($value)];
         if (isset($rule['object_fields'])) {
             $subject = [];
             foreach ($value as $field => $child) {

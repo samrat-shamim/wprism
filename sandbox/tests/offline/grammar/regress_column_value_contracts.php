@@ -43,6 +43,10 @@ use WPrismTest\FakeWpdb;
 use WPrismTest\WpStore;
 
 $valueRule = ['class' => 'authored', 'object_fields' => [
+    'method_export_form_data' => ['class' => 'authored', 'plain_data' => true,
+        'record_fields' => ['container' => 'object', 'fields' => ['method_export', 'mapping_enabled_fields']]],
+    'label_fields' => ['class' => 'authored', 'field_labels' => 'label_enabled'],
+    'selected_labels' => ['class' => 'authored', 'field_labels' => 'label'],
     'filter_form_data' => ['class' => 'authored', 'object_fields' => [
         'wt_iew_email' => ['class' => 'authored', 'ref' => 'user[]', 'cast' => 'string', 'on_unmapped' => 'refuse'],
     ]],
@@ -52,7 +56,7 @@ $valueRule = ['class' => 'authored', 'object_fields' => [
 ]];
 $codec = ['container' => 'json', 'value' => $valueRule];
 $manifest = ['name' => 'column-values', 'spec_version' => 3, 'option_autoload' => 'preserve',
-    'engine_features' => ['json-column-codecs/v1', 'spec-window/v1', 'typed-column-codecs/v1', 'typed-column-values/v1'],
+    'engine_features' => ['column-field-labels/v1', 'column-record-fields/v1', 'json-column-codecs/v1', 'spec-window/v1', 'typed-column-codecs/v1', 'typed-column-values/v1'],
     'tables' => ['authored_templates' => ['class' => 'authored_snapshot', 'pk' => 'id', 'id_kind' => 'auth_template',
         'slug_column' => 'name', 'identity' => ['mode' => 'mapped'],
         'columns' => ['name' => ['class' => 'authored'], 'data' => ['class' => 'authored']], 'refs' => []]],
@@ -83,10 +87,16 @@ FakeWpdb::install()->seedTable('wp_users', [
     ['ID' => 2, 'user_login' => 'reader'], ['ID' => 3, 'user_login' => 'editor'],
 ]);
 $sourceTokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
+$labelFields = ['user_email' => ['Email address', 1], 'display_name' => ['Display name', 0],
+    'first_name' => ['First name', 1], 'last_name' => ['Last name', 0], 'nickname' => ['Nickname', 0],
+    'user_pass' => ['user_pass', 0], 'session_tokens' => ['session_tokens', 0], 'বাংলা' => ['', 1]];
+$selectedLabels = ['user_email' => 'Email address', 'display_name' => 'Display name'];
 $native = json_encode(['filter_form_data' => ['wt_iew_email' => ['2', '3']],
-    'advanced_form_data' => ['wt_iew_limit' => 25]], JSON_THROW_ON_ERROR);
+    'method_export_form_data' => ['method_export' => 'template', 'selected_template' => '1'],
+    'advanced_form_data' => ['wt_iew_limit' => 25], 'label_fields' => $labelFields, 'selected_labels' => $selectedLabels], JSON_THROW_ON_ERROR);
 $expected = json_encode(['filter_form_data' => ['wt_iew_email' => ['user:reader', 'user:editor']],
-    'advanced_form_data' => ['wt_iew_limit' => 25]], JSON_THROW_ON_ERROR);
+    'method_export_form_data' => ['method_export' => 'template'],
+    'advanced_form_data' => ['wt_iew_limit' => 25], 'label_fields' => $labelFields, 'selected_labels' => $selectedLabels], JSON_THROW_ON_ERROR);
 $captured = ColumnCodecGrammar::capture_value($native, $codec, $sourceTokens, 'template data', 'data');
 wprism_check_same($expected, $captured, 'declared nested user IDs become user-login bindings without a column-wide PII exemption');
 FakeWpdb::install()->seedTable('wp_users', [
@@ -95,7 +105,8 @@ FakeWpdb::install()->seedTable('wp_users', [
 $targetTokens = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
 $target = ColumnCodecGrammar::apply_value($captured, $codec, $targetTokens, 'template data');
 wprism_check_same(['filter_form_data' => ['wt_iew_email' => ['82', '93']],
-    'advanced_form_data' => ['wt_iew_limit' => 25]], json_decode($target, true, flags: JSON_THROW_ON_ERROR),
+    'method_export_form_data' => ['method_export' => 'template'],
+    'advanced_form_data' => ['wt_iew_limit' => 25], 'label_fields' => $labelFields, 'selected_labels' => $selectedLabels], json_decode($target, true, flags: JSON_THROW_ON_ERROR),
     'nested user bindings retain native string type at divergent target IDs');
 wprism_check_same($captured, ColumnCodecGrammar::capture_value($target, $codec, $targetTokens, 'template data', 'data'),
     'typed JSON values reach a canonical fixed point');
@@ -112,7 +123,7 @@ $badRules = [
     'nested unregistered reference keyspace' => ['class' => 'authored', 'object_fields' => [
         'chosen' => array_replace($leaf, ['ref' => 'missing_kind[]'])]],
     'structured users have no durable token grammar' => ['class' => 'authored', 'json_refs' => [['path' => '$.id', 'kind' => 'user']], 'on_unmapped' => 'refuse'],
-    'column cannot borrow record feature authority' => ['class' => 'authored', 'plain_data' => true, 'record_fields' => []],
+    'malformed record projection' => ['class' => 'authored', 'plain_data' => true, 'record_fields' => []],
     'column cannot borrow encoded text authority' => ['class' => 'authored', 'text_encoding' => 'html_entities'],
     'enum has exact types and bounded codes' => ['class' => 'authored', 'enum' => ['https://site.test']],
     'object cannot include a second codec' => $valueRule + ['plain_data' => true],
@@ -370,6 +381,215 @@ foreach ($shapes as [$rule, $input, $output]) {
             "shared reference and literal codecs preserve native shape through $container framing");
         wprism_check_same(1, count($compile($variant, $canonical)), 'the same typed canonical shape compiles through the real graph');
     }
+}
+
+// Native export templates map field codes to labels, not customer values.
+// The real loader and compiler must require explicit metadata authority.
+$labelsManifest = $manifest;
+$labelsManifest['column_codecs']['authored_templates']['data']['value'] = [
+    'class' => 'authored', 'field_labels' => 'label_enabled',
+];
+$labelsPolicy = $load($labelsManifest);
+$labelsCodec = $labelsPolicy->column_codec_rules('authored_templates')['data'];
+$labelsNative = json_encode(['user_email' => ['Email address', 1], 'display_name' => ['Display name', 0]], JSON_THROW_ON_ERROR);
+$labelsCanonical = ColumnCodecGrammar::capture_value($labelsNative, $labelsCodec, $sourceTokens, 'field definitions', 'data');
+wprism_check_same($labelsNative, $labelsCanonical, 'declared field labels survive native capture without whole-column privacy clearance');
+wprism_check_same(1, count($compile($labelsManifest, $labelsCanonical)), 'immutable compilation admits declared field-label metadata');
+
+$unnegotiated = $labelsManifest;
+$unnegotiated['engine_features'] = array_values(array_diff($unnegotiated['engine_features'], ['column-field-labels/v1']));
+wprism_check_throws(static fn() => $load($unnegotiated), RuntimeException::class,
+    'typed value authority alone cannot clear field-code roles', 'negotiated column field labels');
+$badLabelRules = [
+    ['class' => 'authored', 'field_labels' => null],
+    ['class' => 'authored', 'field_labels' => 'unknown'],
+    ['class' => 'derived', 'field_labels' => 'label'],
+    ['class' => 'authored', 'field_labels' => 'label', 'plain_data' => true],
+    ['class' => 'authored', 'field_labels' => 'label', 'allow_pii' => true],
+    ['class' => 'authored', 'field_labels' => 'label', 'ref' => 'user'],
+    ['class' => 'authored', 'field_labels' => 'label', 'object_fields' => ['f' => $leaf]],
+];
+$deepLabels = ['class' => 'authored', 'field_labels' => 'label'];
+for ($i = 0; $i < 5; ++$i) $deepLabels = ['class' => 'authored', 'object_fields' => ['child' => $deepLabels]];
+$badLabelRules[] = $deepLabels;
+foreach ($badLabelRules as $rule) {
+    $bad = $labelsManifest;
+    $bad['column_codecs']['authored_templates']['data']['value'] = $rule;
+    wprism_check_throws(static fn() => $load($bad), RuntimeException::class, 'field-label declarations have one negotiated bounded owner');
+}
+foreach (['options', 'post_meta', 'term_meta', 'user_meta', 'post_types', 'taxonomies'] as $surface) {
+    $bad = $labelsManifest;
+    $bad[$surface]['fixture'] = ['class' => 'authored', 'field_labels' => 'label'];
+    wprism_check_throws(static fn() => $load($bad), RuntimeException::class, "$surface cannot borrow column metadata authority");
+}
+$bad = $labelsManifest;
+$bad['tables']['authored_templates']['columns']['data']['field_labels'] = 'label';
+wprism_check_throws(static fn() => $load($bad), RuntimeException::class, 'ordinary table classification cannot carry an inert label contract');
+$bad = $labelsManifest;
+$bad['engine_features'] = array_merge($bad['engine_features'], ['block-attribute-values/v1', 'block-value-contracts/v1']);
+sort($bad['engine_features'], SORT_STRING);
+$bad['block_values']['fixture/labels']['fields'] = ['class' => 'authored', 'field_labels' => 'label'];
+wprism_check_throws(static fn() => $load($bad), RuntimeException::class, 'block contracts cannot borrow column privacy projection', 'negotiated column field labels');
+
+foreach (['label' => $selectedLabels, 'label_enabled' => $labelFields] as $format => $valid) {
+    foreach (['json', 'php_serialized'] as $container) {
+        $variant = $labelsManifest;
+        $variant['column_codecs']['authored_templates']['data'] = ['container' => $container,
+            'value' => ['class' => 'authored', 'field_labels' => $format]];
+        $labelCodec = $load($variant)->column_codec_rules('authored_templates')['data'];
+        $encode = static fn($v) => $container === 'json' ? json_encode($v, JSON_THROW_ON_ERROR) : serialize($v);
+        foreach ([$valid, []] as $input) {
+            $bytes = $encode($input);
+            $canonical = ColumnCodecGrammar::capture_value($bytes, $labelCodec, $sourceTokens, 'label map', 'data');
+            wprism_check_same($bytes, $canonical, "$format preserves complete $container metadata and empty maps");
+            wprism_check_same($bytes, ColumnCodecGrammar::apply_value($canonical, $labelCodec, $targetTokens, 'label map'),
+                'field labels retain native scalar types on Apply');
+            wprism_check_same(1, count($compile($variant, $canonical)), 'both label formats compile through strict framing');
+        }
+    }
+}
+
+$invalidLabels = [null, 'label', ['label'], ['' => ['label', 1]], [7 => ['label', 1]],
+    ['field' => 'label'], ['field' => ['label']], ['field' => ['label', 1, 'extra']],
+    ['field' => ['label', true]], ['field' => ['label', '1']], ['field' => ['label', 2]],
+    ['field' => ['label', 1.0]], ['field' => [null, 1]], ['field' => [['nested' => 'label'], 1]],
+    ['field' => ['label' => 'label', 'enabled' => 1]]];
+$wpdb->seedTable('authored_templates', $beforeFailure);
+foreach ($invalidLabels as $invalid) {
+    $bytes = json_encode($invalid, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
+    wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($bytes, $labelsCodec, $sourceTokens, 'label map'),
+        RuntimeException::class, 'malformed native label metadata refuses before role projection');
+    wprism_check_throws(static fn() => $compile($labelsManifest, $bytes), RuntimeException::class,
+        'immutable compilation refuses malformed label metadata', 'schema_content_mismatch');
+    $labelSite = WPrismTest\FrozenPolicy::site([$labelsManifest], 3);
+    $labelPolicy = WPrismTest\FrozenPolicy::policy([$labelsManifest], $labelSite);
+    $lint = WPrism\Lint::scan_tree($repo . '/state', $labelPolicy);
+    wprism_check(in_array('invalid_column_value', array_column($lint, 'class'), true), 'lint identifies malformed field-label values');
+    $changed = $entity;
+    $changed['data']['columns']['data'] = json_encode(['label_fields' => $invalid], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
+    wprism_check_throws(static fn() => $transaction(static fn() => $writer->finalizeRow($targetTokens, $changed)),
+        RuntimeException::class, 'checked materialization independently rejects malformed label metadata');
+    wprism_check_same($beforeFailure, $wpdb->rows('authored_templates'), 'invalid labels preserve the complete target table');
+}
+
+foreach (['reader@example.test', '203.0.113.24', '+1 202 555 0182', 'AKIAIOSFODNN7EXAMPLE'] as $private) {
+    foreach ([[$private => ['Label', 1]], ['user_email' => [$private, 1]]] as $input) {
+        $bytes = json_encode($input, JSON_THROW_ON_ERROR);
+        wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($bytes, $labelsCodec, $sourceTokens, 'label map'),
+            RuntimeException::class, 'label metadata retains actual private key and value byte scans');
+        wprism_check_throws(static fn() => $compile($labelsManifest, $bytes), RuntimeException::class,
+            'repository edits cannot introduce private bytes into label metadata');
+    }
+}
+$credential = json_encode(['user_pass' => ['s3cr3t-Credential-0123456789!', 1]], JSON_THROW_ON_ERROR);
+wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($credential, $labelsCodec, $sourceTokens, 'label map'),
+    RuntimeException::class, 'credential-role scanning receives the original map', 'secret guard');
+wprism_check_throws(static fn() => $compile($labelsManifest, $credential), RuntimeException::class,
+    'compiler retains original credential roles', 'repository_secret_not_allowed');
+foreach (['customer_address', 'first_name', 'api_key'] as $ancestor) {
+    $wrapped = $labelsManifest;
+    $wrapped['column_codecs']['authored_templates']['data']['value'] = ['class' => 'authored',
+        'object_fields' => [$ancestor => ['class' => 'authored', 'field_labels' => 'label_enabled']]];
+    $bytes = json_encode([$ancestor => ['user_email' => ['ordinary-private-material', 1]]], JSON_THROW_ON_ERROR);
+    wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($bytes,
+        $wrapped['column_codecs']['authored_templates']['data'], $sourceTokens, 'nested labels'),
+        RuntimeException::class, 'label projection preserves enclosing personal-data and credential roles');
+    wprism_check_throws(static fn() => $compile($wrapped, $bytes), RuntimeException::class,
+        'compiler preserves enclosing personal-data and credential roles');
+}
+$plain = $labelsCodec;
+$plain['value'] = ['class' => 'authored', 'plain_data' => true];
+wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($labelsNative, $plain, $sourceTokens, 'plain data'),
+    RuntimeException::class, 'existing plain-data declarations retain their original PII roles', 'PII guard');
+wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($labelsNative, $labelsCodec, $sourceTokens, 'root role', 'email'),
+    RuntimeException::class, 'the enclosing column role is never erased by label metadata', 'PII guard');
+
+// Saved wizard cursors are derived context beside authored method fields.
+// Column admission reuses RecordFields; it does not introduce a second projector.
+$recordRule = ['class' => 'authored', 'plain_data' => true,
+    'record_fields' => ['container' => 'object', 'fields' => ['method', 'selected']]];
+$recordManifest = $manifest;
+$recordManifest['column_codecs']['authored_templates']['data']['value'] = $recordRule;
+foreach ([[], ['block-record-fields/v1']] as $borrowed) {
+    $bad = $recordManifest;
+    $bad['engine_features'] = array_values(array_merge(array_diff($bad['engine_features'], ['column-record-fields/v1']), $borrowed));
+    sort($bad['engine_features'], SORT_STRING);
+    wprism_check_throws(static fn() => $load($bad), RuntimeException::class,
+        'column record projection requires its own feature', 'negotiated column value and record field features');
+}
+$bad = $recordManifest;
+$bad['engine_features'] = array_merge($bad['engine_features'], ['block-attribute-values/v1', 'block-value-contracts/v1']);
+sort($bad['engine_features'], SORT_STRING);
+$bad['block_values']['fixture/record']['context'] = $recordRule;
+wprism_check_throws(static fn() => $load($bad), RuntimeException::class,
+    'block records cannot borrow column record authority', 'negotiated block value and record field features');
+$badRecordRules = [
+    array_replace($recordRule, ['record_fields' => ['container' => 'object', 'fields' => ['method', 'method']]]),
+    array_replace($recordRule, ['record_fields' => ['container' => 'object', 'fields' => ['method.*']]]),
+    array_replace($recordRule, ['record_fields' => ['container' => 'object', 'fields' => ['method'], 'extra' => true]]),
+    $leaf + ['record_fields' => $recordRule['record_fields']],
+    $valueRule + ['record_fields' => $recordRule['record_fields']],
+];
+foreach (['$.discarded.id', '$.*.id', '$..id'] as $path) {
+    $badRecordRules[] = ['class' => 'authored', 'record_fields' => $recordRule['record_fields'],
+        'json_refs' => [['path' => $path, 'kind' => 'auth_template']], 'on_unmapped' => 'refuse'];
+}
+$badRecordRules[] = ['class' => 'authored', 'record_fields' => $recordRule['record_fields'],
+    'key_refs' => ['kind' => 'auth_template'], 'on_unmapped' => 'refuse'];
+foreach ($badRecordRules as $rule) {
+    $bad = $recordManifest;
+    $bad['column_codecs']['authored_templates']['data']['value'] = $rule;
+    wprism_check_throws(static fn() => $load($bad), RuntimeException::class,
+        'column records retain the shared closed projection and reference ownership rules');
+}
+foreach (['object', 'list'] as $shape) {
+    foreach (['json', 'php_serialized'] as $container) {
+        $variant = $recordManifest;
+        $variant['column_codecs']['authored_templates']['data'] = ['container' => $container,
+            'value' => ['class' => 'authored', 'record_fields' => ['container' => $shape, 'fields' => ['id', 'label']],
+                'json_refs' => [['path' => '$.id', 'kind' => 'auth_template']], 'on_unmapped' => 'refuse']];
+        $recordCodec = $load($variant)->column_codec_rules('authored_templates')['data'];
+        $encode = static fn($v) => $container === 'json' ? json_encode($v, JSON_THROW_ON_ERROR) : serialize($v);
+        $input = ['label' => 'Selected', 'cursor' => '12', 'id' => 7];
+        $output = ['label' => 'Selected', 'id' => 211];
+        if ($shape === 'list') { $input = [$input, $input]; $output = [$output, $output]; }
+        $canonical = ColumnCodecGrammar::capture_value($encode($input), $recordCodec, $referenceTokens, 'record');
+        wprism_check_same($encode($output), ColumnCodecGrammar::apply_value($canonical, $recordCodec, $targetTokens, 'record'),
+            "projected $shape records retain order, duplicates and native references through $container");
+        wprism_check_same(1, count($compile($variant, $canonical)), 'projected record references compile in the canonical graph');
+        if ($shape === 'list') {
+            wprism_check_same($encode([]), ColumnCodecGrammar::capture_value($encode([]), $recordCodec, $referenceTokens, 'empty records'),
+                'an empty record list remains empty');
+        }
+        foreach ([null, ['cursor' => 12], [], [7]] as $invalid) {
+            if ($shape === 'list') $invalid = [$invalid];
+            wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($encode($invalid), $recordCodec, $referenceTokens, 'invalid record'),
+                RuntimeException::class, 'native empty, malformed or fully discarded records refuse');
+        }
+        $excluded = $container === 'json' ? json_decode($canonical, true, flags: JSON_THROW_ON_ERROR)
+            : unserialize($canonical, ['allowed_classes' => false]);
+        if ($shape === 'object') $excluded['cursor'] = '12';
+        else $excluded[0]['cursor'] = '12';
+        wprism_check_throws(static fn() => $compile($variant, $encode($excluded)), RuntimeException::class,
+            'canonical edits cannot restore an excluded field', 'schema_content_mismatch');
+    }
+}
+$cursorEdit = json_decode($expected, true, flags: JSON_THROW_ON_ERROR);
+$cursorEdit['method_export_form_data']['selected_template'] = '99';
+$cursorEdit = json_encode($cursorEdit, JSON_THROW_ON_ERROR);
+wprism_check_throws(static fn() => $compile($manifest, $cursorEdit), RuntimeException::class,
+    'compiler refuses a reintroduced saved wizard cursor', 'schema_content_mismatch');
+$lint = WPrism\Lint::scan_tree($repo . '/state', WPrismTest\FrozenPolicy::policy([$manifest], WPrismTest\FrozenPolicy::site([$manifest], 3)));
+wprism_check(in_array('invalid_column_value', array_column($lint, 'class'), true), 'lint identifies an excluded canonical record field');
+$changed = $entity;
+$changed['data']['columns']['data'] = $cursorEdit;
+wprism_check_throws(static fn() => $transaction(static fn() => $writer->finalizeRow($targetTokens, $changed)),
+    RuntimeException::class, 'materializer independently refuses a reintroduced wizard cursor', 'excluded canonical record fields');
+wprism_check_same($beforeFailure, $wpdb->rows('authored_templates'), 'excluded canonical fields preserve the complete target table');
+foreach ([['email' => 'reader@example.test'], ['api_key' => 'private-credential-material']] as $private) {
+    $input = json_encode(['method_export_form_data' => ['method_export' => 'template'] + $private], JSON_THROW_ON_ERROR);
+    wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($input, $codec, $targetTokens, 'record clearance'),
+        RuntimeException::class, 'discarded native fields still undergo original PII and secret clearance');
 }
 
 wprism_check_summary('regress_column_value_contracts');

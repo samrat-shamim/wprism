@@ -29,6 +29,18 @@
         "sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json"
       ]
     },
+    "column_field_labels": {
+      "title": "explicit field-definition maps inside typed columns",
+      "status": "shipped",
+      "definition": "Negotiated label and label-enabled maps validate metadata shape before projecting immediate field-code PII roles. Every key and value remains scanned for private bytes, enclosing roles remain intact, and secret clearance retains the original decoded value. The shared text codec preserves native labels and flags; this grants no adapter qualification.",
+      "evidence": [
+        "agent/src/Kernel/FieldLabelMap.php",
+        "agent/src/Grammar/AuthoredValueCodec.php",
+        "agent/src/Grammar/ColumnCodecGrammar.php",
+        "sandbox/tests/offline/grammar/regress_column_value_contracts.php",
+        "sandbox/tests/live/fixtures/column_value_contracts.php"
+      ]
+    },
     "typed_column_value_contracts": {
       "title": "shared authored value contracts inside strict stored column containers",
       "status": "shipped",
@@ -284,6 +296,17 @@
         "agent/src/Kernel/BlockValueGrammar.php",
         "agent/src/Grammar/AuthoredValueCodec.php",
         "sandbox/tests/offline/grammar/regress_block_attribute_values.php"
+      ]
+    },
+    "column_record_projection": {
+      "title": "shared immediate record projection inside typed columns",
+      "status": "shipped",
+      "definition": "Explicit column-record-fields/v1 enables existing RecordFields for strict typed columns. Immediate authored fields survive; canonical excluded fields refuse and original decoded clearance remains. Native consumers must prove excluded context is regenerable; this grants no target-local merge or template qualification.",
+      "evidence": [
+        "agent/src/Kernel/RecordFields.php",
+        "agent/src/Grammar/ColumnCodecGrammar.php",
+        "sandbox/tests/offline/grammar/regress_column_value_contracts.php",
+        "sandbox/tests/live/fixtures/column_value_contracts.php"
       ]
     }
   },
@@ -900,6 +923,33 @@
       ]
     },
     {
+      "id": "user-importer-template-field-labels",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "column_field_labels",
+          "closed_by": [
+            "agent/src/Kernel/FieldLabelMap.php",
+            "agent/src/Grammar/AuthoredValueCodec.php",
+            "agent/src/Grammar/ColumnCodecGrammar.php",
+            "sandbox/tests/offline/grammar/regress_column_value_contracts.php",
+            "sandbox/tests/live/fixtures/column_value_contracts.php"
+          ],
+          "coordinate": "tables.wt_iew_mapping_template.columns.data.mapping_form_data.mapping_fields and mapping_selected_fields",
+          "cannot_represent": "Native Saved export templates map field codes to [label, integer-enabled] tuples and selected string labels. Five of 27 default field definitions trigger ordinary PII key roles even though they contain no contact values; whole-column clearance would waive unrelated data."
+        }
+      ],
+      "probed_on": "2026-09-13",
+      "closing": "An explicit bounded value declaration distinguishes field-definition metadata while retaining actual key/value byte scans, enclosing PII roles and original secret clearance. Shared Capture, isolated compilation, lint and checked materialization enforce its shape. Template enrollment, selected-template identity semantics, local CSV binding, native jobs and adapter qualification remain open.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
       "id": "user-importer-typed-template-values",
       "candidate": "Users and Customers Import Export",
       "versions_probed": [
@@ -922,6 +972,32 @@
       ],
       "probed_on": "2026-09-13",
       "closing": "Explicit column values reuse the existing authored reference codec, including strict user-login binding and native string casts. Capture, isolated compilation, lint and checked scoped materialization enforce the same contract. This closes only selected-user representation; local CSV input binding, complete template semantics, native jobs, adapter authoring and qualification remain open.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
+      "id": "user-importer-template-wizard-context",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "column_record_projection",
+          "closed_by": [
+            "agent/src/Kernel/RecordFields.php",
+            "agent/src/Grammar/ColumnCodecGrammar.php",
+            "sandbox/tests/offline/grammar/regress_column_value_contracts.php",
+            "sandbox/tests/live/fixtures/column_value_contracts.php"
+          ],
+          "coordinate": "tables.wt_iew_mapping_template.columns.data.method_export_form_data",
+          "cannot_represent": "Native Save As retains the previous template selected_template cursor. Normal reopen selects the actual requested row, and export main.js rebuilds the cursor on the next wizard step. Treating that saved context as a durable reference invents identity; plain data preserves an obsolete local ID. The existing record projection was unavailable to columns."
+        }
+      ],
+      "probed_on": "2026-09-13",
+      "closing": "Column feature negotiation enables the existing shared projector. Native importer Save/reopen and identical CSV output after projection establish cursor regeneration; offline and native typed-column paths exercise projection, canonical refusal and original clearance. Capsule template enrollment, import CSV bindings, native product qualification and lifecycle/combination evidence remain pending.",
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]
