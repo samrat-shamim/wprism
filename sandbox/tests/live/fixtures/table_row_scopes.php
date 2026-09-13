@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Run only in the disposable pair owned by regress_table_row_scopes.sh.
+// Run only in the disposable pair owned by regress_table_row_scopes_native.sh.
 // The external mysqli connection is a concurrent native writer; all candidate
 // writes still pass through TypedTableMaterializer and Db's tracked transaction.
 require_once __DIR__ . '/../../lib/check.php';
@@ -9,11 +9,12 @@ $agent = WPMU_PLUGIN_DIR . '/wprism';
 require_once $agent . '/src/Capture/TypedTableCapture.php';
 require_once $agent . '/src/Apply/TypedTableMaterializer.php';
 require_once $agent . '/src/Grammar/Tokens.php';
+require_once $agent . '/src/Repository/Snapshot.php';
 
 use WPrism\Canon;
 use WPrism\Db;
 use WPrism\NativeDatabaseProfile;
-use WPrism\TableSchema;
+use WPrism\Snapshot;
 use WPrism\Tokens;
 use WPrism\TypedTableCapture;
 use WPrism\TypedTableMaterializer;
@@ -42,7 +43,7 @@ try {
         (3,'product','Foreign','alice@example.test'),
         (4,'User','Case','sk_live_FOREIGNCREDENTIAL1234567890'),
         (5,'user ','Space','foreign trailing space')");
-    TableSchema::assert_row_schema($table, $decl);
+    Snapshot::assert_row_schema($table, $decl);
     $rows = static fn(): array => $wpdb->get_results("SELECT * FROM `$physical` ORDER BY id", ARRAY_A);
     $before = $rows();
     $foreign = array_slice($before, 1);

@@ -3282,7 +3282,7 @@ database engine affected by a SQL change:
 
 ```sh
 WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) WPRISM_DB_ENGINE=mariadb \
-  bash sandbox/tests/live/regress_table_row_scopes.sh
+  bash sandbox/tests/live/regress_table_row_scopes_native.sh
 ```
 
 Use `WPRISM_DB_ENGINE=mysql` for the MySQL leg. The harness destroys its pair

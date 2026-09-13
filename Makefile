@@ -2331,6 +2331,10 @@ regress-url-query-reference-codec:
 regress-table-row-scopes:
 	php sandbox/tests/offline/grammar/regress_table_row_scopes.php
 
+.PHONY: regress-table-row-scopes-native
+regress-table-row-scopes-native:
+	bash sandbox/tests/live/regress_table_row_scopes_native.sh
+
 regress-column-codec-grammar:
 	php sandbox/tests/offline/grammar/regress_column_codec_grammar.php
 
