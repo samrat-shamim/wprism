@@ -15,6 +15,7 @@ require_once __DIR__ . '/KeyBoundStrings.php';
 require_once __DIR__ . '/EncodedText.php';
 require_once __DIR__ . '/PostMetaInvalidation.php';
 require_once __DIR__ . '/FieldLabelMap.php';
+require_once __DIR__ . '/FieldTemplateMap.php';
 
 /**
  * Pure loader-time grammar for reference-valued manifest declarations.
@@ -38,6 +39,7 @@ final class ReferenceShapeGrammar {
             foreach ($source[$section] ?? [] as $name => $rule) {
                 if (is_array($rule)) {
                     FieldLabelMap::assert_rule($rule, "$label.$section.$name");
+                    FieldTemplateMap::assert_rule($rule, "$label.$section.$name");
                     PostMetaInvalidation::assert_rule($rule, "$label.$section.$name");
                     ScalarValueConstraint::assert_rule($rule, "$label.$section.$name", false);
                 }
@@ -100,6 +102,7 @@ final class ReferenceShapeGrammar {
         }
         foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
             FieldLabelMap::assert_rule($declaration, "$label.dynamic_options.$name");
+            FieldTemplateMap::assert_rule($declaration, "$label.dynamic_options.$name");
             ScalarValueConstraint::assert_rule($declaration, "$label.dynamic_options.$name", false);
             PostMetaInvalidation::assert_rule($declaration, "$label.dynamic_options.$name");
             PhpContainerValue::assert_rule($declaration, "$label.dynamic_options.$name", false);
@@ -133,11 +136,13 @@ final class ReferenceShapeGrammar {
         }
         foreach (($source['tables'] ?? []) as $table => $declaration) {
             FieldLabelMap::assert_rule($declaration, "$label.tables.$table");
+            FieldTemplateMap::assert_rule($declaration, "$label.tables.$table");
             ScalarValueConstraint::assert_rule($declaration, "$label.tables.$table", false);
             PostMetaInvalidation::assert_rule($declaration, "$label.tables.$table");
             foreach ($declaration['columns'] ?? [] as $column => $rule) {
                 if (is_array($rule)) {
                     FieldLabelMap::assert_rule($rule, "$label.tables.$table.columns.$column");
+                    FieldTemplateMap::assert_rule($rule, "$label.tables.$table.columns.$column");
                     PostMetaInvalidation::assert_rule($rule, "$label.tables.$table.columns.$column");
                     ScalarValueConstraint::assert_rule($rule, "$label.tables.$table.columns.$column", false);
                 }

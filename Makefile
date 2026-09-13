@@ -2349,6 +2349,10 @@ regress-json-column-codecs-native:
 regress-column-codec-grammar:
 	php sandbox/tests/offline/grammar/regress_column_codec_grammar.php
 
+.PHONY: regress-column-field-templates
+regress-column-field-templates:
+	php sandbox/tests/offline/grammar/regress_column_field_templates.php
+
 .PHONY: regress-column-value-cases
 regress-column-value-cases:
 	php sandbox/tests/offline/grammar/regress_column_value_cases.php

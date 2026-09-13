@@ -29,6 +29,17 @@
         "sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json"
       ]
     },
+    "column_field_templates": {
+      "title": "opaque field references and authored literals inside typed columns",
+      "status": "shipped",
+      "definition": "Negotiated brace and brace-enabled expression maps preserve header identities while transporting literal text through existing tokens. Canonical fragments prove unambiguous native syntax, share root bounds and retain complete metadata byte checks plus joined literal destination roles. This does not bind CSV inputs or qualify import jobs.",
+      "evidence": [
+        "agent/src/Kernel/FieldTemplateMap.php",
+        "agent/src/Grammar/AuthoredValueCodec.php",
+        "sandbox/tests/offline/grammar/regress_column_field_templates.php",
+        "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/expressions-native.php"
+      ]
+    },
     "column_field_labels": {
       "title": "explicit field-definition maps inside typed columns",
       "status": "shipped",
@@ -1070,6 +1081,32 @@
       ],
       "probed_on": "2026-09-14",
       "closing": "Explicit cases select existing contracts from the authored template type. Product-path offline and native typed-table evidence covers semantic selection, privacy separation, reference rebinding, variant transitions and rollback. Import expressions, target-local CSV bindings, native missing-password warnings and full adapter qualification remain open.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
+      "id": "user-importer-field-expressions",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "column_field_templates",
+          "closed_by": [
+            "agent/src/Kernel/FieldTemplateMap.php",
+            "agent/src/Grammar/AuthoredValueCodec.php",
+            "sandbox/tests/offline/grammar/regress_column_field_templates.php",
+            "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/expressions-native.php"
+          ],
+          "coordinate": "column_codecs.wt_iew_mapping_template.data",
+          "cannot_represent": "Import mapping strings mix opaque CSV header references with literal destination values. Plain text rewriting corrupts URL-shaped headers; label metadata wrongly grants literals a metadata role; complete credential-role scanning rejects long password-column references. The native brace dialect also overlaps WPrism home and identity tokens."
+        }
+      ],
+      "probed_on": "2026-09-14",
+      "closing": "A shared bounded fragment codec preserves native expression semantics through Capture, immutable compilation, lint and checked materialization. Actual registered Importer 2.7.5 consumer evidence follows real typed-table transport. Target-local CSV binding, native import jobs including the missing-password warning case, adapter enrollment and qualification remain open.",
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]

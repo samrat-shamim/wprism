@@ -144,6 +144,7 @@ return [
     'WPrism\\ExecutableTreeIdentity' => 'src/Kernel/ExecutableTreeIdentity.php',
     'WPrism\\FieldGrammar' => 'src/Grammar/FieldGrammar.php',
     'WPrism\\FieldLabelMap' => 'src/Kernel/FieldLabelMap.php',
+    'WPrism\\FieldTemplateMap' => 'src/Kernel/FieldTemplateMap.php',
     'WPrism\\FilesystemTreeSnapshot' => 'src/Kernel/FilesystemTreeSnapshot.php',
     'WPrism\\HtmlAttributeReader' => 'src/Kernel/HtmlAttributeReader.php',
     'WPrism\\HtmlMediaReferences' => 'src/Kernel/HtmlMediaReferences.php',
