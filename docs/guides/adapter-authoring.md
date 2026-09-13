@@ -4615,6 +4615,15 @@ validates already-native data; it never sanitizes or generates defaults.
 `lint_ok` still requires its normal reviewed rationale and cannot waive an
 invalid value.
 
+A sanitizer's output range is not the consumer's valid range. For example,
+`absint(0)` survives the importer plugin's settings Save, but a zero export
+batch cannot advance its offset and a zero import batch misses the CSV
+reader's break condition. The declaration therefore requires batches of at
+least one. Trace bounds through the consuming operation and exercise boundary
+progress or termination; a getter round trip alone cannot establish validity.
+Keep unrelated UI limits out unless their producer/consumer contract supports
+them too.
+
 Exercise capture, host compilation, public Plan/Apply, locked target preimages,
 repeat, recapture, omission, and rollback. Keep foreign module keys and runtime
 state in the fixture. A damaged constrained target value refuses before write;

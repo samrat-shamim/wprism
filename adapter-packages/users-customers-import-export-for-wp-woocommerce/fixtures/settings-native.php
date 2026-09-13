@@ -5,8 +5,13 @@ $phase = $args[0] ?? '';
 $check = static function (bool $ok, string $reason): void {
     if (!$ok) throw new RuntimeException('Importer native settings evidence: ' . $reason);
 };
-$check(current_user_can('manage_options') && is_admin(), 'owned administrator context');
-$check(defined('WT_U_IEW_VERSION') && WT_U_IEW_VERSION === '2.7.5', 'exact locked plugin');
+$check(current_user_can('manage_options'), 'owned administrator identity');
+// The plugin calls set_time_limit during admin bootstrap. Observe deliberately
+// malformed raw seconds without loading that consumer, before public Capture.
+if ($phase !== 'raw-observe') {
+    $check(is_admin(), 'native administrator context');
+    $check(defined('WT_U_IEW_VERSION') && WT_U_IEW_VERSION === '2.7.5', 'exact locked plugin');
+}
 $native = json_decode((string) file_get_contents(__DIR__ . '/native-settings.json'), true, 32, JSON_THROW_ON_ERROR);
 global $wpdb, $wp_filter;
 $callback = static function (string $hook, string $method) use (&$wp_filter, $check): object {
@@ -57,10 +62,59 @@ if ($phase === 'verify-capture') {
         'native_sha256' => hash('sha256', serialize($stored))], JSON_THROW_ON_ERROR), "\n";
     return;
 }
-if ($phase === 'jobs') {
-    $id = wp_insert_user(['user_login' => 'importer-fixture-reader', 'user_email' => 'importer-reader@example.test',
+if (str_starts_with($phase, 'repository-')) {
+    $check(in_array($phase, ['repository-invalid', 'repository-edge'], true), 'known manual repository edit');
+    $path = '/siterepo/state/options/core.json';
+    $records = WPrism\OptionState::records(WPrism\Canon::decode(WPrism\Canon::read_file($path)));
+    $record = $records['wt_iew_advanced_settings'];
+    $check($record['state'] === 'present', 'existing canonical settings record');
+    $settings = $record['value'];
+    $settings['wt_iew_maximum_execution_time'] = 'invalid-seconds';
+    if ($phase === 'repository-edge') {
+        $settings = array_replace($native['source'], ['wt_iew_maximum_execution_time' => -1,
+            'wt_iew_default_import_method' => 'new', 'wt_iew_default_export_method' => 'new',
+            'wt_iew_default_import_batch' => 1, 'wt_iew_default_export_batch' => 1,
+            'wt_iew_auto_delete_history_count' => 0, 'wt_iew_include_bom' => 1]);
+    }
+    $records['wt_iew_advanced_settings'] = WPrism\OptionState::present($settings, $record['autoload']);
+    WPrism\Canon::write_file($path, WPrism\Canon::encode(WPrism\OptionState::document($records)));
+    echo json_encode(['phase' => $phase, 'settings' => $settings, 'autoload' => $record['autoload'],
+        'canonical_sha256' => hash_file('sha256', $path)], JSON_THROW_ON_ERROR), "\n";
+    return;
+}
+if ($phase === 'batch-reader') {
+    require_once WT_U_IEW_PLUGIN_PATH . 'admin/classes/class-csvreader.php';
+    $import = $callback('wp_ajax_iew_import_ajax_basic', 'ajax_main');
+    $check($import->default_batch_count === 1, 'native import module loaded the applied batch boundary');
+    $reader = new Wt_Import_Export_For_Woo_Basic_Csvreader(',');
+    $file = tempnam(sys_get_temp_dir(), 'importer-batch-');
+    $check(is_string($file), 'private reader control input');
+    try {
+        $input = "user_login\nreader-one\nreader-two\nreader-three\n";
+        $check(file_put_contents($file, $input) === strlen($input), 'complete three-row CSV control');
+        $form = ['mapping_form_data' => ['mapping_selected_fields' => ['user_login' => '{user_login}']]];
+        $first = $reader->get_data_as_batch($file, 0, $import->default_batch_count, $import, $form);
+        $second = $reader->get_data_as_batch($file, $first['offset'], $import->default_batch_count, $import, $form);
+        $zero = $reader->get_data_as_batch($file, 0, 0, $import, $form);
+        $check($first['response'] === true && $second['response'] === true && $zero['response'] === true,
+            'native reader controls succeed');
+        $check($first['rows_processed'] === 1 && $second['rows_processed'] === 1
+            && $first['offset'] > 0 && $second['offset'] > $first['offset']
+            && $first['data_arr'][0]['mapping_fields']['user_login'] === 'reader-one'
+            && $second['data_arr'][0]['mapping_fields']['user_login'] === 'reader-two', 'batch one advances exactly one row per native read');
+        $check($zero['rows_processed'] === 3 && count($zero['data_arr']) === 3,
+            'rejected zero control defeats the native reader batch boundary');
+        echo json_encode(['batch' => $import->default_batch_count, 'first_rows' => $first['rows_processed'],
+            'second_rows' => $second['rows_processed'], 'zero_control_rows' => $zero['rows_processed']], JSON_THROW_ON_ERROR), "\n";
+    } finally { unlink($file); }
+    return;
+}
+if (in_array($phase, ['jobs', 'edge-export'], true)) {
+    $edge = $phase === 'edge-export';
+    $id = $edge ? (int) get_user_by('login', 'importer-fixture-reader')->ID
+        : wp_insert_user(['user_login' => 'importer-fixture-reader', 'user_email' => 'importer-reader@example.test',
         'display_name' => 'Importer Fixture Reader', 'role' => 'subscriber', 'user_pass' => wp_generate_password(32)]);
-    $check(is_int($id) && $id > 1, 'fixture reader created');
+    $check(is_int($id) && $id > 1, 'fixture reader exists');
     $form = [
         'method_export_form_data' => ['method_export' => 'new'],
         'filter_form_data' => ['wt_iew_email' => [(string) $id], 'wt_iew_limit' => '1', 'wt_iew_sort_columns' => ['user_login'], 'wt_iew_order_by' => 'ASC'],
@@ -69,9 +123,13 @@ if ($phase === 'jobs') {
         'advanced_form_data' => ['wt_iew_batch_count' => '10', 'wt_iew_file_as' => 'csv', 'wt_iew_delimiter' => ','],
     ];
     $export = $callback('wp_ajax_iew_export_ajax_basic', 'ajax_main');
+    if ($edge) {
+        $check($export->default_batch_count === 1, 'native exporter loaded the applied batch boundary');
+        unset($form['advanced_form_data']['wt_iew_batch_count']);
+    }
     $jobs = [];
-    for ($i = 1; $i <= 3; $i++) {
-        $result = $export->process_action($form, 'export', 'user', 'importer-fixture-' . $i);
+    for ($i = 1; $i <= ($edge ? 1 : 3); $i++) {
+        $result = $export->process_action($form, 'export', 'user', ($edge ? 'importer-boundary-' : 'importer-fixture-') . $i);
         $check($result['response'] === true && (int) $result['finished'] === 1 && (int) $result['total_records'] === 1,
             'native export completed exactly one fixture user');
         $history = Wt_Import_Export_For_Woo_Basic_History::get_history_entry_by_id((int) $result['history_id']);
@@ -91,7 +149,7 @@ if ($phase === 'jobs') {
     echo json_encode(['phase' => $phase, 'jobs' => $jobs], JSON_THROW_ON_ERROR), "\n";
     return;
 }
-$check($phase === 'observe', 'known observation');
+$check(in_array($phase, ['observe', 'raw-observe'], true), 'known observation');
 $rows = static function (string $table, string $order) use ($wpdb, $check): array {
     $wpdb->last_error = '';
     $rows = $wpdb->get_results("SELECT * FROM $table ORDER BY $order LIMIT 1025", ARRAY_A);
@@ -114,8 +172,9 @@ foreach (['webtoffee_export', 'webtoffee_import'] as $directory) {
     }
 }
 ksort($files, SORT_STRING);
-$settings = Wt_Import_Export_For_Woo_User_Basic_Common_Helper::get_advanced_settings();
+$settings = $phase === 'raw-observe' ? get_option('wt_iew_advanced_settings')
+    : Wt_Import_Export_For_Woo_User_Basic_Common_Helper::get_advanced_settings();
 foreach ($order as $suffix => $key) $check($tables[$suffix] === $rows($wpdb->prefix . $suffix, $key), 'native settings read preserves ' . $suffix);
 echo json_encode(['format' => 'wprism-importer-native-settings/v1', 'wordpress' => get_bloginfo('version'),
-    'plugin' => WT_U_IEW_VERSION, 'php' => PHP_VERSION, 'database' => $wpdb->db_server_info(),
+    'plugin' => defined('WT_U_IEW_VERSION') ? WT_U_IEW_VERSION : null, 'php' => PHP_VERSION, 'database' => $wpdb->db_server_info(),
     'tables' => $tables, 'files' => $files, 'settings' => $settings], JSON_THROW_ON_ERROR), "\n";
