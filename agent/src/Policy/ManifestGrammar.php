@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+
 /**
  * The pure, offline-checkable-from-manifest-bytes-alone grammar half of
  * declared `tables.<name>` and `widgets.<type>` sections (issue #3318's split,
@@ -164,6 +166,7 @@ final class ManifestGrammar {
         // Before the shape walk, so a reach for a gated verb is answered by the
         // gate even when the reach is malformed.
         self::assert_invalidate_feature_gate($source, $label, $site);
+        TableRowScope::validate_source($source, $label, $site);
         foreach ($tables as $table => $decl) {
             self::assert_table_grammar((string) $table, $decl, $label);
         }
@@ -266,6 +269,7 @@ final class ManifestGrammar {
                 "wprism: table '$table'$where must be declared as an object of table rules, got " . gettype($decl)
             );
         }
+        TableRowScope::validate($table, $decl);
         $class = $decl['class'] ?? null;
         if (!in_array($class, self::TABLE_CLASSES, true)) {
             throw new \RuntimeException(

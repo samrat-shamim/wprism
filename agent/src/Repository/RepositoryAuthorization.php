@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
@@ -883,6 +885,9 @@ final class RepositoryAuthorization {
         $columnCodecs = $policy->column_codec_rules($table);
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         self::unexpected_fields($front, self::TABLE_FIELDS, $path, $uuid, 'table_field', $out);
+        if (!TableRowScope::matches($decl, (array) ($front['columns'] ?? []))) {
+            self::finding($out, 'repository_entity_out_of_scope', $path, $uuid, 'table', 'row_scope', 'unowned', $tableDetails['source']);
+        }
         if (($front['table'] ?? null) !== $table) {
             self::finding($out, 'repository_field_not_authored', $path, $uuid, 'table_field', 'table', 'mismatched', $tableDetails['source']);
         }

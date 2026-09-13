@@ -1,6 +1,9 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+require_once __DIR__ . '/../Kernel/TableRowOwnership.php';
+
 require_once __DIR__ . '/../Kernel/SerializedDataPreflight.php';
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
@@ -498,6 +501,7 @@ final class Snapshot {
      */
     public static function observed_deleted_mapped_uuids(Policy $policy): array {
         global $wpdb;
+        self::assert_row_scope_mappings($policy);
         $out = [];
         foreach (self::row_tables($policy) as $table => $decl) {
             if (($decl['identity']['mode'] ?? 'mapped') !== 'mapped') {
@@ -531,6 +535,7 @@ final class Snapshot {
     /** A DR export must cover every live mapped row, not just known ones. */
     public static function assert_all_mapped_rows_managed(Policy $policy): void {
         global $wpdb;
+        self::assert_row_scope_mappings($policy);
         foreach (self::row_tables($policy) as $table => $decl) {
             if (($decl['identity']['mode'] ?? 'mapped') !== 'mapped') {
                 continue;
@@ -543,10 +548,12 @@ final class Snapshot {
             ))) {
                 continue;
             }
+            $scope = TableRowScope::predicate($decl, $wpdb, 'src');
+            $scopeWhere = $scope === '' ? '' : " AND $scope";
             $missing = $wpdb->get_var($wpdb->prepare(
                 "SELECT src.`$pk` FROM `$prefixed` src "
                 . "LEFT JOIN {$wpdb->prefix}wprism_map m ON m.id_kind = %s AND m.local_id = src.`$pk` "
-                . "WHERE m.uuid IS NULL ORDER BY src.`$pk` ASC LIMIT 1",
+                . "WHERE m.uuid IS NULL$scopeWhere ORDER BY src.`$pk` ASC LIMIT 1",
                 $decl['id_kind']
             ));
             if ($missing !== null) {
@@ -796,6 +803,7 @@ final class Snapshot {
         if (!$rowTables) {
             return [];
         }
+        self::assert_row_scope_mappings($policy);
         // A normal capture repairs legacy schema damage before it records a
         // new candidate. Production export has no such authority: it must
         // observe an already-valid ledger or refuse, never turn a read into
@@ -1243,6 +1251,12 @@ final class Snapshot {
      *  no meta-column identity marker to also write, unlike adopt() for
      *  posts/terms in Apply.php. */
     public static function adopt(Policy $policy, string $uuid, string $table, int $envId): void {
+        global $wpdb;
+        $decl = self::row_tables($policy)[$table];
+        if (isset($decl['row_scope']) && !Db::transaction_active("row-scoped table '$table' adoption")) {
+            throw new \RuntimeException("wprism: row-scoped table '$table' adoption requires an active transaction");
+        }
+        TableRowOwnership::assert_live_row($table, $decl, $envId, $wpdb, true);
         self::snapshot_identity($policy)->adopt($uuid, $table, $envId);
     }
 
@@ -1390,13 +1404,34 @@ final class Snapshot {
         return self::snapshot_pruner($policy)->option_name_ref_preserved_ids($repositoryOptions, $liveOptionNames, $observeCanonicalName);
     }
 
+    /** An ownership change is not disappearance and must not become a tombstone. */
+    private static function assert_row_scope_mappings(Policy $policy): void {
+        global $wpdb;
+        $byKind = [];
+        foreach (self::row_tables($policy) as $table => $decl) {
+            if (isset($decl['row_scope'])) {
+                $byKind[$decl['id_kind']] = [$table, $decl];
+            }
+        }
+        if ($byKind === []) {
+            return;
+        }
+        foreach (Ledger::all_map() as $map) {
+            if (isset($byKind[$map['id_kind']])) {
+                [$table, $decl] = $byKind[$map['id_kind']];
+                TableRowOwnership::assert_live_row($table, $decl, $map['local_id'], $wpdb);
+            }
+        }
+    }
+
     /** Full capture dead-map hygiene for every declared typed-table row. */
     public static function prune_dead_map(Policy $policy, ?array $repositoryOptions = null): void {
+        self::assert_row_scope_mappings($policy);
         self::snapshot_pruner($policy)->prune_dead_map(self::row_tables($policy), $repositoryOptions);
     }
 
     /**
-     * Does a live row exist for (id_kind, local_id), independent of whether
+     * Does an owned live row exist for (id_kind, local_id), independent of whether
      * it has been minted a uuid yet? Task #93's option_name_refs discovery
      * (OptionsCapture::capture()) needs this to distinguish DANGLING (no
      * such row exists anywhere — the #73 dangling class, warn+drop) from
@@ -1426,7 +1461,19 @@ final class Snapshot {
             }
             $prefixed = $wpdb->prefix . $table;
             $pk = $decl['pk'];
-            return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$pk` = %d", $localId));
+            $scope = TableRowScope::predicate($decl, $wpdb);
+            if ($scope === '') {
+                return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$pk` = %d", $localId));
+            }
+            $wpdb->last_error = '';
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT 1 FROM `$prefixed` WHERE `$pk` = %d AND $scope LIMIT 1",
+                $localId
+            ));
+            if ($exists === false || (string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException("wprism: cannot verify owned row existence for table '$table'");
+            }
+            return $exists !== null;
         }
         return false;
     }
@@ -1466,6 +1513,11 @@ final class Snapshot {
         $decl = self::row_tables($policy)[$table] ?? null;
         if (!is_array($decl) || $localId <= 0) {
             throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        try {
+            TableRowOwnership::assert_live_row($table, $decl, $localId, $wpdb);
+        } catch (\Throwable $failure) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
         }
         $prefixed = $wpdb->prefix . $table;
         if (self::is_composite_ref($decl)) {

@@ -3250,6 +3250,45 @@ finding behind every assertion, and the manifests those rounds produced
 `adapter-packages/elementor/package/manifest.json`) carry the reasoning in
 their own note strings.
 
+### Shared tables require row ownership
+
+Inspect native writers and readers before declaring a whole table authored.
+The user/customer importer 2.7.5 saves import and export templates in
+`wt_iew_mapping_template` with `item_type=user`; other WebToffee modules use
+that physical table for other item types. Its native saved-template query
+partitions by item type and template type. A table name alone does not grant
+ownership of every row.
+
+Use `table-row-scopes/v1` and an explicit `tables.<table>.row_scope`, such as
+`{"item_type":"user"}`, for a supported ordinary row table. The scope is an
+AND of byte-exact text discriminators. Discriminators must be authored text
+columns and participate in a natural key when one is declared. The current
+feature refuses structural refs on that table and attached-meta sidecars;
+see [the complete contract](../../spec/repo-format.md#v338-table-row-scopesv1--ownership-within-shared-physical-tables).
+Do not replace these unsupported structures with an unbounded table claim.
+
+Prove foreign-row preservation through Capture, immutable compilation, Apply,
+repeat Apply, deletion and rollback. Include case-only and trailing-space
+owner collisions, retained ids whose owner changed, failed ownership reads,
+and sidecar export/recovery. A native ownership change must refuse before it
+can become a tombstone or erase the ledger evidence. Keep exact native payload
+observations separate from adapter qualification: a template Save/reopen alone
+does not establish that its JSON references or local input files can migrate.
+
+The shared native SQL probe checks byte-exact Capture, materialization,
+rollback, deletion and a concurrent ownership change after a repeatable-read
+snapshot. On a clean committed checkout, run it with an owned pair on each
+database engine affected by a SQL change:
+
+```sh
+WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) WPRISM_DB_ENGINE=mariadb \
+  bash sandbox/tests/live/regress_table_row_scopes_native.sh
+```
+
+Use `WPRISM_DB_ENGINE=mysql` for the MySQL leg. The harness destroys its pair
+after each leg; `ROW_SCOPE_PAIR`, `ROW_SCOPE_PORT1` and `ROW_SCOPE_PORT2` select
+a distinct name and even/adjacent ports when sharing a host.
+
 ## Dispositions: the reviewed claim source
 
 Each capsule's `package/disposition.json` (`wprism-manifest-dispositions/v1`) is

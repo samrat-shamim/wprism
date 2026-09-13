@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+
 // Production loads close every direct dependency here. Some compiler unit
 // fixtures intentionally preload narrow class doubles; honor those isolated
 // boundaries without redeclaring the doubles when Snapshot reaches us.
@@ -93,7 +95,16 @@ final class TypedTableCapture {
         global $wpdb;
         $pk = $decl['pk'];
         $prefixed = $wpdb->prefix . $table;
-        $rows = $wpdb->get_results("SELECT * FROM `$prefixed` ORDER BY `$pk` ASC", ARRAY_A) ?: [];
+        $scope = TableRowScope::predicate($decl, $wpdb);
+        $where = $scope === '' ? '' : " WHERE $scope";
+        if ($scope !== '') {
+            $wpdb->last_error = '';
+        }
+        $rows = $wpdb->get_results("SELECT * FROM `$prefixed`$where ORDER BY `$pk` ASC", ARRAY_A);
+        if ($scope !== '' && (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '')) {
+            throw new \RuntimeException("wprism: cannot read owned rows for table '$table'");
+        }
+        $rows = $rows ?: [];
 
         $entities = [];
         $naturalIdentityRows = [];
