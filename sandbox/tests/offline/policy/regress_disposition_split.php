@@ -313,7 +313,7 @@ const PRE_NATIVE_VALUE_RANK_MANIFEST_HASH = '79b9d1cefcd7756ee845f888e5ca90b8a17
 const PRE_NATIVE_VALUE_YOAST_MANIFEST_HASH = '574bd779189b6939eccbf2ea23fd9504a18da48f626f9121d16b7d286ed64783';
 const PRE_NATIVE_VALUE_RANK_SNAPSHOT_SHA = 'c2ce88f5164a59e0ecd307ba35bb322b3b9edff72d5569c06138643dafc72aa6';
 const PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA = '1ce62f536f9994ce19cff30398d2e1864881ccc41d9a94889d40e2a7f1bda114';
-const PRE_NATIVE_VALUE_REGISTRY_SHA = 'a3f89d849895d1c08ac25de06b0102ea6641fe9c459f9260b2029c0dd038b99b';
+const PRE_NATIVE_VALUE_REGISTRY_SHA = '76f255e34d3b7ff0356cb486ef93b7f9d4874a1c65f87cbfa19dde8f97863210';
 
 // The cold-cache correction changes interpreter bytes, not the manifest or
 // disposition. Frozen policy snapshots remain exact; active executable pins move.
@@ -361,7 +361,7 @@ const PRE_QI_RECORD_FIELDS_DIGEST = '590ffbb979b8a049674c0813aa04216e159340ff7de
 // Withdrawing an overbroad native-clone claim moves only its disposition.
 // Preserve the exact preceding claim to check the other 18 entries unchanged.
 const PRE_MANAGED_CLONE_YDP_DIGEST = '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456';
-const PRE_MANAGED_CLONE_REGISTRY_SHA = 'bea9843bab0d8686eb5d218c6a5e3a33f04225a27c1488ab4dbfe5c36c254cd9';
+const PRE_MANAGED_CLONE_REGISTRY_SHA = 'aaff97cb350efea2ea67e0f04c2573dd7df9f5b8bf77f32ca480faec2992f62c';
 const PRE_MANAGED_CLONE_RANK_MANIFEST_HASH = 'af24228b63b27dda4bf340809775f8340d5f9ed36446dce9c93018b3c19ae79b';
 const PRE_MANAGED_CLONE_YOAST_MANIFEST_HASH = 'c1aa6d89c57d244f5035b9298a2a43a604de25b005ef2b0c0183ab1ded1a9902';
 const PRE_MANAGED_CLONE_RANK_SNAPSHOT_SHA = 'e2a7c90b5759fd3a84de7d7a0826bc7dbbaf3bf3de4317aad3dfd414fe3948bc';
@@ -375,7 +375,7 @@ const PRE_TEC_6174_CF7_MESSAGE_DIGESTS = [
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
 ];
-const PRE_TEC_6174_REGISTRY_SHA = '2bc4ad4833b005602735af793b7540e8f2e6f7a66d43bd57597b806b4665930d';
+const PRE_TEC_6174_REGISTRY_SHA = '224aa77c046f5ac1995856e0013c71e81e92bda608fb65c2724475f72102af30';
 const PRE_TEC_6174_DISPOSITION_SHA = 'f6f4d951bbaefe3d6c2cf7af3cbb7cfae354bb1ebf048bc3cc5ff447267b7557';
 const PRE_TEC_6174_REASON = 'Certified for official free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress: exact clean/dirty canonical round trips; populated 6.17.2-to-6.17.3 upgrade; native event, venue, organizer, category, settings, Customizer, widget, REST, and frontend behavior; exact reviewed PII authority limited to eleven native event/organizer/venue contact coordinates populated divergently through the generic entity-meta capture seam; divergent huge identities and ordered repeated organizers; Category Colors and Custom Tables V1 regeneration; scoped receipt-loss and selected-map ABA inverse recovery; database, filter, provider, and transaction failure rollback/retry; competing applies; lifecycle recovery; byte-identical recapture; and official 6.17.1 plus synthetic 6.17.4 refusal controls. Pro/add-on/import/credential/runtime surfaces, plugin-specific deletion, out-of-range releases, and multisite remain explicit loud boundaries.';
 const PRE_TEC_6174_VERSION_REFUSAL = [
@@ -406,7 +406,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => '0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5',
-    'woocommerce' => '85294917575abd4bcb0a1f298bb65afa72bf2295b72615ee2b45050fdfe0fd58',
+    'woocommerce' => '318c656d3dffdedd6c91e7563ec19512e68e5982a12fc3933752b0cd4020de42',
     'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
@@ -420,11 +420,11 @@ const WPRISM_CURRENT_DIGESTS = [
 // WPRISM_CURRENT_DIGESTS and every 'moves only <subject>' assertion still hold, so
 // woocommerce is measurably the only identity that moved. The same five numbers are
 // independently re-pinned in regress_spec_v3_digest_neutrality.php and agree there.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'f58501b99bc170f428c2dfd069c8e180677ffc9f384095737aededc820bd3cd9';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'a0b2d32f1e07ac8a59488c5d2decff64bcfc89acaab14942f4f165d358ef166f';
-const WPRISM_CURRENT_REGISTRY_SHA = '96dbb431943c16261453e5cc25e497714f6d8e0904e78c8ceafc23e5cf1341f7';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'e493733eb91e6a2115eef6160f4e6e5dc1746c2dfa6923a9efc5fe50a793e1e3';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '7abd5d7f33136ad0e032e85f31411472f7991db6be5e6226e4c3a70e5d47e171';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '1310f794903cc8beb0692a76e5664c3c2b686dc9f1665b98fda116e51ca69efe';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'ffea8e47364b097d529d06e4452f461ca121e6934e2fb329ee320cc9f5517e33';
+const WPRISM_CURRENT_REGISTRY_SHA = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '13476e13ca27570d270ba561c12f81cdeb197995dde82a22803a1fb0116c2646';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '3bb4da84e41646147c5cb0706fe2edfc1df7a69b40f90e31fb29726941048c7f';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
