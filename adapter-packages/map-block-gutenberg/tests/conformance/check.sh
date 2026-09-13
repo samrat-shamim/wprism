@@ -305,3 +305,100 @@ jq -e '.applied == 0 and .warnings == [] and .plan.update == 0 and .plan.create 
 map_concurrent_preserved
 trap - EXIT
 pass 'Map Block overlapping capture/capture/apply commands serialize and preserve target-owned data'
+
+# A prior canonical generation and a different, already-applied target prove
+# which side of publication recovery chooses. Reusing an identical tree could
+# pass both an incorrect rollback and an incorrect commit decision.
+mkdir "$CONF_REPO2/.tmp-map-recovery"
+chmod a+rwx "$CONF_REPO2/.tmp-map-recovery"
+cp "$MAP_CAPSULE/fixtures/recovery-native.php" "$MAP_CAPSULE/fixtures/recovery-evidence.php" "$CONF_REPO2/.tmp-map-recovery/"
+map_recovery_native() {
+  capture_wprism_json_success MAP_RECOVERY_OBSERVATION 'Map Block native recovery fixture' \
+    wp_conf2 eval-file /siterepo/.tmp-map-recovery/recovery-native.php "$@" --use-include
+  require_observed_nonempty 'Map Block recovery observation' "$MAP_RECOVERY_OBSERVATION"
+}
+map_recovery_preserved() {
+  map_preserved active 1.35
+  map_delete_observe observe
+  [ "$(jq -Sc '[.artifact_sha256,.intent_sha256]' <<<"$MAP_DELETE_OBSERVATION")" = "$MAP_DELETE_PRESERVED" ] \
+    || fail 'Map Block recovery changed target credential intent or retained compiled artifact'
+}
+map_recovery_validate() { # <intent|receipt|marker> <owned stem>
+  php "$MAP_ROOT/sandbox/tests/lib/conformance_private_command.php" validate capture "$CONF_PAIR" cli2 "$2" || return 1
+  if [ "${2##*/}" = private ]; then
+    php "$MAP_CAPSULE/fixtures/recovery-evidence.php" private "$1" "$CONF_PAIR" "$2" || return 1
+  fi
+}
+map_recovery_refused() { # <intent|receipt|marker> <checkpoint>
+  local kind="$1" checkpoint="$2" before
+  map_recovery_native "tamper-$kind" "$checkpoint"
+  map_recovery_native inventory
+  before=$(jq -Sc . <<<"$MAP_RECOVERY_OBSERVATION")
+  local -a map_recovery_snapshot=(conformance_private_command_native cli2 capture snapshot)
+  local -a map_recovery_collect=(conformance_private_command_native cli2 capture collect)
+  local -a map_recovery_validator=(map_recovery_validate "$kind")
+  capture_wprism_json_refusal MAP_RECOVERY_REFUSAL 'Map Block ambiguous recovery refusal' \
+    wprism_private_command_capture "$MAP_ROOT/sandbox/tmp/map-recovery-refusal-$CONF_PAIR" \
+      map_recovery_snapshot map_recovery_collect map_recovery_validator -- \
+      wp_conf2 wprism capture --repo=/siterepo --format=json
+  map_recovery_native inventory
+  [ "$(jq -Sc . <<<"$MAP_RECOVERY_OBSERVATION")" = "$before" ] \
+    || fail 'Map Block ambiguous recovery changed retained publication or commit evidence'
+  map_recovery_preserved
+  map_recovery_native "restore-$kind" "$checkpoint"
+}
+map_recovery_native prepare
+capture_wprism_json_checked MAP_RECOVERY_UPDATE 'Map Block recovery candidate apply' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+jq -e '.applied == 1 and .plan.update == 1 and .warnings == []' <<<"$MAP_RECOVERY_UPDATE" >/dev/null \
+  || fail 'Map Block recovery candidate did not update exactly one authored map'
+map_native observe
+MAP_LIFECYCLE_BASELINE=$(jq -Sc .state <<<"$MAP_LIFECYCLE_OBSERVATION")
+for MAP_CHECKPOINT in intent-written intent-ready after-commit-marker receipt-written; do
+  map_recovery_native prior
+  MAP_RECOVERY_SINK=$(umask 077; mktemp -d "$MAP_ROOT/sandbox/tmp/map-recovery-$CONF_PAIR.XXXXXX")
+  for MAP_STAGE in crash recover repeat; do
+    for MAP_SUFFIX in stdout stderr exit; do (umask 077; set -C; : >"$MAP_RECOVERY_SINK/$MAP_STAGE.$MAP_SUFFIX"); done
+  done
+  MAP_RECOVERY_EXIT=0
+  wprism_private_capture_stage "$MAP_RECOVERY_SINK" crash \
+    "${PAIR_COMPOSE[@]}" run --rm -T -e WPRISM_TEST_MODE=1 -e "WPRISM_TEST_CAPTURE_KILL_PHASE=$MAP_CHECKPOINT" \
+      cli2 wprism capture --repo=/siterepo --format=json || MAP_RECOVERY_EXIT=$?
+  [ "$MAP_RECOVERY_EXIT" = 137 ] || fail "Map Block crash checkpoint did not interrupt; private transport: $MAP_RECOVERY_SINK"
+  php "$MAP_CAPSULE/fixtures/recovery-evidence.php" transport crash "$CONF_PAIR" "$MAP_RECOVERY_SINK/crash" \
+    || fail 'Map Block interrupted capture has unrelated output or diagnostic evidence'
+  map_recovery_native observe "$MAP_CHECKPOINT"
+  php "$MAP_CAPSULE/fixtures/recovery-evidence.php" crash "$MAP_CHECKPOINT" <<<"$MAP_RECOVERY_OBSERVATION" \
+    || fail 'Map Block crash did not reach the exact durable publication boundary'
+  map_recovery_preserved
+  if [ "$MAP_CHECKPOINT" = receipt-written ]; then
+    map_recovery_refused receipt "$MAP_CHECKPOINT"
+    map_recovery_refused marker "$MAP_CHECKPOINT"
+  else map_recovery_refused intent "$MAP_CHECKPOINT"; fi
+  wprism_private_capture_stage "$MAP_RECOVERY_SINK" recover wp_conf2 wprism capture --repo=/siterepo --format=json \
+    || fail "Map Block native recovery failed; private transport: $MAP_RECOVERY_SINK"
+  php "$MAP_CAPSULE/fixtures/recovery-evidence.php" transport "$MAP_CHECKPOINT" "$CONF_PAIR" "$MAP_RECOVERY_SINK/recover" \
+    || fail 'Map Block recovery did not report exactly its justified publication decision'
+  map_recovery_native clean
+  map_recovery_preserved
+  wprism_private_capture_stage "$MAP_RECOVERY_SINK" repeat wp_conf2 wprism capture --repo=/siterepo --format=json \
+    || fail 'Map Block recovery retry failed'
+  php "$MAP_CAPSULE/fixtures/recovery-evidence.php" transport clean "$CONF_PAIR" "$MAP_RECOVERY_SINK/repeat" \
+    || fail 'Map Block recovery retry is not a clean fixed point'
+  map_recovery_native clean
+  map_recovery_preserved
+  capture_wprism_json_checked MAP_RECOVERY_APPLY 'Map Block recovered no-op apply' assert_wprism_apply_ready \
+    wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+  jq -e '.applied == 0 and .warnings == [] and .plan.update == 0 and .plan.create == 0 and .plan.drift == 0' \
+    <<<"$MAP_RECOVERY_APPLY" >/dev/null || fail 'Map Block recovered capture does not apply idempotently'
+  map_recovery_preserved
+  pass "Map Block $MAP_CHECKPOINT native interruption, tamper refusal and recovery are bounded"
+done
+map_recovery_native prior
+capture_wprism_json_checked MAP_RECOVERY_RESTORE 'Map Block recovery original-generation restore' assert_wprism_apply_ready \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+jq -e '.applied == 1 and .plan.update == 1 and .warnings == []' <<<"$MAP_RECOVERY_RESTORE" >/dev/null \
+  || fail 'Map Block recovery fixture did not restore exactly one authored map'
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-map-recovery-final >/dev/null
+diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-map-recovery-final" || fail 'Map Block recovery changed the final canonical source generation'
+pass 'Map Block native recovery restores the original credential-isolated source generation'
