@@ -7835,6 +7835,9 @@
         "WPrism\\BlockValueGrammar": {
             "abstract": false,
             "constants": {
+                "CONTRACT_FEATURE": {
+                    "value_repr": "block-value-contracts/v1"
+                },
                 "FEATURE": {
                     "value_repr": "block-attribute-values/v1"
                 },
@@ -7843,6 +7846,12 @@
                 },
                 "GROUP_FIELD": {
                     "value_repr": "groups"
+                },
+                "MAX_CONTRACT_RULES": {
+                    "value_repr": 65536
+                },
+                "MAX_ENUM_VALUES": {
+                    "value_repr": 64
                 },
                 "MAX_GROUPS": {
                     "value_repr": 256
@@ -7853,6 +7862,12 @@
                 "MAX_GROUP_VALUES": {
                     "value_repr": 65536
                 },
+                "MAX_OBJECT_DEPTH": {
+                    "value_repr": 4
+                },
+                "MAX_OBJECT_FIELDS": {
+                    "value_repr": 256
+                },
                 "SECTION": {
                     "value_repr": "block_values"
                 }
@@ -7861,6 +7876,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assert_structured_keyspaces": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "attribute_maps": {
                     "abstract": false,
                     "final": false,
@@ -7874,6 +7914,14 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "contract_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
@@ -69022,6 +69070,13 @@
         "WPrism\\ReferenceRules": {
             "abstract": false,
             "constants": {
+                "BLOCK_CONTRACT_FIELDS": {
+                    "value_repr": [
+                        "object_fields",
+                        "enum",
+                        "on_unmapped"
+                    ]
+                },
                 "JSON_REF_OPTIONAL": {
                     "value_repr": [
                         "cast"
@@ -69236,6 +69291,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "postMetaInvalidation",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "blockContracts",
                             "type": "bool",
                             "variadic": false
                         }
@@ -81754,6 +81817,14 @@
                             "has_default": false,
                             "name": "token",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "strict",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],

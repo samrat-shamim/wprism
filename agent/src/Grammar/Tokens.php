@@ -469,8 +469,8 @@ final class Tokens {
         return 'user:' . $this->userLogins[$id];
     }
 
-    /** "user:<login>" -> id (apply), falling back to the configured default. */
-    public function user_token_to_id(string $token): int {
+    /** Explicit reference integrity forbids the historical default-author fallback. */
+    public function user_token_to_id(string $token, bool $strict = false): int {
         if (!str_starts_with($token, 'user:') || strlen($token) === 5) {
             throw new \RuntimeException('wprism: malformed user reference token (expected user:<non-empty-login>)');
         }
@@ -485,6 +485,7 @@ final class Tokens {
         if ($this->userIds[$login] > 0) {
             return $this->userIds[$login];
         }
+        if ($strict) throw new \RuntimeException('wprism: strict user reference is not bound in this environment');
         $fallback = $this->defaultUserId ?? 1;
         $this->warnings[] = "user '$login' not in this environment; fell back to user #$fallback";
         return $fallback;
@@ -510,11 +511,14 @@ final class Tokens {
     public function meta_value_to_tokens($value, array $rule) {
         $ref = $rule['ref'];
         $cast = $rule['cast'] ?? null;
-        $one = function ($v, string $kind): ?string {
+        $one = function ($v, string $kind) use ($rule): ?string {
             $tok = $kind === 'user'
                 ? $this->user_id_to_token((int) $v)
                 : $this->id_to_token((int) $v, $kind);
             if ($tok === null) {
+                if (($rule['on_unmapped'] ?? null) === 'refuse') {
+                    throw new \RuntimeException("wprism: strict $kind reference is not bound for capture");
+                }
                 $this->warnings[] = "unmapped $kind id " . (int) $v . ' dropped from ref-typed meta (dangling reference)';
             }
             return $tok;
@@ -544,12 +548,12 @@ final class Tokens {
     /** Apply direction for meta values; restores the declared storage shape. */
     public function meta_tokens_to_value($value, array $rule) {
         $cast = $rule['cast'] ?? null;
-        $toId = function ($v): int {
+        $toId = function ($v) use ($rule): int {
             if (is_string($v) && str_starts_with($v, '{{')) {
                 return $this->token_to_id($v);
             }
             if (is_string($v) && str_starts_with($v, 'user:')) {
-                return $this->user_token_to_id($v);
+                return $this->user_token_to_id($v, ($rule['on_unmapped'] ?? null) === 'refuse');
             }
             return (int) $v;
         };

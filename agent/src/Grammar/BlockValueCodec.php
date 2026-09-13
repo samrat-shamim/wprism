@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/EncodedText.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 require_once __DIR__ . '/Tokens.php';
 
 /** Value framing belongs to the block grammar; identity and text rewriting stay in the shared codecs. */
@@ -15,17 +16,28 @@ final class BlockValueCodec {
     /** @param callable(int,string):void $unmapped */
     public static function capture(mixed $value, array $rule, Tokens $tokens, callable $unmapped, string $where): mixed {
         self::assert_value($value, $rule, false, $where);
+        if (isset($rule['object_fields'])) {
+            foreach ($value as $field => &$child) {
+                $child = self::capture($child, $rule['object_fields'][$field], $tokens, $unmapped, "$where.$field");
+            }
+            unset($child);
+            return $value;
+        }
+        if (isset($rule['enum'])) return $value;
         $value = EncodedText::decode_if_declared($value, $rule, $where);
         if (isset($rule[RecordFields::FIELD])) $value = RecordFields::capture($value, $rule[RecordFields::FIELD]);
-        $lookup = static function (int $id, string $kind) use ($tokens, $unmapped): ?string {
+        $lookup = static function (int $id, string $kind) use ($tokens, $unmapped, $rule, $where): ?string {
             $token = $kind === 'user' ? $tokens->user_id_to_token($id) : $tokens->id_to_token($id, $kind);
+            if ($token === null && ($rule['on_unmapped'] ?? null) === 'refuse') {
+                throw new \RuntimeException("wprism: $where refuses an unmapped $kind reference");
+            }
             if ($token === null && $kind !== 'user') $unmapped($id, $kind);
             return $token;
         };
         if (isset($rule['ref'])) {
             $kind = str_ends_with($rule['ref'], '[]') ? substr($rule['ref'], 0, -2) : $rule['ref'];
             foreach (self::scalar_values($value, $rule, false) as $one) {
-                if ($kind !== 'user' && !self::unset_value($one)) $lookup((int) $one, $kind);
+                if (!self::unset_value($one) && ($kind !== 'user' || isset($rule['on_unmapped']))) $lookup((int) $one, $kind);
             }
             if (!str_ends_with($rule['ref'], '[]') && self::unset_value($value)) return $value;
             return $tokens->meta_value_to_tokens($value, $rule);
@@ -37,6 +49,14 @@ final class BlockValueCodec {
 
     public static function apply(mixed $value, array $rule, Tokens $tokens, string $where): mixed {
         self::assert_value($value, $rule, true, $where);
+        if (isset($rule['object_fields'])) {
+            foreach ($value as $field => &$child) {
+                $child = self::apply($child, $rule['object_fields'][$field], $tokens, "$where.$field");
+            }
+            unset($child);
+            return $value;
+        }
+        if (isset($rule['enum'])) return $value;
         if (array_key_exists(EncodedText::FIELD, $rule)) {
             return EncodedText::encode($tokens->detokenize_text($value), $rule, $where);
         }
@@ -51,11 +71,29 @@ final class BlockValueCodec {
 
     /** Pure, value-free refusals shared by capture, immutable compilation, lint and apply. */
     public static function assert_value(mixed $value, array $rule, bool $canonical, string $where): void {
+        BlockValueGrammar::assert_structured_keyspaces($rule, $where);
         if (($rule['class'] ?? '') === 'derived') {
             throw new \RuntimeException("wprism: $where is derived and must be absent from canonical block attributes");
         }
         $nodes = 0;
         self::assert_json($value, 0, $nodes, $where);
+        if (isset($rule['object_fields'])) {
+            // PHP's associative JSON decoder cannot distinguish {} from [].
+            // A nonempty exact object preserves shape without guessing defaults.
+            if (!is_array($value) || array_is_list($value) || array_diff_key($value, $rule['object_fields'])) {
+                throw new \RuntimeException("wprism: $where requires a nonempty object containing only declared fields");
+            }
+            foreach ($value as $field => $child) {
+                self::assert_value($child, $rule['object_fields'][$field], $canonical, "$where.$field");
+            }
+            return;
+        }
+        if (isset($rule['enum'])) {
+            if (!in_array($value, $rule['enum'], true)) {
+                throw new \RuntimeException("wprism: $where requires a declared literal value");
+            }
+            return;
+        }
         if (array_key_exists(EncodedText::FIELD, $rule)) {
             if ($canonical) EncodedText::assert_canonical($value, $rule, $where);
             else EncodedText::decode($value, $rule, $where);

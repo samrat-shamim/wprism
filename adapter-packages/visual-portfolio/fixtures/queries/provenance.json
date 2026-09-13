@@ -1,0 +1,77 @@
+{
+  "format": "wprism-visual-portfolio-native-query-fixture/v1",
+  "qualification": false,
+  "source_sha": "a8cc10046761239bf941b735edacbd91047b3aac",
+  "artifact_sha256": "5b4eb1dd8f1f9ec35e60db58239e48534a82e8957ebe89a0f889399cb7bdabe4",
+  "wordpress": "7.1",
+  "php": "8.3.33",
+  "plugin": "3.8.1",
+  "theme": [
+    "twentytwentyone",
+    "2.9"
+  ],
+  "home": "http://localhost:9196",
+  "page": 16,
+  "method": "Native Posts Cards pattern and query controls, actual REST Save, independent WP post_content readback and public frontend GET. Reset and manual/duplicate/hidden-query/filter values reopened through native editor controls.",
+  "gaps": [
+    "PostsSettingsPanel supplies panelId on children without id on ToolsPanel; Settings options absent in the exact native UI. Excluded Posts, Taxonomies, Order and offset have no positive native UI evidence here.",
+    "Page and Current Query sources, contextual exclusions with multiple galleries, lifecycle and combinations remain open.",
+    "Upstream WordPress iframe-style and deprecated FormTokenField prop console warnings were observed; no browser errors. Discovery is not adapter qualification."
+  ],
+  "cases": [
+    {
+      "name": "default",
+      "body": {"bytes": 621,"sha256": "ca1484e8e0f7a91b2856d0c56c6d9b983c4ccf7b34425f0cc4bbadb63441e3de"},
+      "frontend": [{"title": "Open Horizon","href": "http://localhost:9196/portfolio/open-horizon/"},{"title": "Quiet Shapes","href": "http://localhost:9196/portfolio/quiet-shapes/"},{"title": "Paper Garden","href": "http://localhost:9196/portfolio/paper-garden/"},{"title": "Harbor Light","href": "http://localhost:9196/portfolio/harbor-light/"}],
+      "private_writer_streams": {"request.json": {"bytes": 712,"sha256": "a189c9e56b0cb7427749be6535858b5ecb7fb1906f56391f37579b74dfd6213c"},"response.json": {"bytes": 12356,"sha256": "3443de3ac898158d77e7fa74bd94459191610c5eaea87611f61cb2b6d12e6143"},"native.json": {"bytes": 1896,"sha256": "97f51eedd924f5fa42586cb3a3d3d23632142615f898c34c067292967bd201d1"},"native.stderr": {"bytes": 119,"sha256": "00151e5bb2e52320e528cc14e7e4c3f093effdd32b9d8b0504f26a59d26f1f43"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 53567,"sha256": "42d21e2092c34ede0f77afbf37e81c409c9122bfcf259c5e554e7b9e1ab241bd"}}
+    },
+    {
+      "name": "manual",
+      "body": {"bytes": 875,"sha256": "0651f4de40ea819e1ae1efab5d9f1692d9f8df78988f8b91237c567ef9fe57d7"},
+      "frontend": [{"title": "Harbor Light","href": "http://localhost:9196/portfolio/harbor-light/"},{"title": "Garden Letter","href": "http://localhost:9196/garden-letter/"}],
+      "private_writer_streams": {"request.json": {"bytes": 993,"sha256": "01fa9102a0e8848f110d3b6d791df9ba9ba0e949dd7d8c85d3dc6daa0987b3db"},"response.json": {"bytes": 8917,"sha256": "79cc51a193ee16e116fdbd3d4242a50b27367d3eda597212706778e611db02c1"},"native.json": {"bytes": 2450,"sha256": "2431e64a8be314318e0380f2610710420e8476e33abe9cfeb4891901251fdb96"},"native.stderr": {"bytes": 119,"sha256": "274b9f4f7015b1376f6cb3795039fb4835b352b8cb8427f0ff723ea2de70b8f3"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 50052,"sha256": "248e40f25aa60fccc42bcf2a041a7d13513cf0c1c8660476f795ea147d782380"}}
+    },
+    {
+      "name": "custom",
+      "body": {"bytes": 908,"sha256": "9ceab6cfaa95d9245652c221d98a587e422657d030d83ad97155d5c52c07fcff"},
+      "frontend": [{"title": "Ocean Letter","href": "http://localhost:9196/ocean-letter/"}],
+      "private_writer_streams": {"request.json": {"bytes": 1027,"sha256": "3404e97283ab58552e5efc5fa37b6457cb08519b0df612931ca02b7e71494238"},"response.json": {"bytes": 6578,"sha256": "ee40ef065f72641cad66e27498f67703fe0d62ec2e87e1d0e2be34565f0212d0"},"native.json": {"bytes": 2512,"sha256": "a9e9ff60e0c58d3db585f8638ad6f4c818f951a126346d83668229ecaaedcb7a"},"native.stderr": {"bytes": 119,"sha256": "10ca9c669ae72f202f318ec0a2702a41b3b7c32d62fc69d5bd4bf2ee9f10fb49"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 47686,"sha256": "6c353d2c07b021c7e1ccc59b8c2391a1b9fc414c793be1b9bd37a3e8aacf01ab"}}
+    },
+    {
+      "name": "hidden-custom",
+      "body": {"bytes": 899,"sha256": "7c5469a1835a20a395eaf74659aafb4f04d215234efc43fb55e872b0def6189b"},
+      "frontend": [{"title": "Harbor Light","href": "http://localhost:9196/portfolio/harbor-light/"},{"title": "Garden Letter","href": "http://localhost:9196/garden-letter/"}],
+      "private_writer_streams": {"request.json": {"bytes": 1018,"sha256": "620ff9be57a5db35a872d74a68c8d8ab67a292e3ee38e534ce10cff6ecc67cad"},"response.json": {"bytes": 8942,"sha256": "949c18e0644c1f630f388a56aa337924bcdbc9d921cf0fd6f3b7ba5be59e306d"},"native.json": {"bytes": 2494,"sha256": "3117e73adfab2203170c0601bb7a623f693de31a3bae40227856157ac4c90876"},"native.stderr": {"bytes": 119,"sha256": "e30752c9d13ec849724974ed6fab2a73569a1dd60c9b917726bf2fc04e0d5b2c"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 50052,"sha256": "248e40f25aa60fccc42bcf2a041a7d13513cf0c1c8660476f795ea147d782380"}}
+    },
+    {
+      "name": "post-types",
+      "body": {"bytes": 955,"sha256": "a9427413639ba9f95f48975b3e78eba140be7186b2a7ce10f877abf7333a040d"},
+      "frontend": [{"title": "Paper Garden","href": "http://localhost:9196/portfolio/paper-garden/"},{"title": "Quiet Shapes","href": "http://localhost:9196/portfolio/quiet-shapes/"},{"title": "Open Horizon","href": "http://localhost:9196/portfolio/open-horizon/"},{"title": "Ocean Letter","href": "http://localhost:9196/ocean-letter/"},{"title": "Garden Letter","href": "http://localhost:9196/garden-letter/"},{"title": "Twin Letter","href": "http://localhost:9196/twin-letter/"}],
+      "private_writer_streams": {"request.json": {"bytes": 1083,"sha256": "37fda501c0c6b8c8e42e25635e28f318ff5c6ae04b82f46be56c7a21c9ce9505"},"response.json": {"bytes": 18564,"sha256": "e93670343e6ecbe878bdacd53be54529804798cb7a11a51653e351c3270883d0"},"native.json": {"bytes": 2620,"sha256": "49a4a3a1dff60e2467910ddabf111aa742400d9c97f292850d811ab1343875c7"},"native.stderr": {"bytes": 119,"sha256": "663fed9fefdc9fef1a59fd3f65f7f6111871359c6b210c48945ea4813d721ec0"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 58945,"sha256": "c4171241caaa46b46d994ec77b620736c6aff8620236a1158f03cae002441f60"}}
+    },
+    {
+      "name": "filters",
+      "body": {"bytes": 902,"sha256": "3ef043a7c0af9e40dcb9bf0f7b3a74e55e786dac61d0c3ec525f38e195f346fb"},
+      "frontend": [{"title": "Paper Garden","href": "http://localhost:9196/portfolio/paper-garden/"},{"title": "Garden Letter","href": "http://localhost:9196/garden-letter/"},{"title": "Twin Letter","href": "http://localhost:9196/twin-letter-2/"}],
+      "private_writer_streams": {"request.json": {"bytes": 1022,"sha256": "1c742685e36b167becb00a527b70bcb7d4dd9be89eb76bfef944e5fe06ce4ef3"},"response.json": {"bytes": 11351,"sha256": "9ddf8d50118f5b69525c42ddd69fbd9ad5bea4e06da7406df49b9a2fc1723158"},"native.json": {"bytes": 2506,"sha256": "1815f778ffd0ef5e1b83965096fd662a5ac14f39b83b69d4cbf4a67060c54ae8"},"native.stderr": {"bytes": 119,"sha256": "b5e348f34cc281101434fb7133e53e38ca4733a36e92f5c76cd44669f2d7a407"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 52432,"sha256": "f219656c1bb5cd1a89a2b6d95f08ab511114f10bcf2459a4f7c4e242c4a0b020"}}
+    },
+    {
+      "name": "reset",
+      "body": {"bytes": 955,"sha256": "a9427413639ba9f95f48975b3e78eba140be7186b2a7ce10f877abf7333a040d"},
+      "frontend": [{"title": "Paper Garden","href": "http://localhost:9196/portfolio/paper-garden/"},{"title": "Quiet Shapes","href": "http://localhost:9196/portfolio/quiet-shapes/"},{"title": "Open Horizon","href": "http://localhost:9196/portfolio/open-horizon/"},{"title": "Ocean Letter","href": "http://localhost:9196/ocean-letter/"},{"title": "Garden Letter","href": "http://localhost:9196/garden-letter/"},{"title": "Twin Letter","href": "http://localhost:9196/twin-letter/"}],
+      "private_writer_streams": {"request.json": {"bytes": 1083,"sha256": "37fda501c0c6b8c8e42e25635e28f318ff5c6ae04b82f46be56c7a21c9ce9505"},"response.json": {"bytes": 18564,"sha256": "c6a838348b960024a6004d9cf78829bbe69be5eebde6974a186fa50e2643c6d3"},"native.json": {"bytes": 2620,"sha256": "49a4a3a1dff60e2467910ddabf111aa742400d9c97f292850d811ab1343875c7"},"native.stderr": {"bytes": 119,"sha256": "29000b4f65e824c97d159d9290927796277817df4e26e9235c6c7437888b7509"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 58945,"sha256": "c4171241caaa46b46d994ec77b620736c6aff8620236a1158f03cae002441f60"}}
+    },
+    {
+      "name": "duplicates",
+      "body": {"bytes": 888,"sha256": "5b497d1435c493a21b6a48cab67926499074e7ff357cbc08affe7cd3ffb38cec"},
+      "frontend": [{"title": "Twin Letter","href": "http://localhost:9196/twin-letter/"},{"title": "Twin Letter","href": "http://localhost:9196/twin-letter-2/"}],
+      "private_writer_streams": {"request.json": {"bytes": 1008,"sha256": "93f7c5c77facf7761c71e341bbf337cfaf56a115bab6282e350a7ac114026b9f"},"response.json": {"bytes": 9284,"sha256": "ec9721a4b959b5ebf029fbdffbce8004c05d9a428a3785acad0601f5284c6a29"},"native.json": {"bytes": 2478,"sha256": "94fa615a6280ed5680271cee0163930163b9dfa6ceff1e06afddbabbf431d58d"},"native.stderr": {"bytes": 119,"sha256": "85a90fbeafebfe110cd61958f0899a10cb515a908f37bd280ca7bfe1a94be077"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 50211,"sha256": "c1e1aaf3187a0d87da637acffab357df1d0d3f6055f39ed6920dec59e542c8d2"}}
+    },
+    {
+      "name": "missing",
+      "body": {"bytes": 883,"sha256": "14ca0b9151673922a534e5154e5de75379d45d615f67db5dbd653c5ceefa2fd1"},
+      "frontend": [],
+      "private_writer_streams": {"request.json": {"bytes": 1001,"sha256": "c9544696f8d7999fb4b12f0be449ec364358be198f7b6db54fd90f7da66b2ea3"},"response.json": {"bytes": 3827,"sha256": "80fd2fea9f1f059252ffb20548c68af722fe47df707711f06db4a772fa1db826"},"native.json": {"bytes": 2466,"sha256": "f3d3b41680ac28b052fb7efa412728402530a3bae14c77841c1786b0a89f3c07"},"native.stderr": {"bytes": 119,"sha256": "fa1a17d15f7922e5a490596f9eff4aafb6b1cbae79d3ca2e77e84ea3773c55cd"},"native.exit": {"bytes": 2,"sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"},"frontend.html": {"bytes": 44061,"sha256": "adbc1a0076b558fb6de7c5681e02cfbc577375c67d2cb2a9e17d226160d9c80c"}}
+    }
+  ]
+}

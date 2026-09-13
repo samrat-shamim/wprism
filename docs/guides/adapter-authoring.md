@@ -539,6 +539,52 @@ an earlier write, retry, repeat and complete recapture. Include widget content
 when the same block can be stored there. `regress-block-attribute-values` is
 the engine pin; native plugin render and editor validation remain capsule work.
 
+### Objects that mix selectors, flags and query text
+
+A query object is not one reference leaf. Visual Portfolio's native `postsQuery`
+stores ordered string-ID lists beside flags, search text and a custom query.
+Switching away from the custom source retains its hidden query text. Deleting
+the last selected post retains its missing ID; dropping that reference would
+turn the plugin's empty `post__in` into an unrestricted query.
+
+Negotiate `block-value-contracts/v1` alongside `block-attribute-values/v1` and
+compose the existing codecs under exact `object_fields`:
+
+```json
+"postsQuery": {"class":"authored", "object_fields": {
+  "ids": {"class":"authored", "ref":"post[]", "cast":"string", "on_unmapped":"refuse"},
+  "keyword": {"class":"authored", "plain_data":true},
+  "customQuery": {"class":"authored", "enum":[""]}
+}}
+```
+
+Every present field must be declared; absence stays absent. Unknown fields,
+empty objects and non-object containers refuse. Each member reuses one authored
+codec, including nested objects; `derived` members are not admitted. Objects are
+bounded to 256 fields, four nesting levels and 65,536 expanded contract rules per
+manifest, including group expansion. A literal `enum` admits 1–64 distinct
+integers, booleans, nulls or ASCII codes `[A-Za-z0-9_-]` of at most 128 bytes.
+Types are strict; literals do not undergo text rewriting. URLs, prose and token
+envelopes require their ordinary codecs.
+
+Structured `json_refs` and `key_refs` resolve durable identity tokens. User
+login identities use `ref: user` or `ref: user[]`, including on nested
+`object_fields` leaves. A structured rule with `kind: user` refuses at both
+manifest validation and the immutable value boundary.
+
+Use `on_unmapped: refuse` on reference leaves when losing one identity changes
+meaning. It refuses instead of dropping a missing source identity and forbids
+target user fallback; `--force-unresolved-refs` does not waive this contract.
+Declared empty selectors retain their native meaning. Rules without this policy
+keep their existing behavior. These extensions belong to manifest block values,
+not options, metadata or site-policy overrides.
+
+Exercise partial objects, duplicate/order-sensitive IDs, hidden values, missing
+IDs, unknown native fields, direct Git edits and privacy clearance through the
+existing post and widget compiler/materializer paths. Native Save/reopen and
+rendering remain separate capsule evidence; an unexposed control is a recorded
+gap, not permission to invent a UI observation.
+
 ### Records that mix authored fields and response caches
 
 Use actual media picker selections when investigating a structured attribute.

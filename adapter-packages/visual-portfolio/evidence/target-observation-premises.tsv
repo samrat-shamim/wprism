@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=22 fixtures=0
+# expected observations=40 fixtures=0
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_VERIFY1 'Visual Portfolio complete canonical source readback' wp_conf1 eval-file /siterepo/.tmp-vp-capture/verify.php --use-include --user=admin
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_OBSERVED1 'Visual Portfolio complete native source observation' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php observe --use-include --user=admin
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success VP_RECAPTURE 'Visual Portfolio public repeated Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
@@ -22,3 +22,21 @@ observation	tests/live/regress_settings_apply.sh	capture_expected "$phase-apply"
 observation	tests/live/regress_settings_apply.sh	capture "$phase-target" wp_side 2 eval-file "$fixture" observe --use-include --user=admin
 observation	tests/live/regress_settings_apply.sh	capture "$phase-repeat" host_apply --scope-contract="$sink/$phase-scope.stdout" --format=json
 observation	tests/live/regress_settings_apply.sh	capture "$phase-stable" wp_side 2 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture "seed$side" wp_side "$side" eval-file "$fixture" "seed-$role" --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture binding1 establish_core_environment_bindings wp_side /siterepo admin@example.test "http://localhost:$PORT1" "http://localhost:$PORT1" 1
+observation	tests/live/regress_native_queries.sh	capture capture candidate 1 capture --repo=/siterepo --format=json
+observation	tests/live/regress_native_queries.sh	capture source wp_side 1 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture binding2 establish_core_environment_bindings wp_side /siterepo admin@example.test "http://localhost:$PORT2" "http://localhost:$PORT2" 2
+observation	tests/live/regress_native_queries.sh	capture apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json
+observation	tests/live/regress_native_queries.sh	capture target wp_side 2 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture repeat candidate 2 apply --repo=/siterepo --format=json
+observation	tests/live/regress_native_queries.sh	capture stable wp_side 2 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture recapture candidate 2 capture --repo=/siterepo --format=json
+observation	tests/live/regress_native_queries.sh	capture "http1-$case" curl --fail --silent --show-error --max-time 30 "http://localhost:$PORT1/vp-query-$case/"
+observation	tests/live/regress_native_queries.sh	capture "http2-$case" curl --fail --silent --show-error --max-time 30 "http://localhost:$PORT2/vp-query-$case/"
+observation	tests/live/regress_native_queries.sh	capture "$case-save" wp_side 1 eval-file "$fixture" "$case" --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture "$case-before" wp_side 1 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture "$case-state-before" php "$evidence" snapshot "$R1"
+observation	tests/live/regress_native_queries.sh	capture_expected "$case-refusal" 1 candidate 1 capture --repo=/siterepo --format=json
+observation	tests/live/regress_native_queries.sh	capture "$case-after" wp_side 1 eval-file "$fixture" observe --use-include --user=admin
+observation	tests/live/regress_native_queries.sh	capture "$case-state-after" php "$evidence" snapshot "$R1"

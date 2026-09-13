@@ -32,6 +32,7 @@ final class ReferenceRules {
      */
     public const JSON_REF_REQUIRED = ['kind', 'path'];
     public const JSON_REF_OPTIONAL = ['cast'];
+    public const BLOCK_CONTRACT_FIELDS = ['object_fields', 'enum', 'on_unmapped'];
 
     /** One source of truth for attached EAV key ownership and behavior. */
     public static function attached_meta_key(array $declaration, string $key): array {
@@ -76,7 +77,10 @@ final class ReferenceRules {
     }
 
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
-    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false, bool $encodedText = false, bool $postMetaInvalidation = false): void {
+    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false, bool $encodedText = false, bool $postMetaInvalidation = false, bool $blockContracts = false): void {
+        if (!$blockContracts && array_intersect(array_keys($rule), self::BLOCK_CONTRACT_FIELDS)) {
+            throw new \RuntimeException("wprism: $where block value contracts belong only to negotiated block attribute values");
+        }
         PostMetaInvalidation::assert_rule($rule, $where, $postMetaInvalidation);
         EncodedText::assert_rule($rule, $where, $encodedText);
         if (array_key_exists(RecordFields::FIELD, $rule) && !$blockRecords) {
