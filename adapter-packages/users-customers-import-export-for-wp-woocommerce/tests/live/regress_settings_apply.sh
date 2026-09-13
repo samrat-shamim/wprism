@@ -2,12 +2,12 @@
 # Native full baseline followed by public host scope/plan/Apply and terminal replay.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 # Capsule source dependencies are BASH_SOURCE-relative. Normalize entry before
 # changing cwd so both root-relative and absolute invocations retain that ABI.
 if [[ "${BASH_SOURCE[0]}" != /* ]]; then
   exec bash "$PACKAGE_ROOT/tests/live/regress_settings_apply.sh" "$@"
 fi
-export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 REPO_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 cd "$REPO_ROOT/sandbox"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }

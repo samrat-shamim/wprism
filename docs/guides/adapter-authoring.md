@@ -75,6 +75,22 @@ representation; the agent refuses at load time if its
 `agent_version`/`spec_version` disagree with the running
 `WPRISM_AGENT_VERSION`/`WPRISM_SPEC_VERSION`.
 
+A capsule's `tests/live/*.sh` starts with these exact three active statements;
+`regress-fetch-artifact` checks their order so artifact resolution always has
+one capsule owner before any wrapper or conditional code runs:
+
+```bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+```
+
+Put path normalization and other setup after this preamble. Create the ignored
+`sandbox/tmp` parent before allocating evidence below it; a fresh worktree does
+not contain that directory. Source shared helpers through the reviewed paths
+and capsule hooks through their `BASH_SOURCE`-relative paths, as enforced by
+`AdapterPackageValidator`.
+
 Four rules that will bite you if you learn them the hard way:
 
 - **The capsule name is the pin name, and it is enforced.** `Policy::load()`
