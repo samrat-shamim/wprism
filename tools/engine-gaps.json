@@ -318,6 +318,17 @@
         "sandbox/tests/offline/grammar/regress_table_row_scopes.php",
         "sandbox/tests/live/fixtures/table_row_scopes.php"
       ]
+    },
+    "column_value_cases": {
+      "title": "row-selected semantic contracts inside one typed column",
+      "status": "shipped",
+      "definition": "A negotiated exact case list selects an existing authored value contract using one declared row_scope set. Every case shares framing, feature negotiation, keyspace checks and the manifest rule budget. Capture, compilation, privacy, lint and checked writes use the selected contract; no implicit default or local-file authority.",
+      "evidence": [
+        "agent/src/Kernel/ColumnValueCases.php",
+        "agent/src/Grammar/ColumnCodecGrammar.php",
+        "sandbox/tests/offline/grammar/regress_column_value_cases.php",
+        "sandbox/tests/live/fixtures/column_value_contracts.php"
+      ]
     }
   },
   "candidates": [
@@ -1033,6 +1044,32 @@
       ],
       "probed_on": "2026-09-14",
       "closing": "One shared set predicate composes exact alternative values with the existing ownership boundaries. Offline product paths exercise both variants and real natural identities; the native lane exercises collation and concurrent ownership changes. Import payload semantics, local CSV binding, native missing-password warnings and full adapter qualification remain open.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
+      "id": "user-importer-template-value-cases",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "column_value_cases",
+          "closed_by": [
+            "agent/src/Kernel/ColumnValueCases.php",
+            "agent/src/Grammar/ColumnCodecGrammar.php",
+            "sandbox/tests/offline/grammar/regress_column_value_cases.php",
+            "sandbox/tests/live/fixtures/column_value_contracts.php"
+          ],
+          "coordinate": "column_codecs.wt_iew_mapping_template.data",
+          "cannot_represent": "Native export and import templates share data.mapping_form_data, but exports hold field labels while imports hold expressions and literal destination values. A single field-label contract would grant metadata privacy treatment to imported personal values; a union of field maps cannot distinguish their meaning."
+        }
+      ],
+      "probed_on": "2026-09-14",
+      "closing": "Explicit cases select existing contracts from the authored template type. Product-path offline and native typed-table evidence covers semantic selection, privacy separation, reference rebinding, variant transitions and rollback. Import expressions, target-local CSV bindings, native missing-password warnings and full adapter qualification remain open.",
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/ColumnValueCases.php';
+
 // This collaborator is exercised directly by offline harnesses. Keep its
 // reference-keyspace dependency explicit instead of relying on Policy's
 // bootstrap order.
@@ -53,8 +55,8 @@ final class ReferenceKeyspaceGrammar {
             }
             foreach (($source['column_codecs'] ?? []) as $table => $columns) {
                 foreach ($columns as $column => $codec) {
-                    if (isset($codec['value'])) {
-                        self::assert_reference_rule_keyspaces($codec['value'], $allowed, "$label.column_codecs.$table.$column.value");
+                    foreach (ColumnValueCases::contracts($codec) as $locator => $contract) {
+                        self::assert_reference_rule_keyspaces($contract, $allowed, "$label.column_codecs.$table.$column.$locator");
                     }
                 }
             }

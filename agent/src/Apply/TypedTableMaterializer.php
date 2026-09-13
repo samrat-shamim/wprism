@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
 require_once __DIR__ . '/../Kernel/TableRowOwnership.php';
 
@@ -139,6 +141,15 @@ final class TypedTableMaterializer {
         $idKind = $decl['id_kind'];
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         TableRowScope::assert_matches($entity['type'], $decl, (array) ($front['columns'] ?? []));
+        // Phase 1 publishes placeholder bytes and identity before finalization.
+        // Validate selected canonical contracts before either mutation occurs.
+        foreach (($this->columnCodecs)($entity['type']) as $column => $codec) {
+            if (array_key_exists(ColumnValueCases::FIELD, $codec)) {
+                $where = "table '{$entity['type']}' column '$column'";
+                $selected = ColumnValueCases::resolve($codec, (array) ($front['columns'] ?? []), $where);
+                ColumnCodecGrammar::decode_canonical_value($front['columns'][$column] ?? null, $selected, $where);
+            }
+        }
         $uuid = $front['uuid'];
         $mappedId = ($this->ledgerIdFor)($uuid, $idKind);
         self::assertScopedWrite($entity['type'], $decl, $mappedId);
@@ -208,6 +219,10 @@ final class TypedTableMaterializer {
 
         self::assertScopedWrite($entity['type'], $decl, $localId);
         $codecs = ($this->columnCodecs)($entity['type']);
+        foreach ($codecs as $column => $codec) {
+            $codecs[$column] = ColumnValueCases::resolve($codec, (array) ($front['columns'] ?? []),
+                "table '{$entity['type']}' column '$column'");
+        }
         $data = [];
         foreach ($decl['columns'] ?? [] as $col => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
@@ -272,6 +287,10 @@ final class TypedTableMaterializer {
         }
 
         $codecs = ($this->columnCodecs)($entity['type']);
+        foreach ($codecs as $column => $codec) {
+            $codecs[$column] = ColumnValueCases::resolve($codec, (array) ($front['columns'] ?? []),
+                "table '{$entity['type']}' column '$column'");
+        }
         $authored = [];
         foreach ($decl['columns'] ?? [] as $column => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {

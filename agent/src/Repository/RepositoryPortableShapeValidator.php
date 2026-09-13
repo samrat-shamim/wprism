@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
 
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
@@ -248,6 +250,7 @@ final class RepositoryPortableShapeValidator {
                 // that checked materialization would otherwise meet later.
                 foreach ($this->policy->column_codec_rules($entity['type']) as $column => $codec) {
                     try {
+                        $codec = ColumnValueCases::resolve($codec, (array) ($d['columns'] ?? []), 'columns.' . $column);
                         ColumnCodecGrammar::decode_canonical_value($d['columns'][$column] ?? null, $codec,
                             'columns.' . $column);
                     } catch (\RuntimeException) {

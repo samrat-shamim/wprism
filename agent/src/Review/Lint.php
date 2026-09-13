@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+
 require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
 
 require_once __DIR__ . '/BlockReferenceScanner.php';
@@ -950,12 +952,13 @@ final class Lint {
         // (a) bare_id — columns with no declared ref
         $columns = (array) ($front['columns'] ?? []);
         foreach ($columns as $col => $value) {
-            if (isset($codecs[$col]['value'])) {
+            if (isset($codecs[$col]['value']) || isset($codecs[$col][ColumnValueCases::FIELD])) {
                 try {
-                    $value = ColumnCodecGrammar::decode_canonical_value($value, $codecs[$col], "columns.$col");
+                    $codec = ColumnValueCases::resolve($codecs[$col], (array) ($front['columns'] ?? []), "columns.$col");
+                    $value = ColumnCodecGrammar::decode_canonical_value($value, $codec, "columns.$col");
                     $columns[$col] = $value;
                     array_push($findings, ...AuthoredValueReferenceScanner::scan(
-                        $value, $codecs[$col]['value'], $rel, "columns.$col", $env->resolver()));
+                        $value, $codec['value'], $rel, "columns.$col", $env->resolver()));
                 } catch (\RuntimeException $failure) {
                     $findings[] = LintFinding::make('invalid_column_value', $rel, "columns.$col",
                         '<declared-value>', null, $failure->getMessage());

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+
 require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
 
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
@@ -288,6 +290,7 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [],
         ],
+        ColumnValueCases::FEATURE => ['since' => 3, 'keys' => []],
         ColumnCodecGrammar::JSON_FEATURE => [
             'since' => 3,
             'keys' => [],
@@ -600,6 +603,9 @@ final class AdapterContractGrammar {
             }
             if ($name === TableRowScope::SETS_FEATURE) {
                 $rows[$name]['value_constraint'] = TableRowScope::sets_declaration_grammar();
+            }
+            if ($name === ColumnValueCases::FEATURE) {
+                $rows[$name]['value_constraint'] = ColumnValueCases::declaration_grammar();
             }
             if ($name === ReferenceCondition::FEATURE) {
                 $rows[$name]['value_constraint'] = ReferenceCondition::declaration_grammar();
