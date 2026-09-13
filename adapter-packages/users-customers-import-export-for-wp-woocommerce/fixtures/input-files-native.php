@@ -85,6 +85,9 @@ $consume($read(), $files['input-source.csv']);
 $captured = Capture::run($repo);
 wprism_check_same([], $captured['warnings'], 'public Capture emits no warnings');
 $policy = Policy::load($repo);
+// Core readiness is an independent prerequisite: a successful Apply may still
+// report unbound home/siteurl/admin_email, which this native gate must not hide.
+foreach (['admin_email', 'home', 'siteurl'] as $name) Apply::set_env_option($repo, $name, (string) get_option($name));
 $compiled = RepositoryCompiler::compile($repo, $policy);
 $declarations = ColumnInputFiles::declarations($policy, $compiled->tree());
 wprism_check_same(1, count($declarations), 'Capture emits one dependency and leaves the blank draft unbound');
@@ -102,6 +105,7 @@ wprism_check_same($before, $read(), 'provisioning leaves authored rows unchanged
 $plan = Apply::plan($repo);
 wprism_check(in_array($uuid, array_column($plan['update'], 'uuid'), true), 'public Plan selects a canonically equal row for file rebinding');
 $result = Apply::apply($repo);
+wprism_check_detail(implode("\n", $result['warnings']));
 wprism_check_same('pass', $result['verification']['result'] ?? null, 'public Apply passes independent fresh-process canonical verification');
 wprism_check_same([], $result['warnings'], 'public Apply emits no warnings');
 wprism_check_same($import->get_file_url('input-target.csv'), $read()['method_import_form_data']['wt_iew_local_file'], 'Apply writes the exact native target URL spelling');
