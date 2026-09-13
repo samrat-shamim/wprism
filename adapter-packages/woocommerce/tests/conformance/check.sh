@@ -662,6 +662,7 @@ try {
 
     $result = [
         "callbacks" => $callbacks,
+        "wc_version" => defined("WC_VERSION") ? (string) WC_VERSION : "",
         "theme_override_width" => (int) ($theme_size["width"] ?? 0),
         "same_aspect" => [
             "dims" => $dims($same_aspect),
@@ -770,15 +771,43 @@ echo wp_json_encode($result, JSON_UNESCAPED_SLASHES);
 THUMBNAIL_LAZY_OUT=$(awk 'NF { line=$0 } END { print line }' <<<"$THUMBNAIL_LAZY_RAW")
 require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation" "$THUMBNAIL_LAZY_OUT"
 echo "conf2 thumbnail lazy-convergence check: $THUMBNAIL_LAZY_OUT"
-jq -e '
+# WooCommerce 11.1.0 gave WC_Regenerate_Images::resize_and_return_image() an
+# early return for attachments no installed editor supports
+# (includes/class-wc-regenerate-images.php:386-396, "Files without a supporting
+# image editor (e.g. SVGs) can never be resized"; the background queue got the
+# same guard at class-wc-regenerate-images-request.php:128). The induced
+# no-editor failure below therefore never reaches
+# wp_generate_attachment_metadata() on 11.1.x, and the six seeded sub-sizes
+# survive. Through 11.0.x it did reach it, and wp_create_image_subsizes()'s
+# initial metadata save persisted the editor-less base array — measured here as
+# failed_metadata_changed=true with every size name gone. Both are pinned as
+# observations; the convergence claim itself is the retry/idempotence pair
+# below, which is identical on both sides.
+case "$WOOCOMMERCE_EXPECTED_VERSION" in
+  11.0.*)
+    THUMBNAIL_FAILED_METADATA_CHANGED=true
+    THUMBNAIL_FAILED_SIZE_NAMES='[]'
+    ;;
+  11.1.*)
+    THUMBNAIL_FAILED_METADATA_CHANGED=false
+    THUMBNAIL_FAILED_SIZE_NAMES='["medium","thumbnail","medium_large","woocommerce_thumbnail","woocommerce_single","woocommerce_gallery_thumbnail"]'
+    ;;
+  *)
+    fail "Woo thumbnail failure-path behavior is unpinned for WooCommerce $WOOCOMMERCE_EXPECTED_VERSION"
+    ;;
+esac
+jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" \
+  --argjson failed_metadata_changed "$THUMBNAIL_FAILED_METADATA_CHANGED" \
+  --argjson failed_size_names "$THUMBNAIL_FAILED_SIZE_NAMES" '
   .callbacks == {"intermediate":true,"metadata":true,"source":true,"product_meta":true} and
+  .wc_version == $version and
   .theme_override_width == 450 and
   .same_aspect == {"dims":[500,500],"metadata_unchanged":true} and
   .failure_retry.failed_dims == [500,375] and
-  .failure_retry.failed_metadata_changed == true and
+  .failure_retry.failed_metadata_changed == $failed_metadata_changed and
   .failure_retry.failed_full_dims == [800,600] and
   .failure_retry.failed_filesize_positive == true and
-  .failure_retry.failed_size_names == [] and
+  .failure_retry.failed_size_names == $failed_size_names and
   .failure_retry.retry_dims == [500,500] and
   .failure_retry.stored_dims == [500,500] and
   .failure_retry.third_dims == [500,500] and

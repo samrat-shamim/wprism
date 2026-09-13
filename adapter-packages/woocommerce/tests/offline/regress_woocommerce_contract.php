@@ -2276,11 +2276,163 @@ $thumbnailBehavior = (string) ($manifest['notes'][
 foreach ([
     'Missing attachment metadata or source-file preconditions preserve the prior image and metadata',
     'On the evidenced normal 800-by-600 JPEG path with no scale, format conversion, or EXIF rotation',
-    'WordPress 7.1 writes base metadata (file, width, height, filesize, sizes=[]) before subsize editor selection',
-    'An unavailable subsize editor therefore returns the bounded full image with that base metadata persisted',
+    'wp_create_image_subsizes() wrote base metadata (file, width, height, filesize, sizes=[]) before subsize editor selection',
+    'from 11.1.0 the editor-support guard returns first, so the stored metadata and its six seeded sub-sizes survive untouched',
+    'includes/class-wc-regenerate-images.php:386-396 and class-wc-regenerate-images-request.php:128',
 ] as $thumbnailBehaviorWitness) {
     woo_ok(str_contains($thumbnailBehavior, $thumbnailBehaviorWitness),
         "shipped Woo thumbnail claim pins native failure behavior: $thumbnailBehaviorWitness");
+}
+// WooCommerce 11.1.0's editor-support guard stops the induced no-editor failure
+// from ever reaching wp_generate_attachment_metadata(), so the measured pair
+// flips: 11.0.x reported failed_metadata_changed=true with failed_size_names=[],
+// 11.1.0 reports false with all six seeded names. The absolute assertion is the
+// prior defect -- it made the 11.1.0 boundary fail with a real payload the
+// adapter had correctly converged (woo-bump2.log:794) -- so its exact text must
+// be gone, and the branch must select from the version the probe itself reports.
+woo_ok(!str_contains($wooCheckHarness, '.failure_retry.failed_metadata_changed == true')
+    && !str_contains($wooCheckHarness, '.failure_retry.failed_size_names == []'),
+    'thumbnail evidence no longer pins the 11.0.x-only failure-path metadata outcome unconditionally');
+foreach ([
+    '"wc_version" => defined("WC_VERSION") ? (string) WC_VERSION : ""',
+    '.wc_version == $version and',
+    'case "$WOOCOMMERCE_EXPECTED_VERSION" in',
+    'THUMBNAIL_FAILED_METADATA_CHANGED=true',
+    'THUMBNAIL_FAILED_METADATA_CHANGED=false',
+    '\'["medium","thumbnail","medium_large","woocommerce_thumbnail","woocommerce_single","woocommerce_gallery_thumbnail"]\'',
+    'fail "Woo thumbnail failure-path behavior is unpinned for WooCommerce $WOOCOMMERCE_EXPECTED_VERSION"',
+    '--argjson failed_metadata_changed "$THUMBNAIL_FAILED_METADATA_CHANGED"',
+    '--argjson failed_size_names "$THUMBNAIL_FAILED_SIZE_NAMES"',
+] as $thumbnailVersionWitness) {
+    woo_ok(str_contains($wooCheckHarness, $thumbnailVersionWitness),
+        "thumbnail failure-path expectation is version-selected, not assumed: $thumbnailVersionWitness");
+}
+// The retry/idempotence pair is the convergence claim itself and is identical on
+// both sides, so it must stay outside the branch as a literal.
+foreach ([
+    '.failure_retry.retry_dims == [500,500] and',
+    '.failure_retry.stored_dims == [500,500] and',
+    '.failure_retry.third_dims == [500,500] and',
+    '.failure_retry.third_metadata_unchanged == true and',
+] as $thumbnailSharedWitness) {
+    woo_ok(str_contains($wooCheckHarness, $thumbnailSharedWitness),
+        "thumbnail convergence claim stays version-independent: $thumbnailSharedWitness");
+}
+// The widening note is the audit that admits 11.1.0, so its two checkable counts
+// are pinned here. WC_Install::$db_updates gains '11.1.0' (three functions) and
+// '11.1.0-1' (one), and that one function's whole body is a single
+// delete_option(VariationGalleryPackage::ENABLE_OPTION_NAME) -- one option, not
+// two, and its name is declared by this manifest's env option_patterns
+// alternation, which is what makes the deletion safe.
+$wooWideningNote = (string) ($manifest['notes'][
+    '2026-09-11 widening to 11.1.0 (minor line, probed not assumed)'
+] ?? '');
+woo_ok(!str_contains($wooWideningNote, 'the two deprecated variation-gallery feature-flag options, neither declared'),
+    'the widening audit no longer miscounts or misclassifies the 11.1.0 variation-gallery deletion');
+foreach ([
+    'deletes one deprecated variation-gallery feature-flag option, wc_feature_woocommerce_additional_variation_images_enabled',
+    'which this manifest does declare -- as env, by the option_patterns alternation',
+    'That sweep was also option-scoped; 11.1.0 also adds exactly one product post_meta key, _wc_video_gallery',
+    'four option names are genuinely new, and only one of them was already covered',
+    'includes/wc-formatting-functions.php:1698, which is the single added line in that entire file',
+    'both are target-local one-shot markers written autoload=false',
+    'a sweep of class constants whose name carries OPTION/META/KEY/SETTING/TRANSIENT',
+    'gateway_details and provider_lists are wp_cache keys',
+] as $wooWideningWitness) {
+    woo_ok(str_contains($wooWideningNote, $wooWideningWitness),
+        "the 11.1.0 widening audit states its checkable counts: $wooWideningWitness");
+}
+// 11.1.0's OrderWithdrawalController::ENDPOINT_OPTION is the eleventh member of
+// the myaccount endpoint-slug family. The family is enumerable exactly because
+// wc-formatting-functions.php registers one wc_sanitize_endpoint_slug filter per
+// member (11.1.0 lines 1691-1703), so the closed alternation must carry all of
+// them and nothing wider: an unlisted member aborts capture on an 11.1.0 store
+// that saved a withdrawal slug.
+$wooEndpointPattern = null;
+foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
+    if (str_contains((string) ($wooOptionPattern['match'] ?? ''), 'myaccount_')
+        && ($wooOptionPattern['class'] ?? '') === 'authored') {
+        $wooEndpointPattern = (string) $wooOptionPattern['match'];
+    }
+}
+woo_ok(is_string($wooEndpointPattern) && $wooEndpointPattern !== '',
+    'the myaccount endpoint slugs keep one closed authored pattern');
+foreach ([
+    'order_withdrawal',
+    'orders',
+    'view_order',
+    'lost_password',
+    'add_payment_method',
+] as $wooEndpointMember) {
+    woo_ok(preg_match('/' . $wooEndpointPattern . '/', "woocommerce_myaccount_{$wooEndpointMember}_endpoint") === 1,
+        "the closed endpoint-slug family admits its member: $wooEndpointMember");
+}
+foreach ([
+    'woocommerce_myaccount_order_endpoint',
+    'woocommerce_myaccount_withdrawal_endpoint',
+    'woocommerce_myaccount_order_withdrawal',
+    'woocommerce_myaccount_order_withdrawal_endpointx',
+] as $wooEndpointNonMember) {
+    woo_ok(preg_match('/' . $wooEndpointPattern . '/', $wooEndpointNonMember) === 0,
+        "widening the endpoint-slug family did not make it greedy: $wooEndpointNonMember");
+}
+// The two 11.1.0 markers ride the closed runtime alternation, not the authored or
+// env ones: an authored ruling would transport one site's 'this already happened
+// here' flag to a target where it has not.
+$wooRuntimePattern = null;
+foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
+    if (($wooOptionPattern['class'] ?? '') === 'runtime'
+        && str_contains((string) ($wooOptionPattern['match'] ?? ''), 'queue_flush_rewrite_rules')) {
+        $wooRuntimePattern = (string) $wooOptionPattern['match'];
+    }
+}
+woo_ok(is_string($wooRuntimePattern) && $wooRuntimePattern !== '',
+    'the closed runtime marker alternation is still the one carrying queue_flush_rewrite_rules');
+foreach ([
+    'woocommerce_email_editor_rewrites_flushed',
+    'woocommerce_order_withdrawal_inbox_notification_created',
+] as $wooRuntimeMarker) {
+    woo_ok(preg_match('/' . $wooRuntimePattern . '/', $wooRuntimeMarker) === 1,
+        "the 11.1.0 target-local marker is classified runtime: $wooRuntimeMarker");
+    woo_ok(preg_match('/' . $wooEndpointPattern . '/', $wooRuntimeMarker) === 0,
+        "the 11.1.0 target-local marker is not swept into the authored family: $wooRuntimeMarker");
+}
+foreach ([
+    'woocommerce_email_editor_rewrites',
+    'woocommerce_order_withdrawal',
+    'woocommerce_order_withdrawal_inbox_notification',
+    'woocommerce_email_editor_rewrites_flushed_x',
+] as $wooRuntimeNonMember) {
+    woo_ok(preg_match('/' . $wooRuntimePattern . '/', $wooRuntimeNonMember) === 0,
+        "widening the runtime marker family did not make it greedy: $wooRuntimeNonMember");
+}
+$wooEnvPatternDeclared = false;
+foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
+    if (($wooOptionPattern['class'] ?? '') === 'env'
+        && str_contains((string) ($wooOptionPattern['match'] ?? ''),
+            'wc_feature_woocommerce_additional_variation_images_enabled')) {
+        $wooEnvPatternDeclared = true;
+    }
+}
+woo_ok($wooEnvPatternDeclared,
+    'the option 11.1.0 deletes on upgrade is declared env, so its removal is target-local rather than authored loss');
+// 11.1.0 introduces _wc_video_gallery as product post_meta. This manifest's ref
+// vocabulary is flat, so an 'authored' rule would ship source attachment ids to a
+// target verbatim; the boundary is documented and the key stays unclassified so
+// capture refuses loudly instead.
+$wooVideoGalleryNote = (string) ($manifest['notes'][
+    '11.1.0 product video gallery boundary (beta feature, deliberately unclassified)'
+] ?? '');
+woo_ok(!array_key_exists('_wc_video_gallery', (array) ($manifest['post_meta'] ?? [])),
+    'the 11.1.0 product video gallery meta stays unclassified rather than carrying an inexpressible nested ref');
+foreach ([
+    'src/Internal/ProductGallery/ProductMediaGallery.php',
+    'agent/src/Capture/CaptureSafetyGates.php:32-51',
+    'incomplete_state_discovery / unclassified_state on post_meta:_wc_video_gallery',
+    'cannot express a reference nested inside a JSON object',
+] as $wooVideoGalleryWitness) {
+    woo_ok(str_contains($wooVideoGalleryNote, $wooVideoGalleryWitness),
+        "shipped Woo claim records the 11.1.0 video gallery boundary: $wooVideoGalleryWitness");
 }
 $seedUpdate = strpos($wooCheckHarness, 'wp_update_attachment_metadata((int) $id, $metadata)');
 $seedReadback = strpos($wooCheckHarness, 'wp_get_attachment_metadata((int) $id)', $seedUpdate === false ? 0 : $seedUpdate);
