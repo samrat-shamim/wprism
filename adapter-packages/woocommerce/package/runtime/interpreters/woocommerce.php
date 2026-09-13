@@ -6,19 +6,7 @@ namespace WPrism\Interpreters;
 use WPrism\Canon;
 use WPrism\PlainData;
 use WPrism\Policy;
-use WPrism\WpCliChildProcess;
-
-if (!class_exists(WpCliChildProcess::class, false)) {
-    $wprismLayoutRoot = dirname(__DIR__, 5);
-    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
-        ? $wprismLayoutRoot . '/agent'
-        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
-    if ($wprismAgentRoot === null) {
-        throw new \RuntimeException('wprism: WooCommerce interpreter cannot resolve the explicit source or embedded agent layout');
-    }
-    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($wprismLayoutRoot, $wprismAgentRoot);
-}
+use WPrism\ProviderSdk;
 
 /**
  * Exact WooCommerce 11.0.0 and 11.0.1 read `_product_attributes` as a
@@ -1460,9 +1448,8 @@ final class Woocommerce {
 
 
     private function native_settings_api(): object {
-        if (!class_exists('WC_Settings_API', false)) {
-            $this->load_native_settings_api();
-        }
+        // Same rule as the permalink record above: use the native authority the
+        // plugin itself loaded, never include plugin bytes to create one.
         if (!class_exists('WC_Settings_API', false)) {
             throw new \RuntimeException('wprism: WooCommerce mixed option validation requires WC_Settings_API');
         }
@@ -1489,24 +1476,6 @@ final class Woocommerce {
         // exercises those inherited native bytes without constructing a
         // gateway/email service and crossing its hooks or target state.
         return new class extends \WC_Settings_API {};
-    }
-
-    private function load_native_settings_api(): void {
-        $files = self::native_validation_files();
-        try {
-            // Exact Woo 11.0.0/11.0.1 loads this class with include_once, so
-            // an inactive lifecycle snapshot may safely bind its stateless
-            // validators before the same process activates the plugin.
-            if (!class_exists('WC_Settings_API', false)) {
-                require_once $files['settings'];
-            }
-        } catch (\Throwable $failure) {
-            throw new \RuntimeException(
-                'wprism: WooCommerce mixed option validation requires WC_Settings_API',
-                0,
-                $failure
-            );
-        }
     }
 
     /** @return array{settings:string,formatting:string} */
@@ -1648,107 +1617,32 @@ final class Woocommerce {
             }
             return;
         }
-        $this->assert_native_permalink_child($name, $permalinks, $where);
-    }
-
-    /** @param array<string,string> $permalinks */
-    private function assert_native_permalink_child(string $name, array $permalinks, string $where): void {
-        $payload = Canon::encode([
-            'format' => 'wprism-woocommerce-native-permalink-input/v1',
-            'values' => $permalinks,
-        ]);
-        $code = 'require_once ' . var_export(__FILE__, true) . '; '
-            . '\\WPrism\\Interpreters\\Woocommerce::run_native_permalink_child();';
-        try {
-            $result = WpCliChildProcess::capture_with_input(
-                'eval ' . escapeshellarg($code),
-                $payload,
-                120,
-                4096,
-                16384
-            );
-        } catch (\Throwable $failure) {
+        // No native authority is loaded in this process, and the capsule no
+        // longer manufactures one -- including the formatter, or spawning a
+        // child that includes it, is the adapter-owned execution the engine
+        // reserves for itself.
+        //
+        // Which contexts may legitimately reach here is not symmetric. Capture
+        // runs inside deploy's lifecycle-activate sequence, where WooCommerce
+        // is mid-activation and has not yet defined wc_sanitize_permalink;
+        // measured on a pair, refusing there fails activation outright with
+        // "'woocommerce_permalinks' source is outside the bounded native
+        // permalink state". Every other check above has already run on these
+        // values -- bounded text, byte ceiling, per-key emptiness, the Brands
+        // product-base guard -- so what defers is exactly one assertion:
+        // equality with the native sanitizer's output.
+        //
+        // Apply is different. materialize_option_sub_keys and
+        // project_materialized_option_sub_keys write and then verify Woo state
+        // on a target where the plugin is necessarily active, so an absent
+        // sanitizer there is an anomaly, not a lifecycle phase, and still
+        // refuses. Canonicality is therefore enforced before any value is
+        // written, never skipped -- capture may admit a hand-edited row that
+        // apply will refuse.
+        if ($where !== 'source') {
             throw new \RuntimeException(
-                "wprism: WooCommerce mixed option '$name' $where native permalink validation could not start",
-                0,
-                $failure
+                "wprism: WooCommerce mixed option '$name' $where is outside the bounded native permalink state"
             );
-        }
-        if ($result['return_code'] !== 0 || $result['stderr'] !== '') {
-            throw new \RuntimeException(
-                "wprism: WooCommerce mixed option '$name' $where native permalink validation failed"
-            );
-        }
-        try {
-            $receipt = Canon::decode($result['stdout']);
-        } catch (\Throwable $failure) {
-            throw new \RuntimeException(
-                "wprism: WooCommerce mixed option '$name' $where native permalink validation returned malformed evidence",
-                0,
-                $failure
-            );
-        }
-        $expected = [];
-        foreach ($permalinks as $key => $fieldValue) {
-            $expected[$key] = hash('sha256', $fieldValue);
-        }
-        if (!is_array($receipt)
-            || array_keys($receipt) !== ['digests', 'format']
-            || ($receipt['format'] ?? null) !== 'wprism-woocommerce-native-permalink-receipt/v1'
-            || ($receipt['digests'] ?? null) !== $expected
-            || !hash_equals(Canon::encode($receipt), $result['stdout'])) {
-            throw new \RuntimeException(
-                "wprism: WooCommerce mixed option '$name' $where is not canonical native permalink storage"
-            );
-        }
-    }
-
-    /** Fresh-process entrypoint for inactive permalink validation. */
-    public static function run_native_permalink_child(): void {
-        try {
-            $input = stream_get_contents(STDIN, 16385);
-            if (!is_string($input) || $input === '' || strlen($input) > 16384 || !feof(STDIN)) {
-                exit(21);
-            }
-            $payload = Canon::decode($input);
-            if (!is_array($payload)
-                || array_keys($payload) !== ['format', 'values']
-                || ($payload['format'] ?? null) !== 'wprism-woocommerce-native-permalink-input/v1'
-                || !is_array($payload['values'])
-                || array_keys($payload['values']) !== [
-                    'attribute_base',
-                    'category_base',
-                    'product_base',
-                    'tag_base',
-                ]
-                || !hash_equals(Canon::encode($payload), $input)) {
-                exit(22);
-            }
-            $files = self::native_validation_files();
-            if (function_exists('wc_sanitize_permalink')) {
-                exit(23);
-            }
-            require_once $files['formatting'];
-            if (!function_exists('wc_sanitize_permalink')) {
-                exit(24);
-            }
-            $digests = [];
-            foreach ($payload['values'] as $key => $value) {
-                if (!is_string($value) || strlen($value) > self::MAX_PERMALINK_BYTES) {
-                    exit(25);
-                }
-                $canonical = wc_sanitize_permalink($value);
-                if (!is_string($canonical)) {
-                    exit(26);
-                }
-                $digests[(string) $key] = hash('sha256', $canonical);
-            }
-            fwrite(STDOUT, Canon::encode([
-                'digests' => $digests,
-                'format' => 'wprism-woocommerce-native-permalink-receipt/v1',
-            ]));
-        } catch (\Throwable) {
-            exit(27);
         }
     }
 
@@ -1999,12 +1893,18 @@ final class Woocommerce {
         global $wpdb;
         $table = $this->shipping_zone_methods_table();
         try {
-            $wpdb->last_error = '';
-            $rows = $wpdb->get_results($wpdb->prepare(
-                'SELECT instance_id, zone_id, method_id, method_order, is_enabled '
-                . "FROM $table WHERE instance_id = %d ORDER BY instance_id ASC LIMIT 2",
-                $instanceId
-            ), ARRAY_A);
+            // Engine-checked transport, not raw wpdb: the statement still
+            // carries its own exact bounds and ordering, and the SDK adds the
+            // isolation, profile-grammar and error-surface checks a capsule
+            // cannot assert for itself.
+            $rows = ProviderSdk::checked_get_results(
+                $wpdb->prepare(
+                    'SELECT instance_id, zone_id, method_id, method_order, is_enabled '
+                    . "FROM $table WHERE instance_id = %d ORDER BY instance_id ASC LIMIT 2",
+                    $instanceId
+                ),
+                "WooCommerce COD $where shipping-method raw witness"
+            );
         } catch (\Throwable $exception) {
             throw new \RuntimeException(
                 "wprism: WooCommerce COD $where shipping-method raw witness query failed",
@@ -2012,9 +1912,13 @@ final class Woocommerce {
                 $exception
             );
         }
-        if (!is_array($rows)
-            || !array_is_list($rows)
-            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+        // The manual last_error sweep that stood here belonged to the raw
+        // transport: it reset the field first and then re-read it. The checked
+        // read owns that surface now and converts a driver error into the
+        // typed failure caught above, so re-reading a field this method no
+        // longer clears would only be able to report an unrelated earlier
+        // statement.
+        if (!is_array($rows) || !array_is_list($rows)) {
             throw new \RuntimeException(
                 "wprism: WooCommerce COD $where shipping-method raw witness query failed"
             );

@@ -485,7 +485,9 @@ final class AdapterPackageTestsTest extends TestCase
         self::assertNotFalse($registry);
         $rows = $registry->getValue();
         self::assertIsArray($rows);
-        self::assertCount(12, $rows);
+        // Twelve until WooCommerce's interpreter was migrated off adapter-owned
+        // execution and its row deleted rather than re-hashed.
+        self::assertCount(11, $rows);
         $guard = $reflection->getMethod('assertRuntimeExecutionBoundary');
         $repo = dirname(__DIR__, 2);
 
@@ -533,7 +535,9 @@ final class AdapterPackageTestsTest extends TestCase
                 $visited[$path] = true;
             }
         }
-        self::assertCount(5, $visited);
+        // WooCommerce carried five rows until its interpreter was migrated off
+        // adapter-owned execution and its row deleted; four remain.
+        self::assertCount(4, $visited);
         unset($visited[array_key_first($visited)]);
 
         $this->expectException(RuntimeException::class);

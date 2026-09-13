@@ -1234,17 +1234,10 @@ woo_ok(
     'the settings abstract, permalink sanitizer, and each exact WooCommerce loader remain pinned before partial-runtime loading is admitted'
 );
 
-$settingsApiLoaderStart = strpos($wooInterpreterSource, 'private function load_native_settings_api(): void');
-$settingsApiLoaderEnd = $settingsApiLoaderStart === false
-    ? false
-    : strpos($wooInterpreterSource, 'private static function native_validation_files(): array', $settingsApiLoaderStart);
-$settingsApiLoader = $settingsApiLoaderStart !== false && $settingsApiLoaderEnd !== false
-    ? substr($wooInterpreterSource, $settingsApiLoaderStart, $settingsApiLoaderEnd - $settingsApiLoaderStart)
-    : '';
 $nativeSettingsApiStart = strpos($wooInterpreterSource, 'private function native_settings_api(): object');
 $nativeSettingsApiEnd = $nativeSettingsApiStart === false
     ? false
-    : strpos($wooInterpreterSource, 'private function load_native_settings_api(): void', $nativeSettingsApiStart);
+    : strpos($wooInterpreterSource, 'private static function native_validation_files(): array', $nativeSettingsApiStart);
 $nativeSettingsApi = $nativeSettingsApiStart !== false && $nativeSettingsApiEnd !== false
     ? substr($wooInterpreterSource, $nativeSettingsApiStart, $nativeSettingsApiEnd - $nativeSettingsApiStart)
     : '';
@@ -1258,46 +1251,27 @@ $nativeValidationFiles = $nativeValidationFilesStart !== false && $nativeValidat
 $nativePermalinkRecordStart = strpos($wooInterpreterSource, 'private function assert_native_permalink_record(');
 $nativePermalinkRecordEnd = $nativePermalinkRecordStart === false
     ? false
-    : strpos($wooInterpreterSource, 'private function assert_native_permalink_child(', $nativePermalinkRecordStart);
+    : strpos($wooInterpreterSource, 'private function assert_native_mixed_field(', $nativePermalinkRecordStart);
 $nativePermalinkRecord = $nativePermalinkRecordStart !== false && $nativePermalinkRecordEnd !== false
     ? substr($wooInterpreterSource, $nativePermalinkRecordStart, $nativePermalinkRecordEnd - $nativePermalinkRecordStart)
     : '';
-$nativePermalinkChildStart = strpos($wooInterpreterSource, 'private function assert_native_permalink_child(');
-$nativePermalinkChildEnd = $nativePermalinkChildStart === false
-    ? false
-    : strpos($wooInterpreterSource, 'public static function run_native_permalink_child(): void', $nativePermalinkChildStart);
-$nativePermalinkChild = $nativePermalinkChildStart !== false && $nativePermalinkChildEnd !== false
-    ? substr($wooInterpreterSource, $nativePermalinkChildStart, $nativePermalinkChildEnd - $nativePermalinkChildStart)
-    : '';
-$nativePermalinkRunnerStart = strpos($wooInterpreterSource, 'public static function run_native_permalink_child(): void');
-$nativePermalinkRunnerEnd = $nativePermalinkRunnerStart === false
-    ? false
-    : strpos($wooInterpreterSource, 'private function assert_native_mixed_field(', $nativePermalinkRunnerStart);
-$nativePermalinkRunner = $nativePermalinkRunnerStart !== false && $nativePermalinkRunnerEnd !== false
-    ? substr($wooInterpreterSource, $nativePermalinkRunnerStart, $nativePermalinkRunnerEnd - $nativePermalinkRunnerStart)
-    : '';
 $settingsApiClassCheck = strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)");
-$settingsApiLoad = strpos($nativeSettingsApi, '$this->load_native_settings_api();');
-$settingsApiRecheck = $settingsApiLoad === false
-    ? false
-    : strpos($nativeSettingsApi, "class_exists('WC_Settings_API', false)", $settingsApiLoad + 1);
 $settingsApiReflection = strpos($nativeSettingsApi, "new \\ReflectionClass('WC_Settings_API')");
 $settingsApiHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_SETTINGS_API_SHA256, $settingsHash)');
 $formattingHashCheck = strpos($nativeValidationFiles, 'hash_equals(self::WOO_FORMATTING_FUNCTIONS_SHA256, $formattingHash)');
-$settingsApiRequire = strpos($settingsApiLoader, "require_once \$files['settings'];");
-$formattingRequire = strpos($nativePermalinkRunner, "require_once \$files['formatting'];");
-woo_ok(
-    str_contains($wooInterpreterSource, "private const WOO_SETTINGS_API_SHA256 =\n        '$settingsApiHash';")
-        && str_contains($wooInterpreterSource, "private const WOO_FORMATTING_FUNCTIONS_SHA256 =\n        '$formattingFunctionsHash';")
-        && $settingsApiClassCheck !== false
-        && $settingsApiLoad !== false
-        && $settingsApiRecheck !== false
-        && $settingsApiReflection !== false
-        && $settingsApiClassCheck < $settingsApiLoad
-        && $settingsApiLoad < $settingsApiRecheck
-        && $settingsApiRecheck < $settingsApiReflection
-        && $settingsApiLoader !== ''
+// The interpreter still binds both native files by digest and still refuses a
+// substituted loaded sanitizer. What it no longer does is create native
+// authority for itself: no include of plugin bytes, and no child process that
+// includes them. That was the whole of this capsule's legacy runtime debt row,
+// so the absence assertions below are the migration's real postcondition --
+// re-introducing either construct restores the debt the registry no longer
+// carries an exception for.
+woo_ok($nativeSettingsApi !== ''
         && $nativeValidationFiles !== ''
+        && $nativePermalinkRecord !== ''
+        && $settingsApiClassCheck !== false
+        && $settingsApiReflection !== false
+        && $settingsApiClassCheck < $settingsApiReflection
         && str_contains($nativeValidationFiles, "defined('ABSPATH')")
         && str_contains($nativeValidationFiles, "defined('WP_PLUGIN_DIR')")
         && str_contains($nativeValidationFiles, "constant('WC_ABSPATH')")
@@ -1313,9 +1287,6 @@ woo_ok(
         && str_contains($nativeValidationFiles, '$formattingFileReal !== $formattingFile')
         && $settingsApiHashCheck !== false
         && $formattingHashCheck !== false
-        && $settingsApiRequire !== false
-        && $formattingRequire !== false
-        && !str_contains($settingsApiLoader, "\$files['formatting']")
         && !str_contains($nativeSettingsApi, "function_exists('wc_sanitize_permalink')")
         && str_contains($nativePermalinkRecord, "defined('WPINC')")
         && str_contains($nativePermalinkRecord, "new \\ReflectionFunction('wc_sanitize_permalink')")
@@ -1323,14 +1294,29 @@ woo_ok(
         && str_contains($nativePermalinkRecord, 'realpath($declaringFile)')
         && str_contains($nativePermalinkRecord, "hash_equals(\$files['formatting'], \$declaringFileReal)")
         && str_contains($nativePermalinkRecord, 'native permalink authority is substituted')
-        && str_contains($nativePermalinkChild, 'WpCliChildProcess::capture_with_input(')
-        && str_contains($nativePermalinkChild, "'eval ' . escapeshellarg(\$code)")
-        && str_contains($nativePermalinkChild, "'wprism-woocommerce-native-permalink-input/v1'")
-        && str_contains($nativePermalinkRunner, 'stream_get_contents(STDIN, 16385)')
-        && str_contains($nativePermalinkRunner, "'wprism-woocommerce-native-permalink-receipt/v1'")
-        && str_contains($nativePermalinkRunner, "hash('sha256', \$canonical)"),
-    'inactive validation hash-binds both native files, rejects substituted loaded sanitizers, keeps formatting bytes out of the activation process, and sends bounded permalink state to a fresh child over stdin'
+        && str_contains($nativePermalinkRecord, 'is outside the bounded native permalink state')
+        // Capture runs inside lifecycle activation, before WooCommerce defines
+        // its sanitizer; apply writes and verifies Woo state on a target where
+        // the plugin is necessarily active. Only the first may defer, and the
+        // deferral is exactly one assertion -- every bounded-text, ceiling,
+        // emptiness and Brands guard above it still runs.
+        && str_contains($nativePermalinkRecord, "if (\$where !== 'source') {"),
+    'the interpreter still hash-binds both native files and rejects a substituted loaded sanitizer, and refuses rather than manufacturing native authority when the plugin has not loaded its own'
 );
+// Absence is the migrated contract, asserted over the whole interpreter rather
+// than one sliced method so it cannot reappear somewhere else in the file.
+foreach ([
+    'WpCliChildProcess' => 'a WP-CLI child process',
+    'run_native_permalink_child' => 'a self-including child entrypoint',
+    'load_native_settings_api' => 'a plugin-bytes loader',
+    'require_once $files[' => 'an include of plugin bytes',
+    '$wpdb->get_results(' => 'a raw database read',
+] as $construct => $description) {
+    woo_ok(!str_contains($wooInterpreterSource, $construct),
+        "the migrated interpreter carries no $description ($construct)");
+}
+woo_ok(str_contains($wooInterpreterSource, 'ProviderSdk::checked_get_results('),
+    'its one bounded witness read goes through the engine-checked transport instead');
 woo_ok(
     substr_count($nativeValidationFiles, "'wprism: WooCommerce mixed option validation requires WC_Settings_API'") === 1
         && substr_count($nativeValidationFiles, 'throw new \\RuntimeException($message') >= 4,
