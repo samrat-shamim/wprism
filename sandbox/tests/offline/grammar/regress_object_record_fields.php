@@ -12,9 +12,11 @@ require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
 require_once __DIR__ . '/../../support/wp-shortcode-stub.php';
 $root = dirname(__DIR__, 4);
 wprism_test_define_agent_versions();
-foreach (['Policy/Policy', 'Grammar/Tokens', 'Grammar/Blocks', 'Repository/RepositoryCompiler', 'Review/Lint'] as $file) {
-    require_once "$root/agent/src/$file.php";
-}
+require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Grammar/Tokens.php';
+require_once $root . '/agent/src/Grammar/Blocks.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+require_once $root . '/agent/src/Review/Lint.php';
 
 use WPrism\AuthoredValueCodec;
 use WPrism\Blocks;
