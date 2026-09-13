@@ -1,8 +1,8 @@
 # Map Block for Google Maps
 
-Review-approved certification candidate, pending the final exact-artifact and
-certified host-path gate results recorded in `evidence/qualification.md`.
-Do not treat the candidate declaration as a completed release gate. Exact audited plugin:
+Certified for the bounded static-map transport below, following user-authorized
+AI review and the exact-artifact/host-path results in `evidence/qualification.md`.
+Exact audited plugin:
 `map-block-gutenberg` 1.35, SHA-256 pinned in `evidence/artifacts.lock.json`.
 The enforced compatibility window is `>=1.35 <1.35.1`; 1.34 is a refusal fixture.
 
@@ -74,10 +74,11 @@ native platform matrix or Maps service availability.
 a successful fixture or schema check alone cannot promote this adapter.
 The exact source-bound run, native-editor observations, upstream warnings and
 local gate limitations are recorded in `evidence/qualification.md`.
-`evidence/human-review.md` records the authorized review and the remaining
-certified host-path/exact-artifact validation. Its evidence correction identifies
-an installer warning in earlier terminal-PASS logs; a warning-free native rerun
-is required. Review approval alone does not establish a completed release gate.
+`evidence/human-review.md` records the authorized review and its release conditions.
+The 39640c46 native matrix satisfies the warning-free host-path and exact-artifact
+conditions; earlier terminal-PASS logs with an installer warning are not used as
+substitutes. The adapter digest changed with its reviewed disposition: existing
+content-pinned sites must recompile and re-pin through the normal product path.
 
 ```sh
 php tools/adapter-package-validate.php --adapter=map-block-gutenberg

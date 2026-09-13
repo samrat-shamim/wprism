@@ -83,3 +83,11 @@ may declare the reviewed certified boundary to exercise that real host path;
 it must not be merged or reported production-ready until those gates pass.
 The digest at the review checkpoint was
 `e814fa810757d428dfabc5479e217c5313eb0d8e7ca4ca25da59403ebaba1c8c`.
+
+The subsequent exact-source matrix at
+`39640c46de8141e5c32b29f9e40a5dfd3e42dd9b` passed the certified host path,
+warning-free reinstall and real 1.34 refusal, then destroyed its disposable
+pair. All 390 offline suites, Composer and release checks passed at that
+source. Independent review found no actionable issue in the promotion delta
+or matrix implementation. See [qualification.md](qualification.md) for the
+retained proof, digest migration and final-revision gate discipline.

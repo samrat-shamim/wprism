@@ -292,7 +292,7 @@ version case mutated the 1.35 header; it does not replace testing the actual
 digest-pinned 1.34 refusal artifact. No shipped runtime/package bytes changed in
 this review checkpoint, and no new service/editor/platform coverage is claimed.
 
-## Promotion candidate (gates pending)
+## Promotion candidate preparation
 
 The follow-up branch proposes the reviewed certified disposition and a
 `roundtrip` entry, with the exact 1.35 artifact marked `certified-boundary`.
@@ -312,3 +312,87 @@ artifact on that same target and verifies the exact private Apply refusal and
 preservation. The proposed disposition changes the adapter digest from
 `e814fa810757d428dfabc5479e217c5313eb0d8e7ca4ca25da59403ebaba1c8c` to
 `a35cfb808248030a89a03b73240077c9e5b471ed5f99edda087af6687365568f`.
+
+## Certified host-path and exact-artifact result
+
+On 2026-09-14 (Asia/Dhaka), the complete matrix at clean source
+`39640c46de8141e5c32b29f9e40a5dfd3e42dd9b` passed with exit zero and
+`CERTIFY_VERSION_MATRIX PASSED`. The exact-source gate admitted that commit
+before pair mutation. Pair `codexmapcert` used ports 8998/8999 and the same
+WordPress 7.1/PHP 8.3/MariaDB 11 native profile. The full log, including pair
+provisioning and destruction, spans 526 seconds:
+`sandbox/tmp/map-certified-native-39640c46.log` in the production-readiness
+worktree. The full-run evidence validator rejects warning/notice/error lines,
+wrong or duplicate terminal results, and nonzero exit status.
+
+```sh
+WPRISM_SOURCE_ROOT=/path/to/clean/worktree \
+VMATRIX_MANIFEST=map-block-gutenberg \
+VMATRIX_EXPECTED_SOURCE_SHA=39640c46de8141e5c32b29f9e40a5dfd3e42dd9b \
+VMATRIX_PAIR=codexmapcert VMATRIX_PORT1=8998 VMATRIX_PORT2=8999 \
+  bash sandbox/tests/certify/certify_version_matrix.sh
+```
+
+The 1.35 leg invokes the full `roundtrip` entry once. The real host CLI reports
+`deploy complete: lifecycle-retire -> lifecycle-activate; no code descriptor`:
+the digest-verified plugin files were installed by the fixture, and host deploy
+compiled its artifact and reconciled activation. This is successful certified
+host deployment, not the old experimental refusal followed by an agent fallback.
+The retained deployment artifact's `resolved_adapters` contains the new Map
+digest `a35cfb808248030a89a03b73240077c9e5b471ed5f99edda087af6687365568f`.
+These fresh fixture repositories select manifests by name; this is not an
+in-place migration of an existing fleet's content pins. Such sites still need
+normal recompilation and explicit re-pinning; no old-pin compatibility is claimed.
+
+The native checks pass clean creation and unmanaged same-slug adoption,
+target-only credential/runtime preservation, missing/drifted intent refusal,
+authored update/restore, repeated no-op Apply, frontend/localized target keys,
+exact lifecycle refusals/reinstall, unsupported credential deletion, and
+controlled capture/capture/apply contention. The corrected same-version
+reinstall returns complete success without the previous activation warning.
+All four durable-recovery checkpoints and five tamper/contradictory-proof
+refusals pass again, ending with the original source generation restored
+byte for byte. Expected typed recovery notices are checked as exact command
+data; they are not ignored PHP or WP-CLI warning output.
+
+The negative leg fetches the official 1.34 ZIP and verifies
+`bc99aff5341b294dd9e936cdaa50a1d2ea8fec77cf1bc6f3f89b57302ab3c52e` before
+same-basename replacement. Fresh native observations report installed version
+1.34, active status and loaded native code. Capability exits 3 with exactly
+`plugin_version_mismatch`; ordinary Apply exits 1 with the expected public
+envelope and one fresh matching private cause graph. Five native table
+witnesses, credential intent, retained compiled artifact and the complete
+canonical tree are identical before installation, after installation, and
+after refusal. This is an actual old-artifact test, not a changed 1.35 header.
+
+The matrix driver destroyed both owned containers/webroots and databases.
+The pair inventory afterward contains only the foreign `woovm` pair, untouched.
+Private streams are retained under
+`sandbox/tmp/map-version-matrix-codexmapcert.7QNQVo/`; the site repositories
+were moved to the owner-only
+`sandbox/tmp/map-certified-39640c46-sites.hD1zjK/` directory in the same worktree.
+Their retained deployment artifact, canonical state and per-stage observations
+permit read-only revalidation after destruction.
+
+At that source, all nine capsule suites pass (874 assertions), the shared codec
+suite passes (47 assertions), the package validator passes 16 checks,
+`make regress-offline-all` passes 390/390 suites, `composer check` passes
+1,360 tests/38,288 assertions, and `make release-gate` passes. PHP/Bash syntax
+checks pass. Independent agent review of both the main promotion changes and
+the exact-artifact workflow found no actionable issues after the installer fix.
+
+The delivery branch subsequently rebases over main's `4e69d86d` table-column
+value-case feature. The Map capsule, its runtime, the shared block-content
+codec, credential binding and public-text reader remain byte-identical to the
+native source. The new execution paths select declared typed-column contracts;
+Map declares no tables/column codecs and core's only table declarations here
+are runtime comments/commentmeta with no column codecs. No additional native
+Map sweep is selected for that unrelated change. The final PR records full
+local gates on its rebased final revision, including the newly added global
+offline leaf, before merge.
+
+This certification remains bounded to the reviewed static-map contract and
+version window. It does not remove the documented upstream editor warnings or
+claim a subsequent editor save, real Maps service validity or a broader native
+platform matrix. The authorized approval replaces the earlier review blocker;
+it is not represented as independent human code inspection.
