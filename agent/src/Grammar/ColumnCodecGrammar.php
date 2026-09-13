@@ -12,6 +12,7 @@ require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
 require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
+require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
 require_once __DIR__ . '/AuthoredValueCodec.php';
 
 /**
@@ -151,6 +152,7 @@ final class ColumnCodecGrammar {
             'codec' => ['required' => self::CODEC_KEYS, 'optional' => []],
             'value_codec' => ['required' => self::VALUE_CODEC_KEYS, 'feature' => self::VALUES_FEATURE,
                 'refines' => 'strict json or php_serialized container; authored value contract; every ref declares on_unmapped:refuse; record_fields requires its column feature; no text_encoding'],
+            'value_cases' => ['feature' => ColumnValueCases::FEATURE] + ColumnValueCases::declaration_grammar(),
             'field_labels' => ['feature' => self::FIELD_LABELS_FEATURE, 'formats' => FieldLabelMap::FORMATS,
                 'refines' => 'authored value codec; field-code map to string labels or [string label, integer 0 or 1]; empty map allowed; all key/value bytes still scanned'],
             'record_fields' => ['feature' => self::RECORDS_FEATURE, 'shape' => RecordFields::declaration_grammar()['shape'],
@@ -243,7 +245,8 @@ final class ColumnCodecGrammar {
                     $identityColumns,
                     $slugColumn,
                     $manifest,
-                    $values
+                    $values,
+                    $decl
                 );
             }
         }
@@ -261,7 +264,8 @@ final class ColumnCodecGrammar {
         array $identityColumns,
         ?string $slugColumn,
         array $manifest,
-        ValueContractGrammar $values
+        ValueContractGrammar $values,
+        array $table
     ): void {
         $rule = $columnRules[$column] ?? null;
         if (!is_array($rule) || ($rule['class'] ?? null) !== 'authored') {
@@ -291,7 +295,7 @@ final class ColumnCodecGrammar {
         }
         $keys = array_keys($codec);
         sort($keys, SORT_STRING);
-        if ($keys !== self::CODEC_KEYS && $keys !== self::VALUE_CODEC_KEYS) {
+        if ($keys !== self::CODEC_KEYS && $keys !== self::VALUE_CODEC_KEYS && $keys !== ColumnValueCases::CODEC_KEYS) {
             throw new \RuntimeException(
                 "wprism: $where declares [" . implode(', ', array_map('strval', $keys)) . '] but a column codec is '
                 . 'exactly {container, leaves} — both are required because a codec with an implied container is a '
@@ -319,12 +323,19 @@ final class ColumnCodecGrammar {
             && !in_array(self::JSON_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
             throw new \RuntimeException("wprism: $where container='json' requires the engine feature '" . self::JSON_FEATURE . "'");
         }
-        if ($keys === self::VALUE_CODEC_KEYS) {
+        if ($keys === self::VALUE_CODEC_KEYS || $keys === ColumnValueCases::CODEC_KEYS) {
             if (!in_array(self::VALUES_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
                 throw new \RuntimeException("wprism: $where.value requires engine feature '" . self::VALUES_FEATURE . "'");
             }
             if ($codec['container'] === 'php_serialized_or_text') {
                 throw new \RuntimeException("wprism: $where.value requires a strict container; mixed scalar arms do not carry value contracts");
+            }
+            if ($keys === ColumnValueCases::CODEC_KEYS) {
+                if (!in_array(ColumnValueCases::FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
+                    throw new \RuntimeException("wprism: $where.value_cases requires engine feature '" . ColumnValueCases::FEATURE . "'");
+                }
+                ColumnValueCases::validate($codec['value_cases'], $table, $values, "$where.value_cases");
+                return;
             }
             if (!is_array($codec['value']) || array_is_list($codec['value']) || ($codec['value']['class'] ?? '') !== 'authored') {
                 throw new \RuntimeException("wprism: $where.value requires an authored value contract");
@@ -460,6 +471,9 @@ final class ColumnCodecGrammar {
      * @return array{kind:'container'|'json',value:array<mixed>}|array{kind:'text',value:string}|array{kind:'null',value:null}
      */
     private static function decode(mixed $bytes, array $codec, string $where, string $side): array {
+        if (array_key_exists(ColumnValueCases::FIELD, $codec)) {
+            throw new \RuntimeException("wprism: $where requires row selection before decoding a column value case");
+        }
         $container = (string) $codec['container'];
         if ($container === 'php_serialized_or_text' && $bytes === null) {
             return ['kind' => 'null', 'value' => null];

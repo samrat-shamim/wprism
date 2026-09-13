@@ -91,6 +91,7 @@ return [
     'WPrism\\CodeStageTransaction' => 'src/Code/CodeStageTransaction.php',
     'WPrism\\CodeStateContract' => 'src/Code/CodeStateContract.php',
     'WPrism\\ColumnCodecGrammar' => 'src/Grammar/ColumnCodecGrammar.php',
+    'WPrism\\ColumnValueCases' => 'src/Kernel/ColumnValueCases.php',
     'WPrism\\CommandRefusalException' => 'src/Kernel/CommandRefusal.php',
     'WPrism\\CompiledArtifactReader' => 'src/Repository/CompiledArtifactReader.php',
     'WPrism\\CompiledRepository' => 'src/Repository/CompiledArtifact.php',

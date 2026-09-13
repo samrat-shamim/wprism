@@ -3182,6 +3182,24 @@ paths must start with a retained exact field; scalar references cannot compose
 with projection. Column clearance still scans the original decoded data,
 including excluded fields. Run the column-value offline suite and native lane.
 
+When one physical column has different meanings in different owned row types,
+use `column-value-cases/v1`. Keep one strict container and replace `value` with
+`value_cases: {column, cases}`. The selector names a declared `row_scope` set;
+each `{equals, value}` case supplies its existing authored contract. Enumerate
+every set member exactly once in byte order. Case lists preserve numeric string
+values through JSON loading. There is no default, and every arm receives full
+shape, feature, keyspace and shared-budget validation.
+
+For importer 2.7.5, export field maps contain labels while import maps contain
+expressions and literal values. They share `data.mapping_form_data` but cannot
+share a field-label privacy declaration. First prove the native row selector;
+then give each variant a truthful contract. This mechanism selects contracts;
+import-expression semantics and target-local CSV availability still need their
+own support. Test wrong-variant payloads, attempts to borrow a privacy role,
+unknown selectors, both framing types, and owned variant transitions through
+Capture, immutable compilation, lint, checked Apply and recapture. The shared
+column-value native lane exercises selection on real typed-table writes.
+
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
 an independently managed target row with the same key. Plan must either offer

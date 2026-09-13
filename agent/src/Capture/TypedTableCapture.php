@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
 
 // Production loads close every direct dependency here. Some compiler unit
@@ -126,7 +128,8 @@ final class TypedTableCapture {
                 }
                 $value = $row[$col] ?? null;
                 $context = "table '$table' column '$col' (row $localId)";
-                $codec = $columnCodecs[$col] ?? null;
+                $codec = isset($columnCodecs[$col])
+                    ? ColumnValueCases::resolve($columnCodecs[$col], $row, $context) : null;
                 if ($codec === null) {
                     self::guard_value((string) $col, $value, $rule, $context);
                 }
@@ -253,7 +256,8 @@ final class TypedTableCapture {
                 }
                 $value = $row[$col] ?? null;
                 $context = "table '$table' column '$col' (composite row $uuid)";
-                $codec = $columnCodecs[$col] ?? null;
+                $codec = isset($columnCodecs[$col])
+                    ? ColumnValueCases::resolve($columnCodecs[$col], $row, $context) : null;
                 if ($codec === null) {
                     self::guard_value((string) $col, $value, $rule, $context);
                 }

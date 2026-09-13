@@ -198,6 +198,97 @@ try {
     $query($wpdb->prepare("UPDATE `$physical` SET data=%s WHERE id=2", $after[0]['data']));
     $transaction(static fn() => $writer->deleteLocalRow($table, 2));
     wprism_check_same([$before[1]], $rows(), 'native deletion preserves foreign malformed JSON');
+
+    // The same native column now carries two explicit semantic owners. Keep
+    // real user reads and row writes inside the existing checked transaction.
+    $query("ALTER TABLE `$physical` ADD mode varchar(32) NOT NULL DEFAULT ''");
+    $caseDecl = $decl;
+    $caseDecl['columns']['mode'] = ['class' => 'authored'];
+    $caseDecl['row_scope']['mode'] = ['export', 'import'];
+    $caseManifest = $columnManifest;
+    $caseManifest['engine_features'] = array_merge($caseManifest['engine_features'], ['column-value-cases/v1', 'table-row-scope-sets/v1']);
+    sort($caseManifest['engine_features'], SORT_STRING);
+    $caseManifest['tables'][$table] = $caseDecl;
+    $caseManifest['column_codecs'][$table]['data'] = ['container' => 'json', 'value_cases' => ['column' => 'mode', 'cases' => [
+        ['equals' => 'export', 'value' => ['class' => 'authored', 'field_labels' => 'label_enabled']],
+        ['equals' => 'import', 'value' => ['class' => 'authored', 'ref' => 'user[]', 'cast' => 'string', 'on_unmapped' => 'refuse']],
+    ]]];
+    $casePolicy = WPrismTest\FrozenPolicy::policy([$caseManifest], WPrismTest\FrozenPolicy::site([$caseManifest], 3));
+    $caseCodecs = $casePolicy->column_codec_rules($table);
+    $caseLabels = wp_json_encode(['first_name' => ['First name', 1]]);
+    $query($wpdb->prepare("INSERT INTO `$physical` (id,item_type,name,mode,data,hits) VALUES
+        (101,'user','Export','export',%s,17),(102,'user','Import','import',%s,19)", $caseLabels, wp_json_encode($targetUsers)));
+    $caseBefore = $rows();
+    $caseUuids = ['export' => '33333333-3333-4333-8333-333333333333', 'import' => '44444444-4444-4444-8444-444444444444'];
+    $caseIdentity = new class($caseUuids) {
+        public function __construct(private array $uuids) {}
+        public function identifyRow(string $table, array $decl, array $row, int $id): string { return $this->uuids[$row['mode']]; }
+    };
+    $caseCapture = new TypedTableCapture($caseIdentity, static function (): void {}, static fn() => null,
+        static fn(string $name): string => strtolower($name));
+    $captureCases = static fn(Tokens $input): array => $caseCapture->capture_table($table, $caseDecl, [], $input, true, false, $caseCodecs);
+    $caseEntities = $captureCases(new Tokens('https://source.test', 'https://source.test/uploads'));
+    foreach ($caseEntities as &$caseEntity) $caseEntity['data'] = Canon::decode($caseEntity['content']);
+    unset($caseEntity);
+    wprism_check_same(2, count($caseEntities), 'native row cases capture both owners and exclude foreign malformed data');
+    wprism_check_same($caseLabels, $caseEntities[0]['data']['columns']['data'], 'native export selects label metadata');
+    wprism_check_same(wp_json_encode(array_map(static fn($login) => 'user:' . $login, $logins)),
+        $caseEntities[1]['data']['columns']['data'], 'native import selects user bindings in the same physical column');
+    foreach ($ownedUsers as $id) {
+        if (!wp_delete_user($id)) throw new RuntimeException('case source binding deletion failed');
+    }
+    $ownedUsers = [];
+    $caseTargetUsers = $createUsers();
+    wprism_check($caseTargetUsers !== $targetUsers, 'native case target user IDs diverge');
+    $caseTokens = new Tokens('https://target.test', 'https://target.test/uploads');
+    $caseMapping = [$caseUuids['export'] => 101, $caseUuids['import'] => 102];
+    $caseWriter = new TypedTableMaterializer(static fn() => [$table => $caseDecl], static fn() => [],
+        static function (string $uuid) use (&$caseMapping): ?int { return $caseMapping[$uuid] ?? null; },
+        static function (string $uuid, string $table, string $kind, int $id) use (&$caseMapping): void { $caseMapping[$uuid] = $id; },
+        static fn() => 0, static fn() => [], static fn() => false, static fn($value) => $value,
+        static function (): void {}, static fn() => $caseCodecs);
+    $caseApply = static function () use ($caseWriter, $caseEntities, $caseTokens): void {
+        foreach ($caseEntities as $entity) { $caseWriter->ensureRow($entity); $caseWriter->finalizeRow($caseTokens, $entity); }
+    };
+    $transaction($caseApply);
+    $caseAfter = $rows();
+    wprism_check_same($caseLabels, $caseAfter[1]['data'], 'native selected Apply preserves export labels');
+    wprism_check_same(wp_json_encode($caseTargetUsers), $caseAfter[2]['data'], 'native selected Apply binds import users to target string IDs');
+    wprism_check_same($caseBefore[0], $caseAfter[0], 'native selected Apply preserves foreign bytes');
+    wprism_check_same(array_column($caseBefore, 'hits'), array_column($caseAfter, 'hits'), 'native selected Apply preserves runtime counters');
+    wprism_check_same(array_column($caseEntities, 'content'), array_column($captureCases($caseTokens), 'content'),
+        'native selected row recapture is a complete fixed point');
+    $transaction($caseApply);
+    wprism_check_same($caseAfter, $rows(), 'native repeated selected Apply is a fixed point');
+    $badCase = $caseEntities[0];
+    $badCase['data']['uuid'] = '55555555-5555-4555-8555-555555555555';
+    $badCase['data']['columns']['data'] = '["user:reader"]';
+    $mappingBefore = $caseMapping;
+    wprism_check_throws(static fn() => $caseWriter->ensureRow($badCase), RuntimeException::class,
+        'native phase one refuses a mismatched selected payload before writing', 'field labels');
+    wprism_check_same($caseAfter, $rows(), 'native phase one refusal makes no row write');
+    wprism_check_same($mappingBefore, $caseMapping, 'native phase one refusal publishes no identity');
+    $switched = $caseEntities[0];
+    $switched['data']['columns']['mode'] = 'import';
+    $switched['data']['columns']['data'] = $caseEntities[1]['data']['columns']['data'];
+    $observedSwitch = false;
+    wprism_check_throws(static function () use ($transaction, $caseWriter, $switched, $caseTokens, $rows, $caseTargetUsers, &$observedSwitch): void {
+        $transaction(static function () use ($caseWriter, $switched, $caseTokens, $rows, $caseTargetUsers, &$observedSwitch): void {
+            $caseWriter->ensureRow($switched);
+            $caseWriter->finalizeRow($caseTokens, $switched);
+            $current = $rows()[1];
+            $observedSwitch = $current['mode'] === 'import' && $current['data'] === wp_json_encode($caseTargetUsers);
+            throw new RuntimeException('later native case failure');
+        });
+    }, RuntimeException::class, 'native variant transition retains checked rollback', 'later native case failure');
+    wprism_check($observedSwitch, 'native transition selects the authored destination contract before writing');
+    wprism_check_same($caseAfter, $rows(), 'native rollback restores discriminator and payload together');
+    $query("UPDATE `$physical` SET mode='import' WHERE id=101");
+    $misclassified = $rows();
+    wprism_check_throws(static fn() => $captureCases($caseTokens), RuntimeException::class,
+        'native row cannot borrow another case contract');
+    wprism_check_same($misclassified, $rows(), 'native refused selected Capture preserves every byte');
+
     echo 'Database: ', $wpdb->get_var('SELECT VERSION()'), '; WordPress: ', get_bloginfo('version'), '; PHP: ', PHP_VERSION, "\n";
 } finally {
     foreach ($ownedUsers as $id) wp_delete_user($id);

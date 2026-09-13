@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+
 require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
 
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
@@ -912,14 +914,16 @@ final class RepositoryAuthorization {
                 $piiSubject = null;
                 if (isset($columnCodecs[$column])) {
                     try {
+                        $codec = ColumnValueCases::resolve($columnCodecs[$column], (array) ($front['columns'] ?? []),
+                            "repository table '$table' column '$column'");
                         $clearanceValue = ColumnCodecGrammar::decode_for_clearance(
                             $value,
-                            $columnCodecs[$column],
+                            $codec,
                             "repository table '$table' column '$column'",
                             'authored'
                         );
-                        if (isset($columnCodecs[$column]['value'])) {
-                            $piiSubject = AuthoredValueCodec::pii_subject($clearanceValue, $columnCodecs[$column]['value'],
+                        if (isset($codec['value'])) {
+                            $piiSubject = AuthoredValueCodec::pii_subject($clearanceValue, $codec['value'],
                                 true, "repository table '$table' column '$column'");
                         }
                     } catch (\Throwable) {

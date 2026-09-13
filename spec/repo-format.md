@@ -4705,3 +4705,40 @@ liveness and recovery use the existing ownership boundary. Retained IDs are
 still checked under the current-row lock, so a concurrent change outside the
 set refuses without rewriting or discarding the foreign row. This adds no
 payload-variant codec, local input binding, plugin executable or adapter claim.
+
+
+### v3.45 `column-value-cases/v1` — row-selected column value contracts
+
+A v3 manifest may declare `{container, value_cases}` with
+`column-value-cases/v1` and `typed-column-values/v1`, alongside its existing
+column framing and row-scope features. One strict JSON or PHP-serialized
+container frames every case. `value_cases` is exactly `{column, cases}`:
+
+```json
+"value_cases": {"column": "template_type", "cases": [
+  {"equals": "export", "value": {"class": "authored", "field_labels": "label_enabled"}},
+  {"equals": "import", "value": {"class": "authored", "plain_data": true}}
+]}
+```
+
+The selector must name one `row_scope` set in the same table declaration.
+Cases are a list of exact `{equals, value}` records covering every member of
+that set once, in the same byte order (2–16 cases). Numeric strings remain
+strings. Extra, absent, duplicate, unordered and default cases refuse. Every
+case has an authored value contract and shares the manifest's existing rule
+budget; all reference keyspaces are validated, including unused cases. Each
+contract's additional features, such as `column-field-labels/v1`, remain required.
+
+The current native row selects its capture contract. Canonical columns select
+the contract for compilation, clearance, lint and Apply; an authored transition
+between owned variants writes the discriminator and payload together. Selection
+uses exact strings and never coerces or echoes an unknown discriminator. The
+ordinary row-ownership predicate still checks every discriminator independently.
+Unselected case codecs refuse before framing, so a missing row context cannot
+fall through to text transport. Phase-one materialization validates the selected
+canonical contract before inserting a row or publishing its identity.
+
+The selected contract uses the existing framing, reference, privacy, projection
+and transaction machinery. This adds no import-expression interpretation or
+local-file binding. Export labels and import literal values require separate
+semantic evidence; declaring a case does not qualify the importer adapter.
