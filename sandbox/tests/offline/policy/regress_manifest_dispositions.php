@@ -188,17 +188,15 @@ $tecManifest = $manifestsByName['the-events-calendar'];
 $tecDisposition = $data['manifests']['the-events-calendar'];
 check(
     ($tecManifest['plugin'] ?? null) === 'the-events-calendar/the-events-calendar.php'
-        // Widened 2026-08-24 from the one-release [6.17.2, 6.17.3): 6.17.3 is
-        // the schema-identical upstream release the manifest's own widening
-        // note byte-probes (Custom_Tables/V1 identical, SCHEMA_VERSIONs
-        // unchanged), exercised at both edges by the version matrix.
-        && ($tecManifest['version_range'] ?? null) === ['min' => '6.17.2', 'max' => '6.17.4'],
-    'The Events Calendar is bound to the two schema-probed artifacts its regenerator evidence exercises'
+        // PR #614 admitted the locked 6.17.4 artifact after native conformance;
+        // the exclusive ceiling must match that reviewed three-release range.
+        && ($tecManifest['version_range'] ?? null) === ['min' => '6.17.2', 'max' => '6.17.5'],
+    'The Events Calendar is bound to the three schema-probed artifacts its regenerator evidence exercises'
 );
 check(
     ($tecDisposition['supported_versions'] ?? null) === [
         'plugin' => 'the-events-calendar/the-events-calendar.php',
-        'range' => ['max' => '6.17.4', 'min' => '6.17.2'],
+        'range' => ['max' => '6.17.5', 'min' => '6.17.2'],
     ],
     'The Events Calendar disposition repeats the enforceable plugin identity instead of an unbound placeholder'
 );
@@ -239,7 +237,7 @@ check(
     ($polylangDisposition['status'] ?? null) === 'certified'
         && ($polylangDisposition['supported_versions'] ?? null) === [
             'plugin' => 'polylang/polylang.php',
-            'range' => ['max' => '3.8.8', 'min' => '3.8'],
+            'range' => ['max' => '3.8.10', 'min' => '3.8'],
         ]
         && ($polylangDisposition['evidence']['tests'] ?? null) === [
             'conformance-polylang',
