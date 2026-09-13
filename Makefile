@@ -1154,6 +1154,10 @@ regress-agent-src-requires:
 regress-db-transaction-authority:
 	php sandbox/tests/offline/guards/regress_db_transaction_authority.php
 
+.PHONY: regress-database-snapshot-conflicts
+regress-database-snapshot-conflicts:
+	bash sandbox/tests/live/regress_database_snapshot_conflicts.sh
+
 .PHONY: regress-db-repeatable-read-authority
 regress-db-repeatable-read-authority:
 	php sandbox/tests/offline/guards/regress_db_repeatable_read_authority.php
@@ -3004,6 +3008,7 @@ regress-live-list:
 	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact offline core per run: CORE_DATA_BOUNDARY_WORDPRESS/_IMAGE, default 7.1; re-run per exercised series)"
 	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 x PHP 8.3/8.4 matrix, a below-range 6.8.3 refusal and a past-the-maximum PHP 8.5 refusal)"
 	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
+	@echo "  regress-database-snapshot-conflicts       own disposable MariaDB pair (SNAPSHOT_CONFLICT_PAIR/PORT1/PORT2; exact source; locking-read and DML conflicts preserve verified rollback evidence)"
 	@echo "  regress-database-boundary-live            own disposable pair (parameterized: DATABASE_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; MariaDB/MySQL LIMIT-0 metadata lock + no-definer-invocation view proof + MariaDB sequence refusal)"
 	@echo "  regress-native-permalinks-live            own disposable MariaDB pair (NATIVE_PERMALINK_PAIR/PORT1/PORT2; exact source; native SDK URL families, hostile cache/hook refusal and complete row preservation)"
 	@echo "  regress-protected-identity-native         own disposable MariaDB pair (PROTECTED_IDENTITY_PAIR/PORT1/PORT2; exact source; Capture/env-set protected password, orphan tolerance, live-duplicate refusal)"

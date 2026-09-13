@@ -1043,6 +1043,89 @@ wprism_check(
 Db::start('post-deadlock start', db_authority_profile());
 Db::rollback('post-deadlock rollback');
 
+// Both a locking SELECT and DML can raise 1020 after MariaDB rolls the whole
+// transaction back. Preserve the transport evidence before any state probe,
+// then prove the original witness is absent; never issue a second rollback.
+foreach (['mutation', 'read'] as $operation) {
+    $wpdb = db_authority_fixture()->seedTable('wp_lock_probe', [['id' => 1]])
+        ->setTableEngine('wp_lock_probe', 'InnoDB');
+    Db::start_repeatable_read('snapshot-conflict start', db_authority_profile(['wp_lock_probe'], true));
+    $authority = Db::transaction_authority('snapshot-conflict authority');
+    $wpdb->query(db_authority_guarded_insert($wpdb, $authority, 'snapshot-write', 'uncommitted'));
+    $sql = $operation === 'read' ? 'SELECT id FROM wp_lock_probe WHERE id=1 LIMIT 1 FOR UPDATE'
+        : "INSERT INTO wp_wprism_kv (k, v) SELECT 'snapshot-trigger', 'x'";
+    $wpdb->simulateSnapshotConflict($sql);
+    $failure = db_authority_failure(static fn() => $operation === 'read'
+        ? Db::transactional_rows($sql, $authority, 'snapshot-conflict read')
+        : Db::mutation($sql, '', '', 'snapshot-conflict mutation'));
+    wprism_check($failure instanceof TransientDbException && !$failure instanceof DeadlockTransactionAbortedException,
+        "$operation 1020 is typed as a retryable snapshot conflict");
+    wprism_check(!str_contains($failure?->getMessage() ?? '', 'private_snapshot_payload'),
+        "$operation snapshot conflict keeps driver values out of its public message");
+    wprism_check_same([], $wpdb->rows('wp_wprism_kv'), "$operation snapshot conflict has rolled back all prior writes");
+    $wpdb->resetLog();
+    $cleanup = db_authority_failure(static fn() => Db::rollback_after_failure($failure, 'snapshot-conflict cleanup'));
+    wprism_check($cleanup === null && !in_array('ROLLBACK AND NO CHAIN NO RELEASE', $wpdb->queries(), true),
+        "$operation snapshot cleanup proves the server abort without another rollback");
+    Db::start('post-snapshot-conflict start', db_authority_profile());
+    Db::rollback('post-snapshot-conflict rollback');
+}
+
+// The read boundary must publish only rows from the retained authority and
+// must leave failed/empty reads distinguishable for ownership callers.
+$wpdb = db_authority_fixture()->seedTable('wp_lock_probe', [['id' => 1]])
+    ->setTableEngine('wp_lock_probe', 'InnoDB');
+Db::start_repeatable_read('transactional rows start', db_authority_profile(['wp_lock_probe']));
+$authority = Db::transaction_authority('transactional rows authority');
+$sql = 'SELECT id FROM wp_lock_probe WHERE id=1 LIMIT 1 FOR UPDATE';
+wprism_check_same([['id' => '1']], Db::transactional_rows($sql, $authority, 'retained read'),
+    'transactional read publishes native rows while preserving authority');
+wprism_check_same([], Db::transactional_rows('SELECT id FROM wp_lock_probe WHERE id=99 LIMIT 1 FOR UPDATE', $authority, 'empty read'),
+    'transactional read preserves a proven empty selection');
+wprism_check_throws(static fn() => Db::transactional_rows('DELETE FROM wp_lock_probe', $authority, 'invalid read'),
+    InvalidArgumentException::class, 'transactional row reads cannot invoke DML', 'requires a SELECT');
+$wpdb->failNextQuery('private read error', 'SELECT id FROM wp_lock_probe');
+wprism_check_throws(static fn() => Db::transactional_rows($sql, $authority, 'failed read'),
+    DatabaseMutationException::class, 'transactional read failure cannot become an empty selection', 'failed read');
+foreach ([null, false, ['malformed']] as $malformed) {
+    $wpdb->returnNextGetResultsAs($malformed, 'SELECT id FROM wp_lock_probe');
+    wprism_check_throws(static fn() => Db::transactional_rows($sql, $authority, 'malformed read'),
+        DatabaseMutationException::class, 'transactional read rejects a malformed database row set');
+}
+Db::rollback('transactional rows rollback');
+Db::start_repeatable_read('replacement rows start', db_authority_profile(['wp_lock_probe']));
+wprism_check_throws(static fn() => Db::transactional_rows($sql, $authority, 'stale read'),
+    DatabaseTransactionOutcomeException::class, 'transactional read refuses retained authority from a settled transaction',
+    'changed database session authority before read');
+Db::rollback('replacement rows rollback');
+
+foreach (['deadlock', 'timeout', 'snapshot'] as $contention) {
+    $wpdb = db_authority_fixture()->seedTable('wp_lock_probe', [['id' => 1]])
+        ->setTableEngine('wp_lock_probe', 'InnoDB');
+    Db::start_repeatable_read('contended rows start', db_authority_profile(['wp_lock_probe']));
+    $authority = Db::transaction_authority('contended rows authority');
+    if ($contention === 'deadlock') $wpdb->simulateDeadlock($sql);
+    if ($contention === 'timeout') $wpdb->simulateLockWaitTimeout($sql);
+    if ($contention === 'snapshot') $wpdb->failNextQuery('record changed but transaction preserved', $sql, errno: 1020);
+    $failure = db_authority_failure(static fn() => Db::transactional_rows($sql, $authority, 'contended rows'));
+    wprism_check($failure instanceof TransientDbException, "$contention on a locking read retains the shared contention type");
+    Db::rollback_after_failure($failure, 'contended rows cleanup');
+    wprism_check_same(null, $wpdb->activeTransactionIsolation(), "$contention locking-read cleanup settles the actual transaction state");
+}
+$wpdb = db_authority_fixture()->seedTable('wp_lock_probe', [['id' => 1]])
+    ->setTableEngine('wp_lock_probe', 'InnoDB');
+Db::start_repeatable_read('read postflight start', db_authority_profile(['wp_lock_probe']));
+$authority = Db::transaction_authority('read postflight authority');
+$wpdb->onQuery(static function (string $query) use ($wpdb, $sql): null {
+    if ($query === $sql) $wpdb->simulateImplicitCommit();
+    return null;
+});
+wprism_check_throws(static fn() => Db::transactional_rows($sql, $authority, 'lost read transaction'),
+    DatabaseTransactionOutcomeException::class, 'rows are not published after their transaction ends during the read');
+$wpdb->onQuery(null);
+wprism_check(!Db::connection_transaction_active('read postflight idle proof'), 'read postflight fixture proves its ended connection idle');
+Db::forget_transaction_tracking();
+
 // Error 1205 is transaction-preserving by default: prior writes and the
 // persistent witness remain until rollback_after_failure performs one exact
 // explicit rollback.

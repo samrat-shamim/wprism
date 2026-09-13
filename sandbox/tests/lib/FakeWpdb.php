@@ -968,6 +968,18 @@ class FakeWpdb {
         return $this;
     }
 
+    /** MariaDB snapshot isolation reports 1020 after rolling back the transaction. */
+    public function simulateSnapshotConflict(?string $matching = null, int $times = 1): self {
+        $this->injectedFailures[] = [
+            'match' => $matching,
+            'error' => 'Record has changed since last read; private_snapshot_payload',
+            'errno' => 1020,
+            'remaining' => $times,
+            'abort_transaction' => true,
+        ];
+        return $this;
+    }
+
     /** Model 1205 under either innodb_rollback_on_timeout server setting. */
     public function simulateLockWaitTimeout(
         ?string $matching = null,
