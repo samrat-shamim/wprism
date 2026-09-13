@@ -40,6 +40,11 @@
       "adapter-packages/map-block-gutenberg/tests/offline/regress_lifecycle_evidence.php",
       "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
     ],
+    "data-boundary": [
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php",
+      "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
+      "adapter-packages/map-block-gutenberg/tests/conformance/capture-check.sh"
+    ],
     "failure-recovery": [
       "adapter-packages/map-block-gutenberg/fixtures/recovery-native.php",
       "adapter-packages/map-block-gutenberg/fixtures/recovery-evidence.php",
@@ -48,11 +53,10 @@
       "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
     ]
   },
-  "gaps": {},
-  "blocked": {
-    "data-boundary": "Credential/schema/serialization and native saved-content evidence passes in tests/offline/regress_map_boundary.php, fixtures/native-editor-saves.json and tests/conformance/capture-check.sh. Required human review of the shared block-content codec and the exact address public-text clearance has not been recorded; see evidence/human-review.md. This replaces the earlier technical-coverage-only row, not its evidence.",
-    "scope-platform": "tests/offline/regress_scope_platform.php exercises typed Capture/Apply topology, version and unavailable-fact refusals, genuine absent-parser refusal, and explicit injected PHP/filesystem/process boundaries. Native WordPress 7.1/PHP 8.3/MariaDB 11 transport passes. Human acceptance of the documented upstream editor warnings, bounded platform/service limitations and final disposition remains pending; see evidence/human-review.md. No real Maps service validity or expanded adapter-specific platform matrix is claimed."
+  "gaps": {
+    "scope-platform": "The task owner delegated approval to Codex; the bounded review decision and reasons are recorded in evidence/human-review.md. Before promotion, complete the capsule-owned exact-artifact matrix (real 1.35 admission and real 1.34 refusal), certified host-path conformance, warning-free reinstall rerun, and final local gates. Prior native terminal PASS logs contain an installer warning and are not warning-free green evidence. No real Maps service validity, subsequent editor save or expanded adapter-specific platform matrix is claimed."
   },
+  "blocked": {},
   "not_applicable": {
     "identity-references": "The exact plugin defines no entities, tables, or post/term/user reference attributes: only zoom, height, address, api_key and one API-key option. Owning post/widget identities belong to core; conformance still forces different post IDs.",
     "derived-state": "The exact 1.35 plugin registers editor assets and saves static iframe markup. It owns no generated cache/index/table/file or repair action. Credential rebinding is authored transport, covered separately."

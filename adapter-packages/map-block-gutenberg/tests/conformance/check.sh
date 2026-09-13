@@ -128,7 +128,19 @@ map_refused 1.34 active 1.34
 map_native restore-header
 # Only one release is claimed. Replacing it with the same digest exercises
 # supported replacement without inventing a second in-range release.
-wp_conf2 plugin install "$MAP_EXACT" --force --activate
+MAP_REINSTALL=$(wp_conf2 plugin install "$MAP_EXACT" --force 2>&1) \
+  || fail 'Map Block same-version replacement failed'
+require_observed_nonempty 'Map Block same-version replacement' "$MAP_REINSTALL"
+assert_no_php_runtime_diagnostics 'Map Block same-version replacement' "$MAP_REINSTALL"
+# The retained 74fc75a8 run printed "already active" yet reached PASS.
+# Activation is already proven above; WP-CLI warnings are not green evidence.
+if grep -Eq '(^|[[:space:]])(Warning|Notice|Deprecated):' <<<"$MAP_REINSTALL"; then
+  fail 'Map Block same-version replacement emitted a warning'
+fi
+grep -Fxq 'Plugin updated successfully.' <<<"$MAP_REINSTALL" \
+  && [ "$(awk 'NF { line=$0 } END { print line }' <<<"$MAP_REINSTALL")" = 'Success: Installed 1 of 1 plugins.' ] \
+  || fail 'Map Block same-version replacement lacks its complete success result'
+printf '%s\n' "$MAP_REINSTALL"
 map_capability active 1.35
 wp_conf2 plugin uninstall map-block-gutenberg --deactivate
 map_capability inactive missing

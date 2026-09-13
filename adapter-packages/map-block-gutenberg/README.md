@@ -1,6 +1,6 @@
 # Map Block for Google Maps
 
-Experimental pending human boundary/disposition review and certified host-path
+Experimental pending final native and certified host-path
 qualification. Exact audited plugin:
 `map-block-gutenberg` 1.35, SHA-256 pinned in `evidence/artifacts.lock.json`.
 The enforced compatibility window is `>=1.35 <1.35.1`; 1.34 is a refusal fixture.
@@ -13,8 +13,9 @@ A map may be nested inside ordinary parent blocks, but cannot contain children.
 Custom classes/styles/metadata, custom HTML, malformed values, and unknown fields
 refuse rather than being silently discarded. The inspected native bounds are
 zoom 1..21, height 50..1000, and a UTF-8 destination of at most 8192 bytes.
-The manifest declares the destination as public text, pending the required human
-clearance review; value-level PII and secret checks remain.
+The authorized review approves the destination's exact public-text clearance;
+value-level PII and secret checks remain. See `evidence/human-review.md` for the
+user-delegated AI review, rationale and limits.
 
 The key occurs in both the attributes and static iframe URL. Gutenberg omits
 `api_key` when it equals the editor default, but the iframe still contains it.
@@ -71,9 +72,10 @@ native platform matrix or Maps service availability.
 a successful fixture or schema check alone cannot promote this adapter.
 The exact source-bound run, native-editor observations, upstream warnings and
 local gate limitations are recorded in `evidence/qualification.md`.
-`evidence/human-review.md` lists the outstanding human decisions and the
-certified host-path validation required after approval. Passing agent-level
-qualification does not make those decisions or change the experimental status.
+`evidence/human-review.md` records the authorized review and the remaining
+certified host-path/exact-artifact validation. Its evidence correction identifies
+an installer warning in earlier terminal-PASS logs; a warning-free native rerun
+is required. Review approval alone does not change the experimental status.
 
 ```sh
 php tools/adapter-package-validate.php --adapter=map-block-gutenberg

@@ -228,6 +228,37 @@ try {
 }
 
 $source = (string) file_get_contents($capsule . '/tests/conformance/check.sh');
+$reinstallStart = strpos($source, '# Only one release is claimed.');
+$reinstallEnd = $reinstallStart === false ? false : strpos($source, "\nmap_capability active 1.35", $reinstallStart);
+if ($reinstallStart === false || $reinstallEnd === false) throw new RuntimeException('actual reinstall acceptance missing');
+$reinstall = substr($source, $reinstallStart, $reinstallEnd - $reinstallStart);
+$reinstallSetup = <<<'SH'
+set -euo pipefail
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$1/sandbox/conformance/asserts.sh"
+MAP_EXACT=/artifacts-cache/map-fixture.zip
+answer="$2" command_stderr="$3" command_exit="$4"
+wp_conf2() {
+  [ "$#" = 4 ] && [ "$1" = plugin ] && [ "$2" = install ] && [ "$3" = "$MAP_EXACT" ] && [ "$4" = --force ] || return 64
+  printf '%s\n' "$answer"
+  [ -z "$command_stderr" ] || printf '%s\n' "$command_stderr" >&2
+  return "$command_exit"
+}
+SH;
+foreach (['valid', 'empty', 'missing-success', 'warning-stdout', 'warning-stderr', 'php-stderr', 'nonzero'] as $mutation) {
+    $answer = "Plugin updated successfully.\nSuccess: Installed 1 of 1 plugins.";
+    $stderr = '';
+    if ($mutation === 'empty') $answer = '';
+    if ($mutation === 'missing-success') $answer = 'Plugin updated successfully.';
+    if ($mutation === 'warning-stdout') $answer = "Warning: Plugin is already active.\n" . $answer;
+    if ($mutation === 'warning-stderr') $stderr = 'Warning: Plugin is already active.';
+    if ($mutation === 'php-stderr') $stderr = 'PHP Warning: fixture failure';
+    [$status, $output] = ShellProbe::run($reinstallSetup . "\n" . $reinstall . "\nprintf 'REINSTALL_READY\\n'\n", [
+        $root, $answer, $stderr, $mutation === 'nonzero' ? '1' : '0',
+    ], $root);
+    wprism_check($mutation === 'valid' ? $status === 0 && str_contains($output, 'REINSTALL_READY')
+        : $status !== 0 && !str_contains($output, 'REINSTALL_READY'), "$mutation actual reinstall requires warning-free complete success without redundant activation");
+}
 $archiveBlock = ShellProbe::captureBlock($source, 'MAP_CACHE', 'map_native() {');
 $archiveSetup = <<<'SH'
 set -euo pipefail

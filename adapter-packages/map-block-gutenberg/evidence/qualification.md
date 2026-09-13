@@ -258,3 +258,36 @@ is claimed. The adapter remains `unready`/`experimental`. After approval,
 promotion still requires the corresponding production disposition/entry and
 regression changes, recompilation/re-pinning, a certified host-path conformance
 run and the complete local gates.
+
+## Authorized review and correction to native gate claims
+
+On 2026-09-14 (Asia/Dhaka), the task owner explicitly delegated the review and
+approval decision to Codex. The decision, reviewed source and written reasons
+are recorded in [human-review.md](human-review.md). This is a user-authorized
+AI review, not a claim that a human independently inspected the code.
+
+The review found that both retained native logs (`3aa5865b` and `74fc75a8`)
+contain `Warning: Plugin 'map-block-gutenberg' is already active.` during the
+same-version reinstall. Their exit-zero/PASS outputs above are historical
+observations, **not warning-free green gates**. This correction does not erase
+the retained interruption, refusal and restoration observations, but the full
+native gate must be rerun after correcting the installer invocation. The check
+now omits redundant activation, rejects warnings from either stream and requires
+the complete installer success result before the existing native active/version
+assertion. Seven new actual-shell probes cover clean, empty, incomplete,
+warning-bearing and nonzero outcomes; the old command fails the new regression.
+
+The shared block-content suite was rerun at `8183b5d7`: 47 assertions pass.
+Nineteen new Map boundary assertions confirm a valid map schema before testing
+both capture publication and immutable compilation: public destination text
+passes; email, phone, labelled credentials and hard token signatures refuse.
+The boundary suite now passes 186 assertions and lifecycle passes 106.
+
+The data-boundary review is approved within the exact static-map contract.
+Readiness remains `unready`, disposition remains `experimental`, and
+`scope-platform` now records actionable technical work rather than an approval
+blocker: exact-artifact boundary workflow, warning-free native rerun, certified
+host deployment path, and final local gates. The previous real native minimum
+version case mutated the 1.35 header; it does not replace testing the actual
+digest-pinned 1.34 refusal artifact. No shipped runtime/package bytes changed in
+this review checkpoint, and no new service/editor/platform coverage is claimed.
