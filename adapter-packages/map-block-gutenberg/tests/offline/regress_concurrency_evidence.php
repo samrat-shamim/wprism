@@ -113,6 +113,36 @@ foreach (['', 'locked', 'release'] as $phase) {
         wprism_check_throws(static fn() => MapConcurrencyEvidence::assertPhase($bad, $phase), RuntimeException::class, "$phase malformed phase cannot prove overlap");
     }
 }
+// Deterministic native-helper interleaving: the holder consumes the release
+// and clears its marker before the controller's next read. Shared row-backed
+// storage and real Ledger APIs retain the write/error behavior under test.
+$db->enableInformationSchema()->seedTable('wprism_kv', [['k' => 'capture_test_phase', 'v' => 'locked']])
+    ->setColumns('wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+    ->setIndexes('wprism_kv', [['Key_name' => 'PRIMARY', 'Non_unique' => 0, 'Seq_in_index' => 1,
+        'Column_name' => 'k', 'Sub_part' => null, 'Index_type' => 'BTREE', 'Visible' => 'YES', 'Ignored' => 'NO']])
+    ->setUniqueKey('wprism_kv', ['k'])->setTableEngine('wprism_kv', 'InnoDB');
+$phaseReads = 0;
+$db->onQuery(static function (string $sql, string $method, FakeWpdb $database) use (&$phaseReads): void {
+    if (str_contains($sql, 'SELECT k, v FROM wp_wprism_kv') && str_contains($sql, 'capture_test_phase') && ++$phaseReads === 2) {
+        $database->seedTable('wprism_kv', []);
+    }
+});
+$nativeRelease = static function () use ($capsule): array {
+    $args = ['release'];
+    ob_start();
+    try {
+        require $capsule . '/fixtures/concurrency-native.php';
+        return json_decode((string) ob_get_contents(), true, 32, JSON_THROW_ON_ERROR);
+    } finally { ob_end_clean(); }
+};
+$acknowledgment = $nativeRelease();
+$afterRelease = (string) \WPrism\Ledger::kv_get('capture_test_phase');
+$db->onQuery(null);
+MapConcurrencyEvidence::assertPhase($acknowledgment, 'release');
+wprism_check(true, 'native helper acknowledges the successful release even when the holder immediately clears it');
+wprism_check_same('', $afterRelease, 'simulated holder completion really consumed the release marker');
+wprism_check_same(2, $phaseReads, 'native release performs no racy post-write readback');
+wprism_check_throws($nativeRelease, RuntimeException::class, 'native release cannot acknowledge an absent holder');
 $capture = ['counts' => ['post' => 2, 'term' => 1, 'menu' => 0, 'sidebar' => 0, 'options' => 1, 'deletion' => 0],
     'media' => 0, 'notes' => [], 'warnings' => [], 'state_dir' => '/siterepo/.tmp-map-concurrency/holder',
     'revision_hash' => null, 'initial_code_baseline' => null, 'initial_publication_cleanup' => 'not-applicable'];
