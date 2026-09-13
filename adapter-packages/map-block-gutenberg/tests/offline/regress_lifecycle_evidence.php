@@ -17,6 +17,9 @@ wprism_test_define_agent_versions();
 use WPrism\AdapterLibrary;
 use WPrism\AdapterRegistry;
 use WPrism\ApplyPreparationCoordinator;
+use WPrism\ApplyPreparationRequest;
+use WPrism\CompiledRepository;
+use WPrism\CommandRefusalException;
 use WPrism\LifecyclePlanner;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
@@ -34,6 +37,17 @@ $policy = Policy::load(null, ['core', 'map-block-gutenberg'], adapterLibrary: $l
 $dispositions = ManifestDispositions::load_library($library);
 $plugin = MapLifecycleEvidence::PLUGIN;
 $reports = [];
+$nativeFailures = [];
+// Only WP-CLI's output/exit transport is replaced; the actual formatter
+// decides the full public payload for the exception prepare() really emits.
+final class MapLifecycleCliExit extends RuntimeException {}
+final class WP_CLI {
+    public static string $output = '';
+    public static function add_command(string $name, string $handler): void {}
+    public static function line(string $line): void { self::$output .= $line . "\n"; }
+    public static function halt(int $status): never { throw new MapLifecycleCliExit((string) $status); }
+}
+require_once $root . '/agent/src/Command/Cli.php';
 foreach ([
     'exact' => [true, '1.35', true], 'inactive' => [false, '1.35', true],
     '1.34' => [true, '1.34', true], '1.35.1' => [true, '1.35.1', true],
@@ -58,12 +72,40 @@ foreach ([
         wprism_check($case === 'exact' && $result === [], "$case reaches the expected apply gate outcome");
     } catch (RuntimeException $failure) {
         if ($case === 'exact') throw $failure;
-        $profile = MapLifecycleEvidence::refusalProfile($case);
+        $profile = MapLifecycleEvidence::codeMismatchProfile($case);
         PrivateRefusalReceipt::assertGraph(PrivateRefusalEvidence::graph($failure), $profile['nodes']);
         wprism_check(true, "$case closed expected private graph agrees with the real lifecycle/apply gate");
         wprism_check_throws(static fn() => PrivateRefusalReceipt::assertGraph(
             PrivateRefusalEvidence::graph(new RuntimeException('unrelated failure')), $profile['nodes']
         ), RuntimeException::class, "$case cannot accept an unrelated generic apply failure");
+    }
+    if ($case !== 'exact') {
+        $plan = array_fill_keys(['collision', 'conflict', 'delete_conflict', 'drift', 'create', 'update', 'missing_user'], []);
+        $plan['code_mismatch'] = $mismatches;
+        if (in_array($case, ['inactive', 'absent', 'wrong-basename'], true)) $plan['drift'] = [['path' => 'options/core.json']];
+        // These guards precede any collaborator use. An uninitialized
+        // coordinator makes crossing that boundary an Error, never a green
+        // mocked materialization. The native leg supplies real plan facts.
+        $coordinator = (new ReflectionClass(ApplyPreparationCoordinator::class))->newInstanceWithoutConstructor();
+        $request = new ApplyPreparationRequest([], CompiledRepository::create(['tree' => []]), $plan, [], false, false, false, false, '', '');
+        $warnings = $forced = [];
+        try {
+            $coordinator->prepare($request, $warnings, $forced);
+            throw new LogicException('native lifecycle control passed preparation');
+        } catch (RuntimeException $failure) {
+            PrivateRefusalReceipt::assertGraph(PrivateRefusalEvidence::graph($failure), MapLifecycleEvidence::refusalProfile($case)['nodes']);
+            $nativeFailures[$case] = $failure;
+        }
+        wprism_check_same([], $warnings, "$case preparation emits no partial-success warnings");
+        WP_CLI::$output = '';
+        try {
+            (new ReflectionMethod(\WPrism\Cli::class, 'halt_json_failure'))->invoke(null, $nativeFailures[$case], ['format' => 'json'], 'apply');
+            throw new LogicException('native lifecycle formatter did not halt');
+        } catch (MapLifecycleCliExit $exit) {
+            wprism_check_same('1', $exit->getMessage(), "$case actual refusal formatter exits one");
+        }
+        wprism_check_same(MapLifecycleEvidence::publicRefusal($case), json_decode(WP_CLI::$output, true, 32, JSON_THROW_ON_ERROR),
+            "$case complete public expectation agrees with actual preparation and CLI ordering");
     }
 }
 wprism_check_throws(static fn() => MapLifecycleEvidence::refusalProfile('exact'), RuntimeException::class, 'supported state cannot select a refusal profile');
@@ -124,16 +166,16 @@ foreach (['empty', 'rows-scalar', 'row-scalar', 'reasons-missing', 'reason-scala
 // native run separately proves freshness with the shared snapshot/collector.
 $privateDirectory = sys_get_temp_dir() . '/map-lifecycle-evidence-' . bin2hex(random_bytes(12));
 mkdir($privateDirectory, 0700);
-$public = MapLifecycleEvidence::publicRefusal();
+$public = MapLifecycleEvidence::publicRefusal('inactive');
 $profile = MapLifecycleEvidence::refusalProfile('inactive');
-$record = ['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'apply', 'reason_code' => 'apply_failed']
-    + PrivateRefusalEvidence::graph(new RuntimeException($profile['nodes'][0]['message']));
+$record = ['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'apply', 'reason_code' => $profile['reason_code']]
+    + PrivateRefusalEvidence::graph($nativeFailures['inactive']);
 try {
     foreach (['valid', 'unrelated', 'other-case', 'extra-cause', 'zero-records', 'wrong-exit', 'php-stderr', 'other-pair', 'wrong-public',
-        'diagnostic-leak', 'remediation-leak', 'extra-field-leak', 'missing-diagnostics'] as $mutation) {
+        'diagnostic-leak', 'remediation-leak', 'extra-field-leak', 'missing-remediation'] as $mutation) {
         $candidate = $record;
         if ($mutation === 'unrelated') $candidate = array_replace($record, PrivateRefusalEvidence::graph(new RuntimeException('unrelated gate')));
-        if ($mutation === 'other-case') $candidate = array_replace($record, PrivateRefusalEvidence::graph(new RuntimeException(MapLifecycleEvidence::refusalProfile('absent')['nodes'][0]['message'])));
+        if ($mutation === 'other-case') $candidate = array_replace($record, PrivateRefusalEvidence::graph($nativeFailures['1.34']));
         if ($mutation === 'extra-cause') $candidate = array_replace($record, PrivateRefusalEvidence::graph(new RuntimeException($profile['nodes'][0]['message'], 0, new RuntimeException('extra'))));
         $bytes = json_encode($candidate, JSON_THROW_ON_ERROR);
         $raw = ['name' => '20260913-120000-apply-' . str_repeat('a', 24) . '.json', 'bytes' => strlen($bytes),
@@ -145,7 +187,7 @@ try {
         if ($mutation === 'diagnostic-leak') $answer['diagnostics'][0]['message'] = 'map-fixture-target-key';
         if ($mutation === 'remediation-leak') $answer['remediation'] = 'map-fixture-target-key';
         if ($mutation === 'extra-field-leak') $answer['private'] = ['credential' => 'map-fixture-target-key'];
-        if ($mutation === 'missing-diagnostics') unset($answer['diagnostics']);
+        if ($mutation === 'missing-remediation') unset($answer['remediation']);
         $streams = ['command.stdout' => json_encode($answer, JSON_THROW_ON_ERROR), 'command.stderr' => '',
             'command.exit' => $mutation === 'wrong-exit' ? "0\n" : "1\n", 'private.stdout' => json_encode($diagnostic, JSON_THROW_ON_ERROR),
             'private.stderr' => ' Container wprism-fixture-cli2-run-' . str_repeat('a', 12) . " Created \n", 'private.exit' => "0\n"];

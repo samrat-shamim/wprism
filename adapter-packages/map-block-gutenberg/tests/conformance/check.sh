@@ -87,8 +87,8 @@ map_refused() { # <case> <active|inactive> <version|missing>
       wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
   # The private validator admits the exact exit, public envelope and complete
   # one-new-record cause graph before the capture helper can publish success.
-  jq -e '.command == "apply" and .reason_code == "apply_failed" and .details_redacted == true' \
-    <<<"$MAP_LIFECYCLE_REFUSAL" >/dev/null || fail 'Map Block lifecycle public refusal differs'
+  # The case-specific validator already admitted every public field and the
+  # complete private graph, including active_plugins drift before lifecycle.
   map_preserved "$2" "$3"
 }
 

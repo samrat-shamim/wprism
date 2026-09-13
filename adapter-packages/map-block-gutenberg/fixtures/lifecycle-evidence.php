@@ -89,6 +89,19 @@ final class MapLifecycleEvidence {
     // These closed fixture messages independently name the lifecycle gate;
     // apply_failed alone also describes unrelated transport/compiler failures.
     public static function refusalProfile(string $case): array {
+        if (in_array($case, ['inactive', 'absent', 'wrong-basename'], true)) {
+            // Native activation changes authored active_plugins. The ordinary
+            // drift guard precedes code_mismatch in prepare():99-151; these
+            // controls prove that earlier refusal, not an unreachable gate.
+            return ['command' => 'apply', 'reason_code' => 'apply_refused', 'nodes' => [[
+                'parent_index' => null, 'relation' => 'root', 'class' => 'WPrism\\CommandRefusalException',
+                'message' => "wprism: ordinary target drift requires capture/reconciliation before apply; no target mutation attempted:\n  - options/core.json",
+            ]]];
+        }
+        return self::codeMismatchProfile($case);
+    }
+
+    public static function codeMismatchProfile(string $case): array {
         $plugin = self::PLUGIN;
         $messages = [];
         if ($case === 'inactive') {
@@ -124,7 +137,13 @@ final class MapLifecycleEvidence {
         ]]];
     }
 
-    public static function publicRefusal(): array {
+    public static function publicRefusal(string $case): array {
+        if (self::refusalProfile($case)['reason_code'] === 'apply_refused') {
+            return ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+                'error' => 'apply_refused', 'reason_code' => 'apply_refused',
+                'message' => 'the target changed after the repository baseline, so this plan is stale and cannot be partially applied',
+                'remediation' => 'capture the target changes, reconcile them in the repository, then build and apply a fresh plan'];
+        }
         $message = 'apply refused at an unclassified safety gate';
         $remediation = 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase';
         return ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
@@ -145,7 +164,7 @@ final class MapLifecycleEvidence {
         // The public command bytes are replayed only after this validator.
         // Extra diagnostics, remediation or fields could otherwise disclose
         // target values while the few identifying fields still looked safe.
-        if ($public !== self::publicRefusal()) throw new RuntimeException('native lifecycle public refusal differs');
+        if ($public !== self::publicRefusal($case)) throw new RuntimeException('native lifecycle public refusal differs');
         \WPrismTest\PrivateRefusalReceipt::verifyDiagnostic($read($stem, 0), self::refusalProfile($case));
     }
 }
