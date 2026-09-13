@@ -124,6 +124,15 @@ final class MapLifecycleEvidence {
         ]]];
     }
 
+    public static function publicRefusal(): array {
+        $message = 'apply refused at an unclassified safety gate';
+        $remediation = 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase';
+        return ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+            'error' => 'apply_failed', 'reason_code' => 'apply_failed', 'message' => $message,
+            'remediation' => $remediation, 'details_redacted' => true,
+            'diagnostics' => [['code' => 'apply_failed', 'message' => $message, 'remediation' => $remediation]]];
+    }
+
     public static function assertPrivate(string $case, string $pair, string $stem): void {
         require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/PrivateRefusalReceipt.php';
         require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/PrivateCommandOutput.php';
@@ -133,10 +142,10 @@ final class MapLifecycleEvidence {
             $path, $prelude, \WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE, $exit
         ), true, 32, JSON_THROW_ON_ERROR);
         $public = $read(dirname($stem) . '/command', 1);
-        if (($public['format'] ?? null) !== 'wprism-command-refusal/v1' || ($public['ok'] ?? null) !== false
-            || ($public['command'] ?? null) !== 'apply' || ($public['reason_code'] ?? null) !== 'apply_failed'
-            || ($public['message'] ?? null) !== 'apply refused at an unclassified safety gate'
-            || ($public['details_redacted'] ?? null) !== true) throw new RuntimeException('native lifecycle public refusal differs');
+        // The public command bytes are replayed only after this validator.
+        // Extra diagnostics, remediation or fields could otherwise disclose
+        // target values while the few identifying fields still looked safe.
+        if ($public !== self::publicRefusal()) throw new RuntimeException('native lifecycle public refusal differs');
         \WPrismTest\PrivateRefusalReceipt::verifyDiagnostic($read($stem, 0), self::refusalProfile($case));
     }
 }

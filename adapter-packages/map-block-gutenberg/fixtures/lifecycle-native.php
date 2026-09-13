@@ -5,6 +5,13 @@ require_once __DIR__ . '/lifecycle-evidence.php';
 require_once ABSPATH . 'wp-admin/includes/plugin.php';
 wp_set_current_user(1);
 $mode = $args[0] ?? '';
+if ($mode === 'archive') {
+    if (count($args) !== 2 || preg_match('~^/artifacts-cache/plugin-map-block-gutenberg-1\.35-[a-f0-9]{64}\.zip$~D', $args[1]) !== 1) {
+        throw new RuntimeException('native archive probe requires the exact fixture cache path');
+    }
+    echo json_encode(['sha256' => is_file($args[1]) ? hash_file('sha256', $args[1]) : null], JSON_THROW_ON_ERROR);
+    return;
+}
 $entry = WP_PLUGIN_DIR . '/' . MapLifecycleEvidence::PLUGIN;
 $wrong = WP_PLUGIN_DIR . '/map-block-gutenberg/map-fixture-wrong.php';
 $backup = __DIR__ . '/entry.original';

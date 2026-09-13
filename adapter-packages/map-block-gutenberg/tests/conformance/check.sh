@@ -40,7 +40,7 @@ MAP_EXACT_SHA=$(artifact_library_jq -er '.plugins["map-block-gutenberg"]["1.35"]
 [[ "$MAP_EXACT_SHA" =~ ^[a-f0-9]{64}$ ]] || fail 'exact Map Block artifact digest missing'
 MAP_EXACT="/artifacts-cache/plugin-map-block-gutenberg-1.35-${MAP_EXACT_SHA}.zip"
 capture_wprism_json_success MAP_CACHE 'Map Block exact reinstall artifact' \
-  wp_conf2 eval 'echo json_encode(["sha256" => is_file($args[0]) ? hash_file("sha256", $args[0]) : null], JSON_THROW_ON_ERROR);' "$MAP_EXACT"
+  wp_conf2 eval-file /siterepo/.tmp-map-lifecycle/lifecycle-native.php archive "$MAP_EXACT" --use-include
 jq -e --arg sha256 "$MAP_EXACT_SHA" '.sha256 == $sha256' <<<"$MAP_CACHE" >/dev/null \
   || fail 'exact Map Block reinstall archive is missing or has changed'
 

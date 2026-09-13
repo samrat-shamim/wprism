@@ -124,13 +124,13 @@ foreach (['empty', 'rows-scalar', 'row-scalar', 'reasons-missing', 'reason-scala
 // native run separately proves freshness with the shared snapshot/collector.
 $privateDirectory = sys_get_temp_dir() . '/map-lifecycle-evidence-' . bin2hex(random_bytes(12));
 mkdir($privateDirectory, 0700);
-$public = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
-    'reason_code' => 'apply_failed', 'message' => 'apply refused at an unclassified safety gate', 'details_redacted' => true];
+$public = MapLifecycleEvidence::publicRefusal();
 $profile = MapLifecycleEvidence::refusalProfile('inactive');
 $record = ['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'apply', 'reason_code' => 'apply_failed']
     + PrivateRefusalEvidence::graph(new RuntimeException($profile['nodes'][0]['message']));
 try {
-    foreach (['valid', 'unrelated', 'other-case', 'extra-cause', 'zero-records', 'wrong-exit', 'php-stderr', 'other-pair', 'wrong-public'] as $mutation) {
+    foreach (['valid', 'unrelated', 'other-case', 'extra-cause', 'zero-records', 'wrong-exit', 'php-stderr', 'other-pair', 'wrong-public',
+        'diagnostic-leak', 'remediation-leak', 'extra-field-leak', 'missing-diagnostics'] as $mutation) {
         $candidate = $record;
         if ($mutation === 'unrelated') $candidate = array_replace($record, PrivateRefusalEvidence::graph(new RuntimeException('unrelated gate')));
         if ($mutation === 'other-case') $candidate = array_replace($record, PrivateRefusalEvidence::graph(new RuntimeException(MapLifecycleEvidence::refusalProfile('absent')['nodes'][0]['message'])));
@@ -142,6 +142,10 @@ try {
             'new_records' => $mutation === 'zero-records' ? 0 : 1, 'records' => $mutation === 'zero-records' ? [] : [$raw]];
         $answer = $public;
         if ($mutation === 'wrong-public') $answer['command'] = 'capture';
+        if ($mutation === 'diagnostic-leak') $answer['diagnostics'][0]['message'] = 'map-fixture-target-key';
+        if ($mutation === 'remediation-leak') $answer['remediation'] = 'map-fixture-target-key';
+        if ($mutation === 'extra-field-leak') $answer['private'] = ['credential' => 'map-fixture-target-key'];
+        if ($mutation === 'missing-diagnostics') unset($answer['diagnostics']);
         $streams = ['command.stdout' => json_encode($answer, JSON_THROW_ON_ERROR), 'command.stderr' => '',
             'command.exit' => $mutation === 'wrong-exit' ? "0\n" : "1\n", 'private.stdout' => json_encode($diagnostic, JSON_THROW_ON_ERROR),
             'private.stderr' => ' Container wprism-fixture-cli2-run-' . str_repeat('a', 12) . " Created \n", 'private.exit' => "0\n"];
@@ -170,6 +174,34 @@ try {
 }
 
 $source = (string) file_get_contents($capsule . '/tests/conformance/check.sh');
+$archiveBlock = ShellProbe::captureBlock($source, 'MAP_CACHE', 'map_native() {');
+$archiveSetup = <<<'SH'
+set -euo pipefail
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$1/sandbox/conformance/asserts.sh"
+MAP_EXACT_SHA="$2" MAP_EXACT="/artifacts-cache/plugin-map-block-gutenberg-1.35-$2.zip"
+answer="$3" command_exit="$4" command_stderr="$5"
+wp_conf2() {
+  # WP-CLI eval accepts only its expression. eval-file exposes the remaining
+  # positional operands through $args and is the fixture's required ABI.
+  [ "$#" = 5 ] && [ "$1" = eval-file ] && [ "$2" = /siterepo/.tmp-map-lifecycle/lifecycle-native.php ] \
+    && [ "$3" = archive ] && [ "$4" = "$MAP_EXACT" ] && [ "$5" = --use-include ] || return 64
+  printf '%s\n' "$answer"
+  [ -z "$command_stderr" ] || printf '%s\n' "$command_stderr" >&2
+  return "$command_exit"
+}
+SH;
+foreach (['valid', 'empty', 'wrong-digest', 'missing', 'nonzero', 'php-stdout', 'php-stderr'] as $mutation) {
+    $digest = str_repeat('a', 64);
+    $answer = json_encode(['sha256' => $mutation === 'missing' ? null : ($mutation === 'wrong-digest' ? str_repeat('b', 64) : $digest)], JSON_THROW_ON_ERROR);
+    if ($mutation === 'empty') $answer = '';
+    if ($mutation === 'php-stdout') $answer = "PHP Warning: fixture failure\n" . $answer;
+    [$status, $output] = ShellProbe::run($archiveSetup . "\n" . $archiveBlock . "\nprintf 'ARCHIVE_READY\\n'\n", [
+        $root, $digest, $answer, $mutation === 'nonzero' ? '1' : '0', $mutation === 'php-stderr' ? 'PHP Warning: fixture failure' : '',
+    ], $root);
+    wprism_check($mutation === 'valid' ? $status === 0 && str_contains($output, 'ARCHIVE_READY') : $status !== 0 && !str_contains($output, 'ARCHIVE_READY'),
+        "$mutation actual archive probe enforces its WP-CLI argv, digest and transport");
+}
 $start = strpos($source, "map_native() {");
 $end = strpos($source, "\nmap_native backup", $start);
 if ($start === false || $end === false) throw new RuntimeException('actual lifecycle shell functions missing');
