@@ -75,7 +75,7 @@ if (str_starts_with($phase, 'setup-')) {
             $check(!username_exists($login), 'fresh target filler login');
             $check(is_int(wp_insert_user(['user_login' => $login, 'user_pass' => wp_generate_password(32)])), 'target filler user created');
         }
-        foreach ([['id' => 101, 'template_type' => 'import', 'item_type' => 'user', 'name' => 'Local input', 'data' => '{broken-local-input'],
+        foreach ([['id' => 101, 'template_type' => 'Import', 'item_type' => 'user', 'name' => 'Case-variant input', 'data' => '{broken-local-input'],
             ['id' => 102, 'template_type' => 'export', 'item_type' => 'product', 'name' => 'Selected users', 'data' => 'local-product']] as $foreign) {
             $check($wpdb->insert($table, $foreign) === 1, 'foreign template fixture inserted');
             $check($wpdb->get_row($wpdb->prepare("SELECT * FROM `$table` WHERE id=%d", $foreign['id']), ARRAY_A) === array_map('strval', $foreign),

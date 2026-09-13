@@ -1,7 +1,7 @@
 # Users and Customers Import Export 2.7.5
 
 This experimental capsule declares nine native advanced-setting subkeys and
-saved export-user templates. Capture, immutable compilation and checked SQL
+saved user import/export templates. Capture, immutable compilation and checked SQL
 Apply use shared option, typed-table and value-contract machinery. Source and
 target native Save/reopen observations supply the scalar types, including the
 plugin's string checkbox spelling.
@@ -36,7 +36,8 @@ cases across all nine settings exercise Capture, compilation, incoming Apply
 and locked target preimages. A separate shell suite exercises the actual native
 runner's expected exits and diagnostic checks, including wrong-cause evidence.
 
-Export templates own only exact `item_type=user`, `template_type=export` rows.
+Templates own exact `item_type=user` rows with `template_type=export` or `import`.
+The row discriminator selects separate typed JSON contracts.
 Their native `(template_type,item_type,name)` tuple bootstraps identity; the
 ledger preserves identity through renames. Typed string user references bind
 selected users by login. Field-label maps retain definitions and CSV headers.
@@ -47,16 +48,37 @@ The capsule's template suite exercises the native Saved form through Snapshot,
 real ledger bookkeeping, compilation, lint and checked materialization. It
 covers different target IDs, exact recapture, repeat, rollback, rename,
 duplicate rejection, adoption, missing bindings and privacy/shape refusals.
-Import, product and case-variant rows, users, sessions and history stay local.
+Non-user and case-variant rows, users, sessions and history stay local.
 The native template lane exercises Save, Update and Save As, target adoption
 and creation with different row/user IDs, full and scoped Apply, replay, exact
 recapture and native resave. Reopened target templates produce CSVs with the
 applied headers and target-local user profiles. Surrounding tables, settings
 and files remain unchanged across Apply.
 
-Complete template qualification remains pending. Import templates need
-target-local CSV input qualification; generated CSVs/logs, users and customers
-are operational data. Template deletion, native post-write recovery, lifecycle
+Saved import templates use `field_templates` for field references and literal
+expressions, plus an `input_file` dependency for their functional local CSV
+pointer. Typed object projection removes the saved selection cursor while
+retaining the method, delimiters and file dependency. The canonical repository
+contains neither source filenames nor CSV contents. Empty drafts stay empty.
+Each nonempty input needs its own compiled `column_file:…` coordinate provisioned
+through `env-set` with a local CSV filename under `wp-content/webtoffee_import`.
+Changing a target binding can select a canonically equal template for Apply.
+
+The combined native lane covers import Save, Update and Save As, a blank draft,
+independent target adoption/creation, complete native reopen, full Apply,
+scoped pointer rotation, request replay and exact recapture after native resave.
+Three real mapped-password import jobs consume the applied mapping and target
+CSV bytes. Configuration Apply itself preserves user records, sessions, history,
+export templates and operational files. The offline capsule test additionally
+covers same-name import/export identities, missing inputs before insertion,
+post-write rollback, private/disabled literals and malformed owned imports.
+
+Package identity changes with this declaration: existing installations must
+recompile and update their manifest content pin using `wp wprism manifest-pin`.
+Complete template qualification remains pending. Generated CSVs/logs, users and
+customers are operational data. The native importer warns when `user_pass` is
+omitted from mappings; the mapped-password control does not qualify that case.
+Remote-adapter extensions and broader import-job behavior remain unqualified. Template deletion, native post-write recovery, lifecycle
 and plugin combinations remain open. The production-readiness record remains
 unready in all twelve families.
 

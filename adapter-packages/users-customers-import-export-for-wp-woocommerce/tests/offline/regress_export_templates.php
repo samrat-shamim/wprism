@@ -45,7 +45,7 @@ $db = FakeWpdb::install()->enableInformationSchema()->enableJoinedCaptureSql()
     ->seedTable('wt_iew_action_history', [['id' => 8, 'data' => '{"file":"local-export.csv"}']]);
 $rows = array_map(static fn(array $row): array => $row + ['data' => $native], $fixture['templates']);
 $foreign = [
-    ['id' => 3, 'template_type' => 'import', 'item_type' => 'user', 'name' => 'Local input', 'data' => '{broken'],
+    ['id' => 3, 'template_type' => 'Import', 'item_type' => 'user', 'name' => 'Case-variant input', 'data' => '{broken'],
     ['id' => 4, 'template_type' => 'export', 'item_type' => 'product', 'name' => 'Selected users', 'data' => 'local-product'],
     ['id' => 5, 'template_type' => 'Export', 'item_type' => 'user', 'name' => 'Selected users', 'data' => 'case-variant'],
 ];
@@ -118,7 +118,7 @@ $after = $census();
 foreach (['wp_users', 'wp_usermeta', 'wt_iew_action_history'] as $name) {
     wprism_check_same($targetBefore[$name], $after[$name], "template Apply preserves $name");
 }
-wprism_check_same($foreign, array_slice($after[$table], 0, count($foreign)), 'Apply preserves import, product and case-variant rows');
+wprism_check_same($foreign, array_slice($after[$table], 0, count($foreign)), 'Apply preserves product and case-variant rows');
 wprism_check_same(array_column($entities, 'content'), array_column($capture($targetTokens), 'content'), 'complete target recapture equals source canonical templates');
 wprism_check_same([false, false], $write($tree), 'repeat retains both target identities');
 wprism_check_same($after, $census(), 'repeat preserves the complete target census');
