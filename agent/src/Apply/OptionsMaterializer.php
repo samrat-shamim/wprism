@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
@@ -381,6 +383,10 @@ final class OptionsMaterializer {
      * path.
      */
     private function apply_value(string $ctx, $v, array $rule) {
+        if (array_key_exists(ScalarValueConstraint::FIELD, $rule)) {
+            ScalarValueConstraint::assert_value($v, $rule, "option $ctx");
+            return $v;
+        }
         if (array_key_exists(EncodedText::FIELD, $rule)) {
             EncodedText::assert_canonical($v, $rule, "option $ctx");
             return EncodedText::encode($this->tokens->detokenize_text($v), $rule, "option $ctx");
@@ -605,6 +611,7 @@ final class OptionsMaterializer {
             'target'
         );
         foreach ($subKeys as $subKey => $subRule) {
+            if (array_key_exists($subKey, $live)) ScalarValueConstraint::assert_value($live[$subKey], $subRule, "option $name.$subKey");
             if (array_key_exists(EncodedText::FIELD, $subRule) && array_key_exists($subKey, $live)) {
                 EncodedText::decode($live[$subKey], $subRule, "option $name.$subKey");
             }

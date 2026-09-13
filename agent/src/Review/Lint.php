@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/BlockReferenceScanner.php';
 require_once __DIR__ . '/AuthoredValueReferenceScanner.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
@@ -878,6 +880,7 @@ final class Lint {
         foreach ($value as $subKey => $subVal) {
             $subRule = $subKeys[$subKey] ?? [];
             $locator = 'options.' . $optionName . '.' . $subKey;
+            ScalarValueConstraint::assert_value($subVal, $subRule, $locator);
             if (isset($subRule['ref']) || !empty($subRule['lint_ok'])) {
                 continue;
             }

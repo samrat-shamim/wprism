@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/../Kernel/TableRowScope.php';
 
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
@@ -195,6 +197,7 @@ final class AdapterContractGrammar {
         BlockValueGrammar::CONTRACT_FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::FEATURE => ['since' => 3, 'keys' => []],
         EncodedText::FEATURE => ['since' => 3, 'keys' => []],
+        ScalarValueConstraint::FEATURE => ['since' => 3, 'keys' => []],
         PostMetaInvalidation::FEATURE => ['since' => 3, 'keys' => []],
         PhpContainerValue::FEATURE => ['since' => 3, 'keys' => []],
         KeyBoundStrings::FEATURE => ['since' => 3, 'keys' => []],
@@ -570,6 +573,9 @@ final class AdapterContractGrammar {
             }
             if ($name === RecordFields::FEATURE) {
                 $rows[$name]['value_constraint'] = RecordFields::declaration_grammar();
+            }
+            if ($name === ScalarValueConstraint::FEATURE) {
+                $rows[$name]['value_constraint'] = ScalarValueConstraint::declaration_grammar();
             }
             if ($name === EncodedText::FEATURE) {
                 $rows[$name]['value_constraint'] = EncodedText::declaration_grammar();

@@ -300,6 +300,7 @@ return [
     'WPrism\\RepositoryValueValidation' => 'src/Repository/RepositoryValueValidation.php',
     'WPrism\\RetainedCheckpointCipher' => 'src/Recovery/RetainedCheckpointCipher.php',
     'WPrism\\ScalarReferenceIntersection' => 'src/Kernel/ScalarReferenceIntersection.php',
+    'WPrism\\ScalarValueConstraint' => 'src/Kernel/ScalarValueConstraint.php',
     'WPrism\\SchemaSettlement' => 'src/Adapter/SchemaSettlement.php',
     'WPrism\\SchemaSettlementIntent' => 'src/Repository/SchemaSettlementIntent.php',
     'WPrism\\ScopeAdoption' => 'src/Policy/ScopeAdoption.php',

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -365,6 +367,10 @@ final class OptionsCapture {
         bool $omitUnsetScalarRef = false,
         bool $allowUnmappedIntersectionProjection = false
     ): array {
+        if (array_key_exists(ScalarValueConstraint::FIELD, $rule)) {
+            ScalarValueConstraint::assert_value($v, $rule, "option $ctx");
+            return ['included' => true, 'value' => $v];
+        }
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = StructuredValue::decode($v, $rule, "option $ctx");
             $captured = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);

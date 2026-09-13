@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/ScalarValueConstraint.php';
+
 require_once __DIR__ . '/EncodedText.php';
 require_once __DIR__ . '/PostMetaInvalidation.php';
 
@@ -77,10 +79,11 @@ final class ReferenceRules {
     }
 
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
-    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false, bool $encodedText = false, bool $postMetaInvalidation = false, bool $blockContracts = false): void {
+    public static function value_rule(array $rule, string $where, bool $conditionalRefs = false, bool $phpContainers = false, bool $boundStrings = false, bool $blockRecords = false, bool $encodedText = false, bool $postMetaInvalidation = false, bool $blockContracts = false, bool $scalarConstraints = false): void {
         if (!$blockContracts && array_intersect(array_keys($rule), self::BLOCK_CONTRACT_FIELDS)) {
             throw new \RuntimeException("wprism: $where block value contracts belong only to negotiated block attribute values");
         }
+        ScalarValueConstraint::assert_rule($rule, $where, $scalarConstraints);
         PostMetaInvalidation::assert_rule($rule, $where, $postMetaInvalidation);
         EncodedText::assert_rule($rule, $where, $encodedText);
         if (array_key_exists(RecordFields::FIELD, $rule) && !$blockRecords) {

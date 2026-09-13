@@ -4582,3 +4582,43 @@ are not the adapter provider this guide is about: bounded provider-resource
 verified-rollback profile (exclusion, checkpoint, code-release, upload,
 effect), and one attachment filter. Check which one an error means before
 hunting for the wrong contract.
+
+
+### Scalar settings inside a shared option
+
+Use `scalar-option-constraints/v1` when a native consumer requires a strict
+scalar type or a finite choice in an authored option subkey. For example, PHP's
+`set_time_limit()` refuses a nonnumeric string even though an untyped option
+value can compile and round trip. Declare the consumer contract at the value
+boundary:
+
+```json
+"engine_features": ["scalar-option-constraints/v1", "spec-window/v1"],
+"options": {
+  "example_settings": {
+    "class": "env",
+    "required": false,
+    "sub_keys": {
+      "seconds": {"class": "authored", "value_constraint": {"type": "integer", "minimum": 0}},
+      "method": {"class": "authored", "value_constraint": {"enum": ["quick", "template"]}},
+      "flag": {"class": "authored", "value_constraint": {"enum": [0, "1"]}}
+    }
+  }
+}
+```
+
+This is a manifest fragment; retain the ordinary explicit option-autoload
+contract. Derive each type, choice and bound from the native producer and
+consumer, including unchecked checkbox behavior and defaults. Do not invent
+ranges or normalize integers and numeric strings into one type. A predicate
+validates already-native data; it never sanitizes or generates defaults.
+`lint_ok` still requires its normal reviewed rationale and cannot waive an
+invalid value.
+
+Exercise capture, host compilation, public Plan/Apply, locked target preimages,
+repeat, recapture, omission, and rollback. Keep foreign module keys and runtime
+state in the fixture. A damaged constrained target value refuses before write;
+repair it through an independently justified native recovery path. Whole-option
+SQL strings, dynamic/pattern rules and executable classification require their
+own representation evidence and are outside this feature. Re-pin any capsule
+whose manifest gains this declaration; the predicate is part of its identity.

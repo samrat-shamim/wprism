@@ -4567,3 +4567,54 @@ PII subject; all other keys, values and ancestor roles retain normal checks.
 Secret clearance always sees the entire original decoded value. This does not
 change old column or block declarations, grant file transport, or qualify an
 adapter. Identity, slug and row-ownership discriminator exclusions still apply.
+
+
+### v3.41 `scalar-option-constraints/v1` — portable scalar option predicates
+
+A v3 manifest declaring `scalar-option-constraints/v1` may place
+`value_constraint` on an authored `options.<name>.sub_keys.<key>` rule:
+
+```json
+{
+  "class": "authored",
+  "value_constraint": {"type": "integer", "minimum": 0, "maximum": 3600}
+}
+```
+
+The closed predicate is either `type: integer` with optional integer `minimum`
+and `maximum` (inclusive and ordered), or an `enum` list. Enums reuse the
+block/column literal grammar: 1–64 distinct integers, booleans, null, or ASCII
+codes matching `[A-Za-z0-9_-]{0,128}`. Membership is type-strict: `1`, `"1"`, and
+`true` are different values. Integers exclude numeric strings, floats, booleans,
+null and containers. Bounds never coerce a value. Unknown fields, null bounds,
+empty or duplicate enums, and combinations of predicates refuse at load time.
+
+A predicate cannot combine with a reference, text/container/record codec,
+`sub_keys`, repeated-row behavior, native validation, or block value contract.
+It supplies no default, deletion authority, privacy exemption, or `lint_ok`
+waiver. Source absence retains ordinary mixed-option omission semantics;
+unnamed and excluded siblings remain target-local. Valid values retain their
+native PHP scalar types inside the existing serialized option container.
+
+The feature belongs only to static named option subkeys. Whole-option SQL
+scalars have a separate native representation boundary, so whole options,
+patterns, dynamic options, metadata, tables, and block values cannot acquire
+this predicate through this feature. The engine does not infer a serialization
+format or invoke plugin sanitizers. Existing declarations and package identities
+are unchanged until a capsule explicitly enrolls.
+
+Capture validates native leaves before publication. Immutable compilation
+validates the same predicate without WordPress or target database access and
+reports `repository_scalar_value_invalid` through the existing authorization
+finding envelope. Public target Plan consumes that validated tree. Lint checks
+the predicate before reference-review exemptions. Apply validates incoming
+leaves and all present constrained authored leaves in the locked target
+preimage before replacing any subkey. Diagnostics do not include rejected
+values. Existing transaction rollback and repeat/recapture semantics apply.
+
+One static manifest owns the predicate. A site may exclude the entire option,
+but cannot replace its predicate with authored site rules. Interpreter answers
+cannot introduce, echo, erase, or replace a constrained static rule; competing
+manifest claimants refuse independently of pin order. This is a portable shape
+contract, separate from `native-value-validation/v1` and its WordPress runtime
+predicate.

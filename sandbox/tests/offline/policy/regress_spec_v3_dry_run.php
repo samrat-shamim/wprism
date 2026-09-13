@@ -849,6 +849,7 @@ wprism_check_same(
         'provider-native-post-types/v1',
         'provider-physical-table-rows/v1',
         'provider-typed-row-mutations/v1',
+        'scalar-option-constraints/v1',
         'scalar-reference-intersection/v1',
         'schema-settlement/v1',
         'spec-window/v1',
