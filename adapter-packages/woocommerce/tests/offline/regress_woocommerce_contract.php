@@ -2626,6 +2626,39 @@ woo_ok(
         ),
     'exact WooCommerce upgrade recapture permits only manifest-declared product timestamp drift'
 );
+// The in-place upgrade leg installs one version and then hands a DIFFERENT
+// version name to the content check through WOOCOMMERCE_EXPECTED_VERSION. When
+// the leg was retargeted from 11.0.1 to 11.1.0 the install moved and that
+// override did not, so the check ran 11.1.0 code while asserting 11.0.1 -- a
+// whole certify run (64 cases, ~30 minutes) to discover a one-line skew. The
+// leg spans exactly two versions, so pin that: every WooCommerce version
+// literal between the leg's opening guard and its closing pass() is one of
+// them.
+$wooUpgradeLegStart = strpos($woocommerceMatrixHarness, "say 'in-place upgrade: populated woocommerce");
+$wooUpgradeLegEnd = strpos(
+    $woocommerceMatrixHarness,
+    "pass 'populated woocommerce",
+    $wooUpgradeLegStart === false ? 0 : $wooUpgradeLegStart
+);
+woo_ok($wooUpgradeLegStart !== false && $wooUpgradeLegEnd !== false && $wooUpgradeLegEnd > $wooUpgradeLegStart,
+    'the in-place upgrade leg is locatable between its announcement and its verdict');
+$wooUpgradeLeg = substr(
+    $woocommerceMatrixHarness,
+    (int) $wooUpgradeLegStart,
+    (int) $wooUpgradeLegEnd - (int) $wooUpgradeLegStart
+);
+preg_match_all('/\b11\.\d+\.\d+\b/', $wooUpgradeLeg, $wooUpgradeLegVersions);
+$wooUpgradeLegSeen = array_values(array_unique($wooUpgradeLegVersions[0]));
+sort($wooUpgradeLegSeen, SORT_STRING);
+woo_ok($wooUpgradeLegSeen === ['11.0.0', '11.1.0'],
+    'the in-place upgrade leg names only its own two endpoints: ' . implode(', ', $wooUpgradeLegSeen));
+woo_ok(substr_count($wooUpgradeLeg, 'WOO_VERSION=11.1.0') === 1
+    && substr_count($wooUpgradeLeg, "[ \"$(wp1 plugin get woocommerce --field=version)\" = 11.1.0 ]") === 1,
+    'the version the upgrade leg installs is the version it hands the content check');
+$wooUpgradeNoteWritten = str_contains($wooUpgradeLeg, 'set_purchase_note("WooCommerce 11.0.0 to 11.1.0 upgrade 東京 🚀")');
+$wooUpgradeNoteAsserted = str_contains($wooUpgradeLeg, "\$UPGRADE_NOTE\" = 'WooCommerce 11.0.0 to 11.1.0 upgrade 東京 🚀'");
+woo_ok($wooUpgradeNoteWritten && $wooUpgradeNoteAsserted,
+    'the purchase note the upgrade leg writes is byte-identical to the one it reads back');
 woo_ok(
     str_contains(
         $woocommerceMatrixHarness,

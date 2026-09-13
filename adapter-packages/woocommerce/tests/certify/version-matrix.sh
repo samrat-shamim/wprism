@@ -1419,22 +1419,27 @@ EOF
     [ "$UPGRADE_PROVIDER_COUNT" -eq 1 ] \
       && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.1\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
       || fail 'WooCommerce 11.0.0 -> 11.1.0 product-note upgrade did not invoke exactly one verified product-lookup provider'
+    # This leg installed 11.1.0 above, but WOO_VERSION is still the loop's
+    # 11.0.0 boundary. check_woocommerce_content passes it through as
+    # WOOCOMMERCE_EXPECTED_VERSION, which the content check asserts against the
+    # version WooCommerce itself reports -- so it has to name what is installed
+    # NOW, not the edge this iteration started from.
     SAVED_WOO_VERSION="$WOO_VERSION"
-    WOO_VERSION=11.0.1
+    WOO_VERSION=11.1.0
     check_woocommerce_content
     WOO_VERSION="$SAVED_WOO_VERSION"
     UPGRADE_NOTE=$(wp2 eval '
       $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
       echo $product ? $product->get_purchase_note("edit") : "";
     ')
-    [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀' ] \
-      || fail "WooCommerce 11.0.1 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
+    [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.1.0 upgrade 東京 🚀' ] \
+      || fail "WooCommerce 11.1.0 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
     wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-upgrade-final
     UPGRADE_DIFF_RC=0
     UPGRADE_DIFF=$(diff -r "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-upgrade-final" 2>&1) \
       || UPGRADE_DIFF_RC=$?
     [ "$UPGRADE_DIFF_RC" -le 1 ] \
-      || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture comparison errored: $UPGRADE_DIFF"
+      || fail "WooCommerce 11.0.0 to 11.1.0 in-place upgrade recapture comparison errored: $UPGRADE_DIFF"
     if [ -n "$UPGRADE_DIFF" ]; then
       UNEXPECTED_UPGRADE_DIFF=$(grep -Ev \
         -e '^diff -r .*/state/posts/(product|product_variation)/[^ ]+ .*/\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+$' \
@@ -1443,10 +1448,10 @@ EOF
         -e '^[<>]     "modified(_gmt)?": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}",$' \
         <<<"$UPGRADE_DIFF" || true)
       [ -z "$UNEXPECTED_UPGRADE_DIFF" ] \
-        || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture diverged outside declared derived product timestamps: $UPGRADE_DIFF"
+        || fail "WooCommerce 11.0.0 to 11.1.0 in-place upgrade recapture diverged outside declared derived product timestamps: $UPGRADE_DIFF"
     fi
     rm -rf "siterepo/${PAIR}2/.tmp-woo-upgrade-final"
-    pass 'populated woocommerce 11.0.0 -> 11.0.1 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures exactly modulo declared derived product timestamps'
+    pass 'populated woocommerce 11.0.0 -> 11.1.0 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures exactly modulo declared derived product timestamps'
 
     check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"
   fi
