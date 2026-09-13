@@ -2622,7 +2622,7 @@ woo_ok(
         )
         && !str_contains(
             $matrixHarness,
-            'WooCommerce 11.0.0 to 11.0.1 in-place upgrade lost byte identity'
+            'WooCommerce 11.0.0 to 11.1.0 in-place upgrade lost byte identity'
         ),
     'exact WooCommerce upgrade recapture permits only manifest-declared product timestamp drift'
 );
@@ -2659,6 +2659,46 @@ $wooUpgradeNoteWritten = str_contains($wooUpgradeLeg, 'set_purchase_note("WooCom
 $wooUpgradeNoteAsserted = str_contains($wooUpgradeLeg, "\$UPGRADE_NOTE\" = 'WooCommerce 11.0.0 to 11.1.0 upgrade 東京 🚀'");
 woo_ok($wooUpgradeNoteWritten && $wooUpgradeNoteAsserted,
     'the purchase note the upgrade leg writes is byte-identical to the one it reads back');
+// Same skew, one leg later: the in-range downgrade runs AFTER the upgrade leg,
+// so the baseline it drifts from is that leg's endpoint, not this iteration's
+// edge. It described itself as 11.0.1 -> 11.0.0 while the engine reported
+// recorded_version 11.1.0, which cost the second certify run at case 83. The
+// leg spans exactly two versions too, so pin the same invariant.
+$wooDowngradeLegStart = strpos($woocommerceMatrixHarness, 'check_woocommerce_in_range_downgrade() {');
+$wooDowngradeLegEnd = strpos(
+    $woocommerceMatrixHarness,
+    "pass 'WooCommerce 11.1.0 -> 11.0.0 explicit re-baseline",
+    $wooDowngradeLegStart === false ? 0 : $wooDowngradeLegStart
+);
+woo_ok($wooDowngradeLegStart !== false && $wooDowngradeLegEnd !== false
+    && $wooDowngradeLegEnd > $wooDowngradeLegStart,
+    'the in-range downgrade leg is locatable between its definition and its verdict');
+$wooDowngradeLeg = substr(
+    $woocommerceMatrixHarness,
+    (int) $wooDowngradeLegStart,
+    (int) $wooDowngradeLegEnd - (int) $wooDowngradeLegStart
+);
+// One line inside the leg records WHY it is now a minor-line downgrade and names
+// the version it replaced; exclude that provenance sentence from the census
+// rather than deleting a measurement.
+$wooDowngradeLegCensus = str_replace(
+    '# from 11.0.1 to 11.1.0 this became a minor-line downgrade',
+    '',
+    $wooDowngradeLeg
+);
+preg_match_all('/\b11\.\d+\.\d+\b/', $wooDowngradeLegCensus, $wooDowngradeLegVersions);
+$wooDowngradeLegSeen = array_values(array_unique($wooDowngradeLegVersions[0]));
+sort($wooDowngradeLegSeen, SORT_STRING);
+woo_ok($wooDowngradeLegSeen === ['11.0.0', '11.1.0'],
+    'the in-range downgrade leg names only its recorded and installed versions: '
+        . implode(', ', $wooDowngradeLegSeen));
+woo_ok(str_contains($wooDowngradeLeg, '.code_drift[0].recorded_version == "11.1.0"')
+    && str_contains($wooDowngradeLeg, '.code_drift[0].installed_version == "11.0.0"'),
+    'the downgrade leg asserts the exact drift pair the engine reports');
+$wooDowngradeNoteDeclared = str_contains($wooDowngradeLeg, "mutation_note='WooCommerce 11.1.0 to 11.0.0 downgrade 東京 🚀'");
+$wooDowngradeNoteWritten = str_contains($wooDowngradeLeg, 'set_purchase_note("WooCommerce 11.1.0 to 11.0.0 downgrade 東京 🚀")');
+woo_ok($wooDowngradeNoteDeclared && $wooDowngradeNoteWritten,
+    'the downgrade leg writes the exact note it declared as its mutation witness');
 woo_ok(
     str_contains(
         $woocommerceMatrixHarness,

@@ -1866,7 +1866,11 @@ wprism_check(
 foreach ([
     'check_woocommerce_in_range_downgrade',
     '.code_drift[0].installed_version == "11.0.0"',
-    '.code_drift[0].recorded_version == "11.0.1"',
+    // The downgrade leg runs after the in-place upgrade, so the baseline it
+    // drifts from is that leg's endpoint. When the upgrade retargeted to 11.1.0
+    // this became a minor-line downgrade; the engine reports recorded_version
+    // 11.1.0 against installed 11.0.0.
+    '.code_drift[0].recorded_version == "11.1.0"',
     'woocommerce_boundary_storage_hash',
     'FORCED past code_drift',
     '17.345678',

@@ -650,20 +650,24 @@ assert_woocommerce_downgrade_refusal_unchanged() { # <operation> <post-install-s
   local operation="$1" expected="$2" observed
   observed=$(woocommerce_downgrade_refusal_snapshot)
   [ "$observed" = "$expected" ] \
-    || fail "WooCommerce 11.0.1 to 11.0.0 $operation refusal mutated WPrism storage, runtime, or repository state"
+    || fail "WooCommerce 11.1.0 to 11.0.0 $operation refusal mutated WPrism storage, runtime, or repository state"
 }
 
 check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact-11.0.0-target-artifact>
+  # Runs after the in-place upgrade leg, so the RECORDED baseline here is that
+  # leg's endpoint, not this loop iteration's edge. When the upgrade leg moved
+  # from 11.0.1 to 11.1.0 this became a minor-line downgrade -- measured, not
+  # assumed: the plan reports recorded_version 11.1.0 against installed 11.0.0.
   local source_artifact="$1" target_artifact="$2" expected_sha snapshot plan_out plan_json plan_rc
   local deploy_out deploy_rc apply_out apply_rc revision settled source_price target_price
   local downgrade_compare_out downgrade_compare_rc
   local package_tests
-  local mutation_note='WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀'
+  local mutation_note='WooCommerce 11.1.0 to 11.0.0 downgrade 東京 🚀'
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
-  say 'in-range downgrade: populated woocommerce 11.0.1 -> exact 11.0.0 refuses until explicit re-baseline'
+  say 'in-range downgrade: populated woocommerce 11.1.0 -> exact 11.0.0 refuses until explicit re-baseline'
   # Installation has its own activation/migration effects, so establish the
-  # no-mutation baseline only after the exact verified archives replace 11.0.1.
+  # no-mutation baseline only after the exact verified archives replace 11.1.0.
   wp1 plugin install "$source_artifact" --force --activate >/dev/null
   wp2 plugin install "$target_artifact" --force --activate >/dev/null
   expected_sha=$(artifact_library_jq -r '.plugins.woocommerce["11.0.0"].sha256')
@@ -678,35 +682,35 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
 
   plan_rc=0
   plan_out=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade plan' json "$plan_out"
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 downgrade plan' json "$plan_out"
   [ "$plan_rc" -eq 0 ] || fail "WooCommerce in-range downgrade plan did not report its code drift: $plan_out"
   plan_json=$(awk 'NF { line=$0 } END { print line }' <<<"$plan_out")
   jq -e '
     (.code_drift | length) == 1 and
     .code_drift[0].plugin == "woocommerce/woocommerce.php" and
     .code_drift[0].installed_version == "11.0.0" and
-    .code_drift[0].recorded_version == "11.0.1"
+    .code_drift[0].recorded_version == "11.1.0"
   ' <<<"$plan_json" >/dev/null \
-    || fail "WooCommerce in-range downgrade plan did not identify the exact 11.0.1 to 11.0.0 code_drift: $plan_json"
+    || fail "WooCommerce in-range downgrade plan did not identify the exact 11.1.0 to 11.0.0 code_drift: $plan_json"
   assert_woocommerce_downgrade_refusal_unchanged plan "$snapshot"
 
   deploy_rc=0
   deploy_out=$(host_wprism conf2 deploy 2>&1) || deploy_rc=$?
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
   [ "$deploy_rc" -ne 0 ] && grep -q 'code_drift' <<<"$deploy_out" \
-    && grep -q '11.0.1' <<<"$deploy_out" && grep -q '11.0.0' <<<"$deploy_out" \
+    && grep -q '11.1.0' <<<"$deploy_out" && grep -q '11.0.0' <<<"$deploy_out" \
     || fail "WooCommerce in-range downgrade deploy did not refuse at the exact code-drift boundary: $deploy_out"
   assert_woocommerce_downgrade_refusal_unchanged deploy "$snapshot"
 
   revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   apply_rc=0
   apply_out=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1) || apply_rc=$?
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade apply refusal' human "$apply_out"
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 downgrade apply refusal' human "$apply_out"
   [ "$apply_rc" -ne 0 ] && grep -q 'code_drift' <<<"$apply_out" \
-    && grep -q '11.0.1' <<<"$apply_out" && grep -q '11.0.0' <<<"$apply_out" \
+    && grep -q '11.1.0' <<<"$apply_out" && grep -q '11.0.0' <<<"$apply_out" \
     || fail "WooCommerce in-range downgrade apply did not refuse at the exact code-drift boundary: $apply_out"
   assert_woocommerce_downgrade_refusal_unchanged apply "$snapshot"
-  pass 'WooCommerce 11.0.1 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without WPrism storage, runtime, or repository mutation'
+  pass 'WooCommerce 11.1.0 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without WPrism storage, runtime, or repository mutation'
 
   local forced_source forced_target
   forced_source=$(host_wprism conf1 deploy --force-code-drift 2>&1)
@@ -716,7 +720,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
     && grep -q 'FORCED past code_drift' <<<"$forced_target" \
     || fail "WooCommerce explicit downgrade re-baseline did not report both forced decisions: source=$forced_source target=$forced_target"
   settled=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 plan after explicit re-baseline' json "$settled"
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 plan after explicit re-baseline' json "$settled"
   jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.code_mismatch,.code_drift,.incomplete_apply,.incomplete_lifecycle,.regen_pending,.regen_context] | map(length) | add) == 0' <<<"$settled" >/dev/null \
     || fail "WooCommerce explicit 11.0.0 re-baseline invented work: $settled"
 
@@ -726,7 +730,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
     if (!$product) { throw new RuntimeException("downgrade precision product missing"); }
     $product->set_regular_price("17.345678");
     $product->set_sale_price("");
-    $product->set_purchase_note("WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀");
+    $product->set_purchase_note("WooCommerce 11.1.0 to 11.0.0 downgrade 東京 🚀");
     $product->save();
     $row = $wpdb->get_row($wpdb->prepare("SELECT CAST(min_price AS CHAR) AS min_price, CAST(max_price AS CHAR) AS max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $product->get_id()), ARRAY_A);
     if (!is_array($row) || $row !== ["min_price" => "17.3457", "max_price" => "17.3457"]) {
@@ -739,7 +743,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   wp1 wprism capture --repo=/siterepo
   wp1 wprism lint --repo=/siterepo
   "${GIT1[@]}" add -A
-  "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.1 to 11.0.0 in-range downgrade'
+  "${GIT1[@]}" commit -qm 'capture: woocommerce 11.1.0 to 11.0.0 in-range downgrade'
   "${GIT1[@]}" push -q origin main
 
   git -C "siterepo/${PAIR}2" pull -q origin main
@@ -769,8 +773,8 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
     "siterepo/${PAIR}2/.tmp-woo-downgrade-final" 2>&1) || downgrade_compare_rc=$?
   rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"
   [ "$downgrade_compare_rc" -eq 0 ] \
-    || fail "WooCommerce 11.0.1 to 11.0.0 in-range downgrade recapture diverged outside declared derived product timestamps: $downgrade_compare_out"
-  pass 'WooCommerce 11.0.1 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures modulo exact derived product timestamps'
+    || fail "WooCommerce 11.1.0 to 11.0.0 in-range downgrade recapture diverged outside declared derived product timestamps: $downgrade_compare_out"
+  pass 'WooCommerce 11.1.0 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures modulo exact derived product timestamps'
 }
 
 # A host-orchestrated deploy reports its target refusal redacted: the machine
