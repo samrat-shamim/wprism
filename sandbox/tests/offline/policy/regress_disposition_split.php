@@ -376,6 +376,7 @@ const PRE_TEC_6174_CF7_MESSAGE_DIGESTS = [
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
 ];
 const PRE_TEC_6174_REGISTRY_SHA = 'a986c4c4689f63586269b31bba79b439282cd8739f33059da32d1f6fddaa8976';
+const PRE_TEC_6174_DISPOSITION_SHA = 'f6f4d951bbaefe3d6c2cf7af3cbb7cfae354bb1ebf048bc3cc5ff447267b7557';
 const PRE_TEC_6174_REASON = 'Certified for official free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress: exact clean/dirty canonical round trips; populated 6.17.2-to-6.17.3 upgrade; native event, venue, organizer, category, settings, Customizer, widget, REST, and frontend behavior; exact reviewed PII authority limited to eleven native event/organizer/venue contact coordinates populated divergently through the generic entity-meta capture seam; divergent huge identities and ordered repeated organizers; Category Colors and Custom Tables V1 regeneration; scoped receipt-loss and selected-map ABA inverse recovery; database, filter, provider, and transaction failure rollback/retry; competing applies; lifecycle recovery; byte-identical recapture; and official 6.17.1 plus synthetic 6.17.4 refusal controls. Pro/add-on/import/credential/runtime surfaces, plugin-specific deletion, out-of-range releases, and multisite remain explicit loud boundaries.';
 const PRE_TEC_6174_VERSION_REFUSAL = [
     'operation' => 'all',
@@ -791,6 +792,13 @@ unset($unsupported, $priorTec);
 wprism_check_same(1, $restoredVersionRows, 'the historical TEC overlay restores exactly one version refusal');
 wprism_check_same(PRE_TEC_6174_REGISTRY_SHA, hash('sha256', Canon::encode($preTecRegistry)),
     'restoring only the four reviewed TEC disposition fields reconstructs the exact preceding registry');
+// The independently retained ab6da5c7^ package bytes anchor the four-field
+// reconstruction to its historical source, not just to an opaque registry hash.
+$preTecPath = $repo . '/sandbox/tests/fixtures/spec-v3/tec-pre-6174-disposition.json';
+wprism_check_same(PRE_TEC_6174_DISPOSITION_SHA, hash_file('sha256', $preTecPath),
+    'the pre-widening TEC disposition fixture retains its exact historical bytes');
+wprism_check_same(Canon::decode(Canon::read_file($preTecPath)), $preTecRegistry['manifests']['the-events-calendar'],
+    'the four-field TEC reconstruction matches the independently retained historical disposition');
 $preManagedCloneRegistry = $preTecRegistry;
 // The upstream historical address predates the two capsules added here.
 unset($preManagedCloneRegistry['manifests']['change-wp-admin-login'], $preManagedCloneRegistry['manifests']['qi-blocks']);
