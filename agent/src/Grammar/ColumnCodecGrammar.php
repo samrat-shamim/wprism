@@ -8,6 +8,7 @@ namespace WPrism;
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
+require_once __DIR__ . '/../Kernel/StructuredValue.php';
 
 /**
  * `column_codecs` — structured typed-table column codecs (WP-6.1).
@@ -76,7 +77,7 @@ final class ColumnCodecGrammar {
      * a container, so a new one is an engine change with its own feature name,
      * never a manifest declaration.
      */
-    private const CONTAINERS = ['php_serialized', 'php_serialized_or_text'];
+    private const CONTAINERS = ['php_serialized', 'php_serialized_or_text', 'json'];
 
     /**
      * Redirection 5.9.0 measured the first mixed-framing demand: the same
@@ -86,6 +87,9 @@ final class ColumnCodecGrammar {
      * named feature. This value-vocabulary feature stages the explicit union.
      */
     public const MIXED_FEATURE = 'mixed-column-codecs/v1';
+
+    /** Stored JSON needs decoded URL rewriting and the same faithful-framing proof as serialized columns. */
+    public const JSON_FEATURE = 'json-column-codecs/v1';
 
     /**
      * The closed `leaves` vocabulary: what the codec does to the decoded
@@ -290,6 +294,10 @@ final class ColumnCodecGrammar {
                 . 'instead of treating a scalar as serialized bytes or a serialized map as opaque text'
             );
         }
+        if ($codec['container'] === 'json'
+            && !in_array(self::JSON_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
+            throw new \RuntimeException("wprism: $where container='json' requires the engine feature '" . self::JSON_FEATURE . "'");
+        }
         if (!in_array($codec['leaves'], self::LEAVES, true)) {
             throw new \RuntimeException(
                 "wprism: $where declares leaves=" . var_export($codec['leaves'], true)
@@ -348,7 +356,10 @@ final class ColumnCodecGrammar {
         if ($decoded['kind'] === 'text') {
             return $tokens->tokenize_text($decoded['value']);
         }
-        return serialize($tokens->plain_data_capture($decoded['value']));
+        $value = $tokens->plain_data_capture($decoded['value']);
+        return $decoded['kind'] === 'json'
+            ? StructuredValue::encode($value, ['json_encoded' => true], $where)
+            : serialize($value);
     }
 
     /** Decode canonical or captured bytes for the shared recursive clearance gate. */
@@ -374,7 +385,10 @@ final class ColumnCodecGrammar {
         if ($decoded['kind'] === 'text') {
             return $tokens->detokenize_text($decoded['value']);
         }
-        return serialize($tokens->plain_data_apply($decoded['value']));
+        $value = $tokens->plain_data_apply($decoded['value']);
+        return $decoded['kind'] === 'json'
+            ? StructuredValue::encode($value, ['json_encoded' => true], $where)
+            : serialize($value);
     }
 
     /**
@@ -395,7 +409,7 @@ final class ColumnCodecGrammar {
      * believes something about the data that is not true.
      *
      * @param array{container:string,leaves:string} $codec
-     * @return array{kind:'container',value:array<mixed>}|array{kind:'text',value:string}|array{kind:'null',value:null}
+     * @return array{kind:'container'|'json',value:array<mixed>}|array{kind:'text',value:string}|array{kind:'null',value:null}
      */
     private static function decode(mixed $bytes, array $codec, string $where, string $side): array {
         $container = (string) $codec['container'];
@@ -412,11 +426,18 @@ final class ColumnCodecGrammar {
                 . get_debug_type($bytes) . ', not a string — a container codec decodes stored bytes'
             );
         }
-        $decoded = PlainData::decode($bytes, $where);
+        $decoded = $container === 'json'
+            ? StructuredValue::decode($bytes, ['json_encoded' => true], $where)
+            : PlainData::decode($bytes, $where);
         if ($container === 'php_serialized_or_text' && is_string($decoded) && $decoded === $bytes) {
             return ['kind' => 'text', 'value' => $decoded];
         }
-        $reencoded = is_object($decoded) ? null : @serialize($decoded);
+        // The shared associative JSON decoder loses duplicate keys and some
+        // object/list distinctions. Exact re-encoding refuses those shapes,
+        // alternate spellings and numeric precision loss before any rewrite.
+        $reencoded = $container === 'json'
+            ? StructuredValue::encode($decoded, ['json_encoded' => true], $where)
+            : (is_object($decoded) ? null : @serialize($decoded));
         if ($reencoded !== $bytes) {
             throw new \RuntimeException(
                 "wprism: $where declares the '$container' column codec, but re-encoding the $side value does not "
@@ -432,7 +453,8 @@ final class ColumnCodecGrammar {
                 . 'container; a scalar column is already tokenized correctly without one'
             );
         }
-        return ['kind' => 'container', 'value' => $decoded];
+        if ($container === 'json') PlainData::assert($decoded, $where);
+        return ['kind' => $container === 'json' ? 'json' : 'container', 'value' => $decoded];
     }
 
     /** The codec owns framing, so clearance must inspect the decoded value. */

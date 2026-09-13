@@ -833,6 +833,7 @@ wprism_check_same(
         'conditional-json-refs/v1',
         'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
+        'json-column-codecs/v1',
         'key-bound-strings/v1',
         'manifest-provider-fresh-process/v1',
         'manifest-provider-runtime/v1',

@@ -41,6 +41,7 @@ if (!class_exists(Secrets::class, false)) {
 }
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Grammar/BlockValueCodec.php';
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
 
@@ -242,6 +243,18 @@ final class RepositoryPortableShapeValidator {
                     }
                 }
             } elseif (isset($rows[$entity['type']])) {
+                // Authorization decodes for clearance but cannot grant valid
+                // framing. Compile must reject the same malformed containers
+                // that checked materialization would otherwise meet later.
+                foreach ($this->policy->column_codec_rules($entity['type']) as $column => $codec) {
+                    try {
+                        ColumnCodecGrammar::decode_for_clearance($d['columns'][$column] ?? null, $codec,
+                            'columns.' . $column);
+                    } catch (\RuntimeException) {
+                        $this->add('schema_content_mismatch', $path, 'columns.' . $column,
+                            'typed column must contain faithful data in its declared container');
+                    }
+                }
                 foreach ($rows[$entity['type']]['refs'] ?? [] as $ref) {
                     $column = (string) $ref['column'];
                     $this->validate_declared_ref(

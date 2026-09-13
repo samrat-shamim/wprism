@@ -30,13 +30,26 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__, 4);
+if (($argv[1] ?? '') === '--compile-without-wordpress') {
+    require_once __DIR__ . '/../../lib/agent_version.php';
+    require_once __DIR__ . '/../../lib/frozen_policy.php';
+    require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+    wprism_test_define_agent_versions();
+    $input = json_decode(file_get_contents($argv[2] . '/probe.json'), true, flags: JSON_THROW_ON_ERROR);
+    $pinned = WPrismTest\FrozenPolicy::policy([$input['manifest']], $input['site']);
+    $compiled = WPrism\RepositoryCompiler::compile($argv[2], $pinned);
+    echo json_encode(['entities' => count($compiled->tree()), 'wordpress' => function_exists('get_option'),
+        'database' => isset($GLOBALS['wpdb'])], JSON_THROW_ON_ERROR), "\n";
+    exit(0);
+}
+
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../lib/agent_version.php';
 require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
-$root = dirname(__DIR__, 4);
 wprism_test_define_agent_versions();
 
 require_once $root . '/agent/src/Kernel/Canon.php';
@@ -47,6 +60,9 @@ require_once $root . '/agent/src/Grammar/ColumnCodecGrammar.php';
 require_once $root . '/agent/src/Capture/TypedTableCapture.php';
 require_once $root . '/agent/src/Repository/Snapshot.php';
 require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+require_once $root . '/agent/src/Apply/TypedTableMaterializer.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
 
 use WPrism\Canon;
 use WPrism\ColumnCodecGrammar;
@@ -288,7 +304,7 @@ $refuse(
     'B8: an implied leaf treatment is refused — both members are required'
 );
 $refuse(
-    ['redirection_items' => ['action_data' => ['container' => 'json', 'leaves' => 'text']]],
+    ['redirection_items' => ['action_data' => ['container' => 'yaml', 'leaves' => 'text']]],
     'the column container vocabulary is closed and engine-owned',
     'B9: an unknown container is refused, and the refusal prints the legal set'
 );
@@ -304,7 +320,7 @@ $refuse(
 );
 
 wprism_check_same(
-    ['php_serialized', 'php_serialized_or_text'],
+    ['php_serialized', 'php_serialized_or_text', 'json'],
     Policy::closed_vocabularies()['column_codec_containers'],
     'B12: the container vocabulary is published from the same const the refusal consults'
 );
@@ -775,5 +791,190 @@ wprism_check(
         && !array_key_exists('deletions', $redirection),
     'D7: the fixture adapter claims no provider, action or deletion — the second Redirection coordinate stays open'
 );
+
+// E. Stored JSON uses the same checked column boundary. Compilation must
+// validate every declared framing, including existing serialized containers.
+$framingManifest = ['name' => 'column-framing', 'spec_version' => 3, 'option_autoload' => 'preserve',
+    'engine_features' => ['spec-window/v1', 'typed-column-codecs/v1'],
+    'tables' => ['framing_rows' => ['class' => 'authored_snapshot', 'pk' => 'id', 'id_kind' => 'framing_row',
+        'slug_column' => 'name', 'identity' => ['mode' => 'mapped'],
+        'columns' => ['name' => ['class' => 'authored'], 'data' => ['class' => 'authored']], 'refs' => []]],
+    'column_codecs' => ['framing_rows' => ['data' => $codec]]];
+$framingUuid = '11111111-1111-4111-8111-111111111111';
+$framingPath = "tables/framing_rows/$framingUuid--selected.json";
+$framingScratch = sys_get_temp_dir() . '/wprism-column-framing-' . bin2hex(random_bytes(8));
+mkdir($framingScratch, 0700, true);
+register_shutdown_function(static fn() => manifest_fixture_remove_tree($framingScratch));
+$compileFraming = static function (array $manifest, mixed $value) use ($framingScratch, $framingUuid, $framingPath): array {
+    $site = WPrismTest\FrozenPolicy::site([$manifest], 3);
+    $pinned = WPrismTest\FrozenPolicy::policy([$manifest], $site);
+    Canon::write_file($framingScratch . '/site.wprism.json', Canon::encode($site));
+    Canon::write_file($framingScratch . '/state/' . $framingPath,
+        Canon::encode(['uuid' => $framingUuid, 'table' => 'framing_rows', 'meta' => (object) [], 'columns' => ['name' => 'Selected', 'data' => $value]]));
+    return WPrism\RepositoryCompiler::compile($framingScratch, $pinned)->tree();
+};
+wprism_check_same(1, count($compileFraming($framingManifest, serialize(['url' => '{{home}}/path']))),
+    'E1: real compiler admits existing faithful serialized column framing');
+wprism_check_throws(static fn() => $compileFraming($framingManifest, 'a:1:{broken'), RuntimeException::class,
+    'E1: real compiler refuses malformed declared serialized framing', 'schema_content_mismatch');
+
+$jsonCodec = ['container' => 'json', 'leaves' => 'text'];
+$jsonManifest = $framingManifest;
+$jsonManifest['engine_features'][] = 'json-column-codecs/v1';
+sort($jsonManifest['engine_features'], SORT_STRING);
+$jsonManifest['column_codecs']['framing_rows']['data'] = $jsonCodec;
+$jsonPolicy = $load(['column-framing' => $jsonManifest]);
+wprism_check_same(['data' => $jsonCodec], $jsonPolicy->column_codec_rules('framing_rows'),
+    'E2: JSON framing loads through the real negotiated policy path');
+$missingJsonFeature = $jsonManifest;
+$missingJsonFeature['engine_features'] = $framingManifest['engine_features'];
+wprism_check_throws(static fn() => $load(['column-framing' => $missingJsonFeature]), RuntimeException::class,
+    'E2: JSON framing cannot borrow the base column feature', 'json-column-codecs/v1');
+$missingColumnFeature = $jsonManifest;
+$missingColumnFeature['engine_features'] = ['json-column-codecs/v1', 'spec-window/v1'];
+wprism_check_throws(static fn() => $load(['column-framing' => $missingColumnFeature]), RuntimeException::class,
+    'E2: JSON vocabulary does not self-grant the column section', "top-level key 'column_codecs'");
+
+$jsonNative = json_encode(['url' => 'https://source.example/path?q="quoted"', 'nested' => ['note' => 'বাংলা',
+    'empty' => [], 'enabled' => true, 'nothing' => null, 'count' => 7, 'fraction' => 1.25]], JSON_THROW_ON_ERROR);
+$jsonExpected = str_replace('https:\/\/source.example', '{{home}}', $jsonNative);
+$jsonCaptured = ColumnCodecGrammar::capture_value($jsonNative, $jsonCodec, $sourceTokens, 'E3');
+wprism_check_same($jsonExpected, $jsonCaptured, 'E3: escaped native JSON URLs are rewritten only after decoding');
+wprism_check_same($jsonCaptured, ColumnCodecGrammar::capture_value(
+    ColumnCodecGrammar::apply_value($jsonCaptured, $jsonCodec, $targetTokens, 'E3'), $jsonCodec, $targetTokens, 'E3'),
+    'E3: target Apply and recapture preserve complete canonical JSON bytes');
+foreach (['[]', '{"note":"unchanged","nested":[true,false,null,7]}', '[{"x":"y"},[]]'] as $stableJson) {
+    wprism_check_same($stableJson, ColumnCodecGrammar::capture_value($stableJson, $jsonCodec, $sourceTokens, 'E3'),
+        'E3: unchanged JSON preserves every byte and container kind');
+}
+$invalidJson = ['{"x":', '{"x":1} trailing', '{"x":1,"x":2}', '{"0":"value"}', '{}', '{"nested":{}}',
+    '{ "x":1}', '{"x":1.0}', '{"x":9223372036854775808}', '{"x":1e400}', '{"x":"\\u0078"}',
+    'null', 'true', '17', '"text"', null, 17, str_repeat('[', 520) . '0' . str_repeat(']', 520)];
+$rewriteSpy = new class() {
+    public int $calls = 0;
+    public function plain_data_capture($value) { ++$this->calls; return $value; }
+    public function plain_data_apply($value) { ++$this->calls; return $value; }
+};
+foreach ($invalidJson as $invalid) {
+    wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($invalid, $jsonCodec, $rewriteSpy, 'E4'),
+        RuntimeException::class, 'E4: unsupported or unfaithful native JSON refuses before rewriting');
+    wprism_check_throws(static fn() => ColumnCodecGrammar::apply_value($invalid, $jsonCodec, $rewriteSpy, 'E4'),
+        RuntimeException::class, 'E4: unsupported or unfaithful canonical JSON refuses before rewriting');
+    wprism_check_throws(static fn() => $compileFraming($jsonManifest, $invalid), RuntimeException::class,
+        'E4: the real compiler refuses the same invalid framing', 'schema_content_mismatch');
+}
+wprism_check_same(0, $rewriteSpy->calls, 'E4: rejected framing never invokes a leaf transformer');
+foreach ([['credential' => 'GeneratedValue-2026-Blocked'], ['profile' => ['firstName' => 'Private Customer']]] as $private) {
+    $privateJson = json_encode($private, JSON_THROW_ON_ERROR);
+    wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value($privateJson, $jsonCodec, $sourceTokens, 'E5'),
+        RuntimeException::class, 'E5: decoded JSON keys participate in recursive capture clearance');
+    wprism_check_throws(static fn() => $compileFraming($jsonManifest, $privateJson), RuntimeException::class,
+        'E5: edited JSON keys participate in real compiler clearance');
+}
+
+// E6 composes the new framing with row ownership and the actual capture,
+// compiler and checked materializer. Foreign invalid JSON never enters a codec.
+$scopedManifest = $jsonManifest;
+$scopedManifest['engine_features'][] = 'table-row-scopes/v1';
+sort($scopedManifest['engine_features'], SORT_STRING);
+$scopedManifest['tables']['framing_rows']['row_scope'] = ['item_type' => 'user'];
+$scopedManifest['tables']['framing_rows']['columns']['item_type'] = ['class' => 'authored'];
+$scopedManifest['tables']['framing_rows']['columns']['hits'] = ['class' => 'runtime'];
+$scopedPolicy = $load(['column-framing' => $scopedManifest]);
+$framingDecl = $scopedPolicy->declared_tables()['framing_rows'];
+$wpdb = FakeWpdb::install()->enableInformationSchema()->enableJoinedCaptureSql()
+    ->setPrimaryKey('framing_rows', 'id')->setAutoIncrement('framing_rows', 800, 'id')
+    ->setColumns('framing_rows', ['id' => 'int(11)', 'name' => 'varchar(255)', 'data' => 'longtext',
+        'item_type' => 'varchar(32)', 'hits' => 'int(11)'])->setTableEngine('framing_rows', 'InnoDB');
+$foreignJsonRows = [['id' => 3, 'name' => 'Foreign', 'item_type' => 'product', 'data' => '{broken', 'hits' => 91]];
+$wpdb->seedTable('framing_rows', [
+    ['id' => 2, 'name' => 'Selected', 'item_type' => 'user', 'data' => $jsonNative, 'hits' => 42], ...$foreignJsonRows]);
+$framingIdentity = new class($framingUuid) {
+    public function __construct(private string $uuid) {}
+    public function identifyRow(string $table, array $decl, array $row, int $id): string { return $this->uuid; }
+};
+$framingCapture = new TypedTableCapture($framingIdentity, static function (): void {}, static fn() => null,
+    static fn(string $name): string => strtolower($name));
+$captureJson = static fn(Tokens $tokens): array => $framingCapture->capture_table(
+    'framing_rows', $framingDecl, [], $tokens, true, false, $scopedPolicy->column_codec_rules('framing_rows'));
+$jsonEntities = $captureJson($sourceTokens);
+wprism_check_same(1, count($jsonEntities), 'E6: scoped Capture ignores foreign malformed JSON');
+$jsonFront = Canon::decode($jsonEntities[0]['content']);
+wprism_check_same($jsonExpected, $jsonFront['columns']['data'], 'E6: real typed-table Capture emits canonical JSON');
+wprism_check(!array_key_exists('hits', $jsonFront['columns']), 'E6: sibling runtime counters stay outside authored state');
+$scopedSite = WPrismTest\FrozenPolicy::site([$scopedManifest], 3);
+$scopedPolicy = WPrismTest\FrozenPolicy::policy([$scopedManifest], $scopedSite);
+Canon::write_file($framingScratch . '/site.wprism.json', Canon::encode($scopedSite));
+Canon::write_file($framingScratch . '/state/' . $jsonEntities[0]['path'], $jsonEntities[0]['content']);
+$jsonTree = WPrism\RepositoryCompiler::compile($framingScratch, $scopedPolicy)->tree();
+wprism_check_same(1, count($jsonTree), 'E6: captured JSON and ownership compose through immutable compilation');
+Canon::write_file($framingScratch . '/probe.json', Canon::encode(['manifest' => $scopedManifest, 'site' => $scopedSite]));
+$child = proc_open([PHP_BINARY, __FILE__, '--compile-without-wordpress', $framingScratch],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+if (!is_resource($child)) throw new RuntimeException('could not start isolated column compiler');
+fclose($pipes[0]);
+$childOut = stream_get_contents($pipes[1]);
+$childErr = stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+wprism_check_same(0, proc_close($child), 'E6: JSON columns compile in an isolated process');
+wprism_check_same('', $childErr, 'E6: isolated compilation emits no diagnostics');
+wprism_check_same(['entities' => 1, 'wordpress' => false, 'database' => false], json_decode($childOut, true),
+    'E6: JSON framing validation requires neither WordPress nor a database');
+$jsonEntity = $jsonTree[$framingUuid];
+$wpdb->seedTable('framing_rows', $foreignJsonRows);
+$mappedId = null;
+$framingWriter = new WPrism\TypedTableMaterializer(static fn() => ['framing_rows' => $framingDecl], static fn() => [],
+    static function () use (&$mappedId): ?int { return $mappedId; },
+    static function (string $uuid, string $table, string $kind, int $id) use (&$mappedId): void { $mappedId = $id; },
+    static fn() => 0, static fn() => [], static fn() => false, static fn($value) => $value,
+    static function (): void {}, static fn() => $scopedPolicy->column_codec_rules('framing_rows'));
+$writeJson = static function (callable $write) use (&$mappedId): mixed {
+    $mapBefore = $mappedId;
+    WPrism\Db::start_repeatable_read('JSON framing fixture', new WPrism\NativeDatabaseProfile(['wp_framing_rows'], ['wp_framing_rows']));
+    try {
+        $result = $write();
+        WPrism\Db::commit('JSON framing fixture');
+        return $result;
+    } catch (Throwable $failure) {
+        WPrism\Db::rollback_after_failure($failure, 'JSON framing fixture');
+        $mappedId = $mapBefore;
+        throw $failure;
+    }
+};
+$writeJson(static function () use ($framingWriter, $jsonEntity, $targetTokens): void {
+    wprism_check($framingWriter->ensureRow($jsonEntity), 'E6: checked Apply creates a target row at a new local identity');
+    $framingWriter->finalizeRow($targetTokens, $jsonEntity);
+});
+$expectedTarget = json_encode(['url' => 'https://target.example.co.uk/path?q="quoted"',
+    'nested' => json_decode($jsonNative, true)['nested']], JSON_THROW_ON_ERROR);
+wprism_check_same($expectedTarget, $wpdb->rows('framing_rows')[1]['data'], 'E6: checked Apply stores faithful rebound JSON');
+wprism_check_same($foreignJsonRows, array_slice($wpdb->rows('framing_rows'), 0, 1), 'E6: checked Apply preserves foreign bytes');
+wprism_check_same($jsonEntities[0]['content'], $captureJson($targetTokens)[0]['content'], 'E6: complete canonical recapture is stable');
+$writeJson(static function () use ($framingWriter, $jsonEntity, $targetTokens): void {
+    wprism_check(!$framingWriter->ensureRow($jsonEntity), 'E6: repeated Apply retains the target identity');
+    $framingWriter->finalizeRow($targetTokens, $jsonEntity);
+});
+wprism_check_same(2, count($wpdb->rows('framing_rows')), 'E6: repeated Apply creates no duplicate');
+$beforeJsonFailure = $wpdb->rows('framing_rows');
+$changedJsonEntity = $jsonEntity;
+$changedJsonEntity['data']['columns']['data'] = json_encode(['url' => '{{home}}/changed'], JSON_THROW_ON_ERROR);
+$jsonWriteObserved = false;
+wprism_check_throws(static function () use ($writeJson, $framingWriter, $changedJsonEntity, $targetTokens, $wpdb, &$jsonWriteObserved): void {
+    $writeJson(static function () use ($framingWriter, $changedJsonEntity, $targetTokens, $wpdb, &$jsonWriteObserved): void {
+    $framingWriter->finalizeRow($targetTokens, $changedJsonEntity);
+    $jsonWriteObserved = $wpdb->rows('framing_rows')[1]['data'] === json_encode(['url' => 'https://target.example.co.uk/changed'], JSON_THROW_ON_ERROR);
+    throw new RuntimeException('injected later JSON failure');
+    });
+}, RuntimeException::class, 'E6: later failure rolls back the actual checked JSON write', 'injected later JSON failure');
+wprism_check($jsonWriteObserved, 'E6: rollback probe reached materialization');
+wprism_check_same($beforeJsonFailure, $wpdb->rows('framing_rows'), 'E6: rollback restores every native row');
+$malformedEntity = $jsonEntity;
+$malformedEntity['data']['columns']['data'] = '{broken';
+wprism_check_throws(static fn() => $writeJson(static fn() => $framingWriter->finalizeRow($targetTokens, $malformedEntity)),
+    RuntimeException::class, 'E6: materialization independently refuses malformed canonical JSON', 'not valid JSON');
+wprism_check_same($beforeJsonFailure, $wpdb->rows('framing_rows'), 'E6: malformed materialization preserves every native row');
+$writeJson(static fn() => $framingWriter->deleteLocalRow('framing_rows', $mappedId));
+wprism_check_same($foreignJsonRows, $wpdb->rows('framing_rows'), 'E6: deletion leaves foreign malformed data untouched');
 
 wprism_check_summary('regress_column_codec_grammar');

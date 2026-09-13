@@ -14954,6 +14954,9 @@
                         "leaves"
                     ]
                 },
+                "JSON_FEATURE": {
+                    "value_repr": "json-column-codecs/v1"
+                },
                 "MIXED_FEATURE": {
                     "value_repr": "mixed-column-codecs/v1"
                 },
