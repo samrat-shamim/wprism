@@ -2327,6 +2327,10 @@ regress-url-query-reference-codec:
 # `attr_id_codecs` (WPForms Lite's string-typed `formId`). Both sections ship
 # post-v3 through `engine_features` with NO version bump, which each suite
 # asserts by pinning WPRISM_SPEC_VERSION at 3.
+.PHONY: regress-table-row-scopes
+regress-table-row-scopes:
+	php sandbox/tests/offline/grammar/regress_table_row_scopes.php
+
 regress-column-codec-grammar:
 	php sandbox/tests/offline/grammar/regress_column_codec_grammar.php
 

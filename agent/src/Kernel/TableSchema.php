@@ -230,6 +230,14 @@ final class TableSchema {
                 "wprism: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
             );
         }
+        if (isset($decl['row_scope'])) {
+            $types = self::live_column_types($table) ?? [];
+            foreach ($decl['row_scope'] as $column => $value) {
+                if (preg_match('/^(?:var)?char\(|^(?:tiny|medium|long)?text\b/i', $types[$column] ?? '') !== 1) {
+                    throw new \RuntimeException("wprism: table '$table' row_scope column '$column' must have a native text type");
+                }
+            }
+        }
         $accounted = array_merge([$pk], $colKeys, $refCols);
         $undeclared = array_diff($live, $accounted);
         if ($undeclared) {

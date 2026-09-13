@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 
 // Production closes every direct dependency here. Some regressions preload
@@ -88,6 +90,20 @@ final class TypedTableMaterializer {
         $this->columnCodecs = $columnCodecs;
     }
 
+    /** Lock the current owner, not a repeatable-read preimage, until the write commits. */
+    private static function assertScopedWrite(string $table, array $decl, ?int $localId): void {
+        if (!isset($decl['row_scope'])) {
+            return;
+        }
+        if (!Db::transaction_active("row-scoped table '$table' write")) {
+            throw new \RuntimeException("wprism: row-scoped table '$table' write requires an active transaction");
+        }
+        if ($localId !== null) {
+            global $wpdb;
+            TableRowScope::assert_live_row($table, $decl, $localId, $wpdb, true);
+        }
+    }
+
     /**
      * One authored column's value on the way back to the live row.
      *
@@ -121,8 +137,10 @@ final class TypedTableMaterializer {
         }
         $idKind = $decl['id_kind'];
         $front = $entity['data'] ?? Canon::decode($entity['content']);
+        TableRowScope::assert_matches($entity['type'], $decl, (array) ($front['columns'] ?? []));
         $uuid = $front['uuid'];
         $mappedId = ($this->ledgerIdFor)($uuid, $idKind);
+        self::assertScopedWrite($entity['type'], $decl, $mappedId);
         $prefixed = $wpdb->prefix . $entity['type'];
         $pk = $decl['pk'];
 
@@ -179,6 +197,7 @@ final class TypedTableMaterializer {
         }
         $idKind = $decl['id_kind'];
         $front = $entity['data'] ?? Canon::decode($entity['content']);
+        TableRowScope::assert_matches($entity['type'], $decl, (array) ($front['columns'] ?? []));
         $uuid = $front['uuid'];
         $localId = ($this->ledgerIdFor)($uuid, $idKind)
             ?? throw new \RuntimeException("wprism: table row $uuid ({$entity['type']}) missing from ledger after phase 1");
@@ -186,6 +205,7 @@ final class TypedTableMaterializer {
         $pk = $decl['pk'];
         $colTypes = TableSchema::live_column_types($entity['type']) ?? [];
 
+        self::assertScopedWrite($entity['type'], $decl, $localId);
         $codecs = ($this->columnCodecs)($entity['type']);
         $data = [];
         foreach ($decl['columns'] ?? [] as $col => $rule) {
@@ -523,6 +543,7 @@ final class TypedTableMaterializer {
         if ($decl === null) {
             throw new \RuntimeException("wprism: cannot delete row from undeclared table '$table'");
         }
+        self::assertScopedWrite($table, $decl, $localId);
         if (TableGraph::is_composite_ref($decl)) {
             $columns = $decl['identity']['columns'];
             [$left, $right] = ($this->unpackCompositeId)($localId);
@@ -563,6 +584,7 @@ final class TypedTableMaterializer {
         if ($decl === null) {
             throw new \RuntimeException("wprism: cannot reparent row in undeclared table '$table'");
         }
+        self::assertScopedWrite($table, $decl, $localId);
         if (TableGraph::is_composite_ref($decl)) {
             throw new \RuntimeException(
                 "wprism: reparenting composite_ref table '$table' changes the row's identity; delete the orphaned fact instead"

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+
 require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 require_once __DIR__ . '/../Kernel/KeyBoundStrings.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
@@ -183,6 +185,7 @@ final class AdapterContractGrammar {
      * @var array<string,array{since:int,keys:array<string,string>}>
      */
     private const IMPLEMENTED_FEATURES = [
+        TableRowScope::FEATURE => ['since' => 3, 'keys' => []],
         BlockContentGrammar::FEATURE => ['since' => 3, 'keys' => [BlockContentGrammar::SECTION => 'field']],
         BlockMediaDerivativeGrammar::FEATURE => ['since' => 3, 'keys' => [BlockMediaDerivativeGrammar::SECTION => 'field']],
         BlockValueGrammar::FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::SECTION => 'field']],
@@ -568,6 +571,9 @@ final class AdapterContractGrammar {
             }
             if ($name === PhpContainerValue::FEATURE) {
                 $rows[$name]['value_constraint'] = PhpContainerValue::declaration_grammar();
+            }
+            if ($name === TableRowScope::FEATURE) {
+                $rows[$name]['value_constraint'] = TableRowScope::declaration_grammar();
             }
             if ($name === ReferenceCondition::FEATURE) {
                 $rows[$name]['value_constraint'] = ReferenceCondition::declaration_grammar();

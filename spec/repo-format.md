@@ -3411,6 +3411,40 @@ linter and all published content retains privacy clearance. These fields are
 rejected in options, metadata and site policy. Manifests without the feature
 and leaves without `on_unmapped` retain their previous transport behavior.
 
+### v3.38 `table-row-scopes/v1` — ownership within shared physical tables
+
+A v3 manifest declaring `spec-window/v1` and `table-row-scopes/v1` may add
+`row_scope` to an ordinary `authored_snapshot` table. The object maps 1–8
+column identifiers to nonempty strings matching `[A-Za-z0-9_-]{1,128}`.
+Every discriminator must match exactly, including case and trailing bytes.
+There are no SQL expressions, wildcards, coercions or implicit default matches.
+
+```json
+"row_scope": {"item_type": "user"}
+```
+
+Each discriminator is an authored column with a native character/text type.
+A natural key includes every discriminator; mapped identities remain supported.
+Column codecs cannot rewrite discriminators. This version refuses structural
+`refs` on the scoped table and attached-meta sidecars, whose global traversal
+has not acquired row ownership. Different declarations for the same physical
+table still refuse in either pin order; this is not a multi-adapter partition
+composition grammar. Site policy cannot self-grant this feature.
+
+Capture reads only matching rows before identity assignment and privacy
+clearance. Immutable compilation authorizes each canonical row against the
+same predicate. A retained ledger id whose native row no longer matches is an
+ownership conflict, not a deletion: capture/pruning, sidecar export and scoped
+identity recovery refuse without discarding that mapping. A physically absent
+row retains the existing deletion/recreation semantics.
+
+Apply, deletion, reparenting and adoption check the current native owner.
+Scoped writes require the existing tracked transaction and lock the selected
+row before observing its discriminator, so an earlier repeatable-read snapshot
+cannot authorize a later ownership change. Unscoped declarations retain their
+previous query and transport semantics. This feature adds no shipped adapter
+claim and does not transport JSON template references or local import files.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

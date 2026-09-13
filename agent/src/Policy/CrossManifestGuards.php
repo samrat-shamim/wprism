@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -451,6 +453,7 @@ final class CrossManifestGuards {
      * @param array<string,array> $declaredTables
      */
     public static function validate_unique_table_id_kinds(array $declaredTables): void {
+        TableRowScope::validate_set($declaredTables);
         $seen = [];
         foreach ($declaredTables as $table => $decl) {
             // The literal, not Snapshot::CLASS_ROW: this file must stay

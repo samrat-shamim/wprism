@@ -326,7 +326,9 @@ final class SnapshotIdentity {
                 $args[] = $parentId;
                 continue;
             }
-            $predicates[] = "`$column` = %s";
+            $predicates[] = isset($decl['row_scope'][$column])
+                ? "BINARY `$column` = BINARY %s"
+                : "`$column` = %s";
             $args[] = $value;
         }
         return ($this->findNaturalCollision)($entity['type'], $decl['pk'], $predicates, $args);
