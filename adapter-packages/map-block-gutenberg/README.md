@@ -1,6 +1,7 @@
 # Map Block for Google Maps
 
-Experimental pending production qualification and review. Exact audited plugin:
+Experimental pending human boundary/disposition review and certified host-path
+qualification. Exact audited plugin:
 `map-block-gutenberg` 1.35, SHA-256 pinned in `evidence/artifacts.lock.json`.
 The enforced compatibility window is `>=1.35 <1.35.1`; 1.34 is a refusal fixture.
 
@@ -12,7 +13,8 @@ A map may be nested inside ordinary parent blocks, but cannot contain children.
 Custom classes/styles/metadata, custom HTML, malformed values, and unknown fields
 refuse rather than being silently discarded. The inspected native bounds are
 zoom 1..21, height 50..1000, and a UTF-8 destination of at most 8192 bytes.
-The destination is reviewed public text; value-level PII and secret checks remain.
+The manifest declares the destination as public text, pending the required human
+clearance review; value-level PII and secret checks remain.
 
 The key occurs in both the attributes and static iframe URL. Gutenberg omits
 `api_key` when it equals the editor default, but the iframe still contains it.
@@ -59,13 +61,19 @@ validity, billing state, restrictions, or availability of the Maps service.
 The follow-up qualification adds native dependency/lifecycle refusals, exact
 reinstall, unsupported credential-deletion preservation, and barrier-controlled
 capture/capture/apply contention. Its exact scope and refusal ordering are
-recorded in `evidence/qualification.md`; process-crash recovery and the remaining
-platform/API work are not implied by those passing controls.
+recorded in `evidence/qualification.md`. A further source-bound native run
+qualifies four publication crash boundaries, tampered intent/receipt/commit-proof
+refusals, durable recovery and clean retry. Capsule-local runtime/platform tests
+pin unsupported topology/versions and unavailable APIs without claiming a new
+native platform matrix or Maps service availability.
 
 `evidence/production-readiness.json` is the authoritative remaining-work ledger;
 a successful fixture or schema check alone cannot promote this adapter.
 The exact source-bound run, native-editor observations, upstream warnings and
 local gate limitations are recorded in `evidence/qualification.md`.
+`evidence/human-review.md` lists the outstanding human decisions and the
+certified host-path validation required after approval. Passing agent-level
+qualification does not make those decisions or change the experimental status.
 
 ```sh
 php tools/adapter-package-validate.php --adapter=map-block-gutenberg

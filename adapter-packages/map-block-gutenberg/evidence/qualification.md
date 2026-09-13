@@ -168,3 +168,93 @@ qualification remain gaps. No new native editor save, real Maps service
 credential, platform sweep or human approval was obtained. Shared-codec,
 public-text clearance and disposition review are still required; readiness
 remains `unready` and the disposition remains `experimental`.
+
+## Recovery and runtime-boundary qualification
+
+On 2026-09-14 (Asia/Dhaka), the exact-source gate admitted
+`74fc75a8115a2523141d9f87758cca5d795b8da0` before resetting and starting
+`codexmaprecover` on ports 8996/8997. The complete Map conformance entry passed
+with exit zero and `AGENT ROUNDTRIP PASSED`, retaining the experimental host
+promotion refusal. The same WordPress 7.1/PHP 8.3/MariaDB 11 profile and exact
+1.35 ZIP were used. The native log spans 424 seconds:
+`sandbox/tmp/map-recovery-native-74fc75a8.log` in the recovery worktree.
+
+```sh
+WPRISM_SOURCE_ROOT=/path/to/clean/worktree \
+CONF_EXPECTED_SOURCE_SHA=74fc75a8115a2523141d9f87758cca5d795b8da0 \
+CONF_PAIR=codexmaprecover CONF1_PORT=8996 CONF2_PORT=8997 \
+  bash sandbox/conformance/run.sh map-block-gutenberg
+```
+
+The native recovery sequence first applies a real authored height change from
+420 to 430, then restores only the prior canonical file. The live target and
+published repository therefore represent genuinely different valid generations.
+For each checkpoint, a fresh native capture exits 137 through the existing
+publication kill seam. Complete private stdout/stderr/exit transport and the
+retained intent, receipt, tree placements and actual database commit marker
+jointly identify the boundary; a nonzero exit alone is not accepted evidence.
+
+| checkpoint | retained boundary and verified recovery |
+| --- | --- |
+| `intent-written` | Prepared intent, prior tree live, candidate staged, no commit marker; recovery discards the uncommitted candidate before fresh capture. |
+| `intent-ready` | Candidate live with prior backup, ready intent, no commit marker; recovery restores the prior tree before fresh capture. |
+| `after-commit-marker` | COMMIT-attempted intent with absent database commit proof; recovery rolls back the uncommitted publication before fresh capture. |
+| `receipt-written` | Matching committed receipt and durable database marker, candidate live and prior backup; recovery preserves the committed generation and finalizes cleanup. |
+
+Tampered intents, a tampered receipt, and a coherently rehashed current-intent
+marker with contradictory digests each refuse through ordinary native capture.
+Admission requires the entire typed public envelope and one fresh complete
+private cause graph. The refused run preserves every retained publication
+file and the exact manufactured marker. Fixture restoration overwrites only
+its own known mutant. Normal capture, not fixture code calling recovery APIs,
+then performs recovery with the exact expected warning list; a second capture
+has no warnings and is a fixed point. Every subsequent Apply is a verified
+zero-change operation. Final restoration and recapture match the complete
+original source tree byte for byte.
+
+All five persistent witnesses (posts, postmeta, identities, canonical ledger
+rows and the two target-owned options), target credential intent and the prior
+compiled artifact remain unchanged through each interrupted/refused/recovery
+leg after the deliberate candidate update. Pending staging, backup, intent,
+record-transition slots and the database marker disappear after successful
+recovery. The committed audit receipt and inert destination lock are retained
+by design. The disposable pair was destroyed after the run; logs, private
+transports and site repositories were retained under `sandbox/tmp/`.
+
+The capsule now has eight offline suites, 750 assertions. The 150 recovery
+assertions use actual SIGKILL child processes, compiled Map entities and the
+real journal/marker reader. Their SQL commit facts are explicitly simulated;
+the native run above supplies the real committed/uncommitted evidence. The
+plugin declares no provider, regenerator, external action or repair callback,
+so provider timeout/bad-action-receipt cases do not exist for this capsule;
+publication receipts are applicable and are exercised. Existing late-SQL
+post-materializer rollback/retry coverage remains in the boundary suite.
+
+The 140 runtime/platform assertions exercise actual Capture/Apply entry points
+with explicit topology, WordPress/database-version and failed-probe facts,
+proving no content/ledger queries or repository mutation. A genuinely absent
+WordPress parser fails without publishing raw credential-bearing content;
+restoring the parser restores the Map fixed point. PHP/OS/function/shell facts
+are injected only at the product's explicit platform-fact interface, not
+presented as native installations. The pure Map codec needs no native plugin
+class or HTTP API: Google Maps is the saved browser iframe's service, not an
+adapter provider. This does not qualify service credentials or availability.
+
+At `74fc75a8`, `make regress-offline-all` passes 390/390 suites,
+`make release-gate` passes, and `composer check` passes 1,360 tests with 38,258
+assertions. An initial Composer run exceeded its 300-second PHPUnit wrapper
+limit without an assertion failure; the complete rerun used a 1,200-second
+wrapper limit without changing product or individual-test deadlines.
+Independent code review found no actionable issues in either new suite or
+the native recovery harness. Shipped package bytes and the adapter digest
+remain unchanged.
+
+The experimental transport's technical qualification gaps are now closed. The work ledger deliberately
+keeps `data-boundary` and `scope-platform` blocked on the required human
+decisions in [human-review.md](human-review.md); this does not retract their
+passing tests. No human approval, new editor save, clean editor-compatibility
+certificate, real Maps credential or expanded adapter-specific platform matrix
+is claimed. The adapter remains `unready`/`experimental`. After approval,
+promotion still requires the corresponding production disposition/entry and
+regression changes, recompilation/re-pinning, a certified host-path conformance
+run and the complete local gates.
