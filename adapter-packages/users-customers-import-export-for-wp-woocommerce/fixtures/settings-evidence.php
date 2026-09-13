@@ -123,11 +123,16 @@ foreach (['repository', 'native-state'] as $case) {
 }
 $edge = $read('edge-edit');
 ImporterSettingsEvidence::settings($before, $read('edge-target'), $edge['settings'], $edge['autoload']);
-foreach (['edge', 'restore'] as $phase) {
+foreach (['edge', 'restore', 'boundary'] as $phase) {
     $apply = $read("$phase-apply");
     $check($apply['applied'] > 0 && $apply['canary'] === 'clean' && $apply['drift'] === []
         && $apply['warnings'] === [] && $apply['actions'] === [], 'manual settings Apply completes without executable actions: ' . $phase);
 }
+$check($read('edge-reader') === ['batch' => 1, 'first_rows' => 1, 'second_rows' => 1, 'zero_control_rows' => 3],
+    'applied native import batch advances one row while the rejected zero control reads all remaining rows');
+$check($read('edge-target') === $read('edge-reader-stable'), 'native reader controls preserve every native table and operational file');
+$check($read('boundary-edit')['settings']['wt_iew_default_export_batch'] === 1
+    && count($read('boundary-export')['jobs']) === 1, 'applied native export batch one completes one real selected-user export without a batch override');
 $read('edge-plan', 0, 'plan');
 $check($read('edge-capture')['warnings'] === [], 'manual boundary settings recapture succeeds cleanly');
 $check($before === $read('restore-target'), 'restoring original canonical settings restores the complete native observation');

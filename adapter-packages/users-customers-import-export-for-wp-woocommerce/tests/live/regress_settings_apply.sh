@@ -97,6 +97,8 @@ cp "$R2/state/options/core.json" "$sink/edge-options.json"
 capture edge-plan candidate 2 plan --repo=/siterepo --format=json
 capture edge-apply candidate 2 apply --repo=/siterepo --format=json
 capture edge-target native_side 2 observe
+capture edge-reader native_side 2 batch-reader
+capture edge-reader-stable native_side 2 observe
 capture edge-capture candidate 2 capture --repo=/siterepo --format=json
 pair_live_ownership_repo_host
 cmp "$sink/edge-options.json" "$R2/state/options/core.json" || fail 'manual boundary settings recapture changed canonical bytes'
@@ -136,5 +138,8 @@ for phase in target source retention; do
 done
 capture purge-save native_side 2 save-retention
 capture purge-target native_side 2 observe
+capture boundary-edit native_side 2 repository-edge
+capture boundary-apply candidate 2 apply --repo=/siterepo --format=json
+capture boundary-export native_side 2 edge-export
 php "$PACKAGE_ROOT/fixtures/settings-evidence.php" "$sink" "$PAIR"
 pair_live_ownership_complete 'REGRESS_IMPORTER_SETTINGS_APPLY PASSED'

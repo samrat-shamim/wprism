@@ -193,9 +193,11 @@ $invalidValues = [
     ['wt_iew_enable_import_log', true],
     ['wt_iew_default_import_method', 'advanced'],
     ['wt_iew_default_import_batch', -1],
+    ['wt_iew_default_import_batch', 0],
     ['wt_iew_default_import_batch', '17'],
     ['wt_iew_default_export_method', 'invalid-method'],
     ['wt_iew_default_export_batch', -1],
+    ['wt_iew_default_export_batch', 0],
     ['wt_iew_default_export_batch', '41'],
     ['wt_iew_enable_history_auto_delete', '1'],
     ['wt_iew_auto_delete_history_count', -1],
@@ -220,11 +222,11 @@ foreach ($invalidValues as [$key, $invalidValue]) {
         "$key cannot bypass its constraint through the lower materializer", 'scalar value constraint');
     wprism_check_same($before, $snapshot($db), "$key incoming refusal preserves every native row");
 }
-// Native int/absint producers admit these values; no arbitrary UI advice
-// becomes an engine limit. BOM's integer 1 is the plugin's declared default.
+// Consumer progress requires positive batches despite the absint producer.
+// History zero is inert; BOM's integer 1 is the plugin's declared default.
 $edge = array_replace($native['source'], ['wt_iew_maximum_execution_time' => -1,
     'wt_iew_default_import_method' => 'new', 'wt_iew_default_export_method' => 'new',
-    'wt_iew_default_import_batch' => 0, 'wt_iew_default_export_batch' => 0,
+    'wt_iew_default_import_batch' => 1, 'wt_iew_default_export_batch' => 1,
     'wt_iew_auto_delete_history_count' => 0, 'wt_iew_include_bom' => 1]);
 $db = $database($native['target'] + $local);
 $edgeArtifact = $compile($withSettings($edge));

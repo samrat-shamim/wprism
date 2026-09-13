@@ -73,7 +73,7 @@ if (str_starts_with($phase, 'repository-')) {
     if ($phase === 'repository-edge') {
         $settings = array_replace($native['source'], ['wt_iew_maximum_execution_time' => -1,
             'wt_iew_default_import_method' => 'new', 'wt_iew_default_export_method' => 'new',
-            'wt_iew_default_import_batch' => 0, 'wt_iew_default_export_batch' => 0,
+            'wt_iew_default_import_batch' => 1, 'wt_iew_default_export_batch' => 1,
             'wt_iew_auto_delete_history_count' => 0, 'wt_iew_include_bom' => 1]);
     }
     $records['wt_iew_advanced_settings'] = WPrism\OptionState::present($settings, $record['autoload']);
@@ -82,10 +82,39 @@ if (str_starts_with($phase, 'repository-')) {
         'canonical_sha256' => hash_file('sha256', $path)], JSON_THROW_ON_ERROR), "\n";
     return;
 }
-if ($phase === 'jobs') {
-    $id = wp_insert_user(['user_login' => 'importer-fixture-reader', 'user_email' => 'importer-reader@example.test',
+if ($phase === 'batch-reader') {
+    require_once WT_U_IEW_PLUGIN_PATH . 'admin/classes/class-csvreader.php';
+    $import = $callback('wp_ajax_iew_import_ajax_basic', 'ajax_main');
+    $check($import->default_batch_count === 1, 'native import module loaded the applied batch boundary');
+    $reader = new Wt_Import_Export_For_Woo_Basic_Csvreader(',');
+    $file = tempnam(sys_get_temp_dir(), 'importer-batch-');
+    $check(is_string($file), 'private reader control input');
+    try {
+        $input = "user_login\nreader-one\nreader-two\nreader-three\n";
+        $check(file_put_contents($file, $input) === strlen($input), 'complete three-row CSV control');
+        $form = ['mapping_form_data' => ['mapping_selected_fields' => ['user_login' => '{user_login}']]];
+        $first = $reader->get_data_as_batch($file, 0, $import->default_batch_count, $import, $form);
+        $second = $reader->get_data_as_batch($file, $first['offset'], $import->default_batch_count, $import, $form);
+        $zero = $reader->get_data_as_batch($file, 0, 0, $import, $form);
+        $check($first['response'] === true && $second['response'] === true && $zero['response'] === true,
+            'native reader controls succeed');
+        $check($first['rows_processed'] === 1 && $second['rows_processed'] === 1
+            && $first['offset'] > 0 && $second['offset'] > $first['offset']
+            && $first['data_arr'][0]['mapping_fields']['user_login'] === 'reader-one'
+            && $second['data_arr'][0]['mapping_fields']['user_login'] === 'reader-two', 'batch one advances exactly one row per native read');
+        $check($zero['rows_processed'] === 3 && count($zero['data_arr']) === 3,
+            'rejected zero control defeats the native reader batch boundary');
+        echo json_encode(['batch' => $import->default_batch_count, 'first_rows' => $first['rows_processed'],
+            'second_rows' => $second['rows_processed'], 'zero_control_rows' => $zero['rows_processed']], JSON_THROW_ON_ERROR), "\n";
+    } finally { unlink($file); }
+    return;
+}
+if (in_array($phase, ['jobs', 'edge-export'], true)) {
+    $edge = $phase === 'edge-export';
+    $id = $edge ? (int) get_user_by('login', 'importer-fixture-reader')->ID
+        : wp_insert_user(['user_login' => 'importer-fixture-reader', 'user_email' => 'importer-reader@example.test',
         'display_name' => 'Importer Fixture Reader', 'role' => 'subscriber', 'user_pass' => wp_generate_password(32)]);
-    $check(is_int($id) && $id > 1, 'fixture reader created');
+    $check(is_int($id) && $id > 1, 'fixture reader exists');
     $form = [
         'method_export_form_data' => ['method_export' => 'new'],
         'filter_form_data' => ['wt_iew_email' => [(string) $id], 'wt_iew_limit' => '1', 'wt_iew_sort_columns' => ['user_login'], 'wt_iew_order_by' => 'ASC'],
@@ -94,9 +123,13 @@ if ($phase === 'jobs') {
         'advanced_form_data' => ['wt_iew_batch_count' => '10', 'wt_iew_file_as' => 'csv', 'wt_iew_delimiter' => ','],
     ];
     $export = $callback('wp_ajax_iew_export_ajax_basic', 'ajax_main');
+    if ($edge) {
+        $check($export->default_batch_count === 1, 'native exporter loaded the applied batch boundary');
+        unset($form['advanced_form_data']['wt_iew_batch_count']);
+    }
     $jobs = [];
-    for ($i = 1; $i <= 3; $i++) {
-        $result = $export->process_action($form, 'export', 'user', 'importer-fixture-' . $i);
+    for ($i = 1; $i <= ($edge ? 1 : 3); $i++) {
+        $result = $export->process_action($form, 'export', 'user', ($edge ? 'importer-boundary-' : 'importer-fixture-') . $i);
         $check($result['response'] === true && (int) $result['finished'] === 1 && (int) $result['total_records'] === 1,
             'native export completed exactly one fixture user');
         $history = Wt_Import_Export_For_Woo_Basic_History::get_history_entry_by_id((int) $result['history_id']);

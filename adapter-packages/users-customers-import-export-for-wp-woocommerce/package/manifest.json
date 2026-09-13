@@ -52,9 +52,9 @@
           "lint_ok": true,
           "value_constraint": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 1
           },
-          "note": "admin/modules/import/import.php:157-164: authored batch size, not an entity ID."
+          "note": "admin/modules/import/import.php:155-163 declares min 1; import.php:991-1018 passes this default to class-csvreader.php:195-250. Zero misses the reader break after row_count increments and consumes the remaining file without batching."
         },
         "wt_iew_default_export_method": {
           "class": "authored",
@@ -73,9 +73,9 @@
           "lint_ok": true,
           "value_constraint": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 1
           },
-          "note": "admin/modules/export/export.php:154-164: authored batch size, not an entity ID."
+          "note": "admin/modules/export/export.php:155-164 declares min 1. export.php:631-645 and 917-922 preserve a zero default, so offset + batch_count at 702 cannot progress through a nonempty export. No unproven maximum is imposed."
         },
         "wt_iew_enable_history_auto_delete": {
           "class": "authored",

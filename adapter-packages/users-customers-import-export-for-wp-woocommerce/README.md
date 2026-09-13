@@ -7,7 +7,7 @@ observations supply the exact scalar types, including the string checkbox
 spelling used by the plugin.
 
 The declarations use `scalar-option-constraints/v1`: signed integer execution
-seconds, nonnegative integer batches/history count, exact method codes and
+seconds, positive integer batches, nonnegative history count, exact method codes and
 checkbox spellings. These preserve the native producers' types without
 coercion or invented browser-form bounds. BOM permits native default integer
 `1`, checked string `"1"`, and unchecked integer `0`.
@@ -23,12 +23,15 @@ The source-only conformance entry retains an explicit deployment refusal.
 The native lane also rejects an invalid repository value through public
 compile/plan/Apply and an invalid raw native value through Capture. It checks
 the exact diagnostic or private cause graph and complete state preservation.
-Manually authored zero counts, signed seconds and default method/BOM spellings
+Manually authored batches of one, zero history count, signed seconds and default method/BOM spellings
 pass Apply, native getter readback and byte-exact recapture.
+The native CSV reader advances one row per call at the applied import minimum;
+a direct zero control consumes all three fixture rows. A real selected-user
+export completes at the applied export minimum without a batch override.
 
 The offline suite covers forward/reverse writes, partial authored absence,
 repeat/recapture, post-write rollback, malformed target containers and compiler
-refusals for foreign keys, secrets and personal data. Seventeen invalid scalar
+refusals for foreign keys, secrets and personal data. Nineteen invalid scalar
 cases across all nine settings exercise Capture, compilation, incoming Apply
 and locked target preimages. A separate shell suite exercises the actual native
 runner's expected exits and diagnostic checks, including wrong-cause evidence.
