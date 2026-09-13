@@ -279,6 +279,10 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [],
         ],
+        ColumnCodecGrammar::FIELD_LABELS_FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
         ColumnCodecGrammar::JSON_FEATURE => [
             'since' => 3,
             'keys' => [],

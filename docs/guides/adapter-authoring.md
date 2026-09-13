@@ -3138,6 +3138,26 @@ Run `make regress-column-value-contracts-native` with the exact source SHA;
 it proves native typed rows and shared Gutenberg values at divergent user IDs.
 A template's local CSV input still needs a separate target-binding contract.
 
+Field definitions need their own semantic evidence. Importer 2.7.5 Saves
+`user_email: ["user_email", 1]` in its field map and
+`user_email: "user_email"` in its selected-column labels. These are labels,
+but ordinary PII key-role scanning interprets them as contact values. With
+`column-field-labels/v1`, declare the exact metadata leaf as
+`{"class": "authored", "field_labels": "label_enabled"}` or use `"label"`
+for a field-to-string map. Compose these leaves under `object_fields`; do not
+repeat a rule for every plugin field or grant whole-column privacy clearance.
+
+Prove that native producers and consumers use every map entry as a field code
+and label, including custom fields. This declaration supplies that semantic
+authority: shape validation alone cannot distinguish a person's name from a
+display label. It admits only nonempty string keys, string labels and, for
+`label_enabled`, a two-element tuple with integer 0 or 1. Empty maps are allowed;
+unknown formats, extra tuple entries and coerced flags refuse. All stored key
+and value bytes still undergo value-based privacy checks; enclosing roles and
+full original secret checks remain. Options, metadata and block values cannot
+borrow this column feature. Run the column-value offline suite and its native
+lane; template enrollment and input-file availability need separate evidence.
+
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
 an independently managed target row with the same key. Plan must either offer

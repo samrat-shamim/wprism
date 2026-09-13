@@ -29,6 +29,18 @@
         "sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json"
       ]
     },
+    "column_field_labels": {
+      "title": "explicit field-definition maps inside typed columns",
+      "status": "shipped",
+      "definition": "Negotiated label and label-enabled maps validate metadata shape before projecting immediate field-code PII roles. Every key and value remains scanned for private bytes, enclosing roles remain intact, and secret clearance retains the original decoded value. The shared text codec preserves native labels and flags; this grants no adapter qualification.",
+      "evidence": [
+        "agent/src/Kernel/FieldLabelMap.php",
+        "agent/src/Grammar/AuthoredValueCodec.php",
+        "agent/src/Grammar/ColumnCodecGrammar.php",
+        "sandbox/tests/offline/grammar/regress_column_value_contracts.php",
+        "sandbox/tests/live/fixtures/column_value_contracts.php"
+      ]
+    },
     "typed_column_value_contracts": {
       "title": "shared authored value contracts inside strict stored column containers",
       "status": "shipped",
@@ -897,6 +909,33 @@
       "closing": "Nine native editor Saves expose ordered string-ID lists, retained hidden custom text and a deleted selected post. Exact composed fields close the declaration gap; strict reference leaves prevent an empty post__in from broadening a lossy capture. Existing capture, immutable compiler, lint, materializer and privacy machinery enforce the contract. The adapter remains experimental; target editor controls, current/page sources, lifecycle, combinations and production readiness remain open.",
       "blocked_adapters": [
         "visual-portfolio"
+      ]
+    },
+    {
+      "id": "user-importer-template-field-labels",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "column_field_labels",
+          "closed_by": [
+            "agent/src/Kernel/FieldLabelMap.php",
+            "agent/src/Grammar/AuthoredValueCodec.php",
+            "agent/src/Grammar/ColumnCodecGrammar.php",
+            "sandbox/tests/offline/grammar/regress_column_value_contracts.php",
+            "sandbox/tests/live/fixtures/column_value_contracts.php"
+          ],
+          "coordinate": "tables.wt_iew_mapping_template.columns.data.mapping_form_data.mapping_fields and mapping_selected_fields",
+          "cannot_represent": "Native Saved export templates map field codes to [label, integer-enabled] tuples and selected string labels. Five of 27 default field definitions trigger ordinary PII key roles even though they contain no contact values; whole-column clearance would waive unrelated data."
+        }
+      ],
+      "probed_on": "2026-09-13",
+      "closing": "An explicit bounded value declaration distinguishes field-definition metadata while retaining actual key/value byte scans, enclosing PII roles and original secret clearance. Shared Capture, isolated compilation, lint and checked materialization enforce its shape. Template enrollment, selected-template identity semantics, local CSV binding, native jobs and adapter qualification remain open.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
       ]
     },
     {
