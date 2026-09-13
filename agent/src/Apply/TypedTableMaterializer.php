@@ -142,9 +142,9 @@ final class TypedTableMaterializer {
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         TableRowScope::assert_matches($entity['type'], $decl, (array) ($front['columns'] ?? []));
         // Phase 1 publishes placeholder bytes and identity before finalization.
-        // Validate selected canonical contracts before either mutation occurs.
+        // Validate direct and row-selected contracts before either mutation occurs.
         foreach (($this->columnCodecs)($entity['type']) as $column => $codec) {
-            if (array_key_exists(ColumnValueCases::FIELD, $codec)) {
+            if (isset($codec['value']) || array_key_exists(ColumnValueCases::FIELD, $codec)) {
                 $where = "table '{$entity['type']}' column '$column'";
                 $selected = ColumnValueCases::resolve($codec, (array) ($front['columns'] ?? []), $where);
                 ColumnCodecGrammar::decode_canonical_value($front['columns'][$column] ?? null, $selected, $where);

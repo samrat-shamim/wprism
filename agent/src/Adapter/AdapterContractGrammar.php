@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
+require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
 
 require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
 
@@ -291,6 +292,7 @@ final class AdapterContractGrammar {
             'keys' => [],
         ],
         ColumnValueCases::FEATURE => ['since' => 3, 'keys' => []],
+        FieldTemplateMap::FEATURE => ['since' => 3, 'keys' => []],
         ColumnCodecGrammar::JSON_FEATURE => [
             'since' => 3,
             'keys' => [],

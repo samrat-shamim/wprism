@@ -11,6 +11,7 @@ require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
 require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
+require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
 require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
 require_once __DIR__ . '/AuthoredValueCodec.php';
@@ -153,6 +154,9 @@ final class ColumnCodecGrammar {
             'value_codec' => ['required' => self::VALUE_CODEC_KEYS, 'feature' => self::VALUES_FEATURE,
                 'refines' => 'strict json or php_serialized container; authored value contract; every ref declares on_unmapped:refuse; record_fields requires its column feature; no text_encoding'],
             'value_cases' => ['feature' => ColumnValueCases::FEATURE] + ColumnValueCases::declaration_grammar(),
+            'field_templates' => ['feature' => FieldTemplateMap::FEATURE, 'formats' => FieldTemplateMap::FORMATS,
+                'max_expression_bytes' => FieldTemplateMap::MAX_BYTES, 'max_fragments' => FieldTemplateMap::MAX_FRAGMENTS,
+                'refines' => 'authored field-code map; native brace expressions or [expression, integer 0 or 1]; canonical text/field fragment lists; only literals use text transport and destination privacy roles'],
             'field_labels' => ['feature' => self::FIELD_LABELS_FEATURE, 'formats' => FieldLabelMap::FORMATS,
                 'refines' => 'authored value codec; field-code map to string labels or [string label, integer 0 or 1]; empty map allowed; all key/value bytes still scanned'],
             'record_fields' => ['feature' => self::RECORDS_FEATURE, 'shape' => RecordFields::declaration_grammar()['shape'],
@@ -201,7 +205,8 @@ final class ColumnCodecGrammar {
         $tables = is_array($manifest['tables'] ?? null) ? $manifest['tables'] : [];
         $values = new ValueContractGrammar(true,
             in_array(self::RECORDS_FEATURE, (array) ($manifest['engine_features'] ?? []), true), false, 'column', true,
-            in_array(self::FIELD_LABELS_FEATURE, (array) ($manifest['engine_features'] ?? []), true));
+            in_array(self::FIELD_LABELS_FEATURE, (array) ($manifest['engine_features'] ?? []), true),
+            in_array(FieldTemplateMap::FEATURE, (array) ($manifest['engine_features'] ?? []), true));
         foreach ($section as $table => $columns) {
             $table = (string) $table;
             $where = "$label column_codecs.$table";
@@ -399,7 +404,9 @@ final class ColumnCodecGrammar {
         }
         $piiSubject = isset($codec['value'])
             ? AuthoredValueCodec::pii_subject($decoded['value'], $codec['value'], false, $where) : null;
-        self::assert_clearance($key, $decoded['value'], $rule, $where, $piiSubject);
+        $secretSubject = isset($codec['value'])
+            ? AuthoredValueCodec::secret_subject($decoded['value'], $codec['value'], false, $where) : $decoded['value'];
+        self::assert_clearance($key, $secretSubject, $rule, $where, $piiSubject);
         if ($decoded['kind'] === 'text') {
             return $tokens->tokenize_text($decoded['value']);
         }

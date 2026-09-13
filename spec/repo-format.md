@@ -4742,3 +4742,57 @@ The selected contract uses the existing framing, reference, privacy, projection
 and transaction machinery. This adds no import-expression interpretation or
 local-file binding. Export labels and import literal values require separate
 semantic evidence; declaring a case does not qualify the importer adapter.
+
+### v3.46 `column-field-templates/v1` — opaque field references and authored literals
+
+A v3 manifest declaring this feature, `typed-column-values/v1` and its strict
+column framing features may use `{"class":"authored","field_templates":"brace"}`
+or `"brace_enabled"` as an authored value leaf, including under `object_fields`
+and a selected `value_cases` arm. No other codec or waiver may share the leaf.
+Options, metadata, block values and ordinary column classifications cannot use it.
+
+Both formats are maps with nonempty string field codes. `brace` stores native
+string expressions; `brace_enabled` stores exact `[string, integer 0 or 1]`
+tuples. Empty maps are admitted. Canonical strings become ordered lists of exact
+one-key `{"text":"literal"}` or `{"field":"header body"}` fragments; enabled
+expressions become `[fragment_list, flag]`. An empty expression becomes `[]`.
+
+The native dialect is exactly `/\{([^}]+)\}/m`: a nonempty body runs from an
+opening brace to the first closing brace. Inner opening braces are header bytes;
+empty and unmatched braces remain literal. Header bodies retain their exact
+whitespace, punctuation and annotations. There is no escaping, recursive parsing,
+evaluation, arithmetic or date conversion by the engine. For example:
+
+```json
+{"description":[{"text":"{{home}}/public/"},{"field":"https://source.test/header"}]}
+```
+
+Only literal fragments pass through existing text tokenization and target
+expansion. Header identities remain byte exact. Native `{{home}}` is therefore
+`[{"field":"{home"},{"text":"}"}]`, distinct from a canonical home token.
+Canonical validation masks recognized WPrism text tokens and requires a
+render/parse fixed point; Apply repeats the proof after target expansion.
+Unknown keys, empty or adjacent text fragments, invalid field bodies and
+ambiguous fragment boundaries refuse. Target URLs cannot introduce new native
+field syntax. A text fragment with an unterminated query value beginning in a numeric or
+canonical post-token prefix for `p`, `page_id` or `attachment_id` cannot be
+immediately followed by a field fragment. Static suffix bytes, including partial
+percent escapes, do not make that prefix a complete reference. This restriction
+also applies to relative and external URLs; delimiter-terminated static query
+values remain valid. Each expression is at most 1 MiB and the complete root value
+shares a 16,384-fragment budget. Existing JSON depth and node limits apply before
+transformation and to the resulting canonical value.
+
+Clearance scans every field key, rendered expression and enable flag as metadata
+subjects. It additionally joins all literal fragments under the destination field
+role. Literal names, addresses and credentials therefore retain ordinary checks,
+including in disabled definitions; separating a literal around references cannot
+hide it. Enclosing roles and ordinary siblings retain their existing semantics.
+There is no global detector exception or privacy waiver. Lint examines literal
+text for environment URLs and query references, while canonical literal identity
+tokens remain visible to the shared reference graph. Direct and row-selected
+contracts validate before phase-one row insertion or identity publication.
+
+This feature transports expressions, not CSV files or customer records. Native
+consumer evidence and separate target-local input binding remain necessary
+before an adapter may enroll saved import templates or claim qualification.

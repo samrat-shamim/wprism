@@ -831,6 +831,7 @@ wprism_check_same(
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
         'column-field-labels/v1',
+        'column-field-templates/v1',
         'column-record-fields/v1',
         'column-value-cases/v1',
         'conditional-json-refs/v1',

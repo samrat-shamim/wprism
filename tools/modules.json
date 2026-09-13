@@ -68,6 +68,7 @@
           "ValueContractGrammar",
           "ColumnValueCases",
           "FieldLabelMap",
+          "FieldTemplateMap",
           "ScalarValueConstraint",
           "RecordFields",
           "EncodedText",
@@ -173,7 +174,7 @@
             ]
           }
         ],
-        "file_count": 93,
+        "file_count": 94,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -184,6 +185,7 @@
           "ValueContractGrammar.php",
           "ColumnValueCases.php",
           "FieldLabelMap.php",
+          "FieldTemplateMap.php",
           "ScalarValueConstraint.php",
           "RecordFields.php",
           "EncodedText.php",

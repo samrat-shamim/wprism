@@ -10,6 +10,7 @@ require_once __DIR__ . '/../Kernel/RecordFields.php';
 require_once __DIR__ . '/../Kernel/EncodedText.php';
 require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
 require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
+require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
 
 /**
  * Shared authored value transformations. Callers supply the token capability
@@ -20,9 +21,19 @@ final class AuthoredValueCodec {
     /** @param callable(int,string):void $unmapped */
     public static function capture(mixed $value, array $rule, object $tokens, callable $unmapped, string $where): mixed {
         self::assert_value($value, $rule, false, $where);
+        $value = self::capture_at($value, $rule, $tokens, $unmapped, $where);
+        if (self::has_templates($rule)) self::assert_value($value, $rule, true, $where);
+        return $value;
+    }
+
+    private static function capture_at(mixed $value, array $rule, object $tokens, callable $unmapped, string $where): mixed {
+        if (isset($rule[FieldTemplateMap::FIELD])) {
+            return FieldTemplateMap::transform($value, $rule[FieldTemplateMap::FIELD], true,
+                static fn(string $text): string => $tokens->tokenize_text($text, $where), $where);
+        }
         if (isset($rule['object_fields'])) {
             foreach ($value as $field => &$child) {
-                $child = self::capture($child, $rule['object_fields'][$field], $tokens, $unmapped, "$where.$field");
+                $child = self::capture_at($child, $rule['object_fields'][$field], $tokens, $unmapped, "$where.$field");
             }
             unset($child);
             return $value;
@@ -53,9 +64,17 @@ final class AuthoredValueCodec {
 
     public static function apply(mixed $value, array $rule, object $tokens, string $where): mixed {
         self::assert_value($value, $rule, true, $where);
+        return self::apply_at($value, $rule, $tokens, $where);
+    }
+
+    private static function apply_at(mixed $value, array $rule, object $tokens, string $where): mixed {
+        if (isset($rule[FieldTemplateMap::FIELD])) {
+            return FieldTemplateMap::transform($value, $rule[FieldTemplateMap::FIELD], false,
+                static fn(string $text): string => $tokens->detokenize_text($text), $where);
+        }
         if (isset($rule['object_fields'])) {
             foreach ($value as $field => &$child) {
-                $child = self::apply($child, $rule['object_fields'][$field], $tokens, "$where.$field");
+                $child = self::apply_at($child, $rule['object_fields'][$field], $tokens, "$where.$field");
             }
             unset($child);
             return $value;
@@ -75,12 +94,21 @@ final class AuthoredValueCodec {
 
     /** Pure, value-free refusals shared by capture, immutable compilation, lint and apply. */
     public static function assert_value(mixed $value, array $rule, bool $canonical, string $where): void {
+        $fragments = 0;
+        self::assert_value_at($value, $rule, $canonical, $fragments, $where);
+    }
+
+    private static function assert_value_at(mixed $value, array $rule, bool $canonical, int &$fragments, string $where): void {
         ValueContractGrammar::assert_structured_keyspaces($rule, $where);
         if (($rule['class'] ?? '') === 'derived') {
             throw new \RuntimeException("wprism: $where is derived and must be absent from canonical block attributes");
         }
         $nodes = 0;
         self::assert_json($value, 0, $nodes, $where);
+        if (isset($rule[FieldTemplateMap::FIELD])) {
+            FieldTemplateMap::assert_value($value, $rule[FieldTemplateMap::FIELD], $canonical, $fragments, $where);
+            return;
+        }
         if (isset($rule[FieldLabelMap::FIELD])) {
             FieldLabelMap::assert_value($value, $rule[FieldLabelMap::FIELD], $where);
             return;
@@ -92,7 +120,7 @@ final class AuthoredValueCodec {
                 throw new \RuntimeException("wprism: $where requires a nonempty object containing only declared fields");
             }
             foreach ($value as $field => $child) {
-                self::assert_value($child, $rule['object_fields'][$field], $canonical, "$where.$field");
+                self::assert_value_at($child, $rule['object_fields'][$field], $canonical, $fragments, "$where.$field");
             }
             return;
         }
@@ -151,35 +179,53 @@ final class AuthoredValueCodec {
         }
     }
 
-    /**
-     * PII role heuristics must not mistake a declared user-ID list under an
-     * email-shaped field name for contact data. Only validated scalar/list
-     * reference leaves may disappear from this projection. Field definitions
-     * retain every key and value as scalar subjects without field-code roles;
-     * enclosing roles remain intact. Secret clearance
-     * still receives the complete original value. Unknown object members fail
-     * before projection, and plain/structured siblings retain their key roles.
-     *
-     * @return array{present:bool,value:mixed}
-     */
+    /** Validated reference/metadata roles do not waive clearance of literal input or ordinary siblings. */
     public static function pii_subject(mixed $value, array $rule, bool $canonical, string $where): array {
         self::assert_value($value, $rule, $canonical, $where);
-        return self::project_pii($value, $rule);
+        return self::project($value, $rule, $canonical, $where, 'pii');
+    }
+
+    /** Existing contracts retain their complete original secret subject. */
+    public static function secret_subject(mixed $value, array $rule, bool $canonical, string $where): mixed {
+        if (!self::has_templates($rule)) return $value;
+        self::assert_value($value, $rule, $canonical, $where);
+        return self::project($value, $rule, $canonical, $where, 'secret')['value'];
+    }
+
+    /** Lint scans canonical literals, while declared reference scanning keeps the original value. */
+    public static function text_subject(mixed $value, array $rule, string $where): mixed {
+        if (!self::has_templates($rule)) return $value;
+        self::assert_value($value, $rule, true, $where);
+        return self::project($value, $rule, true, $where, 'text')['value'];
     }
 
     /** @return array{present:bool,value:mixed} */
-    private static function project_pii(mixed $value, array $rule): array {
-        if (isset($rule['ref'])) return ['present' => false, 'value' => null];
-        if (isset($rule[FieldLabelMap::FIELD])) return ['present' => true, 'value' => FieldLabelMap::pii_subject($value)];
+    private static function project(mixed $value, array $rule, bool $canonical, string $where, string $purpose): array {
+        if ($purpose === 'pii' && isset($rule['ref'])) return ['present' => false, 'value' => null];
+        if ($purpose === 'pii' && isset($rule[FieldLabelMap::FIELD])) {
+            return ['present' => true, 'value' => FieldLabelMap::pii_subject($value)];
+        }
+        if (isset($rule[FieldTemplateMap::FIELD])) {
+            $format = $rule[FieldTemplateMap::FIELD];
+            return ['present' => true, 'value' => $purpose === 'text'
+                ? FieldTemplateMap::text_subject($value, $format)
+                : FieldTemplateMap::sensitivity_subject($value, $format, $canonical, $where)];
+        }
         if (isset($rule['object_fields'])) {
             $subject = [];
             foreach ($value as $field => $child) {
-                $part = self::project_pii($child, $rule['object_fields'][$field]);
+                $part = self::project($child, $rule['object_fields'][$field], $canonical, "$where.$field", $purpose);
                 if ($part['present']) $subject[$field] = $part['value'];
             }
             return ['present' => $subject !== [], 'value' => $subject];
         }
         return ['present' => true, 'value' => $value];
+    }
+
+    private static function has_templates(array $rule): bool {
+        if (isset($rule[FieldTemplateMap::FIELD])) return true;
+        foreach ($rule['object_fields'] ?? [] as $child) if (self::has_templates($child)) return true;
+        return false;
     }
 
     private static function scalar_values(mixed $value, array $rule, bool $canonical): array {

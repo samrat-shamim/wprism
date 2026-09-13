@@ -3200,6 +3200,37 @@ unknown selectors, both framing types, and owned variant transitions through
 Capture, immutable compilation, lint, checked Apply and recapture. The shared
 column-value native lane exercises selection on real typed-table writes.
 
+Use `column-field-templates/v1` for a proven brace-expression map. Declare
+`{"class":"authored","field_templates":"brace"}` for selected strings or
+`"brace_enabled"` for exact `[expression, integer 0 or 1]` definitions. This
+avoids repeating rules for every native field while keeping header references
+separate from literal destination values. It composes beneath `object_fields`
+and the appropriate import `value_cases` arm; export labels retain their own
+contract. Do not classify import expressions as field labels.
+
+Prove the producer's persisted tuple shape and consumer's exact brace dialect.
+Importer 2.7.5 Save sanitizes definitions to two slots; its consumer substitutes
+nonempty brace bodies, trims header names and interprets date/arithmetic syntax.
+The engine preserves those bytes and leaves interpretation to the plugin.
+Canonical text/field fragments disambiguate native braces from WPrism tokens.
+Only literals receive URL transport; a URL-shaped CSV header stays unchanged.
+Every stored byte still receives value-based clearance, and joined literals keep
+the destination's PII and credential roles, including disabled definitions.
+
+Test empty, unmatched and nested braces, adjacent references, whitespace and date
+annotations, source/target URLs, disabled definitions, literal private values,
+malformed canonical edits, graph references and whole-value bounds. A numeric
+post-query prefix followed by a field, such as `?p=4{Suffix}`, refuses: the
+native result could name post 41, so post 4 cannot be bound independently. The
+same refusal covers intervening literal bytes such as `?p=4%{Suffix}`: a field
+value of `31` completes an encoded digit.
+Complete delimiter-terminated static query values retain ordinary rebinding. Run
+`regress-column-field-templates` plus the capsule's native expression transport
+lane, which calls the actual registered consumer after real typed-table writes.
+That bounded evidence does not exercise an import job or provide its input file.
+A remembered CSV path is functional state: do not project it away to make an
+otherwise unsupported import template fit the declaration.
+
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
 an independently managed target row with the same key. Plan must either offer

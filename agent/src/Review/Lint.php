@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
 
 require_once __DIR__ . '/BlockReferenceScanner.php';
 require_once __DIR__ . '/AuthoredValueReferenceScanner.php';
+require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/MenuReferenceScanner.php';
 require_once __DIR__ . '/SerializedTermDescriptionScanner.php';
@@ -956,7 +957,7 @@ final class Lint {
                 try {
                     $codec = ColumnValueCases::resolve($codecs[$col], (array) ($front['columns'] ?? []), "columns.$col");
                     $value = ColumnCodecGrammar::decode_canonical_value($value, $codec, "columns.$col");
-                    $columns[$col] = $value;
+                    $columns[$col] = AuthoredValueCodec::text_subject($value, $codec['value'], "columns.$col");
                     array_push($findings, ...AuthoredValueReferenceScanner::scan(
                         $value, $codec['value'], $rel, "columns.$col", $env->resolver()));
                 } catch (\RuntimeException $failure) {

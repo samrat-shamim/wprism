@@ -925,6 +925,8 @@ final class RepositoryAuthorization {
                         if (isset($codec['value'])) {
                             $piiSubject = AuthoredValueCodec::pii_subject($clearanceValue, $codec['value'],
                                 true, "repository table '$table' column '$column'");
+                            $clearanceValue = AuthoredValueCodec::secret_subject($clearanceValue, $codec['value'],
+                                true, "repository table '$table' column '$column'");
                         }
                     } catch (\Throwable) {
                         // RepositoryPortableShapeValidator owns malformed
