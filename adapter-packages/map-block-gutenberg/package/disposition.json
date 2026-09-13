@@ -1,0 +1,65 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "map-content deletion"
+      ]
+    },
+    "entity_sections": [],
+    "field_sections": [
+      "options",
+      "block_attrs",
+      "block_content",
+      "interpreter"
+    ],
+    "lifecycle_phases": [],
+    "operations": [
+      "capture",
+      "compile",
+      "plan",
+      "deploy",
+      "apply"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "conformance-map-block-gutenberg",
+      "regress-package-contract",
+      "regress-map-boundary"
+    ]
+  },
+  "reason": "Map Block 1.35 static leaf maps bind a required target-local API key across attributes and saved HTML. Experimental while the production-readiness evidence is completed; no broader schema or version coverage is implied.",
+  "status": "experimental",
+  "supported_versions": {
+    "plugin": "map-block-gutenberg/map-block-gutenberg.php",
+    "range": {
+      "min": "1.35",
+      "max": "1.35.1"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "capture",
+      "surface": "block:webfactory/map",
+      "reason": "Unknown attributes, custom or inconsistent saved HTML, nested children inside a map, invalid keys, and values outside the bounded native inspector schema refuse. Maps inside ordinary parent blocks are supported."
+    },
+    {
+      "operation": "compile",
+      "surface": "block:webfactory/map",
+      "reason": "Repository-injected credentials or noncanonical map payloads refuse before immutable publication, without requiring WordPress."
+    },
+    {
+      "operation": "apply",
+      "surface": "unprovisioned target maps",
+      "reason": "Missing or drifted target-local env-set intent refuses; the plugin's bundled fallback credential is not a target provisioning path."
+    },
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "The platform refuses multisite; this capsule claims single-site only."
+    }
+  ]
+}

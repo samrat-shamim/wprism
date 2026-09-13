@@ -41,7 +41,10 @@
 #                                       plugin/API and canonical-shape checks
 #                                       for a reviewed capture-plan profile.
 #
-# Entries default to `mode: roundtrip`. `mode: capture-plan` is the bounded
+# Entries default to `mode: roundtrip`. `mode: agent-roundtrip` qualifies
+# experimental adapters through the documented lower-level agent verbs while
+# proving the host promotion gate still refuses. It is never certification.
+# `mode: capture-plan` is the bounded
 # evidence path for an experimental adapter that deliberately does not claim
 # apply: it still boots an exact-artifact pair, seeds through plugin APIs,
 # captures twice, lints, runs the real plan/capability paths, and invokes its
@@ -180,9 +183,12 @@ mapfile -t THEMES < <(echo "$ENTRY" | jq -c '.themes[]?')
 SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
 MODE=$(echo "$ENTRY" | jq -r '.mode // "roundtrip"')
 case "$MODE" in
-  roundtrip|capture-plan) ;;
-  *) fail "unknown conformance mode '$MODE' for manifest '$MANIFEST' (expected roundtrip|capture-plan)" ;;
+  roundtrip|capture-plan|agent-roundtrip) ;;
+  *) fail "unknown conformance mode '$MODE' for manifest '$MANIFEST' (expected roundtrip|capture-plan|agent-roundtrip)" ;;
 esac
+if [ "$MODE" = agent-roundtrip ] && [ -n "${CONF_RECORD_VECTOR:-}" ]; then
+  fail 'agent-roundtrip cannot publish a certified conformance vector'
+fi
 
 # Prefer the legacy docker-compose.yml conf1/conf2 ports (8806/8807) so
 # conformance/checks/*.sh and seeds/elementor.sh — which read CONF1_PORT/
@@ -289,7 +295,7 @@ fi
 pair_identity_export_source_mounts \
   || fail 'conformance could not pin its selected source mounts in the caller environment'
 case "$MODE" in
-  capture-plan)
+  capture-plan|agent-roundtrip)
     capture_wprism_json_success CAPTURE_PLAN_CLAIMS 'capture-plan shipped declaration projection' \
       php "$PAIR_SOURCE_ROOT/sandbox/tests/lib/capture_plan_claims.php" "$PAIR_SOURCE_ROOT" \
       "$(jq -c '.pin' <<<"$ENTRY")"
@@ -485,6 +491,9 @@ if [ "$MODE" = "capture-plan" ]; then
   printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s; capture-plan)\033[0m\n' "$MANIFEST"
   exit 0
 fi
+if [ "$MODE" = agent-roundtrip ]; then
+  run_wprism_capture_plan "$CAPTURE_PLAN_CLAIMS" wp_conf1 /siterepo
+fi
 
 say "clone the repo for conf2"
 git clone -q "$ORIGIN" "$R2"
@@ -511,14 +520,23 @@ pass 'both dev-bound environments carry the exact durable recovery runtime an ad
 say "deploy conf2 from canonical (host wprism deploy) — the real promotion path"
 DEPLOY_RC=0
 DEPLOY_OUT=$(host_wprism conf2 deploy 2>&1) || DEPLOY_RC=$?
-if [ "$DEPLOY_RC" != "0" ]; then
+if [ "$MODE" = agent-roundtrip ]; then
+  assert_agent_roundtrip_refusal "$CAPTURE_PLAN_CLAIMS" "$DEPLOY_RC" "$DEPLOY_OUT"
+  printf '%s\n' "$DEPLOY_OUT"
+  capture_wprism_json_success AGENT_DEPLOY_JSON 'experimental agent deployment' \
+    wp_conf2 wprism deploy --repo=/siterepo --format=json
+  jq -e '.lifecycle_phase == "all" and .code_mismatch == [] and .code_drift == [] and .warnings == []' \
+    <<<"$AGENT_DEPLOY_JSON" >/dev/null || fail 'experimental agent deployment did not settle cleanly'
+  pass 'agent lifecycle exercised; host production deployment remains refused'
+elif [ "$DEPLOY_RC" != "0" ]; then
   echo "$DEPLOY_OUT"
   fail "host wprism deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
-fi
-grep -q '^deploy complete:' <<<"$DEPLOY_OUT" \
+else
+  grep -q '^deploy complete:' <<<"$DEPLOY_OUT" \
   || fail "host wprism deploy returned success without its terminal product result: $DEPLOY_OUT"
-printf '%s\n' "$DEPLOY_OUT"
-pass "deploy succeeded on conf2"
+  printf '%s\n' "$DEPLOY_OUT"
+  pass "deploy succeeded on conf2"
+fi
 if [ "$MANIFEST" = woocommerce ]; then
   normalize_woocommerce_harness_placeholder_mode wp_conf2
   pass 'target WooCommerce placeholder is exact and safe after the cooperative test umask'
@@ -652,4 +670,8 @@ if [ -f "$CHECK" ]; then
   bash "$CHECK"
 fi
 
-printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s)\033[0m\n' "$MANIFEST"
+if [ "$MODE" = agent-roundtrip ]; then
+  printf '\n\033[1;32m✔ AGENT ROUNDTRIP PASSED (%s; production promotion withheld)\033[0m\n' "$MANIFEST"
+else
+  printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s)\033[0m\n' "$MANIFEST"
+fi

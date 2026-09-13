@@ -89,7 +89,8 @@ final class AuthoredTransactionExecutor {
         \Closure $deletionDatabaseProfile,
         \Closure $recheckDeleteGuard,
         \Closure $verifyDeleteCommit,
-        \Closure $endDeleteTransaction
+        \Closure $endDeleteTransaction,
+        private readonly ?\Closure $lockBlockEnvironmentOptions = null
     ) {
         $this->taxonomyOwnership = $taxonomyOwnership;
         $this->renewLease = $renewLease;
@@ -154,6 +155,8 @@ final class AuthoredTransactionExecutor {
             $this->termMaterializer->begin_authored_transaction();
             $this->optionsMaterializer->begin_authored_transaction();
             CacheInvalidationTransaction::begin();
+            $this->tokens->bind_block_environment_options($this->lockBlockEnvironmentOptions === null
+                ? [] : ($this->lockBlockEnvironmentOptions)());
             SidebarState::begin_authored_transaction(
                 static fn(string $name, string $purpose): ?array =>
                     CacheInvalidationTransaction::lock_option_row($name, $purpose),
@@ -369,6 +372,7 @@ final class AuthoredTransactionExecutor {
             // transaction. A reused ApplyServices graph starts empty after
             // either commit or rollback.
             $this->termMaterializer->end_authored_transaction();
+            $this->tokens->bind_block_environment_options([]);
             $this->fieldMaterializer->end_authored_transaction();
             $this->optionsMaterializer->end_authored_transaction();
             $this->attachmentMaterializer->end_authored_transaction($retainNativeRebuildAuthority);

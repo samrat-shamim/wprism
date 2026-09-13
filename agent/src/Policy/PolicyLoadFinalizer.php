@@ -15,6 +15,7 @@ require_once __DIR__ . '/../Kernel/ReferenceKeyspaceGrammar.php';
 require_once __DIR__ . '/PinResolver.php';
 require_once __DIR__ . '/AdapterClaimResolutions.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 require_once __DIR__ . '/../Kernel/PostMetaInvalidation.php';
 
@@ -53,6 +54,7 @@ final class PolicyLoadFinalizer {
         AdapterContractGrammar::validate_no_conflicting_adapter_claims($policy->manifests, $claimResolutions);
         AdapterContractGrammar::validate_no_incompatible_plugins($policy->manifests);
         BlockValueGrammar::project($policy->manifests);
+        BlockContentGrammar::project($policy->manifests, $policy->site['policy'] ?? []);
         BlockMediaDerivativeGrammar::project($policy->manifests);
         ActionProviderGrammar::validate_no_conflicting_provider_ids($policy->manifests);
         ActionProviderGrammar::validate_no_conflicting_schema_settlements($policy->manifests);

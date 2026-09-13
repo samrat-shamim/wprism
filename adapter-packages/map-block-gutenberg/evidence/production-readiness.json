@@ -1,0 +1,37 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "map-block-gutenberg",
+  "readiness": "unready",
+  "covered": {
+    "clean-target": [
+      "adapter-packages/map-block-gutenberg/tests/conformance/seed.sh",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/map-block-gutenberg/tests/conformance/postdeploy.sh",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
+      "adapter-packages/map-block-gutenberg/tests/conformance/check.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php",
+      "adapter-packages/map-block-gutenberg/fixtures/native-editor-saves.json",
+      "adapter-packages/map-block-gutenberg/tests/conformance/capture-check.sh"
+    ]
+  },
+  "gaps": {
+    "contract-dependency": "The real capability reporter enforces exact active, inactive, absent, wrong-basename, unreadable-version, below-minimum, maximum-exclusive and future-version facts offline. Exact 1.35 native activation is exercised; the full native dependency matrix remains required.",
+    "deletion": "This capsule declares no deletion grants. Adapter-specific unsupported-delete no-mutation evidence remains required.",
+    "failure-recovery": "Native capture publication refusal/retry and real post-materializer late-SQL rollback/retry are covered. Process interruption, durable recovery and native crash qualification remain required.",
+    "concurrency-idempotence": "Transaction-bound option locks and stale intended-value refusal are tested offline; exact native no-op reapply passes. Controlled native competing-operation qualification remains required.",
+    "lifecycle": "Source activation and experimental agent activation are exercised; exact-artifact deactivation/reactivation, downgrade refusal, uninstall residue and reinstall remain required.",
+    "scope-platform": "Single-site WordPress 7.1/PHP 8.3 is exercised. Full unavailable-API and unsupported-platform assertions remain required; the native editor also emits upstream deprecation/enqueue warnings documented in qualification.md."
+  },
+  "blocked": {},
+  "not_applicable": {
+    "identity-references": "The exact plugin defines no entities, tables, or post/term/user reference attributes: only zoom, height, address, api_key and one API-key option. Owning post/widget identities belong to core; conformance still forces different post IDs.",
+    "derived-state": "The exact 1.35 plugin registers editor assets and saves static iframe markup. It owns no generated cache/index/table/file or repair action. Credential rebinding is authored transport, covered separately."
+  }
+}

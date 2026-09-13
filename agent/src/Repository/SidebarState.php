@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
+require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 
@@ -732,7 +733,8 @@ final class SidebarState {
             $clearanceValue = $value;
             if (($rule['codec'] ?? '') === 'blocks' && is_string($value)) {
                 $canonicalBlocks = Blocks::capture_rewrite($value, $policy, $tokens, $forceUnresolvedRefs, "sidebar '$sidebar'");
-                $clearanceValue = [$value, BlockAttributeReader::clearance_value($canonicalBlocks)];
+                $clearanceValue = [$value, BlockAttributeReader::clearance_value($canonicalBlocks,
+                    BlockContentGrammar::project($policy->manifests, $policy->site['policy'] ?? []))];
             }
             $secret = empty($rule['allow_secret'])
                 ? Secrets::clearance_match_deep((string) $key, $clearanceValue)

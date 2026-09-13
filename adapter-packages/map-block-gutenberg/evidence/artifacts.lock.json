@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "map-block-gutenberg": {
+      "1.34": {
+        "url": "https://downloads.wordpress.org/plugin/map-block-gutenberg.1.34.zip",
+        "sha256": "bc99aff5341b294dd9e936cdaa50a1d2ea8fec77cf1bc6f3f89b57302ab3c52e",
+        "role": "refusal-fixture"
+      },
+      "1.35": {
+        "url": "https://downloads.wordpress.org/plugin/map-block-gutenberg.1.35.zip",
+        "sha256": "5325c7abf1c119f8c5245a5b4fe0669398e6b5dded93bc75ac4f63c97675f39d",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}
