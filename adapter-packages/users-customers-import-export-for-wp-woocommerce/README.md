@@ -1,10 +1,10 @@
 # Users and Customers Import Export 2.7.5
 
-This experimental capsule declares nine native advanced-setting subkeys. It
-ships no plugin executable: Capture, immutable compilation and checked SQL
-Apply use the shared options engine. Source and target native Save/reopen
-observations supply the exact scalar types, including the string checkbox
-spelling used by the plugin.
+This experimental capsule declares nine native advanced-setting subkeys and
+saved export-user templates. Capture, immutable compilation and checked SQL
+Apply use shared option, typed-table and value-contract machinery. Source and
+target native Save/reopen observations supply the scalar types, including the
+plugin's string checkbox spelling.
 
 The declarations use `scalar-option-constraints/v1`: signed integer execution
 seconds, positive integer batches, nonnegative history count, exact method codes and
@@ -36,12 +36,23 @@ cases across all nine settings exercise Capture, compilation, incoming Apply
 and locked target preimages. A separate shell suite exercises the actual native
 runner's expected exits and diagnostic checks, including wrong-cause evidence.
 
-Templates, generated CSVs/logs, users and customers are outside this settings
-milestone. Templates remain authored intent awaiting qualification. Their
-nested user references, mapping labels and target-local CSV inputs need further
-work. Native post-write failure recovery, lifecycle and plugin combinations
-also remain open. The
-production-readiness record remains unready in all twelve families.
+Export templates own only exact `item_type=user`, `template_type=export` rows.
+Their native `(template_type,item_type,name)` tuple bootstraps identity; the
+ledger preserves identity through renames. Typed string user references bind
+selected users by login. Field-label maps retain definitions and CSV headers.
+Record projection excludes the saved wizard cursor, which normal native reopen
+and the next wizard step regenerate. No package executable is needed.
+
+The capsule's template suite exercises the native Saved form through Snapshot,
+real ledger bookkeeping, compilation, lint and checked materialization. It
+covers different target IDs, exact recapture, repeat, rollback, rename,
+duplicate rejection, adoption, missing bindings and privacy/shape refusals.
+Import, product and case-variant rows, users, sessions and history stay local.
+Native template product-path qualification is still pending. Import templates
+need target-local CSV input qualification; generated CSVs/logs, users and
+customers are operational data. Native post-write recovery, lifecycle and
+plugin combinations remain open. The production-readiness record remains
+unready in all twelve families.
 
 Run the capsule offline gate with
 `php tools/adapter-package-tests.php --adapter=users-customers-import-export-for-wp-woocommerce`.
