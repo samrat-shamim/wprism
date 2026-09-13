@@ -1,0 +1,58 @@
+{
+  "status": "experimental",
+  "reason": "Nine native advanced settings exercise capture, immutable compilation, scoped plan/Apply, exact recapture and inert request replay. Native evidence preserves shared module settings, users, history and generated files. Full adapter qualification remains open.",
+  "supported_versions": {
+    "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
+    "range": {
+      "min": "2.7.5",
+      "max": "2.7.6"
+    }
+  },
+  "default_authored_keyspaces": [],
+  "capabilities": {
+    "entity_sections": [],
+    "field_sections": [
+      "options"
+    ],
+    "operations": [
+      "capture",
+      "compile",
+      "plan",
+      "apply",
+      "recapture"
+    ],
+    "lifecycle_phases": [],
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "mapping template, history, user and customer deletion"
+      ]
+    }
+  },
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-package-contract",
+      "regress-native-settings",
+      "regress-native-harness",
+      "regress-settings-apply"
+    ]
+  },
+  "unsupported": [
+    {
+      "operation": "apply",
+      "surface": "manually-edited-values-and-native-failure-recovery",
+      "reason": "This milestone exercises native-Saved settings values. Generic scalar type/range/enum constraints for ordinary option subkeys and native failure/recovery qualification remain open; the deterministic settings rollback test is not native recovery evidence."
+    },
+    {
+      "operation": "deploy",
+      "surface": "adapter",
+      "reason": "Lifecycle, adjacent-version and participant-declared combination evidence remain pending."
+    },
+    {
+      "operation": "capture",
+      "surface": "wt_iew_mapping_template; unnamed advanced setting keys; generated exports/logs; users and customers",
+      "reason": "Template semantics and local CSV bindings remain unqualified. Other module settings remain local; operational records and user/customer data are not authored configuration."
+    }
+  ]
+}

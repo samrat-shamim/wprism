@@ -1,0 +1,10 @@
+{
+  "manifest": "users-customers-import-export-for-wp-woocommerce",
+  "entry": {
+    "mode": "capture-plan",
+    "pin": ["core", "users-customers-import-export-for-wp-woocommerce"],
+    "plugins": [{"slug": "users-customers-import-export-for-wp-woocommerce", "version": "2.7.5"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  }
+}

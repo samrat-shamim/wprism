@@ -1,0 +1,22 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "users-customers-import-export-for-wp-woocommerce",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {
+    "contract-dependency": "Capsule-owned contract-dependency conformance remains pending; prior native settings discovery is not qualification.",
+    "clean-target": "Capsule-owned clean-target conformance remains pending; prior native settings discovery is not qualification.",
+    "dirty-target": "Capsule-owned dirty-target conformance remains pending; prior native settings discovery is not qualification.",
+    "identity-references": "Capsule-owned identity-references conformance remains pending; prior native settings discovery is not qualification.",
+    "native-behavior": "Nine native-Saved settings pass public scoped Apply and native readback; template workflows, imports, customers and plugin combinations remain unqualified.",
+    "derived-state": "Capsule-owned derived-state conformance remains pending; prior native settings discovery is not qualification.",
+    "deletion": "Capsule-owned deletion conformance remains pending; prior native settings discovery is not qualification.",
+    "failure-recovery": "Checked settings materialization rolls back an injected post-write failure offline. Native failure/recovery paths remain unqualified.",
+    "lifecycle": "Capsule-owned lifecycle conformance remains pending; prior native settings discovery is not qualification.",
+    "data-boundary": "Native settings Apply preserves three completed export records/files plus users and usermeta; template mappings and local CSV input availability remain unqualified.",
+    "scope-platform": "Public option-root scope/plan/Apply and exact recapture pass for nine native settings. Arbitrary edited-value constraints and broader template/entity closure remain unqualified.",
+    "concurrency-idempotence": "Native same-request terminal replay preserves observed tables/files. Concurrent and stale-writer settings edits remain unqualified."
+  },
+  "blocked": {},
+  "not_applicable": {}
+}

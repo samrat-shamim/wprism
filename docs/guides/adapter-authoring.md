@@ -62,11 +62,34 @@ platform/adapter-library/
 Only `package/` is assembled into the installed agent. Tests, fixtures, and
 evidence stay in the capsule but do not ship. Both platform capability files
 are hand-authored and reviewed, not generated.
+Every product capsule also owns `tests/conformance/entry.json`, `seed.sh`, and
+`check.sh`; the global `regress-conformance-asserts` gate enforces their presence
+even when the focused package validator passes. A source-only experimental
+entry uses `mode: "capture-plan"`, puts its source assertions in
+`capture-check.sh`, and makes `check.sh` explicitly refuse accidental target
+promotion. A bounded native Apply suite can qualify individual settings while
+the broader deployment entry remains source-only.
 `platform.json` is the object a site-adapter certificate reads its bound
 compatibility cells out of (§ v3.6), so it has exactly one on-disk
 representation; the agent refuses at load time if its
 `agent_version`/`spec_version` disagree with the running
 `WPRISM_AGENT_VERSION`/`WPRISM_SPEC_VERSION`.
+
+A capsule's `tests/live/*.sh` starts with these exact three active statements;
+`regress-fetch-artifact` checks their order so artifact resolution always has
+one capsule owner before any wrapper or conditional code runs:
+
+```bash
+set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+```
+
+Put path normalization and other setup after this preamble. Create the ignored
+`sandbox/tmp` parent before allocating evidence below it; a fresh worktree does
+not contain that directory. Source shared helpers through the reviewed paths
+and capsule hooks through their `BASH_SOURCE`-relative paths, as enforced by
+`AdapterPackageValidator`.
 
 Four rules that will bite you if you learn them the hard way:
 
@@ -168,14 +191,19 @@ Refreshing identity hashes alone does not check those version expectations.
 A new capsule also extends the source census: run `make
 regress-spec-v3-digest-neutrality regress-spec-v3-document
 regress-spec-v3-dry-run regress-spec-window` before the full gate. The literal
-identity baseline must cover the actual library, not merely agree with its own
-named pin lists. When a new capsule conflicts with an existing world, add a
-compatible world and prove the union still covers the full library. Preserve
-every existing per-adapter digest and smaller pin set
-unless that adapter's identity inputs changed. The current whole-registry
-address and frozen snapshots still move when an unpinned disposition is added;
-§ v3.4's WP-4.5 addressing proposal is explicitly unimplemented. Re-measuring
-that baseline does not close this architectural limitation.
+identity fixture now preserves its historical 21-subject cohort. Do not extend
+or re-pin that historical fixture merely because a capsule joins the library:
+`regress_spec_v3_digest_neutrality.php` separately loads every later capsule
+with core and round-trips its frozen policy against the complete current
+registry. A conflict in that core-plus-capsule load needs a reviewed compatible
+test world, not removal of the census check. Existing capsule digests and
+historical pin sets remain unchanged unless their identity inputs changed.
+Regenerate `tools/shipped-identity-inventory.php`, `tools/api-surface.php
+--write`, and `tools/wire-surface.php generate` for the actual library census.
+The current whole-registry address and frozen snapshots still move when an
+unpinned disposition is added; § v3.4's WP-4.5 addressing proposal is explicitly
+unimplemented. Preserving the historical fixture does not close this
+architectural limitation.
 
 ## The minimal worked example
 
