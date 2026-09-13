@@ -2335,6 +2335,10 @@ regress-table-row-scopes:
 regress-table-row-scopes-native:
 	bash sandbox/tests/live/regress_table_row_scopes_native.sh
 
+.PHONY: regress-json-column-codecs-native
+regress-json-column-codecs-native:
+	bash sandbox/tests/live/regress_json_column_codecs_native.sh
+
 regress-column-codec-grammar:
 	php sandbox/tests/offline/grammar/regress_column_codec_grammar.php
 
@@ -3011,6 +3015,7 @@ regress-live-list:
 	@echo "  regress-option-subkeys                    pair asub3233 8910/8911 (parameterized: PAIR/PORT1/PORT2)"
 	@echo "  regress-option-reconciliation             pair codexmac3211"
 	@echo "  regress-table-row-scopes-native           own disposable pair (ROW_SCOPE_PAIR/PORT1/PORT2, WPRISM_DB_ENGINE; exact source; byte-exact ownership and concurrent owner-change refusal)"
+	@echo "  regress-json-column-codecs-native        own disposable pair (JSON_COLUMN_PAIR/PORT1/PORT2; exact source; JSON framing, checked writes and rollback)"
 	@echo "  regress-discovery-completeness            pair codexmac3205 8900/8901"
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
 	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.3 -> 7.1 -> rollback/reinstall)"

@@ -272,6 +272,10 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [],
         ],
+        ColumnCodecGrammar::JSON_FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
         // WP-6.2, and the first entry that claims NO top-level key: it widens a
         // VALUE vocabulary inside a section that already exists
         // (`tables.<t>.invalidate[]` gains `{cache_group, cache_key}`,

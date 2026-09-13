@@ -3066,6 +3066,24 @@ non-string/non-NULL values must refuse. Redirection 5.9.0 is the reference
 manifest and `regress_column_codec_grammar.php` is the mutation proof. Never
 infer a codec from the first populated row or from the SQL type.
 
+For a stored JSON container, declare `{"container":"json","leaves":"text"}`
+and `json-column-codecs/v1` alongside `typed-column-codecs/v1`. Compare native
+Save bytes with a decode/default-encode round trip first: this strict codec
+refuses any shape or spelling the shared associative decoder cannot preserve,
+including empty objects, duplicate keys, numeric-key objects that become lists,
+and alternate whitespace or escaping. It admits empty lists. Capture, compiler
+and Apply must agree on framing; decoded keys also participate in clearance.
+Never use a blanket clearance exception to admit credential or personal data
+nested in a JSON column.
+
+This framing only reaches ordinary text leaves. A JSON field holding a native
+user ID still needs an explicit reference contract; a CSV URL still needs a
+verified target-local input. The user/customer importer 2.7.5 native template
+Saves demonstrate both demands, so JSON framing alone does not qualify its
+templates. Run `make regress-json-column-codecs-native` with exact
+`WPRISM_EXPECTED_SOURCE_SHA`; the harness owns its disposable pair and checks
+native Capture, Apply, repeat, recapture, rollback and foreign-row preservation.
+
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
 an independently managed target row with the same key. Plan must either offer

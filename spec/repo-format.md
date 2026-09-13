@@ -4488,3 +4488,37 @@ When branches contain different versions of a plugin, integration is an ordered 
 4. Only then merge state authored by the older-version branch. Resolve any schema conflict explicitly in the new version's shape before apply.
 
 This keeps old-schema state from being silently interpreted by new code and gives Git a reviewable conflict when both the migration and the older branch changed the same canonical entity. `make certify-merge` exercises this end to end: a v1 scalar option diverges on a state branch while a v2 code branch migrates it to an object; the integration branch must capture the v2 object before merging the v1 edit, resolve the one-file conflict without losing the edit, and re-capture byte-identically on both environments.
+
+
+### v3.39 — JSON column framing
+
+`json-column-codecs/v1` widens the `column_codecs` container vocabulary with
+`json`; it claims no new top-level key. A v3 manifest must also declare
+`spec-window/v1` and `typed-column-codecs/v1` to own the section:
+
+```json
+"engine_features": ["json-column-codecs/v1", "spec-window/v1", "typed-column-codecs/v1"],
+"column_codecs": {"authored_templates": {"data": {"container": "json", "leaves": "text"}}}
+```
+
+The authored column must contain a bounded JSON array or object whose bytes
+round-trip exactly through the existing associative JSON codec and PHP's default
+JSON encoder. This proof precedes clearance or leaf substitution in both
+directions. Empty lists are admitted; empty objects, numeric-key objects that
+would become lists, duplicate keys, alternate whitespace/escape/number spellings,
+nonfinite or precision-losing numbers, scalars and SQL NULL refuse. This is a
+strict stored-container contract, not a claim to preserve arbitrary JSON syntax.
+
+Capture screens decoded keys and values through the existing secret/PII gates,
+rewrites string leaves with the ordinary environment text codec, and re-encodes
+JSON. Apply opens canonical bytes and reverses that text transformation.
+Compilation validates declared framing for every column codec, including the
+existing PHP serialized containers, through the pure portability validator;
+malformed framing produces `schema_content_mismatch` at `columns.<name>`.
+
+The feature grants no nested typed-reference declaration, user migration, file
+transport, or target-local file binding. Adapters needing those behaviors cannot
+claim them from JSON framing. Existing identity/slug/ownership-discriminator
+codec exclusions and row scopes still apply. The offline column-codec suite and
+`regress-json-column-codecs-native` exercise this path without changing an
+adapter package or qualification claim.
