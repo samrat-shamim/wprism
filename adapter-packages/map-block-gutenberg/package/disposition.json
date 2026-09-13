@@ -27,12 +27,19 @@
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
       "conformance-map-block-gutenberg",
+      "exact-artifact-version-matrix",
       "regress-package-contract",
-      "regress-map-boundary"
+      "regress-map-boundary",
+      "regress-runtime-contract",
+      "regress-lifecycle-evidence",
+      "regress-deletion-boundary",
+      "regress-concurrency-evidence",
+      "regress-recovery-evidence",
+      "regress-scope-platform"
     ]
   },
-  "reason": "Map Block 1.35 static leaf maps bind a required target-local API key across attributes and saved HTML. Experimental while the production-readiness evidence is completed; no broader schema or version coverage is implied.",
-  "status": "experimental",
+  "reason": "User-authorized AI review approves Map Block 1.35 static leaf transport: same-manifest closed content ownership, exact public-destination clearance retaining secret/PII value scans, and transaction-locked target-local API keys in attributes and saved HTML. Named exact-artifact and conformance gates exercise deployment, preservation, refusals, contention and durable recovery. No subsequent editor-save, clean editor-compatibility, real Maps service, wider version, or adapter-specific full platform-matrix claim; see the capsule review and qualification notes.",
+  "status": "certified",
   "supported_versions": {
     "plugin": "map-block-gutenberg/map-block-gutenberg.php",
     "range": {

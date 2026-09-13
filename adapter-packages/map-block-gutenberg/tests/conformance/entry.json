@@ -1,6 +1,6 @@
 {
   "entry": {
-    "mode": "agent-roundtrip",
+    "mode": "roundtrip",
     "pin": ["core", "map-block-gutenberg"],
     "plugins": [{"slug": "map-block-gutenberg", "version": "1.35"}],
     "post_types": ["post", "page", "attachment"],

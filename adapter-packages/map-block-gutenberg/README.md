@@ -1,7 +1,8 @@
 # Map Block for Google Maps
 
-Experimental pending human boundary/disposition review and certified host-path
-qualification. Exact audited plugin:
+Certified for the bounded static-map transport below, following user-authorized
+AI review and the exact-artifact/host-path results in `evidence/qualification.md`.
+Exact audited plugin:
 `map-block-gutenberg` 1.35, SHA-256 pinned in `evidence/artifacts.lock.json`.
 The enforced compatibility window is `>=1.35 <1.35.1`; 1.34 is a refusal fixture.
 
@@ -13,8 +14,9 @@ A map may be nested inside ordinary parent blocks, but cannot contain children.
 Custom classes/styles/metadata, custom HTML, malformed values, and unknown fields
 refuse rather than being silently discarded. The inspected native bounds are
 zoom 1..21, height 50..1000, and a UTF-8 destination of at most 8192 bytes.
-The manifest declares the destination as public text, pending the required human
-clearance review; value-level PII and secret checks remain.
+The authorized review approves the destination's exact public-text clearance;
+value-level PII and secret checks remain. See `evidence/human-review.md` for the
+user-delegated AI review, rationale and limits.
 
 The key occurs in both the attributes and static iframe URL. Gutenberg omits
 `api_key` when it equals the editor default, but the iframe still contains it.
@@ -50,9 +52,10 @@ and delimiter-like text. Native inspection caught two important details:
 WordPress injects the block class on the outer wrapper, and apostrophes remain
 literal in double-quoted iframe attributes. Offline regressions pin both.
 
-The `agent-roundtrip` conformance profile explicitly proves host deployment
-still refuses the experimental disposition, then uses documented lower-level
-agent verbs for target qualification. It never marks the adapter certified.
+The current `roundtrip` conformance profile requires successful certified host
+deployment. Earlier `agent-roundtrip` runs proved the experimental host refusal,
+then used documented lower-level agent verbs; those runs alone never certified
+the adapter.
 The profile exercises clean creation, unmanaged same-slug adoption with different
 IDs, missing/drifted target keys, preservation of a target-only runtime option,
 authored updates, repeated apply, native frontend/localization, capture failure
@@ -71,14 +74,20 @@ native platform matrix or Maps service availability.
 a successful fixture or schema check alone cannot promote this adapter.
 The exact source-bound run, native-editor observations, upstream warnings and
 local gate limitations are recorded in `evidence/qualification.md`.
-`evidence/human-review.md` lists the outstanding human decisions and the
-certified host-path validation required after approval. Passing agent-level
-qualification does not make those decisions or change the experimental status.
+`evidence/human-review.md` records the authorized review and its release conditions.
+The 39640c46 native matrix satisfies the warning-free host-path and exact-artifact
+conditions; earlier terminal-PASS logs with an installer warning are not used as
+substitutes. The adapter digest changed with its reviewed disposition: existing
+content-pinned sites must recompile and re-pin through the normal product path.
 
 ```sh
 php tools/adapter-package-validate.php --adapter=map-block-gutenberg
 php tools/adapter-package-tests.php --adapter=map-block-gutenberg
 make regress-block-content-codecs
+# Exact positive and refusal artifacts, including the full host roundtrip:
+VMATRIX_MANIFEST=map-block-gutenberg VMATRIX_EXPECTED_SOURCE_SHA=<commit> \
+  VMATRIX_PAIR=<pair> VMATRIX_PORT1=<port> VMATRIX_PORT2=<port> \
+  bash sandbox/tests/certify/certify_version_matrix.sh
 # Use a clean source commit and an allocated disposable pair:
 CONF_EXPECTED_SOURCE_SHA=<commit> CONF_PAIR=<pair> CONF1_PORT=<port> CONF2_PORT=<port> \
   bash sandbox/conformance/run.sh map-block-gutenberg

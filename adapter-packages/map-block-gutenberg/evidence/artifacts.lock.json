@@ -9,7 +9,7 @@
       "1.35": {
         "url": "https://downloads.wordpress.org/plugin/map-block-gutenberg.1.35.zip",
         "sha256": "5325c7abf1c119f8c5245a5b4fe0669398e6b5dded93bc75ac4f63c97675f39d",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     }
   },

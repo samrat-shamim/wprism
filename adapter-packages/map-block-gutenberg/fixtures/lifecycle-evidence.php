@@ -46,6 +46,7 @@ final class MapLifecycleEvidence {
     }
 
     public static function assertCapability(array $report, bool $active, ?string $version): void {
+        $ready = $active && $version === '1.35';
         foreach (['manifests', 'blockers'] as $key) {
             if (!is_array($report[$key] ?? null) || !array_is_list($report[$key])) throw new RuntimeException('native capability inventory malformed');
             foreach ($report[$key] as $row) {
@@ -55,15 +56,15 @@ final class MapLifecycleEvidence {
         $rows = array_values(array_filter($report['manifests'], static fn(array $row): bool => $row['name'] === 'map-block-gutenberg'));
         if (($report['schema_version'] ?? null) !== 'wprism-capability-report/v1'
             || ($report['query'] ?? null) !== ['operation' => 'apply', 'surface' => null]
-            || ($report['ready'] ?? null) !== false || count($rows) !== 1
-            || ($rows[0]['status'] ?? null) !== 'experimental'
-            || ($rows[0]['verdict']['status'] ?? null) !== 'blocked'
+            || ($report['ready'] ?? null) !== $ready || count($rows) !== 1
+            || ($rows[0]['status'] ?? null) !== 'certified'
+            || ($rows[0]['verdict']['status'] ?? null) !== ($ready ? 'certified' : 'blocked')
             || !is_array($report['target']['active_plugins'] ?? null)
             || in_array(self::PLUGIN, $report['target']['active_plugins'], true) !== $active
             || !is_array($rows[0]['verdict']['reasons'] ?? null) || !array_is_list($rows[0]['verdict']['reasons'])) {
             throw new RuntimeException('native capability envelope differs');
         }
-        $expected = ['authored_state_not_certified'];
+        $expected = [];
         if (!$active) $expected[] = 'plugin_not_active';
         if ($version !== '1.35') $expected[] = 'plugin_version_mismatch';
         $reasons = $rows[0]['verdict']['reasons'];

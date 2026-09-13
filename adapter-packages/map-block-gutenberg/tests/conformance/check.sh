@@ -60,13 +60,14 @@ map_preserved() { # <active|inactive> <version|missing>
     || fail 'Map Block lifecycle changed native posts, metadata, identities, state or target-owned options'
 }
 map_capability() { # <active|inactive> <version|missing>
-  local stream='' report='' rc=0
+  local stream='' report='' rc=0 expected_rc=3
   stream=$(wp_conf2 wprism capabilities --repo=/siterepo --operation=apply --format=json 2>&1) || rc=$?
   require_wprism_answered 'Map Block native dependency capability' json "$stream"
   assert_no_php_runtime_diagnostics 'Map Block native dependency capability' "$stream"
   report=$(awk 'NF { line=$0 } END { print line }' <<<"$stream")
   awk 'NF { last=NR } { lines[NR]=$0 } END { for (i=1; i<last; i++) print lines[i] }' <<<"$stream" >&2
-  [ "$rc" = 3 ] || fail 'Map Block capability answer lost its experimental refusal exit'
+  if [ "$1" = active ] && [ "$2" = 1.35 ]; then expected_rc=0; fi
+  [ "$rc" = "$expected_rc" ] || fail 'Map Block capability exit differs from its exact target boundary'
   php "$MAP_CAPSULE/fixtures/lifecycle-evidence.php" capability "$1" "$2" <<<"$report" \
     || fail 'Map Block native dependency gate disagrees with manufactured target facts'
   map_preserved "$1" "$2"
@@ -128,7 +129,19 @@ map_refused 1.34 active 1.34
 map_native restore-header
 # Only one release is claimed. Replacing it with the same digest exercises
 # supported replacement without inventing a second in-range release.
-wp_conf2 plugin install "$MAP_EXACT" --force --activate
+MAP_REINSTALL=$(wp_conf2 plugin install "$MAP_EXACT" --force 2>&1) \
+  || fail 'Map Block same-version replacement failed'
+require_observed_nonempty 'Map Block same-version replacement' "$MAP_REINSTALL"
+assert_no_php_runtime_diagnostics 'Map Block same-version replacement' "$MAP_REINSTALL"
+# The retained 74fc75a8 run printed "already active" yet reached PASS.
+# Activation is already proven above; WP-CLI warnings are not green evidence.
+if grep -Eq '(^|[[:space:]])(Warning|Notice|Deprecated):' <<<"$MAP_REINSTALL"; then
+  fail 'Map Block same-version replacement emitted a warning'
+fi
+grep -Fxq 'Plugin updated successfully.' <<<"$MAP_REINSTALL" \
+  && [ "$(awk 'NF { line=$0 } END { print line }' <<<"$MAP_REINSTALL")" = 'Success: Installed 1 of 1 plugins.' ] \
+  || fail 'Map Block same-version replacement lacks its complete success result'
+printf '%s\n' "$MAP_REINSTALL"
 map_capability active 1.35
 wp_conf2 plugin uninstall map-block-gutenberg --deactivate
 map_capability inactive missing

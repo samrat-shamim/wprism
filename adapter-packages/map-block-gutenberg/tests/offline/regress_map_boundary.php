@@ -115,6 +115,38 @@ $tokens->bind_block_environment_options([]);
 Canon::write_file($path, Canon::post_file($front, $canonical));
 $compiled = RepositoryCompiler::compile($scratch, $policy);
 wprism_check(isset($compiled->tree()[$uuid]), 'real immutable compiler accepts the credential-free map');
+
+// Public destination authority removes the address key role, never the
+// decoded value scan. Exercise both publication gates with valid native maps
+// so a schema refusal cannot masquerade as secret/PII clearance evidence.
+require_once $root . '/agent/src/Capture/CaptureSafetyGates.php';
+$safety = new WPrism\CaptureSafetyGates($scratch);
+foreach (['public' => 'Dhaka, Bangladesh', 'email' => 'person@example.com',
+    'phone' => '+1 (415) 555-2671', 'labelled-secret' => 'api_key=Abcdef1234567890-',
+    'hard-secret' => 'ghp_' . str_repeat('aB12', 6)] as $label => $address) {
+    $nativeBlock = parse_blocks($fixture)[0];
+    $nativeBlock['attrs']['address'] = $address;
+    $encoded = strtr(rawurlencode($address), ['%21' => '!', '%27' => "'", '%28' => '(', '%29' => ')', '%2A' => '*']);
+    $nativeBlock['innerHTML'] = str_replace('Dhaka%2C%20Bangladesh', $encoded, $nativeBlock['innerHTML']);
+    $nativeBlock['innerContent'] = [$nativeBlock['innerHTML']];
+    $body = Blocks::capture_rewrite(serialize_blocks([$nativeBlock]), $policy, $tokens);
+    wprism_check_same([], $policy->repository_constraint_diagnostics([['type' => 'post', 'body' => $body]]),
+        "$label clearance probe first passes the exact Map schema");
+    $bytes = Canon::post_file($front, $body);
+    Canon::write_file($path, $bytes);
+    $captureGate = static fn() => $safety->assertCanonicalContent([['path' => "posts/page/$uuid--map.md", 'content' => $bytes]], $policy);
+    if ($label === 'public') {
+        $captureGate();
+        wprism_check(isset(RepositoryCompiler::compile($scratch, $policy)->tree()[$uuid]), 'reviewed public destination passes capture and immutable compilation');
+    } else {
+        wprism_check_throws($captureGate, WPrism\CommandRefusalException::class,
+            "$label value still refuses before capture publication", 'canonical content clearance tripped');
+        wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), RuntimeException::class,
+            "$label value also refuses through immutable compilation");
+    }
+    wprism_check_same($bytes, file_get_contents($path), "$label clearance decision preserves repository input bytes");
+}
+Canon::write_file($path, Canon::post_file($front, $canonical));
 foreach ([
     'missing-core-wrapper-class' => preg_replace('/<div class="wp-block-webfactory-map">/', '<div>', $fixture, 1),
     'mismatched-key' => str_replace('"zoom":12', '"api_key":"different-key","zoom":12', $fixture),

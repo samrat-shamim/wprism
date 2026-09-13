@@ -228,6 +228,37 @@ try {
 }
 
 $source = (string) file_get_contents($capsule . '/tests/conformance/check.sh');
+$reinstallStart = strpos($source, '# Only one release is claimed.');
+$reinstallEnd = $reinstallStart === false ? false : strpos($source, "\nmap_capability active 1.35", $reinstallStart);
+if ($reinstallStart === false || $reinstallEnd === false) throw new RuntimeException('actual reinstall acceptance missing');
+$reinstall = substr($source, $reinstallStart, $reinstallEnd - $reinstallStart);
+$reinstallSetup = <<<'SH'
+set -euo pipefail
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$1/sandbox/conformance/asserts.sh"
+MAP_EXACT=/artifacts-cache/map-fixture.zip
+answer="$2" command_stderr="$3" command_exit="$4"
+wp_conf2() {
+  [ "$#" = 4 ] && [ "$1" = plugin ] && [ "$2" = install ] && [ "$3" = "$MAP_EXACT" ] && [ "$4" = --force ] || return 64
+  printf '%s\n' "$answer"
+  [ -z "$command_stderr" ] || printf '%s\n' "$command_stderr" >&2
+  return "$command_exit"
+}
+SH;
+foreach (['valid', 'empty', 'missing-success', 'warning-stdout', 'warning-stderr', 'php-stderr', 'nonzero'] as $mutation) {
+    $answer = "Plugin updated successfully.\nSuccess: Installed 1 of 1 plugins.";
+    $stderr = '';
+    if ($mutation === 'empty') $answer = '';
+    if ($mutation === 'missing-success') $answer = 'Plugin updated successfully.';
+    if ($mutation === 'warning-stdout') $answer = "Warning: Plugin is already active.\n" . $answer;
+    if ($mutation === 'warning-stderr') $stderr = 'Warning: Plugin is already active.';
+    if ($mutation === 'php-stderr') $stderr = 'PHP Warning: fixture failure';
+    [$status, $output] = ShellProbe::run($reinstallSetup . "\n" . $reinstall . "\nprintf 'REINSTALL_READY\\n'\n", [
+        $root, $answer, $stderr, $mutation === 'nonzero' ? '1' : '0',
+    ], $root);
+    wprism_check($mutation === 'valid' ? $status === 0 && str_contains($output, 'REINSTALL_READY')
+        : $status !== 0 && !str_contains($output, 'REINSTALL_READY'), "$mutation actual reinstall requires warning-free complete success without redundant activation");
+}
 $archiveBlock = ShellProbe::captureBlock($source, 'MAP_CACHE', 'map_native() {');
 $archiveSetup = <<<'SH'
 set -euo pipefail
@@ -279,7 +310,7 @@ wp_conf2() {
   fi
 }
 SH;
-foreach (['valid', 'empty', 'malformed', 'zero-exit', 'other-exit', 'php-stdout', 'php-stderr', 'observation-empty', 'post-changed', 'option-changed'] as $mutation) {
+foreach (['valid', 'empty', 'malformed', 'refusal-exit', 'other-exit', 'php-stdout', 'php-stderr', 'observation-empty', 'post-changed', 'option-changed'] as $mutation) {
     $answer = json_encode($reports['exact'], JSON_THROW_ON_ERROR);
     $native = $observation;
     if ($mutation === 'post-changed') $native['state']['posts']['sha256'] = str_repeat('1', 64);
@@ -289,7 +320,7 @@ foreach (['valid', 'empty', 'malformed', 'zero-exit', 'other-exit', 'php-stdout'
     if ($mutation === 'php-stdout') $answer = "PHP Warning: fixture failure\n" . $answer;
     [$status, $output, $diagnostic] = ShellProbe::run($setup . "\n" . $functions . "\nmap_capability active 1.35\nprintf 'ACCEPTED\\n'\n", [
         $root, $answer, $mutation === 'observation-empty' ? '' : json_encode($native, JSON_THROW_ON_ERROR),
-        $mutation === 'zero-exit' ? '0' : ($mutation === 'other-exit' ? '7' : '3'),
+        $mutation === 'refusal-exit' ? '3' : ($mutation === 'other-exit' ? '7' : '0'),
         $mutation === 'php-stderr' ? 'PHP Warning: fixture failure' : '', json_encode($observation, JSON_THROW_ON_ERROR),
     ], $root);
     if ($mutation === 'valid' && $status !== 0) fwrite(STDERR, $diagnostic . $output);
