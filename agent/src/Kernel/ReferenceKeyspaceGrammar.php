@@ -51,6 +51,13 @@ final class ReferenceKeyspaceGrammar {
                     self::assert_reference_rule_keyspaces($rule, $allowed, "$label.block_values.$block.$attribute");
                 }
             }
+            foreach (($source['column_codecs'] ?? []) as $table => $columns) {
+                foreach ($columns as $column => $codec) {
+                    if (isset($codec['value'])) {
+                        self::assert_reference_rule_keyspaces($codec['value'], $allowed, "$label.column_codecs.$table.$column.value");
+                    }
+                }
+            }
             foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
                 foreach (($source[$section] ?? []) as $name => $rule) {
                     if (is_array($rule) && !array_is_list($rule)) {

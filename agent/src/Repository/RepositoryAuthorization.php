@@ -11,6 +11,7 @@ require_once __DIR__ . '/../Kernel/PhpContainerValue.php';
 
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
+require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
@@ -906,6 +907,7 @@ final class RepositoryAuthorization {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'table_column', (string) $column, $class, $tableDetails['source']);
             } else {
                 $clearanceValue = $value;
+                $piiSubject = null;
                 if (isset($columnCodecs[$column])) {
                     try {
                         $clearanceValue = ColumnCodecGrammar::decode_for_clearance(
@@ -914,6 +916,10 @@ final class RepositoryAuthorization {
                             "repository table '$table' column '$column'",
                             'authored'
                         );
+                        if (isset($columnCodecs[$column]['value'])) {
+                            $piiSubject = AuthoredValueCodec::pii_subject($clearanceValue, $columnCodecs[$column]['value'],
+                                true, "repository table '$table' column '$column'");
+                        }
                     } catch (\Throwable) {
                         // RepositoryPortableShapeValidator owns malformed
                         // codec framing. Raw scanning here retains defense in
@@ -922,7 +928,7 @@ final class RepositoryAuthorization {
                 }
                 self::authorize_sensitivity(
                     $out, $path, $uuid, 'table_column', (string) $column,
-                    $clearanceValue, $rule, $tableDetails['source']
+                    $clearanceValue, $rule, $tableDetails['source'], [], $piiSubject
                 );
             }
         }
@@ -1012,7 +1018,8 @@ final class RepositoryAuthorization {
         mixed $value,
         array $rule,
         ?string $source,
-        array $reviewedScalarPaths = []
+        array $reviewedScalarPaths = [],
+        ?array $piiSubject = null
     ): void {
         self::authorize_encoding($out, $path, $uuid, $surface, $field, $value, $rule, $source);
         if (empty($rule['allow_secret']) && Secrets::clearance_match_deep($field, $value) !== null) {
@@ -1021,7 +1028,8 @@ final class RepositoryAuthorization {
                 $surface, $field, 'secret', $source
             );
         }
-        if (empty($rule['allow_pii']) && PersonalData::match_deep($field, $value, $reviewedScalarPaths) !== null) {
+        if (empty($rule['allow_pii']) && ($piiSubject['present'] ?? true)
+            && PersonalData::match_deep($field, $piiSubject === null ? $value : $piiSubject['value'], $reviewedScalarPaths) !== null) {
             self::finding(
                 $out, 'repository_pii_not_allowed', $path, $uuid,
                 $surface, $field, 'pii', $source

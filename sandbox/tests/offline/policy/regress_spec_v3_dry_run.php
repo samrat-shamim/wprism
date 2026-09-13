@@ -856,6 +856,7 @@ wprism_check_same(
         'structured-evidence/v1',
         'table-row-scopes/v1',
         'typed-column-codecs/v1',
+        'typed-column-values/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
     'V3-FEAT: the vocabulary carries the implemented names, so an engine that lacks a declared name has something to '

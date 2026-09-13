@@ -2,6 +2,8 @@
 namespace WPrism;
 
 require_once __DIR__ . '/BlockReferenceScanner.php';
+require_once __DIR__ . '/AuthoredValueReferenceScanner.php';
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/MenuReferenceScanner.php';
 require_once __DIR__ . '/SerializedTermDescriptionScanner.php';
 require_once __DIR__ . '/ShortcodeReferenceScanner.php';
@@ -940,10 +942,23 @@ final class Lint {
         $table = (string) ($front['table'] ?? '');
         $decl = $policy->table_rule($table) ?? [];
         $refCols = array_column($decl['refs'] ?? [], 'column');
+        $codecs = $policy->column_codec_rules($table);
 
         // (a) bare_id — columns with no declared ref
         $columns = (array) ($front['columns'] ?? []);
         foreach ($columns as $col => $value) {
+            if (isset($codecs[$col]['value'])) {
+                try {
+                    $value = ColumnCodecGrammar::decode_canonical_value($value, $codecs[$col], "columns.$col");
+                    $columns[$col] = $value;
+                    array_push($findings, ...AuthoredValueReferenceScanner::scan(
+                        $value, $codecs[$col]['value'], $rel, "columns.$col", $env->resolver()));
+                } catch (\RuntimeException $failure) {
+                    $findings[] = LintFinding::make('invalid_column_value', $rel, "columns.$col",
+                        '<declared-value>', null, $failure->getMessage());
+                }
+                continue;
+            }
             if (in_array($col, $refCols, true)) {
                 continue; // declared ref: already owned (tokenized, or Snapshot.php threw if dangling)
             }

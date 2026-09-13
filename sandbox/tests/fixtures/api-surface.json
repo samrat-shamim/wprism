@@ -1,5 +1,5 @@
 {
-    "class_count": 515,
+    "class_count": 517,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -7302,6 +7302,251 @@
             },
             "readonly": false
         },
+        "WPrism\\AuthoredValueCodec": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "apply": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tokens",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_value": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonical",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "capture": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tokens",
+                            "type": "object",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "unmapped",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "pii_subject": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "canonical",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\AuthoredValueReferenceScanner": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "scan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rel",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "locator",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "resolveId",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\AuthorizedReleaseRepository": {
             "abstract": false,
             "constants": [],
@@ -7689,149 +7934,6 @@
             "properties": [],
             "readonly": false
         },
-        "WPrism\\BlockValueCodec": {
-            "abstract": false,
-            "constants": [],
-            "final": true,
-            "interfaces": [],
-            "kind": "class",
-            "methods": {
-                "apply": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "value",
-                            "type": "mixed",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "rule",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "tokens",
-                            "type": "WPrism\\Tokens",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "where",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "mixed",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "assert_value": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "value",
-                            "type": "mixed",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "rule",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "canonical",
-                            "type": "bool",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "where",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "void",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "capture": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "value",
-                            "type": "mixed",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "rule",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "tokens",
-                            "type": "WPrism\\Tokens",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "unmapped",
-                            "type": "callable",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "where",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "mixed",
-                    "static": true,
-                    "visibility": "public"
-                }
-            },
-            "parent": null,
-            "properties": [],
-            "readonly": false
-        },
         "WPrism\\BlockValueGrammar": {
             "abstract": false,
             "constants": {
@@ -7876,31 +7978,6 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
-                "assert_structured_keyspaces": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "rule",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "where",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "void",
-                    "static": true,
-                    "visibility": "public"
-                },
                 "attribute_maps": {
                     "abstract": false,
                     "final": false,
@@ -14962,6 +15039,15 @@
                 },
                 "SECTION": {
                     "value_repr": "column_codecs"
+                },
+                "VALUES_FEATURE": {
+                    "value_repr": "typed-column-values/v1"
+                },
+                "VALUE_CODEC_KEYS": {
+                    "value_repr": [
+                        "container",
+                        "value"
+                    ]
                 }
             },
             "final": true,
@@ -15071,6 +15157,39 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "decode_canonical_value": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "bytes",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "codec",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
                 },
@@ -83281,6 +83400,138 @@
                     "parameters": [],
                     "return_type": "string",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\ValueContractGrammar": {
+            "abstract": false,
+            "constants": {
+                "MAX_CONTRACT_RULES": {
+                    "value_repr": 65536
+                },
+                "MAX_ENUM_VALUES": {
+                    "value_repr": 64
+                },
+                "MAX_OBJECT_DEPTH": {
+                    "value_repr": 4
+                },
+                "MAX_OBJECT_FIELDS": {
+                    "value_repr": 256
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contracts",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "records",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "encodedText",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surface",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "strictReferences",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_structured_keyspaces": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "where",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": 0,
+                            "has_default": true,
+                            "name": "depth",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
                     "visibility": "public"
                 }
             },

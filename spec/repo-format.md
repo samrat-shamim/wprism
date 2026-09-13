@@ -3225,7 +3225,7 @@ refuse rather than claiming an identity the projection could discard. Later
 segments use the unchanged shared path dialect inside the retained value.
 
 `RecordFields` owns the pure declaration and record constraints;
-`BlockValueCodec` composes them with reference and text transport. Immutable
+`AuthoredValueCodec` composes them with reference and text transport. Immutable
 post/widget compilation, lint and Apply reject excluded canonical fields
 through that same validator. Canonical inputs are never silently projected.
 Retained data crosses all existing privacy and scope gates. The feature changes
@@ -4522,3 +4522,48 @@ claim them from JSON framing. Existing identity/slug/ownership-discriminator
 codec exclusions and row scopes still apply. The offline column-codec suite and
 `regress-json-column-codecs-native` exercise this path without changing an
 adapter package or qualification claim.
+
+
+### v3.40 `typed-column-values/v1` — semantic values inside stored containers
+
+A v3 manifest declaring `typed-column-codecs/v1` and `typed-column-values/v1`
+may use exactly `{container, value}` as an alternative to `{container, leaves}`.
+Both alternatives are explicit and exclusive. `container` must be strict
+`php_serialized` or `json`; JSON retains its separate `json-column-codecs/v1`
+feature requirement. Mixed serialized/text/NULL framing does not admit values.
+
+```json
+"column_codecs": {"authored_templates": {"data": {
+  "container": "json",
+  "value": {"class": "authored", "object_fields": {
+    "selected_users": {"class": "authored", "ref": "user[]", "cast": "string", "on_unmapped": "refuse"},
+    "limit": {"class": "authored", "plain_data": true}
+  }}
+}}}
+```
+
+`value` uses the shared authored value grammar: closed recursive `object_fields`,
+exact typed `enum` codes, scalar/list `ref` with optional native cast, structured
+`json_refs`/`key_refs`, or `plain_data`. The same object-depth, field-count,
+contract-count and enum bounds as block value contracts apply, with one budget
+per manifest. Root and nested rules must be authored. Every reference codec
+requires `on_unmapped: "refuse"`; undeclared keyspaces fail after the complete
+pin set is known. This feature does not grant block ownership, derived values,
+record projection or encoded-text authority.
+
+Faithful framing precedes value interpretation. Capture validates native shape,
+screens decoded data, applies the existing authored value codec, and re-encodes
+the container. Apply validates canonical shape and restores native references
+and types through that same codec. Compilation independently validates framing
+and canonical values without WordPress or a database; lint decodes the declared
+container and reports `invalid_column_value` at its column when invalid.
+Durable entity tokens participate in the existing canonical reference graph.
+Missing user bindings refuse at runtime; users remain environment-local.
+
+PII clearance uses a validated projection excluding only scalar/list reference
+leaves reached through declared closed objects. Unknown fields or malformed
+references refuse before projection. Empty reference-only projections have no
+PII subject; all other keys, values and ancestor roles retain normal checks.
+Secret clearance always sees the entire original decoded value. This does not
+change old column or block declarations, grant file transport, or qualify an
+adapter. Identity, slug and row-ownership discriminator exclusions still apply.

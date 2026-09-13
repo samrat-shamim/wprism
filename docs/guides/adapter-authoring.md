@@ -2754,7 +2754,8 @@ Continue autonomously when a command already supplies a typed recovery. In
 particular, narrow an over-broad or under-broad `--match`, use `--force` after
 the create-only draft output names that remedy, seed representative rows when
 a probe reports an empty keyspace, and keep an unsupported surface
-runtime/env or outside the disposition. Escalate only when progress needs new
+outside the disposition until its missing primitive exists. Use runtime/env
+only when the native storage semantics justify that classification. Escalate only when progress needs new
 authority or information the repository and target cannot supply: a paid
 artifact or credential, permission to exercise an external server/CDN/service,
 destructive deletion authority, a production-only mutation, or two plausible
@@ -3073,8 +3074,8 @@ refuses any shape or spelling the shared associative decoder cannot preserve,
 including empty objects, duplicate keys, numeric-key objects that become lists,
 and alternate whitespace or escaping. It admits empty lists. Capture, compiler
 and Apply must agree on framing; decoded keys also participate in clearance.
-Never use a blanket clearance exception to admit credential or personal data
-nested in a JSON column.
+A container codec grants no clearance exception. Any existing exact reviewed
+`allow_pii` or `allow_secret` rule still needs independent semantic justification.
 
 This framing only reaches ordinary text leaves. A JSON field holding a native
 user ID still needs an explicit reference contract; a CSV URL still needs a
@@ -3083,6 +3084,31 @@ Saves demonstrate both demands, so JSON framing alone does not qualify its
 templates. Run `make regress-json-column-codecs-native` with exact
 `WPRISM_EXPECTED_SOURCE_SHA`; the harness owns its disposable pair and checks
 native Capture, Apply, repeat, recapture, rollback and foreign-row preservation.
+
+Use `typed-column-values/v1` for semantic values inside a strict JSON or PHP
+serialized column. Declare `{container, value}` instead of `{container, leaves}`;
+`value` reuses authored `object_fields`, `enum`, scalar/list `ref`, structured
+`json_refs`/`key_refs`, and `plain_data`. Every reference leaf must declare
+`on_unmapped: "refuse"`. Prove the native scalar type and use `cast: "string"`
+when the plugin stores ID strings. Record projection, encoded text and mixed
+scalar framing are not admitted by this feature.
+
+For example, importer 2.7.5 stores selected users under
+`filter_form_data.wt_iew_email` as string IDs. Declare exact enclosing objects
+and a `ref: "user[]"` leaf, then prove different source/target IDs with the same
+logins and a missing target login. Capture and Apply use the existing user
+binding codec; this never grants user migration. The compiler checks canonical
+reference shape without resolving environment bindings. Unknown object members
+refuse, so adding a native field requires a reviewed declaration change.
+
+Validated scalar/list reference leaves are excluded only from the PII subject;
+secret clearance still inspects every original decoded key and value. All
+remaining fields and ancestor key roles retain ordinary PII checks. Do not
+classify contact data as a reference to obtain clearance: native values must be
+strict IDs and canonical values must be tokens in that declared keyspace.
+Run `make regress-column-value-contracts-native` with the exact source SHA;
+it proves native typed rows and shared Gutenberg values at divergent user IDs.
+A template's local CSV input still needs a separate target-binding contract.
 
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create

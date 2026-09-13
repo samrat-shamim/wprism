@@ -561,7 +561,7 @@ $knownGapsByFile = [
     'ApplyRequestCoordinator' => ['Canary', 'Canon', 'Capture', 'CompiledRepository', 'Ledger', 'LedgerScopedApplySessionStorage', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedStateOverlay', 'Snapshot', 'Tokens'],
     'ApplyFieldMaterializer' => ['Db', 'StructuredValue'],
     'AttachmentMaterializer' => ['CompiledRepository'],
-    'Blocks' => ['Policy', 'Tokens'],
+    'Blocks' => ['Policy'],
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
     // issue #3499 closed the CodeCompilationException gap: Cli::code_inventory()
@@ -641,8 +641,9 @@ $gaps = find_gaps($sources, $classFiles, $knownGaps);
 
 // Standalone compiler validation closed RepositoryAuthorization (238 -> 237);
 // native-shaped WPForms capture now closes Blocks -> Shortcodes (237 -> 236).
+// Shared value extraction closes Blocks -> Tokens explicitly (236 -> 235).
 // Sidebar capture/apply Ledger remains visible legacy debt.
-check(count($knownGaps) >= 236, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
+check(count($knownGaps) >= 235, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
 fwrite(STDOUT, 'known gaps: ' . count($knownGaps) . " (explicit baseline; new pairs fail)\n");
 // The allowlist cannot become a dead, copy-pasted escape hatch: every entry
 // must still be observed in the current baseline.  Then mutate concrete
