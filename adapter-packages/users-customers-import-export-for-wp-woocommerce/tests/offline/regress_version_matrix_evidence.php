@@ -53,6 +53,7 @@ try {
     $native = ['format' => 'wprism-importer-native-settings/v1', 'tables' => array_fill_keys($tables, []), 'settings' => ['fixture' => 1],
         'files' => array_fill_keys(['input/a.csv', 'input/b.csv', 'export/a.csv', 'export/b.csv', 'export/c.csv', 'export/d.csv'], str_repeat('a', 64))];
     $native['tables']['options'] = [['option_name' => 'wt_iew_advanced_settings', 'option_value' => serialize($native['settings']), 'autoload' => 'off']];
+    $native['tables']['options'][] = ['option_name' => '_transient_doing_cron', 'option_value' => '1789367921.1494529247283935546875', 'autoload' => 'on'];
     foreach (['users' => 8, 'wt_iew_mapping_template' => 7, 'wt_iew_action_history' => 4] as $table => $count) {
         $native['tables'][$table] = array_map(static fn(int $id): array => ['id' => (string) $id], range(1, $count));
     }
@@ -123,6 +124,11 @@ try {
             wprism_check_throws(static fn() => ImporterVersionMatrixEvidence::refusal($sink, $pair, $verb), RuntimeException::class,
                 'complete native comparison retains every row field: ' . $table);
         }
+        $bad = $native;
+        $bad['tables']['options'][1]['option_value'] = '1789367982.1633059978485107421875';
+        $stream("$sink/$verb-after-native", $json($bad));
+        wprism_check_throws(static fn() => ImporterVersionMatrixEvidence::refusal($sink, $pair, $verb), RuntimeException::class,
+            'cron-lock timestamp changes remain visible under the controlled read window');
         $stream("$sink/$verb-after-native", $json($native));
         ImporterVersionMatrixEvidence::refusal($sink, $pair, $verb);
     }

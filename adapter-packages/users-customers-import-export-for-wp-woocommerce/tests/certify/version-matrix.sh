@@ -6,6 +6,7 @@ IMPORTER_MATRIX_PACKAGE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 IMPORTER_MATRIX_ROOT="$(cd "$IMPORTER_MATRIX_PACKAGE/../.." && pwd -P)"
 . tests/lib/private_command_capture.sh
 . tests/lib/conformance_private_command.sh
+. tests/lib/wordpress_cron_window.sh
 
 version_matrix_preflight() {
   [[ "${WPRISM_EXPECTED_SOURCE_SHA:-}" =~ ^[a-f0-9]{40}$ ]] \
@@ -41,21 +42,19 @@ importer_matrix_observe() { # <unique stage>
     "$IMPORTER_MATRIX_FIXTURES/settings-native.php" raw-observe --use-include
 }
 
-version_matrix_workflow() {
-  export CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2"
-  export CONF_REPO1="siterepo/${PAIR}1" CONF_REPO2="siterepo/${PAIR}2"
-  export CONF_EXPECTED_SOURCE_SHA="$WPRISM_EXPECTED_SOURCE_SHA"
-  IMPORTER_MATRIX_FIXTURES=/var/www/html/wp-content/mu-plugins/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures
-  IMPORTER_MATRIX_SINK=$(umask 077; mktemp -d "$IMPORTER_MATRIX_ROOT/sandbox/tmp/importer-version-matrix-$PAIR.XXXXXX")
-  local result=0 suffix archive digest verb
-  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$IMPORTER_MATRIX_SINK/positive.$suffix"); done
-  say 'Importer 2.7.5: complete experimental agent roundtrip and native CSV consumers'
-  bash "$IMPORTER_MATRIX_ROOT/sandbox/conformance/run.sh" "$VMATRIX_PLUGIN_SLUG" 2>&1 \
-    | tee "$IMPORTER_MATRIX_SINK/positive.stdout" || result=$?
-  printf '%s\n' "$result" >"$IMPORTER_MATRIX_SINK/positive.exit"
-  php "$IMPORTER_MATRIX_PACKAGE/fixtures/version-matrix-evidence.php" positive "$IMPORTER_MATRIX_SINK" "$PAIR" \
-    || fail 'Importer exact supported roundtrip failed'
-  VMATRIX_CASES=$((VMATRIX_CASES + 1))
+importer_matrix_cron_transport() {
+  "${PAIR_COMPOSE[@]}" run --rm -T --no-deps --user root \
+    --workdir /var/www/html/wp-content/mu-plugins --entrypoint sh cli2 "$@"
+}
+
+importer_matrix_refusals() (
+  local archive digest verb
+  # imprvm648a changed only _transient_doing_cron during Apply. Control new
+  # test-owned cron launches; keep that row in both complete observations.
+  trap 'wordpress_cron_window_exit "$?"' EXIT
+  trap 'exit 130' INT TERM
+  wordpress_cron_window_begin wp2 importer_matrix_cron_transport \
+    || fail 'Importer matrix could not establish its owned cron read window'
   importer_matrix_capture supported 0 wp2 --skip-plugins --user=admin eval-file \
     "$IMPORTER_MATRIX_FIXTURES/dependency-native.php" --use-include
 
@@ -79,7 +78,25 @@ version_matrix_workflow() {
     importer_matrix_observe "$verb-after"
     php "$IMPORTER_MATRIX_PACKAGE/fixtures/version-matrix-evidence.php" "$verb" "$IMPORTER_MATRIX_SINK" "$PAIR" \
       || fail "Importer $verb version refusal or complete preservation failed; retained $IMPORTER_MATRIX_SINK"
-    VMATRIX_CASES=$((VMATRIX_CASES + 1))
   done
+)
+
+version_matrix_workflow() {
+  export CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2"
+  export CONF_REPO1="siterepo/${PAIR}1" CONF_REPO2="siterepo/${PAIR}2"
+  export CONF_EXPECTED_SOURCE_SHA="$WPRISM_EXPECTED_SOURCE_SHA"
+  IMPORTER_MATRIX_FIXTURES=/var/www/html/wp-content/mu-plugins/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures
+  IMPORTER_MATRIX_SINK=$(umask 077; mktemp -d "$IMPORTER_MATRIX_ROOT/sandbox/tmp/importer-version-matrix-$PAIR.XXXXXX")
+  local result=0 suffix
+  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$IMPORTER_MATRIX_SINK/positive.$suffix"); done
+  say 'Importer 2.7.5: complete experimental agent roundtrip and native CSV consumers'
+  bash "$IMPORTER_MATRIX_ROOT/sandbox/conformance/run.sh" "$VMATRIX_PLUGIN_SLUG" 2>&1 \
+    | tee "$IMPORTER_MATRIX_SINK/positive.stdout" || result=$?
+  printf '%s\n' "$result" >"$IMPORTER_MATRIX_SINK/positive.exit"
+  php "$IMPORTER_MATRIX_PACKAGE/fixtures/version-matrix-evidence.php" positive "$IMPORTER_MATRIX_SINK" "$PAIR" \
+    || fail 'Importer exact supported roundtrip failed'
+  VMATRIX_CASES=$((VMATRIX_CASES + 1))
+  importer_matrix_refusals
+  VMATRIX_CASES=$((VMATRIX_CASES + 2))
   pass "Importer 2.7.5 roundtrip and official active 2.7.4 refusal boundaries; private evidence: $IMPORTER_MATRIX_SINK"
 }
