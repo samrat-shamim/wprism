@@ -1,8 +1,8 @@
-# Importer and WooCommerce native customer foundation
+# Importer and WooCommerce customer templates
 
 Participants: Users/Customers Import Export 2.7.5 and WooCommerce 11.0.1.
-This milestone establishes native fixtures and complete observations for the
-combination. It does not qualify combined Apply or change production readiness.
+This scenario covers native customer fixtures and settled full Apply of two
+existing user templates. It does not change production readiness.
 
 The offline gate exercises shipped policies in both pin orders. It captures
 saved export forms using the Importer policy, then materializes them on a target
@@ -44,8 +44,34 @@ The wrapper requires an owned disposable pair and verifies teardown. Private
 streams remain under `sandbox/tmp/`; credentials, CSV passwords and database
 values do not belong in published evidence.
 
-Follow-up qualification remains explicit: combined full/scoped Apply and its
-exact permitted database, schema, file and ledger changes; independent target
-catalog witnesses; verified opposing plugin load orders; transferred-template
-reopen/consumption; canonical recapture and stable repeat. The Importer-only
-fixed-table oracle cannot substantiate this combination's preservation.
+The full Apply gate first adopts the combined authored scope and proves exact
+baseline canonical state and media convergence. Native Saves change only the
+batch size in the existing export and import user templates. Independent source
+snapshots establish the intended forms, UUIDs and hashes; target identity bindings
+establish the existing local rows. Plan must select exactly those two updates
+and preserve the complete unchanged roster. Declared upload/provider inventories
+and explicitly optional environment values are reports; selected actions,
+required missing values, warnings and pending work still refuse.
+
+Around both actual update and repeat Apply, the gate compares complete database
+images, schema and column records, populated Importer operational file trees,
+and repository state/configuration/media. Update permits only the two intended
+form cells, their baseline hashes, the selected applied revision and a fresh
+bounded direct Apply session. Repeat permits only its fresh session. No other
+row, schema or file change is allowed. The clean public receipts must report two
+updates and then zero, without executable actions, drift or warnings. Transferred
+templates are reopened and consumed through native CSV paths; fresh customer and
+order getters and final canonical recapture check the resulting behavior.
+
+Run the full Apply gate with the same owned-pair variables:
+
+```sh
+bash integration-scenarios/importer-woocommerce-customers/tests/live/regress_importer_woocommerce_apply.sh
+```
+
+The exact preservation window covers the settled template update and repeat.
+Initial adoption and subsequent native CSV jobs have separate assertions and
+are not covered by that allowed database transition. Scoped Apply, independent
+target product-catalog witnesses and verified opposing native plugin load orders
+remain follow-up qualification. The Importer-only fixed-table oracle cannot
+substantiate this combination's preservation.
