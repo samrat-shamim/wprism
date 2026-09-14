@@ -18,9 +18,15 @@ final class ImporterDirtyTargetEvidence {
         ImporterSettingsEvidence::check(($record['format'] ?? null) === 'wprism-importer-native-settings/v1'
             && array_keys($record['tables'] ?? []) === ['posts', 'postmeta', 'options', 'terms', 'term_taxonomy',
                 'term_relationships', 'termmeta', 'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template']
-            && count($record['settings'] ?? []) === 9 && count($record['files'] ?? []) >= 3
+            && is_array($record['settings'] ?? null) && count($record['files'] ?? []) >= 3
             && count($record['tables']['users']) >= 4 && count($record['tables']['wt_iew_action_history']) >= 1,
             'complete populated native census');
+        $managed = json_decode(file_get_contents(__DIR__ . '/native-settings.json'), true, flags: JSON_THROW_ON_ERROR)['source'];
+        ImporterSettingsEvidence::check(array_diff_key($managed, $record['settings']) === [], 'all nine managed settings are present');
+        $rows = array_values(array_filter($record['tables']['options'], static fn(array $row): bool => $row['option_name'] === 'wt_iew_advanced_settings'));
+        ImporterSettingsEvidence::check(count($rows) === 1, 'one complete stored settings option');
+        ImporterRoundtripEvidence::same(unserialize($rows[0]['option_value'], ['allowed_classes' => false]), $record['settings'],
+            'raw settings observation includes every stored target-local member');
     }
 
     public static function retained(array $before, array $after, array $oldMap, array $newMap, array $tree): void {
@@ -145,7 +151,7 @@ final class ImporterDirtyTargetEvidence {
         $expected = $before;
         $settings = json_decode(file_get_contents(__DIR__ . '/native-settings.json'), true, flags: JSON_THROW_ON_ERROR)['source'];
         $settings['wt_iew_default_import_batch'] = $side === 'source' ? 19 : 29;
-        $expected['settings'] = $settings;
+        $expected['settings'] = array_replace($before['settings'], $settings);
         foreach ($expected['tables']['options'] as &$row) if ($row['option_name'] === 'wt_iew_advanced_settings') {
             $old = unserialize($row['option_value'], ['allowed_classes' => false]);
             $row['option_value'] = serialize(array_replace($old, $settings));
@@ -168,9 +174,11 @@ final class ImporterDirtyTargetEvidence {
     public static function resolved(array $source, array $before, array $after): void {
         self::native($source); self::native($before); self::native($after);
         $expected = $before;
-        $expected['settings'] = $source['settings'];
+        $managed = json_decode(file_get_contents(__DIR__ . '/native-settings.json'), true, flags: JSON_THROW_ON_ERROR)['source'];
+        $settings = array_intersect_key($source['settings'], $managed);
+        $expected['settings'] = array_replace($before['settings'], $settings);
         foreach ($expected['tables']['options'] as &$row) if ($row['option_name'] === 'wt_iew_advanced_settings') {
-            $row['option_value'] = serialize(array_replace(unserialize($row['option_value'], ['allowed_classes' => false]), $source['settings']));
+            $row['option_value'] = serialize(array_replace(unserialize($row['option_value'], ['allowed_classes' => false]), $settings));
         }
         unset($row);
         foreach (['export' => 'Selected users', 'import' => 'Reusable input mapping'] as $type => $name) {

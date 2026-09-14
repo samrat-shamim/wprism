@@ -11,7 +11,7 @@ $emptyDiagnostics = array_fill_keys(['code_mismatch', 'code_drift', 'incomplete_
 $fixtureSettings = json_decode(file_get_contents($package . '/fixtures/native-settings.json'), true, flags: JSON_THROW_ON_ERROR)['source'];
 $native = ['format' => 'wprism-importer-native-settings/v1', 'tables' => array_fill_keys(['posts', 'postmeta', 'options', 'terms',
     'term_taxonomy', 'term_relationships', 'termmeta', 'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template'], []),
-    'settings' => $fixtureSettings, 'files' => array_fill_keys(['input.csv', 'old.csv', 'index.php'], str_repeat('a', 64))];
+    'settings' => $fixtureSettings + ['other_module_key' => ['nested' => 'keep-target-local']], 'files' => array_fill_keys(['input.csv', 'old.csv', 'index.php'], str_repeat('a', 64))];
 $native['tables']['users'] = [['ID' => '1', 'user_login' => 'admin'], ['ID' => '82', 'user_login' => 'template-reader'],
     ['ID' => '93', 'user_login' => 'template-editor'], ['ID' => '104', 'user_login' => 'import-template-reader']];
 $native['tables']['wt_iew_action_history'] = [['id' => '1', 'data' => 'local-history']];
@@ -30,9 +30,22 @@ foreach (['export' => ['Selected users', 'Selected users copy'], 'import' => ['R
 }
 foreach ([['Import', 'user'], ['export', 'product']] as $index => [$type, $item]) $native['tables']['wt_iew_mapping_template'][] = [
     'id' => (string) (301 + $index), 'template_type' => $type, 'item_type' => $item, 'name' => 'local', 'data' => '{broken'];
+ImporterDirtyTargetEvidence::native($native);
+wprism_check(true, 'complete raw settings include the target-local member');
+foreach (['missing-managed', 'missing-local', 'extra-getter', 'duplicate-option'] as $fault) {
+    $bad = $native;
+    if ($fault === 'missing-managed') {
+        unset($bad['settings']['wt_iew_default_import_batch']);
+        $bad['tables']['options'][0]['option_value'] = serialize($bad['settings']);
+    }
+    if ($fault === 'missing-local') unset($bad['settings']['other_module_key']);
+    if ($fault === 'extra-getter') $bad['settings']['invented'] = true;
+    if ($fault === 'duplicate-option') $bad['tables']['options'][] = $bad['tables']['options'][0];
+    wprism_check_throws(static fn() => ImporterDirtyTargetEvidence::native($bad), RuntimeException::class, 'complete raw census rejects ' . $fault);
+}
 $edit = static function (array $record, string $side) use ($fixtureSettings): array {
     $settings = array_replace($fixtureSettings, ['wt_iew_default_import_batch' => $side === 'source' ? 19 : 29]);
-    $record['settings'] = $settings;
+    $record['settings'] = array_replace($record['settings'], $settings);
     $record['tables']['options'][0]['option_value'] = serialize($settings + ['other_module_key' => ['nested' => 'keep-target-local']]);
     foreach ([0, 2] as $index) {
         $row = &$record['tables']['wt_iew_mapping_template'][$index];
@@ -54,7 +67,7 @@ foreach (['source', 'target'] as $side) {
         if ($fault === 'extra-history') $bad['tables']['wt_iew_action_history'][] = ['id' => '99'];
         if ($fault === 'other-option') $bad['tables']['options'][1]['option_value'] = 'changed';
         if ($fault === 'changed-file') $bad['files']['input.csv'] = str_repeat('b', 64);
-        if ($fault === 'lost-local-setting') $bad['tables']['options'][0]['option_value'] = serialize($bad['settings']);
+        if ($fault === 'lost-local-setting') $bad['tables']['options'][0]['option_value'] = serialize(array_intersect_key($bad['settings'], $fixtureSettings));
         if ($fault === 'wrong-edit') $bad['tables']['wt_iew_mapping_template'][2]['data'] = $native['tables']['wt_iew_mapping_template'][2]['data'];
         if ($fault === 'changed-id') $bad['tables']['wt_iew_mapping_template'][0]['id'] = '900';
         if ($fault === 'changed-foreign') $bad['tables']['wt_iew_mapping_template'][6]['data'] = '{}';
@@ -111,6 +124,8 @@ foreach (['collision', 'drift', 'conflict'] as $case) {
 }
 $before = $edit($native, 'target');
 $source = $edit($native, 'source');
+unset($source['settings']['other_module_key']);
+$source['tables']['options'][0]['option_value'] = serialize($source['settings']);
 $source['tables']['users'][1]['ID'] = '2';
 $source['tables']['users'][2]['ID'] = '3';
 foreach ($source['tables']['wt_iew_mapping_template'] as $index => &$row) {
@@ -143,7 +158,7 @@ foreach (['local-id', 'source-user', 'template-data', 'cursor', 'local-input', '
         if ($fault === 'local-input') $form['method_import_form_data']['wt_iew_local_file'] = 'https://source.test/source.csv';
         $bad['tables']['wt_iew_mapping_template'][$index]['data'] = json_encode($form, JSON_THROW_ON_ERROR);
     }
-    if ($fault === 'local-setting') $bad['tables']['options'][0]['option_value'] = serialize($bad['settings']);
+    if ($fault === 'local-setting') $bad['tables']['options'][0]['option_value'] = serialize(array_intersect_key($bad['settings'], $fixtureSettings));
     if ($fault === 'setting') $bad['settings'] = $before['settings'];
     if ($fault === 'copy') $bad['tables']['wt_iew_mapping_template'][1]['name'] = 'wrong';
     if ($fault === 'history') $bad['tables']['wt_iew_action_history'] = [];
