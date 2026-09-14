@@ -62,7 +62,6 @@ if ($phase === 'policy') {
     $path = '/home/wprism/site/site.wprism.json';
     $site = json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
     $site['manifests'] = [...array_values(array_filter($site['manifests'], static fn($entry): bool => (is_string($entry) ? $entry : $entry['name']) !== $slug)), $pin];
-    $site['code'] = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
     $site['policy']['deletion_owner_agreements'] = ['format' => 'wprism-deletion-owner-agreements/v2',
         'selectors' => [['selector' => 'table:wt_iew_mapping_template', 'owners' => $owners]]];
     $bytes = json_encode($site, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";

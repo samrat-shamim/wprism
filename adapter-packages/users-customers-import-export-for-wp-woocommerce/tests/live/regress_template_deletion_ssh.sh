@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The parent owns SSH, signed recovery and verified teardown. This capsule
-# supplies native template operations and full before/after semantic evidence.
+# The parent owns SSH and verified teardown. This experimental authoring
+# evidence proves native Delete/Capture and direct Apply refusal; successful
+# destructive promotion still needs the certified signed recovery milestone.
 PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 
-importer_delete_capture() { # <unique-stage> <empty|json|deploy> <argv...>
-  local stage="importer-delete-$1" kind="$2" suffix status=0
-  shift 2
+importer_delete_record() { # <unique-stage> <argv...>; intentional refusals are admitted separately
+  local stage="importer-delete-$1" suffix
+  shift
   [[ "$stage" =~ ^[a-z][a-z0-9-]{0,80}$ ]] || fail 'unsafe Importer deletion capture label'
   for suffix in stdout stderr exit; do
     (umask 077; set -C; : >"$DIAG_DIR/$stage.$suffix") || fail 'Importer deletion capture collision'
   done
-  wprism_private_capture_stage "$DIAG_DIR" "$stage" "$@" || status=$?
-  [ "$status" -eq 0 ] || fail "Importer deletion $stage failed; inspect its private capture"
-  php "$PACKAGE_ROOT/fixtures/template-deletion-evidence.php" admit "$DIAG_DIR/$stage" "$kind" \
-    || fail "Importer deletion $stage has unexpected output; inspect its private capture"
-  pass "$stage"
+  wprism_private_capture_stage "$DIAG_DIR" "$stage" "$@" || :
+}
+
+importer_delete_admit() { # <stage> <expected-output-kind>
+  php "$PACKAGE_ROOT/fixtures/template-deletion-evidence.php" admit "$DIAG_DIR/importer-delete-$1" "$2" \
+    || fail "Importer deletion $1 has unexpected output; inspect its private capture"
+  pass "importer-delete-$1"
+}
+
+importer_delete_capture() { # <unique-stage> <expected-output-kind> <argv...>
+  local label="$1" kind="$2"
+  shift 2
+  importer_delete_record "$label" "$@"
+  importer_delete_admit "$label" "$kind"
 }
 
 importer_delete_native() { # <fixture-name> <phase> [args...]
@@ -57,18 +67,21 @@ wprism_ssh_adopt_extension() {
   importer_delete_capture seed json importer_delete_native template-deletion-native seed
   importer_delete_capture history-seed json importer_delete_native templates-native export 'Selected users'
   history_id="$(jq -er '.job.history_id | select(type == "number" and . > 0 and . == floor)' "$DIAG_DIR/importer-delete-history-seed.stdout")"
-  importer_delete_capture enroll empty wprism_ssh_enroll_full_recovery importer-delete
-  importer_delete_capture inventory empty wprism_ssh_stage_code_inventory "$slug"
   importer_delete_capture pin json wp_ssh_fixture wprism manifest-pin --repo=/home/wprism/site --name="$slug"
   importer_delete_capture policy json importer_delete_native template-deletion-native policy <"$DIAG_DIR/importer-delete-pin.stdout"
   importer_delete_capture baseline-agent-diagnostic json wp_ssh_fixture wprism capture --repo=/home/wprism/site --format=json
   importer_delete_capture baseline-capture json "$WPRISM" --envs-file="$TMP/envs.json" \
     capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json
-  assert_wprism_host_capture_ready 'Importer deletion baseline' target "$TARGET_REPOSITORY_BRANCH" "$(cat "$DIAG_DIR/importer-delete-baseline-capture.stdout")"
+  importer_delete_assert initial-capture baseline-agent-diagnostic baseline-capture
   importer_delete_capture baseline-commit empty ssh_fixture \
-    'set -eu; git -C /home/wprism/site add -- site.wprism.json state code; git -C /home/wprism/site commit -m "Importer native deletion baseline" >/dev/null; test -z "$(git -C /home/wprism/site status --porcelain)"'
-  importer_delete_capture releases empty wprism_ssh_stage_generation_releases 2
-  importer_delete_capture baseline-deploy deploy "$WPRISM" --envs-file="$TMP/envs.json" deploy target
+    'set -eu; git -C /home/wprism/site add -- site.wprism.json state; git -C /home/wprism/site commit -m "Importer native deletion baseline" >/dev/null; test -z "$(git -C /home/wprism/site status --porcelain)"'
+  # This is the documented experimental agent authoring path. Consent covers
+  # exactly the fixture activation proved above; host production stays gated.
+  importer_delete_capture baseline-deploy json wp_ssh_fixture wprism deploy --repo=/home/wprism/site --force-code-drift --format=json
+  importer_delete_assert reconcile baseline-agent-diagnostic baseline-deploy
+  importer_delete_capture settled-capture json "$WPRISM" --envs-file="$TMP/envs.json" \
+    capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json
+  assert_wprism_host_capture_ready 'Importer reconciled baseline' target "$TARGET_REPOSITORY_BRANCH" "$(cat "$DIAG_DIR/importer-delete-settled-capture.stdout")"
   importer_delete_capture baseline-repository json importer_delete_native template-deletion-native repository
   jq -e '.bindings | length == 2' "$DIAG_DIR/importer-delete-baseline-repository.stdout" >/dev/null \
     || fail 'Importer native original and copy must require exactly two local inputs'
@@ -113,7 +126,19 @@ wprism_ssh_adopt_extension() {
     and ([.delete[].uuid] | sort) == ($repo[0].deletions | keys | sort)
     and all(.delete[]; .type == "table" and .deletion_type == "wt_iew_mapping_template" and ((.blocked // "") == ""))
   ' "$DIAG_DIR/importer-delete-plan.stdout" >/dev/null || fail 'Importer deletion plan is not exact and unblocked'
-  fail 'Importer deletion signed recovery qualification is not yet complete'
+  importer_delete_capture direct-baseline list private_refusal_diagnostic snapshot apply
+  importer_delete_record direct wp_ssh_fixture wprism apply --repo=/home/wprism/site --with-deletes --format=json
+  importer_delete_capture direct-diagnostic json private_refusal_diagnostic capture apply "$(cat "$DIAG_DIR/importer-delete-direct-baseline.stdout")"
+  importer_delete_admit direct direct
+  php "$PACKAGE_ROOT/fixtures/template-deletion-evidence.php" private-refusal "$DIAG_DIR/importer-delete-direct-diagnostic" direct
+  importer_delete_capture direct-preserved json importer_delete_observe
+  importer_delete_assert same baseline direct-preserved
+
+  importer_delete_capture direct-repository json importer_delete_native template-deletion-native repository
+  importer_delete_assert same deletion-repository direct-repository
+  [ -z "$(target_ledger_value promotion_lock)" ] || fail 'Importer refused direct deletion retained its target lock'
+  pass 'native three-template Delete, exact captured tombstones, surviving consumers and pre-mutation direct Apply refusal'
+
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

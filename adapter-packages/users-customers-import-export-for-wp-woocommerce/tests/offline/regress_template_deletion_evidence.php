@@ -63,4 +63,34 @@ foreach (['wrong-copy-id', 'old-cursor-selected', 'copy-form-lost', 'history-for
     wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::reopened($before, $badExport, $badImport, $badHistory, $historyId),
         RuntimeException::class, 'native independence oracle rejects ' . $fault);
 }
+$warning = <<<'WARNING'
+users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php 2.7.5 is active on this environment but absent from the existing WPrism code-version baseline. Its activation or first version change therefore cannot be distinguished from an out-of-band update. Run 'wprism deploy' to reconcile and record the installed bytes, or remove the undeclared activation before capture/apply. — 'wprism capture' observed this and did NOT accept it as the new baseline: capture reports what it sees, it does not reconcile code. The recorded versions are unchanged, so this finding is still there on the next 'wprism status'.
+WARNING;
+$agent = ['warnings' => [$warning], 'notes' => [], 'counts' => ['wt_iew_mapping_template' => 5], 'revision_hash' => str_repeat('a', 64)];
+$host = ['format' => 'wprism-capture-result/v1', 'environment' => 'target', 'branch' => 'wprism-live-evidence',
+    'capture' => ['warnings_count' => 1, 'notes_count' => 0, 'counts' => $agent['counts'], 'state_revision' => $agent['revision_hash']]];
+ImporterTemplateDeletionEvidence::initialCapture($agent, $host);
+wprism_check(true, 'initial native activation has exactly the independently observed drift warning');
+foreach (['other-warning', 'extra-warning', 'warning-hidden', 'wrong-revision', 'wrong-counts'] as $fault) {
+    $badAgent = $agent;
+    $badHost = $host;
+    if ($fault === 'other-warning') $badAgent['warnings'] = ['unrelated lint warning'];
+    if ($fault === 'extra-warning') $badAgent['warnings'][] = 'extra warning';
+    if ($fault === 'warning-hidden') $badHost['capture']['warnings_count'] = 0;
+    if ($fault === 'wrong-revision') $badHost['capture']['state_revision'] = str_repeat('b', 64);
+    if ($fault === 'wrong-counts') $badHost['capture']['counts']['wt_iew_mapping_template'] = 4;
+    wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::initialCapture($badAgent, $badHost), RuntimeException::class,
+        'initial capture evidence rejects ' . $fault);
+}
+$answer = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+    'error' => 'deletion_writer_exclusion_required', 'reason_code' => 'deletion_writer_exclusion_required',
+    'message' => 'deletion requires a signed recovery promotion whose external exclusion blocks all target writers'];
+ImporterTemplateDeletionEvidence::refusal($answer, 'direct');
+wprism_check(true, 'exact public direct deletion refusal admitted');
+foreach (['command' => 'plan', 'reason_code' => 'unrelated_failure', 'message' => 'unknown failure', 'ok' => true,
+    'details_redacted' => true] as $field => $value) {
+    $bad = array_replace($answer, [$field => $value]);
+    wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::refusal($bad, 'direct'), RuntimeException::class,
+        'direct deletion refusal rejects unrelated ' . $field);
+}
 wprism_check_summary('Importer template deletion evidence');
