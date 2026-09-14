@@ -429,14 +429,18 @@ grep -qE '^term\|[1-9][0-9]*\|attachment\|file$' <<<"$TERM_META_OUT" \
   || fail "conf2 product_cat thumbnail_id did not resolve to a local attachment with a real media file (got: $TERM_META_OUT)"
 pass "conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file"
 
-# The 11.1.0 video gallery is JSON in postmeta, and its ids are references. A
+# The 11.1.0 video gallery is JSON in postmeta and its ids are references, so a
 # capture that passed them through verbatim would leave conf1's attachment ids
-# naming whatever conf2 happens to have at those numbers. Assert conf2 resolves
-# both -- the video and its poster -- to ITS OWN attachments, that the mime is
-# still video, and that the poster is the very same media identity conf2's
-# product_cat thumbnail resolved to above, which is the convergence the shared
-# source attachment was seeded to prove.
-VIDEO_GALLERY_OUT=$($COMPOSE run --rm -T cli2 wp eval '
+# naming whatever conf2 happens to have at those numbers.
+#
+# The expectation is taken from the SOURCE, not from a version string. Whether a
+# gallery exists depends on the WooCommerce version at SEED time, which is not the
+# version installed at CHECK time -- the in-place upgrade leg seeds on 11.0.0 and
+# then upgrades, so a version-keyed expectation demands a gallery that was never
+# authored. Comparing conf1 to conf2 is also the stronger claim: it tests the
+# transport itself rather than predicting it.
+woocommerce_video_gallery_observation() { # <1|2>
+  $COMPOSE run --rm -T "cli$1" wp eval '
 $product = wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
 $raw = $product ? get_post_meta($product->get_id(), "_wc_video_gallery", true) : "";
 $items = is_string($raw) && $raw !== "" ? json_decode($raw, true) : null;
@@ -446,45 +450,50 @@ $posterId = is_array($item) ? (int) ($item["poster_id"] ?? 0) : 0;
 $term = get_term_by("slug", "conformance-widgets", "product_cat");
 $thumbId = $term ? (int) get_term_meta($term->term_id, "thumbnail_id", true) : 0;
 $videoMime = $videoId ? (string) get_post_mime_type($videoId) : "";
-$videoLocal = $videoId && get_post($videoId) && get_post($videoId)->post_type === "attachment";
-$posterLocal = $posterId && get_post($posterId) && get_post($posterId)->post_type === "attachment";
+$local = static fn(int $id): bool => $id > 0 && ($post = get_post($id)) && $post->post_type === "attachment";
 echo wp_json_encode([
     "items" => is_array($items) ? count($items) : -1,
     "source_type" => is_array($item) ? (string) ($item["source_type"] ?? "") : "",
     "position" => is_array($item) ? (int) ($item["position"] ?? 0) : 0,
-    "video_local" => (bool) $videoLocal,
+    "video_id" => $videoId,
+    "poster_id" => $posterId,
+    "video_local" => $local($videoId),
     "video_mime_is_video" => str_starts_with($videoMime, "video/"),
-    "poster_local" => (bool) $posterLocal,
+    "poster_local" => $local($posterId),
     "poster_is_category_thumbnail" => $posterId > 0 && $posterId === $thumbId,
 ], JSON_UNESCAPED_SLASHES);
-' 2>&1 | tail -1)
+' 2>&1 | tail -1
+}
+VIDEO_GALLERY_SOURCE=$(woocommerce_video_gallery_observation 1)
+VIDEO_GALLERY_OUT=$(woocommerce_video_gallery_observation 2)
+require_observed_nonempty "conf1 WooCommerce video gallery observation" "$VIDEO_GALLERY_SOURCE"
 require_observed_nonempty "conf2 WooCommerce video gallery observation" "$VIDEO_GALLERY_OUT"
+echo "conf1 video gallery check: $VIDEO_GALLERY_SOURCE"
 echo "conf2 video gallery check: $VIDEO_GALLERY_OUT"
-# ProductMediaGallery arrived in 11.1.0, so the seed authors a gallery only where
-# the class exists. Below that the key must be ABSENT: an adapter that
-# materialized postmeta the running plugin cannot hold would be inventing state,
-# which is its own thing to catch.
-case "$WOOCOMMERCE_EXPECTED_VERSION" in
-  11.0.*)
+VIDEO_GALLERY_SOURCE_ITEMS=$(jq -r '.items' <<<"$VIDEO_GALLERY_SOURCE")
+case "$VIDEO_GALLERY_SOURCE_ITEMS" in
+  -1)
+    # Seeded on a WooCommerce without ProductMediaGallery. The target must not
+    # invent postmeta the source never held.
     jq -e '.items == -1 and .video_local == false and .poster_local == false' <<<"$VIDEO_GALLERY_OUT" >/dev/null \
-      || fail "WooCommerce $WOOCOMMERCE_EXPECTED_VERSION predates the video gallery, so conf2 must hold no _wc_video_gallery: $VIDEO_GALLERY_OUT"
-    pass "conf2 holds no _wc_video_gallery on a version whose ProductMediaGallery does not exist"
+      || fail "conf1 holds no _wc_video_gallery, so conf2 must hold none either: $VIDEO_GALLERY_OUT"
+    pass "conf2 invents no _wc_video_gallery where the source never authored one"
     ;;
-  11.1.*)
-    jq -e '
+  1)
+    jq -e --argjson source "$VIDEO_GALLERY_SOURCE" '
       .items == 1 and
-      .source_type == "attachment" and
-      .position == 1 and
+      .source_type == $source.source_type and
+      .position == $source.position and
       .video_local == true and
       .video_mime_is_video == true and
       .poster_local == true and
       .poster_is_category_thumbnail == true
     ' <<<"$VIDEO_GALLERY_OUT" >/dev/null \
-      || fail "conf2 _wc_video_gallery did not resolve both nested attachment references to its own media: $VIDEO_GALLERY_OUT"
-    pass "conf2 resolves both _wc_video_gallery attachment references to its own media, and its poster is the same target identity the category thumbnail resolved to"
+      || fail "conf2 _wc_video_gallery did not resolve both nested attachment references to its own media: $VIDEO_GALLERY_OUT (source: $VIDEO_GALLERY_SOURCE)"
+    pass "conf2 resolves both _wc_video_gallery attachment references to its own media, preserving the source item shape, and its poster is the same target identity the category thumbnail resolved to"
     ;;
   *)
-    fail "Woo video gallery expectation is unpinned for WooCommerce $WOOCOMMERCE_EXPECTED_VERSION"
+    fail "conf1 holds an unreviewed _wc_video_gallery item count: $VIDEO_GALLERY_SOURCE"
     ;;
 esac
 

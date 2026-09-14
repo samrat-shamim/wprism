@@ -2502,9 +2502,27 @@ foreach ([
     woo_ok(str_contains($wooSeedHarness, $wooVideoSeedGate),
         "the seed decides on the class the plugin actually has: $wooVideoSeedGate");
 }
-woo_ok(str_contains($wooCheckHarness, 'predates the video gallery, so conf2 must hold no _wc_video_gallery')
-    && str_contains($wooCheckHarness, 'Woo video gallery expectation is unpinned for WooCommerce'),
-    'the target asserts video gallery absence below 11.1.0 and refuses an unpinned series');
+// Whether a gallery exists depends on the WooCommerce version at SEED time, not
+// at CHECK time: the in-place upgrade leg seeds on 11.0.0 and then upgrades, so a
+// version-keyed expectation demands a gallery that was never authored. The
+// expectation is taken from conf1, which also makes this a transport comparison
+// rather than a version prediction.
+foreach ([
+    'VIDEO_GALLERY_SOURCE=$(woocommerce_video_gallery_observation 1)',
+    'VIDEO_GALLERY_OUT=$(woocommerce_video_gallery_observation 2)',
+    'case "$VIDEO_GALLERY_SOURCE_ITEMS" in',
+    'conf1 holds no _wc_video_gallery, so conf2 must hold none either',
+    'conf1 holds an unreviewed _wc_video_gallery item count',
+    '--argjson source "$VIDEO_GALLERY_SOURCE"',
+    '.source_type == $source.source_type and',
+    '.position == $source.position and',
+] as $wooVideoTransportWitness) {
+    woo_ok(str_contains($wooCheckHarness, $wooVideoTransportWitness),
+        "the video gallery expectation comes from the source, not a version string: $wooVideoTransportWitness");
+}
+woo_ok(!str_contains($wooCheckHarness, 'predates the video gallery, so conf2 must hold no _wc_video_gallery')
+    && !str_contains($wooCheckHarness, 'Woo video gallery expectation is unpinned for WooCommerce'),
+    'the video gallery check no longer keys its expectation off the installed version');
 $wooVideoGalleryNote = (string) ($manifest['notes']['11.1.0 product video gallery references'] ?? '');
 foreach ([
     'src/Internal/ProductGallery/ProductMediaGallery.php',
