@@ -37,6 +37,13 @@ $post = static function (array $form): void {
     $_POST = ['form_data' => wp_slash(array_map(static fn(array $part): string => wp_json_encode($part), $form))];
 };
 if ($phase === 'save') {
+    if ($kind === 'export') {
+        // Export's sanitizer resolves filter types from private to_export;
+        // process_action sets it (locked export.php:630), as in the capsule seed.
+        $initialized = $module->process_action($form, 'export', 'user', 'combination-initialize-' . $id);
+        $check($initialized['response'] === true && (int) $initialized['finished'] === 1
+            && (int) $initialized['total_records'] === 2, 'native export initializes its request before Save');
+    }
     $fields = json_decode(file_get_contents(__DIR__ . '/customer-mapping-fields.json'), true, flags: JSON_THROW_ON_ERROR)[$kind];
     foreach ($fields as $field) {
         $label = $kind === 'export' ? $field : '{' . $field . '}';
