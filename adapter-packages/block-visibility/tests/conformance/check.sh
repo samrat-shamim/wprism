@@ -25,7 +25,7 @@ pass "Apply converges divergent declared settings keys on the target"
 
 PRESET_ID=$(wp_conf2 post list --post_type=visibility_preset --name=logged-in-only --field=ID)
 require_observed_nonempty "Block Visibility target preset identity" "$PRESET_ID"
-PRESET_META=$(wp_conf2 eval "echo wp_json_encode(get_post_meta((int) $PRESET_ID));")
+PRESET_META=$(wp_conf2 eval "\$meta = get_post_meta((int) $PRESET_ID); \$meta['control_sets'] = maybe_unserialize(\$meta['control_sets'][0] ?? ''); echo wp_json_encode(\$meta);")
 printf '%s\n' "$PRESET_META" | jq -e '
   .enable == ["1"] and .hide_block == [""] and .layout == ["columns"] and
   .control_sets[0].controls.userRole.restrictedRoles == ["administrator", "editor"]

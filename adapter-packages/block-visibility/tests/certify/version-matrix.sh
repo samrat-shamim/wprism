@@ -29,7 +29,7 @@ check_block_visibility_boundary_content() {
     || fail "Block Visibility $label erased its target-only settings sibling: $sibling"
   preset=$($cli post list --post_type=visibility_preset --name=logged-in-only --field=ID)
   require_observed_nonempty "Block Visibility $label preset identity" "$preset"
-  meta=$($cli eval "echo wp_json_encode(get_post_meta((int) $preset));")
+  meta=$($cli eval "\$meta = get_post_meta((int) $preset); \$meta['control_sets'] = maybe_unserialize(\$meta['control_sets'][0] ?? ''); echo wp_json_encode(\$meta);")
   printf '%s\n' "$meta" | jq -e '
     .enable == ["1"] and .hide_block == [""] and .layout == ["columns"] and
     .control_sets[0].controls.userRole.restrictedRoles == ["administrator", "editor"]
