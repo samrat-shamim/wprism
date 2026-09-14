@@ -116,8 +116,9 @@ final class ImporterRecoveryEvidence {
     }
 
     public static function transition(array $before, array $after, array $source, array $intent,
-        string $artifact, array $window, string $phase, string $revision): void {
+        string $artifact, array $window, string $phase, string $revision, string $mode = 'throw'): void {
         self::check(in_array($phase, ['authored-failure', 'ledger-failure', 'retry', 'repeat'], true), 'known recovery phase');
+        self::check(in_array($mode, ['throw', 'kill'], true), 'known recovery fault mode');
         self::check(preg_match('/^[a-f0-9]{40}$/D', $revision) === 1, 'exact repository commit for recovery');
         self::nativeDatabase($before); self::nativeDatabase($after);
         self::check($intent === self::intent($before['repository']['state']), 'intent binds the complete observed repository');
@@ -145,6 +146,26 @@ final class ImporterRecoveryEvidence {
         self::check($phase === 'repeat' ? $old['applied_revision']['v'] === $revision
             : $old['applied_revision']['v'] !== $revision, 'phase has the exact prior revision boundary');
         self::session($old['promotion_session']['v'], $new['promotion_session']['v'], $artifact, $window);
+        $oldSession = json_decode($old['promotion_session']['v'], true, flags: JSON_THROW_ON_ERROR);
+        $newSession = json_decode($new['promotion_session']['v'], true, flags: JSON_THROW_ON_ERROR);
+        // ApplyLedgerFinalizer renews apply-ledger before opening its transaction;
+        // unlike transaction-local heartbeats, that phase survives commit interruption.
+        if ($mode === 'kill' && $pending) {
+            self::check(isset($old['promotion_lock']), 'crash leaves its durable lease until natural expiry');
+            $lease = json_decode($old['promotion_lock']['v'], true, flags: JSON_THROW_ON_ERROR);
+            self::lease($lease, $oldSession, $phase === 'ledger-failure' ? 'apply-session-begin' : 'apply-ledger');
+            self::check($lease['expires_at'] <= $window['before'], 'retry waits for the prior crashed lease to expire');
+            unset($old['promotion_lock']);
+        } else self::check(!isset($old['promotion_lock']), 'settled or ordinary-failure preimage has no lease');
+        if ($mode === 'kill' && str_ends_with($phase, '-failure')) {
+            self::check(isset($new['promotion_lock']), 'actual crash retains its own durable lease');
+            $lease = json_decode($new['promotion_lock']['v'], true, flags: JSON_THROW_ON_ERROR);
+            self::lease($lease, $newSession, $phase === 'authored-failure' ? 'apply-session-begin' : 'apply-ledger');
+            self::check($lease['acquired_at'] >= $window['before'] && $lease['acquired_at'] <= $window['after']
+                && $lease['expires_at'] - 20 >= $window['before'] && $lease['expires_at'] - 20 <= $window['after'],
+                'bounded acquisition and renewal timestamps under the exact requested TTL');
+            $old['promotion_lock'] = $new['promotion_lock'];
+        }
         $old['promotion_session'] = $new['promotion_session'];
         if (str_ends_with($phase, '-failure')) $old['apply_in_progress'] = ['k' => 'apply_in_progress',
             'v' => self::marker($intent, $phase === 'ledger-failure' ? $replayed : [])];
@@ -162,6 +183,15 @@ final class ImporterRecoveryEvidence {
         ksort($old, SORT_STRING);
         $expected['rows']['wp_wprism_kv'] = array_values($old);
         ImporterRoundtripEvidence::same($expected, $after['database'], 'complete database has only the phase-authorized changes');
+    }
+
+    private static function lease(array $lease, array $session, string $phase): void {
+        $keys = array_keys($lease); sort($keys, SORT_STRING);
+        self::check($keys === ['acquired_at', 'artifact_hash', 'expires_at', 'owner', 'phase']
+            && $lease['owner'] === $session['owner'] && $lease['artifact_hash'] === $session['artifact_hash']
+            && $lease['phase'] === $phase && is_int($lease['acquired_at']) && is_int($lease['expires_at'])
+            && $lease['acquired_at'] <= $session['begun_at'] && $lease['expires_at'] >= $lease['acquired_at'] + 20,
+            'exact crashed owner, artifact, durable phase and lease shape');
     }
 
     private static function check(bool $condition, string $reason): void {

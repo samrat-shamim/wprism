@@ -114,8 +114,13 @@ It proves native rollback, committed values with stale ledger state, ordinary
 retry and stable repeat across all eighteen database tables. Five native template
 reopens, four CSV consumers and exact recapture pass after recovery. Run it with
 a unique `CONF_PAIR`, even `CONF1_PORT`, successor `CONF2_PORT` and the exact clean
-`WPRISM_EXPECTED_SOURCE_SHA`. Crash interruption and tamper refusal remain separate
-qualification work; this lane does not close the whole recovery family.
+`WPRISM_EXPECTED_SOURCE_SHA`. The [process-death variant](tests/live/regress_recovery_crash.sh)
+uses the same fixture with real SIGKILL, retained process evidence and natural
+lease expiry before retry. It checks the durable `apply-session-begin` and
+`apply-ledger` phases against the complete database image. Both variants require
+native consumers after retry. Other crash boundaries, tamper refusal and signed
+deletion remain separate qualification work; these lanes do not close the whole
+recovery family.
 
 Run the capsule offline gate with
 `php tools/adapter-package-tests.php --adapter=users-customers-import-export-for-wp-woocommerce`.

@@ -8,6 +8,8 @@ use WPrismTest\PrivateRefusalReceipt;
 use WPrismTest\EvidenceSizeProfile;
 
 [$phase, $sink, $pair, $beforeLabel, $afterLabel, $command, $revision] = array_slice($argv, 1);
+$mode = $argv[8] ?? 'throw';
+ImporterSettingsEvidence::check(in_array($mode, ['throw', 'kill'], true), 'exact recovery fault mode');
 $transport = '/^ ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-f0-9]{12} (Creating|Created) *$/D';
 $read = static fn(string $label): array => json_decode(PrivateCommandOutput::readObject($sink . '/' . $label, $transport), true, 32, JSON_THROW_ON_ERROR);
 $columns = [];
@@ -24,8 +26,11 @@ $plan = $read('recovery-plan');
 if ($phase === 'plan') ImporterRecoveryEvidence::plan($before, $after, $plan, $intent);
 else {
     ImporterRecoveryEvidence::transition($before, $after, $read('recovery-source-after'), $intent,
-        $plan['artifact_hash'], $read($command . '-window'), $phase, $revision);
-    if (str_ends_with($phase, '-failure')) {
+        $plan['artifact_hash'], $read($command . '-window'), $phase, $revision, $mode);
+    if (str_ends_with($phase, '-failure') && $mode === 'kill') {
+        require_once __DIR__ . '/recovery-crash-evidence.php';
+        ImporterRecoveryCrashEvidence::command($root, $sink, $pair, $command, $phase, $revision, $read($command . '-window'));
+    } elseif (str_ends_with($phase, '-failure')) {
         $stem = $sink . '/' . $command;
         ImporterSettingsEvidence::command($root, $stem, $pair, 'apply', 1);
         $directory = substr(explode("\n", file_get_contents($stem . '.stderr'), 2)[0], strlen('private command diagnostics (unverified): '));

@@ -1803,6 +1803,10 @@ regress-private-tree-evidence:
 regress-private-file-bytes:
 	php sandbox/tests/offline/guards/regress_private_file_bytes.php
 
+.PHONY: regress-container-process-evidence
+regress-container-process-evidence:
+	php sandbox/tests/offline/guards/regress_container_process_evidence.php
+
 .PHONY: regress-sql-dump-evidence
 regress-sql-dump-evidence:
 	php sandbox/tests/offline/guards/regress_sql_dump_evidence.php

@@ -144,8 +144,11 @@ containing `.` or `..`.
   artifacts`). A platform-rooted bundle with `exercised: false` is refused
   with `only a site trust root may certify`.
 
-`exercised` rides onto the resulting claim (`claim.evidence.exercised`), so
-`status: certified` can never be read as "somebody ran it".
+`exercised` rides onto the resulting claim (`claim.evidence.exercised`). A valid
+site signature with `exercised: false` produces an experimental approval-only
+claim and cannot pass certification-only gates, even when its authored
+ratification says `certified`. Site-certified status requires verified exercised
+evidence with named passing tests and artifacts.
 
 ### Assets at signing time
 

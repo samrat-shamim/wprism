@@ -141,6 +141,9 @@ services:
     cpus: "1.0"
 
   cli1:
+    # Linux namespace PID 1 ignores self-SIGKILL; a real init keeps CLI crash
+    # checkpoints honest and reaps child processes (Importer crash native01).
+    init: true
     image: ${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}
     user: "33:33"
     networks: [wprism-shared]
@@ -185,6 +188,7 @@ services:
     cpus: "1.0"
 
   cli2:
+    init: true
     image: ${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}
     user: "33:33"
     networks: [wprism-shared]
