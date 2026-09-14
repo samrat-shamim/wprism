@@ -8,6 +8,31 @@
 . "$ROOT/sandbox/bin/artifact-library.sh"
 . "$ROOT/sandbox/tests/lib/private_command_capture.sh"
 
+wprism_ssh_install_core() { # <exact-platform-version>; parent owns NET, VOLUME and DIAG_DIR
+  [ "$#" -eq 1 ] && [[ "$1" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] \
+    || fail 'SSH core installation requires one exact platform version'
+  local version="$1" suffix
+  for suffix in stdout stderr exit; do
+    (umask 077; set -C; : >"$DIAG_DIR/core-install.$suffix") || fail 'SSH core installation capture collision'
+  done
+  # PHP 8.3 PharData truncates WordPress 7.1 tar paths (eight theme files;
+  # core verification reports 25 missing files). ZIP retains all source paths;
+  # native checksum/version checks must pass before this becomes a site.
+  wprism_private_capture_stage "$DIAG_DIR" core-install \
+    docker run --rm --user root --network "$NET" -v "$VOLUME:/var/www/html" wordpress:cli-php8.3 \
+    sh -lc 'set -eu
+      php -d memory_limit=512M /usr/local/bin/wp core download "https://wordpress.org/wordpress-$1.zip" --path=/var/www/html --allow-root --quiet
+      wp core verify-checksums --version="$1" --include-root --path=/var/www/html --allow-root --quiet
+      test "$(wp core version --path=/var/www/html --allow-root)" = "$1"
+      chown -R 1000:1000 /var/www/html' sh "$version" \
+    || fail 'SSH core installation failed; inspect its private capture'
+  php -r 'require $argv[1];
+    if (\WPrismTest\PrivateCommandOutput::readBytes($argv[2]) !== "") {
+      throw new RuntimeException("SSH core installation emitted unexpected output");
+    }' "$ROOT/sandbox/tests/lib/PrivateCommandOutput.php" "$DIAG_DIR/core-install" \
+    || fail 'SSH core installation emitted diagnostics; inspect its private capture'
+}
+
 wprism_ssh_install_locked_plugin() { # <artifact-slug> <version> <role> <activate|inactive>
   [ "$#" -eq 4 ] || fail 'locked plugin install requires artifact slug, version, evidence role and activation mode'
   local slug="$1" version="$2" role="$3" activation="$4" activate_flag=''
