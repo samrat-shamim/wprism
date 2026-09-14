@@ -25,7 +25,7 @@ check_loginizer_boundary_content() {
     and .rows.disable_brute == "0"
     and .effective.max_retries == 3 and .effective.lockout_time == 900
     and .effective.notify_email_address == "admin@example.test" and .effective.trusted_ips == true
-    and .effective.disable_brute == 0
+    and .effective.disable_brute == "0"
     and .access.whitelisted_member.whitelisted == true and .access.whitelisted_member.blacklisted == false
     and .access.blacklisted_member.blacklisted == true and .access.blacklisted_member.whitelisted == false
     and .access.neutral.whitelisted == false and .access.neutral.blacklisted == false
