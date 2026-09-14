@@ -2540,6 +2540,12 @@ plugin faithfully.
    `conformance_private_command` (`sandbox/tests/lib/conformance_private_command.sh`):
    its native reader runs outside WordPress as the site's CLI uid, and its
    host decoder retains complete records in a private, non-disposable sink.
+   A capsule hook runs in a fresh Bash child: the driver exports scalar
+   `COMPOSE`, but Bash cannot export `PAIR_COMPOSE` arrays. Before calling this
+   collector from a hook, restore its required caller context with
+   `read -r -a PAIR_COMPOSE <<<"${COMPOSE:?exact conformance transport required}"`.
+   This preserves the driver's pair and all selected overlays, including offline
+   artifacts; do not use `eval` or reconstruct a partial Compose command.
    This closes the `ee27e3b9` Polylang run's lost-cause gap: successful source
    Capture and target deploy did not explain the later redacted Apply refusal.
    The receipt-intent boundary also retains the original missing/ID/phase/record

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 . "$(dirname "${BASH_SOURCE[0]}")/roundtrip.sh"
+# run.sh exports COMPOSE for child hooks; Bash arrays do not cross that ABI.
+# Use the same argv as wp_env, including the optional offline artifact overlay.
+read -r -a PAIR_COMPOSE <<<"${COMPOSE:?exact conformance transport required}"
 . tests/lib/conformance_private_command.sh
 
 importer_dirty_capture() { # <unique stage> <expected exit> <argv...>

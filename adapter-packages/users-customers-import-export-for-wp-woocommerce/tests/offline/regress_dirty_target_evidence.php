@@ -237,4 +237,18 @@ try {
     foreach ($privateRoots as $directory) $remove($directory);
     $remove($sink);
 }
+$script = <<<'SH'
+set -euo pipefail
+ROOT="$1"
+export WPRISM_ARTIFACT_LIBRARY_ROOT="$ROOT" CONF_PAIR=dirtytransport
+export COMPOSE='record_compose -p wprism-dirtytransport -f pair.yml -f pair.http.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml'
+record_compose() { printf '%s\n' "$@"; }
+export -f record_compose
+cd "$ROOT/sandbox"
+bash -c '. "$1/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target.sh"; conformance_private_command_native cli2 apply snapshot' sh "$ROOT"
+SH;
+[$status,$out,$err] = WPrismTest\ShellProbe::run($script,[$root], $root);
+wprism_check($status===0 && $err==='', 'child hook restores exported transport: '.$err);
+wprism_check(str_starts_with($out,"-p\nwprism-dirtytransport\n-f\npair.yml\n-f\npair.http.yml\n-f\npair.artifacts.yml\n-f\npair.wordpress-offline.yml\nrun\n--rm\n-T\n"), 'exact parent Compose overlays precede private collector invocation');
+wprism_check(str_ends_with($out,"--entrypoint\nphp\ncli2\n/wprism-test/conformance_private_command.php\nsnapshot\napply\n/siterepo/.wprism/refusals\n"), 'native baseline uses exact service, command and private path');
 wprism_check_summary('Importer dirty target evidence');
