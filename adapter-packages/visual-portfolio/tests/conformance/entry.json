@@ -1,7 +1,8 @@
 {
   "manifest": "visual-portfolio",
   "entry": {
-    "mode": "capture-plan",
+    "mode": "agent-roundtrip",
+    "disable_target_cron": true,
     "pin": ["core", "visual-portfolio"],
     "plugins": [{"slug": "visual-portfolio", "version": "3.8.1"}],
     "post_types": ["post", "page", "attachment", "portfolio"],

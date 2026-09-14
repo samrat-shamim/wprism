@@ -46,6 +46,8 @@ if ($phase === 'seed-source') {
     }
     foreach (['Harbor Light', 'Paper Garden', 'Quiet Shapes', 'Open Horizon'] as $i => $title) {
         $id = wp_insert_post(['post_type' => 'portfolio', 'post_status' => 'publish', 'post_title' => $title,
+            // Distinct native dates make descending archive selection independent of target ID allocation.
+            'post_date' => sprintf('2026-09-%02d 12:00:00', $i + 1),
             'post_content' => '<p>' . implode(' ', array_fill(0, 265 * ($i + 1), 'shape')) . '</p>'], true);
         $check(is_int($id) && $id > 0, 'native project Save');
         $check(set_post_thumbnail($id, array_values($seed['images'])[$i % 2]) !== false, 'native featured image');
