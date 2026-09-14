@@ -742,6 +742,13 @@ regress-lifecycle-options-snapshot:
 regress-lifecycle-identity-preservation:
 	php sandbox/tests/offline/capture/regress_lifecycle_identity_preservation.php
 
+.PHONY: regress-lifecycle-command-context regress-lifecycle-command-context-native
+regress-lifecycle-command-context-native:
+	bash sandbox/tests/live/regress_lifecycle_command_context_native.sh
+
+regress-lifecycle-command-context:
+	php sandbox/tests/offline/code-half/regress_lifecycle_command_context.php
+
 # Fatal-safe control-plane bootstrap: WPRISM_JOURNAL must not call WordPress
 # option/filter APIs before after_wp_config_load has loaded the normal runtime.
 regress-journal-bootstrap:
@@ -3038,6 +3045,7 @@ regress-offline-diagnostics:
 # production SSH rollback certification is the live merge gate for the
 # automatic promote profile and is therefore discoverable here.
 regress-live-list:
+	@echo "  regress-lifecycle-command-context-native  own disposable pair (LIFECYCLE_CONTEXT_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA; native admin-only activation/deactivation hooks)"
 	@echo "regress-* live suites (docker/pair.sh-dependent) -- run individually, own pair each:"
 	@echo ""
 	@echo "  regress-pa-attributes                     pair r3e"

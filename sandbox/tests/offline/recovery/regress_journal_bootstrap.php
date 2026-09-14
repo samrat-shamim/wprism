@@ -12,6 +12,10 @@
 declare(strict_types=1);
 
 final class WP_CLI {
+    public static function get_runner(): object {
+        return (object) ['arguments' => ['wprism', 'journal-report'], 'config' => []];
+    }
+
     /** @var array<string,string> */
     public static array $commands = [];
 

@@ -1413,9 +1413,10 @@
             ]
           }
         ],
-        "file_count": 1,
+        "file_count": 2,
         "files": [
-          "Cli.php"
+          "Cli.php",
+          "LifecycleCommandContext.php"
         ]
       },
       "Assess": {

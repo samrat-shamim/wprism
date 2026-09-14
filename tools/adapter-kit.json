@@ -41,8 +41,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/wp_stubs.php",
             "role": "WPrismTest\\WpStore plus function_exists()-guarded WordPress function stubs",
-            "bytes": 36538,
-            "sha256": "b31a0b9797880937080c59e75e157efc44ba188ec99c62e6249cd325d7918638"
+            "bytes": 36861,
+            "sha256": "0714b72d93b63048184aab2a12908930300bd5d3c64ce0ddcbf32e60241a0157"
         },
         {
             "path": "lib/wp_serialization_stubs.php",

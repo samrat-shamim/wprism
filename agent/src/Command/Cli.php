@@ -26,6 +26,7 @@ require_once __DIR__ . '/../Kernel/CheckpointRecoveryIntent.php';
 require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
 require_once __DIR__ . '/../Promotion/AuthorizedReleaseRepository.php';
 require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
+require_once __DIR__ . '/LifecycleCommandContext.php';
 
 use WP_CLI;
 
@@ -2736,6 +2737,7 @@ final class Cli {
         $summary = null;
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo');
+            LifecycleCommandContext::assert_ready();
             $adapterLibrary = self::internal_adapter_library($assoc);
             $summary = Deploy::run((string) $repo, [
                 'force_code_mismatch' => self::bare_boolean_flag($assoc, 'force-code-mismatch'),
