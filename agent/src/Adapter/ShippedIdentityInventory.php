@@ -23,6 +23,7 @@ final class ShippedIdentityInventory
         'core',
         'download-manager',
         'elementor',
+        'loginizer',
         'map-block-gutenberg',
         'ninja-forms',
         'paid-memberships-pro',

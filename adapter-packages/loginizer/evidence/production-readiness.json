@@ -1,0 +1,22 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "loginizer",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {},
+  "blocked": {
+    "contract-dependency": "Only the 2.1.0 exercise fixture and the 2.0.9 adjacent refusal fixture are pinned; no version-matrix, upgrade or downgrade evidence exists.",
+    "clean-target": "No apply or deploy lane exists; capture classification is the only exercised operation.",
+    "dirty-target": "No target-reconciliation or repeated-apply evidence exists for this adapter.",
+    "identity-references": "No declared reference positions exist to rebind; no divergent-ID evidence is possible until apply is claimed.",
+    "native-behavior": "Loginizer's own settings writers were inspected in artifact source but never exercised against a live WordPress instance.",
+    "derived-state": "No derived state or repair action is declared; nothing to verify.",
+    "deletion": "No entity keyspace or deletion selector is declared and none is claimed.",
+    "failure-recovery": "No rollback, retry or recovery fixtures exist for this adapter.",
+    "concurrency-idempotence": "No repeat-capture convergence or concurrency evidence exists beyond the offline classifier.",
+    "lifecycle": "No lifecycle phases are claimed for this capsule.",
+    "data-boundary": "The secret/PII screens were exercised offline only; reCAPTCHA credentials and the 2FA family are deliberately undeclared surfaces.",
+    "scope-platform": "No integration scenarios, co-installation or platform-boundary evidence exists; brute-force plugins beside other login routers are untested."
+  },
+  "not_applicable": {}
+}
