@@ -29,7 +29,7 @@ $transport = ' Container ' . $name . " Creating \n Container " . $name . " Creat
 $window = ['before' => 1700000000, 'after' => 1700000010];
 $diagnostic = ['format' => 'wprism-private-refusal-diagnostic/v1', 'purpose' => 'diagnostic_only', 'verified' => false,
     'command' => 'apply', 'new_records' => 0, 'records' => []];
-$process = ['Id' => str_repeat('d', 64), 'Name' => '/' . $name, 'RestartCount' => 0,
+$process = ['Id' => str_repeat('d', 64), 'Name' => '/' . $name, 'RestartCount' => 0, 'HostConfig' => ['Init' => true],
     'Config' => ['Cmd' => ['wp', 'wprism', 'apply', '--repo=/siterepo', '--revision=' . $revision, '--default-author=admin', '--format=json'],
         'Labels' => ['com.docker.compose.project' => 'wprism-' . $pair, 'com.docker.compose.service' => 'cli2', 'com.docker.compose.oneoff' => 'True'],
         'Env' => ['WPRISM_TEST_MODE=1', 'WPRISM_TEST_FAIL_DB_CONTEXT=apply transaction commit', 'WPRISM_TEST_DB_FAULT_MODE=kill', 'WPRISM_TEST_PROMOTION_TTL=20']],
@@ -88,15 +88,52 @@ foreach (['apply transaction commit', 'ledger transaction commit'] as $context) 
 set -euo pipefail
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 export CONF_PAIR=crashtransport COMPOSE='docker compose -p wprism-crashtransport -f exact.yml -f overlay.yml'
-export IMPORTER_RECOVERY_FAULT_MODE=kill IMPORTER_RECOVERY_CONTAINER=wprism-crashtransport-cli2-run-abcdef123456
-docker() { printf '%s\n' "$@"; }
+export IMPORTER_RECOVERY_STAGE=crash-stage IMPORTER_RECOVERY_FAULT_MODE=kill IMPORTER_RECOVERY_CONTAINER=wprism-crashtransport-cli2-run-abcdef123456
+docker() { printf '%s\n' "$@"; return 137; }
 . "$1"
+importer_dirty_capture() { printf '%s\n' "$@"; }
 importer_recovery_fault "$2" wprism apply --format=json
 SH, [$package . '/fixtures/recovery.sh', $context], $root . '/sandbox');
     $expected = ['compose', '-p', 'wprism-crashtransport', '-f', 'exact.yml', '-f', 'overlay.yml', 'run', '--name',
         'wprism-crashtransport-cli2-run-abcdef123456', '-T', '-e', 'WPRISM_TEST_MODE=1', '-e', 'WPRISM_TEST_FAIL_DB_CONTEXT=' . $context,
-        '-e', 'WPRISM_TEST_DB_FAULT_MODE=kill', '-e', 'WPRISM_TEST_PROMOTION_TTL=20', 'cli2', 'wp', 'wprism', 'apply', '--format=json'];
-    wprism_check($status === 0 && $stderr === '' && explode("\n", rtrim($stdout, "\n")) === $expected,
+        '-e', 'WPRISM_TEST_DB_FAULT_MODE=kill', '-e', 'WPRISM_TEST_PROMOTION_TTL=20', 'cli2', 'wp', 'wprism', 'apply', '--format=json',
+        'crash-stage-process', '0', 'docker', 'inspect', '--type', 'container', '--format', '{{json .}}', 'wprism-crashtransport-cli2-run-abcdef123456',
+        'crash-stage-removed', '0', 'docker', 'rm', 'wprism-crashtransport-cli2-run-abcdef123456'];
+    wprism_check($status === 137 && $stderr === '' && explode("\n", rtrim($stdout, "\n")) === $expected,
         'actual crash transport binds owned container, all fault switches and exact overlays: ' . $context);
+}
+foreach (['ok', 'inspect-failure', 'remove-failure'] as $transportMode) {
+    [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(<<<'SH'
+set -euo pipefail
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+export CONF_PAIR=crashtransport COMPOSE='docker compose -p wprism-crashtransport -f exact.yml'
+export IMPORTER_RECOVERY_STAGE=transport-"$3" IMPORTER_RECOVERY_FAULT_MODE=kill IMPORTER_RECOVERY_CONTAINER=wprism-crashtransport-cli2-run-abcdef123456
+. "$1"
+IMPORTER_EVIDENCE="$2"
+trace="$2/transport-$3.trace" transport_mode="$3"
+docker() {
+  case "$1" in
+    compose) printf 'run\n' >>"$trace"; printf 'original stdout\n'; printf 'original stderr\n' >&2; return 137;;
+    inspect) printf 'inspect\n' >>"$trace"; [ "$transport_mode" != inspect-failure ] || return 1; printf '{"proof":true}\n';;
+    rm) printf 'remove\n' >>"$trace"; [ "$transport_mode" != remove-failure ] || return 1; printf '%s\n' "$2";;
+    *) return 99;;
+  esac
+}
+result=0
+importer_recovery_fault 'apply transaction commit' wprism apply --format=json || result=$?
+printf 'collect\n' >>"$trace"
+exit "$result"
+SH, [$package . '/fixtures/recovery.sh', $sink, $transportMode], $root . '/sandbox');
+    $trace = file_get_contents($sink . '/transport-' . $transportMode . '.trace');
+    if ($transportMode === 'ok') {
+        wprism_check($status === 137 && $stdout === "original stdout\n" && $stderr === "original stderr\n"
+            && $trace === "run\ninspect\nremove\ncollect\n", 'actual fault transport preserves original streams/status and removes before collection');
+        wprism_check(WPrismTest\PrivateCommandOutput::readObject($sink . '/transport-ok-process') === '{"proof":true}' . "\n"
+            && WPrismTest\PrivateCommandOutput::readBytes($sink . '/transport-ok-removed') === "wprism-crashtransport-cli2-run-abcdef123456\n",
+            'process inspection and removal retain private independent streams');
+    } else {
+        wprism_check($status === 1 && $stdout === "original stdout\n" && str_starts_with($stderr, "original stderr\nFAIL: " )
+            && !str_contains($trace, 'collect'), 'failed ' . $transportMode . ' cannot proceed to diagnostic collection');
+    }
 }
 wprism_check_summary('Importer crash evidence');

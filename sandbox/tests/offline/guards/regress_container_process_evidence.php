@@ -10,7 +10,7 @@ $name = 'wprism-crashproof-fault'; $project = 'wprism-crashproof'; $service = 'c
 $command = ['wp', 'wprism', 'apply', '--format=json'];
 $environment = ['WPRISM_TEST_MODE' => '1', 'WPRISM_TEST_FAIL_DB_CONTEXT' => 'apply transaction commit', 'WPRISM_TEST_DB_FAULT_MODE' => 'kill'];
 $window = ['before' => 1700000000, 'after' => 1700000010];
-$record = ['Id' => str_repeat('a', 64), 'Name' => '/' . $name, 'RestartCount' => 0,
+$record = ['Id' => str_repeat('a', 64), 'Name' => '/' . $name, 'RestartCount' => 0, 'HostConfig' => ['Init' => true],
     'Config' => ['Cmd' => $command, 'Labels' => ['com.docker.compose.project' => $project,
         'com.docker.compose.service' => $service, 'com.docker.compose.oneoff' => 'True'],
         'Env' => ['PATH=/bin', 'WPRISM_TEST_MODE=1', 'WPRISM_TEST_FAIL_DB_CONTEXT=apply transaction commit', 'WPRISM_TEST_DB_FAULT_MODE=kill']],
@@ -19,10 +19,12 @@ $record = ['Id' => str_repeat('a', 64), 'Name' => '/' . $name, 'RestartCount' =>
         'StartedAt' => '2023-11-14T22:13:21.123456789Z', 'FinishedAt' => '2023-11-14T22:13:24Z']];
 $verify = static fn(array $value) => ContainerProcessEvidence::assertKilled($value, $name, $project, $service, $command, $environment, $window);
 $verify($record); wprism_check(true, 'owned stopped command retains exact fault binding without OOM');
-foreach (['id', 'name', 'restarted', 'command', 'project', 'service', 'oneoff', 'missing-env', 'duplicate-env', 'changed-context',
+foreach (['id', 'name', 'restarted', 'missing-init', 'no-init', 'command', 'project', 'service', 'oneoff', 'missing-env', 'duplicate-env', 'changed-context',
     'changed-mode', 'environment-shape', 'status', 'exit', 'oom', 'running', 'restarting', 'dead', 'error', 'pid',
     'missing-time', 'timestamp-shape', 'outside-window', 'reversed-time'] as $fault) {
     $bad = $record;
+    if ($fault === 'missing-init') unset($bad['HostConfig']['Init']);
+    if ($fault === 'no-init') $bad['HostConfig']['Init'] = false;
     if ($fault === 'id') $bad['Id'] = 'short';
     if ($fault === 'name') $bad['Name'] = '/other';
     if ($fault === 'restarted') $bad['RestartCount'] = 1;
@@ -54,4 +56,10 @@ $bad['State']['StartedAt'] = '2023-11-00T22:13:21Z'; $bad['State']['FinishedAt']
 wprism_check_throws(static fn() => ContainerProcessEvidence::assertKilled($bad, $name, $project, $service, $command,
     $environment, ['before' => strtotime('2023-10-31T22:13:20Z'), 'after' => strtotime('2023-10-31T22:13:30Z')]),
     RuntimeException::class, 'timestamp parsing cannot normalize an invalid date into this invocation');
+$pair = file_get_contents(dirname(__DIR__, 3) . '/pair.yml');
+foreach (['cli1', 'cli2'] as $service) {
+    preg_match('/^  ' . $service . ':\n((?:    [^\n]*\n|\n)+)/m', $pair, $section);
+    wprism_check(preg_match('/^    init: true$/m', $section[1] ?? '') === 1,
+        'shared ' . $service . ' runs beneath a real init for signal semantics');
+}
 wprism_check_summary('container process evidence');

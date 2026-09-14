@@ -3876,9 +3876,12 @@ library.
    A thrown exception does not prove process-death recovery. The shared database
    seam supports `WPRISM_TEST_DB_FAULT_MODE=kill` with `WPRISM_TEST_MODE=1` and
    an exact `WPRISM_TEST_FAIL_DB_CONTEXT`; the default remains `throw`. Kill mode
-   requires real POSIX `SIGKILL`, so PHP cleanup cannot run. Retain the stopped
-   container and use `ContainerProcessEvidence` to bind its exact command,
-   environment and invocation window and exclude OOM/runtime failure. Preserve
+   requires real POSIX `SIGKILL`, so PHP cleanup cannot run. The shared pair's
+   CLI services use Docker `init: true`: Linux namespace PID 1 otherwise ignores
+   self-SIGKILL. Inspect the stopped container with `ContainerProcessEvidence`
+   to bind its init, exact command, environment and invocation window and exclude
+   OOM/runtime failure, then remove it before diagnostic readers run; retained
+   stopped oneoffs trigger Compose orphan warnings. Preserve
    the durable lease left by the crash and wait for its verified natural expiry
    before retrying; never delete it to make the test proceed.
 

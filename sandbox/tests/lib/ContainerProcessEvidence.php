@@ -15,6 +15,7 @@ final class ContainerProcessEvidence {
             && $window['before'] <= $window['after'], 'bounded invocation window');
         self::check(is_string($record['Id'] ?? null) && preg_match('/^[a-f0-9]{64}$/D', $record['Id']) === 1
             && ($record['Name'] ?? null) === '/' . $name && ($record['RestartCount'] ?? null) === 0, 'fresh named container');
+        self::check(($record['HostConfig']['Init'] ?? null) === true, 'real init keeps the faulting CLI outside namespace PID 1');
         $config = $record['Config'] ?? [];
         self::check(($config['Cmd'] ?? null) === $command
             && ($config['Labels']['com.docker.compose.project'] ?? null) === $project
