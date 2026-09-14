@@ -49,7 +49,7 @@ PROBE_ID=$(wp_conf2 eval '
 ')
 require_observed_nonempty "Block Visibility target-local probe identity" "$PROBE_ID"
 
-BODY=$(curl --max-time 20 -sS "http://localhost:${CONF2_PORT}/?p=${PROBE_ID}") \
+BODY=$(curl --max-time 20 -L --max-redirs 3 -sS "http://localhost:${CONF2_PORT}/?p=${PROBE_ID}") \
   || fail "Block Visibility native frontend probe failed before an HTTP response"
 if printf '%s\n' "$BODY" | grep -Fq 'Block Visibility native probe'; then
   fail "Block Visibility did not hide the target-local anonymous block probe"
@@ -58,7 +58,7 @@ pass "Block Visibility hides an anonymous block through the migrated native pres
 
 VISIBLE_ID=$(wp_conf2 post list --post_type=post --name=unannotated-fixture --field=ID)
 require_observed_nonempty "Block Visibility unannotated target post identity" "$VISIBLE_ID"
-BODY=$(curl --max-time 20 -sS "http://localhost:${CONF2_PORT}/?p=${VISIBLE_ID}") \
+BODY=$(curl --max-time 20 -L --max-redirs 3 -sS "http://localhost:${CONF2_PORT}/?p=${VISIBLE_ID}") \
   || fail "Block Visibility unannotated frontend probe failed before an HTTP response"
 printf '%s\n' "$BODY" | grep -Fq 'No visibility rule on this block.' \
   || fail "Block Visibility unexpectedly hid the migrated unannotated block"
