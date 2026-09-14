@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 cd "$ROOT/sandbox"
 MODE="${IMPORTER_WOO_APPLY_MODE:-full}"
 [[ "$MODE" = full || "$MODE" = scoped ]] || { printf 'invalid combined Apply mode\n' >&2; exit 1; }
+LOAD_ORDER="${IMPORTER_WOO_LOAD_ORDER:-importer-first}"
+[[ "$LOAD_ORDER" = importer-first || "$LOAD_ORDER" = woo-first ]] || { printf 'invalid combined plugin load order\n' >&2; exit 1; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok: %s\n' "$*"; }
 PAIR="${IMPORTER_WOO_PAIR:?unique owned pair required}"
@@ -53,6 +55,9 @@ for side in 1 2; do
     artifact=$(fetch_artifact "$slug" "$version" "cli$side")
     combo_capture "install$side-$slug" wp_side "$side" plugin install "$artifact" --activate
   done
+  role=source; [ "$side" = 1 ] || role=target
+  combo_capture "load-order-set$side" native "$side" "$SCENARIO/load-order-native.php" set "$role" "$LOAD_ORDER"
+  combo_capture "load-order-before$side" native "$side" "$SCENARIO/load-order-native.php" observe "$role" "$LOAD_ORDER"
   combo_capture "hpos$side" establish_woocommerce_hpos wp_side "$side" --require="$CAPSULE/admin-context.php" --user=admin
   role=source; [ "$side" = 1 ] || role=target
   combo_capture "settings$side" native "$side" "$CAPSULE/settings-native.php" "setup-$role"
@@ -168,4 +173,8 @@ php "$SCENARIO_ROOT/fixtures/native-evidence.php" "$sink" "$PAIR"
 combo_capture final-recapture candidate 2 capture --repo=/siterepo --out=/siterepo/.tmp-importer-woo-final --format=json
 pair_live_ownership_repo_host
 combo_capture final-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2" "$R2/.tmp-importer-woo-final"
+for side in 1 2; do
+  role=source; [ "$side" = 1 ] || role=target
+  combo_capture "load-order-after$side" native "$side" "$SCENARIO/load-order-native.php" observe "$role" "$LOAD_ORDER"
+done
 pair_live_ownership_complete "PASS: combined $MODE template Apply, native consumers, recapture and exact repeat preservation"

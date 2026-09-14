@@ -71,8 +71,14 @@ bash integration-scenarios/importer-woocommerce-customers/tests/live/regress_imp
 
 The exact preservation window covers the settled template update and repeat.
 Initial adoption and subsequent native CSV jobs have separate assertions and
-are not covered by that allowed database transition. Verified opposing native plugin load orders
-remain follow-up qualification. The Importer-only fixed-table oracle cannot
+are not covered by that allowed database transition. Select `IMPORTER_WOO_LOAD_ORDER=importer-first` (the default) or `woo-first`
+to qualify each native order with the same declared order on both sites.
+Separate native admin requests verify the exact active-plugin option and actual
+included entry-file order before setup and after final consumers. Both exact
+version constants must be present; installation order alone is not evidence.
+Different source/target orders correctly refuse at the lifecycle boundary before
+Apply: matching plugin sets do not imply matching declared load order. The
+scenario never bypasses that boundary with `--force-code-mismatch`. The Importer-only fixed-table oracle cannot
 substantiate this combination's preservation.
 
 
