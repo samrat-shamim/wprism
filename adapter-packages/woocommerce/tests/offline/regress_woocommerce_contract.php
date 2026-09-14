@@ -2406,6 +2406,29 @@ foreach ([
     woo_ok(preg_match('/' . $wooRuntimePattern . '/', $wooRuntimeNonMember) === 0,
         "widening the runtime marker family did not make it greedy: $wooRuntimeNonMember");
 }
+// Action Scheduler's expiring mutex lands in this adapter's claimed
+// action_scheduler_ namespace the moment the lifecycle provider actually drains
+// the queue, so an unclassified row would abort capture intermittently. It is
+// runtime, and the pattern is closed on the one lock type the shipped source uses
+// rather than left as a prefix.
+$wooLockPattern = null;
+foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
+    if (str_starts_with((string) ($wooOptionPattern['match'] ?? ''), '^action_scheduler_lock_')) {
+        $wooLockPattern = $wooOptionPattern;
+    }
+}
+woo_ok(is_array($wooLockPattern) && ($wooLockPattern['class'] ?? null) === 'runtime',
+    "Action Scheduler's option lock is classified runtime");
+woo_ok(preg_match('/' . $wooLockPattern['match'] . '/', 'action_scheduler_lock_async-request-runner') === 1,
+    'the lock pattern admits the exact key ActionScheduler_OptionLock::get_key() writes');
+foreach ([
+    'action_scheduler_lock_',
+    'action_scheduler_lock_other',
+    'action_scheduler_lock_async-request-runner-x',
+] as $wooLockNonMember) {
+    woo_ok(preg_match('/' . $wooLockPattern['match'] . '/', $wooLockNonMember) === 0,
+        "the lock pattern stayed closed rather than becoming a prefix: $wooLockNonMember");
+}
 $wooEnvPatternDeclared = false;
 foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
     if (($wooOptionPattern['class'] ?? '') === 'env'
