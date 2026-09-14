@@ -113,6 +113,17 @@ will see are `missing_in_code`, `outside_version_range`,
 `active_plugin_order_mismatch`, and `template_mismatch`. Theme findings carry
 the same shape with `kind: "theme"`.
 
+Apply checks plugin/theme lifecycle compatibility before initializing its
+ledger or preparing target observations, then checks again under the deployment
+lock. Ordinary observation can enroll deterministic identities, so discovering
+a lifecycle mismatch only after building the data plan is too late. The
+existing preparation gate still checks the finished plan before authored work.
+When lifecycle mismatch and content drift coexist, reconcile deployment first,
+then build a fresh data plan.
+An exact completed scoped request can still replay its existing receipt after
+an installed plugin file disappears: its bounded authored/map witnesses must match, and
+the replay prepares no new work.
+
 **Remedy**: install or vendor the missing plugin, deploy the code first, or —
 knowing exactly what you are overriding — pass `--force-code-mismatch`.
 

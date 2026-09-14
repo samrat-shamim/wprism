@@ -2360,6 +2360,10 @@ regress-column-codec-grammar:
 regress-column-input-requests:
 	php sandbox/tests/offline/apply/regress_column_input_requests.php
 
+.PHONY: regress-apply-lifecycle-admission
+regress-apply-lifecycle-admission:
+	php sandbox/tests/offline/apply/regress_apply_lifecycle_admission.php
+
 .PHONY: regress-object-record-fields
 regress-object-record-fields:
 	php sandbox/tests/offline/grammar/regress_object_record_fields.php

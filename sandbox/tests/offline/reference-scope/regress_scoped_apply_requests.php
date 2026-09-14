@@ -68,6 +68,11 @@ $repo = $scratch . '/repo';
 foreach ([$repo . '/state/options', WP_CONTENT_DIR . '/themes/fixture', WP_PLUGIN_DIR, WPMU_PLUGIN_DIR] as $dir) mkdir($dir, 0700, true);
 $repo = (string) realpath($repo);
 file_put_contents(WP_CONTENT_DIR . '/themes/fixture/style.css', "/*\nTheme Name: Fixture\nVersion: 1.0.0\n*/\n");
+$lifecyclePlugin = 'lifecycle-fixture/plugin.php';
+$pluginPath = WP_PLUGIN_DIR . '/' . $lifecyclePlugin;
+$pluginBytes = "<?php\n/*\nPlugin Name: Lifecycle fixture\nVersion: 1.0.0\n*/\n";
+mkdir(dirname($pluginPath), 0700, true);
+file_put_contents($pluginPath, $pluginBytes);
 Canon::write_file($repo . '/site.wprism.json', Canon::encode(['spec_version' => WPRISM_SPEC_VERSION,
     'manifests' => ['core'], 'policy' => ['post_types' => [], 'taxonomies' => []]]));
 WpStore::reset()->seedOptions(['home' => 'https://target.example.test', 'siteurl' => 'https://target.example.test',
@@ -82,7 +87,7 @@ foreach (TableSchema::core_capture_required_columns() as $property => $columns) 
     $tables[] = $db->$property;
     $db->seedTable($db->$property, [])->setColumns($db->$property, array_fill_keys($columns, 'longtext'))->setTableEngine($db->$property, 'InnoDB');
 }
-$nativeOptions = ['active_plugins' => serialize([]), 'stylesheet' => 'fixture', 'template' => 'fixture',
+$nativeOptions = ['active_plugins' => serialize([$lifecyclePlugin]), 'stylesheet' => 'fixture', 'template' => 'fixture',
     'home' => 'https://target.example.test', 'siteurl' => 'https://target.example.test',
     'admin_email' => 'admin@target.example.test', 'blogname' => 'Original', 'blogdescription' => 'Protected'];
 $optionRows = [];
@@ -115,7 +120,7 @@ $records = [];
 foreach ([$policy->authored_options(), $policy->sub_keyed_options()] as $rules) {
     foreach ($rules as $name => $_rule) $records[$name] = OptionState::absent();
 }
-foreach (['active_plugins' => [], 'stylesheet' => 'fixture', 'template' => 'fixture', 'blogdescription' => 'Protected'] as $name => $value) {
+foreach (['active_plugins' => [$lifecyclePlugin], 'stylesheet' => 'fixture', 'template' => 'fixture', 'blogdescription' => 'Protected'] as $name => $value) {
     $records[$name] = OptionState::present($value, 'yes');
 }
 $source = static function (string $value, ?string $requestId) use ($repo, $scratch, $records, $policy, $library): array {
@@ -172,15 +177,25 @@ $interleave = static function (array $opts, callable $concurrent) use ($db, $rep
     return [$completed, $result, $failure, $target];
 };
 
+$setCode = static function (bool $ready) use ($pluginPath, $pluginBytes): void {
+    if ($ready) file_put_contents($pluginPath, $pluginBytes);
+    else unlink($pluginPath);
+    clearstatcache(true, $pluginPath);
+};
 try {
     $racingOptions = $source('A', 'core-request-A1');
     [$concurrentResult, $a1, $raceFailure, $concurrentTarget] = $interleave(
-        $racingOptions, static fn() => $complete($racingOptions, 'A')
+        $racingOptions, static function () use ($complete, $racingOptions, $setCode): array {
+            $result = $complete($racingOptions, 'A');
+            $setCode(false);
+            return $result;
+        }
     );
     wprism_check($raceFailure === null, 'a concurrent exact retry succeeds after acquiring its fence');
     wprism_check_same($concurrentResult['scoped_receipt'], $a1['scoped_receipt'] ?? null,
         'a concurrent exact retry returns the completed authority receipt');
     wprism_check_same($concurrentTarget, $observe(), 'a concurrent exact retry preserves every completed physical row');
+    $setCode(true);
     $b = $complete($source('B', 'core-request-B1'), 'B');
     $oldA = $source('A', 'core-request-A1');
     $refuses($oldA, 'retrying stale A cannot reverse B', 'terminal scoped receipt no longer describes');
@@ -192,6 +207,18 @@ try {
     $replay = Apply::apply($repo, $a2Options);
     wprism_check_same($a2['scoped_receipt'], $replay['scoped_receipt'], 'active request replay returns exact receipt bytes');
     wprism_check_same($stable, $observe(), 'active request replay mutates no table');
+    // Installed code can disappear after completion while every canonical
+    // witness stays exact. Historical replay authorizes no new plugin work.
+    $setCode(false);
+    $lifecycleChanged = $observe();
+    $historical = $replayFailure = null;
+    try { $historical = Apply::apply($repo, $a2Options); } catch (Throwable $error) { $replayFailure = $error; }
+    wprism_check($replayFailure === null, 'completed scoped replay does not admit new plugin work');
+    wprism_check_same($a2['scoped_receipt'], $historical['scoped_receipt'] ?? null,
+        'later missing code cannot replace an exact scoped terminal receipt');
+    wprism_check_same($lifecycleChanged, $observe(), 'terminal replay preserves every native and ledger row');
+    wprism_check(!is_file($pluginPath), 'historical replay does not reinstall missing plugin code');
+    $setCode(true);
     $legacy = $a2Options;
     unset($legacy['request_id']);
     $refuses($legacy, 'omitting the explicit ID cannot downgrade its authority', 'retained request ID');
