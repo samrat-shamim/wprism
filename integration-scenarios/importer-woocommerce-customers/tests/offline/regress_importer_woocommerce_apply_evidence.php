@@ -84,6 +84,23 @@ unset($entity);
 $plan['update'] = array_map(static fn(array $entity): array => ['uuid' => $entity['uuid'], 'type' => 'wt_iew_mapping_template', 'path' => $entity['path']], $planIntent);
 $plan['unchanged'] = [['uuid' => $uuid(3)]]; $plan['artifact_hash'] = str_repeat('a', 64);
 wprism_check_same(str_repeat('a', 64), ImporterWooApplyEvidence::plan($plan, $planIntent, $oldImage), 'exact Plan binds the two independent updates and every unchanged identity');
+$inventoryPlan = $plan;
+$inventoryPlan['uploads_inventory'] = [['attachment_uuid' => $uuid(3), 'original_path' => 'woocommerce-placeholder.webp']];
+$inventoryPlan['provider_problems'] = [['provider_id' => 'woocommerce-scheduler', 'problem' => 'missing_capability']];
+$inventoryPlan['env_missing'] = [['name' => 'optional_gateway_token', 'required' => false]];
+wprism_check_same(str_repeat('a', 64), ImporterWooApplyEvidence::plan($inventoryPlan, $planIntent, $oldImage),
+    'declared upload/provider inventories and missing optional environment values do not select work');
+foreach (['required-env', 'unknown-required', 'missing-inventory', 'non-list-inventory', 'non-row-inventory', 'selected-provider'] as $fault) {
+    $badPlan = $inventoryPlan;
+    if ($fault === 'required-env') $badPlan['env_missing'][0]['required'] = true;
+    if ($fault === 'unknown-required') unset($badPlan['env_missing'][0]['required']);
+    if ($fault === 'missing-inventory') unset($badPlan['uploads_inventory']);
+    if ($fault === 'non-list-inventory') $badPlan['provider_problems'] = ['unknown' => []];
+    if ($fault === 'non-row-inventory') $badPlan['uploads_inventory'] = ['not a row'];
+    if ($fault === 'selected-provider') $badPlan['selected_actions'] = [['provider_id' => 'woocommerce-scheduler']];
+    wprism_check_throws(static fn() => ImporterWooApplyEvidence::plan($badPlan, $planIntent, $oldImage), RuntimeException::class,
+        "Plan inventories do not conceal $fault");
+}
 foreach (['create', 'warnings', 'selected_actions', 'regen_pending', 'update', 'unchanged', 'artifact_hash'] as $field) {
     $badPlan = $plan;
     if ($field === 'update') $badPlan[$field][] = $plan[$field][0];

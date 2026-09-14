@@ -144,8 +144,22 @@ final class ImporterWooApplyEvidence {
     public static function plan(array $plan, array $intent, array $before): string {
         foreach (['create', 'adopt', 'collision', 'drift', 'conflict', 'delete', 'delete_conflict', 'deleted',
             'code_mismatch', 'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user', 'skipped_user_meta',
-            'uploads_inventory', 'selected_actions', 'regen_pending', 'regen_context', 'env_missing', 'warnings', 'provider_problems'] as $field) {
+            'selected_actions', 'regen_pending', 'regen_context', 'warnings'] as $field) {
             self::check(($plan[$field] ?? null) === [], 'Plan has no additional work or diagnostic: ' . $field);
+        }
+        // PlanCategorySummary distinguishes upload inventory and declared unselected
+        // provider problems from selected actions. Optional env rows are likewise
+        // reports (ApplyPlanner::env_missing_projection); required rows still block
+        // this fixture. Receipt + complete DB/filesystem comparisons prove execution.
+        foreach (['uploads_inventory', 'provider_problems', 'env_missing'] as $field) {
+            self::check(is_array($plan[$field] ?? null) && array_is_list($plan[$field]), 'complete Plan inventory: ' . $field);
+            foreach ($plan[$field] as $row) {
+                self::check(is_array($row), 'Plan inventory row: ' . $field);
+                if ($field === 'env_missing') {
+                    self::check(is_string($row['name'] ?? null) && $row['name'] !== '' && ($row['required'] ?? null) === false,
+                        'only explicitly optional environment values may be missing');
+                }
+            }
         }
         $wanted = array_column($intent, null, 'uuid'); $updates = [];
         foreach ($plan['update'] ?? [] as $row) {
