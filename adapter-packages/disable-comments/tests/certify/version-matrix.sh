@@ -114,8 +114,8 @@ EOF
   assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail "apply canary not clean at Disable Comments $DISABLE_COMMENTS_VERSION"
-  check_disable_comments_boundary_content wp2 "$PORT2" target
   disable_comments_assert_runtime wp2
+  check_disable_comments_boundary_content wp2 "$PORT2" target
 
   wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
   DISABLE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
