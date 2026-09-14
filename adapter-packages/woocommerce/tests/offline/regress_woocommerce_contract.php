@@ -72,6 +72,14 @@ $policy = Policy::from_snapshot([
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => WPRISM_SPEC_VERSION],
 ], \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
+// A fresh target has no pa_* registration before typed attribute adoption.
+// AuthoredTransactionExecutor asks this resolver before opening its transaction.
+// Locked WC_Post_Types::register_taxonomies() declares false at 11.0.0/11.0.1
+// lines 269-271 and in 11.1.0; an absent fact refused combined baseline Apply.
+woo_ok(get_taxonomy('pa_combosize') === false
+    && $policy->declared_taxonomy_hierarchical('pa_combosize') === false
+    && $policy->declared_taxonomy_hierarchical('unreviewed_taxonomy') === null,
+    'new Woo attribute taxonomies resolve their reviewed flat hierarchy before target registration');
 woo_ok($policy->option_rule_details('pickup_location_pickup_locations') === [
     'rule' => ['class' => 'authored', 'plain_data' => true, 'allow_pii' => true, 'autoload' => 'preserve'],
     'source' => 'woocommerce',

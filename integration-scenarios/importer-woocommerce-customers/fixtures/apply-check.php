@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/apply-evidence.php';
+require_once __DIR__ . '/catalog-evidence.php';
 require_once __DIR__ . '/scoped-apply-evidence.php';
 $root = dirname(__DIR__, 3);
 require_once $root . '/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/settings-evidence.php';
@@ -49,6 +50,7 @@ if ($mode === 'scoped') {
     ImporterWooApplyEvidence::transition($before, $after, $intent, $revision, $artifact, $object($phase . '-window'), $phase === 'repeat');
     ImporterWooApplyEvidence::receipt($receipt, $phase === 'repeat');
 }
+ImporterWooCatalogEvidence::preserved($object($beforeLabel . '-catalog'), $object($afterLabel . '-catalog'));
 ImporterWooApplyEvidence::files($object($beforeLabel . '-files'), $object($afterLabel . '-files'));
 $oldRepository = $object($beforeLabel . '-state'); $newRepository = $object($afterLabel . '-state');
 foreach ([$oldRepository, $newRepository] as $repository) {

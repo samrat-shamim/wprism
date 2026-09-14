@@ -64,6 +64,8 @@ for side in 1 2; do
   combo_capture "save-import$side" native "$side" "$SCENARIO/templates-native.php" save import 'Reusable input mapping'
 done
 candidate() { local side="$1" verb="$2"; shift 2; conformance_private_command "cli$side" "$verb" wp_side "$side" wprism "$verb" "$@"; }
+combo_capture catalog-attribute native 1 "$SCENARIO/catalog-native.php" attribute-source
+combo_capture catalog-seed native 1 "$SCENARIO/catalog-native.php" seed-source
 combo_capture configure native 1 "$SCENARIO/apply-native.php" configure
 pair_live_ownership_repo_host
 R1="$PAIR_LIVE_OWNERSHIP_SITE1" R2="$PAIR_LIVE_OWNERSHIP_SITE2"
@@ -79,10 +81,12 @@ git -C "$R2" merge -q --ff-only FETCH_HEAD
 combo_capture binding2 establish_core_environment_bindings wp_side /siterepo admin@example.test "http://${PAIR}2.invalid" "http://${PAIR}2.invalid" 2
 combo_capture input-bind native 2 "$CAPSULE/import-templates-native.php" bind
 combo_capture baseline-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms,tables --default-author=admin --format=json
-combo_capture baseline-recapture candidate 2 capture --repo=/siterepo --format=json
+combo_capture catalog-stock native 2 "$SCENARIO/catalog-native.php" stock-target
+# Evidence recapture must not replace immutable transferred source bytes with
+# target-derived timestamps: scope contracts bind the exact compiled artifact.
+combo_capture baseline-recapture candidate 2 capture --repo=/siterepo --out=/siterepo/.tmp-importer-woo-baseline --format=json
 pair_live_ownership_repo_host
-diff -r "$R1/state" "$R2/state" || fail 'combined baseline canonical state did not converge'
-diff -r "$R1/media" "$R2/media" || fail 'combined baseline media did not converge'
+combo_capture baseline-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2" "$R2/.tmp-importer-woo-baseline"
 combo_capture baseline-state php "$ROOT/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/settings-evidence.php" snapshot "$R1"
 for kind in export import; do
   combo_capture "edit-$kind" native 1 "$CAPSULE/dirty-target-native.php" "$kind" source
@@ -108,7 +112,9 @@ echo json_encode($trees, JSON_THROW_ON_ERROR), "\n";
 repository_image() {
   php -r 'require $argv[1]."/sandbox/tests/lib/FilesystemTreeEvidence.php"; $trees=[]; foreach(["state","site.wprism.json","media"] as $name) $trees[$name]=WPrismTest\FilesystemTreeEvidence::capture($argv[2],$name); echo json_encode($trees,JSON_THROW_ON_ERROR),"\n";' "$ROOT" "$R2"
 }
+catalog_observe() { wp_side 2 --user=admin eval-file "$SCENARIO/catalog-native.php" observe --use-include; }
 apply_image() {
+  combo_capture "$1-catalog" catalog_observe
   combo_database_observe 2 "$1"
   combo_capture "$1-files" files_side 2
   pair_live_ownership_repo_host
@@ -155,10 +161,11 @@ for kind in export import; do
   combo_capture "$kind-reopen" native 2 "$fixture" reopen "$name"
   combo_capture "$kind-consume" native 2 "$SCENARIO/templates-native.php" consume "$kind" "$name"
 done
+combo_capture catalog-final catalog_observe
+php -r 'require $argv[1]."/fixtures/catalog-evidence.php"; require $argv[1]."/fixtures/database-evidence.php"; $read=static fn($label)=>json_decode(WPrismTest\PrivateCommandOutput::readObject($argv[2]."/".$label, ImporterWooDatabaseEvidence::transport($argv[3],2)),true,flags:JSON_THROW_ON_ERROR); ImporterWooCatalogEvidence::preserved($read("apply-before-catalog"),$read("catalog-final"));' "$SCENARIO_ROOT" "$sink" "$PAIR"
 combo_capture customers-after native 2 "$SCENARIO/customers-native.php" observe
 php "$SCENARIO_ROOT/fixtures/native-evidence.php" "$sink" "$PAIR"
-combo_capture final-recapture candidate 2 capture --repo=/siterepo --format=json
+combo_capture final-recapture candidate 2 capture --repo=/siterepo --out=/siterepo/.tmp-importer-woo-final --format=json
 pair_live_ownership_repo_host
-diff -r "$R1/state" "$R2/state" || fail 'native consumers and repeat changed canonical intent'
-diff -r "$R1/media" "$R2/media" || fail 'native consumers and repeat changed canonical media'
+combo_capture final-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2" "$R2/.tmp-importer-woo-final"
 pair_live_ownership_complete "PASS: combined $MODE template Apply, native consumers, recapture and exact repeat preservation"
