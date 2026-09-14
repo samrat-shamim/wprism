@@ -6,16 +6,6 @@ if (!current_user_can('manage_options')) throw new RuntimeException('Importer de
 $plugin = 'users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php';
 $plugins = get_plugins();
 global $wpdb;
-$ledger = [];
-foreach (['wprism_map' => 'uuid,id_kind', 'wprism_state' => 'uuid', 'wprism_kv' => 'k'] as $suffix => $order) {
-    $wpdb->last_error = '';
-    $rows = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}$suffix ORDER BY $order LIMIT 1025", ARRAY_A);
-    if ($wpdb->last_error !== '' || !is_array($rows) || count($rows) > 1024
-        || strlen(json_encode($rows, JSON_THROW_ON_ERROR)) > 524288) {
-        throw new RuntimeException('Importer dependency ledger observation is incomplete');
-    }
-    $ledger[$suffix] = $rows;
-}
 $tables = [];
 foreach (['wt_iew_mapping_template', 'wt_iew_action_history'] as $suffix) {
     $name = $wpdb->prefix . $suffix;
@@ -28,4 +18,4 @@ foreach (['wt_iew_mapping_template', 'wt_iew_action_history'] as $suffix) {
 }
 echo json_encode(['version' => $plugins[$plugin]['Version'] ?? null, 'active' => is_plugin_active($plugin),
     'loaded' => defined('WT_U_IEW_VERSION'), 'marker' => get_option('wt_u_iew_is_active', null),
-    'tables' => $tables, 'ledger' => $ledger], JSON_THROW_ON_ERROR), "\n";
+    'tables' => $tables], JSON_THROW_ON_ERROR), "\n";
