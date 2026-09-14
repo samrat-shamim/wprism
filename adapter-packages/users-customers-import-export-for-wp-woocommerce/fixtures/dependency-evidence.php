@@ -132,8 +132,12 @@ foreach (['inactive' => ['2.7.5', 'apply'], 'deactivated' => ['2.7.5', 'apply'],
     foreach (['before', 'after'] as $when) {
         $tables = WPrismTest\PrivateCommandOutput::readBytes("$sink/$case-$when-tables", $transport);
         $dump = WPrismTest\PrivateCommandOutput::readBytes("$sink/$case-$when-database", $transport, WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE);
+        // Before the first authored Apply, deploy has populated the KV lifecycle
+        // baseline but map/state contain no authored records. All tables remain
+        // covered by the independent roster and the byte-exact dump comparison.
         WPrismTest\SqlDumpEvidence::assertComplete($dump, WPrismTest\SqlDumpEvidence::tables($tables),
-            ['wp_options', 'wp_users', 'wp_wt_iew_mapping_template', 'wp_wt_iew_action_history', 'wp_wprism_map', 'wp_wprism_state']);
+            array_merge(['wp_options', 'wp_users', 'wp_wt_iew_mapping_template', 'wp_wt_iew_action_history', 'wp_wprism_kv'],
+                $case === 'inactive' ? [] : ['wp_wprism_map', 'wp_wprism_state']));
         $tree = $read("$case-$when-state");
         WPrismTest\FilesystemTreeEvidence::assertRecord($tree['state'], 'state');
         WPrismTest\FilesystemTreeEvidence::assertRecord($tree['policy'], 'site.wprism.json');
