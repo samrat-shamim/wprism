@@ -107,7 +107,9 @@ consumers. Missing, aliased, empty or changed witnesses fail independently of th
 complete database comparison. This is representative catalog evidence, not a
 claim about every WooCommerce product type.
 
-Cross-site recapture uses the shared repository compiler and convergence checker.
+Cross-site recapture uses Capture `--out` evidence trees and the shared repository
+compiler/convergence checker. It never overwrites the transferred source checkout: a
+scope contract binds the complete compiled artifact, including source file bytes.
 WooCommerce declares persistence timestamps derived, so raw post-file equality
 is not its authored-intent contract. The checker permits no target-only entity
 exception and compares all compiled entity signatures, policy/code/effect and

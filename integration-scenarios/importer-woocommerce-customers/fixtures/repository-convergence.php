@@ -10,11 +10,11 @@ require_once $root . '/agent/src/Code/CodeStateContract.php';
 require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
 require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 wprism_test_define_agent_versions();
-if ($argc !== 3) throw new RuntimeException('combined convergence requires two repository roots');
+if ($argc !== 4) throw new RuntimeException('combined convergence requires two repositories and a target evidence tree');
 $library = WPrism\AdapterLibrary::fromSourceTree($root);
-$compile = static fn(string $repo): WPrism\CompiledRepository => WPrism\RepositoryCompiler::compile_staged(
-    $repo . '/state', $repo, WPrism\Policy::load($repo, adapterLibrary: $library));
+$compile = static fn(string $repo, string $state): WPrism\CompiledRepository => WPrism\RepositoryCompiler::compile_staged(
+    $state, $repo, WPrism\Policy::load($repo, adapterLibrary: $library));
 // Woo timestamps are declared derived; the compiler alone owns their semantics.
 // No target-only exception is granted. Exact SQL preservation is checked separately.
-WPrismTest\RepositoryConvergence::assertSame($compile($argv[1]), $compile($argv[2]));
+WPrismTest\RepositoryConvergence::assertSame($compile($argv[1], $argv[1] . '/state'), $compile($argv[2], $argv[3]));
 echo "PASS: complete compiled intent and media converge\n";

@@ -82,9 +82,11 @@ combo_capture binding2 establish_core_environment_bindings wp_side /siterepo adm
 combo_capture input-bind native 2 "$CAPSULE/import-templates-native.php" bind
 combo_capture baseline-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms,tables --default-author=admin --format=json
 combo_capture catalog-stock native 2 "$SCENARIO/catalog-native.php" stock-target
-combo_capture baseline-recapture candidate 2 capture --repo=/siterepo --format=json
+# Evidence recapture must not replace immutable transferred source bytes with
+# target-derived timestamps: scope contracts bind the exact compiled artifact.
+combo_capture baseline-recapture candidate 2 capture --repo=/siterepo --out=/siterepo/.tmp-importer-woo-baseline --format=json
 pair_live_ownership_repo_host
-combo_capture baseline-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2"
+combo_capture baseline-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2" "$R2/.tmp-importer-woo-baseline"
 combo_capture baseline-state php "$ROOT/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/settings-evidence.php" snapshot "$R1"
 for kind in export import; do
   combo_capture "edit-$kind" native 1 "$CAPSULE/dirty-target-native.php" "$kind" source
@@ -162,7 +164,7 @@ combo_capture catalog-final native 2 "$SCENARIO/catalog-native.php" observe
 php -r 'require $argv[1]."/fixtures/catalog-evidence.php"; require $argv[1]."/fixtures/database-evidence.php"; $read=static fn($label)=>json_decode(WPrismTest\PrivateCommandOutput::readObject($argv[2]."/".$label, ImporterWooDatabaseEvidence::transport($argv[3],2)),true,flags:JSON_THROW_ON_ERROR); ImporterWooCatalogEvidence::preserved($read("apply-before-catalog"),$read("catalog-final"));' "$SCENARIO_ROOT" "$sink" "$PAIR"
 combo_capture customers-after native 2 "$SCENARIO/customers-native.php" observe
 php "$SCENARIO_ROOT/fixtures/native-evidence.php" "$sink" "$PAIR"
-combo_capture final-recapture candidate 2 capture --repo=/siterepo --format=json
+combo_capture final-recapture candidate 2 capture --repo=/siterepo --out=/siterepo/.tmp-importer-woo-final --format=json
 pair_live_ownership_repo_host
-combo_capture final-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2"
+combo_capture final-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2" "$R2/.tmp-importer-woo-final"
 pair_live_ownership_complete "PASS: combined $MODE template Apply, native consumers, recapture and exact repeat preservation"

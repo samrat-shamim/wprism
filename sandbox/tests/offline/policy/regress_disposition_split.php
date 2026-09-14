@@ -406,25 +406,27 @@ const WPRISM_CURRENT_DIGESTS = [
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => '0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5',
-    'woocommerce' => '77625e7eee05347b5e449575d328dab62d78b7d98f8cbedcf1c110ce0bb0339d',
+    'woocommerce' => 'b9b1837dc2521560f767c67c32cdb1878904c9c18c406cf6d7dfc11cd593f7c1',
     'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => 'dd64eda89216d35d171dcd036e256758cd51d17f7071e6c8363efe5a291b9264',
 ];
-// Admitting WooCommerce 11.1.0 moves that one capsule's manifest and disposition
+// Declaring the native pa_* hierarchy moves only Woo manifest identity; its
+// disposition and whole-registry address stay unchanged. Earlier 11.1.0 admission
+// moved that one capsule's manifest and disposition
 // rows. The five current aggregates below, and the three PRE_*_REGISTRY_SHA
 // reconstructions above, all fold every shipped row, so each is re-pinned here.
 // What licenses a re-pin rather than a paste is the per-subject map beside them:
 // WPRISM_CURRENT_DIGESTS and every 'moves only <subject>' assertion still hold, so
 // woocommerce is measurably the only identity that moved. The same five numbers are
 // independently re-pinned in regress_spec_v3_digest_neutrality.php and agree there.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'cfc3ba09c89c2f0b76109a28d16d92f23f6c158d892e25f6e85eeabaa69132e0';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '794afe9aebda7d7e6fc9533b4fbf072705b8b7ca5d1bf3ac4c174ce24fdc905a';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '1abfc1bf9f4bda838068124522378a658e41602b54c76650dd951315e21f7a67';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'bdd68201e681e7e9b7ac1bdfc6475ab91a2bb28596e98bc80807a695637bcaed';
 const WPRISM_CURRENT_REGISTRY_SHA = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'e58bffab727e3daaeeb8f6b61bd390b8d5364435f70048b4d404bbbc7e1d67c8';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '8082c1919253395fd0f214fddd7e02c0cf73154200b724d34270750a95b6fbea';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '6d79b162c7dad4610e4c2e8bc5175683e669609bcfd44a1299cf9cce5ad2304f';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '950b1f8fe85a0fa90c4a0d1d23380f5ce5111e0cc8ee85964d06aa202d694569';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -839,6 +841,9 @@ wprism_check_same(['polylang'], array_keys(array_diff_assoc($observed, array_rep
 wprism_check(PRE_COLD_CACHE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH
     && PRE_COLD_CACHE_YOAST_MANIFEST_HASH !== WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH,
     'both compatible worlds require recompile and re-pin after the cold-cache interpreter correction');
+wprism_check_same(['woocommerce'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'woocommerce' => '77625e7eee05347b5e449575d328dab62d78b7d98f8cbedcf1c110ce0bb0339d',
+]))), 'the reviewed dynamic attribute hierarchy fact moves only Woo identity; all neighbouring capsules retain their pins');
 $movedNames = [];
 foreach ($observed as $name => $digest) {
     if (($frozenDigests[$name] ?? '') !== $digest) {
