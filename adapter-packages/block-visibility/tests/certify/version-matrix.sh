@@ -74,7 +74,7 @@ version_matrix_workflow() {
   "policy": {
     "options": {},
     "post_meta": {},
-    "post_types": ["post", "page", "attachment"],
+    "post_types": ["post", "page", "attachment", "visibility_preset"],
     "taxonomies": ["category", "post_tag"]
   },
   "spec_version": 2
@@ -139,7 +139,7 @@ EOF
   cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "block-visibility"],
-  "policy": {"options": {}, "post_meta": {}, "post_types": ["post", "page", "attachment"], "taxonomies": ["category", "post_tag"]},
+  "policy": {"options": {}, "post_meta": {}, "post_types": ["post", "page", "attachment", "visibility_preset"], "taxonomies": ["category", "post_tag"]},
   "spec_version": 2
 }
 EOF
