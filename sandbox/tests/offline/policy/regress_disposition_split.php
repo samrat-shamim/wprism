@@ -422,11 +422,11 @@ const WPRISM_CURRENT_DIGESTS = [
 // WPRISM_CURRENT_DIGESTS and every 'moves only <subject>' assertion still hold, so
 // woocommerce is measurably the only identity that moved. The same five numbers are
 // independently re-pinned in regress_spec_v3_digest_neutrality.php and agree there.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '1abfc1bf9f4bda838068124522378a658e41602b54c76650dd951315e21f7a67';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'bdd68201e681e7e9b7ac1bdfc6475ab91a2bb28596e98bc80807a695637bcaed';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '93259760d28eea7afbb519c43eeefb0fefe56ef1b8cea0e26902bcc2af240ce8';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'fb44052306b852db6ce5538b00f10a524e3d468fe862018d725aef4fd06160b1';
 const WPRISM_CURRENT_REGISTRY_SHA = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '6d79b162c7dad4610e4c2e8bc5175683e669609bcfd44a1299cf9cce5ad2304f';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '950b1f8fe85a0fa90c4a0d1d23380f5ce5111e0cc8ee85964d06aa202d694569';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '065885ab682a3ff7957261781bd9dbe60357d8f646100d363d7fe8a93ea41b21';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'b2db75c3aa6a76e6854d175350f09a154be329d269b5a3d7ca21e144597189fa';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
