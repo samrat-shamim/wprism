@@ -32,7 +32,7 @@ $diagnostic = ['format' => 'wprism-private-refusal-diagnostic/v1', 'purpose' => 
 $process = ['Id' => str_repeat('d', 64), 'Name' => '/' . $name, 'RestartCount' => 0, 'HostConfig' => ['Init' => true],
     'Config' => ['Cmd' => ['wp', 'wprism', 'apply', '--repo=/siterepo', '--revision=' . $revision, '--default-author=admin', '--format=json'],
         'Labels' => ['com.docker.compose.project' => 'wprism-' . $pair, 'com.docker.compose.service' => 'cli2', 'com.docker.compose.oneoff' => 'True'],
-        'Env' => ['WPRISM_TEST_MODE=1', 'WPRISM_TEST_FAIL_DB_CONTEXT=apply transaction commit', 'WPRISM_TEST_DB_FAULT_MODE=kill', 'WPRISM_TEST_PROMOTION_TTL=20']],
+        'Env' => ['WPRISM_TEST_MODE=1', 'WPRISM_TEST_FAIL_DB_CONTEXT=apply transaction commit', 'WPRISM_TEST_DB_FAULT_MODE=kill', 'WPRISM_TEST_PROMOTION_TTL=60']],
     'State' => ['Status' => 'exited', 'ExitCode' => 137, 'OOMKilled' => false, 'Running' => false, 'Restarting' => false,
         'Dead' => false, 'Error' => '', 'Pid' => 0, 'StartedAt' => '2023-11-14T22:13:21Z', 'FinishedAt' => '2023-11-14T22:13:24Z']];
 $seed = static function () use ($stream, $json, $sink, $private, $command, $transport, $diagnostic, $process, $name): void {
@@ -96,7 +96,7 @@ importer_recovery_fault "$2" wprism apply --format=json
 SH, [$package . '/fixtures/recovery.sh', $context], $root . '/sandbox');
     $expected = ['compose', '-p', 'wprism-crashtransport', '-f', 'exact.yml', '-f', 'overlay.yml', 'run', '--name',
         'wprism-crashtransport-cli2-run-abcdef123456', '-T', '-e', 'WPRISM_TEST_MODE=1', '-e', 'WPRISM_TEST_FAIL_DB_CONTEXT=' . $context,
-        '-e', 'WPRISM_TEST_DB_FAULT_MODE=kill', '-e', 'WPRISM_TEST_PROMOTION_TTL=20', 'cli2', 'wp', 'wprism', 'apply', '--format=json',
+        '-e', 'WPRISM_TEST_DB_FAULT_MODE=kill', '-e', 'WPRISM_TEST_PROMOTION_TTL=60', 'cli2', 'wp', 'wprism', 'apply', '--format=json',
         'crash-stage-process', '0', 'docker', 'inspect', '--type', 'container', '--format', '{{json .}}', 'wprism-crashtransport-cli2-run-abcdef123456',
         'crash-stage-removed', '0', 'docker', 'rm', 'wprism-crashtransport-cli2-run-abcdef123456'];
     wprism_check($status === 137 && $stderr === '' && explode("\n", rtrim($stdout, "\n")) === $expected,
@@ -136,4 +136,40 @@ SH, [$package . '/fixtures/recovery.sh', $sink, $transportMode], $root . '/sandb
             && !str_contains($trace, 'collect'), 'failed ' . $transportMode . ' cannot proceed to diagnostic collection');
     }
 }
+require_once $root . '/agent/src/Kernel/CommandRefusal.php';
+require_once $root . '/agent/src/Kernel/PrivateRefusalEvidence.php';
+$heldLease = ['owner' => 'direct-' . str_repeat('a', 32), 'artifact_hash' => str_repeat('b', 64),
+    'phase' => 'apply-ledger', 'acquired_at' => 1700000000, 'expires_at' => 1700000060];
+$heldPublic = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+    'error' => 'promotion_lease_held', 'reason_code' => 'promotion_lease_held',
+    'message' => 'a promotion lease on this target is held by another release; concurrent target mutation was refused',
+    'remediation' => 'wait for the recorded promotion to finish, or release its lease through the release that holds it, before promoting this target again'];
+$heldFailure = new WPrism\CommandRefusalException('promotion_lease_held', $heldPublic['message'], $heldPublic['remediation'], [],
+    "wprism: promotion lock held by '{$heldLease['owner']}' in phase 'apply-ledger' until epoch 1700000060; concurrent target mutation refused");
+$heldBytes = $json(['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'apply', 'reason_code' => 'promotion_lease_held']
+    + WPrism\PrivateRefusalEvidence::graph($heldFailure));
+$heldName = '20260914-010203-apply-0123456789abcdef01234567.json';
+$heldDiagnostic = ['format' => 'wprism-private-refusal-diagnostic/v1', 'command' => 'apply', 'new_records' => 1,
+    'purpose' => 'diagnostic_only', 'verified' => false, 'records' => [[
+        'name' => $heldName, 'bytes' => strlen($heldBytes), 'contents_base64' => base64_encode($heldBytes), 'sha256' => hash('sha256', $heldBytes),
+    ]]];
+$heldBaseline = ['command' => 'apply', 'baseline' => '[]'];
+ImporterRecoveryCrashEvidence::heldRefusal($heldPublic, $heldBaseline, $heldDiagnostic, $heldLease);
+wprism_check(true, 'exact typed public refusal and fresh private holder evidence');
+foreach (['format', 'ok', 'command', 'error', 'reason_code', 'message', 'remediation', 'owner', 'details_redacted'] as $field) {
+    $bad = $heldPublic; $bad[$field] = $field === 'owner' ? $heldLease['owner'] : 'changed';
+    wprism_check_throws(static fn() => ImporterRecoveryCrashEvidence::heldRefusal($bad, $heldBaseline, $heldDiagnostic, $heldLease),
+        RuntimeException::class, 'held public envelope refuses changed or additional ' . $field);
+}
+foreach (['owner', 'phase', 'expires_at'] as $field) {
+    $bad = $heldLease; $bad[$field] = $field === 'expires_at' ? 1700000061 : 'other';
+    wprism_check_throws(static fn() => ImporterRecoveryCrashEvidence::heldRefusal($heldPublic, $heldBaseline, $heldDiagnostic, $bad),
+        RuntimeException::class, 'private refusal must name the captured lease ' . $field);
+}
+$stale = ['command' => 'apply', 'baseline' => json_encode([$heldName], JSON_THROW_ON_ERROR)];
+wprism_check_throws(static fn() => ImporterRecoveryCrashEvidence::heldRefusal($heldPublic, $stale, $heldDiagnostic, $heldLease),
+    RuntimeException::class, 'prior refusal evidence cannot qualify a new contender');
+$empty = $heldDiagnostic; $empty['new_records'] = 0; $empty['records'] = [];
+wprism_check_throws(static fn() => ImporterRecoveryCrashEvidence::heldRefusal($heldPublic, $heldBaseline, $empty, $heldLease),
+    RuntimeException::class, 'held refusal requires fresh exact private evidence');
 wprism_check_summary('Importer crash evidence');

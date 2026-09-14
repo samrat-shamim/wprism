@@ -24,6 +24,18 @@ $before = $image($beforeLabel); $after = $image($afterLabel);
 $intent = ImporterRecoveryEvidence::intent($before['repository']['state']);
 $plan = $read('recovery-plan');
 if ($phase === 'plan') ImporterRecoveryEvidence::plan($before, $after, $plan, $intent);
+elseif (str_starts_with($phase, 'held-')) {
+    ImporterSettingsEvidence::check($mode === 'kill', 'live-lease contender follows actual process death');
+    $lease = ImporterRecoveryEvidence::held($before, $after, $plan['artifact_hash'], $read($command . '-window'), substr($phase, 5));
+    require_once __DIR__ . '/recovery-crash-evidence.php';
+    $stem = $sink . '/' . $command;
+    ImporterSettingsEvidence::command($root, $stem, $pair, 'apply', 1);
+    $directory = substr(explode("\n", file_get_contents($stem . '.stderr'), 2)[0], strlen('private command diagnostics (unverified): '));
+    $public = json_decode(PrivateCommandOutput::readObject($directory . '/command', $transport, expectedExit: 1), true, flags: JSON_THROW_ON_ERROR);
+    $baseline = json_decode(PrivateCommandOutput::readObject($directory . '/baseline', $transport), true, flags: JSON_THROW_ON_ERROR);
+    $diagnostic = json_decode(PrivateCommandOutput::readObject($directory . '/private', $transport), true, flags: JSON_THROW_ON_ERROR);
+    ImporterRecoveryCrashEvidence::heldRefusal($public, $baseline, $diagnostic, $lease);
+}
 else {
     ImporterRecoveryEvidence::transition($before, $after, $read('recovery-source-after'), $intent,
         $plan['artifact_hash'], $read($command . '-window'), $phase, $revision, $mode);

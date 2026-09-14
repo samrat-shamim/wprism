@@ -10,6 +10,24 @@ use WPrismTest\PrivateCommandOutput;
 use WPrismTest\PrivateRefusalReceipt;
 
 final class ImporterRecoveryCrashEvidence {
+    public static function heldRefusal(array $public, array $baseline, array $diagnostic, array $lease): void {
+        $message = 'a promotion lease on this target is held by another release; concurrent target mutation was refused';
+        $remediation = 'wait for the recorded promotion to finish, or release its lease through the release that holds it, before promoting this target again';
+        $expected = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
+            'error' => 'promotion_lease_held', 'reason_code' => 'promotion_lease_held', 'message' => $message, 'remediation' => $remediation];
+        ImporterSettingsEvidence::check(WPrism\Canon::encode($public) === WPrism\Canon::encode($expected),
+            'exact classified live-lease refusal without private holder details');
+        ImporterSettingsEvidence::check(array_keys($baseline) === ['command', 'baseline'] && $baseline['command'] === 'apply',
+            'exact live-lease refusal freshness baseline');
+        PrivateRefusalReceipt::validateDiagnosticBaseline($baseline['baseline'], 'apply');
+        PrivateRefusalReceipt::verifyDiagnostic($diagnostic, ['command' => 'apply', 'reason_code' => 'promotion_lease_held', 'nodes' => [[
+            'class' => 'WPrism\\CommandRefusalException', 'parent_index' => null, 'relation' => 'root',
+            'message' => "wprism: promotion lock held by '{$lease['owner']}' in phase '{$lease['phase']}' until epoch {$lease['expires_at']}; concurrent target mutation refused",
+        ]]]);
+        ImporterSettingsEvidence::check(!in_array($diagnostic['records'][0]['name'], json_decode($baseline['baseline'], true, flags: JSON_THROW_ON_ERROR), true),
+            'live-lease refusal is fresh to this contender invocation');
+    }
+
     public static function command(string $root, string $sink, string $pair, string $command, string $phase, string $revision, array $window): void {
         ImporterSettingsEvidence::check(in_array($phase, ['authored-failure', 'ledger-failure'], true)
             && preg_match('/^[a-f0-9]{40}$/D', $revision) === 1, 'exact crash phase and requested revision');
@@ -32,7 +50,7 @@ final class ImporterRecoveryCrashEvidence {
         ContainerProcessEvidence::assertKilled($read($stem . '-process'), $requested['name'], 'wprism-' . $pair, 'cli2',
             ['wp', 'wprism', 'apply', '--repo=/siterepo', '--revision=' . $revision, '--default-author=admin', '--format=json'],
             ['WPRISM_TEST_MODE' => '1', 'WPRISM_TEST_FAIL_DB_CONTEXT' => $phase === 'authored-failure' ? 'apply transaction commit' : 'ledger transaction commit',
-                'WPRISM_TEST_DB_FAULT_MODE' => 'kill', 'WPRISM_TEST_PROMOTION_TTL' => '20'], $window);
+                'WPRISM_TEST_DB_FAULT_MODE' => 'kill', 'WPRISM_TEST_PROMOTION_TTL' => '60'], $window);
     }
 
     /** The complete image has already passed transition verification; waiting changes no target row. */
@@ -42,7 +60,7 @@ final class ImporterRecoveryCrashEvidence {
             WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE), 'wp_wprism_kv', ['k', 'v']);
         $kv = array_column($rows, 'v', 'k');
         $lease = json_decode($kv['promotion_lock'], true, flags: JSON_THROW_ON_ERROR);
-        ImporterSettingsEvidence::check(is_int($lease['expires_at'] ?? null) && $lease['expires_at'] <= time() + 20,
+        ImporterSettingsEvidence::check(is_int($lease['expires_at'] ?? null) && $lease['expires_at'] <= time() + 60,
             'bounded natural lease expiry wait');
         return $lease['expires_at'];
     }

@@ -174,18 +174,57 @@ $lease = static fn(string $owner, string $phase, int $acquired, int $expires): s
     'owner' => 'direct-' . str_repeat($owner, 32), 'artifact_hash' => $artifact, 'phase' => $phase,
     'acquired_at' => $acquired, 'expires_at' => $expires,
 ], JSON_THROW_ON_ERROR);
-$crashed = $replaceKv($failed, ['promotion_lock' => $lease('2', 'apply-session-begin', 101, 121)]);
-$ledgerCrashed = $replaceKv($committed, ['promotion_session' => $session('3', 131), 'promotion_lock' => $lease('3', 'apply-ledger', 130, 152)]);
+$crashed = $replaceKv($failed, ['promotion_lock' => $lease('2', 'apply-session-begin', 101, 161)]);
+$ledgerCrashed = $replaceKv($committed, ['promotion_session' => $session('3', 201), 'promotion_lock' => $lease('3', 'apply-ledger', 200, 262)]);
 wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($crashed,
-    $replaceKv($ledgerCrashed, ['promotion_lock' => $lease('3', 'apply-rebuild', 130, 152)]),
-    $source, $intent, $artifact, ['before' => 130, 'after' => 140], 'ledger-failure', $revision, 'kill'),
+    $replaceKv($ledgerCrashed, ['promotion_lock' => $lease('3', 'apply-rebuild', 200, 262)]),
+    $source, $intent, $artifact, ['before' => 200, 'after' => 210], 'ledger-failure', $revision, 'kill'),
     RuntimeException::class, 'ledger interruption cannot claim the earlier rebuild phase');
-$crashRetried = $replaceKv($recovered, ['promotion_session' => $session('4', 161)]);
-$crashRepeated = $replaceKv($repeat, ['promotion_session' => $session('5', 181)]);
+foreach (['authored-failure' => [$crashed, ['before' => 102, 'after' => 103]],
+    'ledger-failure' => [$ledgerCrashed, ['before' => 202, 'after' => 203]]] as $heldPhase => [$heldImage, $heldWindow]) {
+    $heldLease = ImporterRecoveryEvidence::held($heldImage, $heldImage, $artifact, $heldWindow, $heldPhase);
+    wprism_check($heldLease['expires_at'] > $heldWindow['after'], 'exact live crash lease and complete preserved image: ' . $heldPhase);
+    foreach (['promotion_lock', 'promotion_session', 'apply_in_progress', 'applied_revision'] as $key) {
+        $changed = $replaceKv($heldImage, [$key => 'changed']);
+        wprism_check_throws(static fn() => ImporterRecoveryEvidence::held($heldImage, $changed, $artifact, $heldWindow, $heldPhase),
+            RuntimeException::class, 'contender cannot change ' . $key . ' at ' . $heldPhase);
+    }
+    foreach (ImporterRecoveryEvidence::TABLES as $table) {
+        $changed = $heldImage; $changed['database']['rows'][$table][] = ['unexpected' => 'mutation'];
+        wprism_check_throws(static fn() => ImporterRecoveryEvidence::held($heldImage, $changed, $artifact, $heldWindow, $heldPhase),
+            RuntimeException::class, 'contender preserves every row in ' . $table . ' at ' . $heldPhase);
+    }
+    $heldKv = array_column($heldImage['database']['rows']['wp_wprism_kv'], 'v', 'k');
+    foreach (['owner', 'session_id', 'begun_at', 'extra'] as $field) {
+        $badSession = json_decode($heldKv['promotion_session'], true, flags: JSON_THROW_ON_ERROR);
+        $badSession[$field] = $field === 'begun_at' ? $heldWindow['after'] + 1 : 'invalid';
+        $changes = ['promotion_session' => json_encode($badSession, JSON_THROW_ON_ERROR)];
+        if ($field === 'owner') {
+            $badLease = $heldLease; $badLease['owner'] = 'invalid';
+            $changes['promotion_lock'] = json_encode($badLease, JSON_THROW_ON_ERROR);
+        }
+        $malformed = $replaceKv($heldImage, $changes);
+        wprism_check_throws(static fn() => ImporterRecoveryEvidence::held($malformed, $malformed, $artifact, $heldWindow, $heldPhase),
+            RuntimeException::class, 'equal images cannot qualify malformed session ' . $field . ' at ' . $heldPhase);
+    }
+    foreach (['before', 'after'] as $edge) {
+        $expiredWindow = $heldWindow; $expiredWindow[$edge] = $heldLease['expires_at'];
+        if ($edge === 'before') $expiredWindow['after'] = $heldLease['expires_at'] + 1;
+        wprism_check_throws(static fn() => ImporterRecoveryEvidence::held($heldImage, $heldImage, $artifact, $expiredWindow, $heldPhase),
+            RuntimeException::class, 'lease must stay live at contender ' . $edge . ' at ' . $heldPhase);
+    }
+    $missing = $replaceKv($heldImage, ['promotion_lock' => null]);
+    wprism_check_throws(static fn() => ImporterRecoveryEvidence::held($missing, $missing, $artifact, $heldWindow, $heldPhase),
+        RuntimeException::class, 'equal images cannot substitute a missing live lease at ' . $heldPhase);
+    wprism_check_throws(static fn() => ImporterRecoveryEvidence::held($heldImage, $heldImage, str_repeat('f', 64), $heldWindow, $heldPhase),
+        RuntimeException::class, 'held lease must bind this compiled artifact at ' . $heldPhase);
+}
+$crashRetried = $replaceKv($recovered, ['promotion_session' => $session('4', 301)]);
+$crashRepeated = $replaceKv($repeat, ['promotion_session' => $session('5', 401)]);
 $crashPhases = ['authored-failure' => [$base, $crashed, ['before' => 100, 'after' => 110]],
-    'ledger-failure' => [$crashed, $ledgerCrashed, ['before' => 130, 'after' => 140]],
-    'retry' => [$ledgerCrashed, $crashRetried, ['before' => 160, 'after' => 170]],
-    'repeat' => [$crashRetried, $crashRepeated, ['before' => 180, 'after' => 190]]];
+    'ledger-failure' => [$crashed, $ledgerCrashed, ['before' => 200, 'after' => 210]],
+    'retry' => [$ledgerCrashed, $crashRetried, ['before' => 300, 'after' => 310]],
+    'repeat' => [$crashRetried, $crashRepeated, ['before' => 400, 'after' => 410]]];
 foreach ($crashPhases as $phase => [$before, $after, $crashWindow]) {
     ImporterRecoveryEvidence::transition($before, $after, $source, $intent, $artifact, $crashWindow, $phase, $revision, 'kill');
     wprism_check(true, 'actual process loss retains or retires its exact durable lease: ' . $phase);
@@ -197,14 +236,14 @@ foreach ($crashPhases as $phase => [$before, $after, $crashWindow]) {
             if ($fault === 'artifact') $badLease['artifact_hash'] = str_repeat('f', 64);
             if ($fault === 'phase') $badLease['phase'] = 'complete';
             if ($fault === 'acquired') $badLease['acquired_at'] = $crashWindow['before'] - 1;
-            if ($fault === 'expires') $badLease['expires_at'] = $crashWindow['after'] + 21;
+            if ($fault === 'expires') $badLease['expires_at'] = $crashWindow['after'] + 61;
             if ($fault === 'extra') $badLease['unobserved'] = true;
             $bad = $replaceKv($after, ['promotion_lock' => $fault === 'missing' ? null : json_encode($badLease, JSON_THROW_ON_ERROR)]);
             wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($before, $bad, $source, $intent,
                 $artifact, $crashWindow, $phase, $revision, 'kill'), RuntimeException::class, 'crash lease rejects ' . $phase . '/' . $fault);
         }
     } else {
-        $bad = $replaceKv($after, ['promotion_lock' => $lease('4', 'apply-rebuild', 161, 181)]);
+        $bad = $replaceKv($after, ['promotion_lock' => $lease('4', 'apply-rebuild', 301, 361)]);
         wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($before, $bad, $source, $intent,
             $artifact, $crashWindow, $phase, $revision, 'kill'), RuntimeException::class, 'completed crash retry/repeat releases its lease: ' . $phase);
     }

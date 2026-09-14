@@ -8,7 +8,7 @@ importer_recovery_fault() { # <exact shared context> <wp argv...>
   if [ "${IMPORTER_RECOVERY_FAULT_MODE:-throw}" = kill ]; then
     local result=0
     "${PAIR_COMPOSE[@]}" run --name "${IMPORTER_RECOVERY_CONTAINER:?owned crash container required}" -T \
-      -e WPRISM_TEST_MODE=1 -e "WPRISM_TEST_FAIL_DB_CONTEXT=$context" -e WPRISM_TEST_DB_FAULT_MODE=kill -e WPRISM_TEST_PROMOTION_TTL=20 cli2 wp "$@" || result=$?
+      -e WPRISM_TEST_MODE=1 -e "WPRISM_TEST_FAIL_DB_CONTEXT=$context" -e WPRISM_TEST_DB_FAULT_MODE=kill -e WPRISM_TEST_PROMOTION_TTL=60 cli2 wp "$@" || result=$?
     # A retained stopped oneoff triggers Compose orphan warnings in the next
     # diagnostic reader. Capture its identity, then remove it before that reader.
     importer_dirty_capture "${IMPORTER_RECOVERY_STAGE:?}-process" 0 docker inspect --type container --format '{{json .}}' "$IMPORTER_RECOVERY_CONTAINER"
@@ -45,8 +45,15 @@ importer_recovery_run() { # <phase> <before label> <after label> <command label>
   php "$IMPORTER_PACKAGE_ROOT/fixtures/recovery-check-evidence.php" "$phase" "$IMPORTER_EVIDENCE" "$CONF_PAIR" "$before" "$after" "$command" "$recovery_revision" "$mode"
   if [ "$expected" -eq 137 ]; then
     php "$IMPORTER_PACKAGE_ROOT/fixtures/recovery-crash-evidence.php" removed "$IMPORTER_EVIDENCE" "$command"
-    local deadline
-    deadline=$(php "$IMPORTER_PACKAGE_ROOT/fixtures/recovery-crash-evidence.php" deadline "$IMPORTER_EVIDENCE" "$after" "$CONF_PAIR")
+    local held_command="$command-held" held_after="$after-held" deadline
+    started=$(date +%s)
+    importer_dirty_capture "$held_command" 1 conformance_private_command cli2 apply \
+      wp_conf2 wprism apply --repo=/siterepo --revision="$recovery_revision" --default-author=admin --format=json
+    finished=$(date +%s)
+    importer_roundtrip_capture "$held_command-window" php -r 'echo json_encode(["before"=>(int)$argv[1],"after"=>(int)$argv[2]], JSON_THROW_ON_ERROR), "\n";' "$started" "$finished"
+    importer_dirty_snapshot "$held_after"
+    php "$IMPORTER_PACKAGE_ROOT/fixtures/recovery-check-evidence.php" "held-$phase" "$IMPORTER_EVIDENCE" "$CONF_PAIR" "$after" "$held_after" "$held_command" "$recovery_revision" "$mode"
+    deadline=$(php "$IMPORTER_PACKAGE_ROOT/fixtures/recovery-crash-evidence.php" deadline "$IMPORTER_EVIDENCE" "$held_after" "$CONF_PAIR")
     while [ "$(date +%s)" -le "$deadline" ]; do sleep 1; done
   fi
 }
