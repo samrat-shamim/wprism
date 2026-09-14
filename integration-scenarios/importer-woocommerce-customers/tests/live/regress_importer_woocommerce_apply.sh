@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Full combined Apply: exact update, preservation, native consumers and repeat.
+# Combined full or scoped Apply: exact update, preservation, native consumers and repeat.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 cd "$ROOT/sandbox"
+MODE="${IMPORTER_WOO_APPLY_MODE:-full}"
+[[ "$MODE" = full || "$MODE" = scoped ]] || { printf 'invalid combined Apply mode\n' >&2; exit 1; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok: %s\n' "$*"; }
 PAIR="${IMPORTER_WOO_PAIR:?unique owned pair required}"
@@ -114,16 +116,39 @@ apply_image() {
 }
 revision=$(git -C "$R2" rev-parse HEAD)
 apply_image apply-before
+if [ "$MODE" = scoped ]; then
+  export_uuid=$(php -r '$ids=[]; foreach(glob($argv[1]."/state/tables/wt_iew_mapping_template/*.json") as $path) { $row=json_decode(file_get_contents($path),true,flags:JSON_THROW_ON_ERROR); if($row["columns"]["name"]==="Selected users" && $row["columns"]["template_type"]==="export" && $row["columns"]["item_type"]==="user") $ids[]=$row["uuid"]; } if(count($ids)!==1) exit(1); echo $ids[0];' "$R1")
+  # Contract resolution belongs to the isolated host control plane; ordinary
+  # plugin-loaded WP-CLI refuses it before compilation (Cli::scope).
+  php -r '$config=["envs"=>["source"=>["transport"=>"docker","compose_file"=>$argv[2],"service"=>"cli1","repo_path"=>"/siterepo"]]]; file_put_contents($argv[1],json_encode($config,JSON_THROW_ON_ERROR));' "$sink/envs.json" "$ROOT/sandbox/pair.yml"
+  combo_capture export-scope "$ROOT/cli/wprism" --envs-file="$sink/envs.json" scope source --roots="table:wt_iew_mapping_template:$export_uuid" --contract --format=json
+  # Scope stdout is public canonical evidence; transport/private diagnostics stay
+  # in the retained capture streams. Only that contract enters the target repo.
+  cp "$sink/export-scope.stdout" "$R2/.tmp-importer-woo-export-scope.json"
+  chmod 0644 "$R2/.tmp-importer-woo-export-scope.json"
+  combo_capture scoped-plan candidate 2 plan --repo=/siterepo --scope-contract=/siterepo/.tmp-importer-woo-export-scope.json --format=json
+fi
 for phase in update repeat; do
   before=apply-before; after=apply-after
   if [ "$phase" = repeat ]; then before=apply-after; after=repeat-after; fi
   begun=$(date +%s)
-  combo_capture "$phase-apply" candidate 2 apply --repo=/siterepo --revision="$revision" --default-author=admin --format=json
+  if [ "$MODE" = scoped ]; then
+    combo_capture "$phase-apply" candidate 2 apply --repo=/siterepo --scope-contract=/siterepo/.tmp-importer-woo-export-scope.json --request-id=importer-woo-export-batch --format=json
+  else
+    combo_capture "$phase-apply" candidate 2 apply --repo=/siterepo --revision="$revision" --default-author=admin --format=json
+  fi
   ended=$(date +%s)
   combo_capture "$phase-window" printf '{"before":%s,"after":%s}\n' "$begun" "$ended"
   apply_image "$after"
-  php "$SCENARIO_ROOT/fixtures/apply-check.php" "$sink" "$PAIR" "$before" "$after" "$phase" "$revision"
+  php "$SCENARIO_ROOT/fixtures/apply-check.php" "$sink" "$PAIR" "$before" "$after" "$phase" "$revision" "$MODE"
 done
+if [ "$MODE" = scoped ]; then
+  combo_capture remaining-plan candidate 2 plan --repo=/siterepo --format=json
+  php "$SCENARIO_ROOT/fixtures/apply-check.php" "$sink" "$PAIR" apply-before repeat-after remaining "$revision" "$MODE"
+  # Completing the protected pending import is a separate window; it permits
+  # final native consumers and canonical recapture after scoped preservation.
+  combo_capture remainder-apply candidate 2 apply --repo=/siterepo --revision="$revision" --default-author=admin --format=json
+fi
 for kind in export import; do
   name='Selected users'; fixture="$CAPSULE/templates-native.php"
   if [ "$kind" = import ]; then name='Reusable input mapping'; fixture="$CAPSULE/import-templates-native.php"; fi
@@ -136,4 +161,4 @@ combo_capture final-recapture candidate 2 capture --repo=/siterepo --format=json
 pair_live_ownership_repo_host
 diff -r "$R1/state" "$R2/state" || fail 'native consumers and repeat changed canonical intent'
 diff -r "$R1/media" "$R2/media" || fail 'native consumers and repeat changed canonical media'
-pair_live_ownership_complete 'PASS: combined full template Apply, native consumers, recapture and exact repeat preservation'
+pair_live_ownership_complete "PASS: combined $MODE template Apply, native consumers, recapture and exact repeat preservation"
