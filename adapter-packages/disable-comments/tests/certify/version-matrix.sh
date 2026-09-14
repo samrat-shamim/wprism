@@ -125,11 +125,22 @@ EOF
     || fail "Disable Comments uninstall left the authored option row"
   wp2 plugin install "$DISABLE_ARTIFACT_2" --force >/dev/null
   wp2 wprism deploy --repo=/siterepo
-  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" >/dev/null
   wp2 plugin is-active disable-comments >/dev/null \
     || fail "exact Disable Comments reinstall was not activated by deploy"
+  set +e
+  REINSTALL_DRIFT=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1)
+  REINSTALL_DRIFT_RC=$?
+  set -e
+  [ "$REINSTALL_DRIFT_RC" -ne 0 ] \
+    || fail "Apply silently crossed the native uninstall drift boundary"
+  grep -q 'ordinary target drift requires capture/reconciliation before apply' <<<"$REINSTALL_DRIFT" \
+    || fail "native uninstall drift was refused for the wrong reason: $REINSTALL_DRIFT"
+  grep -q 'options/core.json' <<<"$REINSTALL_DRIFT" \
+    || fail "native uninstall drift did not identify the affected canonical surface: $REINSTALL_DRIFT"
+  wp2 disable-comments settings --xmlrpc --rest-api >/dev/null
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" >/dev/null
   check_disable_comments_boundary_content wp2 "$PORT2" reinstall
-  pass "Disable Comments uninstall removes plugin-owned residue without touching core content, and exact reinstall restores the endpoint behavior"
+  pass "Disable Comments uninstall removes plugin-owned residue without touching core content, WPrism refuses the resulting target drift, and native reinstall recovery restores the endpoint behavior"
 
   say "negative control: disable-comments 2.8.0 must be refused"
   reset_env wp1
