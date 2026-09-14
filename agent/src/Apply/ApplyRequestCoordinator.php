@@ -26,6 +26,7 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Promotion/Deploy.php';
 require_once __DIR__ . '/../Scope/ScopedApplyRequest.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
@@ -1068,10 +1069,6 @@ final class ApplyRequestCoordinator {
         $verifiedPromotionWitness = self::assert_verified_promotion_request($opts, $scoped);
         $allowDeletes = !empty($opts['with_deletes']);
         $requestBinding = self::direct_scoped_request($opts, $scoped, $allowDeletes);
-        // Ordinary target observation may persist natural-key identities.
-        // Reject incompatible lifecycle state before ledger initialization or
-        // any such observation; preparation repeats the shared gate afterward.
-        self::assert_lifecycle_ready($policy, $compiled, $opts);
         if ($scoped) {
             Ledger::assert_read_only_schema();
             // Recompute before target mutation so malformed/stale evidence
@@ -1090,6 +1087,9 @@ final class ApplyRequestCoordinator {
                 );
             }
         } else {
+            // Ordinary target observation may persist natural-key identities.
+            // Reject before ledger initialization or target preparation.
+            self::assert_lifecycle_ready($policy, $compiled, $opts);
             Ledger::ensure();
             $preflightContract = null;
         }
@@ -1098,6 +1098,11 @@ final class ApplyRequestCoordinator {
         );
         if ($terminalSummary !== null) {
             return $terminalSummary;
+        }
+        // Exact terminal replay above authorizes no new work. Every other
+        // scoped request needs compatible lifecycle state before preparation.
+        if ($scoped) {
+            self::assert_lifecycle_ready($policy, $compiled, $opts);
         }
         $recoveringScopedSession = $scoped
             && $existingScopedSession !== null
