@@ -145,6 +145,22 @@ final class SqlDumpEvidence {
      * @return list<array<string,int|string|null>>
      */
     public static function projectColumns(string $bytes, string $table, array $columns, string $profile = EvidenceSizeProfile::CONFORMANCE_TREE): array {
+        return self::project($bytes, $table, $columns, $profile, false);
+    }
+
+    /**
+     * A complete-row witness uses an independently observed full column roster.
+     * Unlike a selected projection, an extra INSERT column must refuse: otherwise
+     * a changed field omitted from the caller's roster would disappear from the
+     * preservation comparison. Schema sections remain a separate opaque witness.
+     *
+     * @return list<array<string,int|string|null>>
+     */
+    public static function fullRows(string $bytes, string $table, array $columns, string $profile = EvidenceSizeProfile::CONFORMANCE_TREE): array {
+        return self::project($bytes, $table, $columns, $profile, true);
+    }
+
+    private static function project(string $bytes, string $table, array $columns, string $profile, bool $complete): array {
         if (strlen($bytes) > EvidenceSizeProfile::limits($profile)['stdout_bytes']
             || !preg_match('/\A[A-Za-z0-9_]{1,64}\z/', $table) || $columns === [] || !array_is_list($columns)
             || count($columns) > 128) {
@@ -181,6 +197,9 @@ final class SqlDumpEvidence {
             $names = array_map(static fn(string $name): string => substr($name, 1, -1), explode(', ', $header[1]));
             if (count(array_unique($names)) !== count($names) || array_diff($columns, $names) !== []) {
                 throw new \RuntimeException('database projection has duplicate or missing columns');
+            }
+            if ($complete && array_diff($names, $columns) !== []) {
+                throw new \RuntimeException('database complete-row witness omits an inserted column');
             }
             $cursor = strlen($header[0]);
             $selected = [];

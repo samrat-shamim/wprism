@@ -148,6 +148,28 @@ foreach ([
     wprism_check_same($original, hash('sha256', $native), 'projection never changes complete native bytes');
 }
 wprism_check_same([], SqlDumpEvidence::projectColumns($projectDump(''), 'fixture', ['id']), 'complete empty table projects an empty row roster');
+
+$completeDump = $projectDump($insert("7,'complete',NULL"));
+wprism_check_same([['id' => 7, 'payload' => 'complete', 'unused' => null]],
+    SqlDumpEvidence::fullRows($completeDump, 'fixture', ['id', 'payload', 'unused']),
+    'complete-row witness preserves every scalar column');
+wprism_check_same([['unused' => null, 'id' => 7, 'payload' => 'complete']],
+    SqlDumpEvidence::fullRows($completeDump, 'fixture', ['unused', 'id', 'payload']),
+    'complete-row witness binds column names while retaining caller order');
+wprism_check_same([], SqlDumpEvidence::fullRows($projectDump(''), 'fixture', ['id', 'payload', 'unused']),
+    'complete-row witness admits a separately inventoried empty table');
+wprism_check_same([['id' => 7]], SqlDumpEvidence::projectColumns($completeDump, 'fixture', ['id']),
+    'selected projection deliberately cannot prove complete-row preservation');
+foreach ([['id'], ['id', 'payload'], ['id', 'payload', 'wrong'], ['id', 'payload', 'unused', 'extra']] as $columns) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::fullRows($completeDump, 'fixture', $columns), RuntimeException::class,
+        'complete-row witness refuses an incomplete or mismatched independent column roster');
+}
+$laterExtra = $projectDump($insert("7,'complete',NULL") . $insert("8,'later',NULL,'hidden'", '`id`, `payload`, `unused`, `extra`'));
+wprism_check_throws(static fn() => SqlDumpEvidence::fullRows($laterExtra, 'fixture', ['id', 'payload', 'unused']), RuntimeException::class,
+    'every row must obey complete column authority, including later rows');
+wprism_check_throws(static fn() => SqlDumpEvidence::fullRows($projectDump($insert("7,'complete',1.25")), 'fixture', ['id', 'payload', 'unused']), RuntimeException::class,
+    'complete-row mode does not coerce unsupported numeric literals');
+
 wprism_check_same([['id' => 7, 'payload' => 'reordered']],
     SqlDumpEvidence::projectColumns($projectDump($insert("'reordered',NULL,7", '`payload`, `unused`, `id`')), 'fixture', ['id', 'payload']),
     'column names bind values even when the complete native insert order changes');
