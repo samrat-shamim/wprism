@@ -289,6 +289,13 @@ $nativeAfter['customers']['import-template-reader']['billing']['city'] = 'Chatto
 $nativeAfter['customers']['import-template-reader']['shipping']['city'] = 'Osaka';
 ImporterWooNativeEvidence::consumers($nativeBefore, $nativeAfter);
 wprism_check(true, 'fresh native readback allows exactly the two mapped address changes');
+$orderFieldsBefore = $nativeBefore; $orderFieldsAfter = $nativeAfter;
+foreach (['billing', 'shipping'] as $address) {
+    $orderFieldsBefore['customers']['template-reader']['orders'][0][$address] = array_reverse($nativeBefore['customers']['template-reader']['orders'][0][$address], true);
+    $orderFieldsAfter['customers']['template-reader']['orders'][0][$address] = array_reverse($nativeAfter['customers']['template-reader']['orders'][0][$address], true);
+}
+ImporterWooNativeEvidence::consumers($orderFieldsBefore, $orderFieldsAfter);
+wprism_check(true, 'complete order address rosters may use a different insertion order from customer getters');
 $subscribers = $nativeBefore; $subscribersAfter = $nativeAfter;
 foreach (array_keys($subscribers['customers']) as $login) {
     $subscribers['customers'][$login]['role'] = 'subscriber';

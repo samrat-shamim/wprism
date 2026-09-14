@@ -12,6 +12,10 @@ final class ImporterWooNativeEvidence {
         $logins = ['template-reader', 'template-editor', 'import-template-reader'];
         $billing = ['first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'postcode', 'country', 'state', 'email', 'phone'];
         $shipping = ['first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'postcode', 'country', 'state', 'phone'];
+        // Woo customer and order getters expose the same address fields in
+        // different insertion orders; completeness concerns the closed roster.
+        $hasFields = static fn(array $address, array $fields): bool => count($address) === count($fields)
+            && array_diff($fields, array_keys($address)) === [];
         $check(array_keys($before) === ['phase', 'customers'] && $before['phase'] === 'seed-target'
             && array_keys($after) === ['phase', 'customers'] && $after['phase'] === 'observe', 'exact native phases');
         $check(is_array($before['customers']) && is_array($after['customers']) && array_keys($before['customers']) === $logins, 'all three target customer witnesses');
@@ -21,7 +25,7 @@ final class ImporterWooNativeEvidence {
                 && is_int($customer['id']) && $customer['id'] > 1 && !isset($ids[$customer['id']])
                 && $customer['role'] === 'customer' && $customer['email'] === $login . '-target@example.test', 'native customer identity');
             $ids[$customer['id']] = true;
-            $check(is_array($customer['billing']) && is_array($customer['shipping']) && array_keys($customer['billing']) === $billing && array_keys($customer['shipping']) === $shipping
+            $check(is_array($customer['billing']) && is_array($customer['shipping']) && $hasFields($customer['billing'], $billing) && $hasFields($customer['shipping'], $shipping)
                 && $customer['billing']['city'] === 'Dhaka' && $customer['billing']['country'] === 'BD'
                 && $customer['shipping']['city'] === 'Tokyo' && $customer['shipping']['country'] === 'JP', 'complete independent target addresses');
             $check(is_array($customer['orders']) && array_is_list($customer['orders']) && count($customer['orders']) === 3, 'three paid and pending orders per customer');
@@ -31,7 +35,7 @@ final class ImporterWooNativeEvidence {
                     && $order['customer_id'] === $customer['id']
                     && $order['status'] === ['processing', 'completed', 'pending'][$index]
                     && $order['total'] === ['12.50', '7.50', '99.00'][$index] && $order['currency'] === 'USD'
-                    && is_array($order['billing']) && is_array($order['shipping']) && array_keys($order['billing']) === $billing && array_keys($order['shipping']) === $shipping,
+                    && is_array($order['billing']) && is_array($order['shipping']) && $hasFields($order['billing'], $billing) && $hasFields($order['shipping'], $shipping),
                     'complete independent native order witness');
                 $orderIds[$order['id']] = true;
             }
