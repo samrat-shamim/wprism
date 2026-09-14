@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "loginizer": {
+      "2.0.9": {
+        "url": "https://downloads.wordpress.org/plugin/loginizer.2.0.9.zip",
+        "sha256": "17241ceefd7763c48a796ec2ee39491adab0874294146533be689e53789d2157",
+        "role": "refusal-fixture"
+      },
+      "2.1.0": {
+        "url": "https://downloads.wordpress.org/plugin/loginizer.2.1.0.zip",
+        "sha256": "7f51a7d54b258d6d5a0718b5d4978c64df2629f7b0220ecd2c5885a990283878",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

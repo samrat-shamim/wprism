@@ -24,6 +24,7 @@ final class ShippedIdentityInventory
         'disable-comments',
         'download-manager',
         'elementor',
+        'loginizer',
         'map-block-gutenberg',
         'ninja-forms',
         'paid-memberships-pro',

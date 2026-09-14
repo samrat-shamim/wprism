@@ -215,7 +215,7 @@ echo "\n== 2. it ENUMERATES rather than testing shape, and the shipped library i
 $hyphenShaped = static fn(string $value): bool => preg_match('/^[a-z0-9]+-[a-z0-9-]+$/D', $value) === 1;
 $noHyphen = array_values(array_filter($shippedNames, static fn(string $n): bool => !$hyphenShaped($n)));
 wprism_check_same(
-    ['acf', 'core', 'elementor', 'polylang', 'redirection', 'woocommerce', 'yoast'],
+    ['acf', 'core', 'elementor', 'loginizer', 'polylang', 'redirection', 'woocommerce', 'yoast'],
     $noHyphen,
     count($noHyphen) . ' shipped names carry no hyphen at all, so a bare shape rule would refuse them outright'
 );

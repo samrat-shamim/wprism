@@ -1251,9 +1251,9 @@ foreach ($spaces as $space => $values) {
 }
 
 wprism_check_same(
-    ['acf', 'core', 'elementor', 'polylang', 'redirection', 'woocommerce', 'yoast'],
+    ['acf', 'core', 'elementor', 'loginizer', 'polylang', 'redirection', 'woocommerce', 'yoast'],
     $unprefixed['adapter name'],
-    'V3-NS: the seven unhyphenated shipped adapter names can be read as <vendor>-<name> under no reading'
+    'V3-NS: the eight unhyphenated shipped adapter names can be read as <vendor>-<name> under no reading'
 );
 wprism_check_same(
     count($idKinds),

@@ -1,0 +1,127 @@
+{
+  "name": "loginizer",
+  "spec_version": 3,
+  "plugin": "loginizer/loginizer.php",
+  "version_range": {
+    "min": "2.1.0",
+    "max": "2.1.1"
+  },
+  "engine_features": [
+    "spec-window/v1"
+  ],
+  "option_autoload": "preserve",
+  "options": {
+    "loginizer_options": {
+      "class": "env",
+      "closed_sub_keys": true,
+      "required": false,
+      "absent_autoload": "yes",
+      "sub_keys": {
+        "max_retries": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "lockout_time": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "max_lockouts": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "lockouts_extend": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "reset_retries": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "notify_email": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "notify_email_address": {
+          "class": "authored",
+          "allow_pii": true
+        },
+        "trusted_ips": {
+          "class": "authored"
+        },
+        "blocked_screen": {
+          "class": "authored"
+        }
+      }
+    },
+    "loginizer_login_mail": {
+      "class": "env",
+      "closed_sub_keys": true,
+      "required": false,
+      "absent_autoload": "yes",
+      "sub_keys": {
+        "enable": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "disable_whitelist": {
+          "class": "authored",
+          "lint_ok": true
+        },
+        "html_mail": {
+          "class": "authored"
+        },
+        "subject": {
+          "class": "authored"
+        },
+        "body": {
+          "class": "authored"
+        },
+        "roles": {
+          "class": "authored"
+        }
+      }
+    },
+    "loginizer_whitelist": {
+      "class": "authored",
+      "allow_pii": true,
+      "note": "Operator-authored access policy holding IP ranges the site builder typed into the brute-force settings page (main/settings/brute-force.php:296-330), in the download-manager __wpdm_blocked_emails sense: an authored policy list, not captured visitor telemetry. The allow_pii clears only the IP-value screen; no sibling clearance is granted. The per-record creation clock and integer record positions sit one level deeper than the id-shaped-value scanner ever walks, so no lint review is claimed there."
+    },
+    "loginizer_blacklist": {
+      "class": "authored",
+      "allow_pii": true,
+      "note": "Operator-authored denial list of IP ranges from the same settings writer. Authored policy, not captured visitor telemetry; the allow_pii clears only the IP-value screen."
+    },
+    "loginizer_disable_brute": {
+      "class": "authored"
+    },
+    "loginizer_last_reset": {
+      "class": "runtime"
+    },
+    "loginizer_version": {
+      "class": "runtime"
+    },
+    "loginizer_ins_time": {
+      "class": "runtime"
+    },
+    "loginizer_msg": {
+      "class": "runtime"
+    }
+  },
+  "tables": {
+    "loginizer_logs": {
+      "class": "runtime"
+    }
+  },
+  "notes": [
+    "Adapter-authoring probe 2026-09-14: inspected the official WordPress.org Loginizer 2.1.0 artifact (SHA-256 7f51a7d54b258d6d5a0718b5d4978c64df2629f7b0220ecd2c5885a990283878) and its adjacent 2.0.9 release (SHA-256 17241ceefd7763c48a796ec2ee39491adab0874294146533be689e53789d2157). The patch-bounded range admits only the observed 2.1.0 artifact line. 2.0.9's brute-force settings writer is byte-identical to 2.1.0's (measured: diff of main/settings/brute-force.php is empty) and its activation seeds the same option set, so the 2.0.9 refusal in the exact-artifact matrix stands on the declared range alone, with no incidental surface difference to lean on.",
+    "loginizer_activation() (init.php:43-48) creates loginizer_options, loginizer_whitelist, loginizer_blacklist, loginizer_2fa_whitelist as empty arrays and loginizer_version/loginizer_last_reset as markers, each through add_option() with WordPress's default autoload, so option_autoload is preserve and the two mixed parents declare absent_autoload yes.",
+    "The Brute Force Settings save (main/settings/brute-force.php:75-134) writes loginizer_options as exactly nine scalar members — max_retries, lockout_time, max_lockouts, lockouts_extend, reset_retries, notify_email, notify_email_address, trusted_ips, blocked_screen — replacing the whole array in one update_option(). The closed sub-key set refuses a future tenth member instead of riding along; every member is a count, duration, checkbox or address, none an entity reference, and the five durations/counters plus the notify flag carry lint_ok for exactly that reason. notify_email_address is the operator's own lockout-notification address, authored policy identity in the download-manager __wpdm_email_setting sense, not a captured site visitor.",
+    "The same settings page's login-notification save (main/settings/brute-force.php:56-66) writes loginizer_login_mail as exactly six members: enable, disable_whitelist, html_mail, subject, body, roles. body is wp_kses_post-sanitized operator copy whose template placeholders are $sitename-style words, not URLs; roles is a role-slug list that starts empty. The sub-key set is closed for the same reason as loginizer_options.",
+    "loginizer_whitelist and loginizer_blacklist are id => {start, end, time} IP-range maps (main/settings/brute-force.php:270-330). The integer record keys are list positions from max(array_keys())+1 and time is the record's creation clock; neither is a post/term/user id, which is the reviewed lint_ok on both whole-option rules.",
+    "loginizer_disable_brute is the enable/disable toggle's whole-row 0/1 (main/settings/brute-force.php:32-46), a scalar boolean flag whose whole-value form the engine's own 0/1 lint guard already exempts.",
+    "loginizer_last_reset is a clock marker the retention sweep advances (init.php:860-863), loginizer_version and loginizer_ins_time are install/version markers (init.php:213, init.php:310), and loginizer_msg carries transient admin-screen messages; all four are runtime and excluded from capture.",
+    "loginizer_logs (init.php:29-36) holds failed-attempt rows keyed by UNIQUE ip with username/count/lockout/url columns. It is environment-local security telemetry: declared runtime so the table is owned and excluded rather than invisible, never captured or applied.",
+    "No option_namespaces claim is made. The plugin's other option families — reCAPTCHA credentials (loginizer_captcha), two-factor settings and bypass list (loginizer_2fa*), passwordless login (loginizer_epl), file-integrity checks, social login and SSO, IP-method selection (loginizer_ip_method), and license/upgrade/promo markers — stay undeclared and therefore invisible to WPrism until each is reviewed on its own evidence; a blanket prefix rule would either capture credentials or hide future authored configuration.",
+    "Evidence: classification, the closed-key guard and the capture-side secret/PII screens are exercised offline through the real policy loader and OptionsCapture against FakeWpdb (regress-package-contract, with closed-set, allow_pii and lint_ok mutation proofs); native authoring, hostile-target convergence through the plugin's boot globals and access decisions, the home-URL template binding, lifecycle recovery, conflict/forced/idempotent behaviour, unauthorized-deletion refusal with authorized row deletion and the closed-sibling refusal are exercised live against exact pinned 2.1.0 artifacts (conformance-loginizer); and the exact-artifact version matrix admits 2.1.0 while refusing the byte-identical-writer 2.0.9 on the declared range alone (exact-artifact-version-matrix)."
+  ]
+}
