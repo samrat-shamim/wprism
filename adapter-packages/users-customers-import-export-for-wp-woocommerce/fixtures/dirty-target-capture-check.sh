@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/dirty-target.sh"
+importer_dirty_source_window
 importer_roundtrip_capture identity-before-native importer_roundtrip_observe 1
 importer_roundtrip_capture identity-before-map importer_roundtrip_native 1 dirty-target-native identities source
 for kind in import export; do

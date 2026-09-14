@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/clean-target-evidence.php';
 require_once $root . '/sandbox/tests/lib/SqlDumpEvidence.php';
+require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Repository/Snapshot.php';
 require_once $root . '/agent/src/Kernel/Uuid.php';
 

@@ -5,6 +5,15 @@
 read -r -a PAIR_COMPOSE <<<"${COMPOSE:?exact conformance transport required}"
 . tests/lib/conformance_private_command.sh
 
+importer_dirty_source_cron_transport() { wordpress_cron_window_compose_transport cli1 "$@"; }
+importer_dirty_source_window() {
+  . tests/lib/wordpress_cron_window.sh
+  trap 'wordpress_cron_window_exit "$?"' EXIT
+  trap 'exit 130' INT TERM
+  wordpress_cron_window_begin wp_conf1 importer_dirty_source_cron_transport \
+    || fail 'Importer source observation requires its owned cron window'
+}
+
 importer_dirty_capture() { # <unique stage> <expected exit> <argv...>
   local stage="$1" expected="$2" result=0 suffix
   shift 2

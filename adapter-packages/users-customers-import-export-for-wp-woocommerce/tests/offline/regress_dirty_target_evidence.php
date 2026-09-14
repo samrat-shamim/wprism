@@ -171,6 +171,7 @@ $json = static fn(array $data): string => json_encode($data, JSON_THROW_ON_ERROR
 $pair = 'importerdirtyoffline';
 try {
     $historical = $native;
+    $historical['tables']['options'][] = ['option_id' => '999', 'option_name' => '_transient_doing_cron', 'option_value' => 'original'];
     $historical['tables']['wt_iew_mapping_template'] = array_slice($historical['tables']['wt_iew_mapping_template'], 0, 5);
     foreach ([0, 2] as $index) $historical['tables']['wt_iew_mapping_template'][$index]['name'] = 'Historical ' . $historical['tables']['wt_iew_mapping_template'][$index]['name'];
     $current = $historical; $map = ['identities' => []];
@@ -188,7 +189,16 @@ try {
     $captured = WPrismTest\FilesystemTreeEvidence::capture($sink . '/identity', 'state');
     ImporterDirtyTargetEvidence::retained($historical, $current, $map, $map, $captured);
     wprism_check(true, 'native rename proof admits both historical UUIDs retained under current names');
-    foreach (['missing-map', 'duplicate-map', 'wrong-kind', 'rebound', 'not-historical', 'changed-id', 'changed-form', 'changed-file', 'missing-canonical', 'wrong-canonical-name', 'wrong-canonical-uuid'] as $fault) {
+    foreach (['identity-before-native' => $historical, 'identity-after-native' => $current,
+        'identity-before-map' => $map, 'identity-after-map' => $map, 'identity-after-state' => ['state' => $captured]] as $label => $record) {
+        $stream($sink . '/' . $label, $json($record));
+    }
+    [$retainedStatus, $retainedOut, $retainedErr] = WPrismTest\ShellProbe::run('exec "$1" "$2" retained "$3" "$4"',
+        [PHP_BINARY, $package . '/fixtures/dirty-target-evidence.php', $sink, $pair], $root);
+    wprism_check($retainedStatus === 0 && $retainedErr === '' && str_contains($retainedOut, 'PASS: Importer dirty target retained'),
+        'standalone retained-identity verifier loads every dependency: ' . $retainedErr);
+
+    foreach (['missing-map', 'duplicate-map', 'wrong-kind', 'rebound', 'not-historical', 'changed-id', 'changed-form', 'changed-file', 'changed-cron', 'missing-canonical', 'wrong-canonical-name', 'wrong-canonical-uuid'] as $fault) {
         $before = $historical; $after = $current; $oldMap = $map; $newMap = $map; $tree = $captured;
         if ($fault === 'missing-map') array_pop($oldMap['identities']);
         if ($fault === 'duplicate-map') $oldMap['identities'][1] = $oldMap['identities'][0];
@@ -198,6 +208,7 @@ try {
         if ($fault === 'changed-id') $after['tables']['wt_iew_mapping_template'][0]['id'] = '999';
         if ($fault === 'changed-form') $after['tables']['wt_iew_mapping_template'][0]['data'] = '{}';
         if ($fault === 'changed-file') $after['files']['input.csv'] = str_repeat('b', 64);
+        if ($fault === 'changed-cron') $after['tables']['options'][2]['option_value'] = 'changed';
         if ($fault === 'missing-canonical') array_pop($tree['files']);
         if (str_starts_with($fault, 'wrong-canonical-')) {
             $record = json_decode(base64_decode($tree['files'][0]['contents_base64'], true), true, flags: JSON_THROW_ON_ERROR);
