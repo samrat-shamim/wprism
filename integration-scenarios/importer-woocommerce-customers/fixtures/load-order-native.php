@@ -4,7 +4,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/load-order-evidence.php';
 $phase = $args[0] ?? '';
 $side = $args[1] ?? '';
-$expected = ImporterWooLoadOrderEvidence::expected($side);
+$order = $args[2] ?? '';
+$expected = ImporterWooLoadOrderEvidence::expected($order);
+if (!in_array($side, ['source', 'target'], true)) throw new RuntimeException('Importer/Woo load order: unknown side');
 if (!is_admin() || !current_user_can('manage_options')) {
     throw new RuntimeException('Importer/Woo load order: native administrator context required');
 }
@@ -19,7 +21,7 @@ if ($phase === 'set') {
     if (get_option('active_plugins') !== $expected) {
         throw new RuntimeException('Importer/Woo load order: order did not persist');
     }
-    echo json_encode(['side' => $side, 'active' => $expected], JSON_THROW_ON_ERROR), "\n";
+    echo json_encode(['side' => $side, 'order' => $order, 'active' => $expected], JSON_THROW_ON_ERROR), "\n";
     return;
 }
 if ($phase !== 'observe') throw new RuntimeException('Importer/Woo load order: unknown phase');
@@ -31,8 +33,8 @@ foreach (get_included_files() as $file) {
         if (in_array($relative, $expected, true)) $loaded[] = $relative;
     }
 }
-$record = ['side' => $side, 'active' => $active, 'loaded' => $loaded,
+$record = ['side' => $side, 'order' => $order, 'active' => $active, 'loaded' => $loaded,
     'versions' => ['importer' => defined('WT_U_IEW_VERSION') ? WT_U_IEW_VERSION : null,
         'woocommerce' => defined('WC_VERSION') ? WC_VERSION : null]];
-ImporterWooLoadOrderEvidence::verify($record, $side);
+ImporterWooLoadOrderEvidence::verify($record, $side, $order);
 echo json_encode($record, JSON_THROW_ON_ERROR), "\n";

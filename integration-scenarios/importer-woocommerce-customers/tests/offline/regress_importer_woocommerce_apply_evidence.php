@@ -497,14 +497,19 @@ foreach ([
 }
 
 require_once dirname(__DIR__, 2) . '/fixtures/load-order-evidence.php';
-foreach (['source', 'target'] as $side) {
-    $order = ImporterWooLoadOrderEvidence::expected($side);
-    $record = ['side' => $side, 'active' => $order, 'loaded' => $order,
+wprism_check_same([ImporterWooLoadOrderEvidence::IMPORTER, ImporterWooLoadOrderEvidence::WOO],
+    ImporterWooLoadOrderEvidence::expected('importer-first'), 'explicit Importer-first order');
+wprism_check_same([ImporterWooLoadOrderEvidence::WOO, ImporterWooLoadOrderEvidence::IMPORTER],
+    ImporterWooLoadOrderEvidence::expected('woo-first'), 'explicit Woo-first order');
+foreach (['importer-first', 'woo-first'] as $orderName) foreach (['source', 'target'] as $side) {
+    $order = ImporterWooLoadOrderEvidence::expected($orderName);
+    $record = ['side' => $side, 'order' => $orderName, 'active' => $order, 'loaded' => $order,
         'versions' => ['importer' => '2.7.5', 'woocommerce' => '11.0.1']];
-    ImporterWooLoadOrderEvidence::verify($record, $side);
+    ImporterWooLoadOrderEvidence::verify($record, $side, $orderName);
     wprism_check(true, "fresh $side native load order passes");
-    foreach (['wrong-side', 'active-reversed', 'loaded-reversed', 'missing', 'duplicate', 'foreign', 'version'] as $fault) {
+    foreach (['wrong-order', 'wrong-side', 'active-reversed', 'loaded-reversed', 'missing', 'duplicate', 'foreign', 'version'] as $fault) {
         $bad = $record;
+        if ($fault === 'wrong-order') $bad['order'] = 'other';
         if ($fault === 'wrong-side') $bad['side'] = 'other';
         if ($fault === 'active-reversed') $bad['active'] = array_reverse($order);
         if ($fault === 'loaded-reversed') $bad['loaded'] = array_reverse($order);
@@ -512,12 +517,12 @@ foreach (['source', 'target'] as $side) {
         if ($fault === 'duplicate') $bad['loaded'][] = $order[0];
         if ($fault === 'foreign') $bad['active'][] = 'foreign/plugin.php';
         if ($fault === 'version') $bad['versions']['importer'] = '2.7.4';
-        wprism_check_throws(static fn() => ImporterWooLoadOrderEvidence::verify($bad, $side), RuntimeException::class,
+        wprism_check_throws(static fn() => ImporterWooLoadOrderEvidence::verify($bad, $side, $orderName), RuntimeException::class,
             "$side native load premise rejects $fault");
     }
 }
 wprism_check_throws(static fn() => ImporterWooLoadOrderEvidence::expected('unknown'), RuntimeException::class,
-    'unknown load-order side refuses');
+    'unknown load order refuses');
 
 // Execute the real observer with actual included entry files. The active
 // option alone cannot prove execution order when a loader reorders plugins.
@@ -528,14 +533,14 @@ try {
         mkdir(dirname($loadTmp . '/' . $file), 0700, true);
         file_put_contents($loadTmp . '/' . $file, '<?php // native entry witness');
     }
-    foreach (['source', 'target'] as $side) foreach ([false, true] as $reverse) {
-        $order = ImporterWooLoadOrderEvidence::expected($side);
+    foreach (['importer-first', 'woo-first'] as $orderName) foreach (['source', 'target'] as $side) foreach ([false, true] as $reverse) {
+        $order = ImporterWooLoadOrderEvidence::expected($orderName);
         $code = '<?php define("WP_PLUGIN_DIR", ' . var_export($loadTmp, true) . ');'
             . 'define("WT_U_IEW_VERSION", "2.7.5"); define("WC_VERSION", "11.0.1");'
             . 'function is_admin() { return true; } function current_user_can($cap) { return true; }'
             . 'function get_option($key) { return ' . var_export($order, true) . '; }';
         foreach ($reverse ? array_reverse($order) : $order as $file) $code .= 'require ' . var_export($loadTmp . '/' . $file, true) . ';';
-        $code .= '$args = ["observe", ' . var_export($side, true) . ']; require '
+        $code .= '$args = ["observe", ' . var_export($side, true) . ', ' . var_export($orderName, true) . ']; require '
             . var_export(dirname(__DIR__, 2) . '/fixtures/load-order-native.php', true) . ';';
         file_put_contents($loadTmp . '/probe.php', $code);
         $process = proc_open([PHP_BINARY, $loadTmp . '/probe.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -547,7 +552,7 @@ try {
                 "$side actual observer rejects reversed entry execution despite correct active option");
         } else {
             wprism_check($exit === 0 && $stderr === '', "$side actual observer accepts fresh included entry order");
-            ImporterWooLoadOrderEvidence::verify(json_decode($stdout, true, flags: JSON_THROW_ON_ERROR), $side);
+            ImporterWooLoadOrderEvidence::verify(json_decode($stdout, true, flags: JSON_THROW_ON_ERROR), $side, $orderName);
         }
     }
 } finally {
