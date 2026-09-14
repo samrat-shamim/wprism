@@ -21,11 +21,28 @@
       "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/clean-target-check.sh",
       "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/offline/regress_clean_target_evidence.php",
       "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_clean_target.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/package/manifest.json",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target-entry.json",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target-seed.sh",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target-capture-check.sh",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target-prepare.sh",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target-check.sh",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target.sh",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target-native.php",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/dirty-target-evidence.php",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/conformance/postapply.sh",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/roundtrip-evidence.php",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_dirty_target.sh",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/offline/regress_dirty_target_evidence.php",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/clean-target-entry.json",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/clean-target-evidence.php",
+      "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_clean_target.sh"
     ]
   },
   "gaps": {
     "contract-dependency": "tests/live/regress_dependency_apply.sh pins official 2.7.5 and 2.7.4 artifacts and proves inactive Apply plus missing/prior-code deployment refusals preserve the complete database, canonical state and policy. tests/offline/regress_dependency_preflight.php also exercises declared version limits and the wrong basename. Unreadable-code and the complete native dependency boundary matrix remain unqualified. The package-owned exact-artifact version matrix adds active 2.7.4 deployment and Apply refusals after a complete 2.7.5 agent roundtrip, with exact private causes and full database/file preservation.",
-    "dirty-target": "The agent-roundtrip conformance exercises all nine settings, two adopted templates and three created templates with a complete native database/file census. Signed deletion and native failure/recovery on dirty targets remain unqualified.",
     "native-behavior": "Native settings Save/readback, saved-template Save/Update/Save As/reopen, selected-user CSV export and mapped-password local CSV import pass. The native omitted-password warning case, remote extensions and plugin combinations remain unqualified.",
     "deletion": "tests/live/regress_template_deletion_ssh.sh exercises native Delete for same-name import/export originals and a blank draft, surviving copy/history consumers, exact public tombstone Capture/recapture and full-plan/direct-Apply refusal with complete native preservation. tests/offline/regress_template_deletion.php exercises typed-row removal and checked rollback. Successful signed host deletion and external-exclusion-loss recovery remain unqualified.",
     "failure-recovery": "Checked settings materialization rolls back an injected post-write failure offline. Native failure/recovery paths remain unqualified.",

@@ -4,7 +4,7 @@ The [readiness contract](../../../docs/agents/adapter-production-readiness.md)
 qualifies each scenario family against the adapter's declared surface. The
 current surface is nine settings and exact `user/import` and `user/export`
 mapping-template rows at the locked 2.7.5 artifact. This audit closes the
-clean-target and reference families and identifies why derived-state repair does not apply to
+clean-target, dirty-target and reference families and identifies why derived-state repair does not apply to
 that surface. It does not qualify the remaining families or promote the adapter.
 
 ## Identity and references
@@ -43,8 +43,38 @@ complete surrounding database and files, and exposes all nine settings. Native
 reopen, export and import consume the target values. A source rename and header
 edit reach the existing target row, repeated Apply leaves the full native
 observation unchanged, and source/target canonical recapture is byte-identical.
-The lane covers this family for the declared surface; signed deletion, conflicts,
+The lane covers this family for the declared surface; signed deletion,
 recovery and combinations retain their separate gaps.
+
+## Dirty target
+
+The [dirty-target lane](../tests/live/regress_dirty_target.sh) uses the exact
+2.7.5 artifact and [explicit shared-runner hooks](../fixtures/dirty-target-entry.json).
+Native Save first gives both original templates historical names. Capture enrolls
+their identities; another native Save restores their current names and recapture
+retains all five UUID/local-ID mappings. The [oracle](../fixtures/dirty-target-evidence.php)
+proves both originals now differ from fresh current-key UUIDs. Independently
+created, unmapped target rows therefore exercise genuine collisions.
+
+Plan and unapproved Apply refuse with exact public/private causes, preserving
+the complete database, canonical tree, policy and eleven-table/file census.
+Explicit adoption retains the existing target template IDs; the standard
+[post-Apply oracle](../fixtures/roundtrip-evidence.php) checks all surrounding
+rows, activation defaults, local settings and operational files. Native target
+edits then produce drift, and independent source edits produce three-way
+conflicts. Both refuse without mutation; explicit resolution changes only the
+three authored values, retains target IDs and inputs, and repeated Apply is
+stable. All five templates reopen, actual CSV consumers use target-local data,
+and recapture matches the source exactly.
+
+The native settings controller replaces its entire option, including removal of
+unrecognized members. The evidence treats that user-initiated Save separately
+from WPrism's nine-key Apply projection, which preserves target-local members.
+[Negative controls](../tests/offline/regress_dirty_target_evidence.php) reject
+lost local values, incomplete raw observations, unintended Plan diagnostics,
+identity rebinding and incomplete refusal preservation. Source observations use
+the shared owned cron window while retaining every cron row in comparisons.
+Signed deletion, failure/recovery and concurrency remain separate open families.
 
 ## Derived state
 
@@ -65,9 +95,8 @@ listener as an adapter repair would destroy target-local operational state.
 The required derived-state repair family is therefore structurally
 `not_applicable` for the declared surface, rather than an unimplemented action.
 
-Nine families remain gaps in [the readiness record](production-readiness.json).
+Eight families remain gaps in [the readiness record](production-readiness.json).
 The existing positive and refusal evidence stays useful, but it does not establish
-complete dirty-target qualification, every dependency/lifecycle/platform
-boundary, the omitted-password native case, signed deletion and recovery,
+every dependency/lifecycle/platform boundary, the omitted-password native case, signed deletion and recovery,
 concurrency, or all difficult-value/data boundaries. Those require their own
 concrete evidence before promotion.

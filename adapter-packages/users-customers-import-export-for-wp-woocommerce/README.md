@@ -103,8 +103,8 @@ omitted from mappings; the mapped-password control does not qualify that case.
 Remote-adapter extensions and broader import-job behavior remain unqualified.
 Successful signed template-deletion promotion, native post-write recovery,
 remaining lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
-unready: clean-target and identity/references are covered, derived-state repair is structurally
-inapplicable to the declared surface, and nine families retain gaps. The
+unready: clean-target, dirty-target and identity/references are covered; derived-state
+repair is structurally inapplicable to the declared surface, and eight families retain gaps. The
 [readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
 manifest and native/offline evidence.
 
