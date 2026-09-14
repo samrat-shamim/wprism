@@ -1075,15 +1075,15 @@ check(($cacheProviderDeclaration['source'] ?? '') === 'manifest'
     && ($cacheProviderDeclaration['version'] ?? '') === '1.0.0',
     'Woo cache provider is manifest-shipped code owned by the version-pinned plugin');
 check(($policy->manifests[0]['version_range']['min'] ?? '') === '11.0.0'
-    && ($policy->manifests[0]['version_range']['max'] ?? '') === '11.0.2',
-    'Woo cache boundary admits only exact certified 11.0.0 and 11.0.1 artifacts');
+    && ($policy->manifests[0]['version_range']['max'] ?? '') === '11.1.1',
+    'Woo cache boundary admits only the exact certified artifacts');
 $wooRange = $policy->manifests[0]['version_range'];
 foreach (['11.0.0', '11.0.1'] as $admittedVersion) {
     check(version_compare($admittedVersion, $wooRange['min'], '>=')
         && version_compare($admittedVersion, $wooRange['max'], '<'),
         "exact WooCommerce $admittedVersion is inside the reviewed patch window");
 }
-foreach (['10.9.4', '11.0.2'] as $refusedVersion) {
+foreach (['10.9.4', '11.1.1'] as $refusedVersion) {
     check(!(version_compare($refusedVersion, $wooRange['min'], '>=')
         && version_compare($refusedVersion, $wooRange['max'], '<')),
         "adjacent WooCommerce $refusedVersion is outside the reviewed patch window");
@@ -1094,7 +1094,7 @@ if (!mkdir(dirname($compatibilityPlugin), 0700, true)) {
     throw new RuntimeException('could not create Woo version-boundary fixture');
 }
 $resolvedWoo = RepositoryCompiler::resolved_adapters($policy);
-foreach (['11.0.0' => false, '11.0.1' => false, '10.9.4' => true, '11.0.2' => true] as $version => $refused) {
+foreach (['11.0.0' => false, '11.0.1' => false, '11.1.0' => false, '10.9.4' => true, '11.1.1' => true] as $version => $refused) {
     file_put_contents(
         $compatibilityPlugin,
         "<?php\n/**\n * Plugin Name: WooCommerce\n * Version: $version\n */\n"

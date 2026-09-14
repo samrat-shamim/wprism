@@ -429,6 +429,74 @@ grep -qE '^term\|[1-9][0-9]*\|attachment\|file$' <<<"$TERM_META_OUT" \
   || fail "conf2 product_cat thumbnail_id did not resolve to a local attachment with a real media file (got: $TERM_META_OUT)"
 pass "conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file"
 
+# The 11.1.0 video gallery is JSON in postmeta and its ids are references, so a
+# capture that passed them through verbatim would leave conf1's attachment ids
+# naming whatever conf2 happens to have at those numbers.
+#
+# The expectation is taken from the SOURCE, not from a version string. Whether a
+# gallery exists depends on the WooCommerce version at SEED time, which is not the
+# version installed at CHECK time -- the in-place upgrade leg seeds on 11.0.0 and
+# then upgrades, so a version-keyed expectation demands a gallery that was never
+# authored. Comparing conf1 to conf2 is also the stronger claim: it tests the
+# transport itself rather than predicting it.
+woocommerce_video_gallery_observation() { # <1|2>
+  $COMPOSE run --rm -T "cli$1" wp eval '
+$product = wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
+$raw = $product ? get_post_meta($product->get_id(), "_wc_video_gallery", true) : "";
+$items = is_string($raw) && $raw !== "" ? json_decode($raw, true) : null;
+$item = is_array($items) && count($items) === 1 ? $items[0] : null;
+$videoId = is_array($item) ? (int) ($item["id"] ?? 0) : 0;
+$posterId = is_array($item) ? (int) ($item["poster_id"] ?? 0) : 0;
+$term = get_term_by("slug", "conformance-widgets", "product_cat");
+$thumbId = $term ? (int) get_term_meta($term->term_id, "thumbnail_id", true) : 0;
+$videoMime = $videoId ? (string) get_post_mime_type($videoId) : "";
+$local = static fn(int $id): bool => $id > 0 && ($post = get_post($id)) && $post->post_type === "attachment";
+echo wp_json_encode([
+    "items" => is_array($items) ? count($items) : -1,
+    "source_type" => is_array($item) ? (string) ($item["source_type"] ?? "") : "",
+    "position" => is_array($item) ? (int) ($item["position"] ?? 0) : 0,
+    "video_id" => $videoId,
+    "poster_id" => $posterId,
+    "video_local" => $local($videoId),
+    "video_mime_is_video" => str_starts_with($videoMime, "video/"),
+    "poster_local" => $local($posterId),
+    "poster_is_category_thumbnail" => $posterId > 0 && $posterId === $thumbId,
+], JSON_UNESCAPED_SLASHES);
+' 2>&1 | tail -1
+}
+VIDEO_GALLERY_SOURCE=$(woocommerce_video_gallery_observation 1)
+VIDEO_GALLERY_OUT=$(woocommerce_video_gallery_observation 2)
+require_observed_nonempty "conf1 WooCommerce video gallery observation" "$VIDEO_GALLERY_SOURCE"
+require_observed_nonempty "conf2 WooCommerce video gallery observation" "$VIDEO_GALLERY_OUT"
+echo "conf1 video gallery check: $VIDEO_GALLERY_SOURCE"
+echo "conf2 video gallery check: $VIDEO_GALLERY_OUT"
+VIDEO_GALLERY_SOURCE_ITEMS=$(jq -r '.items' <<<"$VIDEO_GALLERY_SOURCE")
+case "$VIDEO_GALLERY_SOURCE_ITEMS" in
+  -1)
+    # Seeded on a WooCommerce without ProductMediaGallery. The target must not
+    # invent postmeta the source never held.
+    jq -e '.items == -1 and .video_local == false and .poster_local == false' <<<"$VIDEO_GALLERY_OUT" >/dev/null \
+      || fail "conf1 holds no _wc_video_gallery, so conf2 must hold none either: $VIDEO_GALLERY_OUT"
+    pass "conf2 invents no _wc_video_gallery where the source never authored one"
+    ;;
+  1)
+    jq -e --argjson source "$VIDEO_GALLERY_SOURCE" '
+      .items == 1 and
+      .source_type == $source.source_type and
+      .position == $source.position and
+      .video_local == true and
+      .video_mime_is_video == true and
+      .poster_local == true and
+      .poster_is_category_thumbnail == true
+    ' <<<"$VIDEO_GALLERY_OUT" >/dev/null \
+      || fail "conf2 _wc_video_gallery did not resolve both nested attachment references to its own media: $VIDEO_GALLERY_OUT (source: $VIDEO_GALLERY_SOURCE)"
+    pass "conf2 resolves both _wc_video_gallery attachment references to its own media, preserving the source item shape, and its poster is the same target identity the category thumbnail resolved to"
+    ;;
+  *)
+    fail "conf1 holds an unreviewed _wc_video_gallery item count: $VIDEO_GALLERY_SOURCE"
+    ;;
+esac
+
 THUMBNAIL_LAZY_RC=0
 THUMBNAIL_LAZY_RAW=$($COMPOSE run --rm -T cli2 wp eval '
 require_once ABSPATH . "wp-admin/includes/image.php";
@@ -662,6 +730,7 @@ try {
 
     $result = [
         "callbacks" => $callbacks,
+        "wc_version" => defined("WC_VERSION") ? (string) WC_VERSION : "",
         "theme_override_width" => (int) ($theme_size["width"] ?? 0),
         "same_aspect" => [
             "dims" => $dims($same_aspect),
@@ -770,15 +839,43 @@ echo wp_json_encode($result, JSON_UNESCAPED_SLASHES);
 THUMBNAIL_LAZY_OUT=$(awk 'NF { line=$0 } END { print line }' <<<"$THUMBNAIL_LAZY_RAW")
 require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation" "$THUMBNAIL_LAZY_OUT"
 echo "conf2 thumbnail lazy-convergence check: $THUMBNAIL_LAZY_OUT"
-jq -e '
+# WooCommerce 11.1.0 gave WC_Regenerate_Images::resize_and_return_image() an
+# early return for attachments no installed editor supports
+# (includes/class-wc-regenerate-images.php:386-396, "Files without a supporting
+# image editor (e.g. SVGs) can never be resized"; the background queue got the
+# same guard at class-wc-regenerate-images-request.php:128). The induced
+# no-editor failure below therefore never reaches
+# wp_generate_attachment_metadata() on 11.1.x, and the six seeded sub-sizes
+# survive. Through 11.0.x it did reach it, and wp_create_image_subsizes()'s
+# initial metadata save persisted the editor-less base array — measured here as
+# failed_metadata_changed=true with every size name gone. Both are pinned as
+# observations; the convergence claim itself is the retry/idempotence pair
+# below, which is identical on both sides.
+case "$WOOCOMMERCE_EXPECTED_VERSION" in
+  11.0.*)
+    THUMBNAIL_FAILED_METADATA_CHANGED=true
+    THUMBNAIL_FAILED_SIZE_NAMES='[]'
+    ;;
+  11.1.*)
+    THUMBNAIL_FAILED_METADATA_CHANGED=false
+    THUMBNAIL_FAILED_SIZE_NAMES='["medium","thumbnail","medium_large","woocommerce_thumbnail","woocommerce_single","woocommerce_gallery_thumbnail"]'
+    ;;
+  *)
+    fail "Woo thumbnail failure-path behavior is unpinned for WooCommerce $WOOCOMMERCE_EXPECTED_VERSION"
+    ;;
+esac
+jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" \
+  --argjson failed_metadata_changed "$THUMBNAIL_FAILED_METADATA_CHANGED" \
+  --argjson failed_size_names "$THUMBNAIL_FAILED_SIZE_NAMES" '
   .callbacks == {"intermediate":true,"metadata":true,"source":true,"product_meta":true} and
+  .wc_version == $version and
   .theme_override_width == 450 and
   .same_aspect == {"dims":[500,500],"metadata_unchanged":true} and
   .failure_retry.failed_dims == [500,375] and
-  .failure_retry.failed_metadata_changed == true and
+  .failure_retry.failed_metadata_changed == $failed_metadata_changed and
   .failure_retry.failed_full_dims == [800,600] and
   .failure_retry.failed_filesize_positive == true and
-  .failure_retry.failed_size_names == [] and
+  .failure_retry.failed_size_names == $failed_size_names and
   .failure_retry.retry_dims == [500,500] and
   .failure_retry.stored_dims == [500,500] and
   .failure_retry.third_dims == [500,500] and
@@ -1906,7 +2003,7 @@ pass 'deterministic WooCommerce provider race refuses the loser at process_fence
 # then the digest-bound cached artifact must recover the retained state.
 wp_conf2 plugin deactivate woocommerce >/dev/null
 wp_conf2 plugin is-active woocommerce >/dev/null 2>&1 && fail 'WooCommerce deactivation premise did not land'
-REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+REACTIVATE=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WPrism deploy did not reactivate exact WooCommerce code'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
@@ -1917,7 +2014,7 @@ wp_conf2 plugin is-installed woocommerce >/dev/null 2>&1 && fail 'WooCommerce un
 [ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
   || fail 'WooCommerce default uninstall changed retained catalog/configuration storage'
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+MISSING_OUT=$(host_wprism conf2 deploy 2>&1) || MISSING_RC=$?
 require_wprism_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing WooCommerce code did not refuse at compatibility: $MISSING_OUT"
@@ -1928,7 +2025,7 @@ WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.1 ] \
   || fail 'WooCommerce exact reinstall reported the wrong version'
-REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+REINSTALL_DEPLOY=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact reinstall was not active after deploy'
 normalize_woocommerce_harness_placeholder_mode wp_conf2

@@ -68,7 +68,7 @@ final class ArtifactLibraryTest extends TestCase
         $library = ArtifactLibrary::loadPackage($this->repoRoot, 'woocommerce');
 
         self::assertSame(['woocommerce'], array_keys($library['plugins']));
-        self::assertSame(['10.9.4', '11.0.0', '11.0.1'], array_keys($library['plugins']['woocommerce']));
+        self::assertSame(['10.9.4', '11.0.0', '11.0.1', '11.1.0'], array_keys($library['plugins']['woocommerce']));
         self::assertSame([], $library['themes']);
     }
 

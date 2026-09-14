@@ -15,7 +15,7 @@
         "rank-math": "f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116",
         "redirection": "7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16",
         "the-events-calendar": "0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5",
-        "woocommerce": "9d55eb3a41f5d1e5fb16d9da85643a7277457e53f19f076f553cc1e3cfe22cb0",
+        "woocommerce": "77625e7eee05347b5e449575d328dab62d78b7d98f8cbedcf1c110ce0bb0339d",
         "wpforms-lite": "e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f",
         "wprism-agency-cpt": "174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab",
         "wps-hide-login": "4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050",
@@ -39,7 +39,7 @@
         "rank-math": "4b867607269aa09cb9e1e7cbe3aeef793d6eccf5b86a999a4c4fb2764e4a3b82",
         "redirection": "e1979af988710e99decbcf9efb8c778352deedcb7cd59f488056d07a7733bf50",
         "the-events-calendar": "78c7276098aae85d4f96ce354fe3cada8da519260525aaba5075b85826017291",
-        "woocommerce": "03e14b06b1cd939badc819297f137e02d3eadd2c8c0bb175e0f1c7858c24112c",
+        "woocommerce": "bab5dcff4df8a5b15818fa833f5e456b30ace45331e382c10601d63d98e9643c",
         "wpforms-lite": "ba1021b90fdde0dd8748e556899a7c7d07cf6e3948ff21fb007ced31b4e9e665",
         "wprism-agency-cpt": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf",
         "wps-hide-login": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5",
@@ -53,7 +53,7 @@
                 "core",
                 "change-wp-admin-login"
             ],
-            "snapshot_sha256": "fae91f55bcfbc2b7d22583831e594acfa43277dc01dee4a60ffc5ee1723b618a"
+            "snapshot_sha256": "a4964b419ef1b3132bfa3117873d219a9f8511e5905be576bbe62e28c6cb398b"
         },
         "core+elementor+yoast+contact-form-7": {
             "manifest_hash": "6654cbe8a681c729fab7ae83c563785a30b50e9c308a22140222afbffb6d9f4f",
@@ -63,7 +63,7 @@
                 "elementor",
                 "yoast"
             ],
-            "snapshot_sha256": "c52dc4989dd1560bc065ee0e09496eb1af12638ab4fa5f666799791f36e2850f"
+            "snapshot_sha256": "f1dbd78f30e0a65ccfebd3e28ffef565748ce76c1669dda015422c7801ff8e06"
         },
         "core+paid-memberships-pro+code-snippets": {
             "manifest_hash": "d00e9a468515d7458b2a4a654fcb931a0ddf35afd194cea4e243dda90f0a390a",
@@ -72,7 +72,7 @@
                 "core",
                 "paid-memberships-pro"
             ],
-            "snapshot_sha256": "c22bd7dff3351228f78a2fc82dcc7e36241df874bf76b8f5dc54424583724013"
+            "snapshot_sha256": "5c7e174c4e5ac41db84314c96244674d8352a40e6e094fe2a4019a93c9860575"
         },
         "core+polylang+the-events-calendar": {
             "manifest_hash": "067adf07e53fa33cc8d7ce09431252e888107685dc31e545b5bdd09aae53a73d",
@@ -81,7 +81,7 @@
                 "polylang",
                 "the-events-calendar"
             ],
-            "snapshot_sha256": "b4c4d04346be48342545e5c650214f2603ebb929ffd7ff946897f1719d84df66"
+            "snapshot_sha256": "d3f1db2c99e267af100ef7a68fd5e920c58da7f93291886a9c727be687057486"
         },
         "core+qi-blocks": {
             "manifest_hash": "ec075af3c972f3fa52f9cd896cd689d7335b4cab882f4a6ca4922889e764a325",
@@ -89,26 +89,26 @@
                 "core",
                 "qi-blocks"
             ],
-            "snapshot_sha256": "80fd974dc4e7f142ee12571b45874a4b3ce01230d9c678cbca2d56c95aeb9e0a"
+            "snapshot_sha256": "31a0b25bf9b4ed26764b6850b8fa575d6608a68e3e3b9ae9dc04cb9e3baa3dc1"
         },
         "core+woocommerce+acf": {
-            "manifest_hash": "a382ee3a44059f1e9f888958202946ad2250e84005de5a910be5f13ee4b408be",
+            "manifest_hash": "c724f0155b36c67ec429df7dce9a7e5ea7c36c5aefbf3ed0c8315784f491f96e",
             "pins": [
                 "acf",
                 "core",
                 "woocommerce"
             ],
-            "snapshot_sha256": "345443efebebbecc948ef3a02f65f834f43431b1721f6a28ea1688c65d21e02f"
+            "snapshot_sha256": "466eabde870b6b8df48c161f3db731b7ed8ba3d3ecc64cd2b9a1beec6c26a3f7"
         },
         "core-only": {
             "manifest_hash": "14bf83b00f73f2210c7f9dc329fd3bdda5e576eb5a7a2d4415cda6d375f8f64c",
             "pins": [
                 "core"
             ],
-            "snapshot_sha256": "7db47ddac1f42b2d6d6e4278a229dc7e081372626e7db9bba44af50833ef43bc"
+            "snapshot_sha256": "bfa725a681d1eef7dd80254a916a7e6f0c38fe1d8914968f3bc247854a19ed06"
         },
         "rank-world": {
-            "manifest_hash": "7e6cb1461c015b3a0e2fde3c4f5820295a1e6b52cea3e2f708e359bf99444088",
+            "manifest_hash": "cfc3ba09c89c2f0b76109a28d16d92f23f6c158d892e25f6e85eeabaa69132e0",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -130,17 +130,17 @@
                 "wps-hide-login",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "2b9e850100d0fb5096dd66d5b724d858d60b2ae0e61d3448a64d2f31c188b72c"
+            "snapshot_sha256": "e58bffab727e3daaeeb8f6b61bd390b8d5364435f70048b4d404bbbc7e1d67c8"
         },
         "wprism-agency-cpt-only": {
             "manifest_hash": "b2fc37062cf77e4725ca4b2cb723636cfe53563cad9040d62b490835ccb3d1bf",
             "pins": [
                 "wprism-agency-cpt"
             ],
-            "snapshot_sha256": "e542d8d18ae13327e27e60b019aadb7b49b2c5c037db8723502494386001d5d4"
+            "snapshot_sha256": "8a518c3533178fd06a862468947f15608beede9170eb07c5c74d6303196ac24e"
         },
         "yoast-world": {
-            "manifest_hash": "f2a5945b673eb875f01d77c7f06cc453132a53833976c3f198cdea340d68b050",
+            "manifest_hash": "794afe9aebda7d7e6fc9533b4fbf072705b8b7ca5d1bf3ac4c174ce24fdc905a",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -162,8 +162,8 @@
                 "yoast",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "14be498a2d912417a2a087cd45aa1d9947e47e782b350fb236e46294a1ae8b4e"
+            "snapshot_sha256": "8082c1919253395fd0f214fddd7e02c0cf73154200b724d34270750a95b6fbea"
         }
     },
-    "registry_sha256": "a6956294ca5bdbfcdb15656b1ee7bd72c4c3909b9ba395ad0a9c4a03e60c5ded"
+    "registry_sha256": "6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a"
 }

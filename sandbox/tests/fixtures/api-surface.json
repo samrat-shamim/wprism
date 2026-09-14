@@ -28022,16 +28022,6 @@
                             "migration": "entity-scoped manifest provider plus ProviderDatabaseSession",
                             "sha256": "29b145ffaa7006d9daf9e50425153d479207724ede67f36d8ced99dbcd30047a"
                         },
-                        "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php": {
-                            "findings": [
-                                "direct-include",
-                                "direct-self-include",
-                                "raw-database-transport",
-                                "wp-cli-child-process"
-                            ],
-                            "migration": "engine-owned digest-bound executable probe process plus ProviderSdk checked reads",
-                            "sha256": "1d6688c0b3d8b1e3ca6654372d7b0b40dfac13a0f8dcd87933d29bc80219b1dc"
-                        },
                         "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php": {
                             "findings": [
                                 "direct-include",
@@ -28040,15 +28030,6 @@
                             ],
                             "migration": "manifest-provider-fresh-process/v1",
                             "sha256": "0e41fd276142b48bca0275e96936096ec21d167ea10f5061e328c51b7c3c67ff"
-                        },
-                        "adapter-packages/woocommerce/package/runtime/providers/woocommerce-lifecycle-migrations.php": {
-                            "findings": [
-                                "direct-include",
-                                "raw-database-transport",
-                                "wp-cli-child-process"
-                            ],
-                            "migration": "manifest-provider-fresh-process/v1 plus ProviderSdk checked reads",
-                            "sha256": "d27316478d5a7d2ed58efb5a1006c8f899d27ae97f95136f39f59252cb5eb5a1"
                         },
                         "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php": {
                             "findings": [

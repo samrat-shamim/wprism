@@ -1142,11 +1142,17 @@ woo_effect_check(
             'version' => '1.0.0',
             'source' => 'manifest',
             'plugin' => 'woocommerce/woocommerce.php',
+            // The settlement capability moved onto the engine's own child
+            // (manifest-provider-fresh-process/v1), so the adapter no longer needs
+            // WP_CLI: it claims and runs through Action Scheduler's own store and
+            // runner, and reads WooCommerce's own WC_Install::needs_db_update()
+            // verdict rather than comparing version strings.
             'requires' => [
                 'functions' => ['get_option'],
-                'classes' => ['WP_CLI'],
+                'classes' => ['ActionScheduler', 'ActionScheduler_ActionClaim', 'WC_Install'],
             ],
             'capabilities' => ['settle_lifecycle_migrations'],
+            'fresh_process_capabilities' => ['settle_lifecycle_migrations'],
         ],
     ] && $providerContractNames === [
         'woocommerce-cache' => ['invalidate_cache_groups'],

@@ -15,6 +15,11 @@
         "url": "https://downloads.wordpress.org/plugin/woocommerce.11.0.1.zip",
         "sha256": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21",
         "role": "certified-boundary"
+        },
+      "11.1.0": {
+        "url": "https://downloads.wordpress.org/plugin/woocommerce.11.1.0.zip",
+        "sha256": "6bae9bf74d722b6deb15f049687c311cfafc26e3a5d8fa55ac6ea4b9a3a8df19",
+        "role": "certified-boundary"
       }
     }
   },

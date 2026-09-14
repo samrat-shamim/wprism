@@ -576,7 +576,7 @@ foreach ($policy->manifests as $manifest) {
     }
 }
 $valid = array_column($loaded, "name") === ["core", "woocommerce"]
-    && ($woocommerce["version_range"] ?? null) === ["min" => "11.0.0", "max" => "11.0.2"]
+    && ($woocommerce["version_range"] ?? null) === ["min" => "11.0.0", "max" => "11.1.1"]
     && ($evidence["rules"]["option:pickup_location_pickup_locations"] ?? null) === [
         "rule" => ["class" => "authored", "plain_data" => true, "allow_pii" => true, "autoload" => "preserve"],
         "source" => "woocommerce",
@@ -650,20 +650,24 @@ assert_woocommerce_downgrade_refusal_unchanged() { # <operation> <post-install-s
   local operation="$1" expected="$2" observed
   observed=$(woocommerce_downgrade_refusal_snapshot)
   [ "$observed" = "$expected" ] \
-    || fail "WooCommerce 11.0.1 to 11.0.0 $operation refusal mutated WPrism storage, runtime, or repository state"
+    || fail "WooCommerce 11.1.0 to 11.0.0 $operation refusal mutated WPrism storage, runtime, or repository state"
 }
 
 check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact-11.0.0-target-artifact>
+  # Runs after the in-place upgrade leg, so the RECORDED baseline here is that
+  # leg's endpoint, not this loop iteration's edge. When the upgrade leg moved
+  # from 11.0.1 to 11.1.0 this became a minor-line downgrade -- measured, not
+  # assumed: the plan reports recorded_version 11.1.0 against installed 11.0.0.
   local source_artifact="$1" target_artifact="$2" expected_sha snapshot plan_out plan_json plan_rc
   local deploy_out deploy_rc apply_out apply_rc revision settled source_price target_price
   local downgrade_compare_out downgrade_compare_rc
   local package_tests
-  local mutation_note='WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀'
+  local mutation_note='WooCommerce 11.1.0 to 11.0.0 downgrade 東京 🚀'
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
-  say 'in-range downgrade: populated woocommerce 11.0.1 -> exact 11.0.0 refuses until explicit re-baseline'
+  say 'in-range downgrade: populated woocommerce 11.1.0 -> exact 11.0.0 refuses until explicit re-baseline'
   # Installation has its own activation/migration effects, so establish the
-  # no-mutation baseline only after the exact verified archives replace 11.0.1.
+  # no-mutation baseline only after the exact verified archives replace 11.1.0.
   wp1 plugin install "$source_artifact" --force --activate >/dev/null
   wp2 plugin install "$target_artifact" --force --activate >/dev/null
   expected_sha=$(artifact_library_jq -r '.plugins.woocommerce["11.0.0"].sha256')
@@ -678,45 +682,45 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
 
   plan_rc=0
   plan_out=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade plan' json "$plan_out"
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 downgrade plan' json "$plan_out"
   [ "$plan_rc" -eq 0 ] || fail "WooCommerce in-range downgrade plan did not report its code drift: $plan_out"
   plan_json=$(awk 'NF { line=$0 } END { print line }' <<<"$plan_out")
   jq -e '
     (.code_drift | length) == 1 and
     .code_drift[0].plugin == "woocommerce/woocommerce.php" and
     .code_drift[0].installed_version == "11.0.0" and
-    .code_drift[0].recorded_version == "11.0.1"
+    .code_drift[0].recorded_version == "11.1.0"
   ' <<<"$plan_json" >/dev/null \
-    || fail "WooCommerce in-range downgrade plan did not identify the exact 11.0.1 to 11.0.0 code_drift: $plan_json"
+    || fail "WooCommerce in-range downgrade plan did not identify the exact 11.1.0 to 11.0.0 code_drift: $plan_json"
   assert_woocommerce_downgrade_refusal_unchanged plan "$snapshot"
 
   deploy_rc=0
-  deploy_out=$(wp2 wprism deploy --repo=/siterepo 2>&1) || deploy_rc=$?
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
+  deploy_out=$(host_wprism conf2 deploy 2>&1) || deploy_rc=$?
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
   [ "$deploy_rc" -ne 0 ] && grep -q 'code_drift' <<<"$deploy_out" \
-    && grep -q '11.0.1' <<<"$deploy_out" && grep -q '11.0.0' <<<"$deploy_out" \
+    && grep -q '11.1.0' <<<"$deploy_out" && grep -q '11.0.0' <<<"$deploy_out" \
     || fail "WooCommerce in-range downgrade deploy did not refuse at the exact code-drift boundary: $deploy_out"
   assert_woocommerce_downgrade_refusal_unchanged deploy "$snapshot"
 
   revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   apply_rc=0
   apply_out=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1) || apply_rc=$?
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade apply refusal' human "$apply_out"
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 downgrade apply refusal' human "$apply_out"
   [ "$apply_rc" -ne 0 ] && grep -q 'code_drift' <<<"$apply_out" \
-    && grep -q '11.0.1' <<<"$apply_out" && grep -q '11.0.0' <<<"$apply_out" \
+    && grep -q '11.1.0' <<<"$apply_out" && grep -q '11.0.0' <<<"$apply_out" \
     || fail "WooCommerce in-range downgrade apply did not refuse at the exact code-drift boundary: $apply_out"
   assert_woocommerce_downgrade_refusal_unchanged apply "$snapshot"
-  pass 'WooCommerce 11.0.1 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without WPrism storage, runtime, or repository mutation'
+  pass 'WooCommerce 11.1.0 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without WPrism storage, runtime, or repository mutation'
 
   local forced_source forced_target
-  forced_source=$(wp1 wprism deploy --repo=/siterepo --force-code-drift 2>&1)
-  forced_target=$(wp2 wprism deploy --repo=/siterepo --force-code-drift 2>&1)
+  forced_source=$(host_wprism conf1 deploy --force-code-drift 2>&1)
+  forced_target=$(host_wprism conf2 deploy --force-code-drift 2>&1)
   normalize_woocommerce_harness_placeholder_mode wp2
   grep -q 'FORCED past code_drift' <<<"$forced_source" \
     && grep -q 'FORCED past code_drift' <<<"$forced_target" \
     || fail "WooCommerce explicit downgrade re-baseline did not report both forced decisions: source=$forced_source target=$forced_target"
   settled=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 plan after explicit re-baseline' json "$settled"
+  require_wprism_answered 'WooCommerce 11.1.0 to 11.0.0 plan after explicit re-baseline' json "$settled"
   jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.code_mismatch,.code_drift,.incomplete_apply,.incomplete_lifecycle,.regen_pending,.regen_context] | map(length) | add) == 0' <<<"$settled" >/dev/null \
     || fail "WooCommerce explicit 11.0.0 re-baseline invented work: $settled"
 
@@ -726,7 +730,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
     if (!$product) { throw new RuntimeException("downgrade precision product missing"); }
     $product->set_regular_price("17.345678");
     $product->set_sale_price("");
-    $product->set_purchase_note("WooCommerce 11.0.1 to 11.0.0 downgrade 東京 🚀");
+    $product->set_purchase_note("WooCommerce 11.1.0 to 11.0.0 downgrade 東京 🚀");
     $product->save();
     $row = $wpdb->get_row($wpdb->prepare("SELECT CAST(min_price AS CHAR) AS min_price, CAST(max_price AS CHAR) AS max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $product->get_id()), ARRAY_A);
     if (!is_array($row) || $row !== ["min_price" => "17.3457", "max_price" => "17.3457"]) {
@@ -739,7 +743,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   wp1 wprism capture --repo=/siterepo
   wp1 wprism lint --repo=/siterepo
   "${GIT1[@]}" add -A
-  "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.1 to 11.0.0 in-range downgrade'
+  "${GIT1[@]}" commit -qm 'capture: woocommerce 11.1.0 to 11.0.0 in-range downgrade'
   "${GIT1[@]}" push -q origin main
 
   git -C "siterepo/${PAIR}2" pull -q origin main
@@ -769,8 +773,38 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
     "siterepo/${PAIR}2/.tmp-woo-downgrade-final" 2>&1) || downgrade_compare_rc=$?
   rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"
   [ "$downgrade_compare_rc" -eq 0 ] \
-    || fail "WooCommerce 11.0.1 to 11.0.0 in-range downgrade recapture diverged outside declared derived product timestamps: $downgrade_compare_out"
-  pass 'WooCommerce 11.0.1 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures modulo exact derived product timestamps'
+    || fail "WooCommerce 11.1.0 to 11.0.0 in-range downgrade recapture diverged outside declared derived product timestamps: $downgrade_compare_out"
+  pass 'WooCommerce 11.1.0 -> 11.0.0 explicit re-baseline applies exact DECIMAL catalog mutation, settles, and recaptures modulo exact derived product timestamps'
+}
+
+# A host-orchestrated deploy reports its target refusal redacted: the machine
+# stream carries only lifecycle_status_failed with details_redacted, and the
+# precise cause is retained as private operator evidence under that side's
+# repository. Every control here that drives a target refusal asserts both
+# halves through this helper -- the public stream must stay redacted AND must
+# not leak the named detail, while the private graph must still carry it. A
+# redaction that quietly became a lost diagnostic fails the private half; a
+# leak fails the public half. Grepping the public stream for the detail, as
+# these controls used to, described the direct target verb this capsule no
+# longer uses.
+woocommerce_assert_redacted_target_refusal() { # <1|2> <output> <label> <private-pattern>...
+  local side="$1" out="$2" label="$3" private_file pattern
+  shift 3
+  grep -Fq 'wprism: deploy: lifecycle preflight failed; no target mutation occurred' <<<"$out" \
+    && grep -Fq '"details_redacted":true' <<<"$out" \
+    || fail "$label did not refuse through the redacted lifecycle boundary: $out"
+  private_file=$(ls -t "siterepo/${PAIR}${side}"/.wprism/refusals/*-lifecycle-status-*.json 2>/dev/null | head -n 1)
+  [ -n "$private_file" ] \
+    || fail "$label retained no private operator evidence"
+  for pattern in "$@"; do
+    grep -Eq -- "$pattern" <<<"$out" \
+      && fail "$label leaked '$pattern' into machine output: $out"
+    jq -e --arg pattern "$pattern" '
+      .format == "wprism-private-refusal-evidence/v2" and .command == "lifecycle-status" and
+      ([.throwable[]? | select((.message // "") | test($pattern))] | length) >= 1
+    ' "$private_file" >/dev/null \
+      || fail "$label private operator evidence did not name $pattern"
+  done
 }
 
 check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
@@ -789,7 +823,7 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   require_observed_nonempty "WooCommerce $version native state before deactivation" "$before_native"
   wp2 plugin deactivate woocommerce >/dev/null
   wp2 plugin is-active woocommerce >/dev/null 2>&1 && fail "WooCommerce $version deactivation premise did not land"
-  wp2 wprism deploy --repo=/siterepo >/dev/null
+  host_wprism conf2 deploy >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version deploy did not reactivate the exact plugin"
   normalize_woocommerce_harness_placeholder_mode wp2
   reactivated_native=$(woocommerce_boundary_observation)
@@ -802,14 +836,15 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   absent_after_uninstall=$(woocommerce_boundary_storage_hash)
   [ "$absent_after_uninstall" = "$before_uninstall" ] || fail "WooCommerce $version default uninstall changed retained authored or target-runtime storage"
   missing_before="$absent_after_uninstall"; missing_rc=0
-  missing_out=$(wp2 wprism deploy --repo=/siterepo 2>&1) || missing_rc=$?
+  missing_out=$(host_wprism conf2 deploy 2>&1) || missing_rc=$?
   require_wprism_answered "WooCommerce $version deploy with code absent" human "$missing_out"
-  [ "$missing_rc" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$missing_out" || fail "WooCommerce $version missing-code deploy did not refuse at compatibility: $missing_out"
+  woocommerce_assert_redacted_target_refusal 2 "$missing_out" \
+    "WooCommerce $version missing-code deploy refusal" 'code_mismatch' 'woocommerce/woocommerce\.php'
   missing_after=$(woocommerce_boundary_storage_hash)
   [ "$missing_after" = "$missing_before" ] || fail "WooCommerce $version missing-code refusal partially changed retained storage"
   wp2 plugin install "$artifact" --force >/dev/null
   [ "$(wp2 plugin get woocommerce --field=version)" = "$version" ] || fail "WooCommerce exact reinstall reported the wrong version at $version"
-  wp2 wprism deploy --repo=/siterepo >/dev/null
+  host_wprism conf2 deploy >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version exact reinstall was not active after deploy"
   normalize_woocommerce_harness_placeholder_mode wp2
   check_woocommerce_content
@@ -1062,33 +1097,56 @@ SELECT
     .uuid == $uuid and .source_path == $source_path
   ' "$variation_delete_file" >/dev/null \
     || fail "WooCommerce $version local product_variation tombstone was malformed"
-  variation_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
-  require_wprism_answered "WooCommerce $version named product_variation deletion plan" json "$variation_plan"
-  echo "$variation_plan" | jq -e --arg uuid "$variation_uuid" '
-    [.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product_variation" and ((.blocked // "") == ""))] | length == 1
-  ' >/dev/null || fail "WooCommerce $version named product_variation was not one clean planned delete: $variation_plan"
   variation_before_tree=$(git -C "$repo" status --porcelain)
-  set +e
+  # package/disposition.json declares this selector unsupported outright --
+  # deletion_semantics.unsupported carries post:product_variation -- and the
+  # manifest note says why: a variation's parent projection requires Woo's
+  # broader irreversible hook surface. Repository compilation therefore refuses
+  # the intent before any plan exists, so there is no "clean planned delete" to
+  # observe. Measured on a pair: reason_code repository_compilation_failed with
+  # one blocking unsupported_deletion diagnostic naming this exact tombstone and
+  # the post:product_variation selector.
+  #
+  # This block used to assert one clean planned delete for the same selector,
+  # which contradicted the capsule's own reviewed disposition. Assert the
+  # declared boundary instead, and assert it on the mutating verb too: a
+  # deletion the adapter does not support must not become supported by adding
+  # --with-deletes.
+  variation_plan_rc=0
+  variation_plan_raw=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || variation_plan_rc=$?
+  variation_plan=$(printf '%s\n' "$variation_plan_raw" | awk 'NF { line=$0 } END { print line }')
+  require_wprism_answered "WooCommerce $version named product_variation deletion plan" json "$variation_plan"
+  [ "$variation_plan_rc" -ne 0 ] \
+    && printf '%s\n' "$variation_plan" | jq -e --arg path "deletions/$variation_uuid.json" '
+      .reason_code == "repository_compilation_failed" and
+      ([.diagnostics[]?
+        | select(.severity == "blocking" and .code == "unsupported_deletion" and .path == $path
+                 and (.message | contains("post:product_variation")))] | length) == 1
+    ' >/dev/null \
+    || fail "WooCommerce $version unsupported product_variation deletion did not refuse at repository compilation: $variation_plan"
   variation_apply_rc=0
-  variation_apply=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json 2>&1) || variation_apply_rc=$?
-  set -e
+  variation_apply_raw=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json 2>&1) || variation_apply_rc=$?
+  variation_apply=$(printf '%s\n' "$variation_apply_raw" | awk 'NF { line=$0 } END { print line }')
   require_wprism_answered "WooCommerce $version named product_variation deletion apply" json "$variation_apply"
   [ "$variation_apply_rc" -ne 0 ] \
-    && echo "$variation_apply" | tail -1 | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
-    || fail "WooCommerce $version local product_variation delete did not refuse for absent external exclusion"
+    && printf '%s\n' "$variation_apply" | jq -e '
+      .reason_code == "repository_compilation_failed" and
+      ([.diagnostics[]? | select(.code == "unsupported_deletion")] | length) >= 1
+    ' >/dev/null \
+    || fail "WooCommerce $version --with-deletes admitted an unsupported product_variation deletion: $variation_apply"
   [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')" = "$variation_target" ] \
-    || fail "WooCommerce $version external-exclusion refusal changed the named variation"
+    || fail "WooCommerce $version unsupported-deletion refusal changed the named variation"
   [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')" = "$variation_parent_target" ] \
-    || fail "WooCommerce $version external-exclusion refusal changed the variation parent"
+    || fail "WooCommerce $version unsupported-deletion refusal changed the variation parent"
   variation_lookup_after=$(wp2 db query "
 SELECT
   (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$variation_target) +
   (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$variation_target)
 " --skip-column-names | tr -d '\r')
   [ "$variation_lookup_after" = "$variation_lookup_before" ] \
-    || fail "WooCommerce $version external-exclusion refusal changed variation lookup rows"
+    || fail "WooCommerce $version unsupported-deletion refusal changed variation lookup rows"
   [ "$(git -C "$repo" status --porcelain)" = "$variation_before_tree" ] \
-    || fail "WooCommerce $version variation exclusion refusal mutated repository intent"
+    || fail "WooCommerce $version unsupported-deletion refusal mutated repository intent"
   rm "$variation_delete_file"
   rmdir "$repo/state/deletions"
   mv "$variation_backup" "$variation_target_file"
@@ -1098,7 +1156,7 @@ SELECT
     || fail "WooCommerce $version product_variation deletion did not settle: $variation_final_plan"
   [ -z "$(git -C "$repo" status --porcelain)" ] \
     || fail "WooCommerce $version local variation refusal fixture did not restore the target repository"
-  pass "WooCommerce $version local product_variation deletion refuses before mutation without signed external writer exclusion"
+  pass "WooCommerce $version product_variation deletion is refused at repository compilation as an unsupported selector, on both plan and --with-deletes, without touching the variation, its parent, Woo lookup rows or repository intent"
 }
 
 woocommerce_deletion_owner_agreements() {
@@ -1201,16 +1259,33 @@ version_matrix_reset_after_delete() {
       }
     }
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''woocommerce_%'\'' OR option_name LIKE '\''wc_%'\'' OR option_name LIKE '\''_transient_wc_%'\'' OR option_name LIKE '\''_site_transient_wc_%'\'' OR option_name LIKE '\''action_scheduler_%'\'' OR option_name IN ('\''schema-ActionScheduler_StoreSchema'\'', '\''schema-ActionScheduler_LoggerSchema'\'')");
+    // Three WooCommerce options carry its state under names its own prefixes
+    // do not cover, so the sweep above leaves them while `site empty` deletes
+    // every term they point at. default_product_cat then dangles at a term id
+    // from the previous boundary case, and capture refuses exactly as it
+    // should: "option default_product_cat: capture found no exact physical
+    // term-coordinate tuple in the declared taxonomy" -- measured on the
+    // 11.0.1 leg, where default_product_cat was 15 while product_cat held no
+    // terms at all. The two *_children options are the same class, WordPress
+    // hierarchy caches keyed by term ids that no longer exist, and both are
+    // declared derived, so dropping them loses nothing. Delete rather than
+    // rebind: this hook runs after plugin deletion, so the WooCommerce
+    // installer is what must re-establish its default category, the way the
+    // shared reset rebinds the core default_category before an extension
+    // installer can reuse a stale numeric id.
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name IN ('\''default_product_cat'\'', '\''product_cat_children'\'', '\''product_brand_children'\'')");
   ' >/dev/null
 }
 
 version_matrix_workflow() {
-# WooCommerce 11.0.0 is the declared minimum and 11.0.1 is the current exact
-# release below the exclusive 11.0.2 bound. Certify both artifacts, then upgrade populated 11.0.0
-# environments in place so a fresh 11.0.1 install is not mistaken for upgrade
-# compatibility.
+# WooCommerce 11.0.0 is the declared minimum and 11.1.0 is the current exact
+# release below the exclusive 11.1.1 bound. Certify both edges, then upgrade populated 11.0.0
+# environments in place so a fresh 11.1.0 install is not mistaken for upgrade
+# compatibility. 11.0.1 sits inside the window rather than on an edge; standalone
+# conformance and the in-range downgrade control below keep it probed, which is
+# what keeps its artifact-lock pin honest.
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for WOO_VERSION in 11.0.0 11.0.1; do
+for WOO_VERSION in 11.0.0 11.1.0; do
   say "boundary: woocommerce $WOO_VERSION"
 
   reset_env wp1
@@ -1286,7 +1361,7 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
 
-  wp2 wprism deploy --repo=/siterepo
+  host_wprism conf2 deploy
   normalize_woocommerce_harness_placeholder_mode wp2
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
@@ -1312,58 +1387,63 @@ EOF
   check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"
 
   if [ "$WOO_VERSION" = 11.0.0 ]; then
-    say 'in-place upgrade: populated woocommerce 11.0.0 -> exact 11.0.1 on both environments'
-    UPGRADE_ARTIFACT_1=$(fetch_artifact woocommerce 11.0.1 cli1)
-    UPGRADE_ARTIFACT_2=$(fetch_artifact woocommerce 11.0.1 cli2)
+    say 'in-place upgrade: populated woocommerce 11.0.0 -> exact 11.1.0 on both environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact woocommerce 11.1.0 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact woocommerce 11.1.0 cli2)
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
-    [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.1 ] \
-      || fail 'WooCommerce source in-place upgrade did not install exact 11.0.1'
-    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    [ "$(wp1 plugin get woocommerce --field=version)" = 11.1.0 ] \
+      || fail 'WooCommerce source in-place upgrade did not install exact 11.1.0'
+    host_wprism conf1 deploy --force-code-drift >/dev/null
     wp1 eval '
       $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
       if (!$product) { throw new RuntimeException("upgrade product missing"); }
-      $product->set_purchase_note("WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀");
+      $product->set_purchase_note("WooCommerce 11.0.0 to 11.1.0 upgrade 東京 🚀");
       $product->save();
     ' >/dev/null
     wp1 wprism capture --repo=/siterepo
     wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
-    "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+    "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.0 to 11.1.0 in-place upgrade'
     "${GIT1[@]}" push -q origin main
 
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
-    [ "$(wp2 plugin get woocommerce --field=version)" = 11.0.1 ] \
-      || fail 'WooCommerce target in-place upgrade did not install exact 11.0.1'
+    [ "$(wp2 plugin get woocommerce --field=version)" = 11.1.0 ] \
+      || fail 'WooCommerce target in-place upgrade did not install exact 11.1.0'
     git -C "siterepo/${PAIR}2" pull -q origin main
-    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    host_wprism conf2 deploy --force-code-drift >/dev/null
     normalize_woocommerce_harness_placeholder_mode wp2
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
+    woocommerce_preapply_authority_assertion 11.1.0 'in-place upgrade'
     wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     assert_version_matrix_apply_ready
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
-      || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+      || fail 'apply canary not clean after woocommerce 11.0.0 to 11.1.0 in-place upgrade'
     UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)
     [ "$UPGRADE_PROVIDER_COUNT" -eq 1 ] \
       && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.1\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
-      || fail 'WooCommerce 11.0.0 -> 11.0.1 product-note upgrade did not invoke exactly one verified product-lookup provider'
+      || fail 'WooCommerce 11.0.0 -> 11.1.0 product-note upgrade did not invoke exactly one verified product-lookup provider'
+    # This leg installed 11.1.0 above, but WOO_VERSION is still the loop's
+    # 11.0.0 boundary. check_woocommerce_content passes it through as
+    # WOOCOMMERCE_EXPECTED_VERSION, which the content check asserts against the
+    # version WooCommerce itself reports -- so it has to name what is installed
+    # NOW, not the edge this iteration started from.
     SAVED_WOO_VERSION="$WOO_VERSION"
-    WOO_VERSION=11.0.1
+    WOO_VERSION=11.1.0
     check_woocommerce_content
     WOO_VERSION="$SAVED_WOO_VERSION"
     UPGRADE_NOTE=$(wp2 eval '
       $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
       echo $product ? $product->get_purchase_note("edit") : "";
     ')
-    [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀' ] \
-      || fail "WooCommerce 11.0.1 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
+    [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.1.0 upgrade 東京 🚀' ] \
+      || fail "WooCommerce 11.1.0 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
     wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-upgrade-final
     UPGRADE_DIFF_RC=0
     UPGRADE_DIFF=$(diff -r "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-upgrade-final" 2>&1) \
       || UPGRADE_DIFF_RC=$?
     [ "$UPGRADE_DIFF_RC" -le 1 ] \
-      || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture comparison errored: $UPGRADE_DIFF"
+      || fail "WooCommerce 11.0.0 to 11.1.0 in-place upgrade recapture comparison errored: $UPGRADE_DIFF"
     if [ -n "$UPGRADE_DIFF" ]; then
       UNEXPECTED_UPGRADE_DIFF=$(grep -Ev \
         -e '^diff -r .*/state/posts/(product|product_variation)/[^ ]+ .*/\.tmp-woo-upgrade-final/posts/(product|product_variation)/[^ ]+$' \
@@ -1372,10 +1452,10 @@ EOF
         -e '^[<>]     "modified(_gmt)?": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}",$' \
         <<<"$UPGRADE_DIFF" || true)
       [ -z "$UNEXPECTED_UPGRADE_DIFF" ] \
-        || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade recapture diverged outside declared derived product timestamps: $UPGRADE_DIFF"
+        || fail "WooCommerce 11.0.0 to 11.1.0 in-place upgrade recapture diverged outside declared derived product timestamps: $UPGRADE_DIFF"
     fi
     rm -rf "siterepo/${PAIR}2/.tmp-woo-upgrade-final"
-    pass 'populated woocommerce 11.0.0 -> 11.0.1 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures exactly modulo declared derived product timestamps'
+    pass 'populated woocommerce 11.0.0 -> 11.1.0 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures exactly modulo declared derived product timestamps'
 
     check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"
   fi
@@ -1429,30 +1509,29 @@ INSTALLED_OOR=$(wp1 plugin get woocommerce --field=version)
 [ "$INSTALLED_OOR" = "10.9.4" ] || fail "negative control: expected woocommerce 10.9.4 installed, got $INSTALLED_OOR"
 
 set +e
-DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(host_wprism conf1 deploy 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse woocommerce 10.9.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
-  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
-grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
-grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
+  'WooCommerce below-range 10.9.4 deploy refusal' \
+  'declared version_range' 'woocommerce/woocommerce\.php' '10\.9\.4'
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 
-say "negative control: woocommerce synthetic 11.0.2 (the exclusive upper endpoint) must be REFUSED before deploy mutates lifecycle state"
+say "negative control: woocommerce synthetic 11.1.1 (the exclusive upper endpoint) must be REFUSED before deploy mutates lifecycle state"
 reset_env wp1
 reset_case_repositories
 
-# wp.org does not supply a published 11.0.2 archive. Start from the exact
-# admitted 11.0.1 artifact and replace only its Version header in this
+# wp.org does not supply a published 11.1.1 archive. Start from the exact
+# admitted 11.1.0 artifact and replace only its Version header in this
 # disposable container. That is the narrowest executable upper-bound fixture:
 # WordPress itself parses the synthetic endpoint, while every other source byte
-# and the captured Woo state remain the reviewed 11.0.1 product path.
-IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1)
+# and the captured Woo state remain the reviewed 11.1.0 product path.
+IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.1.0 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
-[ "$(wp1 plugin get woocommerce --field=version)" = "11.0.1" ] \
-  || fail "upper-bound premise did not install exact WooCommerce 11.0.1 bytes"
+[ "$(wp1 plugin get woocommerce --field=version)" = "11.1.0" ] \
+  || fail "upper-bound premise did not install exact WooCommerce 11.1.0 bytes"
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "upper-bound source could not establish HPOS through WooCommerce's native new-shop lifecycle"
 cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
@@ -1483,32 +1562,29 @@ wp1 plugin deactivate woocommerce >/dev/null
 wp1 eval '
 $path = WP_PLUGIN_DIR . "/woocommerce/woocommerce.php";
 $bytes = file_get_contents($path);
-if (!is_string($bytes) || substr_count($bytes, " * Version: 11.0.1") !== 1) {
-    throw new RuntimeException("exclusive-upper fixture did not find one 11.0.1 Version header");
+if (!is_string($bytes) || substr_count($bytes, " * Version: 11.1.0") !== 1) {
+    throw new RuntimeException("exclusive-upper fixture did not find one 11.1.0 Version header");
 }
-$next = preg_replace("/^ \\* Version: 11\\.0\\.1$/m", " * Version: 11.0.2", $bytes, 1);
+$next = preg_replace("/^ \\* Version: 11\\.1\\.0$/m", " * Version: 11.1.1", $bytes, 1);
 if (!is_string($next) || $next === $bytes || file_put_contents($path, $next) !== strlen($next)) {
     throw new RuntimeException("exclusive-upper fixture could not replace the inactive plugin Version header");
 }
 ' >/dev/null
 UPPER_INSTALLED=$(wp1 plugin get woocommerce --field=version)
-[ "$UPPER_INSTALLED" = "11.0.2" ] \
-  || fail "exclusive-upper fixture expected WordPress to parse WooCommerce 11.0.2, got $UPPER_INSTALLED"
+[ "$UPPER_INSTALLED" = "11.1.1" ] \
+  || fail "exclusive-upper fixture expected WordPress to parse WooCommerce 11.1.1, got $UPPER_INSTALLED"
 PRE_REFUSAL_ACTIVE=$(wp1 option get active_plugins --format=json | tail -1)
 PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)
 PRE_REFUSAL_REPO=$(git -C "siterepo/${PAIR}1" status --porcelain)
 
 set +e
-DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(host_wprism conf1 deploy 2>&1)
 DEPLOY_RC=$?
 set -e
-[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
-  || fail "exclusive-upper deploy refused, but not for outside_version_range (got: $DEPLOY_OUT)"
-grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" \
-  || fail "exclusive-upper refusal did not name the WooCommerce plugin (got: $DEPLOY_OUT)"
-grep -q "11.0.2" <<<"$DEPLOY_OUT" \
-  || fail "exclusive-upper refusal did not name WordPress's installed Version header (got: $DEPLOY_OUT)"
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.1.1 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+woocommerce_assert_redacted_target_refusal 1 "$DEPLOY_OUT" \
+  'WooCommerce exclusive-upper deploy refusal' \
+  'declared version_range' 'woocommerce/woocommerce\.php' '11\.1\.1'
 [ "$(wp1 option get active_plugins --format=json | tail -1)" = "$PRE_REFUSAL_ACTIVE" ] \
   || fail "exclusive-upper code mismatch changed active_plugins before refusing"
 [ "$(git -C "siterepo/${PAIR}1" rev-parse HEAD)" = "$PRE_REFUSAL_HEAD" ] \
@@ -1516,5 +1592,5 @@ grep -q "11.0.2" <<<"$DEPLOY_OUT" \
 [ "$(git -C "siterepo/${PAIR}1" status --porcelain)" = "$PRE_REFUSAL_REPO" ] \
   || fail "exclusive-upper code mismatch changed the captured repository before refusing"
 printf '%s\n' "$DEPLOY_OUT"
-pass "confirmed: synthetic WooCommerce 11.0.2 is rejected at the exclusive upper bound before deploy changes lifecycle state or the captured repository"
+pass "confirmed: synthetic WooCommerce 11.1.1 is rejected at the exclusive upper bound before deploy changes lifecycle state or the captured repository"
 }
