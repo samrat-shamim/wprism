@@ -267,6 +267,13 @@ final class ApplyPlanBuilder {
                 }
                 $row = $optionDeletion['row'];
             }
+            $derivedIdentity = $planObservations['table_identities'][$uuid] ?? null;
+            if ($envE !== null && $derivedIdentity !== null) {
+                // Content equality cannot enroll an identity. Reuse the authored
+                // adoption phase so an unchanged bootstrap still binds its row.
+                $plan['adopt'][] = $row + ['env_id' => $derivedIdentity['env_id']];
+                continue;
+            }
             if ($envE !== null) {
                 $rebind = ApplyPlanner::rebind_comparison_hash(
                     (string) $fileH,
@@ -310,6 +317,9 @@ final class ApplyPlanBuilder {
             }
             $plan['create'][] = $row;
         }
+        usort($plan['adopt'], fn(array $left, array $right): int =>
+            $this->apply_planner()->phase2_rank($tree[$left['uuid']])
+            <=> $this->apply_planner()->phase2_rank($tree[$right['uuid']]));
         $plan = $this->apply_planner()->project_reference_rebinds($plan, $tree, $env, $base);
 
         // Absence is not deletion authority. Only a compiled, versioned

@@ -112,19 +112,17 @@ final class ApplyFieldMaterializerFakeWpdb {
         }
         if (preg_match(
             '/^INSERT INTO wp_wprism_map \\(uuid, entity_type, id_kind, local_id\\)\\s+'
-                . "VALUES \\('([^']+)', '([^']+)', '([^']+)', ([0-9]+)\\)\\s+"
-                . 'ON DUPLICATE KEY UPDATE entity_type = VALUES\\(entity_type\\)$/D',
+                . "VALUES \\('([^']+)', '([^']+)', '([^']+)', ([0-9]+)\\)$/D",
             trim($sql),
             $match
         ) === 1) {
             [$uuid, $entityType, $idKind, $localId] = [$match[1], $match[2], $match[3], (int) $match[4]];
-            foreach ($this->wprismMapRows as &$row) {
-                if ($row['uuid'] === $uuid && $row['id_kind'] === $idKind) {
-                    $row['entity_type'] = $entityType;
-                    return 1;
+            foreach ($this->wprismMapRows as $row) {
+                if ($row['id_kind'] === $idKind && ($row['uuid'] === $uuid || (int) $row['local_id'] === $localId)) {
+                    $this->last_error = 'Duplicate entry';
+                    return false;
                 }
             }
-            unset($row);
             $this->wprismMapRows[] = [
                 'uuid' => $uuid,
                 'entity_type' => $entityType,

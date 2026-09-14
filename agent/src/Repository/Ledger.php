@@ -563,11 +563,24 @@ final class Ledger {
                 . "refusing to retype it as $entityType"
             );
         }
-        Db::mutation($wpdb->prepare(
+        if (($byUuid === null) !== ($byLocal === null)) {
+            throw new \RuntimeException('wprism: identity contradiction: ledger coordinate reads disagree');
+        }
+        if ($byUuid !== null) {
+            return;
+        }
+        // A competing claim can win after both reads. An upsert would treat
+        // that foreign UUID/local-id winner as success; unique-key failure
+        // must instead abort the caller's authored transaction before reuse.
+        $inserted = Db::mutation($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}wprism_map (uuid, entity_type, id_kind, local_id)
              SELECT %s, %s, %s, %d",
             $uuid, $entityType, $kind, $localId
-        ), '', 'ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)', 'ledger upsert identity');
+        ), '', '', 'ledger insert identity');
+        if ($inserted !== 1) {
+            throw new \RuntimeException('wprism: ledger insert identity did not report exactly one new mapping');
+        }
+        self::require_read_only_mapping($uuid, $entityType, $kind, $localId, 'new ledger identity claim');
     }
 
     public static function forget(string $uuid): void {

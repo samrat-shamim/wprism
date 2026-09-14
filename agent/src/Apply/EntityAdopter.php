@@ -17,6 +17,9 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
+require_once __DIR__ . '/../Kernel/TableGraph.php';
+require_once __DIR__ . '/../Kernel/TableRowScope.php';
+require_once __DIR__ . '/../Grammar/Tokens.php';
 
 /** Claims a plan-approved unmanaged row by installing canonical identity. */
 final class EntityAdopter {
@@ -27,6 +30,62 @@ final class EntityAdopter {
     ) {
     }
 
+    /** A plan's natural-key match cannot authorize a different row at mutation time. */
+    private function lock_table_identity(array $entity, int $environmentId): void {
+        global $wpdb;
+        $table = $entity['type'];
+        $decl = $this->snapshotRowTables[$table];
+        $front = $entity['data'];
+        $columns = (array) ($front['columns'] ?? []);
+        TableRowScope::assert_matches($table, $decl, $columns);
+        $composite = TableGraph::is_composite_ref($decl);
+        $keys = $composite ? $decl['identity']['columns'] : Policy::natural_key_columns($decl);
+        if ($keys === []) {
+            throw new \RuntimeException('wprism: table adoption requires a declared natural or composite identity');
+        }
+        $references = array_column($decl['refs'] ?? [], 'kind', 'column');
+        $predicates = [];
+        $values = [];
+        $localComponents = [];
+        foreach (array_unique(array_merge($keys, array_keys($decl['row_scope'] ?? []))) as $column) {
+            $value = $columns[$column] ?? null;
+            if (!is_string($value) || $value === '') {
+                throw new \RuntimeException('wprism: table adoption has incomplete canonical identity components');
+            }
+            if (isset($references[$column])) {
+                $kind = $references[$column];
+                if (!preg_match('/^\{\{' . preg_quote($kind, '/') . ':([0-9a-f-]{36})\}\}$/D', $value, $match)
+                    || !Uuid::is($match[1])) {
+                    throw new \RuntimeException('wprism: table adoption has an invalid identity reference');
+                }
+                $value = Ledger::id_for($match[1], Tokens::ledger_kind($kind));
+                if ($value === null) {
+                    throw new \RuntimeException('wprism: table adoption requires its referenced identity to be bound first');
+                }
+                $localComponents[$column] = $value;
+                $predicates[] = "`$column` = %d";
+            } else {
+                $predicates[] = "BINARY `$column` = BINARY %s";
+            }
+            $values[] = $value;
+        }
+        $physical = $wpdb->prefix . $table;
+        $this->fieldMaterializer->prove_lock_tables([$physical], 'adopt table identity locking');
+        $authority = Db::transaction_authority('adopt table identity locking');
+        $rows = Db::transactional_rows($wpdb->prepare(
+            "SELECT * FROM `$physical` WHERE " . implode(' AND ', $predicates) . ' LIMIT 2 FOR UPDATE',
+            ...$values
+        ), $authority, 'adopt table identity locking');
+        if (count($rows) !== 1) {
+            throw new \RuntimeException('wprism: table adoption requires exactly one current native identity match');
+        }
+        $actualId = $composite ? Snapshot::pack_composite_id($table, $localComponents)
+            : MetaRows::positive_id($rows[0][$decl['pk']] ?? null);
+        if ($actualId !== $environmentId) {
+            throw new \RuntimeException('wprism: table adoption native identity changed after planning');
+        }
+    }
+
     public function adopt(array $row, array $entity, array &$warnings): void {
         global $wpdb;
         $envId = (int) $row['env_id'];
@@ -35,6 +94,7 @@ final class EntityAdopter {
             throw new \RuntimeException('wprism: adoption request has a malformed physical/canonical identity');
         }
         if (isset($this->snapshotRowTables[$entity['type']])) {
+            $this->lock_table_identity($entity, $envId);
             Snapshot::adopt($this->policy, $row['uuid'], $entity['type'], $envId);
             $warnings[] = "adopted env table row {$entity['type']}:$envId as {$row['uuid']} ({$row['path']})";
             return;

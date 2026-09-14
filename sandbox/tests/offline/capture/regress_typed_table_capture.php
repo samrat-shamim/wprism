@@ -420,7 +420,7 @@ $methodSource = static function (string $name) use ($snapshotLines): string {
     ));
 };
 $captureFacade = $methodSource('capture_table');
-$check(str_contains($captureFacade, 'typed_table_capture()->capture_table')
+$check(str_contains($captureFacade, 'typed_table_capture($observation)->capture_table')
     && !str_contains($captureFacade, 'foreach')
     && !str_contains($captureFacade, 'global $wpdb'),
     'Snapshot::capture_table remains a thin TypedTableCapture compatibility facade');

@@ -576,7 +576,7 @@
             ]
           }
         ],
-        "file_count": 32,
+        "file_count": 33,
         "files": [
           "RepositoryMediaDerivatives.php",
           "CanonicalLedgerMapGuard.php",
@@ -591,6 +591,7 @@
           "Journal.php",
           "Ledger.php",
           "LockedEmbeddedUuidOwners.php",
+          "ObservedTableIdentities.php",
           "ReferenceGraph.php",
           "RepositoryAuthorization.php",
           "RepositoryCompiler.php",
