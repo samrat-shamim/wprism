@@ -227,11 +227,18 @@ require_once dirname(__DIR__, 2) . '/fixtures/apply-policy.php';
 $combinedPolicy = WPrism\Policy::load(null, ['core', 'users-customers-import-export-for-wp-woocommerce', 'woocommerce'],
     adapterLibrary: WPrism\AdapterLibrary::fromSourceTree($root));
 $scope = importer_woo_authored_scope($combinedPolicy, ['product', 'shop_order', 'unknown_type'],
-    ['product_cat', 'product_type', 'product_visibility', 'unknown_taxonomy']);
+    ['product_cat', 'product_type', 'product_visibility', 'unknown_taxonomy'], ['post_types' => [], 'taxonomies' => []]);
 wprism_check_same(['product'], $scope['post_types'], 'registered orders stay runtime and unknown types gain no authored authority');
 wprism_check_same(['product_cat', 'product_type', 'product_visibility'], $scope['taxonomies'],
     'initialized reviewed Woo taxonomies are selected without inventing an optional fulfillment registry');
-$initialized = importer_woo_authored_scope($combinedPolicy, [], ['wc_fulfillment_shipping_provider']);
+$initialized = importer_woo_authored_scope($combinedPolicy, [], ['wc_fulfillment_shipping_provider'], ['post_types' => [], 'taxonomies' => []]);
 wprism_check_same(['wc_fulfillment_shipping_provider'], $initialized['taxonomies'],
     'an optional reviewed taxonomy enters scope when its native workflow initializes it');
+$coreScope = ['post_types' => ['post', 'page', 'attachment'], 'taxonomies' => ['category', 'post_tag']];
+$composedScope = importer_woo_authored_scope($combinedPolicy, ['post', 'page', 'attachment', 'product', 'shop_order'],
+    ['category', 'post_tag', 'product_cat'], $coreScope);
+wprism_check_same(['attachment', 'page', 'post', 'product'], $composedScope['post_types'],
+    'combination scope preserves implicit core post types while adding initialized authored products');
+wprism_check_same(['category', 'post_tag', 'product_cat'], $composedScope['taxonomies'],
+    'combination scope preserves implicit core taxonomies');
 wprism_check_summary('Importer/Woo exact Apply database transition');

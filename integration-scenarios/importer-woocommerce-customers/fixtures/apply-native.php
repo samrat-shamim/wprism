@@ -20,7 +20,7 @@ if ($phase === 'configure') {
     // native workflows. Select the current site's registered authored surface;
     // Capture still refuses any populated authored storage outside this scope.
     $document['policy'] = array_replace($document['policy'], importer_woo_authored_scope($policy,
-        array_values(get_post_types([], 'names')), array_values(get_taxonomies([], 'names'))));
+        array_values(get_post_types([], 'names')), array_values(get_taxonomies([], 'names')), $document['policy']));
     WPrism\Canon::write_file($file, WPrism\Canon::encode($document));
     echo json_encode(['phase' => $phase, 'manifests' => $document['manifests'], 'scope' => $document['policy']], JSON_THROW_ON_ERROR), "\n";
     return;
