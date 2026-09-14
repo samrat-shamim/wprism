@@ -61,6 +61,7 @@ wprism_ssh_adopt_extension() {
   importer_delete_capture inventory empty wprism_ssh_stage_code_inventory "$slug"
   importer_delete_capture pin json wp_ssh_fixture wprism manifest-pin --repo=/home/wprism/site --name="$slug"
   importer_delete_capture policy json importer_delete_native template-deletion-native policy <"$DIAG_DIR/importer-delete-pin.stdout"
+  importer_delete_capture baseline-agent-diagnostic json wp_ssh_fixture wprism capture --repo=/home/wprism/site --format=json
   importer_delete_capture baseline-capture json "$WPRISM" --envs-file="$TMP/envs.json" \
     capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json
   assert_wprism_host_capture_ready 'Importer deletion baseline' target "$TARGET_REPOSITORY_BRANCH" "$(cat "$DIAG_DIR/importer-delete-baseline-capture.stdout")"
