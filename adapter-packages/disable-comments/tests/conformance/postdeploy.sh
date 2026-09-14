@@ -5,7 +5,9 @@ set -euo pipefail
 
 disable_comments_seed_runtime() {
   local cli="$1"
-  "$cli" option update disable_comment_version 2.9.0 --autoload=yes >/dev/null
+  if ! "$cli" option get disable_comment_version >/dev/null 2>&1; then
+    "$cli" option add disable_comment_version 2.9.0 --autoload=yes >/dev/null
+  fi
   "$cli" option update disable_comments_blocked_since '2026-09-14 09:00:00' --autoload=yes >/dev/null
   "$cli" option update disable_comments_blocked_stats_comment 11 --autoload=yes >/dev/null
   "$cli" option update disable_comments_blocked_stats_rest 37 --autoload=yes >/dev/null
