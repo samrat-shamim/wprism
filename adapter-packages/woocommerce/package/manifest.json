@@ -719,7 +719,7 @@
     "wc_fulfillment_shipping_provider": {"class": "authored"}
   },
   "taxonomy_patterns": [
-    {"match": "^pa_", "object_keyspace": "post", "object_type": ["product"], "update_count_callback": "_update_post_term_count"}
+    {"match": "^pa_", "object_keyspace": "post", "object_type": ["product"], "update_count_callback": "_update_post_term_count", "hierarchical": false}
   ],
     "notes": {
         "issue #3509": "Neutral provenance for the option classifications documented below.",
