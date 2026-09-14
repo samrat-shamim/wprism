@@ -82,6 +82,23 @@ foreach (['other-warning', 'extra-warning', 'warning-hidden', 'wrong-revision', 
     wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::initialCapture($badAgent, $badHost), RuntimeException::class,
         'initial capture evidence rejects ' . $fault);
 }
+$deploy = ['lifecycle_phase' => 'all', 'code_mismatch' => [], 'code_drift' => [[
+    'issue' => 'code_baseline_missing', 'plugin' => 'users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php',
+    'installed_version' => '2.7.5', 'recorded_version' => '']],
+    'warnings' => ['FORCED past code_drift: ' . strstr($warning, " — 'wprism capture' observed this", true)]];
+ImporterTemplateDeletionEvidence::reconcile($agent, $deploy);
+wprism_check(true, 'fixture reconciliation admits only its explicit one-plugin baseline acceptance');
+foreach (['extra-drift', 'other-owner', 'old-version', 'mismatch', 'extra-warning', 'wrong-phase'] as $fault) {
+    $bad = $deploy;
+    if ($fault === 'extra-drift') $bad['code_drift'][] = $bad['code_drift'][0];
+    if ($fault === 'other-owner') $bad['code_drift'][0]['plugin'] = 'other/plugin.php';
+    if ($fault === 'old-version') $bad['code_drift'][0]['installed_version'] = '2.7.4';
+    if ($fault === 'mismatch') $bad['code_mismatch'] = [['issue' => 'missing_in_code']];
+    if ($fault === 'extra-warning') $bad['warnings'][] = 'unrelated';
+    if ($fault === 'wrong-phase') $bad['lifecycle_phase'] = 'retire';
+    wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::reconcile($agent, $bad), RuntimeException::class,
+        'fixture reconciliation rejects ' . $fault);
+}
 $answer = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 'apply',
     'error' => 'deletion_writer_exclusion_required', 'reason_code' => 'deletion_writer_exclusion_required',
     'message' => 'deletion requires a signed recovery promotion whose external exclusion blocks all target writers'];
@@ -92,5 +109,34 @@ foreach (['command' => 'plan', 'reason_code' => 'unrelated_failure', 'message' =
     $bad = array_replace($answer, [$field => $value]);
     wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::refusal($bad, 'direct'), RuntimeException::class,
         'direct deletion refusal rejects unrelated ' . $field);
+}
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/ShellProbe.php';
+$root = dirname(__DIR__, 4);
+$capsule = dirname(__DIR__, 2);
+$source = file_get_contents($capsule . '/tests/live/regress_template_deletion_ssh.sh');
+$start = strpos($source, 'importer_delete_record()');
+$end = strpos($source, 'importer_delete_native()', $start);
+if ($start === false || $end === false) throw new RuntimeException('native deletion capture function boundaries changed');
+$probe = <<<'SH'
+set -euo pipefail
+ROOT="$1" PACKAGE_ROOT="$2"
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+pass() { printf 'ok: %s\n' "$*"; }
+. "$ROOT/sandbox/tests/lib/private_command_capture.sh"
+DIAG_DIR=$(umask 077; mktemp -d)
+trap 'rm -rf -- "$DIAG_DIR"' EXIT
+command_stdout="$3" command_stderr="$4" command_exit="$5" command_kind="$6"
+fixture_command() { printf '%s' "$command_stdout"; printf '%s' "$command_stderr" >&2; return "$command_exit"; }
+SH;
+$probe .= "\n" . substr($source, $start, $end - $start) . "\nimporter_delete_capture probe \"$" . "command_kind\" fixture_command\n";
+foreach (['json', 'direct'] as $kind) foreach (['valid', 'wrong-exit', 'stderr', 'malformed'] as $fault) {
+    $stdout = $kind === 'direct' ? json_encode($answer, JSON_THROW_ON_ERROR) : '{"status":true}';
+    $stderr = $fault === 'stderr' ? 'PHP Warning: fixture diagnostic' : '';
+    $exit = $kind === 'direct' ? 1 : 0;
+    if ($fault === 'wrong-exit') $exit = 2;
+    if ($fault === 'malformed') $stdout = 'PHP Warning: fixture diagnostic' . $stdout;
+    [$status, $out] = WPrismTest\ShellProbe::run($probe, [$root, $capsule, $stdout, $stderr, (string) $exit, $kind], $root);
+    wprism_check_same($fault === 'valid', $status === 0, 'actual deletion capture admits exact ' . $kind . ' streams and exit: ' . $fault);
+    if ($fault === 'valid') wprism_check(str_contains($out, 'ok: importer-delete-probe'), 'actual deletion capture reaches positive admission');
 }
 wprism_check_summary('Importer template deletion evidence');

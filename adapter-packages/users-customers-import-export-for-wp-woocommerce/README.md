@@ -94,8 +94,8 @@ Complete template qualification remains pending. Generated CSVs/logs, users and
 customers are operational data. The native importer warns when `user_pass` is
 omitted from mappings; the mapped-password control does not qualify that case.
 Remote-adapter extensions and broader import-job behavior remain unqualified.
-Template deletion, native post-write recovery, remaining lifecycle boundaries
-and plugin combinations remain open. The production-readiness record remains
+Successful signed template-deletion promotion, native post-write recovery,
+remaining lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
 unready in all twelve families.
 
 Run the capsule offline gate with
@@ -127,3 +127,26 @@ From a clean standalone clone, supply a unique `ADOPT_FIXTURE`, free
 then run `bash sandbox/tests/live/regress_ssh_adopt.sh`.
 The shared harness owns adoption, recovery authority and labeled cleanup.
 This lane does not qualify template deletion or change the experimental grade.
+
+The deletion declaration uses the generic typed-table machinery and an exact
+2.7.5 executable identity. Its `all_active_owners` boundary also requires
+reviewed site agreements for every active owner. The adapter adds no deletion
+hook: the native handler removes only its selected row; copies and history
+retain independent complete forms.
+
+`tests/live/regress_template_deletion_ssh.sh` drives the native registered
+Delete callback for an export, an import with the same name, and a blank import
+draft. Full observations cover eleven native tables and operational files.
+Both Save As copies and completed export history reopen after deletion. Public
+Capture emits exactly three tombstones bound to the prior hash, revision and
+source path, and repeated Capture preserves their bytes. Explicit fixture
+restoration prepares a target preimage; it is not product recovery. Public
+Plan identifies those three rows, and direct `apply --with-deletes` refuses
+before mutation with the exact public and private writer-exclusion cause.
+
+This remains experimental authoring evidence. Its fixture first checks the
+exact code-baseline warning caused by native activation after adoption, then
+uses the documented agent deployment command with explicit drift consent and
+requires clean subsequent Capture. It does not authorize host promotion.
+Signed deletion success, external-exclusion loss, verified restoration and
+retry must be qualified after the remaining certification prerequisites.
