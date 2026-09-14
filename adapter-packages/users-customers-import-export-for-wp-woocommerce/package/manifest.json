@@ -8,10 +8,15 @@
   },
   "engine_features": [
     "column-field-labels/v1",
+    "column-field-templates/v1",
+    "column-input-files/v1",
     "column-record-fields/v1",
+    "column-value-cases/v1",
     "json-column-codecs/v1",
+    "object-record-fields/v1",
     "scalar-option-constraints/v1",
     "spec-window/v1",
+    "table-row-scope-sets/v1",
     "table-row-scopes/v1",
     "typed-column-codecs/v1",
     "typed-column-values/v1"
@@ -130,11 +135,12 @@
     }
   },
   "notes": [
-    "Experimental 2.7.5 settings and export-user template capsule. Existing settings evidence remains applicable; native template product qualification is tracked separately.",
+    "Experimental 2.7.5 settings and saved user import/export template capsule. Native settings and export evidence are retained; broader production qualification remains separate.",
     "admin/modules/export/classes/class-export-ajax.php:391-400 uses the saved selected_template only for history preselection. Normal reopen selects the requested row ID; export/assets/js/main.js:395 rebuilds this cursor from the current wizard selection. Shared record_fields retains method_export and mapping_enabled_fields; the saved cursor is regenerated UI state.",
     "Saved mapping_fields contains field-code to [label,integer-enabled] definitions; mapping_selected_fields supplies backend CSV headers. Exact field-label declarations preserve these maps without a column-wide privacy exception. Selected users use strict login bindings and native string IDs.",
-    "Import templates still need target-local CSV input qualification. Generated exports/logs, imported users, customer records and operational history remain local. Template deletion and lifecycle/combination qualification remain pending.",
-    "The native settings Save invokes wt_iew_after_advanced_setting_update_basic, whose history listener can delete files and records. WPrism materializes configuration without replaying this operational action."
+    "Import mappings transport field expressions without CSV contents or customer records. The native free-plugin local-file mode requires an independently provisioned CSV under webtoffee_import; missing files block selected Apply. Generated exports/logs, imported users, customer records and history remain local.",
+    "The native settings Save invokes wt_iew_after_advanced_setting_update_basic, whose history listener can delete files and records. WPrism materializes configuration without replaying this operational action.",
+    "Import import.php:194-272 exposes local input and delimiter controls. class-import-ajax.php:66-84 and 692-704 reopen using the requested template row; the saved selected_template cursor is regenerated. Typed object projection retains method, delimiter and local-input fields while exact input_file semantics preserve the functional dependency."
   ],
   "tables": {
     "wt_iew_action_history": {
@@ -156,7 +162,10 @@
       },
       "row_scope": {
         "item_type": "user",
-        "template_type": "export"
+        "template_type": [
+          "export",
+          "import"
+        ]
       },
       "columns": {
         "template_type": {
@@ -173,96 +182,199 @@
         }
       },
       "refs": [],
-      "note": "Native do_save_template checks (template_type,item_type,name) and stores JSON in data. Only export-user rows are owned; import and other modules remain outside this declaration."
+      "note": "Native do_save_template checks (template_type,item_type,name) and stores JSON in data. Exact user/import and user/export rows are owned through separate value cases; non-user and case-variant rows remain local."
     }
   },
   "column_codecs": {
     "wt_iew_mapping_template": {
       "data": {
         "container": "json",
-        "value": {
-          "class": "authored",
-          "object_fields": {
-            "post_type_form_data": {
-              "class": "authored",
-              "plain_data": true
-            },
-            "method_export_form_data": {
-              "class": "authored",
-              "plain_data": true,
-              "record_fields": {
-                "container": "object",
-                "fields": [
-                  "method_export",
-                  "mapping_enabled_fields"
-                ]
-              }
-            },
-            "filter_form_data": {
-              "class": "authored",
-              "object_fields": {
-                "wt_iew_limit": {
-                  "class": "authored",
-                  "plain_data": true
-                },
-                "wt_iew_offset": {
-                  "class": "authored",
-                  "plain_data": true
-                },
-                "wt_iew_roles": {
-                  "class": "authored",
-                  "plain_data": true
-                },
-                "wt_iew_sort_columns": {
-                  "class": "authored",
-                  "plain_data": true
-                },
-                "wt_iew_order_by": {
-                  "class": "authored",
-                  "plain_data": true
-                },
-                "wt_iew_email": {
-                  "class": "authored",
-                  "ref": "user[]",
-                  "cast": "string",
-                  "on_unmapped": "refuse"
-                },
-                "wt_iew_date_from": {
-                  "class": "authored",
-                  "plain_data": true
-                },
-                "wt_iew_date_to": {
-                  "class": "authored",
-                  "plain_data": true
+        "value_cases": {
+          "column": "template_type",
+          "cases": [
+            {
+              "equals": "export",
+              "value": {
+                "class": "authored",
+                "object_fields": {
+                  "post_type_form_data": {
+                    "class": "authored",
+                    "plain_data": true
+                  },
+                  "method_export_form_data": {
+                    "class": "authored",
+                    "plain_data": true,
+                    "record_fields": {
+                      "container": "object",
+                      "fields": [
+                        "method_export",
+                        "mapping_enabled_fields"
+                      ]
+                    }
+                  },
+                  "filter_form_data": {
+                    "class": "authored",
+                    "object_fields": {
+                      "wt_iew_limit": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "wt_iew_offset": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "wt_iew_roles": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "wt_iew_sort_columns": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "wt_iew_order_by": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "wt_iew_email": {
+                        "class": "authored",
+                        "ref": "user[]",
+                        "cast": "string",
+                        "on_unmapped": "refuse"
+                      },
+                      "wt_iew_date_from": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "wt_iew_date_to": {
+                        "class": "authored",
+                        "plain_data": true
+                      }
+                    }
+                  },
+                  "mapping_form_data": {
+                    "class": "authored",
+                    "object_fields": {
+                      "mapping_fields": {
+                        "class": "authored",
+                        "field_labels": "label_enabled"
+                      },
+                      "mapping_enabled_fields": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "mapping_selected_fields": {
+                        "class": "authored",
+                        "field_labels": "label"
+                      }
+                    }
+                  },
+                  "meta_step_form_data": {
+                    "class": "authored",
+                    "plain_data": true
+                  },
+                  "advanced_form_data": {
+                    "class": "authored",
+                    "plain_data": true
+                  }
                 }
               }
             },
-            "mapping_form_data": {
-              "class": "authored",
-              "object_fields": {
-                "mapping_fields": {
-                  "class": "authored",
-                  "field_labels": "label_enabled"
-                },
-                "mapping_enabled_fields": {
-                  "class": "authored",
-                  "plain_data": true
-                },
-                "mapping_selected_fields": {
-                  "class": "authored",
-                  "field_labels": "label"
+            {
+              "equals": "import",
+              "value": {
+                "class": "authored",
+                "object_fields": {
+                  "post_type_form_data": {
+                    "class": "authored",
+                    "object_fields": {
+                      "item_type": {
+                        "class": "authored",
+                        "enum": [
+                          "user"
+                        ]
+                      }
+                    }
+                  },
+                  "method_import_form_data": {
+                    "class": "authored",
+                    "object_fields": {
+                      "method_import": {
+                        "class": "authored",
+                        "enum": [
+                          "new",
+                          "quick",
+                          "template"
+                        ]
+                      },
+                      "wt_iew_file_from": {
+                        "class": "authored",
+                        "enum": [
+                          "local"
+                        ]
+                      },
+                      "wt_iew_local_file": {
+                        "class": "authored",
+                        "input_file": {
+                          "directory": "webtoffee_import",
+                          "extensions": [
+                            "csv"
+                          ]
+                        }
+                      },
+                      "wt_iew_delimiter_preset": {
+                        "class": "authored",
+                        "plain_data": true
+                      },
+                      "wt_iew_delimiter": {
+                        "class": "authored",
+                        "plain_data": true
+                      }
+                    },
+                    "record_fields": {
+                      "container": "object",
+                      "fields": [
+                        "method_import",
+                        "wt_iew_file_from",
+                        "wt_iew_local_file",
+                        "wt_iew_delimiter_preset",
+                        "wt_iew_delimiter"
+                      ]
+                    }
+                  },
+                  "mapping_form_data": {
+                    "class": "authored",
+                    "object_fields": {
+                      "mapping_fields": {
+                        "class": "authored",
+                        "field_templates": "brace_enabled"
+                      },
+                      "mapping_selected_fields": {
+                        "class": "authored",
+                        "field_templates": "brace"
+                      }
+                    }
+                  },
+                  "meta_step_form_data": {
+                    "class": "authored",
+                    "object_fields": {
+                      "mapping_fields": {
+                        "class": "authored",
+                        "field_templates": "brace_enabled"
+                      },
+                      "mapping_selected_fields": {
+                        "class": "authored",
+                        "field_templates": "brace"
+                      }
+                    }
+                  },
+                  "advanced_form_data": {
+                    "class": "authored",
+                    "plain_data": true
+                  }
                 }
               }
-            },
-            "meta_step_form_data": {
-              "class": "authored",
-              "plain_data": true
-            },
-            "advanced_form_data": {
-              "class": "authored",
-              "plain_data": true
             }
-          }
+          ]
         }
       }
     }

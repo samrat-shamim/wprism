@@ -99,4 +99,67 @@ $read('renamed-repeat', 'apply');
 foreach (['templates-capture', 'templates-recapture', 'resave-recapture', 'renamed-capture', 'renamed-recapture'] as $name) {
     wprism_check_same([], $read($name, 'capture')['warnings'], 'public template capture completes without warnings: ' . $name);
 }
+$importTemplate = static function (array $observation, string $name): array {
+    $rows = array_values(array_filter($observation['tables']['wt_iew_mapping_template'], static fn(array $row): bool =>
+        $row['template_type'] === 'import' && $row['item_type'] === 'user' && $row['name'] === $name));
+    if (count($rows) !== 1) throw new RuntimeException('native evidence requires exactly one import template ' . $name);
+    return $rows[0];
+};
+$portableImport = static function (array $row): array {
+    $form = json_decode($row['data'], true, flags: JSON_THROW_ON_ERROR);
+    unset($form['method_import_form_data']['selected_template']);
+    if ($form['method_import_form_data']['wt_iew_local_file'] !== '') $form['method_import_form_data']['wt_iew_local_file'] = ['environment' => 'input_file'];
+    return $form;
+};
+$sourceSetup = $read('imports-setup1');
+$targetSetup = $read('imports-setup2');
+wprism_check($sourceSetup['user'] !== $targetSetup['user'] && $sourceSetup['original'] !== $targetSetup['original'], 'import users and template row IDs differ across environments');
+wprism_check($sourceSetup['copy'] !== null && $sourceSetup['draft'] !== null && $targetSetup['copy'] === null && $targetSetup['draft'] === null,
+    'native Save As and blank draft exercise creation beside an existing target');
+$source = $read('imports-source');
+$before = $read('imports-before');
+$after = $read('imports-after');
+wprism_check_same($before, $read('imports-provisioned'), 'public input provisioning preserves the complete native census');
+$bindings = array_values($read('imports-bind')['bindings']);
+$missing = array_column($read('imports-missing', 'plan')['env_missing'], 'name');
+foreach ($bindings as $binding) wprism_check(in_array($binding, $missing, true), 'Plan names each unprovisioned saved input');
+wprism_check_same([], $read('imports-plan', 'plan')['env_missing'], 'independent target CSV bindings clear the public missing checklist');
+$changedIds = [];
+$targetFile = json_decode($importTemplate($before, 'Reusable input mapping')['data'], true, flags: JSON_THROW_ON_ERROR)['method_import_form_data']['wt_iew_local_file'];
+foreach (['original' => 'Reusable input mapping', 'copy' => 'Reusable input copy', 'draft' => 'Draft input mapping'] as $stem => $name) {
+    $from = $importTemplate($source, $name);
+    $to = $importTemplate($after, $name);
+    $changedIds[] = (int) $to['id'];
+    wprism_check($from['id'] !== $to['id'], 'import template ID is target-local: ' . $stem);
+    wprism_check_same($portableImport($from), $portableImport($to), 'every saved import field reaches the target: ' . $stem);
+    $form = json_decode($to['data'], true, flags: JSON_THROW_ON_ERROR);
+    wprism_check(!isset($form['method_import_form_data']['selected_template']), 'Apply excludes source import cursor: ' . $stem);
+    $opened = $read('import-' . $stem . '-reopen');
+    wprism_check_same($form, $opened['form'], 'native import wizard reopens the complete applied form: ' . $stem);
+    if ($stem === 'draft') wprism_check_same('', $opened['local_file'], 'native blank draft stays empty without a binding');
+    else wprism_check_same($targetFile, $opened['local_file'], 'native import control holds the exact independently created target CSV: ' . $stem);
+}
+wprism_check_same($targetSetup['original'], (int) $importTemplate($after, 'Reusable input mapping')['id'], 'explicit import adoption preserves the target ID');
+wprism_check_same(count($before['tables']['wt_iew_mapping_template']) + 2, count($after['tables']['wt_iew_mapping_template']), 'only copy and blank draft are created');
+$preserved($before, $after, $changedIds);
+foreach (['import-original-consume', 'import-copy-consume'] as $name) wprism_check_same('Target input', $read($name)['display_name'], 'actual mapped-password job consumes the saved target mapping: ' . $name);
+$rotationBefore = $read('rotation-before');
+$rotationAfter = $read('rotation-after');
+$rotated = $importTemplate($rotationAfter, 'Reusable input mapping');
+$preserved($rotationBefore, $rotationAfter, [(int) $rotated['id']]);
+$expectedForm = json_decode($importTemplate($rotationBefore, 'Reusable input mapping')['data'], true, flags: JSON_THROW_ON_ERROR);
+unset($expectedForm['method_import_form_data']['selected_template']);
+$expectedForm['method_import_form_data']['wt_iew_local_file'] = preg_replace('~/target-input\.csv$~D', '/rotated-input.csv', $expectedForm['method_import_form_data']['wt_iew_local_file']);
+wprism_check_same($expectedForm, json_decode($rotated['data'], true), 'scoped rotation changes only the selected pointer and regenerated cursor');
+wprism_check_same($rotationAfter, $read('rotation-stable'), 'import terminal replay preserves all native state');
+wprism_check_same('Rotated input', $read('rotation-consume')['display_name'], 'native importer consumes rotated target bytes');
+foreach (['imports-apply', 'rotation-apply'] as $name) {
+    $apply = $read($name, 'apply');
+    wprism_check($apply['applied'] > 0 && $apply['canary'] === 'clean' && $apply['drift'] === [] && $apply['warnings'] === [] && $apply['actions'] === [],
+        'public import Apply completes without warnings or plugin executables: ' . $name);
+}
+$read('rotation-repeat', 'apply');
+foreach (['imports-capture', 'imports-recapture', 'imports-resave-capture', 'rotation-recapture'] as $name) {
+    wprism_check_same([], $read($name, 'capture')['warnings'], 'import Capture is warning-free: ' . $name);
+}
 wprism_check_summary('native importer templates');

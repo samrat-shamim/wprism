@@ -128,5 +128,52 @@ capture renamed-export template_side 2 export 'Renamed selection'
 capture renamed-recapture candidate 2 capture --repo=/siterepo --format=json
 pair_live_ownership_repo_host
 diff -r "$R1/state" "$R2/state" || fail 'scoped rename recapture changed canonical state'
+
+import_side() { local side="$1"; shift; wp_side "$side" --require="$fixture_root/admin-context.php" eval-file "$fixture_root/import-templates-native.php" "$@" --use-include --user=admin; }
+for side in 1 2; do
+  role=source; [ "$side" = 1 ] || role=target
+  capture "imports-setup$side" import_side "$side" "setup-$role"
+done
+capture imports-source template_side 1 observe
+capture imports-capture candidate 1 capture --repo=/siterepo --format=json
+pair_live_ownership_repo_host
+git -C "$R1" add state
+git -C "$R1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'Native saved import templates'
+git -C "$R2" fetch -q "$R1" evidence
+git -C "$R2" merge -q --ff-only FETCH_HEAD
+capture imports-before template_side 2 observe
+capture imports-missing candidate 2 plan --repo=/siterepo --format=json
+capture imports-bind import_side 2 bind
+capture imports-provisioned template_side 2 observe
+capture imports-plan candidate 2 plan --repo=/siterepo --format=json
+capture imports-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=tables --format=json
+capture imports-after template_side 2 observe
+for name in 'Reusable input mapping' 'Reusable input copy' 'Draft input mapping'; do
+  stem=original; [ "$name" != 'Reusable input copy' ] || stem=copy; [ "$name" != 'Draft input mapping' ] || stem=draft
+  capture "import-$stem-reopen" import_side 2 reopen "$name"
+done
+capture imports-recapture candidate 2 capture --repo=/siterepo --format=json
+pair_live_ownership_repo_host
+diff -r "$R1/state" "$R2/state" || fail 'full import recapture changed canonical state'
+capture imports-resave import_side 2 resave 'Reusable input mapping'
+capture imports-resave-capture candidate 2 capture --repo=/siterepo --format=json
+pair_live_ownership_repo_host
+diff -r "$R1/state" "$R2/state" || fail 'native import resave changed canonical intent'
+capture import-original-consume import_side 2 consume 'Reusable input mapping'
+capture import-copy-consume import_side 2 consume 'Reusable input copy'
+capture imports-rotate import_side 2 rotate
+pair_live_ownership_repo_host
+import_uuid=$(php -r '$ids=[]; foreach(glob($argv[1]."/state/tables/wt_iew_mapping_template/*.json") as $path) { $f=json_decode(file_get_contents($path),true,flags:JSON_THROW_ON_ERROR); if($f["columns"]["template_type"]==="import" && $f["columns"]["name"]==="Reusable input mapping") $ids[]=$f["uuid"]; } if(count($ids)!==1) exit(1); echo $ids[0];' "$R1")
+capture imports-scope "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" scope source --roots="table:wt_iew_mapping_template:$import_uuid" --contract --format=json
+capture rotation-before template_side 2 observe
+capture rotation-plan "$REPO_ROOT/cli/wprism" --envs-file="$sink/envs.json" plan target --scope-contract="$sink/imports-scope.stdout" --format=json
+capture rotation-apply host_apply --scope-contract="$sink/imports-scope.stdout" --request-id=importer-input-rotation --format=json
+capture rotation-after template_side 2 observe
+capture rotation-repeat host_apply --scope-contract="$sink/imports-scope.stdout" --request-id=importer-input-rotation --format=json
+capture rotation-stable template_side 2 observe
+capture rotation-consume import_side 2 consume 'Reusable input mapping'
+capture rotation-recapture candidate 2 capture --repo=/siterepo --format=json
+pair_live_ownership_repo_host
+diff -r "$R1/state" "$R2/state" || fail 'native import jobs or scoped rotation changed canonical intent'
 php "$PACKAGE_ROOT/fixtures/templates-evidence.php" "$sink" "$PAIR"
 pair_live_ownership_complete 'REGRESS_IMPORTER_TEMPLATES_APPLY PASSED'

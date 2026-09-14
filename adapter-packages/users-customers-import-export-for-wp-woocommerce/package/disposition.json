@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Declares nine native settings and scoped export-user templates through shared option predicates, typed JSON values, field-label maps, strict user bindings and record projection. Existing native settings evidence is retained. Complete template product-path, deletion, lifecycle and combination qualification remains pending.",
+  "reason": "Declares nine native settings and scoped user import/export templates through shared option predicates, row-selected typed JSON values, expression/label maps, strict user bindings, record projection and target-local CSV dependencies. Native template Save/reopen, full/scoped Apply and CSV consumption are exercised separately from broader deletion, lifecycle and combination qualification.",
   "supported_versions": {
     "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
     "range": {
@@ -40,6 +40,7 @@
       "regress-native-harness",
       "regress-settings-apply",
       "regress-export-templates",
+      "regress-import-templates",
       "regress-templates-harness",
       "regress-templates-apply"
     ]
@@ -57,8 +58,8 @@
     },
     {
       "operation": "capture",
-      "surface": "import and non-user templates; unnamed advanced setting keys; generated exports/logs; users and customers",
-      "reason": "Import-template local CSV bindings remain unqualified. Other module settings and template rows remain local; operational records and user/customer data are not authored configuration."
+      "surface": "non-user and case-variant templates; unnamed advanced setting keys; generated exports/logs; users and customers",
+      "reason": "Only the native free-plugin local CSV input mode is declared. Other module settings and template rows remain local; operational records and user/customer data are not authored configuration. Remote-adapter extensions and broader native import-job qualification remain pending."
     }
   ]
 }
