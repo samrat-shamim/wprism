@@ -73,12 +73,28 @@ export templates and operational files. The offline capsule test additionally
 covers same-name import/export identities, missing inputs before insertion,
 post-write rollback, private/disabled literals and malformed owned imports.
 
+The dependency lane exercises public deployment of the exact 2.7.5 artifact,
+repeat deployment, native deactivation/reactivation, uninstall residue and
+reinstall. Raw observations precede plugin loading and prove that deployment
+created both tables and persisted the activation marker; a later native admin
+bootstrap must observe the same state. Four saved templates, four completed
+exports and their files survive the tested lifecycle transitions.
+
+Inactive-code Apply and missing-code/prior-2.7.4 deployment refuse with the
+exact private cause, preserving complete native database dumps, canonical state
+and policy. The first-Apply case includes initially empty identity ledgers, so
+preparation cannot silently enroll a template before refusing. Offline checks
+also cover declared version limits and the wrong plugin basename. These 41
+native assertions qualify the named paths; unreadable-code handling, upgrade
+migrations and broader lifecycle/platform combinations remain open.
+
 Package identity changes with this declaration: existing installations must
 recompile and update their manifest content pin using `wp wprism manifest-pin`.
 Complete template qualification remains pending. Generated CSVs/logs, users and
 customers are operational data. The native importer warns when `user_pass` is
 omitted from mappings; the mapped-password control does not qualify that case.
-Remote-adapter extensions and broader import-job behavior remain unqualified. Template deletion, native post-write recovery, lifecycle
+Remote-adapter extensions and broader import-job behavior remain unqualified.
+Template deletion, native post-write recovery, remaining lifecycle boundaries
 and plugin combinations remain open. The production-readiness record remains
 unready in all twelve families.
 
@@ -95,3 +111,9 @@ For the template lane, use the corresponding `IMPORTER_TEMPLATES_PAIR`,
 `IMPORTER_TEMPLATES_ZIP` variables with the same clean-checkout source pin,
 then run
 `bash adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_templates_apply.sh`.
+For dependency and lifecycle evidence, use `IMPORTER_DEPENDENCY_PAIR`,
+`IMPORTER_DEPENDENCY_PORT1`, `IMPORTER_DEPENDENCY_PORT2`,
+`IMPORTER_DEPENDENCY_ZIP` (2.7.5) and `IMPORTER_DEPENDENCY_PRIOR_ZIP` (2.7.4),
+with both absolute archives matching the lock and the same clean source pin,
+then run
+`bash adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_dependency_apply.sh`.

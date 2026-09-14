@@ -19,7 +19,7 @@ final class ImporterSettingsEvidence {
             WPrismTest\PrivateCommandOutput::readBytes($stem, '/^' . $transport . '$/D', expectedExit: $expectedExit);
             return;
         }
-        self::check(in_array($verb, ['capture', 'compile', 'plan', 'apply'], true), 'known wrapped native command');
+        self::check(in_array($verb, ['capture', 'compile', 'plan', 'apply', 'deploy'], true), 'known wrapped native command');
         $pointer = 'private command diagnostics (unverified): ';
         $prefix = $root . '/sandbox/tmp/wprism-conformance-' . $verb . '.' . $pair . '.';
         $pattern = '/^(?:' . $transport . '|' . preg_quote($pointer . $prefix, '/') . '[A-Za-z0-9]{6})$/D';
