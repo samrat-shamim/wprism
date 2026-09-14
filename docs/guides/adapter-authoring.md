@@ -84,7 +84,10 @@ array explicitly selects no adoption. This is fixture intent for an existing
 target, validated before pair mutation, not a shipped adapter permission.
 For example, a template roundtrip that seeds existing target rows declares
 `["terms", "posts", "tables"]`. Keep target-local preservation assertions in
-the capsule's post-Apply check.
+the capsule's post-Apply check. Reusable shell helpers belong under `fixtures/`;
+premise contracts may name active statements there as well as under `tests/`.
+Both roots are scanned for required evidence contracts.
+
 `platform.json` is the object a site-adapter certificate reads its bound
 compatibility cells out of (§ v3.6), so it has exactly one on-disk
 representation; the agent refuses at load time if its

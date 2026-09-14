@@ -31,6 +31,36 @@ final class ImporterRoundtripEvidence {
         return $form;
     }
 
+    public static function coreWidgets(array $source, array $before, array $after): array {
+        $check = ImporterSettingsEvidence::check(...);
+        foreach (['widget_block', 'widget_text', 'sidebars_widgets'] as $name) {
+            $check($source[$name]['option_value'] === $before[$name]['option_value'], 'known identical default widget preimages');
+        }
+        $decode = static fn(string $bytes): array => unserialize($bytes, ['allowed_classes' => false]);
+        $sourceBlocks = $decode($source['widget_block']['option_value']);
+        $targetBlocks = $decode($after['widget_block']['option_value']);
+        $check(($sourceBlocks['_multiwidget'] ?? null) === 1 && ($targetBlocks['_multiwidget'] ?? null) === 1, 'exact native widget markers');
+        unset($sourceBlocks['_multiwidget'], $targetBlocks['_multiwidget']);
+        $check(count($sourceBlocks) === 5 && count($targetBlocks) === 5, 'five complete default block widgets');
+        self::same(array_values($sourceBlocks), array_values($targetBlocks), 'all default widget bodies survive in order');
+        $bindings = [];
+        foreach (array_keys($sourceBlocks) as $index => $id) {
+            $targetId = array_keys($targetBlocks)[$index];
+            $check(is_int($id) && $id > 0 && is_int($targetId) && $targetId > 0, 'positive local widget identities');
+            $bindings['block-' . $id] = 'block-' . $targetId;
+        }
+        $sidebar = $decode($source['sidebars_widgets']['option_value']);
+        $check(array_keys($sidebar) === ['wp_inactive_widgets', 'sidebar-1', 'array_version']
+            && $sidebar['wp_inactive_widgets'] === [] && $sidebar['array_version'] === 3
+            && $sidebar['sidebar-1'] === array_keys($bindings), 'exact default sidebar order');
+        $sidebar['sidebar-1'] = array_values($bindings);
+        self::same($sidebar, $decode($after['sidebars_widgets']['option_value']), 'sidebar references follow the corresponding target widget IDs');
+        $check($decode($source['widget_text']['option_value']) === []
+            && $decode($after['widget_text']['option_value']) === ['_multiwidget' => 1], 'empty text-family native marker materialization');
+        return ['widget_block' => $after['widget_block']['option_value'],
+            'sidebars_widgets' => serialize($sidebar), 'widget_text' => serialize(['_multiwidget' => 1])];
+    }
+
     public static function applied(array $source, array $before, array $after): void {
         $check = ImporterSettingsEvidence::check(...);
         $tables = ['posts', 'postmeta', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta',
@@ -64,13 +94,28 @@ final class ImporterRoundtripEvidence {
             static fn(array $row): bool => $row['item_type'] !== 'user' || !in_array($row['template_type'], ['import', 'export'], true)));
         $check(count($foreign($before)) === 2, 'two excluded native templates are present');
         self::same($foreign($before), $foreign($after), 'excluded template bytes survive');
-        // Only the independently proved template rows and the harness-authored
-        // blog title may differ before reusing the complete settings census.
+        // Full core Apply binds default widgets to new local IDs. Prove their
+        // complete bodies and ordered references before comparing all options.
         $normalizedAfter = $after;
         $normalizedAfter['tables']['wt_iew_mapping_template'] = $before['tables']['wt_iew_mapping_template'];
+        // The fresh target adopts the one default core category. Its identity
+        // must be the exact source Capture UUID; all other metadata stays local.
+        $sourceIdentity = array_values(array_filter($source['tables']['termmeta'], static fn(array $r): bool => $r['meta_key'] === '_wprism_uuid'));
+        $targetIdentity = array_values(array_filter($after['tables']['termmeta'], static fn(array $r): bool => ($r['meta_key'] ?? '') === '_wprism_uuid'));
+        $check(count($sourceIdentity) === 1 && count($targetIdentity) === 1
+            && preg_match('/^[1-9][0-9]*$/D', $targetIdentity[0]['meta_id']) === 1, 'one enrolled core term identity');
+        foreach ([$source, $before, $after] as $record) $check($record['tables']['terms'] === $source['tables']['terms']
+            && count($record['tables']['terms']) === 1 && $record['tables']['terms'][0]['slug'] === 'uncategorized', 'one unchanged default category');
+        self::same(array_diff_key($sourceIdentity[0], ['meta_id' => true]), array_diff_key($targetIdentity[0], ['meta_id' => true]), 'adopted default category uses the source UUID');
+        $check($targetIdentity[0]['term_id'] === $before['tables']['terms'][0]['term_id'], 'category identity points to the retained target row');
+        $normalizedAfter['tables']['termmeta'] = array_values(array_filter($after['tables']['termmeta'], static fn(array $r): bool => ($r['meta_key'] ?? '') !== '_wprism_uuid'));
+
         $sourceOptions = array_column($source['tables']['options'], null, 'option_name');
+        $coreValues = self::coreWidgets($sourceOptions, array_column($before['tables']['options'], null, 'option_name'),
+            array_column($after['tables']['options'], null, 'option_name'));
+        $coreValues['blogname'] = $sourceOptions['blogname']['option_value'];
         foreach ($before['tables']['options'] as &$option) {
-            if ($option['option_name'] === 'blogname') $option['option_value'] = $sourceOptions['blogname']['option_value'];
+            if (array_key_exists($option['option_name'], $coreValues)) $option['option_value'] = $coreValues[$option['option_name']];
         }
         unset($option);
         ImporterSettingsEvidence::settings($before, $normalizedAfter, $source['settings'], $sourceOptions['wt_iew_advanced_settings']['autoload']);
@@ -87,7 +132,7 @@ $read = static function (string $stem) use ($pair): array {
         '/^ ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-f0-9]{12} (Creating|Created) *$/D'), true, 32, JSON_THROW_ON_ERROR);
 };
 if ($mode === 'admit') { $read($path); return; }
-if ($mode === 'applied') ImporterRoundtripEvidence::applied($read($path . '/source'), $read($path . '/before'), $read($path . '/after'));
+if ($mode === 'applied') ImporterRoundtripEvidence::applied($read($path . '/source-enrolled'), $read($path . '/before'), $read($path . '/after'));
 elseif ($mode === 'consumers') {
     foreach (['export-original', 'export-copy'] as $label) {
         $job = $read($path . '/' . $label . '-consume')['job'];

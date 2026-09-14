@@ -14,12 +14,20 @@ $tables = ['posts', 'postmeta', 'options', 'terms', 'term_taxonomy', 'term_relat
     'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template'];
 $source = ['format' => 'wprism-importer-native-settings/v1', 'tables' => array_fill_keys($tables, []),
     'settings' => $settings['source'], 'files' => []];
+$source['tables']['terms'] = [['term_id' => '1', 'name' => 'Uncategorized', 'slug' => 'uncategorized', 'term_group' => '0']];
+$source['tables']['termmeta'] = [['meta_id' => '1', 'term_id' => '1', 'meta_key' => '_wprism_uuid', 'meta_value' => '01a09e6e-3ca7-7939-916e-f317e90b543c']];
 $source['tables']['users'] = [['ID' => '2', 'user_login' => 'template-reader'], ['ID' => '3', 'user_login' => 'template-editor']];
 $source['tables']['options'] = [
     ['option_id' => '1', 'option_name' => 'blogname', 'option_value' => 'Source title', 'autoload' => 'on'],
     ['option_id' => '2', 'option_name' => 'wt_iew_advanced_settings', 'option_value' => serialize($settings['source']), 'autoload' => 'auto'],
     ['option_id' => '3', 'option_name' => 'local', 'option_value' => 'keep-local', 'autoload' => 'off'],
 ];
+$sourceBlocks = ['_multiwidget' => 1];
+foreach (range(2, 6) as $id) $sourceBlocks[$id] = ['content' => 'Default block ' . $id];
+foreach (['widget_block' => $sourceBlocks, 'widget_text' => [], 'sidebars_widgets' => [
+    'wp_inactive_widgets' => [], 'sidebar-1' => ['block-2', 'block-3', 'block-4', 'block-5', 'block-6'], 'array_version' => 3,
+]] as $name => $value) $source['tables']['options'][] = ['option_id' => (string) (count($source['tables']['options']) + 1),
+    'option_name' => $name, 'option_value' => serialize($value), 'autoload' => 'auto'];
 foreach ($names as $index => [$type, $name]) {
     $form = $forms[$type];
     if ($index === 4) $form['method_import_form_data']['wt_iew_local_file'] = '';
@@ -32,15 +40,21 @@ $before['tables']['options'][0]['option_value'] = 'Target title';
 $before['tables']['options'][1]['option_value'] = serialize($settings['target'] + ['other_module_key' => ['nested' => 'keep-target-local']]);
 $before['tables']['users'] = [['ID' => '82', 'user_login' => 'template-reader'], ['ID' => '93', 'user_login' => 'template-editor']];
 foreach (range(101, 106) as $id) $before['tables']['users'][] = ['ID' => (string) $id, 'user_login' => 'local-' . $id];
-foreach (['posts', 'postmeta', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta', 'usermeta'] as $table) {
+foreach (['posts', 'postmeta', 'term_taxonomy', 'term_relationships', 'termmeta', 'usermeta'] as $table) {
     $before['tables'][$table] = [['local_witness' => $table]];
 }
 $before['tables']['wt_iew_action_history'] = array_map(static fn(int $id): array => ['id' => (string) $id, 'data' => 'completed'], range(1, 4));
 $before['files'] = array_fill_keys(['import/input.csv', 'import/target-input.csv', 'import/rotated-input.csv', 'export/a.csv', 'export/b.csv', 'export/c.csv'], str_repeat('a', 64));
 $after = $before;
+$after['tables']['termmeta'][] = $source['tables']['termmeta'][0];
 $after['settings'] = $settings['source'];
 $after['tables']['options'][0]['option_value'] = 'Source title';
 $after['tables']['options'][1]['option_value'] = serialize($settings['source'] + ['other_module_key' => ['nested' => 'keep-target-local']]);
+$after['tables']['options'][3]['option_value'] = serialize(['_multiwidget' => 1, 11 => ['content' => 'Default block 2'],
+    12 => ['content' => 'Default block 3'], 13 => ['content' => 'Default block 4'], 14 => ['content' => 'Default block 5'], 15 => ['content' => 'Default block 6']]);
+$after['tables']['options'][4]['option_value'] = serialize(['_multiwidget' => 1]);
+$after['tables']['options'][5]['option_value'] = serialize(['wp_inactive_widgets' => [],
+    'sidebar-1' => ['block-11', 'block-12', 'block-13', 'block-14', 'block-15'], 'array_version' => 3]);
 $after['tables']['wt_iew_mapping_template'] = $source['tables']['wt_iew_mapping_template'];
 foreach ($after['tables']['wt_iew_mapping_template'] as $index => &$row) {
     $row['id'] = (string) (103 + $index);
@@ -111,6 +125,32 @@ foreach (['posts', 'postmeta', 'terms', 'term_taxonomy', 'term_relationships', '
     $bad['tables'][$table] = [];
     wprism_check_throws(static fn() => ImporterRoundtripEvidence::applied($source, $before, $bad), RuntimeException::class,
         'native roundtrip evidence rejects lost local ' . $table);
+}
+foreach (['widget-content', 'widget-marker', 'widget-lost', 'sidebar-order', 'sidebar-reference', 'sidebar-extra', 'text-content', 'widget-autoload'] as $fault) {
+    $bad = $after;
+    $block = unserialize($bad['tables']['options'][3]['option_value']);
+    $sidebar = unserialize($bad['tables']['options'][5]['option_value']);
+    if ($fault === 'widget-content') $block[11]['content'] = 'changed';
+    if ($fault === 'widget-marker') $block['_multiwidget'] = 0;
+    if ($fault === 'widget-lost') unset($block[11]);
+    if ($fault === 'sidebar-order') $sidebar['sidebar-1'] = array_reverse($sidebar['sidebar-1']);
+    if ($fault === 'sidebar-reference') $sidebar['sidebar-1'][0] = 'block-2';
+    if ($fault === 'sidebar-extra') $sidebar['extra'] = [];
+    if ($fault === 'text-content') $bad['tables']['options'][4]['option_value'] = serialize(['_multiwidget' => 1, 2 => ['text' => 'unexpected']]);
+    if ($fault === 'widget-autoload') $bad['tables']['options'][3]['autoload'] = 'off';
+    $bad['tables']['options'][3]['option_value'] = serialize($block);
+    $bad['tables']['options'][5]['option_value'] = serialize($sidebar);
+    wprism_check_throws(static fn() => ImporterRoundtripEvidence::applied($source, $before, $bad), RuntimeException::class,
+        'full core intent cannot hide unrelated widget mutation: ' . $fault);
+}
+foreach (['missing', 'wrong-uuid', 'wrong-term', 'extra'] as $fault) {
+    $bad = $after;
+    if ($fault === 'missing') array_pop($bad['tables']['termmeta']);
+    if ($fault === 'wrong-uuid') $bad['tables']['termmeta'][1]['meta_value'] = 'wrong';
+    if ($fault === 'wrong-term') $bad['tables']['termmeta'][1]['term_id'] = '2';
+    if ($fault === 'extra') $bad['tables']['termmeta'][] = $source['tables']['termmeta'][0];
+    wprism_check_throws(static fn() => ImporterRoundtripEvidence::applied($source, $before, $bad), RuntimeException::class,
+        'exact core identity enrollment is required: ' . $fault);
 }
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/ShellProbe.php';
 $probe = <<<'SH'
