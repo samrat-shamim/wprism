@@ -422,7 +422,7 @@ jq -e '.delete | any(.type == "post")' <<<"$DELETE_POST_PLAN" >/dev/null \
 DELETE_POST_RC=0
 DELETE_POST_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_POST_RC=$?
 require_wprism_answered "Yoast Duplicate Post entity deletion without authorization" human "$DELETE_POST_OUT"
-[ "$DELETE_POST_RC" -eq 0 ] \
+[ "$DELETE_POST_RC" -ne 0 ] \
   && grep -q 'planned deletions require --with-deletes (1)' <<<"$DELETE_POST_OUT" \
   && grep -q 'no target mutation attempted' <<<"$DELETE_POST_OUT" \
   && grep -qi -- '--with-deletes' <<<"$DELETE_POST_OUT" \
