@@ -181,6 +181,8 @@ jq -e '
 mapfile -t PLUGINS < <(echo "$ENTRY" | jq -c '.plugins[]')
 mapfile -t THEMES < <(echo "$ENTRY" | jq -c '.themes[]?')
 SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
+ADOPT_BY_SLUG=$(conformance_adopt_by_slug "$ENTRY") \
+  || fail "manifest '$MANIFEST' has malformed fixture adoption policy"
 MODE=$(echo "$ENTRY" | jq -r '.mode // "roundtrip"')
 case "$MODE" in
   roundtrip|capture-plan|agent-roundtrip) ;;
@@ -600,17 +602,8 @@ case "$SETUP" in
 esac
 
 say "apply conf2 (content only — activation/theme were deploy's job, above)"
-# adopt both terms (the default "Uncategorized" category every fresh install
-# has) and posts (plugins like WooCommerce auto-create their own default
-# pages — Shop/Cart/Checkout/... — on activation, independently on conf1 and
-# conf2, so first apply always meets an unmanaged same-slug row for those).
-# Core's dirty-target matrix and Polylang's per-language menu matrix each
-# manufacture an exact nav-menu collision. Menu adoption is explicit only for
-# those adapters so unrelated entries do not gain broader collision authority.
-ADOPT_BY_SLUG=terms,posts
-if [ "$MANIFEST" = core ] || [ "$MANIFEST" = polylang ]; then
-  ADOPT_BY_SLUG=terms,posts,menus
-fi
+# The entry's validated fixture policy selects adoption. Plugin names do not
+# grant collision authority; a dirty typed-table fixture opts in explicitly.
 capture_wprism_json_checked \
   APPLY_JSON \
   "conf2 wprism apply" \

@@ -1405,4 +1405,24 @@ for planted_mutation in zero-exit wrong-envelope dead; do
 done
 pass 'the actual planted-row block requires a nonzero product refusal and retains the complete transport prefix separately from its JSON'
 
+. conformance/asserts.sh
+[ "$(conformance_adopt_by_slug '{}')" = 'terms,posts' ] || fail 'default adoption changed'
+[ "$(conformance_adopt_by_slug '{"adopt_by_slug":[]}')" = '' ] || fail 'explicit empty adoption changed'
+[ "$(conformance_adopt_by_slug '{"adopt_by_slug":["terms","posts","tables"]}')" = 'terms,posts,tables' ] || fail 'declared typed-table adoption was ignored'
+for entry in conformance/entries/core.json ../adapter-packages/polylang/tests/conformance/entry.json; do
+  [ "$(conformance_adopt_by_slug "$(jq -c .entry "$entry")")" = 'terms,posts,menus' ] || fail 'existing explicit menu adoption changed'
+done
+for invalid in 'null' '[]' '{} {}' '{"adopt_by_slug":null}' '{"adopt_by_slug":"tables"}' \
+  '{"adopt_by_slug":["tables","tables"]}' '{"adopt_by_slug":["unknown"]}' '{"adopt_by_slug":[7]}' \
+  '{"adopt_by_slug":["tables,--force-theirs"]}'; do
+  if conformance_adopt_by_slug "$invalid" >/dev/null 2>&1; then
+    fail "malformed fixture adoption was admitted: $invalid"
+  fi
+done
+ADOPT_DECLARATION_LINE=$(grep -n '^ADOPT_BY_SLUG=$(conformance_adopt_by_slug' conformance/run.sh | cut -d: -f1)
+PAIR_RESET_LINE=$(grep -n '^bash bin/pair.sh reset' conformance/run.sh | cut -d: -f1)
+[ -n "$ADOPT_DECLARATION_LINE" ] && [ "$ADOPT_DECLARATION_LINE" -lt "$PAIR_RESET_LINE" ] || fail 'fixture adoption validation must precede pair reset'
+[ "$(grep -c '^ADOPT_BY_SLUG=' conformance/run.sh)" = 1 ] || fail 'fixture adoption has a second authority'
+pass 'entry-declared adoption preserves existing kinds, supports typed tables and rejects malformed authority before pair mutation'
+
 printf '\033[1;32m✔ REGRESS_CONFORMANCE_ASSERTS PASSED\033[0m\n'

@@ -79,7 +79,7 @@ if (str_starts_with($phase, 'setup-')) {
     echo json_encode(['phase' => $phase, 'user' => $id, 'original' => $original, 'copy' => $copy, 'draft' => $draft], JSON_THROW_ON_ERROR), "\n";
     return;
 }
-if (in_array($phase, ['bind', 'rotate'], true)) {
+if (in_array($phase, ['bind', 'rotate', 'bindings'], true)) {
     require_once WPMU_PLUGIN_DIR . '/wprism/src/Apply/Apply.php';
     require_once WPMU_PLUGIN_DIR . '/wprism/src/Apply/ColumnInputFiles.php';
     require_once WPMU_PLUGIN_DIR . '/wprism/src/Repository/RepositoryCompiler.php';
@@ -91,7 +91,7 @@ if (in_array($phase, ['bind', 'rotate'], true)) {
     foreach ($declarations as $name => $declaration) {
         $templateName = $tree[$declaration['uuid']]['data']['columns']['name'];
         if ($phase === 'rotate' && $templateName !== 'Reusable input mapping') continue;
-        WPrism\Apply::set_env_option('/siterepo', $name, $phase === 'rotate' ? 'rotated-input.csv' : 'target-input.csv');
+        if ($phase !== 'bindings') WPrism\Apply::set_env_option('/siterepo', $name, $phase === 'rotate' ? 'rotated-input.csv' : 'target-input.csv');
         $bound[$templateName] = $name;
     }
     $check(count($bound) === ($phase === 'rotate' ? 1 : 2), 'binding scope is exact');
