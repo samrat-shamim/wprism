@@ -1,23 +1,61 @@
 {
   "format": "wprism-adapter-production-readiness-record/v1",
   "adapter": "block-visibility",
-  "readiness": "unready",
-  "covered": {},
-  "gaps": {
-    "contract-dependency": "Declarations are read from the exact locked 3.7.1 artifact and exercised by one capture-plan sweep. Fresh installation, adjacent-artifact refusal and the in-range upgrade workflow have no capsule evidence, and this capsule ships no version matrix.",
-    "native-behavior": "Source reading covers the plugin's own registration hook and its registered storage. No target-side render is proven: whether a converged setting actually gates a block on the frontend is exactly what the withheld attribute surface would decide, so it cannot be shown while that surface is refused.",
-    "failure-recovery": "capture-check.sh proves both refusals abort cleanly and that capture recovers byte-identically once the refused state is removed. No provider, lifecycle or rollback injection exists, and none can while deploy is unclaimed.",
-    "data-boundary": "The settings option and the preset scalars have native capture witnesses. The refused surfaces have declarative controls plus refusal evidence, but no positive proof that a converged rule set means the same thing on a target."
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/block-visibility/package/manifest.json",
+      "adapter-packages/block-visibility/evidence/artifacts.lock.json",
+      "adapter-packages/block-visibility/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/block-visibility/tests/conformance/entry.json",
+      "adapter-packages/block-visibility/tests/conformance/seed.sh",
+      "adapter-packages/block-visibility/tests/conformance/check.sh",
+      "adapter-packages/block-visibility/tests/certify/version-matrix.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/block-visibility/tests/conformance/postdeploy.sh",
+      "adapter-packages/block-visibility/tests/conformance/check.sh",
+      "adapter-packages/block-visibility/tests/certify/version-matrix.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/block-visibility/tests/conformance/capture-check.sh",
+      "adapter-packages/block-visibility/package/runtime/interpreters/block-visibility.php",
+      "adapter-packages/block-visibility/package/manifest.json"
+    ],
+    "native-behavior": [
+      "adapter-packages/block-visibility/tests/conformance/check.sh",
+      "adapter-packages/block-visibility/tests/certify/version-matrix.sh"
+    ],
+    "failure-recovery": [
+      "adapter-packages/block-visibility/tests/conformance/capture-check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/block-visibility/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/block-visibility/tests/conformance/check.sh",
+      "adapter-packages/block-visibility/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/block-visibility/tests/conformance/capture-check.sh",
+      "adapter-packages/block-visibility/package/runtime/interpreters/block-visibility.php",
+      "adapter-packages/block-visibility/tests/certify/version-matrix.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/block-visibility/package/disposition.json",
+      "adapter-packages/block-visibility/tests/conformance/capture-check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
   },
-  "blocked": {
-    "identity-references": "The plugin's entity references cannot be declared at all. blockVisibility is injected into EVERY registered block (measured 115 of 116 on WordPress 7.1) and nests ids at conditionally-typed paths: visibilityPresets.presets is a visibility_preset id list, and controlSets[].controls.location.ruleSets[].rules[].value is a post id list, a comma-separated post-id string, term ids or an author id depending on its sibling field. block_attrs binds ONE top-level attribute key per EXACT block name over a value vocabulary the engine closes at {int,int[]} (AttributeGrammar: 'any other shape needs engine support before it can be declared'), so neither the any-block reach nor the conditional nesting is expressible. Blocked by the engine, not by missing work here; tools/engine-gaps.json records the demand as any_block_structured_attribute_reference_paths. Until it ships, every block that can carry the attribute declares it a reviewed unsupported boundary so the state refuses instead of travelling as a source-local id.",
-    "clean-target": "No native source-to-target deploy+apply is claimed or exercised. Additionally gated by the identity-references blocker above: a target apply that silently rebound nothing would be the failure this capsule exists to prevent.",
-    "dirty-target": "Requires a target apply, which this capsule does not claim. Additionally gated by the identity-references blocker above.",
-    "derived-state": "Requires a target apply, which this capsule does not claim.",
-    "deletion": "No selectors declared and no apply claimed. Additionally gated by the identity-references blocker above.",
-    "concurrency-idempotence": "Requires a target apply and recapture fixed point, which this capsule does not claim.",
-    "lifecycle": "The disposition declares no lifecycle phase, because no deploy is claimed.",
-    "scope-platform": "Explicit preset scope, real plugin combinations and the supported platform boundary are unproven; only the multisite refusal is declared."
-  },
-  "not_applicable": {}
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "derived-state": "The bounded settings and entity-free preset storage creates no plugin-persistent cache, index, rewrite, CSS, lookup or flat-file effect; native frontend evaluation is asserted directly in the target-local behavior probe.",
+    "deletion": "No deletion selector is declared. Plugin-specific preset and block deletion remain explicitly unsupported, so the certified bounded claim contains no destructive authored operation."
+  }
 }
