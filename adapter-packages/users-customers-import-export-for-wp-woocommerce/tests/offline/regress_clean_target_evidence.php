@@ -9,6 +9,8 @@ $tables = array_fill_keys(['posts', 'postmeta', 'options', 'terms', 'term_taxono
     'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template'], []);
 $before = ['format' => 'wprism-importer-native-settings/v1', 'tables' => $tables, 'files' => [], 'settings' => false];
 $before['tables']['users'] = [['ID' => '1', 'user_login' => 'admin']];
+$before['files']['webtoffee_import/index.php'] = str_repeat('a', 64);
+$pristine = $before;
 ImporterCleanTargetEvidence::pristine($before);
 wprism_check(true, 'fresh installation with empty native tables is admitted');
 foreach (['history', 'template', 'user', 'file', 'missing-table'] as $fault) {
@@ -24,6 +26,17 @@ $prerequisites = ['users' => ['template-reader' => '2', 'template-editor' => '3'
     'input' => 'https://target.test/wp-content/webtoffee_import/target-input.csv', 'input_sha256' => str_repeat('b', 64)];
 foreach ($prerequisites['users'] as $login => $id) $before['tables']['users'][] = ['ID' => $id, 'user_login' => $login];
 $before['files']['webtoffee_import/target-input.csv'] = $prerequisites['input_sha256'];
+$before['files']['webtoffee_import/.htaccess'] = hash('sha256', 'deny from all');
+ImporterCleanTargetEvidence::prepared($before, $prerequisites, $pristine);
+foreach (['extra-job', 'lost-bootstrap', 'changed-bootstrap', 'lost-protection', 'changed-protection'] as $fault) {
+    $bad = $before;
+    if ($fault === 'extra-job') $bad['files']['webtoffee_export/leaked.csv'] = str_repeat('a', 64);
+    if ($fault === 'lost-bootstrap') unset($bad['files']['webtoffee_import/index.php']);
+    if ($fault === 'changed-bootstrap') $bad['files']['webtoffee_import/index.php'] = str_repeat('c', 64);
+    if ($fault === 'lost-protection') unset($bad['files']['webtoffee_import/.htaccess']);
+    if ($fault === 'changed-protection') $bad['files']['webtoffee_import/.htaccess'] = str_repeat('c', 64);
+    wprism_check_throws(static fn() => ImporterCleanTargetEvidence::prepared($bad, $prerequisites, $pristine), RuntimeException::class, 'prepared file census rejects ' . $fault);
+}
 $before['tables']['terms'] = [['term_id' => '1', 'slug' => 'uncategorized']];
 $blocks = ['_multiwidget' => 1];
 foreach (range(2, 6) as $id) $blocks[$id] = ['content' => 'Block ' . $id];
@@ -54,7 +67,7 @@ foreach ($after['tables']['wt_iew_mapping_template'] as &$row) {
     $row['data'] = json_encode($form, JSON_THROW_ON_ERROR);
 }
 unset($row);
-ImporterCleanTargetEvidence::created($source, $before, $after, $prerequisites);
+ImporterCleanTargetEvidence::created($source, $before, $after, $prerequisites, $pristine);
 wprism_check(true, 'five creations and nine settings preserve a clean native target');
 foreach (['lost-template', 'duplicate-id', 'lost-setting', 'setting-id', 'setting-autoload', 'wrong-input', 'cursor', 'user-mutation', 'history-mutation', 'file-mutation', 'lost-core-identity'] as $fault) {
     $bad = $after;
@@ -73,7 +86,7 @@ foreach (['lost-template', 'duplicate-id', 'lost-setting', 'setting-id', 'settin
     if ($fault === 'history-mutation') $bad['tables']['wt_iew_action_history'][] = ['id' => '1'];
     if ($fault === 'file-mutation') $bad['files']['webtoffee_import/target-input.csv'] = str_repeat('c', 64);
     if ($fault === 'lost-core-identity') $bad['tables']['termmeta'] = [];
-    wprism_check_throws(static fn() => ImporterCleanTargetEvidence::created($source, $before, $bad, $prerequisites), RuntimeException::class, 'creation evidence rejects ' . $fault);
+    wprism_check_throws(static fn() => ImporterCleanTargetEvidence::created($source, $before, $bad, $prerequisites, $pristine), RuntimeException::class, 'creation evidence rejects ' . $fault);
 }
 $updated = $after;
 $updated['tables']['wt_iew_mapping_template'][0]['name'] = 'Renamed selection';

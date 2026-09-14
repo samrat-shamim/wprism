@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 : "${CONF_PAIR:?unique pair required}" "${CONF1_PORT:?even port required}" "${CONF2_PORT:?successor port required}"
@@ -10,7 +11,6 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
   && [ -z "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ] || fail 'clean target requires its exact clean checkout'
 export WPRISM_SOURCE_ROOT="$ROOT" CONF_EXPECTED_SOURCE_SHA="$WPRISM_EXPECTED_SOURCE_SHA"
 export CONFORMANCE_ENTRY_FILE="$PACKAGE_ROOT/fixtures/clean-target-entry.json"
-export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$ROOT/sandbox"
 php ../tools/conformance-hooks.php "$(jq -c .entry "$CONFORMANCE_ENTRY_FILE")" "$PACKAGE_ROOT" >/dev/null
 . tests/lib/pair_live_ownership.sh

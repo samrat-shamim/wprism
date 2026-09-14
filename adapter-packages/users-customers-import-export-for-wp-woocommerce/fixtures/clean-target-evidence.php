@@ -21,7 +21,8 @@ final class ImporterCleanTargetEvidence {
             && preg_match('/^[a-f0-9]{64}$/D', $hash) === 1, 'no pre-existing native job files');
     }
 
-    public static function prepared(array $record, array $prerequisites): void {
+    public static function prepared(array $record, array $prerequisites, array $pristine): void {
+        self::pristine($pristine);
         self::empty($record);
         $users = array_column($record['tables']['users'], 'ID', 'user_login');
         ImporterSettingsEvidence::check(count($users) === 4 && isset($users['admin'])
@@ -29,6 +30,16 @@ final class ImporterCleanTargetEvidence {
         ImporterSettingsEvidence::check(($record['files']['webtoffee_import/target-input.csv'] ?? null) === $prerequisites['input_sha256']
             && preg_match('/^[a-f0-9]{64}$/D', $prerequisites['input_sha256']) === 1
             && str_ends_with($prerequisites['input'], '/webtoffee_import/target-input.csv'), 'exact independently provisioned target CSV');
+        $expectedFiles = $pristine['files'];
+        // Locked 2.7.5 admin/modules/import/import.php:766-779 creates these
+        // absent protection files when get_file_path opens the CSV directory.
+        foreach (['index.php' => "<?php\n// Silence is golden", '.htaccess' => 'deny from all'] as $name => $bytes) {
+            $expectedFiles['webtoffee_import/' . $name] ??= hash('sha256', $bytes);
+        }
+        $expectedFiles['webtoffee_import/target-input.csv'] = $prerequisites['input_sha256'];
+        $actualFiles = $record['files'];
+        ksort($expectedFiles); ksort($actualFiles);
+        ImporterRoundtripEvidence::same($expectedFiles, $actualFiles, 'prerequisites add only the CSV and exact missing protection files, preserving existing files');
     }
 
     public static function form(array $source, array $after, string $type, string $name, string $input): array {
@@ -48,8 +59,8 @@ final class ImporterCleanTargetEvidence {
         return $to;
     }
 
-    public static function created(array $source, array $before, array $after, array $prerequisites): void {
-        self::prepared($before, $prerequisites);
+    public static function created(array $source, array $before, array $after, array $prerequisites, array $pristine): void {
+        self::prepared($before, $prerequisites, $pristine);
         ImporterSettingsEvidence::check(count($source['tables']['wt_iew_mapping_template']) === 5
             && count($after['tables']['wt_iew_mapping_template']) === 5, 'all five templates are created without adoption');
         $ids = [];
@@ -100,8 +111,8 @@ $read = static function (string $label) use ($directory, $pair): array {
         '/^ ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-f0-9]{12} (Creating|Created) *$/D'), true, 32, JSON_THROW_ON_ERROR);
 };
 if ($mode === 'pristine') ImporterCleanTargetEvidence::pristine($read('pristine'));
-elseif ($mode === 'prepared') ImporterCleanTargetEvidence::prepared($read('before'), $read('prerequisites'));
-elseif ($mode === 'created') ImporterCleanTargetEvidence::created($read('source-enrolled'), $read('before'), $read('after'), $read('prerequisites'));
+elseif ($mode === 'prepared') ImporterCleanTargetEvidence::prepared($read('before'), $read('prerequisites'), $read('pristine'));
+elseif ($mode === 'created') ImporterCleanTargetEvidence::created($read('source-enrolled'), $read('before'), $read('after'), $read('prerequisites'), $read('pristine'));
 elseif ($mode === 'updated') ImporterCleanTargetEvidence::updated($read('updated-source'), $read('update-before'), $read('update-after'), $read('prerequisites')['input']);
 elseif ($mode === 'repeat') ImporterRoundtripEvidence::same($read($argv[4]), $read($argv[5]), 'repeated Apply has no native mutation');
 elseif ($mode === 'finished') {

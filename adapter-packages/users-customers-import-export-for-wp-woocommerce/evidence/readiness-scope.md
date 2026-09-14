@@ -4,7 +4,7 @@ The [readiness contract](../../../docs/agents/adapter-production-readiness.md)
 qualifies each scenario family against the adapter's declared surface. The
 current surface is nine settings and exact `user/import` and `user/export`
 mapping-template rows at the locked 2.7.5 artifact. This audit closes the
-reference family and identifies why derived-state repair does not apply to
+clean-target and reference families and identifies why derived-state repair does not apply to
 that surface. It does not qualify the remaining families or promote the adapter.
 
 ## Identity and references
@@ -27,6 +27,25 @@ not create authored drift. Lifecycle, failure/recovery and plugin combinations
 remain separate qualification work; their absence does not undo the demonstrated
 reference kinds.
 
+## Clean target
+
+The [clean entry](../fixtures/clean-target-entry.json) pins the exact artifact and
+uses the shared deployment runner on fresh installations. Its
+[native lane](../tests/live/regress_clean_target.sh) observes empty template and
+history tables before provisioning three target users and a local CSV. The
+[oracle](../fixtures/clean-target-evidence.php) requires the exact file roster:
+existing protection files survive, and only the CSV plus the native helper's
+missing protection files may appear. [Mutation controls](../tests/offline/regress_clean_target_evidence.php)
+reject leaked job files and removed or changed protection files.
+
+Public Apply creates all five templates without table adoption, preserves the
+complete surrounding database and files, and exposes all nine settings. Native
+reopen, export and import consume the target values. A source rename and header
+edit reach the existing target row, repeated Apply leaves the full native
+observation unchanged, and source/target canonical recapture is byte-identical.
+The lane covers this family for the declared surface; signed deletion, conflicts,
+recovery and combinations retain their separate gaps.
+
 ## Derived state
 
 There is no authored cache, index, CSS, rewrite, lookup, occurrence or generated
@@ -46,9 +65,9 @@ listener as an adapter repair would destroy target-local operational state.
 The required derived-state repair family is therefore structurally
 `not_applicable` for the declared surface, rather than an unimplemented action.
 
-Ten families remain gaps in [the readiness record](production-readiness.json).
+Nine families remain gaps in [the readiness record](production-readiness.json).
 The existing positive and refusal evidence stays useful, but it does not establish
-complete clean/dirty-target qualification, every dependency/lifecycle/platform
+complete dirty-target qualification, every dependency/lifecycle/platform
 boundary, the omitted-password native case, signed deletion and recovery,
 concurrency, or all difficult-value/data boundaries. Those require their own
 concrete evidence before promotion.
