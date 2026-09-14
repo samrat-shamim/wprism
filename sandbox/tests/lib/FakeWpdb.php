@@ -1552,7 +1552,7 @@ class FakeWpdb {
             . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}'";
     }
 
-    /** @return null|array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} */
+    /** @return null|array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>,composite_column?:string} */
     private function fullApplyPruneQuery(string $query): ?array {
         $map = $this->tableName('wprism_map');
         $normalized = $this->fullApplySql($query);
@@ -1595,14 +1595,23 @@ class FakeWpdb {
             return ['map' => $map, 'table' => $match[5], 'column' => $match[6], 'kind' => $match[3],
                 'connection' => $match[1], 'nonce' => $match[2], 'keep' => $keep];
         }
+        $composite = '/\A' . preg_quote("DELETE FROM `$map` WHERE CONNECTION_ID() = '", '/')
+            . "([1-9][0-9]*)' AND BINARY @wprism_tx_session = BINARY '([a-f0-9]{64})' AND \\("
+            . "id_kind = '([a-z][a-z0-9_]{0,63})' AND NOT EXISTS \\(SELECT 1 FROM `(" . preg_quote($this->prefix, '/') . '[A-Za-z0-9_]+)` src'
+            . ' WHERE src.`([A-Za-z0-9_]{1,64})` = \\(' . preg_quote("`$map`.`local_id`", '/') . ' >> 31\\)'
+            . ' AND src.`([A-Za-z0-9_]{1,64})` = \\(' . preg_quote("`$map`.`local_id`", '/') . ' % 2147483648\\)\\)\\)\\z/';
+        if (preg_match($composite, $normalized, $match) === 1 && strlen($match[4]) <= 64 && $match[5] !== $match[6]) {
+            return ['map' => $map, 'table' => $match[4], 'column' => $match[5], 'composite_column' => $match[6],
+                'kind' => $match[3], 'connection' => $match[1], 'nonce' => $match[2], 'keep' => []];
+        }
         return null;
     }
 
-    /** @param array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} $intent */
+    /** @param array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>,composite_column?:string} $intent */
     private function executeFullApplyPrune(array $intent): array {
         $map = $this->requireTable($intent['map']);
         $table = $this->requireTable($intent['table']);
-        foreach ([$map => ['id_kind', 'local_id'], $table => [$intent['column']]] as $name => $columns) {
+        foreach ([$map => ['id_kind', 'local_id'], $table => array_filter([$intent['column'], $intent['composite_column'] ?? null])] as $name => $columns) {
             if (array_diff($columns, $this->knownColumns($name)) !== []) {
                 throw $this->unsupported('ledger prune requires the exact seeded map and backing columns');
             }
@@ -1632,7 +1641,11 @@ class FakeWpdb {
                     continue;
                 }
                 foreach ($this->store[$table] as $physical) {
-                    if (self::compare($physical[$intent['column']] ?? null, $localId) === 0) {
+                    $matches = isset($intent['composite_column'])
+                        ? $localId !== null && self::compare($physical[$intent['column']] ?? null, (int) $localId >> 31) === 0
+                            && self::compare($physical[$intent['composite_column']] ?? null, (int) $localId % 2147483648) === 0
+                        : self::compare($physical[$intent['column']] ?? null, $localId) === 0;
+                    if ($matches) {
                         $backed = true;
                         break;
                     }
@@ -1999,6 +2012,11 @@ class FakeWpdb {
             $result = ['kind' => 'ok'];
         } else {
             $result = $this->execute($sql);
+        }
+        if (($result['kind'] ?? null) === 'error') {
+            $this->driverErrno = (int) $result['errno'];
+            $this->fail($method, $sql, (string) $result['error']);
+            return null;
         }
         if (in_array($transactionOutcome, [
             'success_probe_error',
@@ -3231,7 +3249,7 @@ class FakeWpdb {
                 $i += strlen($m[0]);
                 continue;
             }
-            foreach (['<=>', '!=', '<>', '<=', '>=', '>>'] as $operator) {
+            foreach (['<=>', '!=', '<>', '<=', '>='] as $operator) {
                 if (substr($sql, $i, strlen($operator)) === $operator) {
                     $tokens[] = ['t' => 'op', 'v' => $operator];
                     $i += strlen($operator);
@@ -3923,17 +3941,11 @@ class FakeWpdb {
 
     /** @return array{k:string,...} */
     private function parseOperand(): array {
-        return $this->parseArithmetic(0);
-    }
-
-    private function parseArithmetic(int $precedence): array {
-        $operators = [['>>'], ['+', '-'], ['%']];
-        if ($precedence === count($operators)) return $this->parseUnary();
-        $left = $this->parseArithmetic($precedence + 1);
-        while ($this->peek()['t'] === 'op' && in_array($this->peek()['v'], $operators[$precedence], true)) {
+        $left = $this->parseUnary();
+        while (($this->peek()['t'] === 'op') && in_array($this->peek()['v'], ['+', '-'], true)) {
             $op = (string) $this->peek()['v'];
             $this->tp++;
-            $left = ['k' => 'arith', 'op' => $op, 'l' => $left, 'r' => $this->parseArithmetic($precedence + 1)];
+            $left = ['k' => 'arith', 'op' => $op, 'l' => $left, 'r' => $this->parseUnary()];
         }
         return $left;
     }
@@ -4059,25 +4071,6 @@ class FakeWpdb {
     }
 
     private function parsePredicate(): array {
-        if ($this->acceptKeyword('EXISTS')) {
-            $this->expectOp('(');
-            $this->expectKeyword('SELECT');
-            if ($this->parseIntLiteral() !== 1) throw $this->unsupported('EXISTS projection must be literal 1');
-            $this->expectKeyword('FROM');
-            $table = $this->parseTableRef();
-            $alias = $this->parseAliasOpt();
-            $this->expectKeyword('WHERE');
-            $condition = $this->parseCondition();
-            $this->expectOp(')');
-            $validate = function (array $node) use (&$validate): void {
-                if (($node['k'] ?? null) === 'col' && $node['q'] === null) {
-                    throw $this->unsupported('correlated EXISTS requires qualified columns');
-                }
-                foreach ($node as $child) if (is_array($child)) $validate($child);
-            };
-            $validate($condition);
-            return ['k' => 'exists', 'table' => $table, 'alias' => $alias, 'condition' => $condition];
-        }
         if ($this->acceptKeyword('NOT')) {
             return ['k' => 'not', 'inner' => $this->parsePredicate()];
         }
@@ -4170,21 +4163,6 @@ class FakeWpdb {
     /** @param array{table:string,alias:?string,columns:?list<string>}|null $ctx */
     private function evalCondition(array $node, array $row, ?array $ctx): bool {
         switch ($node['k']) {
-            case 'exists':
-                if ($ctx === null || isset($ctx['sources']) || isset($ctx['join'])) {
-                    throw $this->unsupported('correlated EXISTS requires one outer table');
-                }
-                $inner = $this->requireTable($node['table']);
-                $source = fn(string $table, ?string $alias): array => [
-                    'table' => $table, 'alias' => $alias,
-                    'short' => str_starts_with($table, $this->prefix) ? substr($table, strlen($this->prefix)) : $table,
-                    'columns' => $this->knownColumns($table),
-                ];
-                $context = ['sources' => [$source($ctx['table'], $ctx['alias']), $source($inner, $node['alias'])]];
-                foreach ($this->store[$inner] as $candidate) {
-                    if ($this->evalCondition($node['condition'], ['__join_sources' => [$row, $candidate]], $context)) return true;
-                }
-                return false;
             case 'and':
                 foreach ($node['parts'] as $part) {
                     if (!$this->evalCondition($part, $row, $ctx)) {
@@ -4274,15 +4252,7 @@ class FakeWpdb {
                 if ($left === null || $right === null) {
                     return null;
                 }
-                return match ($node['op']) {
-                    '+' => $left + $right,
-                    '-' => $left - $right,
-                    '%' => (int) $right === 0 ? null : (int) $left % (int) $right,
-                    '>>' => (int) $left < 0 || (int) $right < 0
-                        ? throw $this->unsupported('negative unsigned bit shift operand')
-                        : ((int) $right >= 64 ? 0 : (int) $left >> (int) $right),
-                    default => throw $this->unsupported('arithmetic operator'),
-                };
+                return $node['op'] === '+' ? $left + $right : $left - $right;
             case 'fn':
                 return $this->evalFunction($node, $row, $ctx);
             case 'col':
@@ -4897,6 +4867,7 @@ class FakeWpdb {
         $this->expectEnd();
 
         $affected = 0;
+        $before = $this->store;
         foreach ($tuples as $data) {
             if ($replace) {
                 $affected += $this->removeUniqueConflicts($table, $data) + 1;
@@ -4918,6 +4889,10 @@ class FakeWpdb {
                     $affected++;
                     continue;
                 }
+            }
+            if (($this->uniqueKeys[$table] ?? []) !== [] && $this->findUniqueConflict($table, $data) !== null) {
+                $this->store = $before;
+                return ['kind' => 'error', 'error' => 'Duplicate entry for declared unique key', 'errno' => 1062];
             }
             $this->applyInsert($table, $data);
             $affected++;

@@ -738,7 +738,7 @@
             ]
           }
         ],
-        "file_count": 20,
+        "file_count": 21,
         "files": [
           "Capture.php",
           "CaptureCandidateBuilder.php",
@@ -754,6 +754,7 @@
           "LifecycleReferenceView.php",
           "MediaCapture.php",
           "MenuCapture.php",
+          "ObservedTableIdentities.php",
           "OptionsCapture.php",
           "PostCapture.php",
           "RefreshExport.php",

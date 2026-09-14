@@ -1,13 +1,13 @@
 <?php
 declare(strict_types=1);
 
-// Public Apply must reject unready code before target observation enrolls identity.
+// Public Plan observes identities; authorized Apply binds them inside authored work.
 $root = dirname(__DIR__, 4);
 $runtime = $argv[2] ?? $root;
 require_once $root . '/sandbox/tests/lib/check.php';
 $mode = $argv[1] ?? null;
 if ($mode === null) {
-    foreach (['historical', 'current', 'changed', 'durable', 'refusal', 'graph', 'graph-historical', 'lock-key', 'lock-id', 'lock-duplicate', 'lock-map'] as $child) {
+    foreach (['historical', 'current', 'changed', 'durable', 'refusal', 'graph', 'graph-historical', 'lock-key', 'lock-id', 'lock-duplicate', 'lock-map', 'claim-local', 'claim-uuid'] as $child) {
         passthru(implode(' ', array_map(escapeshellarg(...), [PHP_BINARY, __FILE__, $child, $runtime])), $status);
         wprism_check_same(0, $status, $child . ' public typed identity case passes');
     }
@@ -201,9 +201,15 @@ $historical = in_array($mode, ['historical', 'durable', 'refusal'], true);
 wprism_check_same([$expected], array_values(array_filter($plan[$historical || $mode === 'graph-historical' ? 'collision' : 'adopt'], static fn(array $row): bool => $row['type'] === 'authored_inputs')), 'Plan selects exact physical identity work, including equal-content bootstrap');
 $adoption = $mode === 'refusal' ? [] : ['adopt_by_slug' => 'tables'];
 $injected = false;
-if (str_starts_with($mode, 'lock-')) {
-    $db->onQuery(static function (string $sql) use ($db, $mode, &$injected): null {
-        if (!$injected && str_starts_with($sql, 'SELECT * FROM `wp_authored_inputs` WHERE') && str_ends_with($sql, 'FOR UPDATE')) {
+if (str_starts_with($mode, 'lock-') || str_starts_with($mode, 'claim-')) {
+    $db->onQuery(static function (string $sql) use ($db, $mode, $uuid, &$injected): null {
+        if (!$injected && str_starts_with($mode, 'claim-') && str_contains($sql, 'INSERT INTO wp_wprism_map')) {
+            $injected = true;
+            $db->seedTable('wprism_map', [['uuid' => $mode === 'claim-local'
+                ? WPrism\Uuid::v5(WPrism\Uuid::NAMESPACE_WPRISM, 'claim-winner') : $uuid,
+                'entity_type' => 'authored_inputs', 'id_kind' => 'auth_input', 'local_id' => $mode === 'claim-local' ? 21 : 22]]);
+        }
+        if (!$injected && str_starts_with($mode, 'lock-') && str_starts_with($sql, 'SELECT * FROM `wp_authored_inputs` WHERE') && str_ends_with($sql, 'FOR UPDATE')) {
             $injected = true;
             $rows = $db->rows('authored_inputs');
             if ($mode === 'lock-key') $rows[0]['name'] = 'Changed key';
@@ -221,7 +227,13 @@ if (str_starts_with($mode, 'lock-')) {
 $failure = null;
 try { ApplyRequestCoordinator::apply($repo, $opts + $adoption); }
 catch (Throwable $error) { $failure = $error; }
-if (str_starts_with($mode, 'lock-')) {
+if (str_starts_with($mode, 'claim-')) {
+    wprism_check($injected, 'a competing coordinate is inserted after both Ledger contradiction reads');
+    wprism_check($failure !== null && str_contains($failure->getMessage(), 'ledger insert identity'),
+        'the unique coordinate conflict refuses at the identity claim before materialization');
+    wprism_check_same($before['authored_inputs'], $db->rows('authored_inputs'), 'losing an identity claim commits no native materialization');
+    wprism_check_same([], $db->rows('wprism_state'), 'losing an identity claim publishes no convergence metadata');
+} elseif (str_starts_with($mode, 'lock-')) {
     wprism_check($injected, 'the public Apply reaches a current locking identity read after planning');
     $reason = match ($mode) {
         'lock-key', 'lock-duplicate' => 'wprism: table adoption requires exactly one current native identity match',
