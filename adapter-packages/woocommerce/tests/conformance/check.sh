@@ -2001,8 +2001,11 @@ pass 'deterministic WooCommerce provider race refuses the loser at process_fence
 # then the digest-bound cached artifact must recover the retained state.
 wp_conf2 plugin deactivate woocommerce >/dev/null
 wp_conf2 plugin is-active woocommerce >/dev/null 2>&1 && fail 'WooCommerce deactivation premise did not land'
-REACTIVATE=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
+REACTIVATE_RC=0
+REACTIVATE=$(host_wprism conf2 deploy 2>&1) || REACTIVATE_RC=$?
+assert_no_php_runtime_diagnostics 'WooCommerce deploy after deactivation' "$REACTIVATE"
+[ "$REACTIVATE_RC" -eq 0 ] && grep -q '^deploy complete:' <<<"$REACTIVATE" \
+  || fail "WooCommerce deploy after deactivation failed or lacked its terminal host result: $REACTIVATE"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WPrism deploy did not reactivate exact WooCommerce code'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
 LIFECYCLE_BEFORE=$(woocommerce_storage_hash)
@@ -2023,8 +2026,11 @@ WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.1 ] \
   || fail 'WooCommerce exact reinstall reported the wrong version'
-REINSTALL_DEPLOY=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY_RC=0
+REINSTALL_DEPLOY=$(host_wprism conf2 deploy 2>&1) || REINSTALL_DEPLOY_RC=$?
+assert_no_php_runtime_diagnostics 'WooCommerce deploy after exact reinstall' "$REINSTALL_DEPLOY"
+[ "$REINSTALL_DEPLOY_RC" -eq 0 ] && grep -q '^deploy complete:' <<<"$REINSTALL_DEPLOY" \
+  || fail "WooCommerce deploy after exact reinstall failed or lacked its terminal host result: $REINSTALL_DEPLOY"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact reinstall was not active after deploy'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
 RECOVERED=$(observe_woocommerce_adoption)
