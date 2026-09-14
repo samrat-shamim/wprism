@@ -77,6 +77,7 @@ $script = <<<'SH'
 set -euo pipefail
 export WPRISM_ARTIFACT_LIBRARY_ROOT="$1" CONF_PAIR="$4" COMPOSE="docker compose"
 case_name="$2"; probe="$3"
+cd "$1/sandbox"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 . "$1/sandbox/conformance/asserts.sh"
 docker() {
