@@ -1458,6 +1458,10 @@ regress-relationship-materializer:
 # materializers had to take as explicit method parameters. Deliberately a
 # wiring/shape proof only -- full behavioral coverage already exists in
 # every live conformance manifest sweep, unchanged by this extraction.
+.PHONY: regress-native-recount-selection
+regress-native-recount-selection:
+	php sandbox/tests/offline/apply/regress_native_recount_selection.php
+
 regress-attachment-materializer:
 	php sandbox/tests/offline/apply/regress_attachment_materializer.php
 

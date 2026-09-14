@@ -1432,9 +1432,9 @@ namespace {
         'option/table/sidebar/user-meta scoped work skips taxonomy callbacks'
     );
     $check(
-        str_contains($nativeRebuildSource, '$needsTaxonomyRecount = !$suppressExternalEffects')
+        str_contains($nativeRebuildSource, '$needsTaxonomyRecount = self::needs_taxonomy_recount(')
             && str_contains($applySource, 'scopedCoreComplete: $scopedCoreComplete === null'),
-        'taxonomy callback suppression is explicit to scoped promotion and preserves ordinary scoped apply behavior'
+        'native taxonomy callback selection uses the shared work predicate while scoped completion remains checkpointed'
     );
     foreach (['post', 'term', 'menu'] as $taxonomyType) {
         $check(

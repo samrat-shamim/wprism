@@ -2003,7 +2003,6 @@ namespace {
                 scoped: false,
                 skipScopedCore: false,
                 scopedCoreComplete: null,
-                suppressScopedExternalEffects: true,
                 scopedSession: null,
                 scopedObservation: null
             ),
@@ -2024,7 +2023,6 @@ namespace {
                 scoped: false,
                 skipScopedCore: false,
                 scopedCoreComplete: null,
-                suppressScopedExternalEffects: true,
                 scopedSession: null,
                 scopedObservation: null
             ),

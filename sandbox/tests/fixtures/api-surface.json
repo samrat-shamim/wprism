@@ -33075,6 +33075,14 @@
                             "name": "deletions",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "retryingIncompleteApply",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "bool",
@@ -33121,7 +33129,7 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "suppressExternalEffects",
+                            "name": "retryingIncompleteApply",
                             "type": "bool",
                             "variadic": false
                         }
@@ -67453,14 +67461,6 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "suppressScopedExternalEffects",
-                            "type": "bool",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
                             "name": "scopedSession",
                             "type": "?WPrism\\ScopedApplySession",
                             "variadic": false
@@ -67536,12 +67536,6 @@
                     "visibility": "public"
                 },
                 "skipScopedCore": {
-                    "readonly": true,
-                    "static": false,
-                    "type": "bool",
-                    "visibility": "public"
-                },
-                "suppressScopedExternalEffects": {
                     "readonly": true,
                     "static": false,
                     "type": "bool",

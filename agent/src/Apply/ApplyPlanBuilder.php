@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/ApplyPlanner.php';
+require_once __DIR__ . '/../Rebuild/NativeRebuildExecutor.php';
 require_once __DIR__ . '/MediaDerivativeWorkset.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -542,7 +543,9 @@ final class ApplyPlanBuilder {
             $this->selectedActions,
             self::engine_effect_sources(
                 $effectWork,
-                $tree
+                $tree,
+                $rebuildWork['rebuild_delete_work'],
+                $retryingIncompleteApply
             ),
             self::regenerator_post_types($rebuildWork['work'], $tree, $this->policy)
         );
@@ -701,13 +704,16 @@ final class ApplyPlanBuilder {
      *
      * @return list<string>
      */
-    private static function engine_effect_sources(array $work, array $tree): array {
-        $sources = [
-            // Ordinary Apply always performs the final cache flush and runs
-            // the full taxonomy recount path, even when no action matched.
-            'object-cache-flush' => true,
-            'taxonomy-counts' => true,
-        ];
+    private static function engine_effect_sources(
+        array $work,
+        array $tree,
+        array $deletions,
+        bool $retryingIncompleteApply
+    ): array {
+        $sources = ['object-cache-flush' => true];
+        if (NativeRebuildExecutor::needs_taxonomy_recount($work, $tree, $deletions, $retryingIncompleteApply)) {
+            $sources['taxonomy-counts'] = true;
+        }
         $attachment = false;
         foreach ($work as $row) {
             $entity = $tree[(string) ($row['uuid'] ?? '')] ?? null;

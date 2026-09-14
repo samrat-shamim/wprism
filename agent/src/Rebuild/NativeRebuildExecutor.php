@@ -35,7 +35,7 @@ final class NativeRebuildExecutor {
         array $work,
         array $tree,
         array $appliedDeletions,
-        bool $suppressExternalEffects
+        bool $retryingIncompleteApply
     ): void {
         global $wpdb;
 
@@ -65,8 +65,14 @@ final class NativeRebuildExecutor {
             }
         }
 
-        $needsTaxonomyRecount = !$suppressExternalEffects
-            || self::needs_taxonomy_recount($work, $tree, $appliedDeletions);
+        // Native recount callbacks can write plugin tables and transients
+        // (WooCommerce 11.0.1 _wc_term_recount deletes wc_term_counts).
+        // A settled table/option-only apply has no authority for that work.
+        // The existing incomplete marker does not record completed recounts,
+        // so recovery retains the conservative full recount until settlement.
+        $needsTaxonomyRecount = self::needs_taxonomy_recount(
+            $work, $tree, $appliedDeletions, $retryingIncompleteApply
+        );
         $taxes = $needsTaxonomyRecount
             ? array_merge($this->policy->taxonomies(), ['nav_menu'])
             : [];
@@ -115,7 +121,13 @@ final class NativeRebuildExecutor {
         }
     }
 
-    public static function needs_taxonomy_recount(array $work, array $tree, array $deletions): bool {
+    public static function needs_taxonomy_recount(
+        array $work,
+        array $tree,
+        array $deletions,
+        bool $retryingIncompleteApply = false
+    ): bool {
+        if ($retryingIncompleteApply) return true;
         foreach ($work as $entry) {
             $type = (string) ($tree[(string) ($entry['uuid'] ?? '')]['type'] ?? '');
             if (in_array($type, ['post', 'term', 'menu'], true)) {

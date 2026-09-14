@@ -17,7 +17,6 @@ final class RebuildRequest {
         public readonly bool $scoped,
         public readonly bool $skipScopedCore,
         public readonly ?\Closure $scopedCoreComplete,
-        public readonly bool $suppressScopedExternalEffects,
         public readonly ?ScopedApplySession $scopedSession,
         public readonly ?array $scopedObservation
     ) {}
