@@ -1943,8 +1943,8 @@ $conformanceFamilyWitnesses = [
     'deletion' => [$wooCheckHarness, [
         'WooCommerce supported product deletion capture',
         'supported product deletion did not emit its exact canonical tombstone',
-        'WooCommerce supported product_variation deletion capture',
-        'supported product_variation deletion did not emit its exact canonical tombstone',
+        'WooCommerce unsupported product_variation deletion capture',
+        'unsupported product_variation refusal changed canonical bytes',
         'source did not restore byte-identically after malformed/undeclared-COD/deletion probes',
     ]],
     'failure-recovery' => [$wooCheckHarness, [
@@ -1968,7 +1968,7 @@ $conformanceFamilyWitnesses = [
         'WooCommerce populated COD boundary capture',
         'cod_addon_secret',
         'undeclared sibling key(s)',
-        'malformed attributes and undeclared COD refuse atomically; supported product and named product_variation deletions capture exactly and restore byte-identically',
+        'malformed attributes, undeclared COD, and unsupported variation deletion refuse atomically; supported product deletion captures exactly and restores byte-identically',
     ]],
     'scope-platform' => [$wooCheckHarness, [
         'WooCommerce scope fixture unexpectedly activated optional extensions',
