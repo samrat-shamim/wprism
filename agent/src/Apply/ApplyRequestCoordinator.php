@@ -1916,7 +1916,6 @@ final class ApplyRequestCoordinator {
                 scopedCoreComplete: $scopedCoreComplete === null
                     ? null
                     : \Closure::fromCallable($scopedCoreComplete),
-                suppressScopedExternalEffects: $scopedPromotion,
                 scopedSession: $this->scopedWorkflow->session,
                 scopedObservation: $this->scopedWorkflow->observation
         );
