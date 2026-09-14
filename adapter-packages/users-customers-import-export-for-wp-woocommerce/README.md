@@ -157,3 +157,15 @@ uses the documented agent deployment command with explicit drift consent and
 requires clean subsequent Capture. It does not authorize host promotion.
 Signed deletion success, external-exclusion loss, verified restoration and
 retry must be qualified after the remaining certification prerequisites.
+
+The exact-artifact version matrix reuses the complete 2.7.5 agent roundtrip,
+then replaces the active target plugin with official locked 2.7.4 bytes.
+Public deployment and Apply must each refuse with the exact version cause,
+preserving the full native database (including engine ledgers), canonical
+state, policy, all eleven observed native tables and operational files.
+The supported pin remains an exercise fixture and the adapter remains
+experimental. This interval contains one supported release; no in-range
+upgrade is claimed. From a clean exact candidate, set `VMATRIX_MANIFEST` to
+this capsule's slug, `VMATRIX_EXPECTED_SOURCE_SHA`, and a private `VMATRIX_PAIR`
+with even/successor `VMATRIX_PORT1`/`VMATRIX_PORT2`, then run
+`bash sandbox/tests/certify/certify_version_matrix.sh` under an owned pair lease.
