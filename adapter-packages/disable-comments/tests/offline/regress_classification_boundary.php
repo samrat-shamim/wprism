@@ -21,6 +21,10 @@ $expected = [
     'remove_xmlrpc_comments',
 ];
 $subKeys = $parent['sub_keys'] ?? [];
+$actual = array_keys($subKeys);
+sort($expected);
+sort($actual);
+wprism_check_same($expected, $actual, 'the shared settings blob carries exactly the two declared endpoint switches');
 foreach ($expected as $subKey) {
     wprism_check_same('authored', $subKeys[$subKey]['class'] ?? null, "$subKey is carried as authored intent");
     wprism_check_same(true, $subKeys[$subKey]['lint_ok'] ?? null, "$subKey is explicitly protected from bare-ID lint false positives");

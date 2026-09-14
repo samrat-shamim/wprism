@@ -37,7 +37,7 @@
       "exact-artifact-version-matrix"
     ]
   },
-  "reason": "Certified for exact Disable Comments 2.9.0 on single-site WordPress. The adapter carries only the REST and XML-RPC endpoint switches, proves each independently through unauthenticated native requests after divergent-ID Apply, preserves runtime and target-only option/user rows, exercises lifecycle recovery, conflict, retry, malformed and out-of-range artifact refusal, and deliberately withholds frontend, role, post-type, conditional-rule, arbitrary comment-type, network, and destructive comment behavior.",
+  "reason": "Certified for exact Disable Comments 2.9.0 on single-site WordPress. The adapter carries only the REST and XML-RPC endpoint switches, proves each independently through native requests after divergent-ID Apply, preserves runtime and target-only option/user rows, exercises lifecycle recovery and out-of-range artifact refusal, and deliberately withholds frontend, role, post-type, conditional-rule, arbitrary comment-type, network, and destructive comment behavior.",
   "status": "certified",
   "supported_versions": {
     "plugin": "disable-comments/disable-comments.php",
