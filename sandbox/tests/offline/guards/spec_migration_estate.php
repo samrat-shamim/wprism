@@ -1772,7 +1772,13 @@ function rehearsal_registry_probes(string $estate, string $state): array {
                 );
                 foreach ((array) ($woocommerce['providers'] ?? []) as $index => $declaration) {
                     if (is_array($declaration)) {
-                        unset($declaration['contracts']);
+                        // This fixture rewinds the manifest to the pre-declarative
+                        // shape, so it has to drop the WHOLE declarative runtime.
+                        // fresh_process_capabilities belongs to it and is refused
+                        // without contracts (ActionProviderGrammar.php:808-815), so
+                        // leaving it behind would make the grammar answer before the
+                        // readiness blocker this probe is actually about.
+                        unset($declaration['contracts'], $declaration['fresh_process_capabilities']);
                         $woocommerce['providers'][$index] = $declaration;
                     }
                 }

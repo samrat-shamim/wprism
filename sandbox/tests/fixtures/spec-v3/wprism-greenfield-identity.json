@@ -15,7 +15,7 @@
         "rank-math": "f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116",
         "redirection": "7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16",
         "the-events-calendar": "0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5",
-        "woocommerce": "318c656d3dffdedd6c91e7563ec19512e68e5982a12fc3933752b0cd4020de42",
+        "woocommerce": "2472ba63453350a36943eed71a1453e47a931d8f9291b76b4b55f415e2805723",
         "wpforms-lite": "e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f",
         "wprism-agency-cpt": "174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab",
         "wps-hide-login": "4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050",
@@ -39,7 +39,7 @@
         "rank-math": "4b867607269aa09cb9e1e7cbe3aeef793d6eccf5b86a999a4c4fb2764e4a3b82",
         "redirection": "e1979af988710e99decbcf9efb8c778352deedcb7cd59f488056d07a7733bf50",
         "the-events-calendar": "78c7276098aae85d4f96ce354fe3cada8da519260525aaba5075b85826017291",
-        "woocommerce": "38db8befa1be26c9b3303ad49180a7360bea2fa372138e37c324f035f15ecbda",
+        "woocommerce": "e384eacc476a8b52514de8906edbdd6ff947e26146d43398bc9ec7ed1e260ec6",
         "wpforms-lite": "ba1021b90fdde0dd8748e556899a7c7d07cf6e3948ff21fb007ced31b4e9e665",
         "wprism-agency-cpt": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf",
         "wps-hide-login": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5",
@@ -92,13 +92,13 @@
             "snapshot_sha256": "31a0b25bf9b4ed26764b6850b8fa575d6608a68e3e3b9ae9dc04cb9e3baa3dc1"
         },
         "core+woocommerce+acf": {
-            "manifest_hash": "2d996994a8a57ec2c85c756fba03afd480aa03e1e9cab46f761785d7c775bb91",
+            "manifest_hash": "c620e6d620a877f46c720fbe12ff26a9367cd799c3f8273a7afca72f4a714673",
             "pins": [
                 "acf",
                 "core",
                 "woocommerce"
             ],
-            "snapshot_sha256": "541c096de544fd264eb7e96bbaf44ffdbfb1aa5af3c1644c55c2fdf9aad55ce2"
+            "snapshot_sha256": "74e1dfdd87709c1d1c8e94a32a73254c2aa348d1f5cc9f6aa618d2e825703254"
         },
         "core-only": {
             "manifest_hash": "14bf83b00f73f2210c7f9dc329fd3bdda5e576eb5a7a2d4415cda6d375f8f64c",
@@ -108,7 +108,7 @@
             "snapshot_sha256": "bfa725a681d1eef7dd80254a916a7e6f0c38fe1d8914968f3bc247854a19ed06"
         },
         "rank-world": {
-            "manifest_hash": "1310f794903cc8beb0692a76e5664c3c2b686dc9f1665b98fda116e51ca69efe",
+            "manifest_hash": "9533d4e39fa3a0f6afa24ba9edd69a10bc2aa64d6ded9965eebba593f41346bc",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -130,7 +130,7 @@
                 "wps-hide-login",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "13476e13ca27570d270ba561c12f81cdeb197995dde82a22803a1fb0116c2646"
+            "snapshot_sha256": "3d1bd15edc48e636cf3f719e55a230ee6b5b603dbc70534fd83545088cef055c"
         },
         "wprism-agency-cpt-only": {
             "manifest_hash": "b2fc37062cf77e4725ca4b2cb723636cfe53563cad9040d62b490835ccb3d1bf",
@@ -140,7 +140,7 @@
             "snapshot_sha256": "8a518c3533178fd06a862468947f15608beede9170eb07c5c74d6303196ac24e"
         },
         "yoast-world": {
-            "manifest_hash": "ffea8e47364b097d529d06e4452f461ca121e6934e2fb329ee320cc9f5517e33",
+            "manifest_hash": "67c05eead85c84111052694f822c65f343df7c26a0e8aecb3a0db709a1fae900",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -162,7 +162,7 @@
                 "yoast",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "3bb4da84e41646147c5cb0706fe2edfc1df7a69b40f90e31fb29726941048c7f"
+            "snapshot_sha256": "27cf29b6d51c109d63e2a93e38816d49673b100650178f23e8e31c19d7a3a0cd"
         }
     },
     "registry_sha256": "6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a"

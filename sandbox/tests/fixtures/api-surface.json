@@ -28031,15 +28031,6 @@
                             "migration": "manifest-provider-fresh-process/v1",
                             "sha256": "0e41fd276142b48bca0275e96936096ec21d167ea10f5061e328c51b7c3c67ff"
                         },
-                        "adapter-packages/woocommerce/package/runtime/providers/woocommerce-lifecycle-migrations.php": {
-                            "findings": [
-                                "direct-include",
-                                "raw-database-transport",
-                                "wp-cli-child-process"
-                            ],
-                            "migration": "manifest-provider-fresh-process/v1 plus ProviderSdk checked reads",
-                            "sha256": "d27316478d5a7d2ed58efb5a1006c8f899d27ae97f95136f39f59252cb5eb5a1"
-                        },
                         "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php": {
                             "findings": [
                                 "raw-database-transport",

@@ -52,11 +52,6 @@ final class LegacyRuntimeExecutionDebt {
             'findings' => ['direct-include', 'direct-self-include', 'wp-cli-child-process'],
             'migration' => 'manifest-provider-fresh-process/v1',
         ],
-        'adapter-packages/woocommerce/package/runtime/providers/woocommerce-lifecycle-migrations.php' => [
-            'sha256' => 'd27316478d5a7d2ed58efb5a1006c8f899d27ae97f95136f39f59252cb5eb5a1',
-            'findings' => ['direct-include', 'raw-database-transport', 'wp-cli-child-process'],
-            'migration' => 'manifest-provider-fresh-process/v1 plus ProviderSdk checked reads',
-        ],
         'adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php' => [
             'sha256' => 'c60571ddc48f4358665b085001573afc78dff2ef30bb49d9f9acd6e76775ec6c',
             'findings' => ['raw-database-transport', 'transaction-control'],
