@@ -115,15 +115,12 @@ EOF
   wp2 plugin uninstall block-visibility --deactivate >/dev/null
   wp2 plugin is-installed block-visibility >/dev/null 2>&1 \
     && fail "Block Visibility uninstall left plugin code installed"
-  [ "$(wp2 option get block_visibility_settings 2>/dev/null || true)" = "" ] \
-    || fail "Block Visibility uninstall left the settings option"
-  [ -z "$(wp2 post list --post_type=visibility_preset --field=ID)" ] \
-    || fail "Block Visibility uninstall left visibility_preset entities"
+  check_block_visibility_boundary_content wp2 uninstall
   wp2 plugin install "$BLOCK_ARTIFACT_2" --force >/dev/null
   wp2 wprism deploy --repo=/siterepo
   wp2 plugin is-active block-visibility >/dev/null \
     || fail "Block Visibility reinstall was not activated by deploy"
-  pass "Block Visibility uninstall removes plugin-owned settings and presets, and exact reinstall restores activation"
+  pass "Block Visibility uninstall retains its authored settings and presets by native contract, and exact reinstall restores activation"
 
   say "negative control: Block Visibility 3.7.0 must be refused"
   reset_env wp1
