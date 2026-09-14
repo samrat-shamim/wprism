@@ -5,6 +5,9 @@ require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 2) . '/fixtures/dirty-target-evidence.php';
 require_once $root . '/agent/src/Apply/ApplyPlanner.php';
 $package = dirname(__DIR__, 2);
+$emptyDiagnostics = array_fill_keys(['code_mismatch', 'code_drift', 'incomplete_apply', 'incomplete_lifecycle',
+    'missing_user', 'skipped_user_meta', 'uploads_inventory', 'selected_actions', 'regen_pending', 'regen_context',
+    'env_missing', 'warnings', 'provider_problems'], []);
 $fixtureSettings = json_decode(file_get_contents($package . '/fixtures/native-settings.json'), true, flags: JSON_THROW_ON_ERROR)['source'];
 $native = ['format' => 'wprism-importer-native-settings/v1', 'tables' => array_fill_keys(['posts', 'postmeta', 'options', 'terms',
     'term_taxonomy', 'term_relationships', 'termmeta', 'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template'], []),
@@ -64,7 +67,7 @@ $selected = ['11111111-1111-7111-8111-111111111111' => ['path' => 'tables/wt_iew
 foreach (['collision', 'drift', 'conflict'] as $case) {
     $expected = $selected;
     if ($case !== 'collision') $expected['options/core'] = ['path' => 'options/core.json'];
-    $plan = array_fill_keys(['create', 'update', 'adopt', 'unchanged', 'collision', 'drift', 'conflict', 'delete', 'delete_conflict', 'deleted'], []);
+    $plan = $emptyDiagnostics + array_fill_keys(['create', 'update', 'adopt', 'unchanged', 'collision', 'drift', 'conflict', 'delete', 'delete_conflict', 'deleted'], []);
     foreach ($expected as $uuid => $entity) {
         $row = ['uuid' => $uuid, 'path' => $entity['path'], 'type' => $uuid === 'options/core' ? 'option' : 'wt_iew_mapping_template'];
         if ($case === 'collision') $row['env_id'] = (int) $entity['id'];
@@ -84,6 +87,13 @@ foreach (['collision', 'drift', 'conflict'] as $case) {
         if ($fault === 'wrong-path') $bad[$case][0]['path'] = 'other.json';
         if ($fault === 'hidden-delete') $bad['delete'][] = ['uuid' => 'foreign'];
         wprism_check_throws(static fn() => ImporterDirtyTargetEvidence::plan($bad, $expected, $case), RuntimeException::class, 'plan oracle rejects ' . $case . '/' . $fault);
+    }
+    foreach (array_keys($emptyDiagnostics) as $field) {
+        foreach (['missing', 'nonempty'] as $fault) {
+            $bad = $plan;
+            if ($fault === 'missing') unset($bad[$field]); else $bad[$field][] = ['unexpected' => true];
+            wprism_check_throws(static fn() => ImporterDirtyTargetEvidence::plan($bad, $expected, $case), RuntimeException::class, 'plan oracle rejects ancillary ' . $case . '/' . $field . '/' . $fault);
+        }
     }
     if ($case === 'collision') {
         $bad = $plan; $bad[$case][0]['env_id'] = 999;
@@ -160,6 +170,45 @@ $stream = static function (string $stem, string $out, string $err = '', int $exi
 $json = static fn(array $data): string => json_encode($data, JSON_THROW_ON_ERROR) . "\n";
 $pair = 'importerdirtyoffline';
 try {
+    $historical = $native;
+    $historical['tables']['wt_iew_mapping_template'] = array_slice($historical['tables']['wt_iew_mapping_template'], 0, 5);
+    foreach ([0, 2] as $index) $historical['tables']['wt_iew_mapping_template'][$index]['name'] = 'Historical ' . $historical['tables']['wt_iew_mapping_template'][$index]['name'];
+    $current = $historical; $map = ['identities' => []];
+    $decl = json_decode(file_get_contents($package . '/package/manifest.json'), true, flags: JSON_THROW_ON_ERROR)['tables']['wt_iew_mapping_template'];
+    mkdir($sink . '/identity/state/tables/wt_iew_mapping_template', 0700, true);
+    foreach ($historical['tables']['wt_iew_mapping_template'] as $index => $row) {
+        $uuid = WPrism\Uuid::v5(WPrism\Uuid::NAMESPACE_WPRISM, WPrism\Snapshot::natural_key_name('wt_iew_mapping_template', $decl, $row));
+        $map['identities'][] = ['uuid' => $uuid, 'entity_type' => 'wt_iew_mapping_template', 'id_kind' => 'iew_template', 'local_id' => $row['id']];
+        if (in_array($index, [0, 2], true)) $row['name'] = substr($row['name'], strlen('Historical '));
+        $current['tables']['wt_iew_mapping_template'][$index] = $row;
+        WPrism\Canon::write_file($sink . '/identity/state/tables/wt_iew_mapping_template/' . $uuid . '.json', WPrism\Canon::encode([
+            'table' => 'wt_iew_mapping_template', 'uuid' => $uuid, 'columns' => array_diff_key($row, ['id' => true]), 'meta' => new stdClass(),
+        ]));
+    }
+    $captured = WPrismTest\FilesystemTreeEvidence::capture($sink . '/identity', 'state');
+    ImporterDirtyTargetEvidence::retained($historical, $current, $map, $map, $captured);
+    wprism_check(true, 'native rename proof admits both historical UUIDs retained under current names');
+    foreach (['missing-map', 'duplicate-map', 'wrong-kind', 'rebound', 'not-historical', 'changed-id', 'changed-form', 'changed-file', 'missing-canonical', 'wrong-canonical-name', 'wrong-canonical-uuid'] as $fault) {
+        $before = $historical; $after = $current; $oldMap = $map; $newMap = $map; $tree = $captured;
+        if ($fault === 'missing-map') array_pop($oldMap['identities']);
+        if ($fault === 'duplicate-map') $oldMap['identities'][1] = $oldMap['identities'][0];
+        if ($fault === 'wrong-kind') $oldMap['identities'][0]['id_kind'] = 'foreign';
+        if ($fault === 'rebound') $newMap['identities'][0]['uuid'] = WPrism\Uuid::v5(WPrism\Uuid::NAMESPACE_WPRISM, WPrism\Snapshot::natural_key_name('wt_iew_mapping_template', $decl, $after['tables']['wt_iew_mapping_template'][0]));
+        if ($fault === 'not-historical') $before['tables']['wt_iew_mapping_template'][0]['name'] = $after['tables']['wt_iew_mapping_template'][0]['name'];
+        if ($fault === 'changed-id') $after['tables']['wt_iew_mapping_template'][0]['id'] = '999';
+        if ($fault === 'changed-form') $after['tables']['wt_iew_mapping_template'][0]['data'] = '{}';
+        if ($fault === 'changed-file') $after['files']['input.csv'] = str_repeat('b', 64);
+        if ($fault === 'missing-canonical') array_pop($tree['files']);
+        if (str_starts_with($fault, 'wrong-canonical-')) {
+            $record = json_decode(base64_decode($tree['files'][0]['contents_base64'], true), true, flags: JSON_THROW_ON_ERROR);
+            if ($fault === 'wrong-canonical-name') $record['columns']['name'] = 'Wrong name';
+            else $record['uuid'] = '33333333-3333-4333-8333-333333333333';
+            $bytes = WPrism\Canon::encode($record);
+            $tree['files'][0] = array_replace($tree['files'][0], ['contents_base64' => base64_encode($bytes), 'bytes' => strlen($bytes), 'sha256' => hash('sha256', $bytes)]);
+        }
+        if (in_array($fault, ['missing-map', 'duplicate-map', 'wrong-kind'], true)) $newMap = $oldMap;
+        wprism_check_throws(static fn() => ImporterDirtyTargetEvidence::retained($before, $after, $oldMap, $newMap, $tree), RuntimeException::class, 'native retained identity oracle rejects ' . $fault);
+    }
     mkdir($sink . '/site/state/tables/wt_iew_mapping_template', 0700, true);
     foreach ($selected as $uuid => $identity) {
         $row = $native['tables']['wt_iew_mapping_template'][$identity['id'] === '201' ? 0 : 2];
@@ -183,7 +232,7 @@ try {
         $observation = $native;
         if ($case === 'collision') $observation['tables']['wt_iew_mapping_template'] = array_values(array_intersect_key($native['tables']['wt_iew_mapping_template'], array_flip([0, 2, 5, 6])));
         $expected = ImporterDirtyTargetEvidence::selected($tree['state'], $observation, $case);
-        $plan = array_fill_keys(['create', 'update', 'adopt', 'unchanged', 'collision', 'drift', 'conflict', 'delete', 'delete_conflict', 'deleted'], []);
+        $plan = $emptyDiagnostics + array_fill_keys(['create', 'update', 'adopt', 'unchanged', 'collision', 'drift', 'conflict', 'delete', 'delete_conflict', 'deleted'], []);
         foreach ($expected as $uuid => $identity) {
             $row = ['uuid' => $uuid, 'path' => $identity['path'], 'type' => 'wt_iew_mapping_template'];
             if ($case === 'collision') $row['env_id'] = (int) $identity['id'];

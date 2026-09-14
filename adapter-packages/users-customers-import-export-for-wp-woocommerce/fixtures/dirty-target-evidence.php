@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/clean-target-evidence.php';
 require_once $root . '/sandbox/tests/lib/SqlDumpEvidence.php';
+require_once $root . '/agent/src/Repository/Snapshot.php';
+require_once $root . '/agent/src/Kernel/Uuid.php';
 
 use WPrismTest\PrivateCommandOutput;
 use WPrismTest\PrivateRefusalReceipt;
@@ -18,6 +20,54 @@ final class ImporterDirtyTargetEvidence {
             && count($record['settings'] ?? []) === 9 && count($record['files'] ?? []) >= 3
             && count($record['tables']['users']) >= 4 && count($record['tables']['wt_iew_action_history']) >= 1,
             'complete populated native census');
+    }
+
+    public static function retained(array $before, array $after, array $oldMap, array $newMap, array $tree): void {
+        self::native($before); self::native($after);
+        $rows = $before['tables']['wt_iew_mapping_template'];
+        ImporterSettingsEvidence::check(count($rows) === 5 && array_keys($oldMap) === ['identities']
+            && array_is_list($oldMap['identities']) && count($oldMap['identities']) === 5, 'five captured source identities');
+        ImporterRoundtripEvidence::same($oldMap, $newMap, 'native rename and recapture retain every durable identity');
+        $decl = json_decode(file_get_contents(__DIR__ . '/../package/manifest.json'), true, flags: JSON_THROW_ON_ERROR)['tables']['wt_iew_mapping_template'];
+        $byId = []; $uuids = [];
+        foreach ($oldMap['identities'] as $identity) {
+            $id = $identity['local_id']; $uuid = $identity['uuid'];
+            ImporterSettingsEvidence::check(is_string($id) && preg_match('/^[1-9][0-9]*$/D', $id) === 1
+                && $identity['entity_type'] === 'wt_iew_mapping_template' && $identity['id_kind'] === 'iew_template'
+                && WPrism\Uuid::is($uuid) && !isset($byId[$id]) && !isset($uuids[$uuid]), 'unique exact durable source coordinates');
+            $byId[$id] = $uuid; $uuids[$uuid] = true;
+        }
+        $expected = $before; $renamed = []; $currentRows = [];
+        foreach ($expected['tables']['wt_iew_mapping_template'] as &$row) {
+            ImporterSettingsEvidence::check($row['item_type'] === 'user' && in_array($row['template_type'], ['import', 'export'], true), 'owned native source row');
+            $uuid = $byId[$row['id']] ?? null;
+            $derived = WPrism\Uuid::v5(WPrism\Uuid::NAMESPACE_WPRISM, WPrism\Snapshot::natural_key_name('wt_iew_mapping_template', $decl, $row));
+            ImporterSettingsEvidence::check($uuid === $derived, 'initial Capture enrolled the exact historical natural key');
+            $name = $row['template_type'] === 'export' ? 'Selected users' : 'Reusable input mapping';
+            if ($row['name'] === 'Historical ' . $name) {
+                $row['name'] = $name;
+                $fresh = WPrism\Uuid::v5(WPrism\Uuid::NAMESPACE_WPRISM, WPrism\Snapshot::natural_key_name('wt_iew_mapping_template', $decl, $row));
+                ImporterSettingsEvidence::check($uuid !== $fresh, 'current key on a fresh target differs from the retained UUID');
+                $renamed[$row['template_type']] = true;
+            }
+            $currentRows[$uuid] = $row;
+        }
+        unset($row);
+        ImporterSettingsEvidence::check(count($renamed) === 2, 'both import and export originals were genuinely renamed');
+        ImporterRoundtripEvidence::same($expected, $after, 'native Save changes only the two names and retains all source rows, forms and files');
+        FilesystemTreeEvidence::assertRecord($tree, 'state');
+        $captured = [];
+        foreach ($tree['files'] as $file) {
+            if (!str_starts_with($file['path'], 'tables/wt_iew_mapping_template/')) continue;
+            $front = json_decode(base64_decode($file['contents_base64'], true), true, flags: JSON_THROW_ON_ERROR);
+            $uuid = $front['uuid'];
+            ImporterSettingsEvidence::check(isset($currentRows[$uuid]) && !isset($captured[$uuid])
+                && $front['table'] === 'wt_iew_mapping_template', 'recapture retains the exact source UUID roster');
+            foreach (['name', 'item_type', 'template_type'] as $column) ImporterSettingsEvidence::check(
+                $front['columns'][$column] === $currentRows[$uuid][$column], 'recapture publishes the current native identity component');
+            $captured[$uuid] = true;
+        }
+        ImporterSettingsEvidence::check(count($captured) === 5, 'all five templates appear in recaptured canonical state');
     }
 
     public static function selected(array $tree, array $native, string $case): array {
@@ -44,6 +94,11 @@ final class ImporterDirtyTargetEvidence {
 
     public static function plan(array $plan, array $selected, string $case): void {
         ImporterSettingsEvidence::check(in_array($case, ['collision', 'drift', 'conflict'], true), 'known dirty-target decision');
+        foreach (['code_mismatch', 'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user',
+            'skipped_user_meta', 'uploads_inventory', 'selected_actions', 'regen_pending', 'regen_context',
+            'env_missing', 'warnings', 'provider_problems'] as $field) {
+            ImporterSettingsEvidence::check(($plan[$field] ?? null) === [], 'no ancillary plan findings in ' . $field);
+        }
         $actual = [];
         foreach ($plan[$case] ?? [] as $row) {
             $uuid = $row['uuid'];
@@ -133,7 +188,9 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') !== __FILE__) return;
 [$mode, $sink, $pair] = array_slice($argv, 1);
 $transport = '/^ ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-f0-9]{12} (Creating|Created) *$/D';
 $read = static fn(string $label): array => json_decode(PrivateCommandOutput::readObject($sink . '/' . $label, $transport), true, 32, JSON_THROW_ON_ERROR);
-if ($mode === 'edited') ImporterDirtyTargetEvidence::edited($read($argv[4]), $read($argv[5]), $argv[6]);
+if ($mode === 'retained') ImporterDirtyTargetEvidence::retained($read('identity-before-native'), $read('identity-after-native'),
+    $read('identity-before-map'), $read('identity-after-map'), $read('identity-after-state')['state']);
+elseif ($mode === 'edited') ImporterDirtyTargetEvidence::edited($read($argv[4]), $read($argv[5]), $argv[6]);
 elseif ($mode === 'resolved') ImporterDirtyTargetEvidence::resolved($read('dirty-source-after'), $read('conflict-after-native'), $read('resolved-native'));
 elseif ($mode === 'refusal') {
     $case = $argv[4];

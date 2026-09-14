@@ -3328,10 +3328,18 @@ an old pointer because both filenames become the same dependency marker.
 
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
-an independently managed target row with the same key. Plan must either offer
-one explicit table adoption or refuse multiple matching local rows; capture,
-plan and apply all reject two live rows with the same full canonical identity
-tuple. Do this even when the table has a primary key: the primary key is local
+an independent target row with the same key. A fresh target derives the same
+UUID; this exercises first binding, including equal-content rows, rather than
+an identity collision. To prove explicit adoption, capture the source under an
+old key, rename it through the native API, and recapture. Assert the source ID
+and durable UUID remain unchanged while the current key would derive another
+UUID. Then create that current key on an unmapped target: Plan must report the
+collision without persisting its derived identity, unapproved Apply must refuse,
+and explicit table adoption must retain the target ID and reach convergence.
+Never clear or rebind a durable map to manufacture this premise. Also create
+multiple matching local rows and prove refusal; capture, plan and apply reject
+two rows with the same full canonical identity tuple. Do this even when the
+table has a primary key: the primary key is local
 storage identity, not portable identity. An identity column also cannot carry a
 column codec — rewriting it during capture/materialization would make portable
 UUID derivation and target lookup disagree.
