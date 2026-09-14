@@ -19,6 +19,7 @@ if (($argv[1] ?? '') === '--probe') {
             return (object) ['arguments' => json_decode($GLOBALS['argv'][2], true, 16, JSON_THROW_ON_ERROR), 'config' => $config];
         }
         public static function add_command(string $name, string $class): void {}
+        public static function error(string $message): never { throw new RuntimeException($message); }
     }
     function is_admin(): bool {
         return defined('WP_ADMIN') && WP_ADMIN;
@@ -48,7 +49,17 @@ if (($argv[1] ?? '') === '--probe') {
             if (!str_contains($failure->getMessage(), $expected)) throw $failure;
         }
     }
-    echo json_encode(['ready' => $ready, 'admin' => is_admin(), 'entry' => $_SERVER['PHP_SELF'],
+    $publicRefused = false;
+    if (WP_CLI && !$ready) {
+        try { (new WPrism\Cli())->deploy([], ['repo' => ABSPATH . 'uninitialized-context-probe']); }
+        catch (RuntimeException $failure) {
+            $expected = str_starts_with($argv[3] ?? '', 'skip-')
+                ? 'requires all lifecycle participants to load' : 'requires administrative context from the MU bootstrap';
+            if (!str_contains($failure->getMessage(), $expected)) throw $failure;
+            $publicRefused = true;
+        }
+    }
+    echo json_encode(['public_refused' => $publicRefused, 'ready' => $ready, 'admin' => is_admin(), 'entry' => $_SERVER['PHP_SELF'],
         'activation' => get_option('fixture_activation'), 'deactivation' => get_option('fixture_deactivation')], JSON_THROW_ON_ERROR), "\n";
     exit(0);
 }
@@ -74,6 +85,8 @@ foreach ([
         [PHP_BINARY, __FILE__, json_encode($command, JSON_THROW_ON_ERROR), $mode], $root);
     wprism_check($exit === 0 && $err === '', 'actual agent bootstrap has clean output: ' . implode(' ', $command) . ' ' . $mode);
     $actual = json_decode($out, true, 16, JSON_THROW_ON_ERROR);
+    wprism_check_same(!$admin && $mode !== 'web', $actual['public_refused'],
+        'public deploy refuses the incomplete context before attempting repository or lifecycle work');
     wprism_check_same($admin, $actual['ready'], 'deployment gate requires the complete early context witness');
     wprism_check_same($admin ? ($mode === 'existing-admin' ? '/wp-cli.php' : '/wp-admin/wprism-deploy.php') : '/wp-cli.php',
         $actual['entry'], 'only a newly established lifecycle context selects its administrative entry point');

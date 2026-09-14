@@ -3045,6 +3045,7 @@ regress-offline-diagnostics:
 # production SSH rollback certification is the live merge gate for the
 # automatic promote profile and is therefore discoverable here.
 regress-live-list:
+	@echo "  regress-lifecycle-command-context-native  own disposable pair (LIFECYCLE_CONTEXT_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA; native admin-only activation/deactivation hooks)"
 	@echo "regress-* live suites (docker/pair.sh-dependent) -- run individually, own pair each:"
 	@echo ""
 	@echo "  regress-pa-attributes                     pair r3e"
