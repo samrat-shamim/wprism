@@ -42,6 +42,7 @@
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
       "conformance-users-customers-import-export-for-wp-woocommerce",
+      "exact-artifact-version-matrix",
       "regress-dependency-apply",
       "regress-package-contract",
       "regress-native-settings",

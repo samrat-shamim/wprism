@@ -77,14 +77,19 @@ wordpress_cron_window_begin() { # <WP runner> <MU-directory shell transport>
   jq -e --arg owner "$WPRISM_CRON_WINDOW_TOKEN" '. == {disabled:true,owner:$owner}' <<<"$observed" >/dev/null
 }
 
-wordpress_cron_window_exit() { # <incoming status>; cleanup must not turn failure green
-  local status="$1"
-  trap - EXIT INT TERM
+wordpress_cron_window_release() {
   if [ -n "${WPRISM_CRON_WINDOW_TOKEN:-}" ]; then
     if ! wordpress_cron_window_control release; then
       printf 'FAIL: WordPress cron-window cleanup could not prove removal of its owned guard\n' >&2
-      [ "$status" -ne 0 ] || status=1
+      return 1
     fi
+    unset WPRISM_CRON_WINDOW_TOKEN WPRISM_CRON_WINDOW_TRANSPORT
   fi
+}
+
+wordpress_cron_window_exit() { # <incoming status>; cleanup must not turn failure green
+  local status="$1"
+  trap - EXIT INT TERM
+  wordpress_cron_window_release || { [ "$status" -ne 0 ] || status=1; }
   exit "$status"
 }

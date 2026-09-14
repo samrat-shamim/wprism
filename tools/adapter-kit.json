@@ -25,6 +25,11 @@
             "member": "conformance/run.sh",
             "target": "bin/fetch-artifact.sh",
             "note": "run.sh is the estate-bound member: it cd's to its own parent and drives a disposable env pair through docker (run.sh:70, :172-173). It is shipped as the reference round-trip harness — the one file that states what an adapter has to survive — not as something a kit user runs unmodified."
+        },
+        {
+            "member": "conformance/run.sh",
+            "target": "tests/lib/wordpress_cron_window.sh",
+            "note": "The estate-bound runner owns an optional entry-declared target cron window across child hooks and Apply, with exact guard cleanup on every exit."
         }
     ],
     "members": [
@@ -105,16 +110,16 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 38400,
-            "sha256": "e75d54986d57c3c0e9454c3f277f71b1787d9a556cb42a73bb8257e33d7e97f3"
+            "bytes": 39557,
+            "sha256": "5694c9eabf088562185002b6a2a638d839665b97530c0d7d46261dbdd66dc8f9"
         },
         {
             "path": "conformance/asserts.sh",
             "origin": "copied",
             "source": "sandbox/conformance/asserts.sh",
             "role": "premise assertions every seed/postdeploy hook calls before its engine assertion",
-            "bytes": 32688,
-            "sha256": "5da558031820c9c886e74ffb6fc2051be609e2d75d48918217f960d741c57d40"
+            "bytes": 33076,
+            "sha256": "431a73079a4c26054751ca91b9fef30f922f9bb386f933654d43f39f8c5323ef"
         },
         {
             "path": "skeleton/example-adapter.php",
@@ -137,8 +142,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 5315,
-            "sha256": "e303366844f7f491ffc391265b373a15dde1de74d2513a66703649881592bc21"
+            "bytes": 5535,
+            "sha256": "5233e110e8e592384ec6e12ce323df418c4257656592f78c6b30e973258eff01"
         }
     ]
 }

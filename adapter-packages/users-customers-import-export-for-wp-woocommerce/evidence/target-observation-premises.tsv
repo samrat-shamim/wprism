@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=140 fixtures=0
+# expected observations=150 fixtures=0
 observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
 observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
 observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
@@ -140,3 +140,13 @@ observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture sup
 observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture activate wp_ssh_fixture --require="$fixture/admin-context.php" --user=admin
 observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture activated wp_ssh_fixture --skip-plugins --user=admin
 observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture admin wp_ssh_fixture --require="$fixture/admin-context.php" --user=admin
+observation	tests/certify/version-matrix.sh	importer_matrix_capture "$1-tables" 0 wp2 db query 'SHOW FULL TABLES' --batch --raw --skip-column-names --quiet
+observation	tests/certify/version-matrix.sh	importer_matrix_capture "$1-database" 0 wp2 db export - --single-transaction --skip-lock-tables --skip-add-locks
+observation	tests/certify/version-matrix.sh	importer_matrix_capture "$1-state" 0 php "$IMPORTER_MATRIX_PACKAGE/fixtures/dependency-evidence.php" snapshot
+observation	tests/certify/version-matrix.sh	importer_matrix_capture "$1-native" 0 wp2 --skip-plugins --user=admin eval-file
+observation	tests/certify/version-matrix.sh	importer_matrix_capture supported 0 wp2 --skip-plugins --user=admin eval-file
+observation	tests/certify/version-matrix.sh	importer_matrix_capture install 0 wp2 plugin install "$archive" --force
+observation	tests/certify/version-matrix.sh	importer_matrix_capture prior 0 wp2 --skip-plugins --user=admin eval-file
+observation	tests/certify/version-matrix.sh	importer_matrix_observe "$verb-before"
+observation	tests/certify/version-matrix.sh	importer_matrix_capture "$verb-refusal" 1 conformance_private_command cli2 "$verb"
+observation	tests/certify/version-matrix.sh	importer_matrix_observe "$verb-after"

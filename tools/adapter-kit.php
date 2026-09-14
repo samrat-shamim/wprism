@@ -130,6 +130,9 @@ final class AdapterKit
                 . 'PASS from a directory that has no agent/ above it.',
         ],
         'conformance/run.sh' => [
+            'tests/lib/wordpress_cron_window.sh' =>
+                'The estate-bound runner owns an optional entry-declared target cron window '
+                . 'across child hooks and Apply, with exact guard cleanup on every exit.',
             'tests/lib/conformance_private_command.sh' =>
                 'The estate-bound reference harness retains initial Apply diagnostics through '
                 . 'the shared native CLI-uid reader before disposable cleanup. Its private '

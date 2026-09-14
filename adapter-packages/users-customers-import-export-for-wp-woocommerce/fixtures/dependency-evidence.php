@@ -8,22 +8,26 @@ require_once $root . '/sandbox/tests/lib/SqlDumpEvidence.php';
 final class ImporterDependencyEvidence {
     public const PLUGIN = 'users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php';
 
-    public static function profile(string $case): array {
+    public static function profile(string $case, ?string $command = null): array {
+        $command ??= in_array($case, ['inactive', 'deactivated'], true) ? 'apply' : 'deploy';
+        if (!in_array($command, ['apply', 'deploy'], true)
+            || ($case !== 'prior' && $command !== (in_array($case, ['inactive', 'deactivated'], true) ? 'apply' : 'deploy'))) {
+            throw new RuntimeException('unsupported Importer dependency command');
+        }
         $plugin = self::PLUGIN;
         if (in_array($case, ['inactive', 'deactivated'], true)) {
             $finding = "active_plugins in state/options/core.json declares '$plugin', and its code is installed, but it is not active in this environment. Run 'wprism deploy <env>' before apply so activation hooks and schema migrations complete first.";
-            $message = "wprism: apply refused — code_mismatch:\n\n  - $finding\n\n"
-                . "Run 'wprism deploy <env>' first for lifecycle reconciliation, or pass --force-code-mismatch to proceed despite those lifecycle mismatches.";
         } else {
             $finding = match ($case) {
                 'missing' => "active_plugins in state/options/core.json declares '$plugin' but $plugin does not exist in this environment (checked against this environment's wp-content/plugins/ — phase 1 has no code/ deploy transport, so 'in code' means 'installed on the env'). Install/vendor the plugin here, or this branch's code/ changes haven't reached this environment yet.",
                 'prior' => "$plugin 2.7.4 is active in this environment, outside the 'users-customers-import-export-for-wp-woocommerce' manifest's declared version_range (>=2.7.5 <2.7.6, pinned by site.wprism.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.",
                 default => throw new RuntimeException('unknown Importer dependency refusal'),
             };
-            $message = "wprism: deploy refused — code_mismatch:\n\n  - $finding\n\n"
-                . 'Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.';
         }
-        $command = in_array($case, ['inactive', 'deactivated'], true) ? 'apply' : 'deploy';
+        $message = "wprism: $command refused — code_mismatch:\n\n  - $finding\n\n"
+            . ($command === 'apply'
+                ? "Run 'wprism deploy <env>' first for lifecycle reconciliation, or pass --force-code-mismatch to proceed despite those lifecycle mismatches."
+                : 'Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.');
         return ['command' => $command, 'reason_code' => $command . '_failed', 'nodes' => [[
             'class' => RuntimeException::class, 'parent_index' => null, 'relation' => 'root', 'message' => $message,
         ]]];
