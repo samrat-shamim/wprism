@@ -2453,9 +2453,18 @@ $wooVideoGalleryPaths = array_map(
     (array) ($wooVideoGalleryRule['json_refs'] ?? [])
 );
 sort($wooVideoGalleryPaths, SORT_STRING);
-woo_ok($wooVideoGalleryPaths === ['$.*.id', '$.*.poster_id'],
+// JsonRefs treats a list as transparent -- the current segment applies to every
+// element and the list level consumes none (JsonRefs::step:218-227). So the item
+// fields are addressed WITHOUT a list segment. '$.*.id' would consume the item's
+// own keys and look one level too deep; measured against the real item shape it
+// matches nothing, and the certify lint caught exactly that as two unrewritten
+// bare ids.
+woo_ok($wooVideoGalleryPaths === ['$.id', '$.poster_id'],
     'both attachment references inside every video gallery item are declared: '
         . implode(', ', $wooVideoGalleryPaths));
+woo_ok(!in_array('$.*.id', $wooVideoGalleryPaths, true)
+    && !in_array('$.*.poster_id', $wooVideoGalleryPaths, true),
+    'the video gallery paths do not re-add the list segment JsonRefs already absorbs');
 woo_ok(
     $wooVideoGalleryPaths !== []
         && count(array_filter(
@@ -2528,6 +2537,7 @@ foreach ([
     'src/Internal/ProductGallery/ProductMediaGallery.php',
     "returning [] for anything whose media_type is not 'video' or whose source_type is not 'attachment'",
     "source_type is invariantly 'attachment' across the admitted range",
+    'JsonRefs treats a list as transparent',
 ] as $wooVideoGalleryWitness) {
     woo_ok(str_contains($wooVideoGalleryNote, $wooVideoGalleryWitness),
         "the shipped claim states how the video gallery references are carried: $wooVideoGalleryWitness");
