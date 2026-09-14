@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/database-evidence.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Uuid.php';
 require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/FilesystemTreeEvidence.php';
 
 use WPrismTest\EvidenceSizeProfile;
@@ -57,7 +58,7 @@ final class ImporterWooApplyEvidence {
             $resolved = json_decode($matches[0]['data'], true, flags: JSON_THROW_ON_ERROR);
             self::check(!isset($resolved['method_' . $kind . '_form_data']['selected_template']), 'target baseline was materialized before the measured update');
             $resolved['advanced_form_data']['wt_iew_batch_count'] = 7;
-            $intent[] = ['id' => $matches[0]['id'], 'uuid' => $front['uuid'], 'kind' => $kind, 'hash' => $new[$path]['sha256'], 'form' => $resolved];
+            $intent[] = ['id' => $matches[0]['id'], 'uuid' => $front['uuid'], 'kind' => $kind, 'hash' => $new[$path]['sha256'], 'form' => $resolved, 'path' => $path];
         }
         self::check(count($intent) === 2 && count(array_unique(array_column($intent, 'kind'))) === 2, 'exactly one changed import and export');
         return $intent;
@@ -87,7 +88,7 @@ final class ImporterWooApplyEvidence {
             $kind = $entity['kind'] ?? null; $id = $entity['id'] ?? null; $uuid = $entity['uuid'] ?? null;
             self::check(in_array($kind, ['import', 'export'], true) && !isset($kinds[$kind])
                 && is_int($id) && $id > 0 && isset($templates[$id]) && !isset($ids[$id])
-                && is_string($uuid) && preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D', $uuid) === 1
+                && is_string($uuid) && WPrism\Uuid::is($uuid)
                 && isset($states[$uuid]) && !isset($uuids[$uuid])
                 && is_string($entity['hash'] ?? null) && preg_match('/^[a-f0-9]{64}$/D', $entity['hash']) === 1
                 && is_array($entity['form'] ?? null), 'unique existing import/export intent');
@@ -138,6 +139,34 @@ final class ImporterWooApplyEvidence {
             $expected['rows']['wp_wprism_kv'][$i]['v'] = $after['database']['rows']['wp_wprism_kv'][$i]['v'];
         }
         self::check($expected === $after['database'], 'every schema, column, row and other cell is preserved');
+    }
+
+    public static function plan(array $plan, array $intent, array $before): string {
+        foreach (['create', 'adopt', 'collision', 'drift', 'conflict', 'delete', 'delete_conflict', 'deleted',
+            'code_mismatch', 'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user', 'skipped_user_meta',
+            'uploads_inventory', 'selected_actions', 'regen_pending', 'regen_context', 'env_missing', 'warnings', 'provider_problems'] as $field) {
+            self::check(($plan[$field] ?? null) === [], 'Plan has no additional work or diagnostic: ' . $field);
+        }
+        $wanted = array_column($intent, null, 'uuid'); $updates = [];
+        foreach ($plan['update'] ?? [] as $row) {
+            $uuid = $row['uuid'];
+            self::check(isset($wanted[$uuid]) && !isset($updates[$uuid]) && $row['type'] === 'wt_iew_mapping_template'
+                && $row['path'] === $wanted[$uuid]['path'], 'Plan identifies one exact canonical template update');
+            $updates[$uuid] = true;
+        }
+        $expected = array_keys($wanted); $actual = array_keys($updates); sort($expected); sort($actual);
+        self::check($expected === $actual && count($expected) === 2, 'Plan includes both intended updates');
+        $remaining = array_values(array_diff(array_column($before['controls']['wp_wprism_state'], 'uuid'), $expected));
+        $unchanged = array_column($plan['unchanged'] ?? [], 'uuid'); sort($remaining); sort($unchanged);
+        self::check($remaining === $unchanged && is_string($plan['artifact_hash'] ?? null)
+            && preg_match('/^[a-f0-9]{64}$/D', $plan['artifact_hash']) === 1, 'complete unchanged roster and compiled artifact identity');
+        return $plan['artifact_hash'];
+    }
+
+    public static function receipt(array $receipt, bool $repeat): void {
+        self::check(($receipt['applied'] ?? null) === ($repeat ? 0 : 2) && ($receipt['canary'] ?? null) === 'clean'
+            && ($receipt['drift'] ?? null) === [] && ($receipt['warnings'] ?? null) === [] && ($receipt['actions'] ?? null) === [],
+            'public Apply completed exactly the intended work without diagnostics or executable actions');
     }
 
     public static function files(array $before, array $after): void {

@@ -38,6 +38,7 @@ final class AdapterChangeScopeTest extends TestCase
         );
         self::assertSame(
             [
+                'integration-scenarios/importer-woocommerce-customers/tests/live/regress_importer_woocommerce_apply.sh',
                 'integration-scenarios/importer-woocommerce-customers/tests/live/regress_importer_woocommerce_native_premise.sh',
                 'integration-scenarios/importer-woocommerce-customers/tests/offline/regress_importer_woocommerce_apply_evidence.php',
                 'integration-scenarios/importer-woocommerce-customers/tests/offline/regress_importer_woocommerce_customers.php',

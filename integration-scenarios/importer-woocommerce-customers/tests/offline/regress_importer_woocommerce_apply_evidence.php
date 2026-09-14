@@ -4,7 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__, 4);
 require_once "$root/sandbox/tests/lib/check.php";
 require_once dirname(__DIR__, 2) . '/fixtures/apply-evidence.php';
-$uuid = static fn(int $n): string => sprintf('12345678-1234-4123-8123-%012d', $n);
+$uuid = static fn(int $n): string => sprintf('12345678-1234-7123-8123-%012d', $n);
 $intent = [];
 foreach (['export', 'import'] as $i => $kind) $intent[] = ['id' => 101 + $i, 'uuid' => $uuid($i + 1), 'kind' => $kind,
     'hash' => str_repeat((string) ($i + 1), 64), 'form' => ['mapping_form_data' => ['mapping_selected_fields' => ['billing_city' => 'New city']],
@@ -75,6 +75,34 @@ $after['wp_wprism_kv'][1]['v'] = $session('2', 105);
 $oldImage = $read($before); $newImage = $read($after);
 $verify = static fn(array $candidate) => ImporterWooApplyEvidence::transition($oldImage, $candidate, $intent,
     str_repeat('c', 40), str_repeat('a', 64), ['before' => 100, 'after' => 110]);
+$plan = array_fill_keys(['create', 'adopt', 'collision', 'drift', 'conflict', 'delete', 'delete_conflict', 'deleted',
+    'code_mismatch', 'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user', 'skipped_user_meta',
+    'uploads_inventory', 'selected_actions', 'regen_pending', 'regen_context', 'env_missing', 'warnings', 'provider_problems'], []);
+$planIntent = $intent;
+foreach ($planIntent as &$entity) $entity['path'] = 'tables/wt_iew_mapping_template/' . $entity['uuid'] . '.json';
+unset($entity);
+$plan['update'] = array_map(static fn(array $entity): array => ['uuid' => $entity['uuid'], 'type' => 'wt_iew_mapping_template', 'path' => $entity['path']], $planIntent);
+$plan['unchanged'] = [['uuid' => $uuid(3)]]; $plan['artifact_hash'] = str_repeat('a', 64);
+wprism_check_same(str_repeat('a', 64), ImporterWooApplyEvidence::plan($plan, $planIntent, $oldImage), 'exact Plan binds the two independent updates and every unchanged identity');
+foreach (['create', 'warnings', 'selected_actions', 'regen_pending', 'update', 'unchanged', 'artifact_hash'] as $field) {
+    $badPlan = $plan;
+    if ($field === 'update') $badPlan[$field][] = $plan[$field][0];
+    elseif ($field === 'unchanged') $badPlan[$field] = [];
+    elseif ($field === 'artifact_hash') $badPlan[$field] = 'unbound';
+    else $badPlan[$field] = ['unexpected'];
+    wprism_check_throws(static fn() => ImporterWooApplyEvidence::plan($badPlan, $planIntent, $oldImage), RuntimeException::class,
+        "unexpected Plan $field refuses before accepting an Apply verdict");
+}
+$receipt = ['applied' => 2, 'canary' => 'clean', 'drift' => [], 'warnings' => [], 'actions' => []];
+ImporterWooApplyEvidence::receipt($receipt, false);
+wprism_check(true, 'exact two-template public Apply receipt passes');
+foreach (['applied', 'canary', 'drift', 'warnings', 'actions'] as $field) {
+    $badReceipt = $receipt; $badReceipt[$field] = $field === 'applied' ? 3 : ($field === 'canary' ? 'dirty' : ['unexpected']);
+    wprism_check_throws(static fn() => ImporterWooApplyEvidence::receipt($badReceipt, false), RuntimeException::class,
+        "public Apply receipt rejects unexpected $field");
+}
+$receipt['applied'] = 0; ImporterWooApplyEvidence::receipt($receipt, true);
+wprism_check(true, 'repeat public receipt has exactly zero applied entities');
 $verify($newImage);
 wprism_check(true, 'two intended forms and baseline/revision/session transitions preserve every other observed byte');
 foreach ($neighbors as $table) {
