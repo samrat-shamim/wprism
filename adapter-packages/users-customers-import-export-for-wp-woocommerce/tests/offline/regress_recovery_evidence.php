@@ -201,6 +201,22 @@ $stream('recovery-plan', json_encode($plan, JSON_THROW_ON_ERROR) . "\n");
     [PHP_BINARY, $package . '/fixtures/recovery-check-evidence.php', $sink, $revision], $root);
 wprism_check($status === 0 && $stderr === '' && $stdout === "PASS: Importer recovery plan\n",
     'standalone verifier consumes complete private streams and closes its own load graph: ' . $stderr);
+// Docker Compose forwards stdin: the inventory belongs to the loop, never its child query.
+$inventorySource = file_get_contents($package . '/fixtures/recovery-check.sh');
+$inventoryStart = strpos($inventorySource, 'while IFS=');
+$inventoryEnd = strpos($inventorySource, "\nimporter_roundtrip_capture recovery-plan", $inventoryStart);
+$inventoryBlock = substr($inventorySource, $inventoryStart, $inventoryEnd - $inventoryStart);
+file_put_contents($sink . '/recovery-before-plan-tables.stdout', $inventory);
+[$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(<<<'SH'
+set -euo pipefail
+IMPORTER_EVIDENCE="$1"
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+importer_dirty_capture() { cat >/dev/null; printf '%s\n' "$1"; }
+SH
+. "\n" . $inventoryBlock, [$sink], $root);
+$expectedStages = array_map(static fn(string $table): string => 'recovery-columns-' . str_replace('_', '-', $table), ImporterRecoveryEvidence::TABLES);
+wprism_check($status === 0 && $stderr === '' && $stdout === implode("\n", $expectedStages) . "\n",
+    'actual inventory loop captures all 18 tables even when its query drains stdin');
 foreach (['apply transaction commit', 'ledger transaction commit'] as $context) {
     [$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(<<<'SH'
 set -euo pipefail

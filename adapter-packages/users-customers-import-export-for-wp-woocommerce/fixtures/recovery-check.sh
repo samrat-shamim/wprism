@@ -20,7 +20,7 @@ importer_dirty_snapshot recovery-before-plan
 while IFS=$'\t' read -r table kind; do
   [ -n "$table" ] || continue
   [[ "$table" =~ ^wp_[a-z0-9_]+$ && "$kind" = 'BASE TABLE' ]] || fail 'unsafe recovery table inventory'
-  importer_dirty_capture "recovery-columns-${table//_/-}" 0 wp_conf2 db query "SHOW FULL COLUMNS FROM $table" --batch --raw --skip-column-names --quiet
+  importer_dirty_capture "recovery-columns-${table//_/-}" 0 wp_conf2 db query "SHOW FULL COLUMNS FROM $table" --batch --raw --skip-column-names --quiet </dev/null
 done <"$IMPORTER_EVIDENCE/recovery-before-plan-tables.stdout"
 importer_roundtrip_capture recovery-plan wp_conf2 wprism plan --repo=/siterepo --format=json
 importer_dirty_snapshot recovery-authored-before
