@@ -36,7 +36,7 @@
             "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Certified for exact Block Visibility 3.7.1 on single-site WordPress, bounded to the block_visibility_settings option and visibility_preset rows whose control_sets contain only the reviewed reference-free controls. Native target behavior proves the migrated settings and entity-free preset hide and restore a target-local block. blockVisibility remains explicitly unsupported on every block because it carries conditionally-typed entity ids that the engine cannot rebind; reference-bearing preset controls and absent-row default completion likewise refuse. The adapter makes no claim for those surfaces, multisite, or plugin-specific deletion.",
+    "reason": "Certified for exact Block Visibility 3.7.1 on single-site WordPress, bounded to the block_visibility_settings option and visibility_preset rows whose control_sets contain only the reviewed reference-free controls. Native target behavior proves the migrated settings and entity-free preset hide a target-local block while an unannotated migrated block remains visible. blockVisibility remains explicitly unsupported on every block because it carries conditionally-typed entity ids that the engine cannot rebind; reference-bearing preset controls and absent-row default completion likewise refuse. The adapter makes no claim for those surfaces, multisite, or plugin-specific deletion.",
     "status": "certified",
     "supported_versions": {
         "plugin": "block-visibility/block-visibility.php",

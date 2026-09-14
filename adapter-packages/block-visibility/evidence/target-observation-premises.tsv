@@ -1,8 +1,9 @@
 # format wprism-target-observation-premises/v1
-# expected observations=5 fixtures=0
+# expected observations=6 fixtures=0
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/capture-check.sh	require_observed_nonempty "Block Visibility annotated-block premise"
 observation	tests/conformance/capture-check.sh	require_observed_nonempty "Block Visibility referencing-preset premise"
 observation	tests/conformance/seed.sh	require_observed_nonempty "Block Visibility source seed"
 observation	tests/conformance/check.sh	require_observed_nonempty "Block Visibility target preset identity"
 observation	tests/conformance/check.sh	require_observed_nonempty "Block Visibility target-local probe identity"
+observation	tests/conformance/check.sh	require_observed_nonempty "Block Visibility unannotated target post identity"

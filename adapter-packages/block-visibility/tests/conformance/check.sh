@@ -56,15 +56,10 @@ if printf '%s\n' "$BODY" | grep -Fq 'Block Visibility native probe'; then
 fi
 pass "Block Visibility hides an anonymous block through the migrated native preset"
 
-VISIBLE_CONTENT='<!-- wp:paragraph -->
-<p>Block Visibility native probe</p>
-<!-- /wp:paragraph -->'
-wp_conf2 post update "$PROBE_ID" --post_content="$VISIBLE_CONTENT" >/dev/null
-STORED_CONTENT=$(wp_conf2 post get "$PROBE_ID" --field=post_content)
-printf '%s\n' "$STORED_CONTENT" | grep -Fq 'Block Visibility native probe' \
-  || fail "the target-local probe content was not restored before the frontend check"
-BODY=$(curl --max-time 20 -sS "http://localhost:${CONF2_PORT}/?p=${PROBE_ID}") \
-  || fail "Block Visibility restored frontend probe failed before an HTTP response"
-printf '%s\n' "$BODY" | grep -Fq 'Block Visibility native probe' \
-  || fail "Block Visibility did not restore the target-local block after removing its visibility rule"
-pass "removing the target-local visibility rule restores native frontend rendering"
+VISIBLE_ID=$(wp_conf2 post list --post_type=post --name=unannotated-fixture --field=ID)
+require_observed_nonempty "Block Visibility unannotated target post identity" "$VISIBLE_ID"
+BODY=$(curl --max-time 20 -sS "http://localhost:${CONF2_PORT}/?p=${VISIBLE_ID}") \
+  || fail "Block Visibility unannotated frontend probe failed before an HTTP response"
+printf '%s\n' "$BODY" | grep -Fq 'No visibility rule on this block.' \
+  || fail "Block Visibility unexpectedly hid the migrated unannotated block"
+pass "an unannotated block remains visible while the target-local preset-gated block is hidden"
