@@ -437,11 +437,12 @@ final class ActiveShellSource
         if ($depth !== 0) {
             throw new \RuntimeException('Active shell source has an unterminated function boundary');
         }
-        // The reviewed version-matrix harness sources each capsule and invokes
-        // this exact entry point (sandbox/tests/certify/certify_version_matrix.sh:207).
-        $reachable = isset($functions['version_matrix_workflow'])
-            ? ['version_matrix_workflow' => true]
-            : [];
+        // Both reviewed harnesses source capsule callbacks rather than calling
+        // their files as programs: certify_version_matrix.sh and regress_ssh_adopt.sh.
+        $reachable = array_intersect_key([
+            'version_matrix_workflow' => true,
+            'wprism_ssh_adopt_extension' => true,
+        ], $functions);
         $calls = [];
         foreach ($structuralLines as $lineNumber => $structural) {
             if (preg_match(

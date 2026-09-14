@@ -149,6 +149,11 @@ scp() { # the helper's upload surface; ordinary copy only for the PHP fixture
     [ "$#" -eq 4 ] || return 92
     /bin/cp "$3" \
       "$REMOTE/home/wprism/recovery-fixture/wprism-ssh-publish-post-tombstone.php"
+  elif [ "${FAKE_SSH_MODE:-}" = artifact ]; then
+    [ "$#" -eq 4 ] || return 92
+    local destination="${4#wprism-adopt-fixture:}"
+    [[ "$destination" == /home/wprism/recovery-fixture/plugin-fixture-1.0-*.zip ]] || return 92
+    /bin/cp "$3" "$REMOTE$destination"
   fi
 }
 
@@ -363,7 +368,11 @@ expect_refusal 'unexpected extra staged theme' \
 pass 'physical destination containment and the exact unique-theme count are enforced after copy'
 
 artifact_library_jq() {
-  printf '{"url":"https://fixture.invalid/plugin.zip","sha256":"%064d","role":"certified-boundary"}\n' 0
+  local document
+  document=$(jq -nc --arg role "${FAKE_ARTIFACT_ROLE:-certified-boundary}" \
+    --arg digest "${FAKE_ARTIFACT_DIGEST:-$(printf '%064d' 0)}" \
+    '{plugins:{fixture:{"1.0":{url:"https://fixture.invalid/plugin.zip",sha256:$digest,role:$role}}}}')
+  jq "$@" <<<"$document"
 }
 
 curl() {
@@ -375,20 +384,106 @@ curl() {
     esac
   done
   [ -n "$output" ] || return 93
-  printf 'bytes that do not match the certified digest\n' >"$output"
+  printf 'DOWNLOAD\n' >>"$SSH_LOG"
+  printf '%s\n' "${FAKE_ARTIFACT_BYTES:-bytes that do not match the locked digest}" >"$output"
 }
 
 case_digest_mismatch() {
   prepare_remote artifact-digest-mismatch
-  wprism_ssh_install_certified_plugin fixture 1.0
+  wprism_ssh_install_locked_plugin fixture 1.0 certified-boundary activate
 }
 
-expect_refusal 'certified artifact digest mismatch' \
-  'certified artifact digest mismatch for fixture 1.0' \
+expect_refusal 'locked artifact digest mismatch' \
+  'locked artifact digest mismatch for fixture 1.0' \
   case_digest_mismatch
 ! grep -q '^SCP$' "$SCRATCH/artifact-digest-mismatch/ssh.log" \
   || fail 'a digest-mismatched artifact crossed the upload boundary'
 pass 'digest verification precedes upload and remote plugin mutation'
+
+case_artifact_role_mismatch() {
+  prepare_remote artifact-role-mismatch
+  wprism_ssh_install_locked_plugin fixture 1.0 exercise-fixture inactive
+}
+expect_refusal 'artifact role mismatch' \
+  'no locked artifact-library entry with role exercise-fixture exists for fixture 1.0' \
+  case_artifact_role_mismatch
+[ ! -s "$SCRATCH/artifact-role-mismatch/ssh.log" ] || fail 'role mismatch crossed the download boundary'
+
+prepare_remote artifact-invalid-arguments
+expect_refusal 'unknown artifact role' "locked plugin evidence role 'invented' is unknown" \
+  wprism_ssh_install_locked_plugin fixture 1.0 invented inactive
+expect_refusal 'unknown activation choice' "locked plugin activation mode 'automatic' is unknown" \
+  wprism_ssh_install_locked_plugin fixture 1.0 exercise-fixture automatic
+expect_refusal 'missing artifact intent' 'locked plugin install requires artifact slug, version, evidence role and activation mode' \
+  wprism_ssh_install_locked_plugin fixture 1.0
+[ ! -s "$SSH_LOG" ] || fail 'invalid arguments crossed the download boundary'
+
+prepare_artifact_install() { # <case-label> <evidence-role>
+  prepare_remote "$1"
+  export FAKE_SSH_MODE=artifact FAKE_ARTIFACT_ROLE="$2" FAKE_ARTIFACT_BYTES='locked plugin fixture'
+  FAKE_ARTIFACT_DIGEST=$(printf '%s\n' "$FAKE_ARTIFACT_BYTES" | "$PHP_BIN" -r 'echo hash_file("sha256", "php://stdin");')
+  export FAKE_ARTIFACT_DIGEST
+  unset FAKE_WRONG_ACTIVATION FAKE_OBSERVED_VERSION
+  cat >"$FAKE_BIN/wp" <<'ARTIFACT_WP'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  'plugin is-installed fixture') test -f "$REMOTE/installed" ;;
+  'plugin get fixture --field=version') test -f "$REMOTE/installed"; printf '%s\n' "${FAKE_OBSERVED_VERSION:-1.0}" ;;
+  'plugin get fixture --field=status')
+    if [ "${FAKE_STATUS_FAILURE:-}" = 1 ]; then exit 2; fi
+    if [ -f "$REMOTE/active" ]; then printf 'active\n'; else printf 'inactive\n'; fi ;;
+  *)
+    [ "$#" -ge 4 ] && [ "$1" = plugin ] && [ "$2" = install ] && [ -f "$3" ] || exit 91
+    printf 'INSTALL:%s\n' "$*" >>"$SSH_LOG"
+    touch "$REMOTE/installed"
+    if [ "${4:-}" = --activate ] || [ "${FAKE_WRONG_ACTIVATION:-}" = 1 ]; then touch "$REMOTE/active"; fi
+    ;;
+esac
+ARTIFACT_WP
+  chmod +x "$FAKE_BIN/wp"
+}
+
+for artifact_role in certified-boundary exercise-fixture refusal-fixture; do
+  for activation in activate inactive; do
+    prepare_artifact_install "artifact-$artifact_role-$activation" "$artifact_role"
+    wprism_ssh_install_locked_plugin fixture 1.0 "$artifact_role" "$activation"
+    [ -f "$REMOTE/installed" ] || fail 'valid artifact never reached native installation'
+    if [ "$activation" = activate ]; then
+      [ -f "$REMOTE/active" ] || fail 'explicit activation was lost'
+    else
+      [ ! -e "$REMOTE/active" ] || fail 'inactive installation ran activation'
+    fi
+    [ ! -e "$REMOTE/home/wprism/recovery-fixture/plugin-fixture-1.0-$FAKE_ARTIFACT_DIGEST.zip" ] \
+      || fail 'remote install left its uploaded archive behind'
+    [ "$(grep -c '^DOWNLOAD$' "$SSH_LOG")" -eq 1 ] && [ "$(grep -c '^SCP$' "$SSH_LOG")" -eq 1 ] \
+      || fail 'valid install did not traverse both download and upload checks exactly once'
+    pass "locked $artifact_role artifact honors explicit $activation and removes its remote archive"
+  done
+done
+
+case_artifact_wrong_activation() {
+  prepare_artifact_install artifact-wrong-activation exercise-fixture
+  export FAKE_WRONG_ACTIVATION=1
+  wprism_ssh_install_locked_plugin fixture 1.0 exercise-fixture inactive
+}
+expect_refusal 'native activation contradicting inactive intent' 'locked artifact installation failed for fixture 1.0' \
+  case_artifact_wrong_activation
+case_artifact_wrong_version() {
+  prepare_artifact_install artifact-wrong-version refusal-fixture
+  export FAKE_OBSERVED_VERSION=2.0
+  wprism_ssh_install_locked_plugin fixture 1.0 refusal-fixture inactive
+}
+expect_refusal 'native version contradicting the artifact request' 'locked artifact installation failed for fixture 1.0' \
+  case_artifact_wrong_version
+case_artifact_status_failure() {
+  prepare_artifact_install artifact-status-failure exercise-fixture
+  export FAKE_STATUS_FAILURE=1
+  wprism_ssh_install_locked_plugin fixture 1.0 exercise-fixture inactive
+}
+expect_refusal 'failed status observation is not inactive evidence' 'locked artifact installation failed for fixture 1.0' \
+  case_artifact_status_failure
+unset FAKE_SSH_MODE FAKE_ARTIFACT_ROLE FAKE_ARTIFACT_BYTES FAKE_ARTIFACT_DIGEST
 
 case_generation_overflow() {
   prepare_remote generation-overflow

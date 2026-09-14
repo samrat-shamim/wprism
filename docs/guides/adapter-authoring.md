@@ -1090,7 +1090,7 @@ code-release, upload, effect, and exclusion recovery profile. The shared SSH
 adoption harness admits one tracked adapter or participant-declared integration
 scenario extension through `WPRISM_SSH_ADOPT_EXTENSION`; source
 `sandbox/tests/lib/ssh_adopt_extension.sh` and reuse its closed helpers:
-`wprism_ssh_install_certified_plugin`, `wprism_ssh_stage_code_inventory`,
+`wprism_ssh_install_locked_plugin`, `wprism_ssh_stage_code_inventory`,
 `wprism_ssh_stage_generation_releases`,
 `wprism_ssh_publish_post_tombstone`, and
 `wprism_ssh_enroll_full_recovery`. They resolve package- or
@@ -1098,7 +1098,16 @@ scenario-participant artifact locks, reject partial active-code inventories,
 derive generations from signed authority, and ask `Deletion` to author the
 canonical tombstone; they never mint policy, owner agreements, or promotion
 authority. Keep exact plugin initialization, pins/policy, semantic preimages,
-and postconditions in the extension. Docker scenarios, whose transport has no
+and postconditions in the extension. The installer takes the artifact slug,
+version, exact lock role (`certified-boundary`, `exercise-fixture` or
+`refusal-fixture`) and an explicit `activate` or `inactive` choice. For example,
+`wprism_ssh_install_locked_plugin example 1.0 exercise-fixture inactive`
+installs the pinned authoring artifact without running activation. A role
+mismatch refuses before downloading; digest, native version and active state
+must match the request. Use inactive installation when the capsule must first
+establish the plugin's native activation context. Artifact roles describe test
+provenance and do not promote the adapter's readiness or runtime authority.
+Docker scenarios, whose transport has no
 recovery handoff, should prove opposed load order, round trip, and no-mutation
 refusal rather than pretending a direct destructive apply can succeed.
 

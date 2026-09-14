@@ -79,7 +79,7 @@ wprism_ssh_adopt_extension() {
   export WPRISM_ARTIFACT_PARTICIPANTS
   while IFS='|' read -r adapter expected_version; do
     [ -n "$adapter" ] || continue
-    wprism_ssh_install_certified_plugin "$adapter" "$expected_version"
+    wprism_ssh_install_locked_plugin "$adapter" "$expected_version" certified-boundary activate
     capture_rmcombo_ssh_json version_json "plugin-version-$adapter" \
       "combined SSH $adapter version observation" \
       wp_ssh_fixture plugin get "$adapter" --fields=version --format=json
