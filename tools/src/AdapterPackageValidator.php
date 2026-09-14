@@ -20,6 +20,7 @@ require_once __DIR__ . '/ActiveShellSource.php';
 require_once __DIR__ . '/AdapterProductionReadiness.php';
 require_once __DIR__ . '/AdapterPackageTestDiscovery.php';
 require_once __DIR__ . '/ArtifactLibrary.php';
+require_once __DIR__ . '/ConformanceHooks.php';
 
 /** Validate one adapter capsule without reading or executing a sibling adapter. */
 final class AdapterPackageValidator
@@ -195,9 +196,11 @@ final class AdapterPackageValidator
             $entry = Canon::decode(Canon::read_file($conformance . '/entry.json'));
             if (!is_array($entry)
                 || ($entry['manifest'] ?? null) !== $slug
-                || !is_array($entry['entry'] ?? null)
-                || !is_file($conformance . '/seed.sh')
-                || !is_file($conformance . '/check.sh')) {
+                || !is_array($entry['entry'] ?? null)) {
+                throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
+            }
+            if (ConformanceHooks::resolve($entry['entry'], $capsule) === null
+                && (!is_file($conformance . '/seed.sh') || !is_file($conformance . '/check.sh'))) {
                 throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
             }
             $available['conformance-' . $slug] = true;

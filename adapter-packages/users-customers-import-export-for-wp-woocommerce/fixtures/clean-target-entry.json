@@ -1,0 +1,19 @@
+{
+  "manifest": "users-customers-import-export-for-wp-woocommerce",
+  "entry": {
+    "mode": "agent-roundtrip",
+    "disable_target_cron": true,
+    "adopt_by_slug": ["terms", "posts"],
+    "pin": ["core", "users-customers-import-export-for-wp-woocommerce"],
+    "plugins": [{"slug": "users-customers-import-export-for-wp-woocommerce", "version": "2.7.5"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"],
+    "hooks": {
+      "seed": "tests/conformance/seed.sh",
+      "capture-check": "tests/conformance/capture-check.sh",
+      "postdeploy": "fixtures/clean-target-prepare.sh",
+      "postapply": "fixtures/clean-target-applied.sh",
+      "check": "fixtures/clean-target-check.sh"
+    }
+  }
+}

@@ -105,10 +105,17 @@ final class ImporterRoundtripEvidence {
             static fn(array $row): bool => $row['item_type'] !== 'user' || !in_array($row['template_type'], ['import', 'export'], true)));
         $check(count($foreign($before)) === 2, 'two excluded native templates are present');
         self::same($foreign($before), $foreign($after), 'excluded template bytes survive');
+        $after['tables']['wt_iew_mapping_template'] = $before['tables']['wt_iew_mapping_template'];
+        [$before, $after] = self::withoutCoreApplyEffects($source, $before, $after);
+        $sourceOptions = array_column($source['tables']['options'], null, 'option_name');
+        ImporterSettingsEvidence::settings($before, $after, $source['settings'], $sourceOptions['wt_iew_advanced_settings']['autoload']);
+    }
+
+    public static function withoutCoreApplyEffects(array $source, array $before, array $after): array {
+        $check = ImporterSettingsEvidence::check(...);
         // Full core Apply binds default widgets to new local IDs. Prove their
         // complete bodies and ordered references before comparing all options.
         $normalizedAfter = $after;
-        $normalizedAfter['tables']['wt_iew_mapping_template'] = $before['tables']['wt_iew_mapping_template'];
         // The fresh target adopts the one default core category. Its identity
         // must be the exact source Capture UUID; all other metadata stays local.
         $sourceIdentity = array_values(array_filter($source['tables']['termmeta'], static fn(array $r): bool => $r['meta_key'] === '_wprism_uuid'));
@@ -129,7 +136,7 @@ final class ImporterRoundtripEvidence {
             if (array_key_exists($option['option_name'], $coreValues)) $option['option_value'] = $coreValues[$option['option_name']];
         }
         unset($option);
-        ImporterSettingsEvidence::settings($before, $normalizedAfter, $source['settings'], $sourceOptions['wt_iew_advanced_settings']['autoload']);
+        return [$before, $normalizedAfter];
     }
 }
 

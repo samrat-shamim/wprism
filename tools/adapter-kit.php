@@ -7,6 +7,8 @@ namespace WPrism\Tooling;
 
 use RuntimeException;
 
+require_once __DIR__ . '/src/ActiveShellSource.php';
+
 /**
  * Assemble the adapter test kit — the already-generic half of sandbox/ —
  * as a distributable developer artifact, and pin it under `make release-gate`.
@@ -130,6 +132,9 @@ final class AdapterKit
                 . 'PASS from a directory that has no agent/ above it.',
         ],
         'conformance/run.sh' => [
+            '../tools/conformance-hooks.php' =>
+                'The estate-bound runner and package validator share the owned hook-map resolver; '
+                . 'alternate entries choose explicit phases without copying the deployment driver.',
             'tests/lib/wordpress_cron_window.sh' =>
                 'The estate-bound runner owns an optional entry-declared target cron window '
                 . 'across child hooks and Apply, with exact guard cleanup on every exit.',
@@ -190,7 +195,7 @@ final class AdapterKit
      * resolveTargets() rather than parsed, because a kit whose dependencies
      * are decided at run time cannot be checked at build time.
      *
-     * Shell members: `.`/`source` of a literal path. run.sh resolves those
+     * Shell members: `.`/`source` and literal PHP script commands. run.sh resolves those
      * against its own parent directory (it cd's there at :70), which is the
      * kit root, so that is the base resolveTargets() uses for .sh members.
      *
@@ -210,6 +215,11 @@ final class AdapterKit
         } elseif (str_ends_with($kitPath, '.sh')) {
             if (preg_match_all('#^[ \t]*(?:\.|source)[ \t]+([^\s;&|]+)#m', $contents, $matches) > 0) {
                 $targets = $matches[1];
+            }
+            foreach (ActiveShellSource::commandLines($contents) as $line) {
+                if (preg_match_all('#(?:^|\$\(|[;&|])[ \t]*php[ \t]+([a-zA-Z0-9_./-]+\.php)(?=[\s;)&|]|$)#', $line['code'], $matches) > 0) {
+                    array_push($targets, ...$matches[1]);
+                }
             }
         }
 

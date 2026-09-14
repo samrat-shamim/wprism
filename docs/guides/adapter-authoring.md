@@ -3926,6 +3926,19 @@ library.
    parent opens its own window for observations after the conformance child
    has returned and released its guard.
 
+   A package can select a different complete fixture workflow through
+   `CONFORMANCE_ENTRY_FILE` and an explicit `entry.hooks` map. Name all five
+   phases: `seed`, `capture-check`, `postdeploy`, `postapply`, and `check`.
+   Values are ordinary `.sh` files under that capsule's `fixtures/` or
+   `tests/conformance/`; symlink paths and escapes refuse. `seed` and `check`
+   are required files; the other three may explicitly be `null`. An explicit
+   map never falls back to convention hooks. Omit `hooks` to retain the existing
+   package/platform convention. Package validation and the runner use the same
+   resolver, before pair mutation. The Importer clean-target entry reuses its
+   source seed and capture checks while selecting target setup that creates no
+   templates or jobs. Keep native consumer assertions and complete empty-table
+   premises in the selected workflow; an alternate entry is not weaker evidence.
+
    The source-SHA binding is part of the evidence. A green run against another
    checkout is not evidence for the candidate. The package validator requires
    this matrix for every certified plugin adapter, requires every active pin to
