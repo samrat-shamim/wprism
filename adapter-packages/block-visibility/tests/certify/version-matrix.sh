@@ -31,7 +31,7 @@ check_block_visibility_boundary_content() {
   require_observed_nonempty "Block Visibility $label preset identity" "$preset"
   meta=$($cli eval "echo wp_json_encode(get_post_meta((int) $preset));")
   printf '%s\n' "$meta" | jq -e '
-    .enable == ["1"] and .hide_block == ["0"] and .layout == ["columns"] and
+    .enable == ["1"] and .hide_block == [""] and .layout == ["columns"] and
     .control_sets[0].controls.userRole.restrictedRoles == ["administrator", "editor"]
   ' >/dev/null \
     || fail "Block Visibility $label preset did not converge: $meta"

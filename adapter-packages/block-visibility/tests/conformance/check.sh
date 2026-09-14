@@ -27,7 +27,7 @@ PRESET_ID=$(wp_conf2 post list --post_type=visibility_preset --name=logged-in-on
 require_observed_nonempty "Block Visibility target preset identity" "$PRESET_ID"
 PRESET_META=$(wp_conf2 eval "echo wp_json_encode(get_post_meta((int) $PRESET_ID));")
 printf '%s\n' "$PRESET_META" | jq -e '
-  .enable == ["1"] and .hide_block == ["0"] and .layout == ["columns"] and
+  .enable == ["1"] and .hide_block == [""] and .layout == ["columns"] and
   .control_sets[0].controls.userRole.restrictedRoles == ["administrator", "editor"]
 ' >/dev/null \
   || fail "Block Visibility entity-free preset did not converge through native meta: $PRESET_META"
