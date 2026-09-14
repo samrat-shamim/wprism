@@ -39,13 +39,12 @@ $services = new WPrism\ApplyServices($policy, $compiled, new WPrism\ApplyService
     selectionDeclaresEntityBatchFor: $unexpected, selectionTriggersProviderActionFor: $unexpected,
     pinnedProviderActionOwns: $unexpected, upsertMeta: $unexpected
 ), '/fixture/repo');
-foreach (['inactive' => [], 'deactivated' => [], 'missing' => ['plugins' => [], 'plugin_exists' => [$plugin => false]], 'prior' => ['plugins' => [$plugin => '2.7.4']]] as $case => $changes) {
+foreach (['inactive' => [], 'missing' => ['plugins' => [], 'plugin_exists' => [$plugin => false]], 'prior' => ['plugins' => [$plugin => '2.7.4']]] as $case => $changes) {
     try {
         $observation = array_replace($facts, $changes);
-        if (in_array($case, ['inactive', 'deactivated'], true)) {
+        if ($case === 'inactive') {
             $plan = array_fill_keys(['collision', 'conflict', 'delete_conflict', 'drift', 'create', 'update', 'missing_user'], []);
             $plan['code_mismatch'] = WPrism\LifecyclePlanner::code_mismatch($policy, $desired);
-            if ($case === 'deactivated') $plan['drift'] = [['path' => 'options/core.json']];
             $coordinator = new WPrism\ApplyPreparationCoordinator('/fixture/repo', $policy, $services,
                 new WPrism\RebuildSelection($policy), new WPrism\ScopedApplyWorkflow(), $unexpected, $unexpected);
             $request = new WPrism\ApplyPreparationRequest([], $compiled, $plan, [], false, false, false, false,

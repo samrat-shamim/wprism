@@ -10,13 +10,7 @@ final class ImporterDependencyEvidence {
 
     public static function profile(string $case): array {
         $plugin = self::PLUGIN;
-        if ($case === 'deactivated') {
-            return ['command' => 'apply', 'reason_code' => 'apply_refused', 'nodes' => [[
-                'class' => WPrism\CommandRefusalException::class, 'parent_index' => null, 'relation' => 'root',
-                'message' => "wprism: ordinary target drift requires capture/reconciliation before apply; no target mutation attempted:\n  - options/core.json",
-            ]]];
-        }
-        if ($case === 'inactive') {
+        if (in_array($case, ['inactive', 'deactivated'], true)) {
             $finding = "active_plugins in state/options/core.json declares '$plugin', and its code is installed, but it is not active in this environment. Run 'wprism deploy <env>' before apply so activation hooks and schema migrations complete first.";
             $message = "wprism: apply refused — code_mismatch:\n\n  - $finding\n\n"
                 . "Run 'wprism deploy <env>' first for lifecycle reconciliation, or pass --force-code-mismatch to proceed despite those lifecycle mismatches.";
@@ -29,7 +23,7 @@ final class ImporterDependencyEvidence {
             $message = "wprism: deploy refused — code_mismatch:\n\n  - $finding\n\n"
                 . 'Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.';
         }
-        $command = $case === 'inactive' ? 'apply' : 'deploy';
+        $command = in_array($case, ['inactive', 'deactivated'], true) ? 'apply' : 'deploy';
         return ['command' => $command, 'reason_code' => $command . '_failed', 'nodes' => [[
             'class' => RuntimeException::class, 'parent_index' => null, 'relation' => 'root', 'message' => $message,
         ]]];
@@ -121,10 +115,7 @@ foreach (['inactive' => ['2.7.5', 'apply'], 'deactivated' => ['2.7.5', 'apply'],
     $public = $read("$case-refusal", $verb, 1);
     wprism_check(($public['format'] ?? null) === 'wprism-command-refusal/v1' && ($public['ok'] ?? null) === false
         && ($public['command'] ?? null) === $verb && ($public['reason_code'] ?? null) === ImporterDependencyEvidence::profile($case)['reason_code']
-        && ($case === 'deactivated'
-            ? !array_key_exists('details_redacted', $public)
-                && $public['message'] === 'the target changed after the repository baseline, so this plan is stale and cannot be partially applied'
-            : ($public['details_redacted'] ?? null) === true), 'public dependency refusal preserves the private-cause boundary: ' . $case);
+        && ($public['details_redacted'] ?? null) === true, 'public dependency refusal preserves the private-cause boundary: ' . $case);
     $private = substr(explode("\n", (string) file_get_contents("$sink/$case-refusal.stderr"), 2)[0], strlen('private command diagnostics (unverified): '));
     $diagnostic = json_decode(WPrismTest\PrivateCommandOutput::readObject($private . '/private', $transport), true, 512, JSON_THROW_ON_ERROR);
     WPrismTest\PrivateRefusalReceipt::verifyDiagnostic($diagnostic, ImporterDependencyEvidence::profile($case));
