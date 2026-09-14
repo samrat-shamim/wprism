@@ -833,7 +833,7 @@ final class OfflineRunnerTest extends TestCase
             'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
             $result['stderr']
         );
-        self::assertStringContainsString('8 selected task(s) from ', $result['stderr']);
+        self::assertStringContainsString('9 selected task(s) from ', $result['stderr']);
     }
 
     public function testChangedAdapterFilterThatMatchesNoScopedTaskIsAnError(): void

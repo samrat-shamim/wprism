@@ -3865,7 +3865,14 @@ library.
 
    A complete-row recovery comparison requires `SqlDumpEvidence::fullRows()`
    with an independently observed `SHOW FULL COLUMNS` roster; a selected
-   projection cannot prove that omitted fields survived. Retain and compare
+   projection cannot prove that omitted fields survived. For tables containing
+   DECIMAL totals, floating-point literals or unsigned integers beyond PHP's
+   range, use `SqlDumpEvidence::fullLiteralRows()` with that same complete
+   roster. It validates every scalar and retains its original SQL literal:
+   numeric `20.00`, quoted text `'20.00'`, `NULL` and binary hex remain distinct.
+   Compare these literals as evidence; never cast them to floats, execute them,
+   or use them as decoded identities. The stricter `fullRows()` and selected
+   identity projection keep their existing integer bounds. Retain and compare
    the opaque schema sections too. Predict the exact allowed retry-marker and
    promotion-session transitions instead of excluding their tables. An authored
    commit failure must preserve native data; a later ledger-finalization failure
