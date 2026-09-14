@@ -286,6 +286,17 @@ final class ApplyRequestCoordinator {
         return Policy::load($repo, adapterLibrary: $library);
     }
 
+    private static function assert_lifecycle_ready(Policy $policy, CompiledRepository $compiled, array $opts): void {
+        $tree = $compiled->tree();
+        $desired = isset($tree['options/core'])
+            ? Deploy::extract_desired((array) ($tree['options/core']['data'] ?? []))
+            : [];
+        ApplyPreparationCoordinator::enforce_code_mismatch_gate(
+            Deploy::code_mismatch($policy, $desired),
+            $opts
+        );
+    }
+
     // ------------------------------------------------------------------ plan
 
     public static function plan(string $repo, array $opts = []): array {
@@ -1057,6 +1068,10 @@ final class ApplyRequestCoordinator {
         $verifiedPromotionWitness = self::assert_verified_promotion_request($opts, $scoped);
         $allowDeletes = !empty($opts['with_deletes']);
         $requestBinding = self::direct_scoped_request($opts, $scoped, $allowDeletes);
+        // Ordinary target observation may persist natural-key identities.
+        // Reject incompatible lifecycle state before ledger initialization or
+        // any such observation; preparation repeats the shared gate afterward.
+        self::assert_lifecycle_ready($policy, $compiled, $opts);
         if ($scoped) {
             Ledger::assert_read_only_schema();
             // Recompute before target mutation so malformed/stale evidence
@@ -1170,6 +1185,7 @@ final class ApplyRequestCoordinator {
                     'apply'
                 );
             }
+            self::assert_lifecycle_ready($lockedPolicy, $lockedCompiled, $opts);
             $a = new self($repo, $lockedPolicy, $lockedCompiled);
             $a->promotionOwner = $promotionOwner;
             $a->promotionArtifact = $promotionArtifact;
