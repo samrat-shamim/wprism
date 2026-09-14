@@ -1,0 +1,13 @@
+{
+  "export": [
+    "billing_city",
+    "shipping_city",
+    "orders",
+    "total_spent",
+    "aov"
+  ],
+  "import": [
+    "billing_city",
+    "shipping_city"
+  ]
+}

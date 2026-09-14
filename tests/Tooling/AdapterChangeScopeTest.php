@@ -30,6 +30,7 @@ final class AdapterChangeScopeTest extends TestCase
         self::assertSame(['woocommerce'], $result['adapters']);
         self::assertSame(
             [
+                'importer-woocommerce-customers',
                 'rank-math-commerce-multilingual',
                 'woocommerce-rewrite-coinstall',
             ],
@@ -37,6 +38,8 @@ final class AdapterChangeScopeTest extends TestCase
         );
         self::assertSame(
             [
+                'integration-scenarios/importer-woocommerce-customers/tests/live/regress_importer_woocommerce_native_premise.sh',
+                'integration-scenarios/importer-woocommerce-customers/tests/offline/regress_importer_woocommerce_customers.php',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_canonical_recapture_evidence.php',

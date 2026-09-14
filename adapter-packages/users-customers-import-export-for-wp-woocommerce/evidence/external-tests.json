@@ -1,0 +1,6 @@
+{
+    "format": "wprism-adapter-external-evidence/v1",
+    "tests": {
+        "regress-importer-woocommerce-native-premise": "integration-scenarios/importer-woocommerce-customers/tests/live/regress_importer_woocommerce_native_premise.sh"
+    }
+}

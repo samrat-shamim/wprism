@@ -183,6 +183,28 @@ foreach (['1.5', '1e3', '9223372036854775808', '-9223372036854775809'] as $value
     wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump($insert("7,$value,NULL")), 'fixture', ['payload']),
         RuntimeException::class, 'selected numeric identity must be an exact bounded integer');
 }
+// Whole Woo HPOS rows include decimal totals and can include unsigned BIGINTs.
+// The comparison mode retains lexemes; the identity projection above still refuses.
+foreach (['20.00', '-0.0001', '1.234567890123456789012345678901', '1e+30', '18446744073709551615'] as $number) {
+    wprism_check_same([['id' => '7', 'payload' => $number, 'unused' => 'NULL']],
+        SqlDumpEvidence::fullLiteralRows($projectDump($insert("7,$number,NULL")), 'fixture', ['id', 'payload', 'unused']),
+        'literal preservation retains exact decimal/exponent/unsigned numeric bytes');
+}
+wprism_check_same([['id' => '7', 'payload' => "'20.00'", 'unused' => '0x00FF']],
+    SqlDumpEvidence::fullLiteralRows($projectDump($insert("7,'20.00',0x00FF")), 'fixture', ['id', 'payload', 'unused']),
+    'literal evidence distinguishes quoted numeric text and preserves binary framing');
+wprism_check_same([], SqlDumpEvidence::fullLiteralRows($projectDump(''), 'fixture', ['id', 'payload', 'unused']),
+    'literal mode retains the independent empty-table witness');
+foreach ([['id'], ['id', 'payload', 'wrong'], ['id', 'payload', 'unused', 'extra']] as $columns) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::fullLiteralRows($completeDump, 'fixture', $columns), RuntimeException::class,
+        'literal mode cannot omit or invent an independently inventoried column');
+}
+foreach (["7,20.00,NULL),(8,99.00,NULL", "7,20.00,NULL); DROP TABLE fixture; --", "7,20.00,NOW()",
+    "7,20.00,NULLx", "7,20.00,01", "7,20.00,0x0", "7,20.00,'bad\\q'", "7,20.00,1e+"] as $values) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::fullLiteralRows($projectDump($insert($values)), 'fixture', ['id', 'payload', 'unused']),
+        RuntimeException::class, 'literal mode validates every token and tuple boundary without executing SQL');
+}
+
 $oneRow = $insert("7,'present',NULL");
 foreach ([strtolower($oneRow), ' ' . $oneRow, str_replace('INSERT INTO', 'REPLACE INTO', $oneRow),
     str_replace('INSERT INTO', 'INSERT IGNORE INTO', $oneRow), str_replace('`fixture`', 'fixture', $oneRow),
