@@ -3915,6 +3915,17 @@ library.
    a durable option change. Do not add transient exclusions, cache warm-ups or
    production special cases to make a read-only assertion pass.
 
+   For observations spanning conformance child hooks and Apply, set
+   `entry.disable_target_cron` to `true`. The shared runner establishes the
+   same owned target guard after pair bootstrap and removes it on success,
+   failure or signal; child hooks need no independent transport or cleanup.
+   Omission or `false` preserves ordinary fixture cron behavior. The entry
+   accepts only a JSON boolean and is validated before pair mutation. This
+   controls new fixture cron launches, not existing workers or other writers;
+   complete-row comparisons must still retain cron rows. A version-matrix
+   parent opens its own window for observations after the conformance child
+   has returned and released its guard.
+
    The source-SHA binding is part of the evidence. A green run against another
    checkout is not evidence for the candidate. The package validator requires
    this matrix for every certified plugin adapter, requires every active pin to

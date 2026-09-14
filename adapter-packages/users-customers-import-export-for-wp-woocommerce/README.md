@@ -164,8 +164,11 @@ Public deployment and Apply must each refuse with the exact version cause,
 preserving the full native database (including engine ledgers and cron rows), canonical
 state, policy, all eleven observed native tables and operational files.
 The supported pin remains an exercise fixture and the adapter remains
-experimental. The shared owned cron read window prevents new fixture cron
-launches and removes its guard on every exit; no observed rows are filtered.
+experimental. Its conformance entry declares `disable_target_cron: true`; the
+shared runner owns that window across child hooks and Apply. The version
+matrix opens a new shared window around its subsequent refusals. Both prevent
+new fixture cron launches and remove their guard on every exit; no observed
+rows are filtered.
 This interval contains one supported release; no in-range
 upgrade is claimed. From a clean exact candidate, set `VMATRIX_MANIFEST` to
 this capsule's slug, `VMATRIX_EXPECTED_SOURCE_SHA`, and a private `VMATRIX_PAIR`
