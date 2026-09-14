@@ -1077,7 +1077,9 @@ woo_ok(
         'wprism_ssh_install_locked_plugin woocommerce "$woo_version" certified-boundary activate')
         && !str_contains($woocommerceScopedDeletionHarness, 'wp plugin install woocommerce')
         && str_contains($sshExtensionLibrary, 'artifact_library_jq -ce')
-        && str_contains($sshExtensionLibrary, '.role == "certified-boundary"')
+        && str_contains($sshExtensionLibrary, '--arg role "$role"')
+        && str_contains($sshExtensionLibrary, '.role == $role')
+        && str_contains($sshExtensionLibrary, 'certified-boundary|exercise-fixture|refusal-fixture) ;;')
         && str_contains($sshExtensionLibrary, 'hash_file("sha256", $argv[1])'),
     'WooCommerce SSH deletion installs only its participant-owned digest-verified certified artifact'
 );

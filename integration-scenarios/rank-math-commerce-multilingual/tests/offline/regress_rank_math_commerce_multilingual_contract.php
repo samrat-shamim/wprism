@@ -2396,7 +2396,9 @@ wprism_check(
         && str_contains($sshDeletion, 'wprism_ssh_publish_post_tombstone post rmcombo-ssh-delete')
         && !str_contains($sshDeletion, 'wp plugin install')
         && str_contains($sshExtensionHelper, 'artifact_library_jq -ce')
-        && str_contains($sshExtensionHelper, '.role == "certified-boundary"')
+        && str_contains($sshExtensionHelper, '--arg role "$role"')
+        && str_contains($sshExtensionHelper, '.role == $role')
+        && str_contains($sshExtensionHelper, 'certified-boundary|exercise-fixture|refusal-fixture) ;;')
         && str_contains($sshExtensionHelper, 'hash_file("sha256", $argv[1])')
         && str_contains($sshExtensionHelper, 'Deletion::capture_tombstones($compiled, [], $policy, [$uuid])')
         && str_contains($sshExtensionHelper,
