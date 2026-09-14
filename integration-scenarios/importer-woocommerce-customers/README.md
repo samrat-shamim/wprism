@@ -1,8 +1,8 @@
 # Importer and WooCommerce customer templates
 
 Participants: Users/Customers Import Export 2.7.5 and WooCommerce 11.0.1.
-This scenario covers native customer fixtures and settled full Apply of two
-existing user templates. It does not change production readiness.
+This scenario covers native customer fixtures, settled full Apply of two
+existing user templates, and scoped export Apply with a pending import change. It does not change production readiness.
 
 The offline gate exercises shipped policies in both pin orders. It captures
 saved export forms using the Importer policy, then materializes them on a target
@@ -71,7 +71,29 @@ bash integration-scenarios/importer-woocommerce-customers/tests/live/regress_imp
 
 The exact preservation window covers the settled template update and repeat.
 Initial adoption and subsequent native CSV jobs have separate assertions and
-are not covered by that allowed database transition. Scoped Apply, independent
-target product-catalog witnesses and verified opposing native plugin load orders
+are not covered by that allowed database transition. Independent target
+product-catalog witnesses and verified opposing native plugin load orders
 remain follow-up qualification. The Importer-only fixed-table oracle cannot
 substantiate this combination's preservation.
+
+
+The scoped lane starts with the same two native Saves, then uses a host-minted
+scope contract to select only the export template. Its complete preservation
+window permits that form cell and ledger baseline, one terminal scoped session,
+and the matching promotion session. The full applied revision, pending import,
+other database rows, schemas, columns, operational files and repository bytes
+must remain unchanged. The session binds the semantic desired-document hash
+separately from the captured-file hash used by the ledger.
+
+Repeating the same request must return the same terminal receipt and change no
+database or operational-file byte. A subsequent full Plan must identify only
+the pending import. Completing that import is a separate window; both native
+template consumers, customer/order getters and final canonical recapture then
+verify the resulting behavior. This qualifies settled scoped Apply and replay,
+not scoped interruption, tamper or concurrent-writer recovery.
+
+Run with the same owned-pair variables:
+
+```sh
+bash integration-scenarios/importer-woocommerce-customers/tests/live/regress_importer_woocommerce_scoped_apply.sh
+```
