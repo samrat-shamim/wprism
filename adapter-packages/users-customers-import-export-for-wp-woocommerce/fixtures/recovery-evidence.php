@@ -29,7 +29,7 @@ final class ImporterRecoveryEvidence {
         $intent = []; $types = [];
         foreach ($tree['files'] as $file) {
             if ($file['path'] === 'options/core.json') {
-                $intent['options/core'] = ['type' => 'option', 'path' => $file['path'], 'hash' => $file['sha256']];
+                $intent['options/core'] = ['type' => 'options', 'path' => $file['path'], 'hash' => $file['sha256']];
                 continue;
             }
             if (!str_starts_with($file['path'], 'tables/wt_iew_mapping_template/')) continue;

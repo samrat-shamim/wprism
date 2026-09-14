@@ -6,6 +6,7 @@ $package = dirname(__DIR__, 2);
 require_once $root . '/sandbox/tests/lib/check.php';
 require_once $package . '/fixtures/recovery-evidence.php';
 require_once $package . '/fixtures/native-record-fixture.php';
+require_once $root . '/agent/src/Repository/RepositoryEntityParser.php';
 
 use WPrism\Canon;
 use WPrismTest\FilesystemTreeEvidence;
@@ -48,12 +49,23 @@ foreach ([0, 2] as $index) {
         'uuid' => $uuid($index), 'table' => 'wt_iew_mapping_template', 'columns' => array_diff_key($row, ['id' => true]), 'meta' => new stdClass(),
     ]));
 }
-Canon::write_file($scratch . '/state/options/core.json', Canon::encode(['fixture' => $source['settings']]));
+Canon::write_file($scratch . '/state/options/core.json', Canon::encode(WPrism\OptionState::document([
+    'wt_iew_advanced_settings' => WPrism\OptionState::present($source['settings'], 'no'),
+])));
 Canon::write_file($scratch . '/site.wprism.json', Canon::encode(['fixture' => true]));
 $repository = ['state' => FilesystemTreeEvidence::capture($scratch, 'state'),
     'policy' => FilesystemTreeEvidence::capture($scratch, 'site.wprism.json')];
 $intent = ImporterRecoveryEvidence::intent($repository['state']);
 wprism_check_same(3, count($intent), 'canonical preimage supplies all three exact intended identities');
+$parserDiagnostics = [];
+$diagnostic = static function (...$arguments) use (&$parserDiagnostics): void { $parserDiagnostics[] = $arguments; };
+$parser = new WPrism\RepositoryEntityParser(new WPrism\Policy(), true,
+    new WPrism\RepositoryMediaCatalog($scratch . '/media', $diagnostic), $diagnostic);
+$parsed = $parser->parse('options/core.json', file_get_contents($scratch . '/state/options/core.json'));
+wprism_check($parsed !== null && $parserDiagnostics === [], 'recovery settings fixture is admitted by the product repository parser');
+wprism_check_same(['type' => $parsed['type'], 'path' => $parsed['path'], 'hash' => $parsed['hash']],
+    $intent['options/core'], 'independent recovery intent uses the product options entity type and exact content hash');
+
 $artifact = str_repeat('a', 64); $revision = str_repeat('b', 40);
 $session = static fn(string $identity, int $time): string => json_encode(['owner' => 'direct-' . str_repeat($identity, 32),
     'artifact_hash' => $artifact, 'begun_at' => $time, 'session_id' => 'ps-' . str_repeat($identity, 32)], JSON_THROW_ON_ERROR);
