@@ -1,0 +1,54 @@
+# Importer readiness scope
+
+The [readiness contract](../../../docs/agents/adapter-production-readiness.md)
+qualifies each scenario family against the adapter's declared surface. The
+current surface is nine settings and exact `user/import` and `user/export`
+mapping-template rows at the locked 2.7.5 artifact. This audit closes the
+reference family and identifies why derived-state repair does not apply to
+that surface. It does not qualify the remaining families or promote the adapter.
+
+## Identity and references
+
+The [manifest](../package/manifest.json) declares the following identity-bearing
+values. The settings are scalar values, with no entity references. The table's
+`refs` list is empty; the nested export `user[]` is its only entity-reference
+declaration.
+
+| Value | Product declaration and evidence |
+| --- | --- |
+| Template identity | The natural key is `(template_type,item_type,name)` and the local ID kind is `iew_template`. The [export](../tests/offline/regress_export_templates.php) and [import](../tests/offline/regress_import_templates.php) suites exercise ledger binding, adoption, creation, rename and exact recapture. The native [template lane](../tests/live/regress_templates_apply.sh) and [agent roundtrip](../tests/conformance/entry.json) require different source and target template IDs, retaining adopted target IDs and creating the missing copies and blank draft. |
+| Selected users | Export `filter_form_data.wt_iew_email` is a strict `user[]` reference with native string IDs, bound by login. The [roundtrip oracle](../fixtures/roundtrip-evidence.php) requires two distinct positive string IDs on each side, disjoint source/target vectors, and equal ordered login bindings. Its [mutation controls](../tests/offline/regress_roundtrip_evidence.php) reject one or all coincident IDs, integer references and a wrong target login. Native reopen and CSV export consume the target users' profiles. |
+| Local CSV input | Import `wt_iew_local_file` is an environment input dependency, not an entity ID. The [native template evidence](../fixtures/templates-evidence.php) checks each missing binding, exact provisioned target pointer, empty draft and scoped pointer rotation. Actual native import consumes target CSV bytes; recapture excludes source filenames and CSV contents. |
+
+The native checks inspect complete saved forms and rendered wizard controls;
+canonical equality alone is not the reference proof. The native resave and
+recapture checks also establish that rebuilding a local selection cursor does
+not create authored drift. Lifecycle, failure/recovery and plugin combinations
+remain separate qualification work; their absence does not undo the demonstrated
+reference kinds.
+
+## Derived state
+
+There is no authored cache, index, CSS, rewrite, lookup, occurrence or generated
+file in this manifest, and no declared repair action or lifecycle regenerator.
+The saved `selected_template` cursor is removed by `record_fields` projection.
+Normal native reopen selects the requested target row; native Save rebuilds the
+cursor from that local selection. The [export fixture](../fixtures/templates-native.php)
+and [import fixture](../fixtures/import-templates-native.php) inspect those
+controls and saved forms, while the template lane requires exact recapture after
+resave. No persistent derivative must be repaired to consume the authored form.
+
+Generated exports, import logs, job history and users are operational data. The
+native settings Save listener can delete old history and files; configuration
+Apply intentionally preserves them. The [settings lane](../tests/live/regress_settings_apply.sh)
+checks this distinction using populated native history and files. Running that
+listener as an adapter repair would destroy target-local operational state.
+The required derived-state repair family is therefore structurally
+`not_applicable` for the declared surface, rather than an unimplemented action.
+
+Ten families remain gaps in [the readiness record](production-readiness.json).
+The existing positive and refusal evidence stays useful, but it does not establish
+complete clean/dirty-target qualification, every dependency/lifecycle/platform
+boundary, the omitted-password native case, signed deletion and recovery,
+concurrency, or all difficult-value/data boundaries. Those require their own
+concrete evidence before promotion.

@@ -44,6 +44,13 @@ primitive is `blocked`, not `not_applicable`. A missing test for an implemented
 path is a `gap`. Adapter work moves a row to `covered` only by naming the exact
 test and product files that establish it.
 
+Assess each family against its own assertion and the declared surface. Keep an
+unanswered lifecycle or combination question in the relevant family instead of
+using it to leave an already demonstrated reference family open. Explain the
+structural absence of a derived effect separately from a missing repair primitive.
+Changing ledger wording cannot narrow the manifest's supported surface or replace
+missing evidence.
+
 ## Evidence order
 
 For each adapter, work proceeds in this order:
