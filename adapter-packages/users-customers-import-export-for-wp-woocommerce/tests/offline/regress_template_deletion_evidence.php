@@ -139,4 +139,36 @@ foreach (['json', 'direct'] as $kind) foreach (['valid', 'wrong-exit', 'stderr',
     wprism_check_same($fault === 'valid', $status === 0, 'actual deletion capture admits exact ' . $kind . ' streams and exit: ' . $fault);
     if ($fault === 'valid') wprism_check(str_contains($out, 'ok: importer-delete-probe'), 'actual deletion capture reaches positive admission');
 }
+$planStart = strpos($source, "  jq -e --slurpfile repo ");
+$planEnd = strpos($source, "  importer_delete_capture direct-baseline", $planStart);
+if ($planStart === false || $planEnd === false) throw new RuntimeException('native deletion plan assertion boundaries changed');
+$planProbe = <<<'SH'
+set -euo pipefail
+fail() { exit 1; }
+DIAG_DIR=$(umask 077; mktemp -d)
+trap 'rm -rf -- "$DIAG_DIR"' EXIT
+printf '%s' "$1" > "$DIAG_DIR/importer-delete-plan.stdout"
+printf '%s' "$2" > "$DIAG_DIR/importer-delete-deletion-repository.stdout"
+SH;
+$planProbe .= "\n" . substr($source, $planStart, $planEnd - $planStart);
+$plan = array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'delete_conflict', 'code_mismatch', 'code_drift',
+    'provider_problems', 'warnings', 'collision', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user'], []);
+$plan['adapter_dispositions'] = array_map(static fn(string $code): array => ['code' => $code, 'name' => 'users-customers-import-export-for-wp-woocommerce',
+    'status' => 'blocked', 'source' => 'shipped', 'trust_tier' => 'declarative_manifest', 'certification' => 'registry'],
+    ['authored_state_not_certified', 'operation_not_certified']);
+$plan['delete'] = array_map(static fn(string $uuid): array => ['uuid' => $uuid, 'type' => 'wt_iew_mapping_template',
+    'deletion_kind' => 'table', 'deletion_type' => 'wt_iew_mapping_template'], ['original-export', 'original-import', 'draft-import']);
+$repository = ['deletions' => array_fill_keys(array_column($plan['delete'], 'uuid'), [])];
+foreach (['valid', 'wrong-type', 'wrong-kind', 'extra-row', 'blocked-row', 'unexpected-disposition', 'warning', 'unrelated-update'] as $fault) {
+    $bad = $plan;
+    if ($fault === 'wrong-type') $bad['delete'][0]['type'] = 'table';
+    if ($fault === 'wrong-kind') $bad['delete'][0]['deletion_kind'] = 'post';
+    if ($fault === 'extra-row') $bad['delete'][] = array_replace($bad['delete'][0], ['uuid' => 'foreign']);
+    if ($fault === 'blocked-row') $bad['delete'][0]['blocked'] = 'unreviewed owner';
+    if ($fault === 'unexpected-disposition') $bad['adapter_dispositions'][0]['code'] = 'missing_dependency';
+    if ($fault === 'warning') $bad['warnings'][] = 'unexpected';
+    if ($fault === 'unrelated-update') $bad['update'][] = ['uuid' => 'options/core'];
+    [$status] = WPrismTest\ShellProbe::run($planProbe, [json_encode($bad, JSON_THROW_ON_ERROR), json_encode($repository, JSON_THROW_ON_ERROR)], $root);
+    wprism_check_same($fault === 'valid', $status === 0, 'actual native plan assertion accepts only exact typed deletions and declared experimental blockers: ' . $fault);
+}
 wprism_check_summary('Importer template deletion evidence');

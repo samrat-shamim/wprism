@@ -122,10 +122,14 @@ wprism_ssh_adopt_extension() {
   assert_wprism_required_environment 'Importer deletion plan' json "$(cat "$DIAG_DIR/importer-delete-plan.stdout")"
   jq -e --slurpfile repo "$DIAG_DIR/importer-delete-deletion-repository.stdout" '
     .create == [] and .update == [] and .adopt == [] and .drift == [] and .conflict == [] and .delete_conflict == []
-    and .code_mismatch == [] and .provider_problems == []
+    and .code_mismatch == [] and .code_drift == [] and .provider_problems == [] and .warnings == []
+    and .collision == [] and .incomplete_apply == [] and .incomplete_lifecycle == [] and .missing_user == []
+    and ([.adapter_dispositions[].code] | sort) == ["authored_state_not_certified", "operation_not_certified"]
+    and all(.adapter_dispositions[]; .name == "users-customers-import-export-for-wp-woocommerce"
+      and .status == "blocked" and .source == "shipped" and .trust_tier == "declarative_manifest" and .certification == "registry")
     and ([.delete[].uuid] | sort) == ($repo[0].deletions | keys | sort)
-    and all(.delete[]; .type == "table" and .deletion_type == "wt_iew_mapping_template" and ((.blocked // "") == ""))
-  ' "$DIAG_DIR/importer-delete-plan.stdout" >/dev/null || fail 'Importer deletion plan is not exact and unblocked'
+    and all(.delete[]; .type == "wt_iew_mapping_template" and .deletion_kind == "table" and .deletion_type == "wt_iew_mapping_template" and ((.blocked // "") == ""))
+  ' "$DIAG_DIR/importer-delete-plan.stdout" >/dev/null || fail 'Importer deletion plan has unexpected entities or blockers'
   importer_delete_capture direct-baseline list private_refusal_diagnostic snapshot apply
   importer_delete_record direct wp_ssh_fixture wprism apply --repo=/home/wprism/site --with-deletes --format=json
   importer_delete_capture direct-diagnostic json private_refusal_diagnostic capture apply "$(cat "$DIAG_DIR/importer-delete-direct-baseline.stdout")"
