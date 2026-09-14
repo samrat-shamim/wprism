@@ -220,4 +220,18 @@ try {
     if (is_file($canonicalRoot . '/state/unexpected.json')) unlink($canonicalRoot . '/state/unexpected.json');
     foreach (['/state/tables/wt_iew_mapping_template', '/state/tables', '/state', ''] as $directory) rmdir($canonicalRoot . $directory);
 }
+require_once "$root/sandbox/tests/lib/agent_version.php";
+wprism_test_define_agent_versions();
+require_once "$root/agent/src/Policy/Policy.php";
+require_once dirname(__DIR__, 2) . '/fixtures/apply-policy.php';
+$combinedPolicy = WPrism\Policy::load(null, ['core', 'users-customers-import-export-for-wp-woocommerce', 'woocommerce'],
+    adapterLibrary: WPrism\AdapterLibrary::fromSourceTree($root));
+$scope = importer_woo_authored_scope($combinedPolicy, ['product', 'shop_order', 'unknown_type'],
+    ['product_cat', 'product_type', 'product_visibility', 'unknown_taxonomy']);
+wprism_check_same(['product'], $scope['post_types'], 'registered orders stay runtime and unknown types gain no authored authority');
+wprism_check_same(['product_cat', 'product_type', 'product_visibility'], $scope['taxonomies'],
+    'initialized reviewed Woo taxonomies are selected without inventing an optional fulfillment registry');
+$initialized = importer_woo_authored_scope($combinedPolicy, [], ['wc_fulfillment_shipping_provider']);
+wprism_check_same(['wc_fulfillment_shipping_provider'], $initialized['taxonomies'],
+    'an optional reviewed taxonomy enters scope when its native workflow initializes it');
 wprism_check_summary('Importer/Woo exact Apply database transition');
