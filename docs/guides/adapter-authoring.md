@@ -2535,12 +2535,21 @@ plugin faithfully.
    Apply failure. Use `sandbox/tests/lib/private_command_capture.sh` to collect
    the bounded fresh delta before caller assertions or disposable teardown,
    with the owner binding its exact native transport and command inventory.
-   The shared conformance driver's initial Apply already uses
+   The shared conformance driver's initial Apply and all three driver-owned
+   Captures use
    `conformance_private_command` (`sandbox/tests/lib/conformance_private_command.sh`):
    its native reader runs outside WordPress as the site's CLI uid, and its
    host decoder retains complete records in a private, non-disposable sink.
    This closes the `ee27e3b9` Polylang run's lost-cause gap: successful source
    Capture and target deploy did not explain the later redacted Apply refusal.
+   The receipt-intent boundary also retains the original missing/ID/phase/record
+   decision, bounded intent fingerprints and filesystem metadata in that private
+   graph. These are observations, not recovery authority or proof of a database
+   rollback. The native `regress_capture_receipt_diagnostics_live.sh` probe forces
+   a missing read while retaining the actual committed inode, independently
+   checks its commit proof and tree, then verifies retained diagnostics after
+   owned teardown. This does not establish the cause of the intermittent PR #651
+   refusal; it closes the evidence-loss gap needed to investigate another one.
    Reuse that binding for driver-owned native commands; do not wrap every
    `wp_env` invocation and interfere with capsule-owned exact-cause collectors.
    A diagnostic-only record remains unverified; expected-cause acceptance
