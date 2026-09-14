@@ -4,7 +4,7 @@
 
 This ledger records plugin state shapes discovered during adapter authoring. `blocker_layer: platform` means the generic engine still lacks a reusable facility; `blocker_layer: adapter` means that facility already ships and the named plugin still needs its own bounded implementation and evidence.
 
-The currently rejected candidates were probed from official WordPress.org artifacts on 2026-08-22; closed rows retain the evidence from their own authoring exercises. Candidate rows are deliberately separate from adapter package dispositions: a rejected candidate is not shipped adapter identity and makes no capability claim.
+The currently rejected candidates were probed from official WordPress.org artifacts on 2026-08-22 and 2026-09-08; closed rows retain the evidence from their own authoring exercises. Candidate rows are deliberately separate from adapter package dispositions: a rejected candidate is not shipped adapter identity and makes no capability claim.
 
 Every coordinate names its `primitive_required` from a closed generic vocabulary in the ledger, so two candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike sentences. That is what makes the next table a ranking instead of a wishlist.
 
@@ -12,7 +12,7 @@ Every coordinate names its `primitive_required` from a closed generic vocabulary
 
 | Primitive | Candidates | Blocked adapters |
 |---|---|---|
-| reference paths inside a block attribute the plugin injects into every block | 1 (Block Visibility) | block-visibility |
+| reference paths inside a block attribute the plugin injects into every block | 1 (Block Visibility blockVisibility attribute) | block-visibility |
 | a generic dynamic derived option-name reference rule | 1 (Custom Post Type UI) | custom-post-type-ui |
 | a verified post-apply type-registration/process boundary | 1 (Custom Post Type UI) | custom-post-type-ui |
 
@@ -43,11 +43,13 @@ Probed on 2026-08-22.
 
 Required platform work: a verified post-apply type-registration/process boundary and a generic dynamic derived option-name reference rule. Required adapter work: an explicit structured-leaf text codec independent of fake reference paths. Until those exist, no CPT UI manifest is shipped.
 
-## Shipped experimental adapters with open apply work
+## Block Visibility blockVisibility attribute 3.7.1
 
-- Block Visibility 3.7.1: Block Visibility adds a `blockVisibility` object attribute to every registered block — measured 115 of 116 on WordPress 7.1, the exception being the deprecated core/post-comments alias. The object nests entity ids at conditionally-typed paths: `visibilityPresets.presets` is a list of `visibility_preset` post ids, and `controlSets[].controls.location.ruleSets[].rules[].value` is a post id list, a comma-separated post-id STRING, term ids or an author id depending on its sibling `field` (measured against includes/frontend/visibility-tests/location.php's own dispatch switch). `block_attrs` can express neither the any-block reach nor the conditional nesting, so the capsule declares the attribute a reviewed `unsupported` boundary on all 115 blocks that can carry it and refuses capture the moment authored content holds one. The same structure recurs in the `visibility_preset` meta key `control_sets`, which the capsule's interpreter admits only when it carries no entity reference.
+Probed on 2026-09-08.
 
-These are explicit promotion blockers in adapter package dispositions, not silent caveats. `conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target mutation, so none of these entries claims apply.
+- Block Visibility adds a `blockVisibility` object attribute to every registered block — measured 115 of 116 on WordPress 7.1, the exception being the deprecated core/post-comments alias. The object nests entity ids at conditionally-typed paths: `visibilityPresets.presets` is a list of `visibility_preset` post ids, and `controlSets[].controls.location.ruleSets[].rules[].value` is a post id list, a comma-separated post-id STRING, term ids or an author id depending on its sibling `field` (measured against includes/frontend/visibility-tests/location.php's own dispatch switch). `block_attrs` can express neither the any-block reach nor the conditional nesting, so the capsule declares the attribute a reviewed `unsupported` boundary on all 115 blocks that can carry it and refuses capture the moment authored content holds one. The same structure recurs in the `visibility_preset` meta key `control_sets`, which the capsule's interpreter admits only when it carries no entity reference.
+
+Required platform work: reference paths inside a block attribute injected into every block.
 
 ## Closed authoring gaps
 
