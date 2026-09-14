@@ -64,6 +64,7 @@ for side in 1 2; do
   combo_capture "save-import$side" native "$side" "$SCENARIO/templates-native.php" save import 'Reusable input mapping'
 done
 candidate() { local side="$1" verb="$2"; shift 2; conformance_private_command "cli$side" "$verb" wp_side "$side" wprism "$verb" "$@"; }
+combo_capture catalog-attribute native 1 "$SCENARIO/catalog-native.php" attribute-source
 combo_capture catalog-seed native 1 "$SCENARIO/catalog-native.php" seed-source
 combo_capture configure native 1 "$SCENARIO/apply-native.php" configure
 pair_live_ownership_repo_host
@@ -83,8 +84,7 @@ combo_capture baseline-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=
 combo_capture catalog-stock native 2 "$SCENARIO/catalog-native.php" stock-target
 combo_capture baseline-recapture candidate 2 capture --repo=/siterepo --format=json
 pair_live_ownership_repo_host
-diff -r "$R1/state" "$R2/state" || fail 'combined baseline canonical state did not converge'
-diff -r "$R1/media" "$R2/media" || fail 'combined baseline media did not converge'
+combo_capture baseline-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2"
 combo_capture baseline-state php "$ROOT/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/settings-evidence.php" snapshot "$R1"
 for kind in export import; do
   combo_capture "edit-$kind" native 1 "$CAPSULE/dirty-target-native.php" "$kind" source
@@ -164,6 +164,5 @@ combo_capture customers-after native 2 "$SCENARIO/customers-native.php" observe
 php "$SCENARIO_ROOT/fixtures/native-evidence.php" "$sink" "$PAIR"
 combo_capture final-recapture candidate 2 capture --repo=/siterepo --format=json
 pair_live_ownership_repo_host
-diff -r "$R1/state" "$R2/state" || fail 'native consumers and repeat changed canonical intent'
-diff -r "$R1/media" "$R2/media" || fail 'native consumers and repeat changed canonical media'
+combo_capture final-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2"
 pair_live_ownership_complete "PASS: combined $MODE template Apply, native consumers, recapture and exact repeat preservation"

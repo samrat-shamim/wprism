@@ -11,7 +11,8 @@ final class ImporterWooCatalogEvidence {
         $fail(array_keys($before) === ['products', 'lookup'] && array_keys($products) === ['combo-simple', 'combo-variable', 'combo-variation']);
         $ids = [];
         foreach ($products as $sku => $product) {
-            $fail(is_array($product) && is_int($product['id'] ?? null) && $product['id'] > 0
+            $fail(is_array($product) && array_keys($product) === ['id', 'type', 'parent', 'sku', 'name', 'status',
+                'regular_price', 'price', 'manage_stock', 'stock', 'stock_status', 'categories', 'attributes', 'defaults'] && is_int($product['id'] ?? null) && $product['id'] > 0
                 && ($product['sku'] ?? null) === $sku && ($product['status'] ?? null) === 'publish'
                 && ($product['stock_status'] ?? null) === 'instock' && is_array($product['attributes'] ?? null)
                 && is_array($product['categories'] ?? null) && is_array($product['defaults'] ?? null));
@@ -24,11 +25,13 @@ final class ImporterWooCatalogEvidence {
             && $simple['manage_stock'] === true && $simple['stock'] === 37 && count($simple['categories']) === 1);
         $fail($variable['type'] === 'variable' && $variable['parent'] === 0 && $variable['name'] === 'Combined variable'
             && $variable['price'] === '29.95' && $variable['categories'] === $simple['categories']
-            && $variable['defaults'] === ['size' => 'Small'] && isset($variable['attributes']['size'])
-            && $variable['attributes']['size']['options'] === ['Small'] && $variable['attributes']['size']['variation'] === true);
+            && $variable['defaults'] === ['pa_combosize' => 'small'] && is_array($variable['attributes']['pa_combosize'] ?? null)
+            && is_array($variable['attributes']['pa_combosize']['options'] ?? null)
+            && count($variable['attributes']['pa_combosize']['options']) === 1
+            && ($variable['attributes']['pa_combosize']['variation'] ?? null) === true);
         $fail($variation['type'] === 'variation' && $variation['parent'] === $variable['id']
             && $variation['regular_price'] === '29.95' && $variation['price'] === '29.95'
-            && $variation['manage_stock'] === true && $variation['stock'] === 41 && $variation['attributes'] === ['size' => 'Small']);
+            && $variation['manage_stock'] === true && $variation['stock'] === 41 && $variation['attributes'] === ['pa_combosize' => 'small']);
         $lookup = $before['lookup'];
         $fail(is_array($lookup) && array_is_list($lookup) && count($lookup) === 3);
         $seen = [];

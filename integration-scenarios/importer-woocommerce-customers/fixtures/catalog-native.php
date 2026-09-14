@@ -8,6 +8,14 @@ $check = static function (bool $ok, string $why): void {
 $check(is_admin() && current_user_can('manage_options') && defined('WC_VERSION') && WC_VERSION === '11.0.1'
     && defined('WT_U_IEW_VERSION') && WT_U_IEW_VERSION === '2.7.5', 'locked native administrator context');
 $skus = ['combo-simple', 'combo-variable', 'combo-variation'];
+if ($phase === 'attribute-source') {
+    $check(wc_attribute_taxonomy_id_by_name('combosize') === 0, 'new global attribute');
+    $id = wc_create_attribute(['name' => 'Combined size', 'slug' => 'combosize', 'type' => 'select',
+        'order_by' => 'menu_order', 'has_archives' => false]);
+    $check(!is_wp_error($id) && $id > 0, 'native attribute Save');
+    echo json_encode(['attribute' => $id], JSON_THROW_ON_ERROR), "\n";
+    return;
+}
 if ($phase === 'seed-source') {
     foreach ($skus as $sku) $check(wc_get_product_id_by_sku($sku) === 0, 'seed never replaces a product');
     $category = wp_insert_term('Combined catalog', 'product_cat', ['slug' => 'combined-catalog']);
@@ -18,18 +26,23 @@ if ($phase === 'seed-source') {
     $simple->set_regular_price('19.95'); $simple->set_manage_stock(true); $simple->set_stock_quantity(19);
     $simple->set_category_ids([(int) $category['term_id']]);
     $check($simple->save() > 0, 'native simple Save');
+    $attributeId = wc_attribute_taxonomy_id_by_name('combosize');
+    $check($attributeId > 0 && taxonomy_exists('pa_combosize'), 'global taxonomy registered on a fresh request');
+    $term = wp_insert_term('Small', 'pa_combosize', ['slug' => 'small']);
+    $check(!is_wp_error($term), 'native attribute term');
     $attribute = new WC_Product_Attribute();
-    $attribute->set_name('Size'); $attribute->set_options(['Small']);
+    $attribute->set_id($attributeId); $attribute->set_name('pa_combosize');
+    $attribute->set_options([(int) $term['term_id']]);
     $attribute->set_visible(true); $attribute->set_variation(true);
     $variable = new WC_Product_Variable();
     $variable->set_name('Combined variable'); $variable->set_slug('combined-variable');
     $variable->set_sku($skus[1]); $variable->set_status('publish');
     $variable->set_category_ids([(int) $category['term_id']]);
-    $variable->set_attributes([$attribute]); $variable->set_default_attributes(['size' => 'Small']);
+    $variable->set_attributes([$attribute]); $variable->set_default_attributes(['pa_combosize' => 'small']);
     $check($variable->save() > 0, 'native variable Save');
     $variation = new WC_Product_Variation();
     $variation->set_parent_id($variable->get_id()); $variation->set_sku($skus[2]);
-    $variation->set_status('publish'); $variation->set_attributes(['size' => 'Small']);
+    $variation->set_status('publish'); $variation->set_attributes(['pa_combosize' => 'small']);
     $variation->set_regular_price('29.95'); $variation->set_manage_stock(true); $variation->set_stock_quantity(23);
     $check($variation->save() > 0, 'native variation Save');
     WC_Product_Variable::sync($variable->get_id());

@@ -438,8 +438,8 @@ foreach (['simple', 'variable', 'variation'] as $i => $type) {
         'regular_price' => $type === 'simple' ? '19.95' : '29.95', 'price' => $type === 'simple' ? '19.95' : '29.95',
         'manage_stock' => $type !== 'variable', 'stock' => $type === 'simple' ? 37 : ($type === 'variation' ? 41 : null),
         'stock_status' => 'instock', 'categories' => [23],
-        'attributes' => $type === 'variable' ? ['size' => ['options' => ['Small'], 'variation' => true]] : ($type === 'variation' ? ['size' => 'Small'] : []),
-        'defaults' => $type === 'variable' ? ['size' => 'Small'] : []];
+        'attributes' => $type === 'variable' ? ['pa_combosize' => ['options' => [24], 'variation' => true]] : ($type === 'variation' ? ['pa_combosize' => 'small'] : []),
+        'defaults' => $type === 'variable' ? ['pa_combosize' => 'small'] : []];
     $catalog['lookup'][] = ['product_id' => (string) (501 + $i), 'sku' => $sku, 'stock_status' => 'instock',
         'stock_quantity' => $type === 'simple' ? '37' : ($type === 'variation' ? '41' : null)];
 }
@@ -463,6 +463,11 @@ foreach (['empty', 'missing', 'alias', 'stock', 'source-stock', 'price', 'parent
         "catalog premise rejects $fault even when both images agree");
     wprism_check_throws(static fn() => ImporterWooCatalogEvidence::preserved($catalog, $bad), RuntimeException::class,
         "native catalog transition rejects $fault");
+}
+foreach (array_keys($catalog['products']['combo-simple']) as $field) {
+    $bad = $catalog; unset($bad['products']['combo-simple'][$field]);
+    wprism_check_throws(static fn() => ImporterWooCatalogEvidence::preserved($bad, $bad), RuntimeException::class,
+        "incomplete native product field $field refuses without diagnostics");
 }
 $changedCatalog = $catalog; $changedCatalog['products']['combo-variable']['extra'] = 'changed';
 wprism_check_throws(static fn() => ImporterWooCatalogEvidence::preserved($catalog, $changedCatalog), RuntimeException::class,
