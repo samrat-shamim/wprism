@@ -3,28 +3,39 @@
     "deletion_semantics": {
       "supported": [],
       "unsupported": [
-        "plugin-specific entity deletion",
-        "authored removal of loginizer option rows"
+        "plugin-specific entity deletion"
       ]
     },
     "entity_sections": [],
     "field_sections": [
       "options"
     ],
-    "lifecycle_phases": [],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
     "operations": [
-      "capture"
+      "capture",
+      "compile",
+      "plan",
+      "deploy",
+      "apply",
+      "recapture",
+      "render-api"
     ]
   },
   "default_authored_keyspaces": [],
   "evidence": {
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
+      "conformance-loginizer",
+      "exact-artifact-version-matrix",
       "regress-package-contract"
     ]
   },
-  "reason": "Experimental adapter for official Loginizer 2.1.0. Reviewed against the artifact source: the brute-force settings, IP whitelist/blacklist maps, login-notification template and disable toggle are declared authored with closed sub-key sets; version/reset/message markers and the loginizer_logs failed-attempt table are declared runtime and excluded. Evidence is offline only: the real policy loader and OptionsCapture classifier with FakeWpdb, the closed-sub-key refusal, and the capture-side lint posture. No native authoring, apply, deploy, lifecycle or cross-environment evidence exists.",
-  "status": "experimental",
+  "reason": "Certified for exact Loginizer 2.1.0 on single-site WordPress. The brute-force settings, IP whitelist/blacklist maps, login-notification template and disable toggle are declared authored with closed sub-key sets the plugin's own writer produces; version/reset/message markers and the loginizer_logs failed-attempt table are declared runtime and excluded. Evidence exercises native authoring through the plugin's own admin-page save handlers, hostile-target convergence across every owned family through the plugin's boot globals and whitelist/blacklist access decisions, the home-URL template binding, deactivate/reactivate and uninstall-residue recovery with exact reinstall, a three-way settings conflict with forced convergence and idempotent retry, unauthorized-deletion refusal with authorized row deletion, the closed-sub-key refusal of an undeclared tenth member, and refusal of the adjacent 2.0.9 artifact whose settings writer is byte-identical, so the refusal stands on the declared range alone.",
+  "status": "certified",
   "supported_versions": {
     "plugin": "loginizer/loginizer.php",
     "range": {
@@ -34,38 +45,28 @@
   },
   "unsupported": [
     {
-      "operation": "apply",
-      "reason": "No native apply or cross-environment evidence is in place for this experimental slice; capture classification is the only exercised operation.",
-      "surface": "adapter-wide apply scope"
-    },
-    {
-      "operation": "deploy",
-      "reason": "No deploy, lifecycle or promotion evidence is in place for this experimental slice.",
-      "surface": "adapter-wide deploy scope"
-    },
-    {
-      "operation": "delete",
-      "reason": "No plugin-owned entity keyspace or deletion selector is declared; the runtime logs table is excluded by classification, not by a deletion contract.",
-      "surface": "deletions.*"
+      "operation": "all",
+      "reason": "WPrism v1 refuses multisite before policy load, so Loginizer's network-mode branches and its site-option reads under lz_is_multisite() are outside this adapter.",
+      "surface": "multisite"
     },
     {
       "operation": "capture",
-      "reason": "reCAPTCHA site/secret credentials mixed with display settings in one blob; undeclared in this slice and left invisible rather than guessed.",
+      "reason": "reCAPTCHA site/secret credentials mixed with display settings in one blob; undeclared and left invisible rather than guessed.",
       "surface": "options.loginizer_captcha"
     },
     {
       "operation": "capture",
-      "reason": "Two-factor settings, email templates and the 2FA IP bypass list are unreviewed; undeclared in this slice.",
+      "reason": "Two-factor settings, email templates and the 2FA IP bypass list are unreviewed; undeclared.",
       "surface": "options.loginizer_2fa"
     },
     {
       "operation": "capture",
-      "reason": "Passwordless login settings are unreviewed; undeclared in this slice.",
+      "reason": "Passwordless login settings are unreviewed; undeclared.",
       "surface": "options.loginizer_epl"
     },
     {
       "operation": "capture",
-      "reason": "Security checksums, social login, SSO links, IP-method selection and dashboard announcement markers are unreviewed; undeclared in this slice.",
+      "reason": "Security checksums, social login, SSO links, IP-method selection and dashboard announcement markers are unreviewed; undeclared.",
       "surface": "options.loginizer_security_social_sso_dashboard"
     },
     {

@@ -2,15 +2,18 @@
 declare(strict_types=1);
 
 /**
- * Loginizer experimental capsule contract: the manifest's brute-force slice
- * verified through the real policy loader, the real OptionsCapture classifier
- * over FakeWpdb, the real capture-side secret/PII gates, and the real lint
- * scanner — plus the three mutation proofs that make the declarations
- * load-bearing rather than decorative:
+ * Loginizer capsule contract: the manifest's brute-force slice verified
+ * through the real policy loader, the real OptionsCapture classifier over
+ * FakeWpdb, the real capture-side secret/PII gates, and the real lint scanner
+ * — plus the three mutation proofs that make the declarations load-bearing
+ * rather than decorative:
  *   - closed_sub_keys removed -> the unknown sibling rides along silently;
  *   - allow_pii removed -> the real PII screen refuses the IP policy list;
  *   - lint_ok removed -> the numeric settings sub-keys turn into bare-id
  *     findings against a colliding live post.
+ * The live half of the claim (native authoring, round-trip, lifecycle,
+ * conflict, deletion, exact-artifact boundaries) lives in
+ * tests/conformance/ and tests/certify/, cited by the disposition.
  */
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
@@ -312,8 +315,13 @@ wprism_check(
 // ---------------------------------------------------------------------------
 // 7. The reviewed claim, artifacts and readiness record agree.
 // ---------------------------------------------------------------------------
-wprism_check_same('experimental', $disposition['status'], 'the claim is experimental: capture-boundary evidence only');
-wprism_check_same(['capture'], $disposition['capabilities']['operations'], 'the one claimed operation is the one the suite exercises');
+wprism_check_same('certified', $disposition['status'], 'the claim is certified: the disposition cites the live conformance and exact-artifact matrix evidence beside this offline contract');
+wprism_check_same(
+    ['capture', 'compile', 'plan', 'deploy', 'apply', 'recapture', 'render-api'],
+    $disposition['capabilities']['operations'],
+    'the claimed operations are the ones the conformance round-trip, the version matrix and this suite exercise'
+);
+wprism_check_same(['retire', 'activate', 'verify'], $disposition['capabilities']['lifecycle_phases'], 'the lifecycle phases are the ones the deactivate/reactivate, uninstall-residue and reinstall evidence exercises');
 wprism_check_same(['options'], $disposition['capabilities']['field_sections'], 'options are the only claimed field section');
 wprism_check_same(
     wprism_check_ksort_recursive($manifest['version_range']),
@@ -323,11 +331,9 @@ wprism_check_same(
 wprism_check_same($manifest['plugin'], $disposition['supported_versions']['plugin'], 'both halves name one plugin subject');
 wprism_check_same('loginizer/loginizer.php', $manifest['plugin'], "the subject is the plugin's real main file");
 wprism_check_same(['min' => '2.1.0', 'max' => '2.1.1'], $manifest['version_range'], 'the range admits exactly the pinned 2.1.0 artifact line');
-foreach (['regress-package-contract'] as $test) {
-    wprism_check(in_array($test, $disposition['evidence']['tests'], true), "the reviewed claim cites $test");
-}
+wprism_check_same(['conformance-loginizer', 'exact-artifact-version-matrix', 'regress-package-contract'], $disposition['evidence']['tests'], 'the reviewed claim cites the live round-trip, the exact-artifact matrix and this offline contract');
 $unsupportedSurfaces = array_column($disposition['unsupported'], 'surface');
-foreach (['adapter-wide apply scope', 'options.loginizer_captcha', 'options.loginizer_2fa', 'deletions.*'] as $surface) {
+foreach (['multisite', 'options.loginizer_captcha', 'options.loginizer_2fa', 'options.loginizer_epl', 'options.loginizer_security_social_sso_dashboard', 'options.loginizer_license_promo'] as $surface) {
     wprism_check(in_array($surface, $unsupportedSurfaces, true), "the disposition records $surface as an explicit unsupported boundary");
 }
 
@@ -336,14 +342,20 @@ wprism_check_same(
     array_keys($artifacts['plugins']['loginizer']),
     'the capsule pins the exercised release and the adjacent refusal fixture'
 );
-wprism_check_same('exercise-fixture', $artifacts['plugins']['loginizer']['2.1.0']['role'], '2.1.0 is the exercise fixture');
-wprism_check_same('refusal-fixture', $artifacts['plugins']['loginizer']['2.0.9']['role'], '2.0.9 is the adjacent refusal fixture');
+wprism_check_same('certified-boundary', $artifacts['plugins']['loginizer']['2.1.0']['role'], '2.1.0 is the in-range certified boundary the matrix exercises');
+wprism_check_same('refusal-fixture', $artifacts['plugins']['loginizer']['2.0.9']['role'], '2.0.9 is the out-of-range refusal fixture');
 wprism_check_same('https://downloads.wordpress.org/plugin/loginizer.2.1.0.zip', $artifacts['plugins']['loginizer']['2.1.0']['url'], 'the pin names an exact versioned URL, never the redirect');
 wprism_check(!isset(WPrism\Tooling\ArtifactLibrary::loadPlatform($root)['plugins']['loginizer']), 'platform bootstrap does not duplicate this plugin artifact ownership');
 
 $readiness = WPrism\Tooling\AdapterProductionReadiness::record($root, $slug);
-wprism_check_same('unready', $readiness['readiness'], 'the readiness record stays honestly unready');
+wprism_check_same('ready', $readiness['readiness'], 'every scenario family is covered or structurally not applicable');
 wprism_check_same([], $readiness['gaps'], 'no family is hidden as a gap');
-wprism_check_same(12, count($readiness['blocked']), 'all twelve scenario families are accounted for as blocked, each with its reason');
+wprism_check_same([], $readiness['blocked'], 'no family is left blocked');
+wprism_check_same(
+    ['identity-references', 'derived-state'],
+    array_keys($readiness['not_applicable']),
+    'exactly the two structurally absent families are recorded not applicable, each with its reason'
+);
+wprism_check_same(10, count($readiness['covered']), 'the other ten families name their evidence files');
 
 wprism_check_summary('regress_loginizer_package_contract');

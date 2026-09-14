@@ -1,8 +1,11 @@
 # format wprism-target-observation-premises/v1
-# expected observations=5 fixtures=0
+# expected observations=8 fixtures=0
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/seed.sh	capture_wprism_json_success LOGINIZER_RANGES 'Loginizer native IP-range writers'
 observation	tests/conformance/seed.sh	capture_wprism_json_success LOGINIZER_SAVE 'Loginizer native brute-force settings Save'
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success LOGINIZER_VERIFY1 'Loginizer native and canonical settings readback'
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success LOGINIZER_RECAPTURE 'Loginizer repeated public Capture'
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success LOGINIZER_VERIFY2 'Loginizer repeated native and canonical settings readback'
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty "Loginizer hostile target seed"
+observation	tests/conformance/check.sh	require_observed_nonempty "Loginizer $side runtime observation"
+observation	tests/certify/version-matrix.sh	require_observed_nonempty "Loginizer boundary target behavior"

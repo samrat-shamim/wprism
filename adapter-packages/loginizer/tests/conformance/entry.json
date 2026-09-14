@@ -1,7 +1,6 @@
 {
   "manifest": "loginizer",
   "entry": {
-    "mode": "capture-plan",
     "pin": ["core", "loginizer"],
     "plugins": [{"slug": "loginizer", "version": "2.1.0"}],
     "post_types": ["post", "page", "attachment"],
