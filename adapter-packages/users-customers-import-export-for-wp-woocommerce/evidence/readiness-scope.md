@@ -109,12 +109,18 @@ the existing phase changes: `apply-session-begin` after authored rollback,
 `apply-ledger` after ledger rollback. The product finalizer renews that latter
 phase before opening its transaction, so it survives the interruption.
 
-Retries wait for the observed lease to expire naturally using the existing
-bounded test TTL; they never clear the lease or modify timestamps. Successful
+At each crash boundary, an early ordinary Apply must return the exact classified
+`promotion_lease_held` envelope and fresh private cause naming the captured owner,
+phase and expiry. The entire database, canonical tree and native state must
+remain identical, including the crashed session and interrupted write set.
+The observed lease must remain live throughout that refused invocation. The
+sixty-second test TTL provides headroom for complete observations.
+Successful retries wait for the observed lease to expire naturally; they never
+clear the lease or modify timestamps. Successful
 retry and repeat must release their leases and retain complete surrounding state.
 Native reopens, CSV consumers and exact recapture are required again afterward.
-Other interruption points, tamper and early retry against a still-live lease
-remain unqualified. Signed deletion and the remaining recovery cases retain gaps;
+Other interruption points, tamper and active-writer contention remain
+unqualified. Signed deletion and the remaining recovery cases retain gaps;
 overall readiness and shipped package identity are unchanged.
 
 ## Derived state

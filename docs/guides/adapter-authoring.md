@@ -3881,9 +3881,13 @@ library.
    self-SIGKILL. Inspect the stopped container with `ContainerProcessEvidence`
    to bind its init, exact command, environment and invocation window and exclude
    OOM/runtime failure, then remove it before diagnostic readers run; retained
-   stopped oneoffs trigger Compose orphan warnings. Preserve
-   the durable lease left by the crash and wait for its verified natural expiry
-   before retrying; never delete it to make the test proceed.
+   stopped oneoffs trigger Compose orphan warnings. Preserve the durable lease
+   left by the crash. An early retry must refuse with its exact public/private
+   cause and preserve the entire database, canonical tree and native state,
+   including the crashed session and marker. Prove the captured lease remains
+   live throughout that invocation; give the bounded test TTL enough headroom
+   for complete observations. Wait for verified natural expiry before a
+   successful retry; never delete the lease or change timestamps to proceed.
 
    Complete uninstall and isolated missing-widget history are different
    premises. Full Plan/Apply checks retained canonical maps before dead-map

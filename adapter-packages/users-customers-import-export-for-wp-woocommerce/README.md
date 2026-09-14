@@ -115,8 +115,11 @@ retry and stable repeat across all eighteen database tables. Five native templat
 reopens, four CSV consumers and exact recapture pass after recovery. Run it with
 a unique `CONF_PAIR`, even `CONF1_PORT`, successor `CONF2_PORT` and the exact clean
 `WPRISM_EXPECTED_SOURCE_SHA`. The [process-death variant](tests/live/regress_recovery_crash.sh)
-uses the same fixture with real SIGKILL, retained process evidence and natural
-lease expiry before retry. It checks the durable `apply-session-begin` and
+uses the same fixture with real SIGKILL and retained process evidence. At both
+crash points an early ordinary retry must return `promotion_lease_held` with
+fresh private evidence and preserve complete state. A bounded sixty-second
+test lease leaves time for observations; successful retry waits for natural
+expiry. The lane checks the durable `apply-session-begin` and
 `apply-ledger` phases against the complete database image. Both variants require
 native consumers after retry. Other crash boundaries, tamper refusal and signed
 deletion remain separate qualification work; these lanes do not close the whole
