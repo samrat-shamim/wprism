@@ -6,7 +6,7 @@
 
 _woocommerce_destructive_context=1
 for _woocommerce_destructive_symbol in fail pass require_wprism_answered require_observed_nonempty \
-  wp_conf2 observe_woocommerce_adoption woocommerce_storage_hash; do
+  wp_conf2 observe_woocommerce_adoption woocommerce_storage_hash conformance_private_command; do
   declare -F "$_woocommerce_destructive_symbol" >/dev/null 2>&1 || _woocommerce_destructive_context=0
 done
 for _woocommerce_destructive_value in CONF_REPO1 CONF_REPO2 COMPOSE WOO_SHA WOO_ARTIFACT; do
@@ -28,7 +28,7 @@ check_woocommerce_destructive_lifecycle() {
   local preimage_capture="$CONF_REPO2/.tmp-woocommerce-remove-all-preimage"
   local final_capture="$CONF_REPO2/.tmp-woocommerce-remove-all-final"
   local preimage_storage preimage_observation preimage_identity destructive_residue
-  local reinstall_deploy lost_plan lost_plan_rc lost_apply lost_apply_rc stale_identity stale_identity_rc
+  local reinstall_deploy reinstall_deploy_rc lost_plan lost_plan_rc lost_apply lost_apply_rc stale_identity stale_identity_rc
   local refusal_identity restored_observation restored_plan restored_apply repeat_plan repeat_apply capture_diff
 
   # Capture the exact target preimage before exporting the database-bound
@@ -115,7 +115,12 @@ check_woocommerce_destructive_lifecycle() {
   wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
   [ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.1 ] \
     || fail 'WooCommerce destructive-uninstall reinstall reported wrong version'
-  reinstall_deploy=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  # Retain public and private streams before checking status: set -e on a
+  # captured deploy otherwise discards the refusal that explains failed recovery.
+  reinstall_deploy_rc=0
+  reinstall_deploy=$(conformance_private_command cli2 deploy wp_conf2 wprism deploy --repo=/siterepo --format=json 2>&1) || reinstall_deploy_rc=$?
+  [ "$reinstall_deploy_rc" -eq 0 ] \
+    || fail "WooCommerce deploy after destructive uninstall and exact reinstall exited $reinstall_deploy_rc: $reinstall_deploy"
   require_wprism_answered 'WooCommerce deploy after destructive uninstall and exact reinstall' json "$reinstall_deploy"
   wp_conf2 plugin is-active woocommerce >/dev/null \
     || fail 'WooCommerce destructive-uninstall reinstall did not reactivate exact code'
