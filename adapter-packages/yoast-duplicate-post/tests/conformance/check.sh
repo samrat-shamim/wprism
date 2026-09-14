@@ -433,7 +433,8 @@ DELETE_POST_AUTH_RC=0
 DELETE_POST_AUTH_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || DELETE_POST_AUTH_RC=$?
 require_wprism_answered "Yoast Duplicate Post signed deletion refusal" human "$DELETE_POST_AUTH_OUT"
 [ "$DELETE_POST_AUTH_RC" -ne 0 ] \
-  && grep -q 'deletion_writer_exclusion_required' <<<"$DELETE_POST_AUTH_OUT" \
+  && grep -q 'deletion refused before mutation' <<<"$DELETE_POST_AUTH_OUT" \
+  && grep -q 'no exact held external writer exclusion is bound' <<<"$DELETE_POST_AUTH_OUT" \
   || fail "duplicated-post deletion crossed the unsigned writer-exclusion boundary: $DELETE_POST_AUTH_OUT"
 wp_conf2 post get "$TARGET_COPY" >/dev/null 2>&1 \
   || fail "duplicated-post deletion refusal removed the target copy"
