@@ -15,6 +15,7 @@ use WPrismTest\FakeWpdb;
 use WPrismTest\WpStore;
 
 function taxonomy_exists(string $taxonomy): bool { return true; }
+function wp_clear_scheduled_hook(string $hook, array $args): int { return 0; }
 function wp_update_term_count_now(array $ids, string $taxonomy): bool {
     $GLOBALS['recount_calls'][] = [$ids, $taxonomy];
     unset(WpStore::instance()->options['plugin_term_counts']);
@@ -22,6 +23,7 @@ function wp_update_term_count_now(array $ids, string $taxonomy): bool {
 }
 
 $wpdb = new FakeWpdb();
+$wpdb->seedTable('wprism_map', [['uuid' => 'selected', 'id_kind' => 'post', 'local_id' => 7]]);
 $wpdb->seedTable('term_taxonomy', [['term_taxonomy_id' => 12, 'taxonomy' => 'product_cat']]);
 $policy = new Policy();
 $policy->site = ['policy' => ['taxonomies' => ['product_cat']]];
@@ -32,7 +34,7 @@ $reset = static function (): void {
     $GLOBALS['recount_refuses'] = false;
     WpStore::instance()->options['plugin_term_counts'] = ['product_cat' => 17];
 };
-foreach (['table', 'option', 'sidebar', 'user_meta', 'unchanged'] as $type) {
+foreach (['table', 'options', 'sidebar', 'user_meta', 'unchanged'] as $type) {
     $reset();
     $tree = ['selected' => ['type' => $type], 'existing-term' => ['type' => 'term']];
     $work = $type === 'unchanged' ? [] : [['uuid' => 'selected']];
@@ -41,10 +43,10 @@ foreach (['table', 'option', 'sidebar', 'user_meta', 'unchanged'] as $type) {
     wprism_check_same(['product_cat' => 17], WpStore::instance()->options['plugin_term_counts'], "$type-only Apply preserves unrelated persistent plugin cache");
     wprism_check_same(['object-cache-flush'], $effects->invoke(null, $work, $tree, [], false), "$type-only Plan omits unselected taxonomy effects");
 }
-foreach (['term', 'menu'] as $type) {
+foreach (['post', 'term', 'menu'] as $type) {
     $reset();
     $work = [['uuid' => 'selected']];
-    $tree = ['selected' => ['type' => $type]];
+    $tree = ['selected' => ['type' => $type, 'data' => ['status' => 'publish']]];
     $executor->run([], $work, $tree, [], false);
     wprism_check_same([[[12], 'product_cat']], $GLOBALS['recount_calls'], "$type mutation still invokes the registered native callback");
     wprism_check(in_array('taxonomy-counts', $effects->invoke(null, $work, $tree, [], false), true), "$type mutation declares taxonomy effects");
