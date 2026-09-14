@@ -45,6 +45,7 @@ done
 pair_live_ownership_repo_host
 R1="$PAIR_LIVE_OWNERSHIP_SITE1" R2="$PAIR_LIVE_OWNERSHIP_SITE2"
 cp site-repo.gitignore.template "$R1/.gitignore"
+cp tests/fixtures/core_lifecycle_site.wprism.json "$R1/site.wprism.json"
 git -C "$R1" init -q -b evidence
 git -C "$R2" init -q -b evidence
 capture binding1 establish_core_environment_bindings wp_side /siterepo admin@example.test "http://localhost:$PORT1" "http://localhost:$PORT1" 1

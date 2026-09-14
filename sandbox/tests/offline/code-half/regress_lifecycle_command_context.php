@@ -7,7 +7,16 @@ if (($argv[1] ?? '') === '--probe') {
     require_once $root . '/sandbox/tests/lib/wp_stubs.php';
     final class WP_CLI {
         public static function get_runner(): object {
-            return (object) ['arguments' => json_decode($GLOBALS['argv'][2], true, 16, JSON_THROW_ON_ERROR)];
+            $mode = $GLOBALS['argv'][3] ?? '';
+            $config = match ($mode) {
+                'skip-all' => ['skip-plugins' => true],
+                'skip-plugin' => ['skip-plugins' => 'lifecycle-context-probe'],
+                'skip-themes' => ['skip-themes' => true],
+                'skip-theme' => ['skip-themes' => 'twentytwentyone'],
+                'false-defaults' => ['skip-plugins' => false, 'skip-themes' => false],
+                default => ['skip-plugins' => '', 'skip-themes' => ''],
+            };
+            return (object) ['arguments' => json_decode($GLOBALS['argv'][2], true, 16, JSON_THROW_ON_ERROR), 'config' => $config];
         }
         public static function add_command(string $name, string $class): void {}
     }
@@ -34,7 +43,9 @@ if (($argv[1] ?? '') === '--probe') {
     if (WP_CLI) {
         try { WPrism\LifecycleCommandContext::assert_ready(); $ready = true; }
         catch (RuntimeException $failure) {
-            if (!str_contains($failure->getMessage(), 'requires administrative context from the MU bootstrap')) throw $failure;
+            $expected = str_starts_with($argv[3] ?? '', 'skip-')
+                ? 'requires all lifecycle participants to load' : 'requires administrative context from the MU bootstrap';
+            if (!str_contains($failure->getMessage(), $expected)) throw $failure;
         }
     }
     echo json_encode(['ready' => $ready, 'admin' => is_admin(), 'entry' => $_SERVER['PHP_SELF'],
@@ -53,6 +64,11 @@ foreach ([
     [['wprism', 'deploy'], false, 'disabled'],
     [['wprism', 'deploy'], false, 'late'],
     [['wprism', 'deploy'], true, 'existing-admin'],
+    [['wprism', 'deploy'], false, 'skip-all'],
+    [['wprism', 'deploy'], false, 'skip-plugin'],
+    [['wprism', 'deploy'], false, 'skip-themes'],
+    [['wprism', 'deploy'], false, 'skip-theme'],
+    [['wprism', 'deploy'], true, 'false-defaults'],
 ] as [$command, $admin, $mode]) {
     [$exit, $out, $err] = WPrismTest\ShellProbe::run('exec "$1" "$2" --probe "$3" "$4"',
         [PHP_BINARY, __FILE__, json_encode($command, JSON_THROW_ON_ERROR), $mode], $root);

@@ -15,7 +15,8 @@ The target's `wp wprism deploy` command establishes WordPress's administrative
 context during the MU bootstrap, before network and ordinary plugins load.
 This lets admin-only plugins register their native activation and deactivation
 hooks. It does not log in an administrator or run the HTTP admin controller.
-Capture, plan and Apply keep their ordinary command context. An explicit
+Capture, plan and Apply keep their ordinary command context. Deployment refuses
+`--skip-plugins` and `--skip-themes`, including slug-specific forms. An explicit
 `WP_ADMIN=false` override or a late agent load refuses deployment; retry from
 the installed MU loader in a fresh process.
 

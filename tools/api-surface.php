@@ -163,7 +163,7 @@ function as_bootstrap_stubs(string $repo): void
         define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
     }
     if (!defined('WP_CLI')) {
-        define('WP_CLI', true);
+        define('WP_CLI', false);
     }
 }
 
@@ -237,7 +237,10 @@ function as_reflect_and_print(string $repo): void
 {
     as_bootstrap_stubs($repo);
 
+    // Reflection has no running WordPress command. Keep runtime bootstrap
+    // inert, then load the command class explicitly against declaration stubs.
     require_once $repo . '/agent/wprism.php';
+    require_once $repo . '/agent/src/Command/Cli.php';
     foreach (as_cli_bootstrap_paths($repo) as $path) {
         require_once $path;
     }
