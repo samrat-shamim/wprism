@@ -217,7 +217,7 @@ return [
     'WPrism\\NativeRewriteEffects' => 'src/Rebuild/NativeRewriteEffects.php',
     'WPrism\\NativeTableDefinition' => 'src/Kernel/NativeTableDefinition.php',
     'WPrism\\NativeValueValidation' => 'src/Kernel/NativeValueValidation.php',
-    'WPrism\\ObservedTableIdentities' => 'src/Capture/ObservedTableIdentities.php',
+    'WPrism\\ObservedTableIdentities' => 'src/Repository/ObservedTableIdentities.php',
     'WPrism\\OptionGrammar' => 'src/Grammar/OptionGrammar.php',
     'WPrism\\OptionNameReferenceResolver' => 'src/Grammar/OptionNameReferenceResolver.php',
     'WPrism\\OptionNamespaceResolver' => 'src/Grammar/OptionNamespaceResolver.php',

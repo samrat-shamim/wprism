@@ -18,7 +18,7 @@ require_once __DIR__ . '/../Kernel/TableSchema.php';
 require_once __DIR__ . '/SnapshotIdentity.php';
 require_once __DIR__ . '/SnapshotPruner.php';
 require_once __DIR__ . '/../Capture/TypedTableCapture.php';
-require_once __DIR__ . '/../Capture/ObservedTableIdentities.php';
+require_once __DIR__ . '/ObservedTableIdentities.php';
 require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
 
 /**
