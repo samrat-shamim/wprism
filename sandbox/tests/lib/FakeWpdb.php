@@ -2913,6 +2913,9 @@ class FakeWpdb {
                     // Attachment recovery's exact bounded metadata roster is
                     // separately interpreted below; it has no shared-write
                     // seam, so a synthetic range lock would only reject it.
+                } elseif ($this->isBoundedIdentityLockRead($trimmed, $table)) {
+                    // Grammar admission only; the SELECT interpreter evaluates
+                    // exact native predicates and the two-row ambiguity bound.
                 } elseif ($this->isBoundedIndexedLockRead($trimmed, $table)) {
                     // Only grammar admission: the ordinary SELECT below
                     // computes rows, ordering and limits. The caller's real
@@ -3228,7 +3231,7 @@ class FakeWpdb {
                 $i += strlen($m[0]);
                 continue;
             }
-            foreach (['<=>', '!=', '<>', '<=', '>='] as $operator) {
+            foreach (['<=>', '!=', '<>', '<=', '>=', '>>'] as $operator) {
                 if (substr($sql, $i, strlen($operator)) === $operator) {
                     $tokens[] = ['t' => 'op', 'v' => $operator];
                     $i += strlen($operator);
@@ -3920,11 +3923,17 @@ class FakeWpdb {
 
     /** @return array{k:string,...} */
     private function parseOperand(): array {
-        $left = $this->parseUnary();
-        while (($this->peek()['t'] === 'op') && in_array($this->peek()['v'], ['+', '-'], true)) {
+        return $this->parseArithmetic(0);
+    }
+
+    private function parseArithmetic(int $precedence): array {
+        $operators = [['>>'], ['+', '-'], ['%']];
+        if ($precedence === count($operators)) return $this->parseUnary();
+        $left = $this->parseArithmetic($precedence + 1);
+        while ($this->peek()['t'] === 'op' && in_array($this->peek()['v'], $operators[$precedence], true)) {
             $op = (string) $this->peek()['v'];
             $this->tp++;
-            $left = ['k' => 'arith', 'op' => $op, 'l' => $left, 'r' => $this->parseUnary()];
+            $left = ['k' => 'arith', 'op' => $op, 'l' => $left, 'r' => $this->parseArithmetic($precedence + 1)];
         }
         return $left;
     }
@@ -4050,6 +4059,25 @@ class FakeWpdb {
     }
 
     private function parsePredicate(): array {
+        if ($this->acceptKeyword('EXISTS')) {
+            $this->expectOp('(');
+            $this->expectKeyword('SELECT');
+            if ($this->parseIntLiteral() !== 1) throw $this->unsupported('EXISTS projection must be literal 1');
+            $this->expectKeyword('FROM');
+            $table = $this->parseTableRef();
+            $alias = $this->parseAliasOpt();
+            $this->expectKeyword('WHERE');
+            $condition = $this->parseCondition();
+            $this->expectOp(')');
+            $validate = function (array $node) use (&$validate): void {
+                if (($node['k'] ?? null) === 'col' && $node['q'] === null) {
+                    throw $this->unsupported('correlated EXISTS requires qualified columns');
+                }
+                foreach ($node as $child) if (is_array($child)) $validate($child);
+            };
+            $validate($condition);
+            return ['k' => 'exists', 'table' => $table, 'alias' => $alias, 'condition' => $condition];
+        }
         if ($this->acceptKeyword('NOT')) {
             return ['k' => 'not', 'inner' => $this->parsePredicate()];
         }
@@ -4142,6 +4170,21 @@ class FakeWpdb {
     /** @param array{table:string,alias:?string,columns:?list<string>}|null $ctx */
     private function evalCondition(array $node, array $row, ?array $ctx): bool {
         switch ($node['k']) {
+            case 'exists':
+                if ($ctx === null || isset($ctx['sources']) || isset($ctx['join'])) {
+                    throw $this->unsupported('correlated EXISTS requires one outer table');
+                }
+                $inner = $this->requireTable($node['table']);
+                $source = fn(string $table, ?string $alias): array => [
+                    'table' => $table, 'alias' => $alias,
+                    'short' => str_starts_with($table, $this->prefix) ? substr($table, strlen($this->prefix)) : $table,
+                    'columns' => $this->knownColumns($table),
+                ];
+                $context = ['sources' => [$source($ctx['table'], $ctx['alias']), $source($inner, $node['alias'])]];
+                foreach ($this->store[$inner] as $candidate) {
+                    if ($this->evalCondition($node['condition'], ['__join_sources' => [$row, $candidate]], $context)) return true;
+                }
+                return false;
             case 'and':
                 foreach ($node['parts'] as $part) {
                     if (!$this->evalCondition($part, $row, $ctx)) {
@@ -4231,7 +4274,15 @@ class FakeWpdb {
                 if ($left === null || $right === null) {
                     return null;
                 }
-                return $node['op'] === '+' ? $left + $right : $left - $right;
+                return match ($node['op']) {
+                    '+' => $left + $right,
+                    '-' => $left - $right,
+                    '%' => (int) $right === 0 ? null : (int) $left % (int) $right,
+                    '>>' => (int) $left < 0 || (int) $right < 0
+                        ? throw $this->unsupported('negative unsigned bit shift operand')
+                        : ((int) $right >= 64 ? 0 : (int) $left >> (int) $right),
+                    default => throw $this->unsupported('arithmetic operator'),
+                };
             case 'fn':
                 return $this->evalFunction($node, $row, $ctx);
             case 'col':
@@ -5187,6 +5238,27 @@ class FakeWpdb {
             $this->setConnectionId($this->connectionId + 1);
         }
         return ['kind' => 'ok'];
+    }
+
+    /** Typed identity adoption's exact conjunction; no generic FOR UPDATE escape. */
+    private function isBoundedIdentityLockRead(string $sql, string $table): bool {
+        if (!$this->fullApplySqlExtensionsEnabled || preg_match(
+            '/^SELECT \* FROM `[A-Za-z0-9_]{1,64}` WHERE (.+) LIMIT 2 FOR UPDATE$/Ds',
+            $sql,
+            $match
+        ) !== 1) return false;
+        $literal = "'(?:[^'\\\\]|\\\\.)*'";
+        $equality = '(?:BINARY `[A-Za-z0-9_]{1,64}` = BINARY ' . $literal
+            . '|`[A-Za-z0-9_]{1,64}` = [1-9][0-9]*)';
+        if (preg_match('/^' . $equality . '(?: AND ' . $equality . ')*$/Ds', $match[1]) !== 1) return false;
+        // Strip values before extracting identifiers: a key value can contain
+        // backticks and must not manufacture a schema coordinate.
+        $predicates = preg_replace('/' . $literal . '/s', "''", $match[1]);
+        preg_match_all('/`([^`]+)`/', (string) $predicates, $columns);
+        foreach ($columns[1] as $column) {
+            if (!array_key_exists($column, $this->columnTypes[$table] ?? [])) return false;
+        }
+        return true;
     }
 
     private function isBoundedIndexedLockRead(string $sql, string $table): bool {

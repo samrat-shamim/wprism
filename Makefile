@@ -1331,6 +1331,10 @@ regress-delete-authorization-receipt:
 regress-apply-planner:
 	php sandbox/tests/offline/apply/regress_apply_planner.php
 
+.PHONY: regress-typed-identity-observation
+regress-typed-identity-observation:
+	php sandbox/tests/offline/apply/regress_typed_identity_observation.php
+
 .PHONY: regress-plan-reference-adoption
 regress-plan-reference-adoption:
 	php sandbox/tests/offline/apply/regress_plan_reference_adoption.php
