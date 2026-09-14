@@ -107,8 +107,8 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$DISABLE_COMMENTS_VERSION" ] \
     || fail "side 2 installed version mismatch: expected $DISABLE_COMMENTS_VERSION, got $INSTALLED_2"
-  seed_disable_comments_target_runtime
   wp2 wprism deploy --repo=/siterepo
+  seed_disable_comments_target_runtime
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   assert_version_matrix_apply_ready
