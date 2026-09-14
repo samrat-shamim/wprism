@@ -2014,11 +2014,32 @@ wp_conf2 plugin uninstall woocommerce >/dev/null
 wp_conf2 plugin is-installed woocommerce >/dev/null 2>&1 && fail 'WooCommerce uninstall left plugin code installed'
 [ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
   || fail 'WooCommerce default uninstall changed retained catalog/configuration storage'
+# The host's JSON lifecycle preflight redacts unclassified causes. The
+# shared wrapper binds fresh private evidence; the capsule checks exact intent
+# before that wrapper publishes the command's public streams.
+# check.sh is a child shell: indexed arrays and unexported helpers from
+# run.sh do not cross that boundary. Recreate the exact exported Compose argv.
+read -r -a PAIR_COMPOSE <<<"${COMPOSE:?}"
+. tests/lib/conformance_private_command.sh
+. tests/lib/private_command_capture.sh
+woocommerce_missing_code_validate() {
+  local stem="$1" root="${WPRISM_ARTIFACT_LIBRARY_ROOT:?}"
+  php "$root/sandbox/tests/lib/conformance_private_command.php" validate lifecycle-status "$CONF_PAIR" cli2 "$stem" || return 1
+  [ "${stem##*/}" = baseline ] || php "$root/adapter-packages/woocommerce/fixtures/missing-code-evidence.php" "${stem%/*}" "$CONF_PAIR"
+}
+MISSING_SNAPSHOT=(conformance_private_command_native cli2 lifecycle-status snapshot)
+MISSING_COLLECT=(conformance_private_command_native cli2 lifecycle-status collect)
+MISSING_VALIDATE=(woocommerce_missing_code_validate)
 MISSING_RC=0
-MISSING_OUT=$(host_wprism conf2 deploy 2>&1) || MISSING_RC=$?
+MISSING_OUT=$(wprism_private_command_capture "$WPRISM_ARTIFACT_LIBRARY_ROOT/sandbox/tmp/woocommerce-missing-code.$CONF_PAIR" \
+  MISSING_SNAPSHOT MISSING_COLLECT MISSING_VALIDATE -- host_wprism conf2 deploy 2>&1) || MISSING_RC=$?
 require_wprism_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
-[ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
-  || fail "missing WooCommerce code did not refuse at compatibility: $MISSING_OUT"
+[ "$MISSING_RC" -eq 1 ] && grep -q '^private command diagnostics (unverified): ' <<<"$MISSING_OUT" \
+  && grep -q '"reason_code":"lifecycle_status_failed"' <<<"$MISSING_OUT" \
+  && grep -q '"details_redacted":true' <<<"$MISSING_OUT" \
+  || fail "missing WooCommerce code lacked its exact fresh private refusal: $MISSING_OUT"
+[ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
+  || fail 'WooCommerce missing-code refusal changed retained native storage'
 WOO_SHA=da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21
 WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256','$WOO_ARTIFACT');")" = "$WOO_SHA" ] \
