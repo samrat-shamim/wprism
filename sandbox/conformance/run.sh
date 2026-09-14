@@ -118,6 +118,10 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 # it refuses instead of silently choosing one copy.
 PACKAGE_CONFORMANCE="../adapter-packages/$MANIFEST/tests/conformance"
 conformance_hook() { # conformance_hook <package-basename> <legacy-path>
+  if [ "${CONFORMANCE_HOOKS:-null}" != null ]; then
+    jq -r --arg phase "${1%.sh}" '.[$phase] // empty' <<<"$CONFORMANCE_HOOKS"
+    return
+  fi
   local package_path="$PACKAGE_CONFORMANCE/$1" legacy_path="$2"
   if [ -e "$package_path" ] && [ -e "$legacy_path" ]; then
     fail "duplicate conformance hook for '$MANIFEST': $package_path and $legacy_path"
@@ -159,6 +163,8 @@ elif [ -f "$PLATFORM_ENTRY" ]; then
 else
   fail "unknown manifest '$MANIFEST': no package or platform conformance entry"
 fi
+CONFORMANCE_HOOKS=$(php ../tools/conformance-hooks.php "$ENTRY" "${PACKAGE_CONFORMANCE%/tests/conformance}") \
+  || fail "manifest '$MANIFEST' has invalid declared conformance hooks"
 # Package-owned conformance resolves only that capsule's artifact fragment.
 # Core/FSE consume no adapter plugin artifacts, so their child pair and check
 # hooks inherit explicit platform-only authority. Named integration scenarios

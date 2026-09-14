@@ -103,13 +103,23 @@ omitted from mappings; the mapped-password control does not qualify that case.
 Remote-adapter extensions and broader import-job behavior remain unqualified.
 Successful signed template-deletion promotion, native post-write recovery,
 remaining lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
-unready: identity/references are covered, derived-state repair is structurally
-inapplicable to the declared surface, and ten families retain gaps. The
+unready: clean-target and identity/references are covered, derived-state repair is structurally
+inapplicable to the declared surface, and nine families retain gaps. The
 [readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
 manifest and native/offline evidence.
 
 Run the capsule offline gate with
 `php tools/adapter-package-tests.php --adapter=users-customers-import-export-for-wp-woocommerce`.
+The clean-target lane uses `fixtures/clean-target-entry.json` with explicit
+shared-runner hooks. It checks empty native template/history tables before
+provisioning three target users and their local CSV with the native directory
+protection files, creates all five
+templates without table adoption, then exercises native consumers, a native
+source rename, target update, repeated Apply and exact recapture. The separate
+dirty-target conformance continues to require its populated local witnesses.
+Run `tests/live/regress_clean_target.sh` with a unique `CONF_PAIR`, even
+`CONF1_PORT`, successor `CONF2_PORT`, and the clean checkout's exact
+`WPRISM_EXPECTED_SOURCE_SHA`; the runner owns its pair and verified teardown.
 For the owned native lane, supply `IMPORTER_SETTINGS_PAIR`, even
 `IMPORTER_SETTINGS_PORT1` and successor `IMPORTER_SETTINGS_PORT2`, an absolute
 `IMPORTER_SETTINGS_ZIP` matching the artifact lock, and

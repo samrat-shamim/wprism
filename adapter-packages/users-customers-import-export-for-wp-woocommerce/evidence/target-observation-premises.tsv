@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=150 fixtures=0
+# expected observations=169 fixtures=0
 observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
 observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
 observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
@@ -150,3 +150,22 @@ observation	tests/certify/version-matrix.sh	importer_matrix_capture prior 0 wp2 
 observation	tests/certify/version-matrix.sh	importer_matrix_observe "$verb-before"
 observation	tests/certify/version-matrix.sh	importer_matrix_capture "$verb-refusal" 1 conformance_private_command cli2 "$verb"
 observation	tests/certify/version-matrix.sh	importer_matrix_observe "$verb-after"
+observation	fixtures/clean-target-prepare.sh	importer_roundtrip_capture pristine importer_roundtrip_observe 2
+observation	fixtures/clean-target-prepare.sh	importer_roundtrip_capture prerequisites importer_roundtrip_native 2 clean-target-native
+observation	fixtures/clean-target-prepare.sh	importer_roundtrip_capture target-inputs importer_roundtrip_native 2 import-templates-native bindings
+observation	fixtures/clean-target-prepare.sh	importer_roundtrip_capture "input-$input_index" wp_conf2 wprism env-set --repo=/siterepo
+observation	fixtures/clean-target-prepare.sh	importer_roundtrip_capture before importer_roundtrip_observe 2
+observation	fixtures/clean-target-applied.sh	importer_roundtrip_capture after importer_roundtrip_observe 2
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture create-repeat wp_conf2 wprism apply --repo=/siterepo --revision="$clean_revision" --default-author=admin --format=json
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture create-stable importer_roundtrip_observe 2
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture source-rename importer_roundtrip_native 1 templates-native rename 'Selected users'
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture update-capture wp_conf1 wprism capture --repo=/siterepo --format=json
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture updated-source importer_roundtrip_observe 1
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture update-before importer_roundtrip_observe 2
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture update-apply wp_conf2 wprism apply --repo=/siterepo --revision="$clean_revision" --default-author=admin --format=json
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture update-after importer_roundtrip_observe 2
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture update-repeat wp_conf2 wprism apply --repo=/siterepo --revision="$clean_revision" --default-author=admin --format=json
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture update-stable importer_roundtrip_observe 2
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture updated-reopen importer_roundtrip_native 2 templates-native reopen 'Renamed selection'
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture updated-consume importer_roundtrip_native 2 templates-native export 'Renamed selection'
+observation	fixtures/clean-target-check.sh	importer_roundtrip_capture updated-capture wp_conf2 wprism capture --repo=/siterepo --format=json

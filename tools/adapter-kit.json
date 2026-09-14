@@ -30,6 +30,11 @@
             "member": "conformance/run.sh",
             "target": "tests/lib/wordpress_cron_window.sh",
             "note": "The estate-bound runner owns an optional entry-declared target cron window across child hooks and Apply, with exact guard cleanup on every exit."
+        },
+        {
+            "member": "conformance/run.sh",
+            "target": "../tools/conformance-hooks.php",
+            "note": "The estate-bound runner and package validator share the owned hook-map resolver; alternate entries choose explicit phases without copying the deployment driver."
         }
     ],
     "members": [
@@ -110,8 +115,8 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 39557,
-            "sha256": "5694c9eabf088562185002b6a2a638d839665b97530c0d7d46261dbdd66dc8f9"
+            "bytes": 39886,
+            "sha256": "51c7c9189db0797956a1dd009374e5eba196d431c95122eaa2a1636f72e22594"
         },
         {
             "path": "conformance/asserts.sh",
@@ -142,8 +147,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 5535,
-            "sha256": "5233e110e8e592384ec6e12ce323df418c4257656592f78c6b30e973258eff01"
+            "bytes": 5767,
+            "sha256": "7775ae21d06a71b18196b087c2e2a9d2d57d2f074ff6884bd311bd4488d9ab93"
         }
     ]
 }
