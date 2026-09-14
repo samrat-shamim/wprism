@@ -415,9 +415,8 @@ docker exec -i "$DB" mariadb -uroot -proot-pass <<'SQL' \
   || fail "standalone database could not establish its mutation metadata prerequisite"
 GRANT PROCESS ON *.* TO 'wordpress'@'%';
 SQL
-docker run --rm --user root --network "$NET" -v "$VOLUME:/var/www/html" wordpress:cli-php8.3 \
-  sh -lc 'php -d memory_limit=512M /usr/local/bin/wp core download --version="'"$WP_CORE_VERSION"'" --path=/var/www/html --allow-root --quiet && chown -R 1000:1000 /var/www/html'
-pass "WordPress files initialized without sharing the WPrism checkout"
+wprism_ssh_install_core "$WP_CORE_VERSION"
+pass "WordPress ZIP files, complete native checksums and exact platform version verified before installation"
 
 say "start the target and expose only its SSH port"
 docker run -d --name "$TARGET" --network "$NET" \

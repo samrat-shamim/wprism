@@ -28,6 +28,69 @@ mkdir -p "$TMP"
 # shellcheck source=../../lib/ssh_adopt_extension.sh
 source "$ROOT/sandbox/tests/lib/ssh_adopt_extension.sh"
 
+case_core_archive() ( # Execute the real install body with a controlled native CLI.
+  local mode="$1" code=0 output
+  DIAG_DIR="$SCRATCH/core-$mode/diagnostics"
+  local core_bin="$SCRATCH/core-$mode/bin" core_site="$SCRATCH/core-$mode/site"
+  mkdir -p "$DIAG_DIR" "$core_bin" "$core_site"
+  chmod 0700 "$DIAG_DIR"
+  export CORE_PROBE_MODE="$mode" CORE_PROBE_LOG="$SCRATCH/core-$mode/calls.jsonl"
+  export CORE_PROBE_CHOWN="$SCRATCH/core-$mode/chown"
+  NET=owned-core-net VOLUME=owned-core-volume
+  cat >"$core_bin/wp" <<'PHP'
+#!/usr/bin/env php
+<?php
+$args = array_slice($argv, 1);
+file_put_contents(getenv('CORE_PROBE_LOG'), json_encode($args) . "\n", FILE_APPEND);
+$mode = getenv('CORE_PROBE_MODE');
+$operation = $args[1] ?? '';
+if ($operation === 'download') {
+    if (($args[2] ?? '') !== 'https://wordpress.org/wordpress-7.1.zip') exit(41);
+    if ($mode === 'download-failure') exit(7);
+    if ($mode === 'download-warning') fwrite(STDERR, "Warning: private-operator-value\n");
+} elseif ($operation === 'verify-checksums') {
+    if (!in_array('--version=7.1', $args, true) || !in_array('--include-root', $args, true)) exit(42);
+    if ($mode === 'checksum-failure') exit(8);
+    if ($mode === 'checksum-warning') fwrite(STDERR, "Warning: private-operator-value\n");
+    if ($mode === 'checksum-stdout') echo "Notice: private-operator-value\n";
+} elseif ($operation === 'version') {
+    if ($mode === 'version-failure') exit(9);
+    echo $mode === 'wrong-version' ? "7.0.3\n" : "7.1\n";
+} else exit(43);
+PHP
+  cat >"$core_bin/chown" <<'SH'
+#!/bin/sh
+printf 'complete\n' >"$CORE_PROBE_CHOWN"
+SH
+  chmod +x "$core_bin/wp" "$core_bin/chown"
+  docker() {
+    [ "$#" -eq 14 ] && [ "$1" = run ] && [ "$2" = --rm ] && [ "$3" = --user ] && [ "$4" = root ] \
+      && [ "$5" = --network ] && [ "$6" = "$NET" ] && [ "$7" = -v ] \
+      && [ "$8" = "$VOLUME:/var/www/html" ] && [ "$9" = wordpress:cli-php8.3 ] \
+      && [ "${10}" = sh ] && [ "${11}" = -lc ] && [ "${13}" = sh ] && [ "${14}" = 7.1 ] || return 44
+    local body="${12}"
+    body="${body//\/usr\/local\/bin\/wp/$core_bin/wp}"
+    body="${body//\/var\/www\/html/$core_site}"
+    PATH="$core_bin:$ORIGINAL_PATH" /bin/sh -c "$body" sh "${14}"
+  }
+  output="$(wprism_ssh_install_core 7.1 2>&1)" || code=$?
+  if [ "$mode" = ready ]; then
+    [ "$code" -eq 0 ] && [ -z "$output" ] && [ -f "$CORE_PROBE_CHOWN" ] || fail 'exact core installation did not complete'
+    [ "$(wc -l <"$CORE_PROBE_LOG" | tr -d ' ')" -eq 3 ] || fail 'core installation skipped a native verification'
+    [ "$(cat "$DIAG_DIR/core-install.exit")" = 0 ] || fail 'core installation lost its exact transport status'
+  else
+    [ "$code" -ne 0 ] && [[ "$output" != *private-operator-value* ]] || fail "core installation accepted or exposed $mode"
+    case "$mode" in
+      download-failure|checksum-failure|version-failure|wrong-version)
+        [ ! -e "$CORE_PROBE_CHOWN" ] || fail 'failed core verification reached final publication ownership' ;;
+    esac
+  fi
+  pass "actual core installation checks archive, native verification and private streams: $mode"
+)
+for core_mode in ready download-failure checksum-failure version-failure wrong-version download-warning checksum-warning checksum-stdout; do
+  case_core_archive "$core_mode"
+done
+
 expect_refusal() { # <label> <diagnostic-fragment> <function> [args...]
   local label="$1" needle="$2" output status
   shift 2
@@ -927,7 +990,7 @@ pass 'the actual initial-adoption refusal requires its public recovery category,
 # Execute the standalone database owner's readiness and grant block: adoption
 # must not acquire server authority, and a ping alone cannot prove mutation
 # readiness (fd8's first env-set refused for missing direct global PROCESS).
-SSH_DATABASE_READY_BLOCK="$(sed -n '/^DATABASE_OWNED=1$/,/^docker run --rm --user root --network "\$NET"/p' "$SSH_ADOPT_DRIVER" | sed '$d')"
+SSH_DATABASE_READY_BLOCK="$(sed -n '/^DATABASE_OWNED=1$/,/^wprism_ssh_install_core "\$WP_CORE_VERSION"$/p' "$SSH_ADOPT_DRIVER" | sed '$d')"
 case_ssh_database_ready() {
   (
     local mutation="$1" DB=fixture-database DATABASE_OWNED=0 sql
